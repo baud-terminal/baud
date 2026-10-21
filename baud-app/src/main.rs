@@ -65,6 +65,11 @@ mod kitty_files;
 mod keep;
 #[cfg(target_os = "macos")]
 mod latency;
+// An input method's composition and the cell its candidate window opens
+// at: pure, so its tests run on every platform, and both drivers draw
+// through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod marked;
 // The link policy is pure and its tests run on every platform; only the
 // macOS driver consumes it today, so the bin builds it there alone.
 #[cfg(any(target_os = "macos", test))]

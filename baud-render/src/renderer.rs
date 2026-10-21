@@ -524,7 +524,7 @@ pub(crate) fn clip_to(inst: Instance, band: Band) -> Option<Instance> {
 /// stretch across, and on a double-height line its offset in the cell and
 /// its height by two down, then cut to the row's half; a mask keeps its
 /// texels and only moves to its box.
-fn stretched(inst: Instance, size: LineRendition, band: Band) -> Option<Instance> {
+pub(crate) fn stretched(inst: Instance, size: LineRendition, band: Band) -> Option<Instance> {
     let st = Stretch::of(size);
     let top = px_i32(band.top);
     let x = i32::from(inst.x.0) * st.x();
@@ -3715,6 +3715,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let size = self.size_of(c.row);
             crate::overlay::composition_records(
                 self,
+                term,
                 c,
                 under,
                 &styles,
@@ -4393,7 +4394,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// selection, the cursor, the blink's phase ([`Resolved::drawn`]). The one
     /// spelling of the rendition rules: the cell path's table holds it a slot
     /// at a time and the CPU and instance paths take it a cell at a time.
-    fn resolve_slot(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+    pub(crate) fn resolve_slot(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
         // xterm's special colours first, while a mode is on: the rendition
         // a cell draws with, its attribute dropped where a colour replaced
         // it (`ColorModes::apply`), so everything below -- the colours, the

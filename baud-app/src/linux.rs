@@ -47,6 +47,12 @@
 //! goes through `paste.rs` as the macOS app's does. Every transfer is a
 //! non-blocking pipe in the loop's one wait. Tested over a socket pair,
 //! never against a compositor's clipboard.
+//!
+//! **Typing in every language**: dead keys and `Multi_key` sequences
+//! through the locale's Compose table (`baud_present_wayland::compose`),
+//! and an input method through `text-input-v3`, its composition drawn at
+//! the cursor through the macOS app's rule (`marked.rs`). Tested over a
+//! socket pair, never with an input method running.
 
 use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
@@ -166,6 +172,11 @@ struct Driver {
     clipboard: crate::config::Clipboard,
     /// Whether a copy the compositor could not take has been said.
     uncopied: Said,
+    /// What the input method is composing (`marked.rs`), drawn at the
+    /// cursor as the macOS app draws AppKit's marked text, and the hints
+    /// on each of its codepoints.
+    composing: Vec<baud_domain::Codepoint>,
+    composing_hints: Vec<baud_render::Hints>,
 }
 
 /// Whether a one-time line has been logged.
@@ -369,6 +380,8 @@ pub fn run() {
         clips,
         clipboard: cfg.clipboard,
         uncopied: Said::Not,
+        composing: Vec::new(),
+        composing_hints: Vec::new(),
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -557,6 +570,22 @@ pub fn run() {
                 Event::PasteAbandoned(_) => crate::warn!(
                     "paste: the selection's owner sent nothing for two seconds; nothing was pasted"
                 ),
+                // The input method's composition changed: drawn now, and
+                // gone when it commits, whose text arrives as keys.
+                Event::Preedit(p) => {
+                    let composing = crate::marked::codepoints(&p.text);
+                    let ranges: Vec<_> = p
+                        .hints
+                        .iter()
+                        .map(|h| (h.start.0, h.end.0, hint_of(h.hint)))
+                        .collect();
+                    let hints = crate::marked::hints(&p.text, &ranges);
+                    if composing != d.composing || hints != d.composing_hints {
+                        d.composing = composing;
+                        d.composing_hints = hints;
+                        d.pending = Pending::Dirty;
+                    }
+                }
                 Event::CopyCancelled(_) => {
                     if let Some(line) = d.clips.cancelled_unfocused() {
                         crate::warn!("{line}");
@@ -1223,6 +1252,25 @@ impl Driver {
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
         self.renderer.set_highlight(self.seat.highlight(&self.term));
+        // The input method's composition at the live cursor, and the cell
+        // its candidate window opens beside, sent when it moved.
+        self.renderer.set_composition(crate::marked::composition(
+            &self.term,
+            &self.composing,
+            &self.composing_hints,
+        ));
+        let m = self.renderer.metrics();
+        let [x, y, w, h] = crate::marked::cursor_cell(&self.term, m.cell_w, m.cell_h);
+        let px = |p: Px| baud_present_wayland::Px(p.value());
+        self.window.set_text_cursor(
+            &mut self.conn.sender(),
+            baud_present_wayland::CursorRect {
+                x: px(x),
+                y: px(y),
+                width: px(w),
+                height: px(h),
+            },
+        );
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;
@@ -1247,6 +1295,21 @@ impl Driver {
             self.caret.commit(caret);
             self.pending = Pending::Clean;
         }
+    }
+}
+
+/// The renderer's spelling of one of `text-input-v3`'s preedit hints.
+fn hint_of(h: baud_present_wayland::Hint) -> baud_render::Hints {
+    use baud_present_wayland::Hint;
+    use baud_render::Hints;
+    match h {
+        Hint::Whole => Hints::WHOLE,
+        Hint::Selection => Hints::SELECTION,
+        Hint::Prediction => Hints::PREDICTION,
+        Hint::Prefix => Hints::PREFIX,
+        Hint::Suffix => Hints::SUFFIX,
+        Hint::SpellingError => Hints::SPELLING_ERROR,
+        Hint::ComposeError => Hints::COMPOSE_ERROR,
     }
 }
 

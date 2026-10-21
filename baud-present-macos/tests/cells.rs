@@ -221,6 +221,7 @@ impl Arms<'_, '_> {
                 .unwrap_or(PackedCell::EMPTY);
             self.exceptions.composed(
                 &mut self.renderer,
+                t,
                 c,
                 under,
                 self.styles_mem,
@@ -2058,6 +2059,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
             .collect(),
         ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        hints: Vec::new(),
     });
     let (comp_a, comp_b) = arms.draw(&mut t);
     assert_eq!(
@@ -2074,6 +2076,28 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&comp_b, &comp_c),
         0,
         "the copy disagrees with the live grid under a composition"
+    );
+    // **And under an input method's hints**: a selected cluster's page, an
+    // italic and a faint one, the curly and the struck line, each drawn
+    // by records both arms take.
+    use baud_render::Hints;
+    if let Some(c) = arms.composition.as_mut() {
+        c.hints = vec![
+            Hints::SELECTION.with(Hints::WHOLE),
+            Hints::PREDICTION.with(Hints::SPELLING_ERROR),
+            Hints::PREFIX.with(Hints::COMPOSE_ERROR),
+            Hints::NONE,
+        ];
+    }
+    let (hint_a, hint_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&hint_a, &hint_b),
+        0,
+        "the arms disagree over a composition's hints"
+    );
+    assert!(
+        differing(&hint_a, &comp_a) > 0,
+        "the hints reached the pixels"
     );
     arms.composition = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
@@ -2460,6 +2484,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
         });
         // `draw` returns the instance arm first and the cell arm second.
         let (inst, cell) = arms.draw(&mut t);
@@ -2499,6 +2524,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             col,
             text: vec![baud_domain::Codepoint::new(u32::from('z')).unwrap()],
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
         });
         let (inst, cell) = arms.draw(&mut t);
         arms.composition = None;
@@ -3582,6 +3608,7 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
         });
         let (a, b) = arms.draw(t);
         let cpu = cpu_frame(arms, t);
@@ -4139,6 +4166,7 @@ fn composed_decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
         });
         feed(t, scene("").as_bytes());
         let (bare_a, bare_b) = arms.draw(t);

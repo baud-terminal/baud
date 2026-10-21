@@ -30483,3 +30483,87 @@ bytes  = 43781
 status = "external"
 group  = "H"
 # Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.foot-2705e36-ime]
+key    = "foot-2705e36-ime"
+title  = "foot 2705e36, ime.c -- text-input-v3: enable on the object's enter with the terminal purpose and the cursor rectangle, the done steps, delete_surrounding_text not acted on, a done with an older serial dropped"
+author = "Daniel Eklof and the foot contributors (MIT)"
+year   = 2026
+venue  = "foot terminal emulator, codeberg.org/dnkl/foot @ 2705e36"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/ime.c"
+file   = ""
+sha256 = "a12ccca5990c34d2ebff4a823b73fdf0e6fb5af95bc464172ca8fa1dd533546c"
+bytes  = 15235
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+
+[sources.gtk-3b438f05-imcontextwayland]
+key    = "gtk-3b438f05-imcontextwayland"
+title  = "GTK 3b438f05, gtk/gtkimcontextwayland.c -- text-input-v3 at version 2: an empty set_available_actions, the action stored and never applied, an empty language handler, preedit hints as styled segments, show_input_panel on activate_osk and no hide_input_panel, preedit_shown set"
+author = "the GTK contributors (LGPL-2.1-or-later)"
+year   = 2026
+venue  = "GNOME/gtk @ 3b438f0576193689bf39835174a51aa747333281"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/3b438f0576193689bf39835174a51aa747333281/gtk/gtkimcontextwayland.c"
+file   = ""
+sha256 = "40f54a93200c436099cf511465ab9335a7e9e4f4dcbbb9c0a4597c862792f1d3"
+bytes  = 46796
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+
+[sources.gtk-3b438f05-common-scss]
+key    = "gtk-3b438f05-common-scss"
+title  = "GTK 3b438f05, gtk/theme/Default/_common.scss -- the preedit node's hint classes: whole underline, selection the selected background, prediction italic, prefix and suffix at half alpha, spelling-error a wavy line and compose-error a line-through in the error colour (90-114)"
+author = "the GTK contributors (LGPL-2.1-or-later)"
+year   = 2026
+venue  = "GNOME/gtk @ 3b438f0576193689bf39835174a51aa747333281"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/3b438f0576193689bf39835174a51aa747333281/gtk/theme/Default/_common.scss"
+file   = ""
+sha256 = "9a0088878d2b2d285d45e6c12c4040f3ded1685edd834066fd194b8872f86c88"
+bytes  = 103522
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133 fix): practice for baud-render's Composition hints. Read, not copied.
+
+[sources.mutter-35f64c3d-text-input]
+key    = "mutter-35f64c3d-text-input"
+title  = "mutter 35f64c3d, src/wayland/meta-wayland-text-input.c -- the compositor's side: available actions validated and handed to the input method, the action sent to a version-2 object, the panel shown by a re-enable at version 1 and only by show_input_panel at version 2, the client's preedit shown only under preedit_shown"
+author = "the mutter contributors (GPL-2.0-or-later)"
+year   = 2026
+venue  = "GNOME/mutter @ 35f64c3d58648cfcd28b0fe1b73f1ff6af861a91"
+url    = "https://gitlab.gnome.org/GNOME/mutter/-/raw/35f64c3d58648cfcd28b0fe1b73f1ff6af861a91/src/wayland/meta-wayland-text-input.c"
+file   = ""
+sha256 = "b20eb6eb8e72f747e0f0a91488fb1cd16c468eb0af9a9dfd930db133de4fd97a"
+bytes  = 41569
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+
+[sources.vte-0-80-vte-cc]
+key    = "vte-0-80-vte-cc"
+title  = "VTE 0.80.0, src/vte.cc -- im_retrieve_surrounding and im_delete_surrounding unimplemented, returning false (4948-4960)"
+author = "the VTE contributors (LGPL-3.0-or-later)"
+year   = 2025
+venue  = "GNOME/vte @ 0.80.0"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.80.0/src/vte.cc"
+file   = ""
+sha256 = "955c55e456afc1a46d23dc1478473fc62f6be1d6f9490611123c533622ba8363"
+bytes  = 427878
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+
+[sources.kitty-aef2bc23-wl-text-input]
+key    = "kitty-aef2bc23-wl-text-input"
+title  = "kitty aef2bc23, glfw/wl_text_input.c -- text-input-v3 bound at version 1, delete_surrounding_text only logged"
+author = "Kovid Goyal and the kitty contributors (GPL-3.0)"
+year   = 2026
+venue  = "kovidgoyal/kitty @ aef2bc23065412e95dbcdaf048c233e4537d444a"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/aef2bc23065412e95dbcdaf048c233e4537d444a/glfw/wl_text_input.c"
+file   = ""
+sha256 = "1e85dfbda5697d470e4c6252a4c2077c91272268e3713de3e8bade87f6f51fea"
+bytes  = 7718
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.

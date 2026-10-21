@@ -38,10 +38,10 @@ use baud_present_macos::{
 };
 use baud_render::Place;
 use baud_render::{
-    Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Composition, Damage, Frame, GlyphMap,
-    Instance, Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene,
-    Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme,
-    Trail, TrailLook, Transition, Window, back_for, copy_for_shader, gutter, place, thumb,
+    Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
+    MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
+    Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
+    Window, back_for, copy_for_shader, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -1525,16 +1525,7 @@ impl App {
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
         // through its overlay below.
-        let composition = (!self.composing.is_empty() && self.term.window_back().index() == 0)
-            .then(|| {
-                let (row, col) = self.term.cursor();
-                Composition {
-                    row,
-                    col,
-                    text: self.composing.clone(),
-                    ambiguous: self.term.ambiguous_width(),
-                }
-            });
+        let composition = crate::marked::composition(&self.term, &self.composing, &[]);
         self.renderer.set_composition(composition.clone());
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
@@ -1869,6 +1860,7 @@ impl App {
                         .unwrap_or(PackedCell::EMPTY);
                     cell.exceptions.composed(
                         &mut self.renderer,
+                        &self.term,
                         c,
                         under,
                         &cell.styles_mem[set][..],
@@ -7893,10 +7885,7 @@ impl Responder for Driver {
     /// the crate calls this with "" before it hands the committed text to
     /// `text`.
     fn marked_text(&mut self, text: &str) {
-        let composing: Vec<Codepoint> = text
-            .chars()
-            .filter_map(|c| Codepoint::new(u32::from(c)))
-            .collect();
+        let composing = crate::marked::codepoints(text);
         if composing == self.app.composing {
             return;
         }
@@ -8298,15 +8287,10 @@ impl Responder for Driver {
     }
 
     fn cursor_rect(&self) -> Rect {
-        let (r, c) = self.app.term.cursor();
-        let (cw, ch) = self.app.metrics_cell();
-        let s = self.app.scale;
-        Rect {
-            x: c.index() as f64 * cw / s,
-            y: r.index() as f64 * ch / s,
-            w: cw / s,
-            h: ch / s,
-        }
+        let m = self.app.renderer.metrics();
+        let cell = crate::marked::cursor_cell(&self.app.term, m.cell_w, m.cell_h);
+        let [x, y, w, h] = cell.map(|p| f64::from(p.value()) / self.app.scale);
+        Rect { x, y, w, h }
     }
 }
 

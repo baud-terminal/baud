@@ -21,6 +21,7 @@ use crate::cellmap::CellSpan;
 use crate::cellmap::{
     BlockCursor, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps, Text,
 };
+use crate::color::Argb;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
@@ -29,8 +30,8 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
-    AmbiguousWidth, Chan, Classified, Codepoint, Col, Cols, Content, CursorStyle, LineRendition,
-    PackedCell, Row, Rows, Viewport, Width,
+    AmbiguousWidth, Attrs, Chan, Classified, Codepoint, Col, ColorWord, Cols, Content, CursorStyle,
+    LineRendition, PackedCell, Row, Rows, StyleWord, Viewport, Width,
 };
 use baud_font::Px;
 use std::collections::HashMap;
@@ -1061,6 +1062,7 @@ impl Overlay {
     pub fn composed(
         &mut self,
         r: &mut Renderer<'_, '_>,
+        term: &Term<'_>,
         c: &Composition,
         under: PackedCell,
         styles: &[Resolved],
@@ -1077,7 +1079,7 @@ impl Overlay {
                 *slot |= MASK_RECORD;
             }
         }
-        composition_records(r, c, under, styles, block, cols, size, pan, records);
+        composition_records(r, term, c, under, styles, block, cols, size, pan, records);
     }
 
     /// **The leaving row of a smooth scroll, for the cell path, when its
@@ -1292,6 +1294,17 @@ impl Overlay {
 /// background colour and underline. baud's is the underline, in the text's
 /// own colour -- what the same text written under `SGR 4` would draw -- with
 /// the cursor after it.
+///
+/// **An input method's hints** (`text-input-v3`'s `preedit_hint`,
+/// `[[source: wp-text-input-unstable-v3]]`) are drawn as GTK's theme draws
+/// them (`[[source: gtk-3b438f05-common-scss]]`), each in a rendition the
+/// terminal already draws and resolved as the same text written in it:
+/// `whole` as `SGR 4`, `selection` as selected text, `prediction` as
+/// `SGR 3`, `prefix` and `suffix` as `SGR 2`, a `spelling_error` as
+/// `SGR 4:3` under `SGR 58:5:1`, the palette's red, a `compose_error` as
+/// `SGR 9`, in the text's colour where GTK takes its error colour. Text
+/// no hint covers is "unhinted" and drawn plain; with no hints at all the
+/// whole composition is underlined, which is all the macOS app is given.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Composition {
     pub row: Row,
@@ -1301,14 +1314,106 @@ pub struct Composition {
     /// policy (`Term::ambiguous_width`), so the overlay and a write of
     /// the same text agree. Private Use stays one column either way.
     pub ambiguous: AmbiguousWidth,
+    /// The hints on each codepoint of `text`, or none at all.
+    pub hints: Vec<Hints>,
 }
 
-/// One cluster of a composition: the column it starts at, its codepoints
-/// and how many cells it takes.
+/// The preedit hints on one codepoint of a composition: any of
+/// `text-input-v3`'s seven at once, since their extents "may overlap".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
+pub struct Hints(u8);
+
+impl Hints {
+    pub const NONE: Hints = Hints(0);
+    pub const WHOLE: Hints = Hints(1);
+    pub const SELECTION: Hints = Hints(2);
+    pub const PREDICTION: Hints = Hints(4);
+    pub const PREFIX: Hints = Hints(8);
+    pub const SUFFIX: Hints = Hints(16);
+    pub const SPELLING_ERROR: Hints = Hints(32);
+    pub const COMPOSE_ERROR: Hints = Hints(64);
+
+    pub fn with(self, h: Hints) -> Hints {
+        Hints(self.0 | h.0)
+    }
+
+    pub fn has(self, h: Hints) -> bool {
+        self.0 & h.0 == h.0 && h.0 != 0
+    }
+}
+
+/// One cluster of a composition: the column it starts at, its codepoints,
+/// how many cells it takes and the hints on its first.
 struct Piece {
     col: Col,
     cps: Vec<Codepoint>,
     span: CellSpan,
+    hints: Hints,
+}
+
+/// The line a cluster's hints draw under or through it. Later rules in
+/// GTK's theme replace an earlier `text-decoration`, so an error's line
+/// takes the place of `whole`'s.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rule {
+    None,
+    Under,
+    Curly,
+    Strike,
+}
+
+/// **How one cluster is drawn**, from its hints: selected or not, the
+/// attributes its rendition adds to the cell under it -- `SGR 3` for a
+/// prediction, `SGR 2` for a prefix or suffix -- and its line.
+#[derive(Clone, Copy, Debug)]
+struct Drawing {
+    selected: Selected,
+    adds: Attrs,
+    rule: Rule,
+}
+
+/// The palette entry an error's curly line takes, `SGR 58:5:1`'s: red.
+const ERROR: u8 = 1;
+
+impl Drawing {
+    fn of(h: Hints) -> Drawing {
+        let rule = if h.has(Hints::COMPOSE_ERROR) {
+            Rule::Strike
+        } else if h.has(Hints::SPELLING_ERROR) {
+            Rule::Curly
+        } else if h.has(Hints::WHOLE) {
+            Rule::Under
+        } else {
+            Rule::None
+        };
+        Drawing {
+            selected: match h.has(Hints::SELECTION) {
+                true => Selected::Yes,
+                false => Selected::No,
+            },
+            adds: match h.has(Hints::PREDICTION) {
+                true => Attrs::ITALIC,
+                false => Attrs::NONE,
+            }
+            .with(match h.has(Hints::PREFIX) || h.has(Hints::SUFFIX) {
+                true => Attrs::DIM,
+                false => Attrs::NONE,
+            }),
+            rule,
+        }
+    }
+
+    /// The rendition of the cell under the composition, `under`, as this
+    /// draws it: the attributes its hints name added, and an error's
+    /// line colour. Resolved by the renderer as any written cell is, so a
+    /// hint draws exactly as the same text written in its rendition.
+    fn word(self, under: StyleWord) -> StyleWord {
+        let w = under.with_attrs(under.attrs().with(self.adds));
+        match self.rule {
+            Rule::Curly => w.with_underline(ColorWord::indexed(Chan::from_u8(ERROR))),
+            _ => w,
+        }
+    }
 }
 
 impl Composition {
@@ -1321,7 +1426,7 @@ impl Composition {
     fn pieces(&self, cols: Cols) -> Vec<Piece> {
         let mut out: Vec<Piece> = Vec::new();
         let mut x = self.col.index();
-        for &cp in &self.text {
+        for (&cp, hints) in self.text.iter().zip(self.hints_each()) {
             let w = Classified::of(cp).width(self.ambiguous);
             if w == Width::ZERO {
                 if let Some(last) = out.last_mut() {
@@ -1342,6 +1447,7 @@ impl Composition {
                 col: Col::at_index(x),
                 cps: vec![cp],
                 span,
+                hints,
             });
             x += n;
         }
@@ -1359,6 +1465,16 @@ impl Composition {
             true => view.rendition(self.row).end_of_line(view.cols()),
             false => view.cols(),
         }
+    }
+
+    /// The hints on each codepoint in turn: `whole` on every one when the
+    /// composition carries none, and none past the last it carries.
+    fn hints_each(&self) -> impl Iterator<Item = Hints> + '_ {
+        let rest = match self.hints.is_empty() {
+            true => Hints::WHOLE,
+            false => Hints::NONE,
+        };
+        self.hints.iter().copied().chain(core::iter::repeat(rest))
     }
 
     /// The columns it covers, `start..end`.
@@ -1383,20 +1499,22 @@ impl Composition {
 }
 
 /// The records that draw a composition: each cluster's glyphs in the
-/// rendition of `under`, the cell at the composition's start, coloured as
-/// `Overlay::emit` colours any record -- the block cursor's swap included --
-/// and one underline across the cells, at the face's underline position and
-/// thickness, in the colour the text takes. The instance and CPU paths draw
+/// rendition of `under`, the cell at the composition's start, with what
+/// its hints add ([`Composition`]), coloured as `Overlay::emit` colours
+/// any record -- the selection's and the block cursor's swaps included --
+/// a selected cluster's page under them, and each cell's line over them,
+/// at the face's positions and thickness. The instance and CPU paths draw
 /// these after their rows; the cell path after its passes.
 ///
-/// **On a line that is not single-width** (`size`) every glyph and the
-/// underline are drawn at the box a character there takes, as the line's
+/// **On a line that is not single-width** (`size`) every glyph, page and
+/// line is drawn at the box a character there takes, as the line's
 /// own text is (`[[source: dec-std-070]]` § 5.6.1): rasterised at the
 /// doubled size ([`Renderer::cluster_at`]), and on a double-height line
 /// each row's half of it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn composition_records(
     r: &mut Renderer<'_, '_>,
+    term: &Term<'_>,
     c: &Composition,
     under: PackedCell,
     styles: &[Resolved],
@@ -1407,85 +1525,198 @@ pub(crate) fn composition_records(
     records: &mut Vec<Instance>,
 ) {
     if size.is_double() {
-        return sized_composition(r, c, under, styles, block, cols, size, pan, records);
+        return sized_composition(r, term, c, under, styles, block, cols, size, pan, records);
     }
     let geom = Geom {
         m: r.metrics(),
         cols,
         pan,
     };
-    let paint = Paint {
-        styles,
-        block,
-        highlight: None,
-        blink: r.blink(),
-        cursor: opacity_of(r, block),
-        pictures: None,
-        hilite: r.hilite(),
-    };
-    let face = crate::cellmap::face_of(styles, under);
+    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let base = hinted_base(term, styles, under);
     let y = c.row.index();
+    let m = geom.m;
+    let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
+    let at = |v: i32| Screen(i16::try_from(v).unwrap_or(i16::MAX));
+    let (cell_w, cell_h) = (px(m.cell_w), px(m.cell_h));
+    let row_top = i32::try_from(y).unwrap_or(0) * cell_h + px(pan);
+    // The selection's pages under every glyph, the glyphs, then each
+    // cell's line over them, as `Renderer::convert_row` orders a row.
+    let (mut pages, mut glyphs_out, mut rules) = (Vec::new(), Vec::new(), Vec::new());
     for p in c.pieces(cols) {
-        let glyphs = r.cluster(&p.cps, face, p.span);
+        let look = Drawing::of(p.hints);
+        let one = [base.of(r, term, look)];
+        let (x0, n) = (p.col.index(), if p.span == CellSpan::Two { 2 } else { 1 });
+        let drawn = |x: usize| {
+            let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
+            one[0].drawn(Swaps {
+                pictured: Pictured::No,
+                line: Line::No,
+                selected: look.selected,
+                hilite,
+                block: if under_cursor {
+                    BlockCursor::Yes(None)
+                } else {
+                    BlockCursor::No
+                },
+                blink,
+                cursor,
+            })
+        };
+        let glyphs = r.cluster(&p.cps, one[0].shapes.face(), p.span);
         let cell = PackedCell {
             content: Content::codepoint(p.cps[0]),
-            style: under.style,
+            style: baud_domain::StyleId::DEFAULT,
             flags: baud_domain::CellFlags::NONE,
+        };
+        let paint = Paint {
+            styles: &one,
+            block,
+            highlight: (look.selected == Selected::Yes).then_some(Highlight {
+                from: (c.row, p.col),
+                to: (c.row, Col::at_index(x0 + n - 1)),
+                region: crate::select::Region::Stream,
+            }),
+            blink,
+            cursor,
+            pictures: None,
+            hilite,
         };
         let mut over = Vec::new();
         Overlay::emit(
-            records,
+            &mut glyphs_out,
             &mut over,
-            (p.col.index(), y),
+            (x0, y),
             &glyphs,
             cell,
             &paint,
             &geom,
         );
-        records.append(&mut over);
-    }
-    // One underline a cell, as `Renderer::convert_row` draws `SGR 4`: each
-    // in its cell's colour after the swaps, so the cell under a block cursor
-    // -- the last column, when the composition runs to the edge -- takes the
-    // swapped one there as the written text would.
-    let resolved = styles.get(under.style.index()).copied().unwrap_or_default();
-    let m = geom.m;
-    let cell_w = i32::try_from(m.cell_w.value()).unwrap_or(0);
-    let cell_h = i32::try_from(m.cell_h.value()).unwrap_or(0);
-    let top = i32::try_from(y).unwrap_or(0) * cell_h
-        + i32::try_from(m.underline.value()).unwrap_or(0)
-        + i32::try_from(pan.value()).unwrap_or(0);
-    let (start, end) = c.columns(cols);
-    for x in start..end {
-        let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
-        let d = resolved.drawn(Swaps {
-            pictured: Pictured::No,
-            line: Line::No,
-            selected: Selected::No,
-            hilite: paint.hilite,
-            block: if under_cursor {
-                BlockCursor::Yes(None)
-            } else {
-                BlockCursor::No
-            },
-            blink: r.blink(),
-            cursor: opacity_of(r, block),
-        });
-        if d.text == Text::Hidden {
-            continue;
+        glyphs_out.append(&mut over);
+        for x in x0..x0 + n {
+            let d = drawn(x);
+            let left = i32::try_from(x).unwrap_or(0) * cell_w;
+            if look.selected == Selected::Yes {
+                pages.push(bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg));
+            }
+            if d.text == Text::Hidden {
+                continue;
+            }
+            let place = RuleAt {
+                left,
+                top: row_top,
+                width: cell_w,
+                height: cell_h,
+                thick: px(m.thickness),
+                under: px(m.underline),
+                strike: px(m.strike),
+            };
+            place.push(look.rule, d.fg, one[0].underline, &mut |i| rules.push(i));
         }
-        let left = i32::try_from(x).unwrap_or(0) * cell_w;
-        records.push(Instance {
-            x: Screen(i16::try_from(left).unwrap_or(i16::MAX)),
-            y: Screen(i16::try_from(top).unwrap_or(i16::MAX)),
-            w: crate::atlas::Tex(u16::try_from(m.cell_w.value()).unwrap_or(u16::MAX)),
-            h: crate::atlas::Tex(u16::try_from(m.thickness.value()).unwrap_or(u16::MAX)),
-            u: crate::atlas::Tex(0),
-            v: crate::atlas::Tex(0),
-            color: d.fg,
-            kind: crate::atlas::Kind::Solid,
-            curve: baud_domain::contrast::CurveRow::default(),
-        });
+    }
+    records.append(&mut pages);
+    records.append(&mut glyphs_out);
+    records.append(&mut rules);
+}
+
+/// **The rendition a composition's clusters start from**: the cell
+/// under it, as the frame's table resolved it, and its word, which a
+/// hinted cluster resolves again with the attributes its hints add.
+struct HintedBase {
+    resolved: Resolved,
+    word: StyleWord,
+}
+
+fn hinted_base(term: &Term<'_>, styles: &[Resolved], under: PackedCell) -> HintedBase {
+    HintedBase {
+        resolved: styles.get(under.style.index()).copied().unwrap_or_default(),
+        word: term.style_of(under),
+    }
+}
+
+impl HintedBase {
+    /// The rendition a cluster drawn `look` takes: the table's own where
+    /// its hints add nothing to it, else resolved afresh.
+    fn of(&self, r: &Renderer<'_, '_>, term: &Term<'_>, look: Drawing) -> Resolved {
+        let word = look.word(self.word);
+        match word == self.word {
+            true => self.resolved,
+            false => r.resolve_slot(term, word),
+        }
+    }
+}
+
+/// A filled rectangle `w` by `h` at `(x, y)`.
+fn bar(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
+    Instance {
+        x,
+        y,
+        w: crate::atlas::Tex(u16::try_from(w.value()).unwrap_or(u16::MAX)),
+        h: crate::atlas::Tex(u16::try_from(h.value()).unwrap_or(u16::MAX)),
+        u: crate::atlas::Tex(0),
+        v: crate::atlas::Tex(0),
+        color,
+        kind: crate::atlas::Kind::Solid,
+        curve: baud_domain::contrast::CurveRow::default(),
+    }
+}
+
+/// **Where one cell's line goes**, in pixels, already in its line's
+/// geometry: the cell's box and the face's thickness, underline and
+/// strike positions from its top.
+struct RuleAt {
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    thick: i32,
+    under: i32,
+    strike: i32,
+}
+
+impl RuleAt {
+    /// `rule`'s records: the underline and the strike in the text's colour
+    /// `fg`, as `SGR 4` and `SGR 9` draw them; the curly line in `error`,
+    /// as `SGR 4:3` under `SGR 58` draws it -- a zigzag one thickness in
+    /// amplitude, in segments a thickness wide, clamped inside the cell.
+    fn push(&self, rule: Rule, fg: Argb, error: Argb, out: &mut dyn FnMut(Instance)) {
+        let px = |v: i32| Px::of(u32::try_from(v).unwrap_or(0));
+        let at = |v: i32| Screen(i16::try_from(v).unwrap_or(i16::MAX));
+        let th = self.thick.max(1);
+        match rule {
+            Rule::None => {}
+            Rule::Under => out(bar(
+                at(self.left),
+                at(self.top + self.under),
+                px(self.width),
+                px(self.thick),
+                fg,
+            )),
+            Rule::Strike => out(bar(
+                at(self.left),
+                at(self.top + self.strike),
+                px(self.width),
+                px(self.thick),
+                fg,
+            )),
+            Rule::Curly => {
+                let low = self.height - th;
+                let (mut dx, mut k) = (0, 0);
+                while dx < self.width {
+                    let dy = if k % 2 == 0 { 0 } else { th };
+                    let y = (self.under + dy).min(low.max(self.under));
+                    out(bar(
+                        at(self.left + dx),
+                        at(self.top + y),
+                        px(th),
+                        px(self.thick),
+                        error,
+                    ));
+                    dx += th;
+                    k += 1;
+                }
+            }
+        }
     }
 }
 
@@ -1497,6 +1728,7 @@ pub(crate) fn composition_records(
 #[allow(clippy::too_many_arguments)]
 fn sized_composition(
     r: &mut Renderer<'_, '_>,
+    term: &Term<'_>,
     c: &Composition,
     under: PackedCell,
     styles: &[Resolved],
@@ -1507,11 +1739,12 @@ fn sized_composition(
     records: &mut Vec<Instance>,
 ) {
     use crate::atlas::Stretch;
-    use crate::renderer::{box_top, clip_to};
+    use crate::renderer::{box_top, clip_to, stretched};
     let st = Stretch::of(size);
     let line = size.end_of_line(cols);
     let m = r.metrics();
     let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
+    let at = |v: i32| Screen(i16::try_from(v).unwrap_or(i16::MAX));
     let (cell_w, cell_h) = (px(m.cell_w), px(m.cell_h));
     let row_top = i32::try_from(c.row.index()).unwrap_or(0) * cell_h + px(pan);
     let band = crate::units::Band {
@@ -1520,23 +1753,7 @@ fn sized_composition(
     };
     let top = box_top(size, band);
     let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
-    let resolved = styles.get(under.style.index()).copied().unwrap_or_default();
-    let drawn = |x: usize, line: Line| {
-        let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
-        resolved.drawn(Swaps {
-            pictured: Pictured::No,
-            line,
-            selected: Selected::No,
-            hilite,
-            block: if under_cursor {
-                BlockCursor::Yes(None)
-            } else {
-                BlockCursor::No
-            },
-            blink,
-            cursor,
-        })
-    };
+    let base = hinted_base(term, styles, under);
     let fit = |inst: Instance, out: &mut Vec<Instance>, over: &mut Vec<Instance>| match st.y() {
         1 => {
             let (a, i) = inst.cut_at(Screen(i16::try_from(row_top).unwrap_or(i16::MAX)));
@@ -1545,14 +1762,61 @@ fn sized_composition(
         }
         _ => out.extend(clip_to(inst, band)),
     };
-    let face = crate::cellmap::face_of(styles, under);
-    let mut over = Vec::new();
+    let (mut pages, mut glyphs_out, mut over, mut rules) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for p in c.pieces(line) {
+        let look = Drawing::of(p.hints);
+        let rendition = base.of(r, term, look);
+        let drawn = |x: usize, line: Line| {
+            let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
+            rendition.drawn(Swaps {
+                pictured: Pictured::No,
+                line,
+                selected: look.selected,
+                hilite,
+                block: if under_cursor {
+                    BlockCursor::Yes(None)
+                } else {
+                    BlockCursor::No
+                },
+                blink,
+                cursor,
+            })
+        };
+        let n = if p.span == CellSpan::Two { 2 } else { 1 };
+        // The page and the line in a single-width cell's coordinates,
+        // moved onto the line as `Renderer::convert_row` moves its shapes.
+        for x in p.col.index()..p.col.index() + n {
+            let d = drawn(x, Line::No);
+            let left = i32::try_from(x).unwrap_or(0) * cell_w;
+            if look.selected == Selected::Yes {
+                pages.extend(stretched(
+                    bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg),
+                    size,
+                    band,
+                ));
+            }
+            if d.text == Text::Hidden {
+                continue;
+            }
+            let place = RuleAt {
+                left,
+                top: row_top,
+                width: cell_w,
+                height: cell_h,
+                thick: px(m.thickness),
+                under: px(m.underline),
+                strike: px(m.strike),
+            };
+            place.push(look.rule, d.fg, rendition.underline, &mut |i| {
+                rules.extend(stretched(i, size, band));
+            });
+        }
         let d = drawn(p.col.index(), Line::of(Content::codepoint(p.cps[0])));
         if d.text == Text::Hidden {
             continue;
         }
-        let glyphs = r.cluster_at(&p.cps, face, p.span, st);
+        let glyphs = r.cluster_at(&p.cps, rendition.shapes.face(), p.span, st);
         let ox = i32::try_from(p.col.index()).unwrap_or(0) * cell_w * st.x();
         let oy = top + px(m.baseline) * st.y();
         for g in glyphs {
@@ -1570,35 +1834,11 @@ fn sized_composition(
                 kind: slot.kind,
                 curve: d.curve,
             };
-            fit(inst, records, &mut over);
+            fit(inst, &mut glyphs_out, &mut over);
         }
     }
+    records.append(&mut pages);
+    records.append(&mut glyphs_out);
     records.append(&mut over);
-    let (start, end) = c.columns(line);
-    let wide =
-        u16::try_from(m.cell_w.value() * u32::try_from(st.x()).unwrap_or(1)).unwrap_or(u16::MAX);
-    let thick =
-        u16::try_from(m.thickness.value() * u32::try_from(st.y()).unwrap_or(1)).unwrap_or(u16::MAX);
-    for x in start..end {
-        let d = drawn(x, Line::No);
-        if d.text == Text::Hidden {
-            continue;
-        }
-        let left = i32::try_from(x).unwrap_or(0) * cell_w * st.x();
-        let y = top + px(m.underline) * st.y();
-        let inst = Instance {
-            x: Screen(i16::try_from(left).unwrap_or(i16::MAX)),
-            y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
-            w: crate::atlas::Tex(wide),
-            h: crate::atlas::Tex(thick),
-            u: crate::atlas::Tex(0),
-            v: crate::atlas::Tex(0),
-            color: d.fg,
-            kind: crate::atlas::Kind::Solid,
-            curve: baud_domain::contrast::CurveRow::default(),
-        };
-        let mut none = Vec::new();
-        fit(inst, records, &mut none);
-        records.append(&mut none);
-    }
+    records.append(&mut rules);
 }

@@ -21,7 +21,7 @@ enum Val {
     Obj(ObjectId),
     New(ObjectId),
     NewWith(String, u32, ObjectId),
-    Array,
+    Array(Vec<u8>),
     Fd,
 }
 
@@ -97,7 +97,7 @@ impl Server {
                                     .insert(id, Interface::named(interface).unwrap());
                                 Val::NewWith(interface.to_string(), version, id)
                             }
-                            Read::Array(_) => Val::Array,
+                            Read::Array(a) => Val::Array(a.to_vec()),
                             Read::Fd(fd) => {
                                 self.fds.push_back(fd);
                                 Val::Fd
@@ -2642,4 +2642,447 @@ fn a_sequence_ends_when_the_keyboard_leaves() {
         .filter(|e| matches!(e, Event::Key(_)))
         .collect();
     assert_eq!(keys, [typed('e', Modifiers::NONE, KeyEventKind::Press)]);
+}
+
+/// A window on a compositor that offers `text-input-v3`: the connection,
+/// the server, the window, its text-input object, its surface and the
+/// seat.
+struct Ime {
+    conn: Connection,
+    server: Server,
+    w: Window,
+    ti: ObjectId,
+    surface: ObjectId,
+    seat: ObjectId,
+}
+
+/// The session with the manager offered at `offered`, bound at the lower
+/// of it and 2.
+fn ime_session(offered: u32) -> Ime {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    // The manager before the seat: the object waits for both.
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+        (5, "zwp_text_input_manager_v3", offered),
+        (4, "wl_seat", 9),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut seat, mut manager, mut ti, mut surface) = (None, None, None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) if i == "wl_seat" => {
+                seat = Some(*id);
+                assert_eq!(*v, 9);
+            }
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)])
+                if i == "zwp_text_input_manager_v3" =>
+            {
+                assert_eq!(*v, offered.min(2), "the version bound");
+                manager = Some(*id);
+            }
+            ("zwp_text_input_manager_v3", "get_text_input", [Val::New(id), Val::Obj(s)]) => {
+                assert_eq!(Some(*s), seat, "for the seat");
+                assert!(manager.is_some());
+                ti = Some(*id);
+            }
+            ("wl_compositor", "create_surface", [Val::New(id)]) => surface = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    Ime {
+        conn,
+        server,
+        w,
+        ti: ti.expect("a text-input object"),
+        surface: surface.expect("the surface"),
+        seat: seat.expect("the seat"),
+    }
+}
+
+fn rect(x: u32, y: u32, w: u32, h: u32) -> CursorRect {
+    CursorRect {
+        x: Px(x),
+        y: Px(y),
+        width: Px(w),
+        height: Px(h),
+    }
+}
+
+/// The request after everything the client has sent so far: a title set
+/// now, so "nothing was sent" is the title coming next.
+fn nothing_before_the_title(i: &mut Ime) {
+    i.w.set_title(&mut i.conn.sender(), "fence");
+    i.conn.flush().unwrap();
+    let r = i.server.next();
+    assert_eq!(
+        (r.iface, r.name),
+        ("xdg_toplevel", "set_title"),
+        "{:?}",
+        r.args
+    );
+}
+
+/// **An input method is enabled where the keyboard is, composes at the
+/// cursor and types what it commits** (`[[source:
+/// wp-text-input-unstable-v3]]`): on the object's `enter` on the window's
+/// surface it is enabled with the content purpose `terminal` and committed;
+/// the cursor's cell is sent with a commit when it moves and not when it
+/// does not; a preedit arrives on `done` and a `done` without one clears
+/// it; a commit types its characters after the preedit is cleared; a
+/// `done` naming an older serial is applied and holds the cursor until a
+/// current one; `leave` clears the preedit and sends nothing after it; an
+/// `enter` on another surface enables nothing. On a compositor of version
+/// 1, so no request version 2 adds reaches the wire.
+#[test]
+fn an_input_method_composes_at_the_cursor_and_commits_text() {
+    let mut i = ime_session(1);
+    let (ti, surface) = (i.ti, i.surface);
+    let foreign = ObjectId(0xff00_0001);
+    i.server
+        .send(ti, "zwp_text_input_v3", "enter", &[Arg::Object(foreign)]);
+    pump(&mut i.conn, &mut i.w);
+    nothing_before_the_title(&mut i);
+    i.server
+        .send(ti, "zwp_text_input_v3", "enter", &[Arg::Object(surface)]);
+    pump(&mut i.conn, &mut i.w);
+    i.server.expect("zwp_text_input_v3", "enable");
+    let r = i.server.expect("zwp_text_input_v3", "set_content_type");
+    assert!(
+        matches!(&r.args[..], [Val::Uint(0), Val::Uint(13)]),
+        "no hint, the terminal purpose: {:?}",
+        r.args
+    );
+    i.server.expect("zwp_text_input_v3", "commit");
+    // The cursor: sent once, and again only when it moves.
+    i.w.set_text_cursor(&mut i.conn.sender(), rect(27, 36, 9, 18));
+    i.conn.flush().unwrap();
+    let r = i.server.expect("zwp_text_input_v3", "set_cursor_rectangle");
+    assert!(
+        matches!(
+            &r.args[..],
+            [Val::Int(27), Val::Int(36), Val::Int(9), Val::Int(18)]
+        ),
+        "{:?}",
+        r.args
+    );
+    i.server.expect("zwp_text_input_v3", "commit");
+    i.w.set_text_cursor(&mut i.conn.sender(), rect(27, 36, 9, 18));
+    nothing_before_the_title(&mut i);
+    // Two commits so far: a preedit on done(2).
+    let pre = |i: &mut Ime, t: &str| {
+        i.server.send(
+            ti,
+            "zwp_text_input_v3",
+            "preedit_string",
+            &[Arg::Str(Some(t)), Arg::Int(3), Arg::Int(3)],
+        );
+    };
+    let done = |i: &mut Ime, n: u32| {
+        i.server
+            .send(ti, "zwp_text_input_v3", "done", &[Arg::Uint(n)]);
+    };
+    pre(&mut i, "か");
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit("か".into())]);
+    pre(&mut i, "かん");
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit("かん".into())]);
+    // A commit: the preedit cleared, then the text typed.
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "commit_string",
+        &[Arg::Str(Some("漢字"))],
+    );
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(
+        drain(&mut i.w),
+        [
+            Event::Preedit(Preedit::default()),
+            Event::Key(keys::typed('漢')),
+            Event::Key(keys::typed('字'))
+        ]
+    );
+    // A commit and a new preedit in one done.
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "commit_string",
+        &[Arg::Str(Some("a"))],
+    );
+    pre(&mut i, "b");
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(
+        drain(&mut i.w),
+        [Event::Key(keys::typed('a')), Event::Preedit("b".into())]
+    );
+    // A done without a preedit clears it.
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit(Preedit::default())]);
+    // An older serial: applied, and the cursor held until a current one.
+    pre(&mut i, "x");
+    done(&mut i, 1);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit("x".into())]);
+    i.w.set_text_cursor(&mut i.conn.sender(), rect(36, 36, 9, 18));
+    nothing_before_the_title(&mut i);
+    pre(&mut i, "x");
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    let r = i.server.expect("zwp_text_input_v3", "set_cursor_rectangle");
+    assert!(matches!(&r.args[..], [Val::Int(36), ..]), "{:?}", r.args);
+    i.server.expect("zwp_text_input_v3", "commit");
+    assert_eq!(drain(&mut i.w), []);
+    // Leave: the preedit goes, and nothing is sent until the next enter.
+    i.server
+        .send(ti, "zwp_text_input_v3", "leave", &[Arg::Object(surface)]);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit(Preedit::default())]);
+    i.w.set_text_cursor(&mut i.conn.sender(), rect(45, 36, 9, 18));
+    nothing_before_the_title(&mut i);
+    // The next enter sends the cursor it holds with the enable.
+    i.server
+        .send(ti, "zwp_text_input_v3", "enter", &[Arg::Object(surface)]);
+    pump(&mut i.conn, &mut i.w);
+    i.server.expect("zwp_text_input_v3", "enable");
+    i.server.expect("zwp_text_input_v3", "set_content_type");
+    let r = i.server.expect("zwp_text_input_v3", "set_cursor_rectangle");
+    assert!(matches!(&r.args[..], [Val::Int(45), ..]), "{:?}", r.args);
+    i.server.expect("zwp_text_input_v3", "commit");
+}
+
+/// The window's events but the pointer's.
+fn typed_events(w: &mut Window) -> Vec<Event> {
+    drain(w)
+        .into_iter()
+        .filter(|e| !matches!(e, Event::Pointer(_)))
+        .collect()
+}
+
+/// **At version 2 the hints, the action and the on-screen keyboard**
+/// (`[[source: wp-text-input-unstable-v3]]`): a compositor offering 3 is
+/// bound at 2; the enable carries the content hint `preedit_shown` and
+/// the one action, `submit`; a preedit's hints arrive with it on `done`,
+/// sent before or after it, a value the protocol does not name dropped,
+/// and a new preedit has none until its own; a `submit` is the Return key after the commit; `none`,
+/// `language` and `delete_surrounding_text` do nothing and send nothing;
+/// a press of the primary button asks for the on-screen keyboard with a
+/// commit, and a press of another does not.
+#[test]
+fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
+    use protocol::zwp_text_input_v3::{action, content_hint, preedit_hint};
+    let mut i = ime_session(3);
+    let (ti, surface, seat) = (i.ti, i.surface, i.seat);
+    i.server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(protocol::wl_seat::capability::POINTER)],
+    );
+    pump(&mut i.conn, &mut i.w);
+    let r = i.server.expect("wl_seat", "get_pointer");
+    let Val::New(pointer) = r.args[0] else {
+        panic!()
+    };
+    // The text-input requests sent before a fence, whatever the pointer's
+    // own (its drawn cursor) are around them.
+    let sent = |i: &mut Ime| {
+        i.w.set_title(&mut i.conn.sender(), "fence");
+        i.conn.flush().unwrap();
+        let mut out = Vec::new();
+        loop {
+            let r = i.server.next();
+            match (r.iface, r.name) {
+                ("xdg_toplevel", "set_title") => break out,
+                ("zwp_text_input_v3", name) => out.push(name),
+                _ => {}
+            }
+        }
+    };
+    i.server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(7), Arg::Object(surface), fixed(1.0), fixed(1.0)],
+    );
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(sent(&mut i), Vec::<&str>::new());
+    // A press before text input is on asks for nothing.
+    let press = |i: &mut Ime, button: u32| {
+        i.server.send(
+            pointer,
+            "wl_pointer",
+            "button",
+            &[Arg::Uint(8), Arg::Uint(1), Arg::Uint(button), Arg::Uint(1)],
+        );
+        i.server.send(pointer, "wl_pointer", "frame", &[]);
+        pump(&mut i.conn, &mut i.w);
+    };
+    press(&mut i, 0x110);
+    assert_eq!(sent(&mut i), Vec::<&str>::new());
+    i.server
+        .send(ti, "zwp_text_input_v3", "enter", &[Arg::Object(surface)]);
+    pump(&mut i.conn, &mut i.w);
+    i.server.expect("zwp_text_input_v3", "enable");
+    let r = i.server.expect("zwp_text_input_v3", "set_content_type");
+    assert!(
+        matches!(&r.args[..], [Val::Uint(h), Val::Uint(13)] if *h == content_hint::PREEDIT_SHOWN),
+        "preedit_shown, the terminal purpose: {:?}",
+        r.args
+    );
+    let r = i
+        .server
+        .expect("zwp_text_input_v3", "set_available_actions");
+    assert!(
+        matches!(&r.args[..], [Val::Array(a)] if a[..] == action::SUBMIT.to_ne_bytes()),
+        "submit, alone: {:?}",
+        r.args
+    );
+    i.server.expect("zwp_text_input_v3", "commit");
+    let hint = |i: &mut Ime, start: u32, end: u32, h: u32| {
+        i.server.send(
+            ti,
+            "zwp_text_input_v3",
+            "preedit_hint",
+            &[Arg::Uint(start), Arg::Uint(end), Arg::Uint(h)],
+        );
+    };
+    let pre = |i: &mut Ime, t: &str| {
+        i.server.send(
+            ti,
+            "zwp_text_input_v3",
+            "preedit_string",
+            &[Arg::Str(Some(t)), Arg::Int(0), Arg::Int(0)],
+        );
+    };
+    let done = |i: &mut Ime| {
+        i.server
+            .send(ti, "zwp_text_input_v3", "done", &[Arg::Uint(1)]);
+        pump(&mut i.conn, &mut i.w);
+    };
+    pre(&mut i, "かな");
+    hint(&mut i, 0, 3, preedit_hint::SELECTION);
+    hint(&mut i, 3, 6, preedit_hint::WHOLE);
+    hint(&mut i, 0, 6, 99);
+    done(&mut i);
+    let hinted = |start, end, hint| Hinted {
+        start: ByteAt(start),
+        end: ByteAt(end),
+        hint,
+    };
+    assert_eq!(
+        typed_events(&mut i.w),
+        [Event::Preedit(Preedit {
+            text: "かな".into(),
+            hints: vec![hinted(0, 3, Hint::Selection), hinted(3, 6, Hint::Whole)],
+        })]
+    );
+    pre(&mut i, "かな");
+    done(&mut i);
+    assert_eq!(
+        typed_events(&mut i.w),
+        [Event::Preedit("かな".into())],
+        "no hints"
+    );
+    // A hint sent before its string is the string's: the text fixes no
+    // order between them, only that both apply on `done`.
+    hint(&mut i, 0, 6, preedit_hint::PREDICTION);
+    pre(&mut i, "かな");
+    done(&mut i);
+    assert_eq!(
+        typed_events(&mut i.w),
+        [Event::Preedit(Preedit {
+            text: "かな".into(),
+            hints: vec![hinted(0, 6, Hint::Prediction)],
+        })]
+    );
+    // A submit with a commit: the preedit goes, the text, then Return.
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "commit_string",
+        &[Arg::Str(Some("仮名"))],
+    );
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "action",
+        &[Arg::Uint(action::SUBMIT), Arg::Uint(4)],
+    );
+    done(&mut i);
+    let enter = || {
+        Event::Key(baud_domain::KeyEvent::press(
+            baud_domain::KeyCode::Enter,
+            baud_domain::Modifiers::NONE,
+        ))
+    };
+    assert_eq!(
+        typed_events(&mut i.w),
+        [
+            Event::Preedit(Preedit::default()),
+            Event::Key(keys::typed('仮')),
+            Event::Key(keys::typed('名')),
+            enter()
+        ]
+    );
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "action",
+        &[Arg::Uint(action::SUBMIT), Arg::Uint(5)],
+    );
+    done(&mut i);
+    assert_eq!(typed_events(&mut i.w), [enter()]);
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "action",
+        &[Arg::Uint(action::NONE), Arg::Uint(6)],
+    );
+    i.server
+        .send(ti, "zwp_text_input_v3", "language", &[Arg::Str(Some("ja"))]);
+    i.server.send(
+        ti,
+        "zwp_text_input_v3",
+        "delete_surrounding_text",
+        &[Arg::Uint(3), Arg::Uint(0)],
+    );
+    done(&mut i);
+    assert_eq!(typed_events(&mut i.w), []);
+    assert_eq!(sent(&mut i), Vec::<&str>::new());
+    // The primary button asks for the keyboard; the secondary does not.
+    press(&mut i, 0x111);
+    assert_eq!(sent(&mut i), Vec::<&str>::new());
+    press(&mut i, 0x110);
+    assert_eq!(sent(&mut i), ["show_input_panel", "commit"]);
 }

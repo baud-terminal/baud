@@ -13,6 +13,7 @@
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
+use crate::ime::{ActionCode, ByteAt, CursorRect, HintCode, Preedit, Serial, Step, TextInput};
 use crate::keys::{self, Shortcut};
 use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
@@ -59,6 +60,11 @@ pub enum Event {
     /// A copy made without the keyboard was cancelled before the keyboard
     /// came back (`clip::Done::Cancelled`).
     CopyCancelled(Board),
+    /// What the input method is composing and its hints, drawn at the
+    /// cursor until it commits or is cancelled (`ime.rs`); empty when there
+    /// is none. The committed text arrives as key events, as a Compose
+    /// sequence's does, and a `submit` action as the Return key.
+    Preedit(Preedit),
     Closed,
 }
 
@@ -266,6 +272,8 @@ pub struct Window {
     /// far stand in it.
     compose: Option<Table>,
     composing: Compose,
+    /// The input method's text-input object (`ime.rs`).
+    ime: TextInput,
     /// The serial of the last key, button or keyboard enter: what a copy's
     /// `set_selection` names, "serial number of the event that triggered
     /// this request" (`[[source: wayland]]`). A program's `OSC 52` has no
@@ -334,6 +342,7 @@ impl Window {
             swallowed: Vec::new(),
             compose: None,
             composing: Compose::default(),
+            ime: TextInput::default(),
             serial: None,
             clip: Clip::default(),
             events: VecDeque::new(),
@@ -755,6 +764,12 @@ impl Window {
         }
     }
 
+    /// **Where the cursor is**, for the input method's candidate window:
+    /// sent when text input is on and the cell moved (`ime.rs`).
+    pub fn set_text_cursor(&mut self, s: &mut Sender<'_>, r: CursorRect) {
+        self.ime.set_cursor(s, r);
+    }
+
     /// The clipboard shortcut a press of `code` makes under the modifiers in
     /// force (`keys::shortcut`), if any.
     fn shortcut(&self, code: Keycode) -> Option<Shortcut> {
@@ -1024,6 +1039,15 @@ impl Handler for Window {
                         self.globals.seat =
                             Window::bind(s, self.registry, name, iface, version.min(9));
                         self.clip.devices(s, self.globals.seat);
+                        self.ime.object_for(s, self.globals.seat);
+                    }
+                    // Version 2 where the compositor has it: `ime.rs`
+                    // sends what version 2 adds only to an object of it.
+                    "zwp_text_input_manager_v3" => {
+                        let version = version.min(2);
+                        self.ime.manager = Window::bind(s, self.registry, name, iface, version);
+                        self.ime.version = version;
+                        self.ime.object_for(s, self.globals.seat);
                     }
                     "wl_data_device_manager" => {
                         if let Some(m) = Window::bind(
@@ -1179,6 +1203,11 @@ impl Handler for Window {
                     protocol::wl_pointer::button_state::PRESSED => Press::Pressed,
                     _ => Press::Released,
                 };
+                // A press of the primary button asks for an on-screen
+                // keyboard while text input is on (`ime.rs`).
+                if press == Press::Pressed && Button::of(EventCode(*button)) == Button::Left {
+                    self.ime.pressed(s);
+                }
                 self.pointer_event(PointerEvent::Button {
                     button: Button::of(EventCode(*button)),
                     press,
@@ -1344,6 +1373,59 @@ impl Handler for Window {
                 self.mods = Mods::default();
                 self.group = 0;
                 self.events.push_back(Event::Focus(Focus::Lost));
+            }
+            // The input method (`ime.rs`): enabled on the object's own
+            // enter on this surface, its state applied on `done`.
+            ("zwp_text_input_v3", "enter", [Read::Object(surface)])
+                if self.ime.is(ev.object) && Some(*surface) == self.surface =>
+            {
+                self.ime.entered(s);
+            }
+            ("zwp_text_input_v3", "leave", _) if self.ime.is(ev.object) => {
+                if let Some(p) = self.ime.left() {
+                    self.events.push_back(Event::Preedit(p));
+                }
+            }
+            // The preedit's cursor_begin and cursor_end are not drawn
+            // (`ime.rs`).
+            ("zwp_text_input_v3", "preedit_string", [Read::Str(text), _, _])
+                if self.ime.is(ev.object) =>
+            {
+                self.ime.preedit_string(*text);
+            }
+            (
+                "zwp_text_input_v3",
+                "preedit_hint",
+                [Read::Uint(start), Read::Uint(end), Read::Uint(hint)],
+            ) if self.ime.is(ev.object) => {
+                self.ime
+                    .preedit_hint(ByteAt(*start), ByteAt(*end), HintCode(*hint));
+            }
+            ("zwp_text_input_v3", "action", [Read::Uint(action), _]) if self.ime.is(ev.object) => {
+                self.ime.action(ActionCode(*action));
+            }
+            // Read and not acted on (`ime.rs`): the input method's language,
+            // and a deletion from surrounding text the terminal never sent.
+            ("zwp_text_input_v3", "language" | "delete_surrounding_text", _)
+                if self.ime.is(ev.object) => {}
+            ("zwp_text_input_v3", "commit_string", [Read::Str(text)]) if self.ime.is(ev.object) => {
+                self.ime.commit_string(*text);
+            }
+            ("zwp_text_input_v3", "done", [Read::Uint(serial)]) if self.ime.is(ev.object) => {
+                for step in self.ime.done(s, Serial(*serial)) {
+                    match step {
+                        Step::Preedit(p) => self.events.push_back(Event::Preedit(p)),
+                        Step::Commit(t) => {
+                            for c in t.chars() {
+                                self.events.push_back(Event::Key(keys::typed(c)));
+                            }
+                        }
+                        Step::Submit => self.events.push_back(Event::Key(KeyEvent::press(
+                            baud_domain::KeyCode::Enter,
+                            baud_domain::Modifiers::NONE,
+                        ))),
+                    }
+                }
             }
             ("wl_buffer", "release", _) => {
                 if let Some(p) = self.pool.as_mut() {
