@@ -88,6 +88,16 @@ pub fn select_board(term: &Term<'_>) -> Board {
     }
 }
 
+/// **Whether a finished selection goes to the macOS pasteboard**: always
+/// under `[clipboard] copy_on_select = "on"`, the owner's V13, and under
+/// `"off"` only while a program has set `?1041`, xterm's selectToClipboard
+/// putting SELECT on CLIPBOARD (Jev's lean, MODE_WINS, 0.42/0.36: the
+/// program's mode is honoured, the key stops only the copy it adds).
+#[cfg(any(target_os = "macos", test))]
+pub fn selected_to_pasteboard(term: &Term<'_>, c: crate::config::CopyOnSelect) -> bool {
+    c == crate::config::CopyOnSelect::On || term.resource(baud_core::Resource::SelectToClipboard)
+}
+
 /// **The selections a write naming `targets` lands on**, with SELECT
 /// naming `select`; `None` when it names neither the clipboard, the primary
 /// nor SELECT, which `decide` has refused already.
@@ -356,6 +366,33 @@ mod tests {
         ws_row: 24,
         ws_col: 80,
     };
+
+    /// **On macOS a finished selection goes to the pasteboard unless
+    /// `copy_on_select` is off**, and then only under `?1041`.
+    #[test]
+    fn a_finished_selection_goes_to_the_pasteboard_unless_the_key_is_off() {
+        use crate::config::CopyOnSelect::{Off, On};
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        assert!(selected_to_pasteboard(&t, On));
+        assert!(!selected_to_pasteboard(&t, Off));
+        let b = b"\x1b[?1041h";
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        assert!(selected_to_pasteboard(&t, On));
+        assert!(selected_to_pasteboard(&t, Off), "?1041 is the program's");
+        let src = include_str!("app.rs");
+        let made = src
+            .split("Selected::Made => {")
+            .nth(1)
+            .expect("the finished selection's arm");
+        let arm = &made[..made.find("Selected::").unwrap_or(made.len())];
+        assert!(
+            arm.contains(concat!("crate::clip::", "selected_to_pasteboard("))
+                && arm.contains("self.app.clipboard.copy_on_select"),
+            "the macOS driver asks it"
+        );
+    }
 
     /// **A copy without the keyboard, and its cancel, are counted and each
     /// said once**: every one counts, only the first of each says.

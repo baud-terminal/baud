@@ -270,10 +270,24 @@ pub enum Osc52 {
     Off,
 }
 
+/// `[clipboard] copy_on_select`: whether finishing a selection copies it,
+/// note V's V13. **`On` by default**, the owner's decision (2026-09-25):
+/// on macOS a finished selection goes to the pasteboard; `Off` copies one
+/// only while a program has set `?1041`. On Linux a finished selection
+/// sets the primary either way, as Linux terminals do, and the clipboard
+/// under `?1041` (Jev, PRIMARY_STAYS, 0.90/0.92, and MODE_WINS, the lean,
+/// 0.42/0.36), so the key changes nothing there.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CopyOnSelect {
+    On,
+    Off,
+}
+
 /// The `[clipboard]` section.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Clipboard {
     pub osc52: Osc52,
+    pub copy_on_select: CopyOnSelect,
     /// `body_kb`: the largest `OSC 52` body the terminal holds, in KiB of
     /// base64 -- three octets of text for every four bytes. The core keeps
     /// two areas of the text, the copy being collected and the last one
@@ -285,6 +299,7 @@ impl Clipboard {
     /// Writes on, and a 256 KiB body: note V's design, item 8.
     pub const DEFAULT: Clipboard = Clipboard {
         osc52: Osc52::Write,
+        copy_on_select: CopyOnSelect::On,
         budget: baud_domain::ClipboardBudget::of_body(256 << 10),
     };
 }
@@ -1165,6 +1180,19 @@ impl Config {
                                  using the default, write"
                             ));
                             Osc52::Write
+                        }
+                    };
+                }
+                ("clipboard", "copy_on_select") => {
+                    self.clipboard.copy_on_select = match value.trim().trim_matches('"') {
+                        "on" => CopyOnSelect::On,
+                        "off" => CopyOnSelect::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [clipboard] copy_on_select {other:?} is not on or off; \
+                                 using the default, on"
+                            ));
+                            CopyOnSelect::On
                         }
                     };
                 }
@@ -2451,6 +2479,33 @@ mod reader {
         );
         // A top-level key of the same name is not the images section's.
         assert_eq!(read("advertise_sixel = true\n").sixel, SixelClaim::No);
+    }
+
+    /// **`[clipboard] copy_on_select` is on unless it says off**, the
+    /// owner's V13: `on` and `off` read, and anything else keeps on and
+    /// says so.
+    #[test]
+    fn copy_on_select_is_on_unless_it_says_off() {
+        assert_eq!(
+            Config::defaults().clipboard.copy_on_select,
+            CopyOnSelect::On
+        );
+        for (v, want) in [
+            ("\"on\"", CopyOnSelect::On),
+            ("\"off\"", CopyOnSelect::Off),
+            ("off", CopyOnSelect::Off),
+        ] {
+            let text = format!("[clipboard]\ncopy_on_select = {v}\n");
+            assert_eq!(read(&text).clipboard.copy_on_select, want, "{v}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[clipboard]\ncopy_on_select = \"yes\"\n");
+        assert_eq!(c.clipboard.copy_on_select, CopyOnSelect::On);
+        assert!(
+            said.iter()
+                .any(|s| s.contains("copy_on_select") && s.contains("on or off")),
+            "{said:?}"
+        );
     }
 
     /// `[clipboard]`: writes on by default with a 256 KiB body, `off` turns

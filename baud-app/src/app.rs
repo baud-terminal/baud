@@ -9388,14 +9388,14 @@ impl Driver {
             Selected::Unchanged => return,
             Selected::Changed => {}
             Selected::Click => self.move_point(event),
-            // `?1041`: the selection made is the clipboard's, as xterm's
-            // selectToClipboard puts SELECT on CLIPBOARD.
+            // A selection made goes to the pasteboard, V13's
+            // copy-on-select, unless `[clipboard] copy_on_select` is off,
+            // and then under `?1041` alone (`clip::selected_to_pasteboard`).
             Selected::Made => {
-                if self
-                    .app
-                    .term
-                    .resource(baud_core::Resource::SelectToClipboard)
-                {
+                if crate::clip::selected_to_pasteboard(
+                    &self.app.term,
+                    self.app.clipboard.copy_on_select,
+                ) {
                     self.copy();
                 }
             }

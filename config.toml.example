@@ -353,6 +353,13 @@ advertise_sixel = false
 [clipboard]
 osc52 = "write"
 body_kb = 256
+# Whether finishing a selection with the mouse copies it. "on" by default:
+# on macOS the selection goes to the clipboard as you let go; "off" leaves
+# the clipboard to Cmd-C, unless a program asks for copy-on-select itself
+# (xterm's ?1041). On Linux a finished selection always sets the primary
+# selection, which the middle button pastes, as Linux terminals do; this
+# key does not change that.
+copy_on_select = "on"
 
 # Whether a program can move, resize, minimise, raise, lower, maximise or
 # full-screen the window (xterm's window operations, CSI 1 t to CSI 10 t, and
