@@ -30,9 +30,9 @@ mod app;
 // pure, so its tests run on every platform.
 #[cfg(any(target_os = "linux", test))]
 mod appearance;
-// The scrollbar's thumb under the Linux driver's pointer: pure, so its
-// tests run on every platform; only the Linux driver drives it.
-#[cfg(any(target_os = "linux", test))]
+// The scrollbar's press rules: pure, so its tests run on every platform,
+// and both drivers take a pointer event through them.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod bar;
 // The session bus, for the desktop's appearance and the file manager's
 // reveal: the protocol over bytes is pure, so its tests run on every

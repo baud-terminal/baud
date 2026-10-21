@@ -232,6 +232,52 @@ struct Driver {
     host: String,
 }
 
+/// **The scrollbar's share of a pointer event** (`bar.rs`), after DEC's
+/// locator: at the position the seat last had for a press or a release,
+/// a move a drag while a button is down.
+fn thumb(
+    timed: &mut crate::timed::Timed,
+    renderer: &Renderer<'_, '_>,
+    pending: &mut Pending,
+    term: &mut Term<'_>,
+    beside: crate::seat::Beside,
+) -> crate::bar::Took {
+    use crate::bar::{Event as Bar, Left};
+    use crate::gesture::Pressed;
+    use crate::seat::Input;
+    let e = match (beside.input, beside.at) {
+        (Input::Entered(x, y), _) => Bar::Entered { x, y },
+        (Input::Moved(x, y), _) => Bar::Moved {
+            x,
+            y,
+            held: beside.held,
+        },
+        (Input::Pressed { button, .. }, Some((x, y))) => Bar::Pressed {
+            x,
+            y,
+            left: match button {
+                Pressed::Left => Left::Yes,
+                _ => Left::No,
+            },
+        },
+        (Input::Released { .. }, Some((x, y))) => Bar::Released { x, y },
+        (Input::Left, _) => Bar::Left,
+        _ => return crate::bar::Took::No,
+    };
+    let m = renderer.metrics();
+    let f = crate::bar::Frame {
+        size: renderer.frame_size(),
+        cell_h: m.cell_h,
+        widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
+    };
+    let now = timed.clock.host(Instant::now());
+    let (took, owes) = timed.bar.input(term, e, f, now);
+    if owes == crate::bar::Owes::Frame {
+        *pending = Pending::Dirty;
+    }
+    took
+}
+
 /// Whether a one-time line has been logged.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Said {
@@ -989,22 +1035,21 @@ impl Driver {
             ),
         };
         let mods = self.window.modifiers();
-        // The scrollbar's thumb before the seat (`bar.rs`): a press it
-        // takes keeps its drags and its release, and a move it takes keeps
-        // the position and is no one else's. A crossing is the seat's too.
-        if self.thumb(input) == crate::bar::Took::Yes && !matches!(input, Input::Entered(..)) {
-            if let Input::Moved(x, y) = input {
-                self.seat.moved_to(x, y);
-                let act = self.hiding.moved();
-                self.hide_pointer(act);
-            }
-            return;
-        }
+        // DEC's locator, then the scrollbar's thumb (`bar.rs`), then the
+        // rest of the seat, the macOS order: the locator sees every
+        // position and the buttons held, a press the thumb takes keeps its
+        // drags and its release, and a move it takes is no one else's.
         let back = self.term.primary_window_back();
         let outbox = &mut self.outbox;
-        let owed = self
-            .seat
-            .input(&mut self.term, input, mods, g, |b| outbox.push(b));
+        let (timed, renderer, pending) = (&mut self.timed, &self.renderer, &mut self.pending);
+        let owed = self.seat.input_beside(
+            &mut self.term,
+            input,
+            mods,
+            g,
+            |b| outbox.push(b),
+            |term, beside| thumb(timed, renderer, pending, term, beside),
+        );
         // The wheel that moved the window over the history reveals the
         // thumb, as AppKit's does.
         if self.term.primary_window_back() != back {
@@ -1195,48 +1240,6 @@ impl Driver {
         }
         // Text a held phase hid is shown again on the next turn's flip
         // check, which repaints whole.
-    }
-
-    /// **The scrollbar's share of a pointer event** (`bar.rs`), at the
-    /// position the seat last had for a press or a release.
-    fn thumb(&mut self, input: crate::seat::Input) -> crate::bar::Took {
-        use crate::bar::{Event as Bar, Held, Left};
-        use crate::gesture::Pressed;
-        use crate::seat::Input;
-        let at = self.seat.at();
-        let e = match (input, at) {
-            (Input::Entered(x, y) | Input::Moved(x, y), _) => Bar::Moved {
-                x,
-                y,
-                held: match self.seat.button_down() {
-                    true => Held::Yes,
-                    false => Held::No,
-                },
-            },
-            (Input::Pressed { button, .. }, Some((x, y))) => Bar::Pressed {
-                x,
-                y,
-                left: match button {
-                    Pressed::Left => Left::Yes,
-                    _ => Left::No,
-                },
-            },
-            (Input::Released { .. }, Some((x, y))) => Bar::Released { x, y },
-            (Input::Left, _) => Bar::Left,
-            _ => return crate::bar::Took::No,
-        };
-        let m = self.renderer.metrics();
-        let f = crate::bar::Frame {
-            size: self.renderer.frame_size(),
-            cell_h: m.cell_h,
-            widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
-        };
-        let now = self.timed.clock.host(Instant::now());
-        let (took, owes) = self.timed.bar.input(&mut self.term, e, f, now);
-        if owes == crate::bar::Owes::Frame {
-            self.pending = Pending::Dirty;
-        }
-        took
     }
 
     /// **The thumb shown, held and faded**: the window moved over the

@@ -177,6 +177,17 @@ pub(crate) enum Thumb {
     Leave,
 }
 
+/// What the scrollbar is asked of a pointer input, after DEC's locator:
+/// the input, where the pointer is over the surface -- a press and a
+/// release carry no position of their own -- and whether a button is down,
+/// which makes a move a drag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Beside {
+    pub(crate) input: Input,
+    pub(crate) at: Option<(f64, f64)>,
+    pub(crate) held: crate::bar::Held,
+}
+
 pub(crate) struct Seat {
     /// Where the pointer is over the surface; `None` outside it.
     at: Option<(f64, f64)>,
@@ -236,23 +247,6 @@ impl Seat {
         self.at.is_some()
     }
 
-    /// Where the pointer is over the surface, for the scrollbar's press.
-    pub(crate) fn at(&self) -> Option<(f64, f64)> {
-        self.at
-    }
-
-    /// Whether a button is physically down, for a move's kind.
-    pub(crate) fn button_down(&self) -> bool {
-        self.down.is_some()
-    }
-
-    /// **A move the scrollbar took** (`bar.rs`): the position is kept, so
-    /// the next event's cell and the pointer's shape are right, and no one
-    /// else is told.
-    pub(crate) fn moved_to(&mut self, x: f64, y: f64) {
-        self.at = Some((x, y));
-    }
-
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
         let at = self.at.unwrap_or((0.0, 0.0));
         gesture::pointer_under(at, 1.0, g.cell, g.grid, (0, 0))
@@ -264,12 +258,9 @@ impl Seat {
             .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, (0, 0)))
     }
 
-    /// **One pointer input**: the wheel to the history, the alternate
-    /// screen's keys or a tracking child's reports (`wheel::route`); a
-    /// press, a drag, a move and a release to the child that tracks the
-    /// mouse or to the selection, decided at the press with Shift's
-    /// override (`gesture::pointer_route`); a click to the prompt or
-    /// `?2001`. Every byte for the child to `sink`.
+    /// **One pointer input** with no scrollbar beside it
+    /// ([`Seat::input_beside`]).
+    #[cfg(test)]
     pub(crate) fn input(
         &mut self,
         term: &mut Term<'_>,
@@ -278,17 +269,38 @@ impl Seat {
         g: Geometry,
         sink: impl FnMut(&[u8]),
     ) -> Owed {
+        self.input_beside(term, e, mods, g, sink, |_, _| crate::bar::Took::No)
+    }
+
+    /// **One pointer input**: DEC's locator told of it first, then the
+    /// scrollbar asked (`bar`, given where the pointer is and whether a
+    /// button is down), and what the scrollbar did not take routed -- the
+    /// macOS driver's order. The wheel to the history, the alternate
+    /// screen's keys or a tracking child's reports (`wheel::route`); a
+    /// press, a drag, a move and a release to the child that tracks the
+    /// mouse or to the selection, decided at the press with Shift's
+    /// override (`gesture::pointer_route`); a click to the prompt or
+    /// `?2001`. Every byte for the child to `sink`.
+    pub(crate) fn input_beside(
+        &mut self,
+        term: &mut Term<'_>,
+        e: Input,
+        mods: Modifiers,
+        g: Geometry,
+        sink: impl FnMut(&[u8]),
+        bar: impl FnOnce(&mut Term<'_>, Beside) -> crate::bar::Took,
+    ) -> Owed {
         let pointer = !matches!(e, Input::Steps(_) | Input::Distance(_) | Input::Stopped);
         // A ReGIS cursor the pointer moved is a frame too.
         let drawn = term.images().generation();
-        match self.route(term, e, mods, g, sink) {
+        match self.route(term, e, mods, g, sink, bar) {
             Owed::Nothing if pointer && gesture::locator_redraws(term) => Owed::Frame,
             Owed::Nothing if term.images().generation() != drawn => Owed::Frame,
             owed => owed,
         }
     }
 
-    /// [`Seat::input`]'s routing, before the indicator's frame.
+    /// [`Seat::input_beside`]'s routing, before the indicator's frame.
     fn route(
         &mut self,
         term: &mut Term<'_>,
@@ -296,6 +308,7 @@ impl Seat {
         mods: Modifiers,
         g: Geometry,
         mut sink: impl FnMut(&[u8]),
+        bar: impl FnOnce(&mut Term<'_>, Beside) -> crate::bar::Took,
     ) -> Owed {
         let (kind, button) = match e {
             Input::Entered(x, y) => {
@@ -313,16 +326,14 @@ impl Seat {
                     None => (Kind::Moved, Pressed::Left),
                 }
             }
-            Input::Pressed { button, time } => {
+            Input::Pressed { button, .. } => {
                 self.down = Some(button);
-                let _ = self.clicks.press(button, time);
                 (Kind::Down, button)
             }
-            Input::Released { button, time } => {
+            Input::Released { button, .. } => {
                 if self.down == Some(button) {
                     self.down = None;
                 }
-                self.clicks.release(button, time);
                 (Kind::Up, button)
             }
             Input::Steps(s) => return self.wheel(term, Delta::Lines(-s), mods, g, sink),
@@ -358,7 +369,9 @@ impl Seat {
             }
         };
         // DEC's locator keeps the pointer whatever takes the event: a move
-        // or a crossing here, a press or a release once routed, below.
+        // or a crossing here, before the scrollbar, so a filter rectangle
+        // sees every position, and the buttons held after a press the
+        // scrollbar takes; a press or a release once routed, below.
         self.buttons = gesture::held_after(self.buttons, kind, button);
         if !matches!(kind, Kind::Down | Kind::Up) {
             let e = LocatorInput {
@@ -367,6 +380,26 @@ impl Seat {
                 held: self.buttons,
             };
             crate::reads::input(term, |t| t.locator(e), &mut sink);
+        }
+        // **The scrollbar next** (`bar.rs`): a press it takes keeps its
+        // drags and its release, and a move it takes is no one else's.
+        let beside = Beside {
+            input: e,
+            at: self.at,
+            held: match self.down {
+                Some(_) => crate::bar::Held::Yes,
+                None => crate::bar::Held::No,
+            },
+        };
+        if bar(term, beside) == crate::bar::Took::Yes {
+            return Owed::Nothing;
+        }
+        match e {
+            Input::Pressed { button, time } => {
+                let _ = self.clicks.press(button, time);
+            }
+            Input::Released { button, time } => self.clicks.release(button, time),
+            _ => {}
         }
         // **A Ctrl press over a link is the terminal's, the whole
         // gesture**, before the child's tracking, as Cmd is on macOS, so a
@@ -814,26 +847,67 @@ mod tests {
         assert_eq!(reset.thumb, Thumb::Reveal);
     }
 
-    /// **A move the scrollbar took keeps the position and tells no one**,
-    /// and a button down is seen for the next move's kind.
+    /// **DEC's locator sees an event before the scrollbar takes it**, the
+    /// macOS driver's order: a move the scrollbar takes that leaves a
+    /// filter rectangle still reports it, and the buttons a press the
+    /// scrollbar took holds are in that report's `Pb`; the scrollbar is
+    /// asked with the pointer's position and a button down after that
+    /// press, and a press it takes is no click. The control is the same
+    /// move with nothing pressed, whose `Pb` is 0. Perturbations: ask the
+    /// scrollbar before the locator -- no report; leave the buttons
+    /// unheld for a taken press -- `Pb` is 0.
     #[test]
-    fn a_taken_move_keeps_the_position() {
+    fn the_locator_sees_a_move_before_the_scrollbar_takes_it() {
+        use crate::bar::{Held, Took};
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        t.set_locator_device(baud_core::LocatorDevice::Present);
+        // DECELR on, and with the pointer there a filter rectangle over
+        // the top-left corner.
+        let rect = b"\x1b[1'z\x1b[1;1;2;5'w";
         let mut seat = Seat::new();
-        assert_eq!(seat.at(), None);
-        seat.moved_to(12.0, 3.0);
-        assert_eq!(seat.at(), Some((12.0, 3.0)));
-        assert!(!seat.button_down());
-        put(
-            &mut seat,
-            &mut t,
-            down(Pressed::Left, Ms::of_millis(1)),
-            NONE,
+        let mut asked: Vec<(Option<(f64, f64)>, Held)> = Vec::new();
+        let mut take = |seat: &mut Seat, t: &mut Term<'_>, e: Input| {
+            let mut sent = Vec::new();
+            seat.input_beside(
+                t,
+                e,
+                NONE,
+                G,
+                |b| sent.extend_from_slice(b),
+                |_, b| {
+                    asked.push((b.at, b.held));
+                    Took::Yes
+                },
+            );
+            sent
+        };
+        take(&mut seat, &mut t, Input::Entered(5.0, 5.0));
+        feed(&mut t, rect);
+        t.clear_reply();
+        // The control: a move out of the rectangle, nothing pressed.
+        let sent = take(&mut seat, &mut t, Input::Moved(155.0, 45.0));
+        assert_eq!(sent, b"\x1b[10;0;5;16&w", "reported, nothing held");
+        take(&mut seat, &mut t, Input::Moved(5.0, 5.0));
+        feed(&mut t, rect);
+        t.clear_reply();
+        take(&mut seat, &mut t, down(Pressed::Left, Ms::of_millis(1)));
+        let sent = take(&mut seat, &mut t, Input::Moved(155.0, 45.0));
+        assert_eq!(sent, b"\x1b[10;4;5;16&w", "the left button held");
+        take(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(2)));
+        assert_eq!(
+            asked[2..],
+            [
+                (Some((5.0, 5.0)), Held::No),
+                (Some((5.0, 5.0)), Held::Yes),
+                (Some((155.0, 45.0)), Held::Yes),
+                (Some((155.0, 45.0)), Held::No),
+            ],
+            "the press at the pointer, the move a drag"
         );
-        assert!(seat.button_down());
-        put(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(2)), NONE);
-        assert!(!seat.button_down());
+        // The press the scrollbar took was no click: the next is a first.
+        let n = seat.clicks.press(Pressed::Left, Ms::of_millis(3));
+        assert_eq!(n, ClickCount(1));
     }
 
     /// **The wheel across on Linux**: a detent to the left is button 6 to

@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::access::{Contrast, MotionSource, motion_override, system_motion};
+use crate::bar::Took;
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::effects::{TRANSITION_S, TrailCursor, regis_phase, text_blink, trail_cursor, window_of};
@@ -20,9 +21,7 @@ use crate::keep::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
-use crate::reveal::{
-    Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes, shown_gutter,
-};
+use crate::reveal::{Reveal, Scale, shown_gutter};
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, grid_stride};
 use baud_domain::{
@@ -43,7 +42,7 @@ use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
     Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
-    Window, back_for, copy_for_shader, gutter, place, thumb,
+    Window, copy_for_shader, gutter,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -2917,13 +2916,11 @@ struct Driver {
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
-    /// A drag of the scrollbar's thumb: where it was grabbed, in frame
-    /// pixels, and where its top was.
-    bar_drag: Option<BarDrag>,
-    /// Whether the press in progress is the scrollbar's: its drags and its
-    /// release are then the scrollbar's too, so neither the selection nor a
-    /// tracking program sees a release without its press.
-    grab: Grab,
+    /// The press the scrollbar holds: a drag of the thumb in flight, and
+    /// whether the press in progress is the scrollbar's, whose drags and
+    /// release are then the scrollbar's too, so neither the selection nor
+    /// a tracking program sees a release without its press (`bar.rs`).
+    bar_hold: crate::bar::Hold,
     /// Who owns the press in progress, the child or the selection, decided
     /// at the press and kept to its release (`pointer_route`).
     owner: Owner,
@@ -4465,16 +4462,13 @@ mod alt_window_tests {
             .filter(|l| stored.iter().any(|tok| names(l, tok)))
             .collect();
         assert!(kept.is_empty(), "a window the app keeps: {kept:?}");
-        const ALLOWED: [(&str, &str); 2] = [
-            (
-                "let was = self.app.term.primary_window_back();",
-                "the wheel over the history: the alternate screen returned arrow keys above",
-            ),
-            (
-                "if back.index() != self.app.term.primary_window_back().index() {",
-                "the thumb's drag: a thumb is drawn only off a live primary",
-            ),
-        ];
+        // The thumb's drag reads the primary's window in `bar::press`,
+        // which both drivers call: a thumb is drawn only off a live
+        // primary.
+        const ALLOWED: [(&str, &str); 1] = [(
+            "let was = self.app.term.primary_window_back();",
+            "the wheel over the history: the alternate screen returned arrow keys above",
+        )];
         let raw_tokens = [
             concat!("self.app.term.", "primary_window_back("),
             concat!("self.term.", "primary_window_back("),
@@ -7007,12 +7001,6 @@ fn refont_step(
     }
 }
 
-#[derive(Clone, Copy)]
-struct BarDrag {
-    grab_y: Px,
-    top: Px,
-}
-
 /// Whether a relayout drew a frame of its own, so a caller that wants one
 /// can tell whether it still has to ask.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -7118,13 +7106,6 @@ enum Echo {
 enum Sent {
     Nothing,
     Bytes,
-}
-
-/// Whether the scrollbar took a mouse event.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Took {
-    Yes,
-    No,
 }
 
 impl Driver {
@@ -8261,10 +8242,7 @@ impl Responder for Driver {
             // The hover follows the window as well as the pointer
             // (`Reveal::tick`).
             let back = self.app.term.window_back();
-            let drag = match self.bar_drag {
-                Some(_) => Drag::Dragging,
-                None => Drag::Idle,
-            };
+            let drag = self.bar_hold.drag();
             self.app.reveal.tick(now, self.app.pointer, back, drag);
             if self.app.look(now) != self.app.drawn_look {
                 self.app.pending = Pending::Dirty;
@@ -8728,8 +8706,7 @@ pub fn run() {
         key_kind: KeyEventKind::Press,
         keyed: None,
         armed: None,
-        bar_drag: None,
-        grab: Grab::Free,
+        bar_hold: crate::bar::Hold::FREE,
         owner: Owner::Free,
         deferred: Deferred::Nothing,
         style: style.clone(),
@@ -9520,6 +9497,7 @@ impl Driver {
     /// release (`Takes::grabs`), and the window follows through the
     /// inverse geometry.
     fn scrollbar(&mut self, event: &Mouse) -> Took {
+        use crate::bar::{At, Did, Held, Hover, Kind, Left, Moved};
         let scale = self.app.scale;
         let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
         // The frame is centred in the surface; the thumb's geometry is in
@@ -9528,133 +9506,61 @@ impl Driver {
         let (px, py) = self.app.pad_px;
         let x = Px::of(at(event.x).value().saturating_sub(px.value()));
         let y = Px::of(at(event.y).value().saturating_sub(py.value()));
-        let win = self.app.window();
-        let size = self.app.renderer.frame_size();
-        let cell_h = self.app.renderer.metrics().cell_h;
-        let widths = crate::reveal::widths(crate::reveal::Scale(scale));
-        let scroller = self.app.scroller;
-        // A program hid it (`?30`): nothing there takes a press.
-        if self.app.bar_shown == baud_core::ScrollbarShown::Hidden {
-            self.app.pointer = Place::Grid;
-            return Took::No;
-        }
-        let strip = place(x, size.0, widths);
-        self.app.pointer = match event.kind {
-            ViewMouseKind::Exited => Place::Grid,
-            _ => strip,
+        let kind = match event.kind {
+            ViewMouseKind::Down => Kind::Pressed {
+                left: match event.button {
+                    ViewButton::Left => Left::Yes,
+                    _ => Left::No,
+                },
+            },
+            ViewMouseKind::Dragged => Kind::Moved { held: Held::Yes },
+            ViewMouseKind::Moved => Kind::Moved { held: Held::No },
+            ViewMouseKind::Up => Kind::Released,
+            ViewMouseKind::Entered => Kind::Entered,
+            ViewMouseKind::Exited => Kind::Left,
         };
-        let Some(now) = HostTime::of_secs(self.app.tick_target) else {
-            return Took::No;
+        let c = crate::bar::Ctx {
+            scroller: self.app.scroller,
+            shown: self.app.bar_shown,
+            frame: crate::bar::Frame {
+                size: self.app.renderer.frame_size(),
+                cell_h: self.app.renderer.metrics().cell_h,
+                widths: crate::reveal::widths(crate::reveal::Scale(scale)),
+            },
+            // A press is tested against what is on the screen: the look
+            // the last frame drew, not the one the hover will draw.
+            drawn: self.app.drawn_look,
+            now: HostTime::of_secs(self.app.tick_target),
         };
-        // The hover, on every event but a drag's, which holds its own; the
-        // legacy scroller has none.
-        if self.bar_drag.is_none() && scroller == Scroller::Overlay {
-            let motion = match event.kind {
-                ViewMouseKind::Exited => Motion::Leaving,
-                _ => Motion::Within,
-            };
-            let over = crate::reveal::over(strip, win.back, motion);
-            let before = self.app.reveal;
-            self.app.reveal.hover(over, now);
-            if self.app.reveal != before {
-                self.app.pending = Pending::Dirty;
-            }
-        }
-        // A press is tested against what is on the screen: the look the
-        // last frame drew, not the one the hover update above will draw.
-        let look = self.app.drawn_look;
-        let knob = thumb(win, size, cell_h, widths, look.hover);
-        let top = match event.kind {
-            ViewMouseKind::Down => {
-                let button = match event.button {
-                    ViewButton::Left => BarButton::Left,
-                    _ => BarButton::Other,
-                };
-                let on = knob.map(|t| match t.covers_y(y) {
-                    true => Knob::On,
-                    false => Knob::Off,
-                });
-                let takes = crate::reveal::press(scroller, strip, look.shown, on, button);
-                self.grab = takes.grabs();
-                match (takes, knob) {
-                    (Takes::Cells, _) => return Took::No,
-                    (Takes::Drag, Some(t)) => {
-                        self.bar_drag = Some(BarDrag {
-                            grab_y: y,
-                            top: t.top,
-                        });
-                        if scroller == Scroller::Overlay {
-                            self.app.reveal.hover(Over::Strip, now);
-                        }
-                        return Took::Yes;
-                    }
-                    (Takes::Jump, Some(t)) => {
-                        Px::of(y.value().saturating_sub(t.height.value() / 2))
-                    }
-                    _ => return Took::Yes,
-                }
-            }
-            ViewMouseKind::Dragged => {
-                let Some(d) = self.bar_drag else {
-                    // A press the scrollbar took that is not a drag -- a
-                    // jump, or the gutter's -- keeps its drags too.
-                    return match self.grab {
-                        Grab::Bar => Took::Yes,
-                        Grab::Free => Took::No,
-                    };
-                };
-                // The window can no longer scroll -- the alternate screen
-                // came up mid-drag, which keeps no history -- so the drag
-                // ends rather than write the primary's window from a
-                // geometry with nothing behind it. The press stays taken
-                // until its release.
-                if win.retained.index() == 0 {
-                    self.bar_drag = None;
-                    return Took::Yes;
-                }
-                let moved = i64::from(y.value()) - i64::from(d.grab_y.value());
-                Px::of(u32::try_from((i64::from(d.top.value()) + moved).max(0)).unwrap_or(0))
-            }
-            ViewMouseKind::Up => {
-                let grabbed = core::mem::replace(&mut self.grab, Grab::Free);
-                if self.bar_drag.take().is_some() && scroller == Scroller::Overlay {
-                    // The end of a drag: still over the strip it stays
-                    // widened, anywhere else it is a reveal that holds and
-                    // fades.
-                    let over = crate::reveal::over(strip, win.back, Motion::Within);
-                    self.app.reveal.hover(over, now);
-                    self.app.reveal.reveal(now);
-                    self.app.pending = Pending::Dirty;
-                    self.pump(Trigger::Wake);
-                }
-                return match grabbed {
-                    Grab::Bar => Took::Yes,
-                    Grab::Free => Took::No,
-                };
-            }
-            // Motion with nothing pressed: the legacy gutter keeps it from
-            // a program tracking every motion.
-            ViewMouseKind::Moved => {
-                return match crate::reveal::motion(scroller, strip) {
-                    Takes::Cells => Took::No,
-                    _ => Took::Yes,
-                };
-            }
-            _ => return Took::No,
-        };
-        let back = back_for(win, size, cell_h, top);
-        self.app.reveal.reveal(now);
-        if back.index() != self.app.term.primary_window_back().index() {
-            self.app.term.set_window_back(back);
-            // Dragging the thumb into history settles a slide, as the wheel
-            // does: it names live-screen rows the scrolled-back view lacks.
-            if back.index() != 0 {
-                self.app.slide.snap();
-            }
+        let a = crate::bar::press(
+            &mut self.bar_hold,
+            &mut self.app.reveal,
+            &mut self.app.pointer,
+            &mut self.app.term,
+            At { x, y, kind },
+            c,
+        );
+        if a.hover == Hover::Changed {
             self.app.pending = Pending::Dirty;
-            self.pump(Trigger::Wake);
         }
-        Took::Yes
+        match a.did {
+            Did::Nothing | Did::Started | Did::Scrolled(Moved::No) => {}
+            Did::Ended => {
+                self.app.pending = Pending::Dirty;
+                self.pump(Trigger::Wake);
+            }
+            Did::Scrolled(Moved::Yes) => {
+                // Dragging the thumb into history settles a slide, as the
+                // wheel does: it names live-screen rows the scrolled-back
+                // view lacks.
+                if self.app.term.window_back().index() != 0 {
+                    self.app.slide.snap();
+                }
+                self.app.pending = Pending::Dirty;
+                self.pump(Trigger::Wake);
+            }
+        }
+        a.took
     }
 
     /// Re-place the titlebar mark at the top-left of its superview, whose
@@ -9718,7 +9624,7 @@ impl Driver {
             return;
         }
         self.app.bar_shown = shown;
-        self.bar_drag = None;
+        self.bar_hold.end_drag();
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
         let full = match self.view.window() {
@@ -12488,11 +12394,20 @@ mod scrollbar_mode_tests {
         assert!(pump < requests, "in the pump");
         once(concat!("set_scrollbar(match ", "self.bar_shown {"));
         once(concat!("baud_core::ScrollbarShown::Hidden => ", "None,"));
-        let hidden = once(concat!(
-            "if self.app.bar_shown == baud_core::",
-            "ScrollbarShown::Hidden {\n            self.app.pointer = Place::Grid;\n            return Took::No;"
+        // The press rules are `bar::press`, which reads `?30` as the
+        // driver last acted on it, before the strip takes a press.
+        once(concat!("shown: self.app.", "bar_shown,"));
+        once(concat!("crate::bar::", "press("));
+        const BAR: &str = include_str!("bar.rs");
+        let in_bar = |needle: &str| {
+            assert_eq!(BAR.matches(needle).count(), 1, "once in bar.rs: {needle}");
+            BAR.find(needle).expect("found")
+        };
+        let hidden = in_bar(concat!(
+            "if c.shown == ",
+            "ScrollbarShown::Hidden {\n        *pointer = Place::Grid;"
         ));
-        let strip = once(concat!("let strip = place(", "x, size.0, widths);"));
+        let strip = in_bar(concat!("let strip = place(", "x, f.size.0, f.widths);"));
         assert!(hidden < strip, "before the strip takes a press");
         assert_eq!(
             SRC.matches(concat!("gutter(self.app.", "scroller,"))

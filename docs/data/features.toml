@@ -1133,7 +1133,7 @@ name = "The scrollbar on Linux"
 does = "The same thumb as on a Mac: it appears while you scroll and fades away, widens when you point at it while looking back, and can be dragged or clicked, and a program can hide it."
 status = "built"
 platform = "linux"
-tests = ["baud-app/src/bar.rs::a_drag_on_the_knob_moves_the_window_and_keeps_the_gesture", "baud-app/src/bar.rs::a_jump_needs_a_drawn_thumb_and_a_shown_scrollbar"]
+tests = ["baud-app/src/bar.rs::a_drag_on_the_knob_moves_the_window_and_keeps_the_gesture", "baud-app/src/bar.rs::a_jump_needs_a_drawn_thumb_and_a_shown_scrollbar", "baud-app/src/seat.rs::the_locator_sees_a_move_before_the_scrollbar_takes_it"]
 rows = ["vt:`?30`"]
 
 [[feature]]
