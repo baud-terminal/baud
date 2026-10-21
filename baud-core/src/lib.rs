@@ -73,6 +73,7 @@ mod prompt;
 mod query;
 mod rect;
 mod regis;
+mod search;
 mod shift;
 mod sixel;
 mod stack;
@@ -166,6 +167,7 @@ pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Mo
 pub use baud_domain::{
     LocatorAt, LocatorButton, LocatorButtons, LocatorDevice, LocatorInput, LocatorKind,
 };
+pub use baud_domain::{NEEDLE_MAX, Needle, NeedleRefused};
 /// Printing's vocabulary: what [`Term::set_printer`] takes and what
 /// [`Term::print_jobs`], [`Term::print_run`] and [`Term::print_refusals`]
 /// answer.
@@ -190,6 +192,7 @@ pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
 pub use logging::LogsRefused;
+pub use search::{Found, SearchLines, Spot};
 pub use status::StatusBuf;
 pub use term::StatusLine;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};

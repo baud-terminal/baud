@@ -639,6 +639,7 @@ files   = [
   "uax9-tr9-52.html",
   "unicode-ch3.html",
   "unicode-enumerated-versions.html",
+  "uts10-tr10-53.html",
   "unicode16-ch5.html",
   "unicode17-ch2.html",
   "unicode17-ch23.html",
@@ -1419,6 +1420,7 @@ files   = [
   "iso8859-9.txt",
   "ucd18-emoji-data.txt",
   "unicode-bidibrackets.txt",
+  "unicode-casefolding.txt",
   "unicode-derivedbidiclass.txt",
   "unicode-derivedcoreproperties.txt",
   "unicode-derivedgeneralcategory.txt",
@@ -2134,8 +2136,8 @@ upstream = "https://codeberg.org/dnkl/foot/src/tag/1.21.0/terminal.c"
 status   = "open"
 
 [[tree]]
-what     = "Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters, widths, the two merged into one table, canonical composition, Default_Ignorable_Code_Point, and what SGR 64's stress mark skips with the separators and combining characters it reads (scripts/gen-stress-table.py). Of shaders.metal only the block between its BEGIN GENERATED and END GENERATED stress-mark markers is generated, and baud.metallib carries those bytes compiled"
-paths    = ["baud-domain/src/grapheme_data.rs", "baud-domain/src/width_data.rs", "baud-domain/src/merged_data.rs", "baud-font/src/compose.rs", "baud-font/src/ignorable.rs", "baud-render/src/stress_data.rs", "baud-present-macos/src/shaders.metal", "baud-present-macos/src/baud.metallib"]
+what     = "Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters, widths, the two merged into one table, canonical composition, Default_Ignorable_Code_Point, the search keys (full case folding from CaseFolding.txt and canonical decomposition from UnicodeData.txt, scripts/gen-search-tables.py), and what SGR 64's stress mark skips with the separators and combining characters it reads (scripts/gen-stress-table.py). Of shaders.metal only the block between its BEGIN GENERATED and END GENERATED stress-mark markers is generated, and baud.metallib carries those bytes compiled"
+paths    = ["baud-domain/src/grapheme_data.rs", "baud-domain/src/width_data.rs", "baud-domain/src/merged_data.rs", "baud-domain/src/search_data.rs", "baud-font/src/compose.rs", "baud-font/src/ignorable.rs", "baud-render/src/stress_data.rs", "baud-present-macos/src/shaders.metal", "baud-present-macos/src/baud.metallib"]
 licence  = "Unicode-3.0"
 notice   = "LICENSES/Unicode-3.0.txt"
 upstream = "https://www.unicode.org/Public/"

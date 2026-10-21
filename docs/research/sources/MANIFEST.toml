@@ -30750,3 +30750,32 @@ group  = "J"
 # hash-verified (`xterm-fontutils`, ucs2dec 4870-4922): which code points
 # UTF8toLatin1 (`xterm-button-c` 1749-1809) turns into DECtoASCII's characters
 # when a paste is converted to ISO 8859-1. Read, not copied.
+
+# Search in the scrollback (lane b135, 2026-10-21): what a match of the
+# user's text is. `scripts/gen-search-tables.py` reads CaseFolding.txt beside
+# `unicode-data`; the comparison is `unicode17-ch3`'s D145.
+[sources.unicode-casefolding]
+key    = "unicode-casefolding"
+title  = "CaseFolding.txt, Unicode Character Database 17.0.0 -- the full (C, F) and simple (C, S) case foldings, and the Turkic (T) rows"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt"
+file   = "unicode-casefolding.txt"
+sha256 = "ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183"
+bytes  = 87539
+status = "retrieved"
+group  = "J"
+
+[sources.uts10]
+key    = "uts10"
+title  = "UTS #10, Unicode Collation Algorithm, revision 53 -- section 11, Searching and Matching: 'Whole Characters Only'"
+author = "Ken Whistler, Markus Scherer"
+year   = 2025
+venue  = "Unicode Technical Standard #10"
+url    = "https://www.unicode.org/reports/tr10/tr10-53.html"
+file   = "uts10-tr10-53.html"
+sha256 = "591cd36fe073193fcc307c516ba95147af27a9b4d612fe2b35773e940c26fa1c"
+bytes  = 301712
+status = "retrieved"
+group  = "J"

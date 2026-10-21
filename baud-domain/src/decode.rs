@@ -646,7 +646,7 @@ impl Codepoint {
     /// Total and lossless, so no `Option`: `char` cannot hold a surrogate or a
     /// value above U+10FFFF. Exists so callers outside this crate do not write
     /// `c as u32` -- the cast belongs where the newtype is, which is here.
-    pub fn from_char(c: char) -> Codepoint {
+    pub const fn from_char(c: char) -> Codepoint {
         Codepoint(c as u32)
     }
     pub fn from_ascii(b: StreamByte) -> Codepoint {

@@ -127,7 +127,7 @@ impl<'a> Scrollback<'a> {
     /// reads as the window draws it"). Past the default blank there is
     /// nothing a caller could not supply, so a plain line still reads to
     /// its mark. One cell read a line, on the read side.
-    pub fn line(&self, back: Back) -> Option<(&[PackedCell], Wrap)> {
+    pub fn line(&self, back: Back) -> Option<(&'a [PackedCell], Wrap)> {
         if back.0 >= self.len.index() {
             return None;
         }
