@@ -201,6 +201,30 @@ impl Fonts {
     }
 }
 
+/// A zoom key's step: Cmd + / Cmd - / Cmd 0 on macOS, Ctrl on Linux.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Zoom {
+    In,
+    Out,
+    Reset,
+}
+
+/// How far one zoom step moves the size: one of the configured size's
+/// units on both systems -- a point on macOS, a pixel on Linux, which has
+/// no backing scale yet -- so the same presses reach the same `font_size`
+/// (Jev, ONE_POINT, 0.94/0.92, over foot's half point).
+pub const ZOOM_STEP: f32 = 1.0;
+
+/// **The size a zoom step from `at` lands on**: a point up or down, within
+/// [`SIZE_MIN`] and [`SIZE_MAX`], or back to the configured `base`.
+pub fn zoomed(step: Zoom, at: f32, base: f32) -> f32 {
+    match step {
+        Zoom::In => (at + ZOOM_STEP).clamp(SIZE_MIN, SIZE_MAX),
+        Zoom::Out => (at - ZOOM_STEP).clamp(SIZE_MIN, SIZE_MAX),
+        Zoom::Reset => base,
+    }
+}
+
 /// Whether `points` is the configured size, as the core says it to a query
 /// of the current entry.
 pub fn size_of(points: f32, configured: f32) -> FontSize {
@@ -213,6 +237,18 @@ pub fn size_of(points: f32, configured: f32) -> FontSize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A zoom step is a point, held inside the sizes, and a reset is the
+    /// configured size.** Perturbation: a half-point step -- the first
+    /// assertion fails.
+    #[test]
+    fn a_zoom_step_is_a_point_within_the_sizes() {
+        assert_eq!(zoomed(Zoom::In, 13.0, 13.0), 14.0);
+        assert_eq!(zoomed(Zoom::Out, 13.0, 13.0), 12.0);
+        assert_eq!(zoomed(Zoom::In, SIZE_MAX, 13.0), SIZE_MAX);
+        assert_eq!(zoomed(Zoom::Out, SIZE_MIN, 13.0), SIZE_MIN);
+        assert_eq!(zoomed(Zoom::Reset, 30.0, 13.0), 13.0);
+    }
 
     fn fonts(text: &str) -> Fonts {
         let mut cfg = Config::defaults();

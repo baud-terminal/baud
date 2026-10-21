@@ -7855,9 +7855,9 @@ impl Responder for Driver {
             // `font_size` still names what the renderer is built at, so
             // stepping from it would make every click of a burst aim at
             // the same size and twelve of them arrive as one.
-            "zoomIn:" => return self.zoom(self.size_ahead() + 1.0),
-            "zoomOut:" => return self.zoom(self.size_ahead() - 1.0),
-            "zoomActual:" => return self.zoom(self.app.font_base),
+            "zoomIn:" => return self.zoom_step(crate::fonts::Zoom::In),
+            "zoomOut:" => return self.zoom_step(crate::fonts::Zoom::Out),
+            "zoomActual:" => return self.zoom_step(crate::fonts::Zoom::Reset),
             _ => {}
         }
         let code = match selector {
@@ -9971,6 +9971,14 @@ impl Driver {
     /// renderer rescaled to it at the current backing scale, the grid
     /// re-laid for the same window, and a frame drawn now. The size is not
     /// written back to the config; Actual Size returns to what it said.
+    /// A View menu zoom: the size the step lands on from the size ahead
+    /// (`fonts::zoomed`), the rule the Linux zoom keys take.
+    fn zoom_step(&mut self, step: crate::fonts::Zoom) {
+        let points = crate::fonts::zoomed(step, self.size_ahead(), self.app.font_base);
+        self.zoom(points);
+    }
+
+    /// The font at `points`, held within the sizes a zoom may reach.
     fn zoom(&mut self, points: f32) {
         self.refont(None, points.clamp(ZOOM_MIN, ZOOM_MAX));
     }
@@ -10801,9 +10809,11 @@ mod tests {
         assert!(body("apply_style").contains("show_theme("), "the flip");
     }
 
-    /// **One place drops.** `Overrides::Drop` appears once in the app's code
-    /// outside its tests, in `apply_style`, behind `palette_switch`; and the
-    /// flip takes its theme from the prebuilt pair, building none.
+    /// **One place a driver drops.** `Overrides::Drop` appears once in the
+    /// macOS driver's code outside its tests, in `apply_style`, behind
+    /// `palette_switch`, and the flip takes its theme from the prebuilt
+    /// pair, building none; once in the Linux driver's, for a change of the
+    /// desktop's, in `appearance::overrides`, behind `appearance::switch`.
     #[test]
     fn only_the_appearance_switch_drops_program_colours() {
         // Everything before the file's own test module, which sits last --
@@ -10816,9 +10826,20 @@ mod tests {
         let app = code(include_str!("app.rs"));
         let host = code(include_str!("host.rs"));
         let linux = code(include_str!("linux.rs"));
+        let appearance = code(include_str!("appearance.rs"));
         let drops = |s: &str| s.matches("Overrides::Drop").count();
         assert!(app.len() > 100_000, "the gate reads the app's code");
-        assert_eq!((drops(app), drops(host), drops(linux)), (1, 0, 0));
+        assert_eq!(
+            (drops(app), drops(host), drops(linux), drops(appearance)),
+            (1, 0, 0, 1)
+        );
+        // The Linux driver's, a desktop change's, behind the switch rule's
+        // Linux form, its only switch of half.
+        let at = appearance.find("fn overrides(").expect("overrides");
+        let body = &appearance[at..at + appearance[at..].find("\n}\n").expect("its end")];
+        assert!(body.contains("Origin::Changed => baud_core::Overrides::Drop"));
+        assert_eq!(linux.matches("self.show_half(").count(), 1);
+        assert!(linux.contains("crate::appearance::switch("));
         let at = app.find("fn apply_style(").expect("apply_style");
         let body = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
         assert!(

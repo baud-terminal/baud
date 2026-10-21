@@ -195,8 +195,8 @@ pub fn typed(c: char) -> KeyEvent {
     e
 }
 
-/// **A key the terminal keeps for itself**: the clipboard's keys as the
-/// Linux desktop binds them, never sent to the program.
+/// **A key the terminal keeps for itself**: the clipboard's keys and the
+/// zoom keys as the Linux desktop binds them, never sent to the program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shortcut {
     /// Ctrl+Shift+C: the selection to the clipboard.
@@ -206,6 +206,12 @@ pub enum Shortcut {
     /// Shift+Insert: xterm's `insert-selection(SELECT, CUT_BUFFER0)`, the
     /// primary selection, or the clipboard under `?1041`.
     PasteSelection,
+    /// Ctrl+plus, Ctrl+equal or Ctrl+KP_Add: the font a step larger.
+    ZoomIn,
+    /// Ctrl+minus or Ctrl+KP_Subtract: a step smaller.
+    ZoomOut,
+    /// Ctrl+0 or Ctrl+KP_0: back to the configured size.
+    ZoomReset,
 }
 
 /// **The shortcut a press of `keycode` makes under `state`, if any.**
@@ -263,14 +269,29 @@ fn chord(mask: baud_xkb::ModMask) -> Modifiers {
 }
 
 /// The shortcut bound to `sym` under `chord`: foot's keysyms, `c`, `v` and
-/// `Insert`, lower case as its bindings name them.
+/// `Insert`, lower case as its bindings name them, and foot's
+/// `font-increase`, `font-decrease` and `font-reset` defaults, "Control+plus
+/// Control+equal Control+KP_Add", "Control+minus Control+KP_Subtract" and
+/// "Control+0 Control+KP_0" (`[[source: foot-2705e36-foot-ini-5]]`
+/// 1368-1377; Jev's lean, CTRL, 0.50/0.40, over kitty's Ctrl+Shift).
 fn bound(sym: Keysym, chord: Modifiers) -> Option<Shortcut> {
-    let ctrl_shift = Modifiers::NONE.with(Modifiers::CTRL).with(Modifiers::SHIFT);
+    let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+    let ctrl_shift = ctrl.with(Modifiers::SHIFT);
     const INSERT: u32 = 0xff63;
+    const PLUS: u32 = 0x2b;
+    const EQUAL: u32 = 0x3d;
+    const MINUS: u32 = 0x2d;
+    const ZERO: u32 = 0x30;
+    const KP_ADD: u32 = 0xffab;
+    const KP_SUBTRACT: u32 = 0xffad;
+    const KP_0: u32 = 0xffb0;
     match (sym.0, chord) {
         (0x63, c) if c == ctrl_shift => Some(Shortcut::Copy),
         (0x76, c) if c == ctrl_shift => Some(Shortcut::Paste),
         (INSERT, c) if c == Modifiers::SHIFT => Some(Shortcut::PasteSelection),
+        (PLUS | EQUAL | KP_ADD, c) if c == ctrl => Some(Shortcut::ZoomIn),
+        (MINUS | KP_SUBTRACT, c) if c == ctrl => Some(Shortcut::ZoomOut),
+        (ZERO | KP_0, c) if c == ctrl => Some(Shortcut::ZoomReset),
         _ => None,
     }
 }

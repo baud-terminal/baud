@@ -562,6 +562,16 @@ status = "built"
 platform = "macos"
 tests = ["baud-core/tests/zoomcycle.rs::a_zoom_cycle_does_not_duplicate_a_line"]
 
+
+[[feature]]
+id = "zoom-linux"
+area = "text"
+name = "Zoom on Linux"
+does = "Ctrl +, Ctrl - and Ctrl 0 zoom one step of the font size at a time, as Cmd does on a Mac, and the window keeps its size."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::the_zoom_keys_are_kept_from_the_program", "baud-app/src/fonts.rs::a_zoom_step_is_a_point_within_the_sizes"]
+
 [[feature]]
 id = "colour-emoji"
 area = "text"
@@ -1055,6 +1065,18 @@ chips = ["hyperlinks"]
 behind = "a link's address is not shown before it opens."
 roadmap = ["F1-04"]
 
+
+[[feature]]
+id = "links-linux"
+area = "input"
+name = "Links open safely on Linux"
+does = "Ctrl-click opens web and mail links in your browser and mail app, whether a program marks them as links or prints the address as plain text; a link to a file is shown in your file manager, never launched, and any other kind is refused."
+status = "built"
+platform = "linux"
+tests = ["baud-app/src/seat.rs::a_ctrl_click_on_a_link_opens_it", "baud-app/src/opener.rs::a_link_is_one_argument_to_xdg_open", "baud-app/src/bus.rs::a_reveal_asks_the_file_manager"]
+rows = ["vt:`OSC 8`"]
+chips = ["hyperlinks"]
+
 [[feature]]
 id = "link-honest"
 area = "input"
@@ -1321,12 +1343,10 @@ rows = ["vt:`CSI ? 2031 h/l`"]
 id = "linux-theme"
 area = "window"
 name = "Light and dark on Linux"
-does = "The Linux version uses dark colours, or light if you choose."
-status = "partial"
-gap = "the desktop's own light or dark setting is not read yet."
+does = "The Linux version follows the desktop's light or dark setting and switches the moment you do, or you can pin one; a desktop with no preference gets the light colours, as GNOME's own apps do."
+status = "built"
 platform = "linux"
-paths = ["baud-app/src/linux.rs"]
-roadmap = ["F2-06"]
+tests = ["baud-app/src/appearance.rs::auto_follows_the_portal_and_a_pinned_theme_stays", "baud-app/src/bus.rs::the_portals_scheme_is_read_and_followed"]
 
 [[feature]]
 id = "built-in-colours"

@@ -16,7 +16,7 @@ use crate::keep::{
     stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Erasure, HistoryMark, Looking, Screen, Term};
+use baud_core::{Erasure, Focus, HistoryMark, Looking, Screen, Term};
 use baud_domain::{
     Col, Cols, EventMillis, ImagePx, LocatorAt, LocatorButtons, LocatorInput, LocatorKind,
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
@@ -122,6 +122,9 @@ pub(crate) enum Owed {
     Selected,
     /// The middle button's release: the driver pastes SELECT.
     PasteSelection,
+    /// A Ctrl-click's release over the link it pressed: the driver opens
+    /// what [`Seat::take_link`] hands it.
+    Link,
 }
 
 /// The modifier bits a mouse report carries: Alt is Meta, the way xterm
@@ -191,6 +194,12 @@ pub(crate) struct Seat {
     travel_across: Travel,
     selection: Option<Selection>,
     scrolled: Scrolled,
+    /// A Ctrl press the link gesture took, and the link its release opens
+    /// (`link::gesture`); whether the window has the keyboard, which a press
+    /// must for it to arm.
+    armed: Option<crate::link::Armed>,
+    opening: Option<crate::link::Under>,
+    focus: Focus,
 }
 
 impl Seat {
@@ -206,7 +215,20 @@ impl Seat {
             travel_across: Travel::default(),
             selection: None,
             scrolled: Scrolled::START,
+            armed: None,
+            opening: None,
+            focus: Focus::Lost,
         }
+    }
+
+    /// The keyboard came or went: a link arms only in a focused window.
+    pub(crate) fn focused(&mut self, f: Focus) {
+        self.focus = f;
+    }
+
+    /// The link a [`Owed::Link`] opens, once.
+    pub(crate) fn take_link(&mut self) -> Option<crate::link::Under> {
+        self.opening.take()
     }
 
     /// Whether the pointer is over the surface, for its shape.
@@ -346,6 +368,14 @@ impl Seat {
             };
             crate::reads::input(term, |t| t.locator(e), &mut sink);
         }
+        // **A Ctrl press over a link is the terminal's, the whole
+        // gesture**, before the child's tracking, as Cmd is on macOS, so a
+        // child never sees a release without its press (`link::gesture`;
+        // gnome-terminal's chord, `[[source: gnome-terminal-screen]]`
+        // 2010-2022; Jev's lean, CTRL, 0.52/0.78, over kitty's Ctrl+Shift).
+        if let Some(owed) = self.link(term, e, kind, button, mods, g) {
+            return owed;
+        }
         let held = match mods.has(Modifiers::SHIFT) {
             true => Shift::Held,
             false => Shift::Up,
@@ -446,6 +476,64 @@ impl Seat {
         match term.highlight() != tracked {
             true => Owed::Frame,
             false => Owed::Nothing,
+        }
+    }
+
+    /// **The link gesture's share of a pointer event**, or `None` when it
+    /// is not the gesture's. Ctrl without Shift is the chord; Shift keeps
+    /// its meaning, the selection's override.
+    fn link(
+        &mut self,
+        term: &Term<'_>,
+        e: Input,
+        kind: Kind,
+        button: Pressed,
+        mods: Modifiers,
+        g: Geometry,
+    ) -> Option<Owed> {
+        use crate::link::{Chord, Clicks as Count, Gesture, Press, Spot};
+        let press = match (e, kind, button) {
+            (Input::Left, ..) => Press::Exited,
+            (_, Kind::Down, Pressed::Left) => Press::Down,
+            (_, Kind::Up, Pressed::Left) => Press::Up,
+            (_, Kind::Dragged, _) => Press::Dragged,
+            _ => Press::Other,
+        };
+        let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
+            true => Chord::Cmd,
+            false => Chord::Other,
+        };
+        let clicks = match self.clicks.count.0 <= 1 {
+            true => Count::Single,
+            false => Count::Repeat,
+        };
+        let (row, col, _) = self.under(g);
+        let back = term.window_back();
+        let col = baud_render::char_col(&term.view(back), row, col);
+        let spot = Spot {
+            scrolled: self.scrolled,
+            back,
+            row,
+            col,
+        };
+        let armed = self.armed.as_ref();
+        let under = crate::link::under(term, spot, press, chord, self.focus, armed);
+        match crate::link::gesture(press, chord, clicks, self.focus, armed, under.as_ref()) {
+            Gesture::Pass => None,
+            Gesture::Arm(a) => {
+                self.armed = Some(a);
+                Some(Owed::Nothing)
+            }
+            Gesture::Hold => Some(Owed::Nothing),
+            Gesture::Drop => {
+                self.armed = None;
+                Some(Owed::Nothing)
+            }
+            Gesture::Open(link) => {
+                self.armed = None;
+                self.opening = Some(link);
+                Some(Owed::Link)
+            }
         }
     }
 
@@ -1072,6 +1160,98 @@ mod tests {
             (Owed::PasteSelection, Vec::new()),
             "Shift overrides"
         );
+    }
+
+    /// **A Ctrl-click on a link is the terminal's, the whole gesture**: the
+    /// press arms, a tracking child hears neither half, and the release
+    /// over the same link hands it to the driver once; a URI printed as
+    /// text opens the same way. The controls: without the keyboard the
+    /// press is the child's report, Shift with Ctrl is the selection's,
+    /// and a plain click reports. Perturbation: take Shift+Ctrl as the
+    /// chord -- the Shift assertion fails.
+    #[test]
+    fn a_ctrl_click_on_a_link_opens_it() {
+        use crate::link::Under;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://example.com/\x1b\\link\x1b]8;;\x1b\\ https://a.example/b\x1b[?1000h",
+        );
+        let mut seat = Seat::new();
+        let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+        let shift_ctrl = ctrl.with(Modifiers::SHIFT);
+        put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
+        let (owed, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(0)),
+            ctrl,
+        );
+        assert!(!sent.is_empty(), "unfocused, the child's report: {owed:?}");
+        put(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(5)), ctrl);
+        assert_eq!(seat.take_link(), None, "no keyboard, no link");
+        seat.focused(Focus::Gained);
+        let (owed, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(1000)),
+            ctrl,
+        );
+        assert_eq!((owed, sent.as_slice()), (Owed::Nothing, &b""[..]), "armed");
+        let (owed, sent) = put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(1005)),
+            ctrl,
+        );
+        assert_eq!((owed, sent.as_slice()), (Owed::Link, &b""[..]));
+        assert!(matches!(seat.take_link(), Some(Under::Osc8(_))));
+        assert_eq!(seat.take_link(), None, "once");
+        put(&mut seat, &mut t, Input::Moved(85.0, 5.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(2000)),
+            ctrl,
+        );
+        let (owed, _) = put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(2005)),
+            ctrl,
+        );
+        assert_eq!(owed, Owed::Link, "a URI in the text");
+        assert!(matches!(seat.take_link(), Some(Under::Bare(_))));
+        put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(3000)),
+            shift_ctrl,
+        );
+        let (owed, _) = put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(3005)),
+            shift_ctrl,
+        );
+        assert_ne!(owed, Owed::Link, "Shift is the selection's");
+        assert_eq!(seat.take_link(), None);
+        let (_, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(4000)),
+            NONE,
+        );
+        assert!(!sent.is_empty(), "a plain click is the child's report");
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(4005)),
+            NONE,
+        );
+        assert_eq!(seat.take_link(), None);
     }
 
     /// **A clean click moves the shell's point under `?2001`**, and a

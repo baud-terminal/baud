@@ -2233,6 +2233,71 @@ fn the_clipboard_keys_are_kept_from_the_program() {
     assert_eq!(got.len(), 4, "{got:?}");
 }
 
+// evdev codes for the zoom keys.
+const KEY_0: u32 = 11;
+const KEY_MINUS: u32 = 12;
+const KEY_EQUAL: u32 = 13;
+const KEY_KPMINUS: u32 = 74;
+const KEY_KPPLUS: u32 = 78;
+const KEY_KP0: u32 = 82;
+
+/// **The zoom keys are the terminal's**: Ctrl+equal, Ctrl+plus (Shift on
+/// the equal key) and Ctrl+KP_Add zoom in, Ctrl+minus and Ctrl+KP_Subtract
+/// out, Ctrl+0 and Ctrl+KP_0 (NumLock on) back, foot's defaults. Ctrl+Alt
+/// on the minus key is a key, the chord being exact, and so is Ctrl+Shift
+/// on the minus key, which types an underscore no binding names.
+#[test]
+fn the_zoom_keys_are_kept_from_the_program() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard: kb,
+        ..
+    } = clip_session();
+    let (shift, ctrl, alt, num) = (1u32, 4u32, 8u32, 16u32);
+    let mut serial = 10;
+    for (mask, locked, code, want) in [
+        (ctrl, 0, KEY_EQUAL, Shortcut::ZoomIn),
+        (ctrl | shift, 0, KEY_EQUAL, Shortcut::ZoomIn),
+        (ctrl, 0, KEY_KPPLUS, Shortcut::ZoomIn),
+        (ctrl, 0, KEY_MINUS, Shortcut::ZoomOut),
+        (ctrl, 0, KEY_KPMINUS, Shortcut::ZoomOut),
+        (ctrl, 0, KEY_0, Shortcut::ZoomReset),
+        (ctrl, num, KEY_KP0, Shortcut::ZoomReset),
+    ] {
+        server.send(
+            kb,
+            "wl_keyboard",
+            "modifiers",
+            &[
+                Arg::Uint(1),
+                Arg::Uint(mask),
+                Arg::Uint(0),
+                Arg::Uint(locked),
+                Arg::Uint(0),
+            ],
+        );
+        key_at(&mut server, kb, serial, code, PRESSED);
+        key_at(&mut server, kb, serial + 1, code, RELEASED);
+        serial += 2;
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [Event::Shortcut(want)], "{want:?} {code}");
+    }
+    for mask in [ctrl | alt, ctrl | shift] {
+        depressed(&mut server, kb, mask);
+        key_at(&mut server, kb, serial, KEY_MINUS, PRESSED);
+        key_at(&mut server, kb, serial + 1, KEY_MINUS, RELEASED);
+        serial += 2;
+        pump(&mut conn, &mut w);
+        let got = drain(&mut w);
+        assert!(
+            !got.is_empty() && got.iter().all(|e| matches!(e, Event::Key(_))),
+            "{mask}: keys, not shortcuts: {got:?}"
+        );
+    }
+}
+
 /// **The clipboard's keys are found on a Cyrillic layout too**, as foot
 /// finds a binding: with the `us,de,ru` keymap locked to Russian, the C key
 /// types `Cyrillic_es`, and Ctrl+Shift on it is still the copy, through

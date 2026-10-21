@@ -97,12 +97,12 @@ pub const POLLNVAL: i16 = 0x20;
 pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
 
-/// `fcntl`'s commands and flag for a descriptor's own flags: a test reads
-/// that what `openat` opened for a kitty file closes on exec. The same
-/// values on both platforms.
+/// `fcntl`'s commands and flag for a descriptor's own flags: the pty's
+/// master is set to close on exec, and a test reads that what `openat`
+/// opened for a kitty file does. The same values on both platforms.
 #[cfg(test)]
 pub const F_GETFD: c_int = 1;
-#[cfg(test)]
+pub const F_SETFD: c_int = 2;
 pub const FD_CLOEXEC: c_int = 1;
 #[cfg(target_os = "macos")]
 pub const O_NONBLOCK: c_int = 0x4;
@@ -771,6 +771,7 @@ int main(void) {
     printf("F_GETFL=%lld\n", (long long)F_GETFL);
     printf("F_SETFL=%lld\n", (long long)F_SETFL);
     printf("F_GETFD=%lld\n", (long long)F_GETFD);
+    printf("F_SETFD=%lld\n", (long long)F_SETFD);
     printf("FD_CLOEXEC=%lld\n", (long long)FD_CLOEXEC);
     printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
     printf("O_NOCTTY=%lld\n", (long long)O_NOCTTY);
@@ -1003,6 +1004,7 @@ int main(void) {
         assert_eq!(h["F_GETFL"], i128::from(F_GETFL));
         assert_eq!(h["F_SETFL"], i128::from(F_SETFL));
         assert_eq!(h["F_GETFD"], i128::from(F_GETFD));
+        assert_eq!(h["F_SETFD"], i128::from(F_SETFD));
         assert_eq!(h["FD_CLOEXEC"], i128::from(FD_CLOEXEC));
         assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
         assert_eq!(h["O_NOCTTY"], i128::from(O_NOCTTY));

@@ -27,14 +27,21 @@
 //! bounds the one wait; motion in flight owes a frame on each turn, which
 //! the compositor's frame events pace.
 //!
+//! **The desktop's appearance and links are the Linux desktop's**: under
+//! `theme = "auto"` the palette follows the Settings portal's
+//! `color-scheme` over the session bus, read at launch and followed as it
+//! changes (`bus.rs`, `appearance.rs`); a Ctrl-click on a link opens it
+//! with `xdg-open`, and a `file:` link is revealed by the file manager
+//! (`opener.rs`); Ctrl+plus, Ctrl+minus and Ctrl+0 zoom. Tested over a
+//! socket pair against another implementation's bytes, never on a desktop.
+//!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
 //! path this paints on jumps (`docs/record.md`, "Smooth scroll slides the
 //! cell path on the ring, and the one-row cap is the latency answer"); the
 //! desktop's motion preference, so the default trail runs and text blinks
 //! whatever it says; the system caret's rate (this keeps 333 ms a phase
-//! until the desktop's settings are read); a link opened by a click; a
-//! backing scale other than one -- the window binds no fractional-scale
+//! until the desktop's settings are read); a backing scale other than one -- the window binds no fractional-scale
 //! global; and the report every five seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
@@ -187,6 +194,20 @@ struct Driver {
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
+    /// The session bus, for the portal's appearance and the file
+    /// manager's reveal; `None` once it is gone or was never there.
+    bus: Option<crate::bus::Bus>,
+    /// The config's `theme`, the half drawn, and what rebuilds a half: the
+    /// theme files' schemes, `[glass]`'s dims and the contrast floor.
+    theme_choice: crate::config::ThemeChoice,
+    half: crate::palette::Half,
+    halves: crate::palette::Halves,
+    glass: crate::config::Glass,
+    floor: baud_render::Floor,
+    /// The `xdg-open`s a link started, reaped on each turn, and this
+    /// machine's name for a `file://host/` link.
+    opener: crate::opener::Opener,
+    host: String,
 }
 
 /// Whether a one-time line has been logged.
@@ -241,14 +262,19 @@ pub fn run() {
     if let Some(release) = crate::pages::release() {
         term.set_page_release(release);
     }
-    // **No appearance signal is wired here, so `Auto` resolves to dark.**
-    // The desktop's preference lives behind `org.freedesktop.appearance`
-    // on the portal's settings interface, which this driver does not speak
-    // yet; naming the key is how a reader gets light until it does.
-    let half = match cfg.theme {
-        crate::config::ThemeChoice::Light => crate::palette::Half::Light,
-        _ => crate::palette::Half::Dark,
+    // **The desktop's appearance, from the Settings portal over the session
+    // bus** (`bus.rs`, `appearance.rs`): asked now, before the window opens,
+    // so the answer usually lands before the first frame and never holds
+    // it. Until it does, and with no bus, `auto` draws dark, as on macOS
+    // before the system has said anything.
+    let bus = match crate::bus::Bus::connect() {
+        Ok(b) => Some(b),
+        Err(e) => {
+            crate::info!("{e}: theme = \"auto\" draws dark, and a file: link is not revealed");
+            None
+        }
     };
+    let half = crate::appearance::half_for(cfg.theme, None);
     // Both halves are read, so a mistake in the one not drawn is still
     // reported; only the half drawn is built.
     let (halves, said) = crate::palette::load_halves(
@@ -393,6 +419,14 @@ pub fn run() {
         composing: Vec::new(),
         composing_hints: Vec::new(),
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition),
+        bus,
+        theme_choice: cfg.theme,
+        half,
+        halves,
+        glass: cfg.glass,
+        floor: cfg.floor,
+        opener: crate::opener::Opener::default(),
+        host: crate::opener::host_name(),
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -454,8 +488,9 @@ pub fn run() {
             .into_iter()
             .flatten()
             .min();
-        // The clipboard's pipes, each waited on for what it owes.
-        let transfers: Vec<_> = d
+        // The clipboard's pipes, each waited on for what it owes, and the
+        // session bus, for what it sends and the room to send it.
+        let mut transfers: Vec<_> = d
             .window
             .transfers()
             .map(|(fd, want)| {
@@ -466,6 +501,12 @@ pub fn run() {
                 (fd, i)
             })
             .collect();
+        if let Some(bus) = &d.bus {
+            transfers.push((bus.as_fd(), crate::pty::Interest::Read));
+            if bus.wants_write() {
+                transfers.push((bus.as_fd(), crate::pty::Interest::Write));
+            }
+        }
         let waited = wait(
             d.conn.as_fd(),
             d.pty.as_fd(),
@@ -509,6 +550,10 @@ pub fn run() {
         if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
             d.feed(&[]);
         }
+        // What the session bus sent, never waiting, and the openers a link
+        // started that have ended.
+        d.pump_bus();
+        d.opener.reap();
         // After a timeout as much as after readiness: a repeat is due on
         // the clock, not on an event, and so is a flash's end. The
         // transfers move as far as their pipes allow, a paste finished
@@ -583,6 +628,7 @@ pub fn run() {
                 Event::Focus(f) => {
                     crate::reads::input(&mut d.term, |t| t.focus(f), |b| d.outbox.push(b));
                     d.focus = f;
+                    d.seat.focused(f);
                     if f == Focus::Gained {
                         d.caret.input(Instant::now());
                     } else {
@@ -925,6 +971,11 @@ impl Driver {
                 let board = board_of(crate::clip::select_board(&self.term));
                 self.window.paste(&mut self.conn.sender(), board);
             }
+            Owed::Link => {
+                if let Some(link) = self.seat.take_link() {
+                    self.open_link(&link);
+                }
+            }
         }
         // A move or a press shows a pointer a key hid; a crossing shows it
         // but at mode 3, where an enter hides it again with the enter's serial, the
@@ -950,6 +1001,105 @@ impl Driver {
             }
             _ => {}
         }
+    }
+
+    /// **A link to the desktop, or refused and said why**, the macOS
+    /// driver's rules (`link::admit`): what it opens goes to `xdg-open`,
+    /// one argument and no shell (`opener.rs`), and a `file:` link, which
+    /// opening could launch, is revealed by the file manager over the
+    /// session bus, or refused where there is no bus.
+    fn open_link(&mut self, link: &crate::link::Under) {
+        use crate::link::{Action, Host, Under};
+        let shown = |uri: &[u8]| {
+            uri.iter()
+                .take(80)
+                .copied()
+                .collect::<Vec<u8>>()
+                .escape_ascii()
+                .to_string()
+        };
+        let uri = match link {
+            Under::Osc8(id) => match self.term.link_uri(*id) {
+                Some(uri) => uri,
+                None => {
+                    crate::warn!("link refused (gone)");
+                    return;
+                }
+            },
+            Under::Bare(bare) => match bare.uri() {
+                Ok(uri) => uri,
+                Err(why) => {
+                    crate::warn!("link refused ({why:?}): {}", shown(bare.text()));
+                    return;
+                }
+            },
+        };
+        let said = shown(uri);
+        match crate::link::admit(uri, Host(&self.host)) {
+            Err(why) => crate::warn!("link refused ({why:?}): {said}"),
+            Ok(t) => match t.action() {
+                Action::Open => match self.opener.start(crate::opener::command(t.as_str())) {
+                    Ok(()) => crate::info!("link opened ({:?}): {said}", t.scheme()),
+                    Err(e) => crate::warn!("link not opened: xdg-open: {e}: {said}"),
+                },
+                Action::Reveal => match self.bus.as_mut() {
+                    Some(bus) => {
+                        bus.reveal(&crate::opener::local(t.as_str()));
+                        crate::info!("link sent to the file manager: {said}");
+                    }
+                    None => crate::warn!("link not revealed: no session bus: {said}"),
+                },
+            },
+        }
+    }
+
+    /// **What the session bus sent** (`bus.rs`): the desktop's colour
+    /// scheme, read or changed, a reveal's answer, or the bus gone.
+    fn pump_bus(&mut self) {
+        let Some(bus) = self.bus.as_mut() else {
+            return;
+        };
+        for heard in bus.pump() {
+            self.heard(heard);
+        }
+    }
+
+    fn heard(&mut self, heard: crate::bus::Heard) {
+        use crate::bus::Heard;
+        match heard {
+            Heard::Scheme(s, origin) => {
+                if let Some(half) = crate::appearance::switch(self.theme_choice, self.half, s) {
+                    self.show_half(half, crate::appearance::overrides(origin));
+                }
+            }
+            Heard::NoScheme(e) if self.theme_choice == crate::config::ThemeChoice::Auto => {
+                crate::info!(
+                    "appearance: the Settings portal gave no color-scheme ({e}); theme = \"auto\" draws dark"
+                );
+            }
+            Heard::NoScheme(_) => {}
+            Heard::Revealed => crate::info!("link revealed by the file manager"),
+            Heard::NotRevealed(e) => {
+                crate::warn!("link not revealed: the file manager answered {e}")
+            }
+            Heard::Closed(e) => {
+                crate::warn!("{e}");
+                self.bus = None;
+            }
+        }
+    }
+
+    /// **The palette's other half**, built as at launch, a program's
+    /// colours kept or dropped as `appearance::overrides` says, and the
+    /// frame repainted whole: a theme moves no cell word, which row damage
+    /// compares.
+    fn show_half(&mut self, half: crate::palette::Half, overrides: baud_core::Overrides) {
+        self.half = half;
+        let theme = crate::palette::half_theme(half, &self.glass, self.floor, &self.halves);
+        self.renderer.set_theme(theme);
+        crate::host::tell_defaults(&mut self.term, self.renderer.theme(), overrides);
+        self.damage = Damage::Full;
+        self.pending = Pending::Dirty;
     }
 
     /// **The scrollbar's share of a pointer event** (`bar.rs`), at the
@@ -1018,10 +1168,12 @@ impl Driver {
         }
     }
 
-    /// **A clipboard key** (`baud_present_wayland::keys::shortcut`):
+    /// **A clipboard or a zoom key** (`baud_present_wayland::keys::shortcut`):
     /// Ctrl+Shift+C copies the selection to the clipboard, Ctrl+Shift+V
     /// pastes the clipboard, and Shift+Insert pastes SELECT. A copy with
-    /// nothing selected copies nothing.
+    /// nothing selected copies nothing. Ctrl+plus and Ctrl+minus zoom a
+    /// step of the configured size at a time and Ctrl+0 returns to it, as
+    /// Cmd does on macOS (`zoom`).
     fn shortcut(&mut self, s: baud_present_wayland::Shortcut) {
         use baud_present_wayland::Shortcut;
         match s {
@@ -1033,7 +1185,18 @@ impl Driver {
                 let board = board_of(crate::clip::select_board(&self.term));
                 self.window.paste(&mut self.conn.sender(), board);
             }
+            Shortcut::ZoomIn => self.zoom(crate::fonts::Zoom::In),
+            Shortcut::ZoomOut => self.zoom(crate::fonts::Zoom::Out),
+            Shortcut::ZoomReset => self.zoom(crate::fonts::Zoom::Reset),
         }
+    }
+
+    /// **A zoom key**: the font in force at the size the step lands on
+    /// (`fonts::zoomed`), the grid re-laid in the window as a program's
+    /// `OSC 50` lays it.
+    fn zoom(&mut self, step: crate::fonts::Zoom) {
+        let points = crate::fonts::zoomed(step, self.font_size, self.font_base);
+        self.refont(None, points);
     }
 
     /// The selection's text to `board`, if there is a selection.

@@ -24,7 +24,8 @@ padding = 8
 
 # The palette. "auto" follows the system appearance (System Settings >
 # Appearance) and changes with it; "dark" and "light" pin it. On Linux "auto"
-# resolves to dark, because no appearance signal is wired there yet.
+# follows the desktop's light or dark setting, light where the desktop states
+# no preference, and dark where no desktop portal answers.
 #
 # The sixteen ANSI colours are xterm's on the dark palette and Modus Operandi's
 # on the light one (by Protesilaos Stavrou, GPL-3.0-or-later), with five made
@@ -402,9 +403,9 @@ changes = "on"
 # surfaces: the same darkening that reads right over a dark desktop is far too
 # much over a light one. baud picks the one the system appearance names and
 # changes it when that changes -- so does the palette, unless "theme" above
-# pins it. On Linux there is no appearance signal yet, so "dim_dark" is used
-# unless theme = "light", and the style, tint, hue, saturation and shadow keys
-# have no counterpart at all.
+# pins it. On Linux the dim follows the half of the palette drawn, which
+# "theme" and the desktop's light or dark setting decide, and the style,
+# tint, hue, saturation and shadow keys have no counterpart at all.
 [glass]
 
 # Which material. "standard", the default, is macOS's standard see-through

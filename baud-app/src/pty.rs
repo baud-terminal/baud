@@ -1143,6 +1143,17 @@ impl Pty {
                 crate::sys::_exit(127);
             }
         }
+        // **The master closes on exec**: a program this process starts --
+        // the opener a link is handed to, and what that opener starts --
+        // never holds the terminal's other end. The child closed its copy
+        // in `forkpty`.
+        // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
+        if unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) } < 0 {
+            crate::warn!(
+                "pty: the master stays open across exec: {}",
+                std::io::Error::last_os_error()
+            );
+        }
         Some(master)
     }
 
@@ -1763,6 +1774,27 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), OUTER.len(), "OUTER repeats an entry");
+    }
+
+    /// **The master closes on exec**, so a program the app starts never
+    /// holds it. Perturbation: drop the `F_SETFD` -- this fails.
+    #[test]
+    fn the_master_closes_on_exec() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("exit 0".into()),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        // SAFETY: an open descriptor; `F_GETFD` takes no argument.
+        let flags = unsafe { crate::sys::fcntl(master, crate::sys::F_GETFD) };
+        let _ = read_all(master);
+        assert!(flags >= 0);
+        assert_eq!(flags & crate::sys::FD_CLOEXEC, crate::sys::FD_CLOEXEC);
     }
 
     /// **And the child a pty forks actually sees it**: the same parent

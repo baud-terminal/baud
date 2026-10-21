@@ -1,5 +1,6 @@
-//! Link activation: which link a Cmd-click opens, and which it refuses --
-//! an `OSC 8` run, or a URI printed as plain text.
+//! Link activation: which link a Cmd-click on macOS or a Ctrl-click on
+//! Linux opens, and which it refuses -- an `OSC 8` run, or a URI printed as
+//! plain text.
 //!
 //! The core stores a link per cell and answers `Term::link_uri`; whether a
 //! click on it opens anything is this app's policy rather than the
@@ -18,9 +19,10 @@
 //!   `OSC 8` run (`[[source: rfc3986]]`): from one of the four schemes
 //!   above, over RFC 3986's characters, across the rows a soft wrap joined
 //!   and no further, and only when the click asks -- [`under`] runs it on
-//!   an unarmed Cmd press and on the release of a press it armed, never on
-//!   a drag, a move or a frame. Where the RFC is silent, practice decided,
-//!   through Jev on 2026-10-18 at below 0.9 and so on the lean: trailing
+//!   an unarmed Cmd press (Ctrl on Linux) and on the release of a press it
+//!   armed, never on a drag, a move or a frame. Where the RFC is silent,
+//!   practice decided, through Jev on 2026-10-18 at below 0.9 and so on the
+//!   lean: trailing
 //!   `.,;:!?'*` and an unmatched closing bracket are prose, not the URI; an
 //!   opening `(` or `[` just before the scheme ends it at the closer that
 //!   matches nothing inside; a letter outside ASCII running on from it
@@ -30,7 +32,9 @@
 //!   `"` opened before it and never closed before a hard line break
 //!   (Appendix C's own example) -- is refused whole, never opened
 //!   shortened.
-//! * [`gesture`] decides what a mouse event over a link means: Cmd-click,
+//! * [`gesture`] decides what a mouse event over a link means: Cmd-click
+//!   (Ctrl-click on Linux, where the Linux driver opens with `xdg-open` and
+//!   reveals through the file manager, `opener.rs` and `bus.rs`),
 //!   armed on the press and opened on the release over the same link, the
 //!   whole gesture the terminal's -- a child tracking the mouse never sees
 //!   it, the way Shift already carves a selection out.
@@ -744,9 +748,9 @@ pub enum Press {
     Other,
 }
 
-/// The modifier chord of a press: Cmd alone is the link gesture, and
-/// Shift wins over it -- one meaning per modifier, and Shift's is the
-/// selection carve-out, which is older and documented.
+/// The modifier chord of a press: Cmd alone is the link gesture -- Ctrl on
+/// Linux -- and Shift wins over it -- one meaning per modifier, and
+/// Shift's is the selection carve-out, which is older and documented.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Chord {
     Cmd,

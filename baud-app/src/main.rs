@@ -22,10 +22,19 @@
 
 #[cfg(target_os = "macos")]
 mod app;
+// Which half of the palette the Linux window draws under `theme = "auto"`:
+// pure, so its tests run on every platform.
+#[cfg(any(target_os = "linux", test))]
+mod appearance;
 // The scrollbar's thumb under the Linux driver's pointer: pure, so its
 // tests run on every platform; only the Linux driver drives it.
 #[cfg(any(target_os = "linux", test))]
 mod bar;
+// The session bus, for the desktop's appearance and the file manager's
+// reveal: the protocol over bytes is pure, so its tests run on every
+// platform; only the Linux driver connects.
+#[cfg(any(target_os = "linux", test))]
+mod bus;
 // The visual bell's state is pure and its tests run on every platform; both
 // drivers read it, and so does the pty, for the one spelling of `TERM`.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -79,13 +88,17 @@ mod latency;
 // through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod marked;
-// The link policy is pure and its tests run on every platform; only the
-// macOS driver consumes it today, so the bin builds it there alone.
-#[cfg(any(target_os = "macos", test))]
+// The link policy is pure and its tests run on every platform; both
+// drivers open a link through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod link;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;
+// The Linux driver's `xdg-open` for a link: its tests run on every
+// platform.
+#[cfg(any(target_os = "linux", test))]
+mod opener;
 // Freed image pages back to the system, which both drivers lend the core.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pages;

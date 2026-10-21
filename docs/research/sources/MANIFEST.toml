@@ -30637,3 +30637,99 @@ bytes  = 647787
 status = "external"
 group  = "H"
 # Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.
+
+# Group B134, the Linux app's appearance, links and paste (lane b134,
+# 2026-10-21). The Settings portal's interface above, re-fetched and
+# hash-verified (`xdg-portal-settings-v2`), was read whole for it: `color-scheme`
+# (u) 0 no preference, 1 dark, 2 light,
+# "Unknown values should be treated as 0", `ReadAll` in every version,
+# `ReadOne` version 2's, and `Read`'s reply two variants deep.
+
+[sources.xdg-portal-api-reference]
+key    = "xdg-portal-api-reference"
+title  = "xdg-desktop-portal ee298d1, doc/api-reference.rst -- portals at org.freedesktop.portal.Desktop, /org/freedesktop/portal/desktop, on the session bus (11-12)"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/doc/api-reference.rst"
+file   = ""
+sha256 = "bf1574cd72199d5b49ceeaf3149610807e5a2be794eabac4acb95cf1110b0786"
+bytes  = 3015
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134): where the Settings portal is on the bus.
+
+[sources.dbus-spec]
+key    = "dbus-spec"
+title  = "D-Bus Specification 0.43 (dbus 1.16.2, doc/dbus-specification.xml) -- marshalling, the message header and its fields, SASL EXTERNAL, unix: addresses, the session bus address"
+author = "the D-Bus contributors"
+year   = 2024
+venue  = "gitlab.freedesktop.org/dbus/dbus @ 958bf9db (dbus-1.16.2)"
+url    = "https://gitlab.freedesktop.org/dbus/dbus/-/raw/958bf9db2100553bcd2fe2a854e1ebb42e886054/doc/dbus-specification.xml"
+file   = ""
+sha256 = "ea56234bc02a4a8080c8a07908d3af8f443ccb22b63fd575062ac3ec9bc2e7dc"
+bytes  = 348639
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134): the wire protocol baud-app/src/bus.rs speaks. Read:
+# the EXTERNAL text (3370-3390: "interoperable clients should prefer to send the
+# ASCII decimal string form of the integer Unix user ID", hex-encoded), the session
+# bus's address (5576-5590: DBUS_SESSION_BUS_ADDRESS, else "platform-specific
+# methods"), the header fields, alignment and the 2^27 message bound.
+
+[sources.dbus-next-0-2-3]
+key    = "dbus-next-0-2-3"
+title  = "dbus-next 0.2.3 (Python), the wheel -- an independent D-Bus marshaller, the oracle for baud-app/fixtures/bus-*.hex"
+author = "Tony Crisci and the dbus-next contributors (MIT)"
+year   = 2020
+venue  = "PyPI"
+url    = "https://files.pythonhosted.org/packages/py3/d/dbus-next/dbus_next-0.2.3-py3-none-any.whl"
+file   = ""
+sha256 = "58948f9aff9db08316734c0be2a120f6dc502124d9642f55e90ac82ffb16a18b"
+bytes  = 57885
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134) and run, never copied: its `Message._marshall()`
+# wrote the bytes bus.rs's tests compare its own calls to and parse as replies.
+
+[sources.freedesktop-file-manager1]
+key    = "freedesktop-file-manager1"
+title  = "freedesktop.org, File Manager DBus Interface -- org.freedesktop.FileManager1 ShowItems(as URIs, s StartupId): select the items in their parent folders"
+author = "Federico Mena Quintero and contributors (CC-BY)"
+year   = 2021
+venue  = "freedesktop.org wiki, Specifications/file-manager-interface"
+url    = "https://www.freedesktop.org/wiki/Specifications/file-manager-interface/"
+file   = ""
+sha256 = "694ddcee7f3f90d05340fcbf9df8c9af6451a6d568b3b99f25feb22bb5651ea9"
+bytes  = 5483
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134): the Linux reveal of a file: link, Finder's on macOS.
+
+[sources.xdg-open-1]
+key    = "xdg-open-1"
+title  = "xdg-utils 1.2.1, scripts/desc/xdg-open.xml -- xdg-open(1): opens a file or URL in the user's preferred application; cannot handle an argument beginning with -; may run for a very long time"
+author = "Kevin Krammer, Jeremy White and the xdg-utils contributors"
+year   = 2024
+venue  = "gitlab.freedesktop.org/xdg/xdg-utils @ 356c380a (v1.2.1)"
+url    = "https://gitlab.freedesktop.org/xdg/xdg-utils/-/raw/356c380ad6fecc9ce6bea1f6a77986ba67402c80/scripts/desc/xdg-open.xml"
+file   = ""
+sha256 = "7925599e57cb95bd21a87e8e028541c0f7390b48f2d2cc3df3ffab927a2e5c8b"
+bytes  = 6770
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134): what the Linux driver hands an admitted link to.
+
+[sources.gnome-terminal-screen]
+key    = "gnome-terminal-screen"
+title  = "gnome-terminal 3.56.2, src/terminal-screen.cc -- terminal_screen_button_press: Ctrl with button 1 or 2 on a hyperlink or a matched URL opens it and the click goes no further (2010-2022)"
+author = "the GNOME Terminal contributors (GPL-3.0-or-later)"
+year   = 2025
+venue  = "gitlab.gnome.org/GNOME/gnome-terminal @ 941d51d1 (3.56.2)"
+url    = "https://gitlab.gnome.org/GNOME/gnome-terminal/-/raw/941d51d151c0e25b285ffe98ad4a38b4ce5dda69/src/terminal-screen.cc"
+file   = ""
+sha256 = "5d9a32b51fb212648954d46fa6604d23b59d0823344b6ef8288bf04d312a6a55"
+bytes  = 86581
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134): the Linux link chord. Read, not copied.
