@@ -364,8 +364,9 @@ hide_while_typing = "on"
 # faces baud has loaded -- the embedded font, which answers to its family
 # name, "Proto Hebrew Mono C" for now ("JetBrains Mono" does not, as only
 # the styled faces carry it), or a font this file lists above -- or make
-# the text bigger or smaller a step at a time, within 6-72 points (on
-# Linux, of the configured pixel size). "on" by default; "off" refuses
+# the text bigger or smaller a step at a time, within 6 to 72 points (on
+# Linux, which has no size keys, the step and the bounds are in pixels of
+# the configured size). "on" by default; "off" refuses
 # every change. A program can ask which font is in use either way.
 [font]
 changes = "on"

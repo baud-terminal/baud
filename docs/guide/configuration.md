@@ -153,7 +153,7 @@ trail is off, unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `changes` | `"on"`, `"off"` | `"on"` | Whether a program can change the font, as xterm lets it: switch to another of the fonts baud has loaded (the embedded font, which answers to its family name, "Proto Hebrew Mono C" for now -- "JetBrains Mono" does not, as only the styled faces carry it -- or one this file lists), or make the text bigger or smaller a step at a time, within 6-72 points; a step past them is refused, where Bigger and Smaller in the View menu stop at the bound. On Linux, which has no size keys, a step is of the configured pixel size. `"off"` refuses every change. A program can ask which font is in use either way. |
+| `changes` | `"on"`, `"off"` | `"on"` | Whether a program can change the font, as xterm lets it: switch to another of the fonts baud has loaded (the embedded font, which answers to its family name, "Proto Hebrew Mono C" for now -- "JetBrains Mono" does not, as only the styled faces carry it -- or one this file lists), or make the text bigger or smaller a step at a time, within 6 to 72 points; a step past them is refused, where Bigger and Smaller in the View menu stop at the bound. On Linux, which has no size keys, the step and the bounds are in pixels of the configured size. `"off"` refuses every change. A program can ask which font is in use either way. |
 
 ## [glass]
 

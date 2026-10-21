@@ -317,7 +317,7 @@ impl HostLog {
                         .map_or(0, |w| w.queued.load(Ordering::Acquire));
                     crate::warn!(
                         "log: the writer had not finished {QUIT_MAX:?} after the session ended; \
-                         up to {held} bytes are not in the log"
+                         at least {held} bytes are not in the log"
                     );
                 }
                 // Answered, or a writer that is gone: nothing more will be
