@@ -29190,6 +29190,26 @@ group  = "BL"
 # Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
 # macOS app's poll_window.
 
+[sources.apple-nswindow-constrainframerect]
+key    = "apple-nswindow-constrainframerect"
+title  = "NSWindow constrainFrameRect(_:to:) -- 'Modifies and returns a frame rectangle so that its top edge lies on a specific screen' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/constrainframerect(_:to:).json"
+file   = "apple-nswindow-constrainframerect.json"
+sha256 = "630ef7b2f91c7796089b6c26461cae35539222c604fb0abf87beba7996121261"
+bytes  = 31521
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-21 (lane b128-indicator-fixes) [text]: "If the window is resizable
+# and the window's height is greater than the screen height, the rectangle's height is
+# adjusted to fit within the screen as well. The rectangle's width and horizontal
+# location are unaffected." It says nothing of the bottom edge. A probe on this Mac
+# (an NSWindow never ordered in, constrainFrameRect:toScreen: asked of five frames)
+# moved a frame 50 points below the bottom up to it, but the Dock is hidden here, so the
+# visible frame's bottom is the screen's and the probe cannot tell the two apart.
+
 [sources.apple-nswindow-converttoscreen]
 key    = "apple-nswindow-converttoscreen"
 title  = "NSWindow convertToScreen(_:) -- converts a rectangle to the screen coordinate system from the window's (documentation JSON)"

@@ -282,7 +282,15 @@ fn decoration(w: &MacWindow) -> (f64, f64) {
 
 /// The frame for a content view `size` points big, its top-left kept, no
 /// larger than the screen's visible frame, as xterm's `limitResize` of 1
-/// holds a resize to the display's size.
+/// holds a resize to the display's size. **And inside the visible frame
+/// top to bottom**: a window that grows down past the visible frame's
+/// bottom -- a short one near it taking the status line's row, or a
+/// `CSI 8 t` -- moves up until its bottom is on it rather than going
+/// under the Dock, and a top above the visible frame's comes down to it,
+/// as AppKit's `constrainFrameRect(_:to:)` holds "its top edge" on the
+/// screen and its height to the screen's (`[[source:
+/// apple-nswindow-constrainframerect]]`). Its "width and horizontal
+/// location are unaffected", and so they are here.
 fn content_frame(w: &MacWindow, size: (f64, f64)) -> MacAction {
     let deco = decoration(w);
     let (mut fw, mut fh) = (size.0 + deco.0, size.1 + deco.1);
@@ -291,10 +299,14 @@ fn content_frame(w: &MacWindow, size: (f64, f64)) -> MacAction {
         fh = fh.min(v.h);
     }
     let (fw, fh) = (fw.max(deco.0 + 1.0), fh.max(deco.1 + 1.0));
+    let y = match w.visible {
+        Some(v) => (w.frame.top().min(v.top()) - fh).max(v.y),
+        None => w.frame.top() - fh,
+    };
     MacAction::Frame(
         Rect {
             x: w.frame.x,
-            y: w.frame.top() - fh,
+            y,
             w: fw,
             h: fh,
         },
@@ -853,7 +865,10 @@ mod tests {
         assert_eq!((f.w, f.h), (1512.0, 875.0), "held inside the screen");
         let f = cells(Screen, Screen);
         assert_eq!((f.w, f.h), (1512.0, 875.0));
-        assert_eq!(f.top(), w.frame.top(), "the top-left kept");
+        // As tall as the visible frame, it is that frame top to bottom: the
+        // top-left kept would put its bottom under the Dock.
+        let v = w.visible.expect("a screen");
+        assert_eq!((f.x, f.y, f.top()), (w.frame.x, v.y, v.top()));
     }
 
     /// **A maximise saves the frame once and a restore returns to it**, as
@@ -1248,6 +1263,61 @@ mod tests {
         assert_eq!((grown.x, grown.w), (w.frame.x, w.frame.w));
         let bare = frame(status_frame(&w));
         assert_eq!(grown.h - bare.h, w.cell.1 / w.scale);
+    }
+
+    /// **A window near the visible frame's bottom stays above it**: the
+    /// status line's row, which grows the frame down, and a `CSI 8 t` that
+    /// makes it taller move a short window up until its bottom is the
+    /// visible frame's, its height and x kept, where the frame went under
+    /// the Dock; one whose top is above the visible frame's comes down to
+    /// it. The control: a window with room below keeps its top.
+    #[test]
+    fn a_frame_that_grows_stays_inside_the_visible_frame() {
+        let low = MacWindow {
+            frame: Rect {
+                x: 100.0,
+                y: 80.0,
+                w: 800.0,
+                h: 228.0,
+            },
+            content: (800.0, 200.0),
+            grid: Grid { cols: 99, rows: 11 },
+            ..window()
+        };
+        let v = low.visible.expect("a screen");
+        let lined = MacWindow {
+            status: Rows::of_count(1),
+            ..low
+        };
+        let grown = frame(status_frame(&lined));
+        assert_eq!(grown.y, v.y, "{grown:?}");
+        assert_eq!((grown.x, grown.w), (low.frame.x, low.frame.w));
+        assert_eq!(
+            grown.h,
+            frame(status_frame(&low)).h + low.cell.1 / low.scale
+        );
+        let rows = WindowRequest::ResizeCells {
+            rows: SizeAsk::Exactly(20),
+            cols: SizeAsk::Keep,
+        };
+        let taller = frame(mac(rows, &low));
+        assert_eq!(taller.y, v.y, "{taller:?}");
+        assert!(taller.h > low.frame.h);
+        let high = MacWindow {
+            frame: Rect {
+                y: v.top() - 100.0,
+                ..low.frame
+            },
+            ..low
+        };
+        let f = frame(mac(rows, &high));
+        assert_eq!(f.top(), v.top(), "{f:?}");
+        // The control.
+        let roomy = frame(status_frame(&MacWindow {
+            status: Rows::of_count(1),
+            ..window()
+        }));
+        assert_eq!(roomy.top(), window().frame.top());
     }
 
     /// **A window as tall as the screen gives the grid's row up**: zoomed,

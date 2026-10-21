@@ -457,6 +457,7 @@ files   = [
   "apple-nsscrollview-usespredominantaxisscrolling.json",
   "apple-nssound-volume.json",
   "apple-nssound.json",
+  "apple-nswindow-constrainframerect.json",
   "apple-nswindow-converttoscreen.json",
   "apple-nswindow-deminiaturize.json",
   "apple-nswindow-frame.json",
