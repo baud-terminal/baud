@@ -234,6 +234,18 @@ impl Osc52 {
     }
 }
 
+/// Whether the embedder puts a program's `OSC 52` write on the system's
+/// clipboard: `On` until it says otherwise, and `Off` where its own
+/// setting refuses them after the core has stored one (the app's
+/// `[clipboard] osc52 = "off"`). Read by `OSC 61` alone, which names
+/// `SetSelection` while it is off.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Osc52Writes {
+    #[default]
+    On,
+    Off,
+}
+
 /// How much clipboard memory a terminal is given: the largest copy it will
 /// hold, in octets of text.
 ///

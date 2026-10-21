@@ -3549,6 +3549,23 @@ impl<'b> Term<'b> {
         self.store.strs.window_asks.ops
     }
 
+    /// **Tell the core which window manipulations the embedder carries
+    /// out**, so `OSC 61 ; allowWindowOps` lists exactly the ones it does
+    /// not: [`WindowAbilities::NONE`] until it says, every manipulation
+    /// then listed, since a core no embedder drains performs none. The
+    /// requests are queued whatever this says; it changes the answer.
+    pub fn set_window_abilities(&mut self, a: WindowAbilities) {
+        self.store.strs.window_asks.abilities = a;
+    }
+
+    /// **Tell the core whether the embedder puts a program's `OSC 52`
+    /// write on the clipboard**, so `OSC 61 ; allowWindowOps` names
+    /// `SetSelection` when it does not. The core stores the write either
+    /// way ([`Term::clipboard`]); this changes the answer.
+    pub fn set_osc52_writes(&mut self, w: Osc52Writes) {
+        self.store.strs.window_asks.clipboard = w;
+    }
+
     /// **The family the embedder draws in**, and whether at the size its
     /// configuration gives: what `OSC 50 ; ?` answers (`crate::font`).
     /// Told at start-up and after every change the embedder makes, a

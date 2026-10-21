@@ -14,8 +14,8 @@
 //! ([`WindowOps::Off`]).
 
 use baud_domain::{
-    ByteLen, InputEncoding, ModeChange, ParamIdx, Report, TitleMode, TitleModes, WindowOp,
-    WindowOps, WindowRequest,
+    ByteLen, InputEncoding, ModeChange, Osc52Writes, ParamIdx, Report, TitleMode, TitleModes,
+    WindowAbilities, WindowOp, WindowOps, WindowRequest,
 };
 
 use crate::paint::Paint;
@@ -60,6 +60,12 @@ pub(crate) struct WindowAsks {
     queue: [WindowRequest; WINDOW_QUEUE],
     len: QueueLen,
     pub(crate) ops: WindowOps,
+    /// What the embedder carries out ([`crate::Term::set_window_abilities`]),
+    /// which `OSC 61` reads.
+    pub(crate) abilities: WindowAbilities,
+    /// What the embedder does with an `OSC 52` write
+    /// ([`crate::Term::set_osc52_writes`]), which `OSC 61` reads.
+    pub(crate) clipboard: Osc52Writes,
     pub(crate) refused: WindowOpsRefused,
     pub(crate) dropped: WindowRequestsDropped,
 }
@@ -73,6 +79,8 @@ impl WindowAsks {
         queue: [WindowRequest::Refresh; WINDOW_QUEUE],
         len: QueueLen(0),
         ops: WindowOps::On,
+        abilities: WindowAbilities::NONE,
+        clipboard: Osc52Writes::On,
         refused: WindowOpsRefused(0),
         dropped: WindowRequestsDropped(0),
     };

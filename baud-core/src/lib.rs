@@ -153,7 +153,10 @@ pub use baud_domain::{ColorMode, ColorModes, SpecialColor};
 pub use baud_domain::{FontChanges, FontSize, SizeStep};
 /// The window requests `Term::window_requests` holds, and the setting
 /// `Term::set_window_ops` takes.
-pub use baud_domain::{FullScreen, LogMode, Logging, Maximize, SizeAsk, WindowOps, WindowRequest};
+pub use baud_domain::{
+    FullScreen, LogMode, Logging, Maximize, Osc52Writes, SizeAsk, WindowAbilities,
+    WindowManipulation, WindowOps, WindowRequest,
+};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// DEC's text locator's vocabulary: what [`Term::locator`] and
 /// [`Term::set_locator_device`] take.

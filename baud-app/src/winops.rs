@@ -596,6 +596,48 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
     }
 }
 
+impl Unbuilt {
+    /// Whether xdg-shell lacks the request, which no state of the window
+    /// changes, rather than the window's state refusing it now.
+    pub fn lacking(self) -> bool {
+        match self {
+            Unbuilt::Unminimize | Unbuilt::Move | Unbuilt::Stacking | Unbuilt::AxisMaximize => true,
+            Unbuilt::Bound | Unbuilt::NoBounds => false,
+        }
+    }
+}
+
+/// **The manipulations the macOS driver carries out, for `OSC 61`**:
+/// every form of every one. `mac` makes an AppKit call for each request,
+/// and each `Nothing` it answers is the window's state at the time -- a
+/// window already as asked, a pinned grid, full screen, no screen -- which
+/// a later request finds changed.
+pub fn mac_abilities() -> baud_core::WindowAbilities {
+    baud_core::WindowAbilities::of(|_| true)
+}
+
+/// **The manipulations the Linux driver carries out, for `OSC 61`**: each
+/// whose every form [`wayland`] answers with a request on a floating
+/// window that knows its bounds, the one state that refuses nothing for
+/// the state's sake. A form xdg-shell lacks ([`Unbuilt::lacking`]) makes
+/// its manipulation one the driver does not do.
+pub fn wayland_abilities() -> baud_core::WindowAbilities {
+    let floating = WaylandWindow {
+        size: (800, 600),
+        bounds: Some((1920, 1080)),
+        shown: Shown::Floating,
+        cell: (8, 16),
+        grid: Grid {
+            cols: 100,
+            rows: 37,
+        },
+        status: Rows::ZERO,
+    };
+    baud_core::WindowAbilities::of(
+        |r| !matches!(wayland(r, &floating), WaylandAction::Unbuilt(u) if u.lacking()),
+    )
+}
+
 /// A reason a request was not done, macOS's or Wayland's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Reason {
@@ -1383,5 +1425,51 @@ mod tests {
         assert_eq!(p.refused.value(), 5);
         p.did();
         assert_eq!(p.done.value(), 1);
+    }
+
+    /// **What each driver tells `OSC 61` it does is what its policy does**:
+    /// macOS every manipulation, and Linux all but the five whose forms
+    /// xdg-shell lacks -- de-iconify, move, raise, lower, and maximise on
+    /// one axis, which takes `MaximizeWin` with it. Every form of every
+    /// manipulation is walked through `wayland` on each state the window can
+    /// be in: one answered with a lacking request is never claimed, and a
+    /// claimed one is refused only for the state's sake.
+    #[test]
+    fn the_abilities_are_what_each_driver_does() {
+        use baud_core::WindowManipulation as M;
+        let mac = mac_abilities();
+        assert!(M::ALL.iter().all(|&m| mac.has(m)), "macOS does them all");
+        let linux = wayland_abilities();
+        let not = [
+            M::RestoreWin,
+            M::SetWinPosition,
+            M::RaiseWin,
+            M::LowerWin,
+            M::MaximizeWin,
+        ];
+        for m in M::ALL {
+            assert_eq!(linux.has(m), !not.contains(&m), "{m:?}");
+        }
+        for shown in [Shown::Floating, Shown::Maximized, Shown::FullScreen] {
+            for bounds in [None, Some((1920, 1080))] {
+                let w = WaylandWindow {
+                    size: (800, 600),
+                    bounds,
+                    shown,
+                    cell: (8, 16),
+                    grid: Grid {
+                        cols: 100,
+                        rows: 37,
+                    },
+                    status: Rows::ZERO,
+                };
+                for m in M::ALL {
+                    let lacks = !m.done_by(
+                        &|r| !matches!(wayland(r, &w), WaylandAction::Unbuilt(u) if u.lacking()),
+                    );
+                    assert_eq!(lacks, !linux.has(m), "{m:?} {shown:?} {bounds:?}");
+                }
+            }
+        }
     }
 }

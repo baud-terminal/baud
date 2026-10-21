@@ -127,6 +127,158 @@ pub enum WindowOps {
     Off,
 }
 
+/// One of the window manipulations among xterm's `allowWindowOps`
+/// subcategories (`tblWindowOps`, `[[source: xterm-reset]]`'s file;
+/// `ewRestoreWin` to `ewFullscreenWin` and `ewSetWinLines`,
+/// `[[source: xterm-ptyx-h]]`): a program's request the embedder carries
+/// out, so that `OSC 61 ; allowWindowOps` lists the ones it does not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowManipulation {
+    /// `CSI 1 t`.
+    RestoreWin,
+    /// `CSI 2 t`.
+    MinimizeWin,
+    /// `CSI 3 ; x ; y t`.
+    SetWinPosition,
+    /// `CSI 4 ; height ; width t`.
+    SetWinSizePixels,
+    /// `CSI 5 t`.
+    RaiseWin,
+    /// `CSI 6 t`.
+    LowerWin,
+    /// `CSI 7 t`.
+    RefreshWin,
+    /// `CSI 8 ; rows ; cols t`.
+    SetWinSizeChars,
+    /// `CSI 9 ; Ps t`, all four forms.
+    MaximizeWin,
+    /// `CSI 10 ; Ps t`, all three forms.
+    FullscreenWin,
+    /// DECSLPP, `CSI Ps t` with `Ps` 24 and up, "this item uses all
+    /// remaining numbers in the sequence".
+    SetWinLines,
+}
+
+impl WindowManipulation {
+    /// In `tblWindowOps`' order.
+    pub const ALL: [WindowManipulation; 11] = [
+        WindowManipulation::RestoreWin,
+        WindowManipulation::MinimizeWin,
+        WindowManipulation::SetWinPosition,
+        WindowManipulation::SetWinSizePixels,
+        WindowManipulation::RaiseWin,
+        WindowManipulation::LowerWin,
+        WindowManipulation::RefreshWin,
+        WindowManipulation::SetWinSizeChars,
+        WindowManipulation::MaximizeWin,
+        WindowManipulation::FullscreenWin,
+        WindowManipulation::SetWinLines,
+    ];
+
+    /// The subcategory's name, as `OSC 61` spells it.
+    pub fn name(self) -> &'static [u8] {
+        match self {
+            WindowManipulation::RestoreWin => b"RestoreWin",
+            WindowManipulation::MinimizeWin => b"MinimizeWin",
+            WindowManipulation::SetWinPosition => b"SetWinPosition",
+            WindowManipulation::SetWinSizePixels => b"SetWinSizePixels",
+            WindowManipulation::RaiseWin => b"RaiseWin",
+            WindowManipulation::LowerWin => b"LowerWin",
+            WindowManipulation::RefreshWin => b"RefreshWin",
+            WindowManipulation::SetWinSizeChars => b"SetWinSizeChars",
+            WindowManipulation::MaximizeWin => b"MaximizeWin",
+            WindowManipulation::FullscreenWin => b"FullscreenWin",
+            WindowManipulation::SetWinLines => b"SetWinLines",
+        }
+    }
+
+    /// The manipulation `name` is, or `None` for another subcategory.
+    pub fn of_name(name: &[u8]) -> Option<WindowManipulation> {
+        WindowManipulation::ALL
+            .into_iter()
+            .find(|m| m.name() == name)
+    }
+
+    /// Whether `does` carries out every form of it: a subcategory done in
+    /// part is not done, as `SetColor` is refused for the colours it
+    /// refuses. Each form is given with typical values, since what an
+    /// embedder cannot do is a kind of request and not a size.
+    pub fn done_by(self, does: &impl Fn(WindowRequest) -> bool) -> bool {
+        let size = SizeAsk::Exactly(24);
+        let forms: &[WindowRequest] = match self {
+            WindowManipulation::RestoreWin => &[WindowRequest::Deiconify],
+            WindowManipulation::MinimizeWin => &[WindowRequest::Iconify],
+            WindowManipulation::SetWinPosition => &[WindowRequest::Move(ScreenPoint {
+                x: ScreenCoord(0),
+                y: ScreenCoord(0),
+            })],
+            WindowManipulation::SetWinSizePixels => &[WindowRequest::ResizePixels {
+                height: size,
+                width: size,
+            }],
+            WindowManipulation::RaiseWin => &[WindowRequest::Raise],
+            WindowManipulation::LowerWin => &[WindowRequest::Lower],
+            WindowManipulation::RefreshWin => &[WindowRequest::Refresh],
+            WindowManipulation::SetWinSizeChars => &[WindowRequest::ResizeCells {
+                rows: size,
+                cols: size,
+            }],
+            WindowManipulation::MaximizeWin => &[
+                WindowRequest::Maximize(Maximize::Restore),
+                WindowRequest::Maximize(Maximize::Both),
+                WindowRequest::Maximize(Maximize::Vertically),
+                WindowRequest::Maximize(Maximize::Horizontally),
+            ],
+            WindowManipulation::FullscreenWin => &[
+                WindowRequest::FullScreen(FullScreen::Leave),
+                WindowRequest::FullScreen(FullScreen::Enter),
+                WindowRequest::FullScreen(FullScreen::Toggle),
+            ],
+            WindowManipulation::SetWinLines => &[WindowRequest::ResizeCells {
+                rows: size,
+                cols: SizeAsk::Keep,
+            }],
+        };
+        forms.iter().all(|&r| does(r))
+    }
+}
+
+/// Which [`WindowManipulation`]s the embedder carries out. [`NONE`] until
+/// it says, so a core no embedder told lists every one as disallowed: it
+/// queues the requests and nobody performs them.
+///
+/// [`NONE`]: WindowAbilities::NONE
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct WindowAbilities(u16);
+
+impl WindowAbilities {
+    pub const NONE: WindowAbilities = WindowAbilities(0);
+
+    fn bit(m: WindowManipulation) -> u16 {
+        let at = WindowManipulation::ALL
+            .iter()
+            .position(|&x| x == m)
+            .unwrap_or(0);
+        1 << at
+    }
+
+    pub fn with(self, m: WindowManipulation) -> WindowAbilities {
+        WindowAbilities(self.0 | WindowAbilities::bit(m))
+    }
+
+    pub fn has(self, m: WindowManipulation) -> bool {
+        self.0 & WindowAbilities::bit(m) != 0
+    }
+
+    /// Every manipulation all of whose forms `does` carries out.
+    pub fn of(does: impl Fn(WindowRequest) -> bool) -> WindowAbilities {
+        WindowManipulation::ALL
+            .into_iter()
+            .filter(|m| m.done_by(&does))
+            .fold(WindowAbilities::NONE, WindowAbilities::with)
+    }
+}
+
 /// Whether a program may log what it sends to a file: xterm's `?46`,
 /// "Start logging", and `OSC 46`, "Change Log File to Pt" (`[[source:
 /// ctlseqs]]`). The embedder's, since only it writes files: `Off` in a core

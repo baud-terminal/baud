@@ -820,9 +820,18 @@ impl Paint<'_, '_> {
             },
             checksum: self.cold.checksum_report,
             window_ops: self.strs.window_asks.ops,
-            clipboard: match self.strs.clip_area.is_empty() {
-                true => Clipboard::Unprovisioned,
-                false => Clipboard::Provisioned,
+            abilities: self.strs.window_asks.abilities,
+            window: self.strs.window,
+            cell: match self.cell_width != ImagePx::ZERO && self.cell_height != ImagePx::ZERO {
+                true => Cell::Known,
+                false => Cell::Untold,
+            },
+            clipboard: match (
+                self.strs.clip_area.is_empty(),
+                self.strs.window_asks.clipboard,
+            ) {
+                (false, Osc52Writes::On) => Clipboard::Provisioned,
+                _ => Clipboard::Unprovisioned,
             },
         };
         let mut out = AllowList::new(match q {
@@ -939,6 +948,14 @@ impl Paint<'_, '_> {
 /// write on a storage with no clipboard area, which refuses every write.
 /// XTCHECKSUM, `SetChecksum`, is honoured whatever the checksum setting
 /// (`Paint::select_checksum`).
+///
+/// **A manipulation is honoured while the operations are on and the
+/// embedder carries out every form of it** ([`WindowAbilities`]). **A
+/// report is honoured when it answers**, each from what the embedder has
+/// told, by xterm's gates (`[[source: xterm-reset]]`'s file, `window_ops`): `GetWinState`
+/// `CSI 11 t`, `GetWinPosition` `CSI 13 t` and `CSI 13 ; 2 t`,
+/// `GetWinSizePixels` `CSI 14 t` and `CSI 14 ; 2 t`, `GetScreenSizeChars`
+/// `CSI 16 t` and `CSI 19 t`; `GetWinSizeChars`, `CSI 18 t`, always.
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
@@ -951,15 +968,18 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
         AllowCategory::TcapOps => false,
         AllowCategory::MouseOps => true,
         AllowCategory::WindowOps => match sub {
-            b"GetWinState"
-            | b"GetWinPosition"
-            | b"GetWinSizePixels"
-            | b"GetWinSizeChars"
-            | b"GetScreenSizeChars"
-            | b"PushTitle"
-            | b"PopTitle"
-            | b"ColumnMode"
-            | b"SetChecksum" => true,
+            _ if let Some(m) = WindowManipulation::of_name(sub) => {
+                facts.window_ops == WindowOps::On && facts.abilities.has(m)
+            }
+            b"GetWinState" => facts.window.state.is_some(),
+            b"GetWinPosition" => {
+                facts.window.position.is_some() && facts.window.text_area.is_some()
+            }
+            b"GetWinSizePixels" => facts.cell == Cell::Known && facts.window.window.is_some(),
+            b"GetScreenSizeChars" => facts.cell == Cell::Known && facts.window.screen.is_some(),
+            b"GetWinSizeChars" | b"PushTitle" | b"PopTitle" | b"ColumnMode" | b"SetChecksum" => {
+                true
+            }
             b"GetChecksum" => facts.checksum == ChecksumReport::On,
             b"SetXprop" => facts.window_ops == WindowOps::On,
             // **DECSSDT and DECSASD, whatever the operations say**: with them
@@ -979,7 +999,18 @@ struct Facts {
     font: Fonts,
     checksum: ChecksumReport,
     window_ops: WindowOps,
+    abilities: WindowAbilities,
+    window: WindowFacts,
+    cell: Cell,
     clipboard: Clipboard,
+}
+
+/// Whether the embedder has told the cell's size (`Term::set_cell_size`),
+/// which the pixel reports divide or multiply by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Cell {
+    Known,
+    Untold,
 }
 
 /// What `OSC 50` can do here: nothing with no font told
@@ -992,7 +1023,9 @@ enum Fonts {
     Fixed,
 }
 
-/// Whether the storage has an `OSC 52` area ([`crate::Owned::with_clipboard`]).
+/// Whether an `OSC 52` write reaches the clipboard: the storage has an
+/// area for it ([`crate::Owned::with_clipboard`]) and the embedder takes
+/// it ([`Osc52Writes`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Clipboard {
     Provisioned,

@@ -262,6 +262,11 @@ pub fn run() {
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
+    crate::host::set_window_abilities(
+        &mut term,
+        crate::winops::wayland_abilities(),
+        cfg.clipboard.osc52,
+    );
     crate::host::set_logging(&mut term, cfg.logging);
     // **No print panel in this driver**: the core is told there is no
     // printer, so DSR `?15` answers "no printer" and a print is ignored and

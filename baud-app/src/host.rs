@@ -330,6 +330,23 @@ pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOp
     term.set_window_ops(ops);
 }
 
+/// Tell the core which window manipulations the driver carries out and
+/// whether it puts a program's `OSC 52` write on the clipboard, so `OSC
+/// 61 ; allowWindowOps` lists what it does not do: `winops::mac_abilities`
+/// or `winops::wayland_abilities`, and `[clipboard] osc52`. One function
+/// for both drivers, called before the first feed.
+pub fn set_window_abilities(
+    term: &mut baud_core::Term<'_>,
+    a: baud_core::WindowAbilities,
+    osc52: crate::config::Osc52,
+) {
+    term.set_window_abilities(a);
+    term.set_osc52_writes(match osc52 {
+        crate::config::Osc52::Write => baud_core::Osc52Writes::On,
+        crate::config::Osc52::Off => baud_core::Osc52Writes::Off,
+    });
+}
+
 /// Tell the core whether there is a pointer for DEC's locator, so `DSR
 /// ?55` answers "Locator ready" only where one is: macOS's, always, and
 /// the Wayland seat's while its capabilities name one. One function for
@@ -881,6 +898,59 @@ mod tests {
             1,
             "macOS carries it from the config"
         );
+    }
+
+    /// **`OSC 61 ; allowWindowOps` says what each driver does**: macOS
+    /// every manipulation, Linux all but what xdg-shell lacks, and both name
+    /// `SetSelection` under `[clipboard] osc52 = "off"`, which refuses the
+    /// copy the core stored. Each driver's call is held in the source, as
+    /// the window operations' setting is.
+    #[test]
+    fn the_window_abilities_reach_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let ask = |a, osc52| {
+            let mut s = Owned::new(&ws).with_clipboard(baud_core::ClipboardBudget::of_text(64));
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_window_abilities(&mut t, a, osc52);
+            feed(&mut t, b"\x1b]61;allowWindowOps\x07");
+            String::from_utf8_lossy(t.reply()).into_owned()
+        };
+        let write = crate::config::Osc52::Write;
+        let mac = ask(crate::winops::mac_abilities(), write);
+        assert!(mac.starts_with("\x1b]61;GetWinState,"), "{mac:?}");
+        assert!(mac.ends_with(",GetWinTitle,GetSelection\x07"), "{mac:?}");
+        let linux = ask(crate::winops::wayland_abilities(), write);
+        assert!(
+            linux.starts_with("\x1b]61;RestoreWin,SetWinPosition,RaiseWin,LowerWin,MaximizeWin,"),
+            "{linux}"
+        );
+        let off = ask(crate::winops::mac_abilities(), crate::config::Osc52::Off);
+        assert!(off.ends_with(",GetSelection,SetSelection\x07"), "{off}");
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_window_abilities(");
+        for (driver, src, policy, osc52) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "crate::winops::mac_abilities(),",
+                "clipboard.osc52,",
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "crate::winops::wayland_abilities(),",
+                "cfg.clipboard.osc52,",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            let args = &rest[..rest.find(");").expect("its end")];
+            assert!(args.contains(policy), "{driver} tells its own policy");
+            assert!(args.contains(osc52), "{driver} tells its setting");
+        }
     }
 
     /// **Both drivers tell the core whether there is a pointer**, so `DSR

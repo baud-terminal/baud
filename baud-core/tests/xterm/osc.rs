@@ -607,6 +607,8 @@ fn osc_60_names_the_categories_baud_honours_whole() {
 /// category not allowed allows all but its disallowed list. The name is
 /// matched in any case, `allowWinOps` is xterm's alias, and a name that is
 /// no category gets an empty list, as xterm's `unparse_disallowed_ops`.
+/// A core no embedder told performs no window manipulation and answers no
+/// window report but the text area in cells, so it lists them all.
 /// `OSC 52`'s write is refused on a storage with no clipboard area, and
 /// named only there. XTCHECKSUM, `SetChecksum`, is honoured and not named,
 /// whatever the checksum setting; `OSC 3`, `SetXprop`, is named only while
@@ -615,7 +617,8 @@ fn osc_60_names_the_categories_baud_honours_whole() {
 fn osc_61_names_what_baud_refuses() {
     let windows: &[u8] = b"\x1b]61;RestoreWin,MinimizeWin,SetWinPosition,\
 SetWinSizePixels,RaiseWin,LowerWin,RefreshWin,SetWinSizeChars,MaximizeWin,\
-FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07";
+FullscreenWin,GetWinState,GetWinPosition,GetWinSizePixels,GetScreenSizeChars,\
+GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07";
     for name in ["allowWindowOps", "ALLOWWINDOWOPS", "allowWinOps"] {
         let q = format!("\x1b]61;{name}\x07");
         assert_eq!(reply_of(q.as_bytes(), |_| {}).0, windows, "{name}");
@@ -645,6 +648,16 @@ FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07
         "a provisioned clipboard is not refused: {}",
         String::from_utf8_lossy(t.reply())
     );
+    // An embedder that does not put the write on the clipboard says so.
+    t.clear_reply();
+    t.set_osc52_writes(Osc52Writes::Off);
+    support::feed(&mut t, b"\x1b]61;allowWindowOps\x07");
+    assert!(
+        t.reply()
+            .ends_with(b",SetWinLines,GetSelection,SetSelection\x07"),
+        "the embedder refuses the write: {}",
+        String::from_utf8_lossy(t.reply())
+    );
     let (r, _) = reply_of(b"\x1b]61;allowWindowOps\x07", |t| {
         t.set_checksum_report(baud_domain::ChecksumReport::Off)
     });
@@ -667,6 +680,88 @@ FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07
         r.ends_with(b",SetSelection,SetXprop\x07"),
         "OSC 3 refused with the window operations off: {}",
         String::from_utf8_lossy(&r)
+    );
+}
+
+/// **`OSC 61 ; allowWindowOps` names exactly the window operations the
+/// embedder does not do**: each manipulation it says it carries out
+/// (`Term::set_window_abilities`) is honoured while the operations are on,
+/// and each report once the fact it answers from is told
+/// (`Term::set_window`, `Term::set_cell_size`). With the operations off
+/// every manipulation is named again, and `SetXprop` with them.
+#[test]
+fn osc_61_names_the_window_operations_the_embedder_does_not_do() {
+    let all = WindowAbilities::of(|_| true);
+    let facts = WindowFacts {
+        state: Some(WindowState::Open),
+        position: Some(ScreenPoint {
+            x: ScreenCoord::of(10),
+            y: ScreenCoord::of(20),
+        }),
+        text_area: Some(ScreenPoint {
+            x: ScreenCoord::of(12),
+            y: ScreenCoord::of(48),
+        }),
+        window: Some(PixelSize {
+            width: ImagePx::of(800),
+            height: ImagePx::of(600),
+        }),
+        screen: Some(PixelSize {
+            width: ImagePx::of(3024),
+            height: ImagePx::of(1964),
+        }),
+    };
+    let told = |t: &mut Term<'_>, a: WindowAbilities| {
+        t.set_window_abilities(a);
+        t.set_window(facts);
+        t.set_cell_size(ImagePx::of(16), ImagePx::of(34));
+    };
+    let ask = b"\x1b]61;allowWindowOps\x07";
+    assert_eq!(
+        reply_of(ask, |t| told(t, all)).0,
+        b"\x1b]61;GetIconTitle,GetWinTitle,GetSelection,SetSelection\x07",
+        "everything done: the title reports and the clipboard read remain"
+    );
+    // A driver that cannot de-iconify, move, raise, lower or maximise one
+    // way: what xdg-shell lacks.
+    let some = WindowAbilities::of(|r| {
+        !matches!(
+            r,
+            WindowRequest::Deiconify
+                | WindowRequest::Move(_)
+                | WindowRequest::Raise
+                | WindowRequest::Lower
+                | WindowRequest::Maximize(Maximize::Vertically | Maximize::Horizontally)
+        )
+    });
+    assert_eq!(
+        reply_of(ask, |t| told(t, some)).0,
+        b"\x1b]61;RestoreWin,SetWinPosition,RaiseWin,LowerWin,MaximizeWin,\
+GetIconTitle,GetWinTitle,GetSelection,SetSelection\x07",
+        "a manipulation done in part is refused"
+    );
+    let (r, _) = reply_of(ask, |t| {
+        told(t, all);
+        t.set_window_ops(WindowOps::Off);
+    });
+    assert_eq!(
+        r,
+        b"\x1b]61;RestoreWin,MinimizeWin,SetWinPosition,SetWinSizePixels,\
+RaiseWin,LowerWin,RefreshWin,SetWinSizeChars,MaximizeWin,FullscreenWin,\
+GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection,SetXprop\x07",
+        "off refuses every manipulation whatever the embedder does"
+    );
+    // Each report needs its own fact: no position, no GetWinPosition.
+    let (r, _) = reply_of(ask, |t| {
+        told(t, all);
+        t.set_window(WindowFacts {
+            position: None,
+            ..facts
+        });
+    });
+    assert_eq!(
+        r,
+        b"\x1b]61;GetWinPosition,GetIconTitle,GetWinTitle,GetSelection,SetSelection\x07"
     );
 }
 

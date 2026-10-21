@@ -1104,6 +1104,11 @@ impl App {
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_window_ops(&mut term, window_ops);
+        crate::host::set_window_abilities(
+            &mut term,
+            crate::winops::mac_abilities(),
+            clipboard.osc52,
+        );
         // AppKit always has a pointer to move: a Mac's trackpad, or the
         // cursor a mouse or a tablet drives.
         crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
