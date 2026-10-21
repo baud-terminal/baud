@@ -42,7 +42,8 @@ const WS: WinSize = WinSize {
 ///
 /// Since 2026-10-15 the three-parameter form is answered
 /// (`sixel_modes.rs`); here, on a terminal not configured for graphics, with
-/// failures, and a form of another arity is still counted unanswered.
+/// failures but for ReGIS's, which is always on, and a form of another
+/// arity is still counted unanswered.
 #[test]
 fn xtsmgraphics_does_not_scroll_and_is_counted() {
     support::with_term(&WS, |t| {
@@ -59,8 +60,8 @@ fn xtsmgraphics_does_not_scroll_and_is_counted() {
         );
         assert_eq!(
             t.reply(),
-            b"\x1b[?1;3S\x1b[?2;3S\x1b[?3;1S",
-            "not configured for graphics: failures, and no ReGIS item"
+            b"\x1b[?1;3S\x1b[?2;3S\x1b[?3;0;800;480S",
+            "not configured for Sixel: failures, and ReGIS's page, always on"
         );
         assert_eq!(
             t.unsupported,

@@ -54,6 +54,9 @@ pub struct RegisCounts {
     pub ignored: u32,
     /// Drawings with no page to draw on, the image memory absent or full.
     pub unpaged: u32,
+    /// `S(T)` delays passed over because the embedder holds no read
+    /// ([`RegisHold::Off`]).
+    pub delays_unheld: u32,
 }
 
 /// The imposed coordinate space, `S(A[x1,y1][x2,y2])`: the user's
@@ -537,6 +540,11 @@ pub(crate) struct Sem {
     pub(crate) macro_free: usize,
     /// The embedder's font, which draws the built-in alphabet.
     pub(crate) font: Option<RegisFont>,
+    /// Whether a delay stops the interpreter ([`Regis::set_hold`]).
+    pub(crate) hold: RegisHold,
+    /// The ticks of the delays met since the caller last took them, under
+    /// [`RegisHold::On`].
+    pub(crate) wait: u32,
     /// Where a built-in character is drawn by the font before it is put on
     /// the page.
     glyph_bits: [u64; GLYPH_SIDE * GLYPH_SIDE / 64],
@@ -571,6 +579,7 @@ impl Sem {
             unbuilt: 0,
             ignored: 0,
             unpaged: 0,
+            delays_unheld: 0,
         },
         pos: (RegisNum::ZERO, RegisNum::ZERO),
         space: RegisSpace::DEFAULT,
@@ -600,6 +609,8 @@ impl Sem {
         quote_start: (RegisNum::ZERO, RegisNum::ZERO),
         macro_free: MACRO_STORE,
         font: None,
+        hold: RegisHold::Off,
+        wait: 0,
         glyph_bits: [0; GLYPH_SIDE * GLYPH_SIDE / 64],
         display_col: 0,
         scale: (1, 1),
@@ -1882,9 +1893,18 @@ impl Sem {
             (1, b'M') => {}
             // "Devices must accept and properly execute values of <n> as
             // large as 2000"; the VT300 takes 32,767.
+            // **Interpretation is suspended** for the ticks: under
+            // `RegisHold::On` the caller stops at the character that ends
+            // the option and goes on once they have passed; a cascade,
+            // "S(T60,T60,T60)", stops at each.
             (1, b'T') => {
                 if let Some(n) = f.int() {
-                    out.delay(RegisTicks::of(n.clamp(0, 32_767) as u32));
+                    let t = n.clamp(0, 32_767) as u32;
+                    match self.hold {
+                        RegisHold::On => self.wait = self.wait.saturating_add(t),
+                        RegisHold::Off => self.counts.delays_unheld += 1,
+                    }
+                    out.delay(RegisTicks::of(t));
                 }
             }
             // `S(F)`, "image complete": nothing to feed on a screen.

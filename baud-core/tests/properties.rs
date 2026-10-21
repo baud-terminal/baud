@@ -789,6 +789,34 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **ReGIS** (`DCS p`), last so no atom above moves: its interpreter
+    // outlives the envelope, so an envelope cut mid-command leaves the next
+    // one resuming inside it, and the reports and the counts must not
+    // depend on where the reads fell.
+    Atom {
+        name: "regis-draw",
+        bytes: b"\x1bPpS(E)W(I3)P[10,10]V[100,50]C[+20]F(V[50,50][60,60][40,60])T'Hi'\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "regis-macro-report",
+        bytes: b"\x1bPp@:AV[+5,+5]S(T1)@;@A@AR(P)R(M(=))\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "regis-cut",
+        bytes: b"\x1bPpP[1,2]T'a\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "regis-resync-display",
+        bytes: b"\x1bP3pP[1.5e1,2]R(P)\nL(A1)\"a\"FF;\x1b\\",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -825,6 +853,7 @@ type Seen = (
     Vec<u8>,
     Clipped,
     Vec<LineRendition>,
+    baud_domain::RegisCounts,
 );
 
 /// Every row's line rendition, which the cells do not show -- and the
@@ -889,6 +918,7 @@ fn drive_at(bytes: &[u8], chunk: usize, a: AmbiguousWidth) -> Seen {
         t.reply().to_vec(),
         clipped(&t),
         renditions(&t),
+        t.regis_counts(),
     )
 }
 
@@ -916,6 +946,7 @@ fn drive_atomwise(prog: &[usize], a: AmbiguousWidth) -> Seen {
         t.reply().to_vec(),
         clipped(&t),
         renditions(&t),
+        t.regis_counts(),
     )
 }
 
@@ -972,7 +1003,7 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let (_, _, title, _, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    let (_, _, title, _, _, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
     fed("latin1-osc-nel", &|t| {
@@ -1183,6 +1214,26 @@ fn fed(name: &str, f: &dyn Fn(&Term<'_>)) {
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     f(&t);
+}
+
+/// **The ReGIS atoms reach ReGIS**, the control the guard atoms have:
+/// each enters an envelope, the macrograph atom's report answers the
+/// position its two plays moved to and the store's room, and the cut
+/// atom leaves a quoted string open for the next envelope to resume in.
+#[test]
+fn the_regis_atoms_reach_regis() {
+    fed("regis-macro-report", &|t| {
+        assert_eq!(t.regis_counts().entered, 1);
+        assert_eq!(t.regis_counts().delays_unheld, 2, "one a play");
+        assert_eq!(t.reply(), b"[10,10]\r\"9987,10000\"\r");
+    });
+    fed("regis-draw", &|t| assert_eq!(t.regis_counts().entered, 1));
+    let bytes = bytes_of(&[atom("regis-cut"), atom("regis-macro-report")]);
+    let w = ws();
+    let mut owned = Owned::new(&w).with_clipboard(CLIP);
+    let mut t = Term::new(owned.storage(), &w);
+    support::feed(&mut t, &bytes);
+    assert_eq!(t.reply(), b"", "the second envelope is inside the quote");
 }
 
 /// **The guarded-area atoms reach the guard**, the control the C1 atoms

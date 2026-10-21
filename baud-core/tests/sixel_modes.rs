@@ -574,12 +574,14 @@ fn a_private_sixel_neither_feeds_nor_clears_the_shared_set() {
 /// (`CASE_GRAPHICS_ATTRIBUTES`, `[[source: xterm-reset]]`'s file): 256
 /// registers, which a set can only confirm; the text area in pixels, and a
 /// `0 ; 0` maximum as `[[source: ctlseqs]]` asks of a terminal with no
-/// maximum dimensions; an error in `Pi` for ReGIS and anything unknown, an
-/// error in `Pa` for an unknown action, a failure for a geometry set or
-/// reset.
+/// maximum dimensions; ReGIS's page, the text area in pixels or the
+/// VT300's 800 by 480, and a `0 ; 0` maximum, answered whatever DA claims
+/// (Jev: ALWAYS, decided; ZERO, the lean); an error in `Pi` for anything
+/// unknown, an error in `Pa` for an unknown action, a failure for a
+/// geometry set or reset.
 #[test]
 fn xtsmgraphics_answers_the_registers_and_the_geometry() {
-    let asks: [(&[u8], &[u8]); 11] = [
+    let asks: [(&[u8], &[u8]); 15] = [
         (b"\x1b[?1;1;0S", b"\x1b[?1;0;256S"),
         (b"\x1b[?1;2;0S", b"\x1b[?1;0;256S"),
         (b"\x1b[?1;3;256S", b"\x1b[?1;0;256S"),
@@ -589,7 +591,11 @@ fn xtsmgraphics_answers_the_registers_and_the_geometry() {
         (b"\x1b[?2;1;0S", b"\x1b[?2;0;1600;800S"),
         (b"\x1b[?2;2;0S", b"\x1b[?2;3S"),
         (b"\x1b[?2;4;0S", b"\x1b[?2;0;0;0S"),
-        (b"\x1b[?3;1;0S", b"\x1b[?3;1S"),
+        (b"\x1b[?3;1;0S", b"\x1b[?3;0;1600;800S"),
+        (b"\x1b[?3;2;0S", b"\x1b[?3;3S"),
+        (b"\x1b[?3;3;800S", b"\x1b[?3;3S"),
+        (b"\x1b[?3;4;0S", b"\x1b[?3;0;0;0S"),
+        (b"\x1b[?3;9;0S", b"\x1b[?3;2S"),
         (b"\x1b[?9;1;0S", b"\x1b[?9;1S"),
     ];
     for (ask, want) in asks {
@@ -606,6 +612,10 @@ fn xtsmgraphics_answers_the_registers_and_the_geometry() {
     every_read(no_cell, b"\x1b[?2;1;0S", |t, how| {
         assert_eq!(t.reply(), b"\x1b[?2;3S", "{how}");
     });
+    // ReGIS's page is the VT300's then.
+    every_read(no_cell, b"\x1b[?3;1;0S", |t, how| {
+        assert_eq!(t.reply(), b"\x1b[?3;0;800;480S", "{how}");
+    });
     // Not configured for graphics: a success becomes a failure, an error in
     // Pa stays one.
     let unclaimed = Setup {
@@ -614,6 +624,10 @@ fn xtsmgraphics_answers_the_registers_and_the_geometry() {
     };
     every_read(unclaimed, b"\x1b[?1;1;0S\x1b[?1;9;0S", |t, how| {
         assert_eq!(t.reply(), b"\x1b[?1;3S\x1b[?1;2S", "{how}");
+    });
+    // ReGIS is always on: its geometry is answered.
+    every_read(unclaimed, b"\x1b[?3;1;0S", |t, how| {
+        assert_eq!(t.reply(), b"\x1b[?3;0;1600;800S", "{how}");
     });
 }
 

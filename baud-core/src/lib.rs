@@ -157,6 +157,10 @@ pub use baud_domain::{LocatorAt, LocatorButton, LocatorButtons, LocatorInput, Lo
 pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
 /// The window facts `Term::set_window` takes.
 pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
+/// ReGIS's delay: an embedder that cannot name a [`RegisHold`] cannot
+/// call [`Term::set_regis_hold`], nor read [`Term::take_regis_wait`]'s
+/// ticks without [`RegisTicks`].
+pub use baud_domain::{RegisHold, RegisTicks};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};

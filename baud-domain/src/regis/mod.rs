@@ -123,6 +123,46 @@ impl RegisTicks {
     }
 }
 
+/// The largest page side: a text area past this is drawn on a page of
+/// this size, the 800 by 480 device fitted into it.
+pub const REGIS_PAGE_MAX: u16 = 8192;
+
+/// **The page ReGIS draws on, in pixels: the text area's own**, `cols` cells
+/// of `cell_w` by `rows` of `cell_h`, each side at most
+/// [`REGIS_PAGE_MAX`]; the VT300's 800 by 480 while no cell size is known.
+/// What the core draws on and what XTSMGRAPHICS's `Pi = 3` reads.
+pub fn regis_page_size(
+    cols: crate::Cols,
+    rows: crate::Rows,
+    cell_w: crate::ImagePx,
+    cell_h: crate::ImagePx,
+) -> (crate::ImagePx, crate::ImagePx) {
+    use crate::ImagePx;
+    let side = |cells: usize, px: ImagePx| {
+        let n = cells
+            .saturating_mul(px.index())
+            .clamp(2, usize::from(REGIS_PAGE_MAX));
+        ImagePx::of(u16::try_from(n).unwrap_or(REGIS_PAGE_MAX))
+    };
+    match (cell_w.raw(), cell_h.raw()) {
+        (0, _) | (_, 0) => (ImagePx::of(800), ImagePx::of(480)),
+        _ => (side(cols.index(), cell_w), side(rows.index(), cell_h)),
+    }
+}
+
+/// **Whether an `S(T)` delay stops the interpreter.** 070-8 § 8.7.1.4.3:
+/// "the number of device dependent timer "ticks" for which ReGIS
+/// interpretation should be suspended ... measured from the time the
+/// S(T<n>) is interpreted by the device". `On` is for a caller that holds
+/// what follows and goes on once the ticks have passed, scheduled rather
+/// than waited on; `Off`, the default, passes over each delay and counts
+/// it (`RegisCounts::delays_unheld`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisHold {
+    Off,
+    On,
+}
+
 /// A device pixel of the page, `x` rightward and `y` downward from its
 /// upper-left. Off the page is allowed: what is drawn there is clipped.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash, PartialOrd, Ord)]
@@ -616,6 +656,10 @@ pub struct Regis {
     /// Characters a finished token gave back, read before the next.
     again: [u8; 3],
     nagain: usize,
+    /// Macrograph characters played for the host character that invoked
+    /// them, across the resumes a delay makes: [`MACRO_PLAYED`] bounds
+    /// the whole, held or not.
+    played: usize,
     sem: Sem,
     /// The encoding the envelope began under ([`Regis::set_encoding`]).
     enc: InputEncoding,
@@ -644,6 +688,7 @@ impl Regis {
         lex: Lex::Ground,
         again: [0; 3],
         nagain: 0,
+        played: 0,
         sem: Sem::NEW,
         enc: InputEncoding::Utf8,
         utf8: (0, 0),
@@ -651,13 +696,20 @@ impl Regis {
     };
 
     /// A reset to power-up: `RIS`. The page is the caller's to clear.
+    ///
+    /// **The embedder's font and hold, and the counts, survive it**: they
+    /// are the caller's settings and readings, not the device's state.
     pub fn reset(&mut self) {
         self.macros.clear_all();
         self.at = At::Idle;
         self.depth = 0;
         self.lex = Lex::Ground;
         self.nagain = 0;
+        let (font, hold, counts) = (self.sem.font, self.sem.hold, self.sem.counts);
         self.sem = Sem::NEW;
+        self.sem.font = font;
+        self.sem.hold = hold;
+        self.sem.counts = counts;
     }
 
     /// A `DCS Pn p`: the low bit of `Pn` resynchronises, "regardless of the
@@ -696,16 +748,42 @@ impl Regis {
         if self.display == Display::On {
             self.sem.display_char(b.raw_byte(), out);
         }
+        if self.depth == 0 {
+            self.played = 0;
+        }
         self.layer(b.raw_byte(), Source::Host, out);
         self.drain(out);
     }
 
+    /// **Go on with the macrographs a delay stopped**, before the next host
+    /// character: under [`RegisHold::On`] a delay inside a macrograph stops
+    /// it there, its place kept.
+    pub fn resume(&mut self, out: &mut dyn RegisOut) {
+        self.drain(out);
+    }
+
+    /// Whether a macrograph a delay stopped is still to play.
+    pub fn playing(&self) -> bool {
+        self.depth > 0
+    }
+
+    /// Whether a delay stops the interpreter: see [`RegisHold`].
+    pub fn set_hold(&mut self, hold: RegisHold) {
+        self.sem.hold = hold;
+    }
+
+    /// The ticks of the delays met since the last call, under
+    /// [`RegisHold::On`]: `None` when none was.
+    pub fn take_wait(&mut self) -> Option<RegisTicks> {
+        let t = core::mem::take(&mut self.sem.wait);
+        (t > 0).then_some(RegisTicks::of(t))
+    }
+
     /// Play the macrographs invoked, a character at a time, until none is,
-    /// or [`MACRO_PLAYED`] have played.
+    /// a delay stops them, or [`MACRO_PLAYED`] have played.
     fn drain(&mut self, out: &mut dyn RegisOut) {
-        let mut played = 0;
-        while self.depth > 0 {
-            if played == MACRO_PLAYED {
+        while self.depth > 0 && self.sem.wait == 0 {
+            if self.played == MACRO_PLAYED {
                 self.depth = 0;
                 self.sem.counts.macro_cut += 1;
                 return;
@@ -714,7 +792,7 @@ impl Regis {
             match self.macros.get(usize::from(top.m), usize::from(top.i)) {
                 Some(c) => {
                     self.play[self.depth - 1].i += 1;
-                    played += 1;
+                    self.played += 1;
                     self.layer(c, Source::Macro, out);
                 }
                 None => self.depth -= 1,

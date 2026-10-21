@@ -646,6 +646,9 @@ struct App {
     clips: crate::clip::Clips,
     /// The last page-width request acted on, and the counts (`width.rs`).
     widths: crate::width::Widths,
+    /// The reads a ReGIS delay holds, fed on the first tick at or after
+    /// its deadline (`reads::paced`).
+    pace: crate::reads::Pace,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -1101,6 +1104,9 @@ impl App {
         // ReGIS draws its built-in alphabet with the embedded face
         // (`regis_font.rs`).
         term.set_regis_font(crate::regis_font::glyph);
+        // A ReGIS delay stops the read, and the pump feeds the rest on the
+        // tick its deadline falls on (`reads::paced`).
+        term.set_regis_hold(baud_core::RegisHold::On);
         // A deleted picture's pages go back to the system (`pages.rs`).
         if let Some(release) = crate::pages::release() {
             term.set_page_release(release);
@@ -1198,6 +1204,7 @@ impl App {
             clipboard,
             clips,
             widths,
+            pace: crate::reads::Pace::new(),
         }
     }
 
@@ -4297,7 +4304,7 @@ mod alt_window_tests {
         const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
-        const FEED: &str = concat!("crate::reads::", "feed(");
+        const FEED: &str = concat!("crate::reads::", "paced(");
         const POLL: &str = concat!("pasteboard(", "clips.poll(t, osc52));");
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
         let pump = SRC.split(PUMP).nth(1).expect("the pump");
@@ -5297,13 +5304,13 @@ mod restart_tests {
         };
         let call = at("let (surface, thumb) = restart(");
         let arm = at("let before = Before::watched(");
-        assert!(arm < at("crate::reads::feed("));
+        assert!(arm < at("crate::reads::paced("));
         let armed = &pump[arm..arm + pump[arm..].find(");").expect("the arm ends")];
         assert!(
             armed.contains("self.app.selection.as_ref()") && armed.contains("self.app.scrolled"),
             "the row watch is armed on the selection the read finds: {armed}"
         );
-        assert!(at("crate::reads::feed(") < at("stale_in_moved_rows(&self.app.term)"));
+        assert!(at("crate::reads::paced(") < at("stale_in_moved_rows(&self.app.term)"));
         assert!(
             !pump.contains("let window = "),
             "a window read at the pump's start"
@@ -6144,7 +6151,7 @@ mod motion_tests {
             .expect("the tick arm");
         let arm_end = tick + pump[tick..].find('}').expect("its end");
         assert!(poll > arm_end, "the poll is outside the tick arm");
-        let feed = pump.find("crate::reads::feed(").expect("the feed");
+        let feed = pump.find("crate::reads::paced(").expect("the feed");
         assert!(poll < feed, "the poll comes before the feed");
     }
 
@@ -6255,8 +6262,10 @@ mod motion_tests {
         // The poll's argument and the follow spelled apart, as their own
         // tests count them.
         const READ_TO_RING: &str = concat!(
-            r#"crate::reads::feed(
+            r#"crate::reads::paced(
                 term,
+                pace,
+                Instant::now(),
                 drained.chunks.iter().map(|chunk| {
                     if let Some(t) = trace.as_mut() { t.fed(&chunk.bytes); }
                     &chunk.bytes[..]
@@ -6280,13 +6289,15 @@ mod motion_tests {
             if let Some(line) = self.app.clips
                 .core_refusals(&self.app.term, self.app.clipboard.budget)
             { crate::warn!("{line}"); }
-            if !drained.chunks.is_empty() { self.app.pending = Pending::Dirty; }
+            if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
+                self.app.pending = Pending::Dirty;
+            }
             if let Rings::Ring(volume) = self.app.ringer
                 .hear(&self.app.term, Instant::now(), self.app.interval)
             { self.ring_bell(volume); }"#
         );
         let span = bare(READ_TO_RING);
-        let fed = pump.find("crate::reads::feed(").expect("the read");
+        let fed = pump.find("crate::reads::paced(").expect("the read");
         assert!(pump[fed..].starts_with(&span), "the read, then the ring");
         let rung = fed + span.len();
         let first_return = fed + pump[fed..].find("return;").expect("the control: a return");
@@ -7068,13 +7079,14 @@ impl Driver {
         // **And its page width at the request**: the read stopped there, the
         // grid takes the columns before the rest is parsed, and the rest of
         // the app follows after the batch (`width.rs`, `program_resized`).
-        let (term, trace, outbox, clips, widths, hostlog) = (
+        let (term, trace, outbox, clips, widths, hostlog, pace) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
             &mut self.app.clips,
             &mut self.app.widths,
             &mut self.app.hostlog,
+            &mut self.app.pace,
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
@@ -7085,8 +7097,13 @@ impl Driver {
         let mut asked = Vec::new();
         // And its font changes, performed after the read (`fonts.rs`).
         let mut fonts_asked = Vec::new();
-        crate::reads::feed(
+        // **A ReGIS delay holds the reads behind it** until the tick its
+        // deadline falls on; every tick calls this, so the held reads go
+        // on with no chunk of their own.
+        let fed = crate::reads::paced(
             term,
+            pace,
+            Instant::now(),
             drained.chunks.iter().map(|chunk| {
                 if let Some(t) = trace.as_mut() {
                     t.fed(&chunk.bytes);
@@ -7117,7 +7134,7 @@ impl Driver {
         {
             crate::warn!("{line}");
         }
-        if !drained.chunks.is_empty() {
+        if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
             self.app.pending = Pending::Dirty;
         }
         // **The bells this read brought ring now**, before the early returns
@@ -10767,7 +10784,7 @@ mod tests {
             .1;
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
         let feed = pump
-            .split_once(concat!("crate::reads::", "feed("))
+            .split_once(concat!("crate::reads::", "paced("))
             .expect("the feed")
             .1;
         let (args, after) = feed.split_once("\n        );").expect("the call ends");

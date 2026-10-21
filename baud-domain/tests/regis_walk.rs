@@ -689,6 +689,74 @@ fn a_time_delay_asks_for_its_ticks() {
     assert_eq!(rec.ops, vec![Op::Delay(60), Op::Delay(30)]);
 }
 
+/// **The played bound is the host character's, held or not**: a
+/// macrograph a delay stops and resumes is cut where the same macrograph
+/// played through is, the same lines drawn.
+#[test]
+fn a_held_macrograph_is_cut_where_one_played_through_is() {
+    // `B` is 72 characters and `A` plays it 1,000 times: 74,000 played
+    // for one `A`, past the bound of 65,536.
+    let mut body = b"@:BS(T1)V[+1,0]".to_vec();
+    body.extend([b' '; 57]);
+    body.extend_from_slice(b"@;@:A");
+    for _ in 0..1000 {
+        body.extend_from_slice(b"@B");
+    }
+    body.extend_from_slice(b"@;@A");
+    let lines = |rec: &Rec| rec.ops.iter().filter(|o| matches!(o, Op::Line(..))).count();
+    let (off, rec_off) = run(&body);
+    let mut r = Box::new(Regis::NEW);
+    let mut rec = Rec::default();
+    r.set_hold(baud_domain::RegisHold::On);
+    r.enter(RegisEntry::of(None), &mut rec);
+    for &b in &body {
+        r.put(StreamByte::from_stream(b), &mut rec);
+    }
+    let mut resumes = 0;
+    while r.playing() {
+        assert!(r.take_wait().is_some());
+        r.resume(&mut rec);
+        resumes += 1;
+    }
+    assert_eq!(
+        off.counts().macro_cut,
+        1,
+        "the control: played through, it is cut"
+    );
+    assert_eq!(r.counts().macro_cut, 1);
+    assert_eq!(lines(&rec), lines(&rec_off));
+    assert!(lines(&rec) < 1000, "{}", lines(&rec));
+    assert!(resumes > 800, "{resumes}");
+}
+
+/// **Held, a delay stops a macrograph where it is**: the ticks are the
+/// caller's to take, the rest plays on `resume`, and off, the delay is
+/// counted and the macrograph plays through.
+#[test]
+fn a_held_delay_stops_a_macrograph_until_it_resumes() {
+    let mut r = Box::new(Regis::NEW);
+    let mut rec = Rec::default();
+    r.set_hold(baud_domain::RegisHold::On);
+    r.enter(RegisEntry::of(None), &mut rec);
+    for &b in b"@:AS(T5)V[10,0]S(T7)V[20,0]@;@A" {
+        r.put(StreamByte::from_stream(b), &mut rec);
+    }
+    let lines = |rec: &Rec| rec.ops.iter().filter(|o| matches!(o, Op::Line(..))).count();
+    assert!(r.playing());
+    assert_eq!(r.take_wait(), Some(RegisTicks::of(5)));
+    assert_eq!(r.take_wait(), None, "taken once");
+    assert_eq!(lines(&rec), 0);
+    r.resume(&mut rec);
+    assert_eq!((r.take_wait(), lines(&rec)), (Some(RegisTicks::of(7)), 1));
+    r.resume(&mut rec);
+    assert_eq!((r.take_wait(), lines(&rec)), (None, 2));
+    assert!(!r.playing());
+    assert_eq!(r.counts().delays_unheld, 0);
+    // Off, the default: one put plays it through, each delay counted.
+    let (r, rec) = run(b"@:AS(T5)V[10,0]S(T7)V[20,0]@;@A");
+    assert_eq!((lines(&rec), r.counts().delays_unheld), (2, 2));
+}
+
 // ---------------------------------------------------------------------------
 // Text and Load, § 8.5.6, § 8.7.3, § 8.7.5.
 // ---------------------------------------------------------------------------

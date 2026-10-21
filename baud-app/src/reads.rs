@@ -5,6 +5,99 @@
 
 use baud_core::{BytePos, ReadLen, Rest, Term};
 use baud_domain::{DecodeBudget, DecodeProgress};
+use std::time::{Duration, Instant};
+
+/// [`paced`] with no delay to hold: what a test feeds, its terminal's
+/// `RegisHold` off.
+#[cfg(test)]
+pub fn feed<'r>(
+    term: &mut Term<'_>,
+    reads: impl IntoIterator<Item = &'r [u8]>,
+    sink: impl FnMut(&[u8]),
+    after: impl FnMut(&mut Term<'_>),
+    log: &mut impl crate::hostlog::Tee,
+) {
+    let mut pace = Pace::new();
+    let _ = paced(term, &mut pace, Instant::now(), reads, sink, after, log);
+    assert!(
+        pace.deadline().is_none(),
+        "a delay held: feed it with `paced`"
+    );
+}
+
+/// **The reads a ReGIS delay holds back, and when they go on.** An `S(T)`
+/// suspends interpretation for its ticks, "measured from the time the
+/// S(T<n>) is interpreted by the device" (`[[source: dec-std-070]]` 070-8
+/// § 8.7.1.4.3), and under `RegisHold::On` the core stops the read there
+/// (`Term::take_held`, `Term::take_regis_wait`). What is left of the read
+/// and every read after it wait here, in order, until the deadline, which
+/// the driver's loop schedules -- the display link's tick on macOS, the
+/// `poll` timeout on Linux -- and nothing sleeps.
+///
+/// **Bounded at [`HELD_MAX`]**: a program that keeps writing through a
+/// long delay ends it early once that much waits, counted in `cut`.
+pub struct Pace {
+    held: std::collections::VecDeque<Vec<u8>>,
+    until: Option<Instant>,
+    /// Delays ended early by [`HELD_MAX`].
+    pub cut: DelaysCut,
+}
+
+/// How many delays [`HELD_MAX`] ended early.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DelaysCut(usize);
+
+impl DelaysCut {
+    pub const NONE: DelaysCut = DelaysCut(0);
+}
+
+/// The bytes a delay may hold before it ends early: four mebibytes, 1,024
+/// reads of `READ_CHUNK`.
+pub const HELD_MAX: usize = 4 << 20;
+
+impl Pace {
+    pub fn new() -> Pace {
+        Pace {
+            held: std::collections::VecDeque::new(),
+            until: None,
+            cut: DelaysCut::NONE,
+        }
+    }
+
+    /// When the held reads go on, while a delay holds them.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn deadline(&self) -> Option<Instant> {
+        self.until
+    }
+
+    /// Whether a delay's held reads are owed a feed at `now`.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn due(&self, now: Instant) -> bool {
+        self.until.is_some_and(|t| t <= now)
+    }
+
+    fn keep(&mut self, bytes: &[u8]) {
+        if !bytes.is_empty() {
+            self.held.push_back(bytes.to_vec());
+        }
+    }
+}
+
+/// Whether [`paced`] fed the core anything.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fed {
+    Nothing,
+    Some,
+}
+
+impl Fed {
+    fn or(self, other: Fed) -> Fed {
+        match (self, other) {
+            (Fed::Nothing, Fed::Nothing) => Fed::Nothing,
+            _ => Fed::Some,
+        }
+    }
+}
 
 /// Feed each read to the core, in order, and hand `sink` every byte it
 /// answered, behind whatever it already owed.
@@ -33,39 +126,94 @@ use baud_domain::{DecodeBudget, DecodeProgress};
 /// if it honours one, and the rest of the read is fed after -- so a program
 /// that asks for 132 columns and draws in the same read draws at 132.
 ///
+/// **And a ReGIS delay** (`Term::take_regis_wait`, under
+/// `RegisHold::On`): the reads it holds wait in `pace` until its deadline,
+/// and are fed first, in order, by the first call at or after it. `now` is
+/// the call's time, which a delay met here is measured from.
+///
 /// **And a program's log** (`hostlog.rs`): the core stops a read at each
 /// change of `?46` too, so each part is handed to `log` if the core was
 /// logging when it was fed, and `log` follows the core after it -- the
 /// bytes from the one after `?46 h` up to the end of `?46 l`, as xterm
-/// logs them.
-pub fn feed<'r>(
+/// logs them. A part a delay holds is logged when it is fed.
+pub fn paced<'r>(
     term: &mut Term<'_>,
+    pace: &mut Pace,
+    now: Instant,
     reads: impl IntoIterator<Item = &'r [u8]>,
     mut sink: impl FnMut(&[u8]),
     mut after: impl FnMut(&mut Term<'_>),
     log: &mut impl crate::hostlog::Tee,
-) {
+) -> Fed {
     owed(term, &mut sink);
     log.follow(term);
-    for bytes in reads {
-        term.write_at(BytePos::ZERO, bytes);
-        let mut next = Some(Rest {
-            at: BytePos::ZERO,
-            len: ReadLen::from_index(bytes.len()),
-        });
-        while let Some(r) = next {
-            let logging = term.log_mode();
-            term.feed(r.at, r.len);
-            owed(term, &mut sink);
-            next = term.take_held();
-            if logging == baud_core::LogMode::Started {
-                let end = next.map_or(r.at.index() + r.len.index(), |n| n.at.index());
-                log.take(&bytes[r.at.index()..end]);
+    if let Some(t) = pace.until {
+        let waiting: usize = pace.held.iter().map(Vec::len).sum();
+        if now < t && waiting <= HELD_MAX {
+            for bytes in reads {
+                pace.keep(bytes);
             }
-            log.follow(term);
-            after(term);
+            return Fed::Nothing;
+        }
+        if now < t {
+            pace.cut = DelaysCut(pace.cut.0 + 1);
+        }
+        pace.until = None;
+    }
+    let held = core::mem::take(&mut pace.held);
+    let mut fed = Fed::Nothing;
+    for bytes in held.iter() {
+        fed = paced_one(term, pace, now, bytes, &mut sink, &mut after, log).or(fed);
+    }
+    for bytes in reads {
+        fed = paced_one(term, pace, now, bytes, &mut sink, &mut after, log).or(fed);
+    }
+    fed
+}
+
+/// One read for [`paced`]: held behind a delay this call met, or fed, and
+/// what is left of it held if it meets one.
+fn paced_one(
+    term: &mut Term<'_>,
+    pace: &mut Pace,
+    now: Instant,
+    bytes: &[u8],
+    sink: &mut impl FnMut(&[u8]),
+    after: &mut impl FnMut(&mut Term<'_>),
+    log: &mut impl crate::hostlog::Tee,
+) -> Fed {
+    if bytes.is_empty() {
+        return Fed::Nothing;
+    }
+    // A delay met in this call holds the rest of the batch behind it.
+    if pace.until.is_some() {
+        pace.keep(bytes);
+        return Fed::Nothing;
+    }
+    term.write_at(BytePos::ZERO, bytes);
+    let mut next = Some(Rest {
+        at: BytePos::ZERO,
+        len: ReadLen::from_index(bytes.len()),
+    });
+    while let Some(r) = next {
+        let logging = term.log_mode();
+        term.feed(r.at, r.len);
+        owed(term, sink);
+        next = term.take_held();
+        if logging == baud_core::LogMode::Started {
+            let end = next.map_or(r.at.index() + r.len.index(), |n| n.at.index());
+            log.take(&bytes[r.at.index()..end]);
+        }
+        log.follow(term);
+        after(term);
+        if let Some(w) = term.take_regis_wait() {
+            pace.until = Some(now + Duration::from_micros(w.micros()));
+            if let Some(r) = next.take() {
+                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+            }
         }
     }
+    Fed::Some
 }
 
 /// One input event's answer -- a key, a focus report -- queued into an empty
@@ -328,6 +476,124 @@ mod tests {
             row[131].content.as_codepoint().map(|c| c.value()),
             Some(u32::from(b'X'))
         );
+    }
+
+    /// Row 0's text.
+    fn row0(t: &Term<'_>) -> String {
+        t.row(baud_core::Row::ZERO)
+            .expect("row 0")
+            .iter()
+            .filter_map(|c| c.content.as_codepoint())
+            .filter_map(|c| char::from_u32(c.value()))
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    /// **A ReGIS delay holds the rest of its read and every read after it
+    /// until its deadline**, then feeds them in order: the text after
+    /// `S(T60)` is not on the screen half a second in, and is a second in.
+    /// The control: unpaced, the same reads end on the same screen.
+    #[test]
+    fn a_delay_holds_the_reads_behind_it_until_its_deadline() {
+        let reads: [&[u8]; 2] = [b"\x1bPpS(T60)\x1b\\AB", b"CD"];
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            reads,
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(fed, Fed::Some);
+        assert_eq!(pace.deadline(), Some(t0 + Duration::from_secs(1)));
+        assert_eq!(row0(&t), "", "nothing after the delay yet");
+        let half = t0 + Duration::from_millis(500);
+        assert!(!pace.due(half));
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            half,
+            [&b"EF"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Nothing, ""));
+        let done = t0 + Duration::from_secs(1);
+        assert!(pace.due(done));
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            done,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Some, "ABCDEF"));
+        assert_eq!(pace.deadline(), None);
+        // The control.
+        let mut s2 = Owned::new(&WS);
+        let mut u = Term::new(s2.storage(), &WS);
+        feed(
+            &mut u,
+            reads.into_iter().chain([&b"EF"[..]]),
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(row0(&u), "ABCDEF");
+        assert_eq!(pace.cut, DelaysCut::NONE);
+    }
+
+    /// **A program writing through a long delay ends it early** once more
+    /// than [`HELD_MAX`] bytes wait, and it is counted.
+    #[test]
+    fn a_delay_ends_early_past_its_bound() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"\x1bPpS(T32767)\x1b\\"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let chunk = vec![b'x'; READ_CHUNK];
+        let n = HELD_MAX / READ_CHUNK + 1;
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            (0..n).map(|_| &chunk[..]),
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, pace.cut), (Fed::Nothing, DelaysCut::NONE));
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, pace.cut), (Fed::Some, DelaysCut(1)));
+        assert_eq!(pace.deadline(), None);
     }
 
     /// **A key behind answers that nearly fill the buffer is kept.** The

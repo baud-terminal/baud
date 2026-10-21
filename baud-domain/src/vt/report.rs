@@ -599,8 +599,14 @@ impl Report {
     ///   maximum graphics dimensions" -- baud limits an image by its arena's
     ///   area and a coordinate's range, not by a width and height; set and
     ///   reset fail, as xterm's do.
-    /// * `Pi = 3`, ReGIS, which baud has none of, and any other item: an
-    ///   error in `Pi`.
+    /// * `Pi = 3`, the ReGIS geometry: read answers the page ReGIS draws
+    ///   on (`regis_page_size`), the text area in pixels or the VT300's 800
+    ///   by 480; read-maximum answers `0 ; 0`, as the Sixel maximum does,
+    ///   the page following the window (Jev's lean, ZERO, 0.46 and 0.52);
+    ///   set and reset fail, the page being the window's. **Not gated on
+    ///   DA**: ReGIS is always on, so baud is configured for it, though DA
+    ///   lists no attribute 3 (decided by Jev, ALWAYS, 0.96 and 0.96).
+    /// * Any other item: an error in `Pi`.
     pub fn graphics(
         req: GraphicsRequest,
         claim: SixelClaim,
@@ -621,18 +627,24 @@ impl Report {
                 }
             }
             (2, 1..=3) => GraphicsReply::Failure,
-            (2, 4) => GraphicsReply::Geometry {
+            (2 | 3, 4) => GraphicsReply::Geometry {
                 width: ImagePx::ZERO,
                 height: ImagePx::ZERO,
             },
-            (1 | 2, _) => GraphicsReply::ErrorInAction,
+            (3, 1) => {
+                let (width, height) = crate::regis_page_size(cols, rows, cell_w, cell_h);
+                GraphicsReply::Geometry { width, height }
+            }
+            (3, 2 | 3) => GraphicsReply::Failure,
+            (1..=3, _) => GraphicsReply::ErrorInAction,
             _ => GraphicsReply::ErrorInItem,
         };
-        let reply = match (reply, claim) {
-            (GraphicsReply::Count(_) | GraphicsReply::Geometry { .. }, SixelClaim::No) => {
+        let reply = match (req.item.0, reply, claim) {
+            (3, r, _) => r,
+            (_, GraphicsReply::Count(_) | GraphicsReply::Geometry { .. }, SixelClaim::No) => {
                 GraphicsReply::Failure
             }
-            (r, _) => r,
+            (_, r, _) => r,
         };
         Report::Graphics {
             item: req.item,

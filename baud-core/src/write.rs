@@ -824,6 +824,11 @@ pub(crate) fn act(
         // A DECRSPS that restored a pending single shift leaves the parser
         // where the shift is pending (`Node::SingleShift`).
         Act::StrEnd => {
+            // A ReGIS macrograph a delay stopped plays on before its string
+            // ends, and the terminator is held if it stops again.
+            if p.cold.str_kind == StrKind::Regis && p.strs.regis.playing() {
+                return p.regis_end(from, left, node);
+            }
             p.str_end(StreamByte::from_stream(p.arena[from.index()]));
             if p.cold.restored_shift.take().is_some() {
                 *node = Node::SingleShift;

@@ -104,6 +104,9 @@ struct Driver {
     /// The last page-width request seen (`width.rs`): this driver keeps its
     /// window and says so once.
     widths: crate::width::Widths,
+    /// The reads a ReGIS delay holds, fed on the first turn at or after its
+    /// deadline, which bounds the wait (`reads::paced`).
+    pace: crate::reads::Pace,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
     /// last frame, with the cells' margin filled with the default
@@ -204,6 +207,9 @@ pub fn run() {
     // ReGIS draws its built-in alphabet with the embedded face
     // (`regis_font.rs`).
     term.set_regis_font(crate::regis_font::glyph);
+    // A ReGIS delay stops the read, and the loop feeds the rest on the turn
+    // its deadline wakes (`reads::paced`).
+    term.set_regis_hold(baud_core::RegisHold::On);
     // A deleted picture's pages go back to the system (`pages.rs`).
     if let Some(release) = crate::pages::release() {
         term.set_page_release(release);
@@ -312,6 +318,7 @@ pub fn run() {
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
         widths,
+        pace: crate::reads::Pace::new(),
         frame: Vec::new(),
         stride: Px::of(0),
         margin,
@@ -372,7 +379,9 @@ pub fn run() {
             .transfer_deadline()
             .filter(|&t| t > now)
             .map(|t| t.saturating_duration_since(now));
-        let timeout = [sync, repeat, flash, caret, decode, paste]
+        // The reads a ReGIS delay holds, owed at its deadline.
+        let delay = d.pace.deadline().map(|t| t.saturating_duration_since(now));
+        let timeout = [sync, repeat, flash, caret, decode, paste, delay]
             .into_iter()
             .flatten()
             .min();
@@ -425,6 +434,10 @@ pub fn run() {
                 Chunk::Closed => break 'run,
                 Chunk::Bytes(bytes) => d.feed(&bytes),
             }
+        }
+        // A ReGIS delay's held reads, at its deadline, read or not.
+        if d.pace.due(Instant::now()) {
+            d.feed(&[]);
         }
         // After a timeout as much as after readiness: a repeat is due on
         // the clock, not on an event, and so is a flash's end. The
@@ -571,7 +584,7 @@ impl Driver {
 
     /// One read's worth of the child's output into the core.
     fn feed(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() {
+        if bytes.is_empty() && !self.pace.due(Instant::now()) {
             return;
         }
         let refused = self.term.images().refusals;
@@ -583,7 +596,7 @@ impl Driver {
         // **A program's page width is refused and said once** (`width.rs`):
         // nothing here resizes the window, so no width request holds the
         // read; a change of `?46` does, and the feed logs each part.
-        let widths = &mut self.widths;
+        let (widths, pace) = (&mut self.widths, &mut self.pace);
         let (clips, window, conn, osc52) = (
             &mut self.clips,
             &mut self.window,
@@ -597,8 +610,10 @@ impl Driver {
         // The watches on the selection's lines, armed before the read
         // (`keep::Before::watched`).
         let before = self.seat.before_read(&mut self.term);
-        crate::reads::feed(
+        crate::reads::paced(
             &mut self.term,
+            pace,
+            Instant::now(),
             [bytes],
             |b| self.outbox.push(b),
             |t| {

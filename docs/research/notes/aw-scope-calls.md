@@ -448,6 +448,14 @@ reports answered empty as 070-8 § 8.5.7.4.1 prefers; Tektronix stays out,
 the lean taken. Lane b122 builds it, a part at a time, `docs/vt-coverage.md`'s
 ReGIS row saying which parts.
 
+**An open departure, on the owner's veto list.** ReGIS is built, and DA
+lists no attribute 3. 070-4's DA says "The rest of the parameters
+indicate the architectural extensions supported at the current operating
+level" (PDF 221), and its Table 1 registers "3 1-4 ReGIS Display"
+(PDF 223); baud lists Sixel's 4 there under its claim, and xterm sends 3
+while its ReGIS is on (`[[source: xterm-reset]]` 4165-4168). 3 stays out
+by the owner's DA pick of 2026-10-15, "Keep ?6c (Recommended)".
+
 ## Found and not fixed
 
 - The out-of-scope row for ReGIS and Tektronix in `docs/vt-coverage.md` gave

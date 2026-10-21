@@ -506,7 +506,7 @@ mod tests {
         const SRC: &str = include_str!("linux.rs");
         // Spelled apart, so this test's own text is not what it finds.
         const FEED_FN: &str = concat!("    fn feed(&mut self, ", "bytes: &[u8]) {");
-        const FEED: &str = concat!("crate::reads::", "feed(");
+        const FEED: &str = concat!("crate::reads::", "paced(");
         const POLL: &str = concat!("clips.poll(", "t, osc52)");
         const AREA: &str = concat!(".with_clipboard(", "cfg.clipboard.budget)");
         assert_eq!(SRC.matches(FEED_FN).count(), 1, "one feed");

@@ -666,10 +666,12 @@ impl ColumnRefusals {
 }
 
 /// The part of a read held back -- by a page-width request under
-/// [`WidthHold::On`], or a change of `?46` while logging is on
-/// ([`Term::set_logging`]): where it starts in the arena and how long it is,
-/// which [`Term::feed`] takes once the embedder has resized or started or
-/// stopped its log. Empty when the request was the read's last byte.
+/// [`WidthHold::On`], a change of `?46` while logging is on
+/// ([`Term::set_logging`]), or a ReGIS delay under [`RegisHold::On`]: where
+/// it starts in the arena and how long it is, which [`Term::feed`] takes
+/// once the embedder has resized, started or stopped its log, or let the
+/// delay pass. Empty when the request, the change or the delay was the
+/// read's last byte.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Rest {
     pub at: BytePos,
@@ -696,7 +698,8 @@ pub(crate) struct WidthAsk {
     pub(crate) last: Option<WidthRequest>,
     pub(crate) hold: WidthHold,
     /// Set where a held read stopped (`Act::Hold`, or `Term::feed` when the
-    /// request was the read's last byte), and taken by [`Term::take_held`];
+    /// request was the read's last byte, or a ReGIS delay, `regis_byte`),
+    /// and taken by [`Term::take_held`];
     /// cleared when the next read starts.
     pub(crate) held: Option<Rest>,
     /// `?3` while `?40` was reset: ignored, as xterm ignores it, and counted.
@@ -3763,9 +3766,10 @@ impl<'b> Term<'b> {
         self.cold.width.hold = hold;
     }
 
-    /// The rest of the last read, if a page-width request or a change of
-    /// `?46` held it: `None` when the read was parsed whole. Taken once; the
-    /// next read clears it.
+    /// The rest of the last read, if a page-width request, a change of
+    /// `?46` or a ReGIS delay held it: `None` when the read was parsed
+    /// whole. Taken once; the next read clears it. A delay's rest goes on
+    /// once its ticks have passed ([`Term::take_regis_wait`]).
     pub fn take_held(&mut self) -> Option<Rest> {
         self.cold.width.held.take()
     }
@@ -4337,6 +4341,22 @@ impl<'b> Term<'b> {
     /// not drawn, and counted in `regis_counts().unfonted`.
     pub fn set_regis_font(&mut self, f: baud_domain::RegisFont) {
         self.store.strs.regis.set_font(f);
+    }
+
+    /// **Whether a ReGIS `S(T)` delay stops the read.** Set it only if you
+    /// hold the rest of the read ([`Term::take_held`]) and what follows it,
+    /// and feed them once [`Term::take_regis_wait`]'s ticks have passed,
+    /// scheduled rather than waited on. Off, each delay is passed over and
+    /// counted in `regis_counts().delays_unheld`. It survives `RIS`.
+    pub fn set_regis_hold(&mut self, hold: RegisHold) {
+        self.store.strs.regis.set_hold(hold);
+    }
+
+    /// The ticks the last read's held rest waits, a sixtieth of a second
+    /// each ([`RegisTicks::micros`]): `None` when no delay held it. Taken
+    /// once.
+    pub fn take_regis_wait(&mut self) -> Option<RegisTicks> {
+        self.store.strs.regis_wait.take()
     }
 
     /// **Store an image the embedder decodes and place it at the cursor**,

@@ -859,7 +859,7 @@ mod tests {
                 .split_once(body)
                 .expect("the driver's feed")
                 .1
-                .split_once(concat!("crate::reads::", "feed("))
+                .split_once(concat!("crate::reads::", "paced("))
                 .expect("the feed")
                 .1;
             let call = &feed[..feed.find("\n        );").expect("its end")];

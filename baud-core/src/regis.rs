@@ -65,10 +65,6 @@ struct Want {
     h: ImagePx,
 }
 
-/// The largest page side: a text area past this is drawn on a page of
-/// this size, the 800 by 480 device fitted into it.
-const PAGE_MAX: u16 = 8192;
-
 impl Paint<'_, '_> {
     /// The string a `DcsQuery` byte other than DECRQSS's `q` begins:
     /// DECRSPS's `t` after `$`, or ReGIS's bare `p`. Out of line, so the
@@ -89,6 +85,68 @@ impl Paint<'_, '_> {
         self.strs.regis.set_encoding(self.cold.str_enc);
         self.regis_run(|regis, out| regis.enter(e, out));
         crate::osc::StrKind::Regis
+    }
+
+    /// **One body byte, and the read held at a delay.** Under
+    /// [`RegisHold::On`] an `S(T)` stops the read after the byte that ends
+    /// it: the rest is held in `WidthAsk::held`, which `Term::take_held`
+    /// hands the embedder as it hands a page-width request's, and the ticks
+    /// in `regis_wait`, which `Term::take_regis_wait` hands it. The parser
+    /// stays in the string's node, so the rest goes on inside the envelope.
+    /// A delay inside a macrograph stops the macrograph where it is, and
+    /// the next byte plays the rest of it first, the byte itself held if
+    /// the macrograph stops again.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn regis_byte(&mut self, from: BytePos, left: ReadLen) -> ReadLen {
+        if self.strs.regis.playing() {
+            self.regis_run(|regis, out| regis.resume(out));
+            if self.regis_hold(from, left) == Held::Yes {
+                return left;
+            }
+        }
+        self.regis_put(StreamByte::from_stream(self.arena[from.index()]));
+        let rest = from.advance_read(ReadLen::ONE);
+        match self.regis_hold(rest, left.less(ReadLen::ONE)) {
+            Held::Yes => left,
+            Held::No => ReadLen::ONE,
+        }
+    }
+
+    /// **The terminator of an envelope whose macrograph a delay stopped**:
+    /// the macrograph plays on first, and if it stops again the read is
+    /// held from the terminator, the parser back in the node it was read
+    /// from -- `StrEsc` for the `\` of `ESC \`, the body's for a C1 `ST`
+    /// -- so the rest ends the envelope once the macrograph has played.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn regis_end(
+        &mut self,
+        from: BytePos,
+        left: ReadLen,
+        node: &mut crate::graph::Node,
+    ) -> ReadLen {
+        self.regis_run(|regis, out| regis.resume(out));
+        if self.regis_hold(from, left) == Held::Yes {
+            *node = match self.arena[from.index()] {
+                0x9c => crate::graph::Node::DcsStr,
+                _ => crate::graph::Node::StrEsc,
+            };
+            return left;
+        }
+        self.str_end(StreamByte::from_stream(self.arena[from.index()]));
+        ReadLen::ONE
+    }
+
+    /// Hold the read from `at` if the interpreter met a delay.
+    fn regis_hold(&mut self, at: BytePos, len: ReadLen) -> Held {
+        let Some(t) = self.strs.regis.take_wait() else {
+            return Held::No;
+        };
+        let w = self.strs.regis_wait.map_or(0, RegisTicks::get);
+        self.strs.regis_wait = Some(RegisTicks::of(w.saturating_add(t.get())));
+        self.cold.width.held = Some(crate::term::Rest { at, len });
+        Held::Yes
     }
 
     /// One body byte. **Under ISO 8859-1 a GR byte outside a quoted string
@@ -155,21 +213,16 @@ impl Paint<'_, '_> {
             Screen::Normal => (ImageScreen::Primary, self.book.top),
             Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
         };
-        let side = |cells: usize, px: ImagePx| {
-            let n = cells
-                .saturating_mul(px.index())
-                .clamp(2, usize::from(PAGE_MAX));
-            ImagePx::of(u16::try_from(n).unwrap_or(PAGE_MAX))
-        };
-        let (w, h) = match (self.cell_width.raw(), self.cell_height.raw()) {
-            (0, _) | (_, 0) => (ImagePx::of(800), ImagePx::of(480)),
-            _ => (
-                side(self.cols.index(), self.cell_width),
-                side(self.rows.index(), self.cell_height),
-            ),
-        };
+        let (w, h) = regis_page_size(self.cols, self.rows, self.cell_width, self.cell_height);
         Want { screen, line, w, h }
     }
+}
+
+/// Whether a delay held the read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    No,
+    Yes,
 }
 
 /// How many drawings had no page, if any.

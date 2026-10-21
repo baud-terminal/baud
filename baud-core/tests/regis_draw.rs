@@ -398,3 +398,152 @@ fn command_display_shows_the_commands_on_the_bottom_line() {
         assert!((460..480).all(|y| (0..800).all(|x| px[y * w + x] == BLACK)));
     });
 }
+
+// ---------------------------------------------------------------------------
+// `S(T)`, 070-8 § 8.7.1.4.3: "the number of device dependent timer "ticks"
+// for which ReGIS interpretation should be suspended".
+// ---------------------------------------------------------------------------
+
+/// One read under `RegisHold::On`: the ticks it waits and the bytes it held.
+fn read_held(t: &mut Term<'_>, bytes: &[u8]) -> (Option<u32>, Option<Vec<u8>>) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    let wait = t.take_regis_wait().map(RegisTicks::get);
+    let rest = t
+        .take_held()
+        .map(|r| bytes[r.at.index()..r.at.index() + r.len.index()].to_vec());
+    (wait, rest)
+}
+
+/// What the pages show, none placed or not.
+fn drawn(t: &Term<'_>) -> Vec<(usize, usize, u32)> {
+    pages(t)
+        .iter()
+        .flat_map(|(px, w, _, _)| painted(px, *w))
+        .collect()
+}
+
+fn held_term(f: impl FnOnce(&mut Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_regis_hold(RegisHold::On);
+    f(&mut t);
+}
+
+/// **A delay holds the rest of the read, and nothing after it is drawn
+/// until the rest is fed.** Fed, the vector is drawn as it is without the
+/// hold.
+#[test]
+fn a_delay_holds_the_rest_of_the_read_until_it_is_fed() {
+    held_term(|t| {
+        let (wait, rest) = read_held(t, b"\x1bPpP[100,100]S(T60)V[110,100]\x1b\\");
+        assert_eq!(wait, Some(60));
+        assert_eq!(rest.as_deref(), Some(&b"V[110,100]\x1b\\"[..]));
+        assert!(drawn(t).is_empty(), "nothing drawn before the delay ends");
+        let (wait, rest) = read_held(t, &rest.unwrap());
+        assert_eq!((wait, rest), (None, None));
+        let (px, w, _) = page(t);
+        let want: Vec<_> = (100..=110).map(|x| (x, 100, GRAY50)).collect();
+        assert_eq!(painted(&px, w), want);
+        assert_eq!(t.regis_counts().delays_unheld, 0);
+    });
+    // The control: without the hold the delay is passed over and counted.
+    run(b"\x1bPpP[100,100]S(T60)V[110,100]\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        assert_eq!(painted(&px, w).len(), 11);
+        assert_eq!(t.regis_counts().delays_unheld, 1);
+        assert_eq!(t.take_held(), None);
+    });
+}
+
+/// **"S(T60,T60,T60)" stops at each**, the ticks waited one delay at a
+/// time.
+#[test]
+fn a_cascade_of_delays_stops_at_each() {
+    held_term(|t| {
+        let mut bytes = b"\x1bPpS(T60,T30,T10)\x1b\\".to_vec();
+        let mut waits = Vec::new();
+        while let (Some(w), Some(rest)) = read_held(t, &bytes) {
+            waits.push(w);
+            bytes = rest;
+        }
+        assert_eq!(waits, vec![60, 30, 10]);
+    });
+}
+
+/// **A delay inside a macrograph stops it where it is**, and the next byte
+/// plays the rest of it before itself -- the envelope's terminator too,
+/// held again at each delay the macrograph still has.
+#[test]
+fn a_delay_in_a_macrograph_stops_it_and_the_next_byte_plays_on() {
+    held_term(|t| {
+        let (wait, rest) = read_held(t, b"\x1bPp@:AS(T20)V[110,100]@;P[100,100]@AP[0,0]\x1b\\");
+        assert_eq!(wait, Some(20));
+        assert_eq!(rest.as_deref(), Some(&b"P[0,0]\x1b\\"[..]));
+        assert!(drawn(t).is_empty());
+        // The rest plays the macrograph's vector, then moves.
+        let (wait, _) = read_held(t, &rest.unwrap());
+        assert_eq!(wait, None);
+        let (px, w, _) = page(t);
+        let want: Vec<_> = (100..=110).map(|x| (x, 100, GRAY50)).collect();
+        assert_eq!(
+            painted(&px, w),
+            want,
+            "the vector from the macrograph's place"
+        );
+    });
+    // Invoked last: the terminator plays it on, and is held at its second
+    // delay, the parser back where the `\` is read again.
+    held_term(|t| {
+        let (wait, rest) = read_held(
+            t,
+            b"\x1bPp@:AS(T20)V[110,100]S(T10)V[110,110]@;P[100,100]@A\x1b\\x",
+        );
+        assert_eq!((wait, rest.as_deref()), (Some(20), Some(&b"\x1b\\x"[..])));
+        let (wait, rest) = read_held(t, &rest.unwrap());
+        assert_eq!((wait, rest.as_deref()), (Some(10), Some(&b"\\x"[..])));
+        assert_eq!(drawn(t).len(), 11, "the first vector, not the second");
+        let (wait, rest) = read_held(t, &rest.unwrap());
+        assert_eq!((wait, rest), (None, None));
+        assert_eq!(drawn(t).len(), 11 + 10, "the second vector");
+        // The envelope ended, and the `x` after it is text.
+        assert_eq!(t.cursor().1.index(), 1);
+    });
+}
+
+/// **Held at every delay and resumed, a body draws what it draws whole**,
+/// the page pixel for pixel.
+#[test]
+fn a_body_held_at_its_delays_draws_what_it_draws_whole() {
+    let body: &[u8] =
+        b"\x1bPpW(I2)P[10,10]S(T5)V[50,60]S(T1)C[+20]@:BS(T2)V[90,10]@;@BF(C[200,200][+30])\x1b\\";
+    let mut whole = Vec::new();
+    run(body, |t| whole = page(t).0);
+    held_term(|t| {
+        let (mut bytes, mut held) = (body.to_vec(), 0);
+        while let (Some(_), Some(rest)) = read_held(t, &bytes) {
+            held += 1;
+            bytes = rest;
+        }
+        assert_eq!(held, 3);
+        assert!(
+            page(t).0 == whole,
+            "the held body's page is the whole one's"
+        );
+    });
+}
+
+/// **The hold and the font are the embedder's, and `RIS` keeps them.**
+#[test]
+fn ris_keeps_the_hold_and_the_font() {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_regis_hold(RegisHold::On);
+    t.set_regis_font(boxes);
+    support::feed(&mut t, b"\x1bc");
+    let (wait, _) = read_held(&mut t, b"\x1bPpP[100,100]T'A'S(T6)\x1b\\");
+    assert_eq!(wait, Some(6), "the hold survives RIS");
+    assert_eq!(t.regis_counts().unfonted, 0, "and so does the font");
+}

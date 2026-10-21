@@ -78,6 +78,10 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn str_run(&mut self, from: BytePos, left: ReadLen) -> ReadLen {
+        // A ReGIS body byte may stop the read at a delay (`regis_byte`).
+        if self.cold.str_kind == StrKind::Regis {
+            return self.regis_byte(from, left);
+        }
         if self.cold.str_kind == StrKind::Kitty {
             let n = crate::write::run_of_text(self, from, left);
             if n.index() > 0 {
@@ -137,9 +141,6 @@ impl Paint<'_, '_> {
                 return self.sixel_put_rare(b);
             }
             return self.sixel_put(b);
-        }
-        if self.cold.str_kind == StrKind::Regis {
-            return self.regis_put(b);
         }
         // **An `APC` whose body begins `G` is a kitty graphics command**
         // (`[[source: kitty-graphics]]`, "The graphics escape code": "All

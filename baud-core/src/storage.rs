@@ -434,6 +434,9 @@ pub struct StrBuf<'b> {
     /// The page ReGIS draws on (`crate::regis`): which images, anchored
     /// where. Read only by ReGIS.
     pub(crate) regis_page: crate::regis::Page,
+    /// The ticks of the `S(T)` delays a held read stopped at, for the
+    /// embedder to take (`Term::take_regis_wait`).
+    pub(crate) regis_wait: Option<RegisTicks>,
     /// The kitty graphics stream (`kitty.rs`): the chunk being read, the
     /// transmission in flight, the decode deferred and the replies owed.
     /// Behind a reference for the reason `sixel` is, and always provisioned:
@@ -546,6 +549,7 @@ impl<'b> StrBuf<'b> {
             sixel,
             regis,
             regis_page: crate::regis::Page::NONE,
+            regis_wait: None,
             kitty,
             kitty_scratch,
             titles,
@@ -826,6 +830,7 @@ impl Owned {
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
                 regis_page: crate::regis::Page::NONE,
+                regis_wait: None,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
@@ -889,6 +894,7 @@ impl Owned {
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
                 regis_page: crate::regis::Page::NONE,
+                regis_wait: None,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
