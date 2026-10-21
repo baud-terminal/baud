@@ -505,6 +505,8 @@ struct App {
     status_rows: Rows,
     /// Wheel travel not yet a whole line (`wheel.rs`).
     travel: Travel,
+    /// Sideways wheel travel not yet a whole column (`wheel.rs`).
+    travel_across: Travel,
     frames: Tally,
     /// Display-link ticks, which `frames` is not: a tick that finds
     /// nothing pending returns from `present` before a frame is built,
@@ -1171,6 +1173,7 @@ impl App {
             bar_shown: baud_core::ScrollbarShown::Shown,
             status_rows: Rows::ZERO,
             travel: Travel::default(),
+            travel_across: Travel::default(),
             frames: Tally::default(),
             ticks: Tally::default(),
             wrote_in_flight: Tally::default(),
@@ -7748,6 +7751,10 @@ impl Responder for Driver {
     /// application resets it, and nothing after (`wheel::route`).
     fn scroll(&mut self, event: &Scroll) {
         self.app.caret.quiet(host_now());
+        if crate::wheel::predominant(event.dx, event.dy) == crate::wheel::Axis::Horizontal {
+            self.scroll_across(event);
+            return;
+        }
         let (_, ch) = self.app.metrics_cell();
         let lines = self.app.travel.lines(match event.precise {
             true => Delta::Points {
@@ -9888,6 +9895,37 @@ impl Driver {
     fn cell_under(&self, x: f64, y: f64) -> (Row, Col) {
         let (scale, cell, grid, pad) = self.pointer_geometry();
         cell_under((x, y), scale, cell, grid, pad)
+    }
+
+    /// **The wheel across**: a tilt, Shift with a mouse wheel, a sideways
+    /// swipe. Whole columns of the cell width, positive `dx` toward the
+    /// start of the line as positive `dy` is toward the top -- AppKit's
+    /// swipe note pairs 1 with "swipe left" and "swipe up" (`[[source:
+    /// macos-sdk-nsevent-h]]`) -- to a program tracking the mouse as buttons
+    /// 6 and 7, unless Shift's override takes it as it takes the vertical
+    /// wheel, and nothing otherwise (`wheel::route_on`).
+    fn scroll_across(&mut self, event: &Scroll) {
+        let (cw, _) = self.app.metrics_cell();
+        let cols = self.app.travel_across.lines(match event.precise {
+            true => Delta::Points {
+                dy: event.dx,
+                scale: self.app.scale,
+                cell: cw,
+            },
+            false => Delta::Lines(event.dx),
+        });
+        if cols.get() == 0 {
+            return;
+        }
+        let mods = mouse_mods(event.modifiers);
+        let axis = crate::wheel::Axis::Horizontal;
+        if crate::wheel::route_on(&self.app.term, mods, axis) != Route::Report {
+            return;
+        }
+        let at = self.pointer_under(event.x, event.y);
+        let outbox = &mut self.app.outbox;
+        crate::wheel::report_on(&mut self.app.term, axis, cols, at, mods, |b| outbox.push(b));
+        self.app.flush_reply();
     }
 
     /// The cell under a view point and the pixel it is at: what a mouse

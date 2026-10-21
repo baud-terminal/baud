@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 298 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 299 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 286 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 822 | 36 | |
+| total | 823 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -388,7 +388,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 130
+- **Files:** 131
 
 | file | copied from |
 |---|---|
@@ -472,6 +472,7 @@ notice is, and the URL each file was copied from.
 | [apple-nsscreen-frame.json](docs/research/sources/apple-nsscreen-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/frame.json |
 | [apple-nsscreen-screens.json](docs/research/sources/apple-nsscreen-screens.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json |
 | [apple-nsscreen-visibleframe.json](docs/research/sources/apple-nsscreen-visibleframe.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/visibleframe.json |
+| [apple-nsscrollview-usespredominantaxisscrolling.json](docs/research/sources/apple-nsscrollview-usespredominantaxisscrolling.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscrollview/usespredominantaxisscrolling.json |
 | [apple-nssound-volume.json](docs/research/sources/apple-nssound-volume.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound/volume.json |
 | [apple-nssound.json](docs/research/sources/apple-nssound.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound.json |
 | [apple-nswindow-converttoscreen.json](docs/research/sources/apple-nswindow-converttoscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/converttoscreen(_:).json |

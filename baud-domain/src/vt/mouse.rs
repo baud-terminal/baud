@@ -576,6 +576,10 @@ pub enum MouseButton {
     Right,
     WheelUp,
     WheelDown,
+    /// Button 6, the wheel toward the left: a tilt, a sideways swipe.
+    WheelLeft,
+    /// Button 7, the wheel toward the right.
+    WheelRight,
     /// No button — the "3=release" code, and the button field of a bare motion
     /// event in any-event tracking.
     None,
@@ -593,6 +597,11 @@ impl MouseButton {
             // added to the event code."
             MouseButton::WheelUp => 64,
             MouseButton::WheelDown => 65,
+            // "Additional buttons are encoded like the wheel mice, by adding
+            // 64 (for buttons 6 and 7)": 6 is 64 + 2 and 7 is 64 + 3, as
+            // xterm's `BtnCode` adds 64 to the low two bits.
+            MouseButton::WheelLeft => 66,
+            MouseButton::WheelRight => 67,
         }
     }
 }

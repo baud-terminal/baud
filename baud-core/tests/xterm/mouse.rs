@@ -652,6 +652,41 @@ fn wheel_releases_are_not_reported() {
     );
 }
 
+/// **Buttons 6 and 7, the wheel across, are encoded like the wheel**:
+/// "Additional buttons are encoded like the wheel mice, by adding 64 (for
+/// buttons 6 and 7)" (`[[source: ctlseqs]]`), 66 and 67 in every
+/// encoding, X10's byte 32 more; their releases go unreported as the
+/// wheel's do (Jev's lean, PRESS_ONLY), and `?9` reports neither.
+#[test]
+fn buttons_6_and_7_are_encoded_like_the_wheel() {
+    let left = ev(MouseButton::WheelLeft, MouseKind::Press, 4, 2);
+    let right = ev(MouseButton::WheelRight, MouseKind::Press, 4, 2);
+    assert_eq!(sent(SGR, left).0, b"\x1b[<66;5;3M");
+    assert_eq!(sent(SGR, right).0, b"\x1b[<67;5;3M");
+    assert_eq!(sent(b"\x1b[?1000h", left).0, b"\x1b[Mb%#");
+    assert_eq!(sent(b"\x1b[?1000h", right).0, b"\x1b[Mc%#");
+    assert_eq!(sent(b"\x1b[?1000h\x1b[?1005h", left).0, b"\x1b[Mb%#");
+    assert_eq!(sent(b"\x1b[?1000h\x1b[?1015h", left).0, b"\x1b[98;5;3M");
+    let shifted = MouseEvent {
+        mods: MouseMods::SHIFT.with(MouseMods::CONTROL),
+        ..right
+    };
+    assert_eq!(sent(SGR, shifted).0, b"\x1b[<87;5;3M", "67 + 4 + 16");
+    for b in [MouseButton::WheelLeft, MouseButton::WheelRight] {
+        for setup in [SGR, b"\x1b[?1000h".as_slice(), b"\x1b[?1000h\x1b[?1015h"] {
+            let (bytes, refused) = sent(setup, ev(b, MouseKind::Release, 0, 0));
+            assert!(bytes.is_empty(), "{b:?} {setup:02x?} sent {bytes:02x?}");
+            assert_eq!(refused, 0);
+        }
+        assert!(
+            sent(b"\x1b[?9h", ev(b, MouseKind::Press, 0, 0))
+                .0
+                .is_empty(),
+            "?9"
+        );
+    }
+}
+
 /// **`?1005` is X10 with its bytes UTF-8 encoded.** `[[source: ctlseqs]]`,
 /// "UTF-8 (1005)": "This enables UTF-8 encoding for Cx and Cy under all
 /// tracking modes, expanding the maximum encodable position from 223 to

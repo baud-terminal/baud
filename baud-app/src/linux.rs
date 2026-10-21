@@ -741,11 +741,18 @@ impl Driver {
             PointerEvent::Scroll(Scroll::Steps(s)) => Input::Steps(s),
             PointerEvent::Scroll(Scroll::Distance(d)) => Input::Distance(d),
             PointerEvent::ScrollStopped => Input::Stopped,
+            PointerEvent::ScrollAcross(Scroll::Steps(s)) => Input::StepsAcross(s),
+            PointerEvent::ScrollAcross(Scroll::Distance(d)) => Input::DistanceAcross(d),
+            PointerEvent::ScrollAcrossStopped => Input::StoppedAcross,
         };
         // A press and the wheel are input to the blink's stop, as on macOS.
         if matches!(
             input,
-            Input::Pressed { .. } | Input::Steps(_) | Input::Distance(_)
+            Input::Pressed { .. }
+                | Input::Steps(_)
+                | Input::Distance(_)
+                | Input::StepsAcross(_)
+                | Input::DistanceAcross(_)
         ) {
             self.caret.quiet(Instant::now());
         }

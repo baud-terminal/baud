@@ -453,6 +453,7 @@ files   = [
   "apple-nsscreen-frame.json",
   "apple-nsscreen-screens.json",
   "apple-nsscreen-visibleframe.json",
+  "apple-nsscrollview-usespredominantaxisscrolling.json",
   "apple-nssound-volume.json",
   "apple-nssound.json",
   "apple-nswindow-converttoscreen.json",

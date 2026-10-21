@@ -89,6 +89,12 @@ pub(crate) enum Input {
     Distance(f64),
     /// The touchpad's fingers lifted: what is not yet a line is dropped.
     Stopped,
+    /// Wheel detents across, positive to the right.
+    StepsAcross(f64),
+    /// A length across in surface pixels, positive to the right.
+    DistanceAcross(f64),
+    /// The fingers lifted off a sideways swipe.
+    StoppedAcross,
 }
 
 /// What turns a point into a cell: the cell in pixels and the grid in
@@ -159,6 +165,8 @@ pub(crate) struct Seat {
     buttons: LocatorButtons,
     clicks: Clicks,
     travel: Travel,
+    /// Sideways travel not yet a whole column.
+    travel_across: Travel,
     selection: Option<Selection>,
     scrolled: Scrolled,
 }
@@ -173,6 +181,7 @@ impl Seat {
             buttons: LocatorButtons::NONE,
             clicks: Clicks::default(),
             travel: Travel::default(),
+            travel_across: Travel::default(),
             selection: None,
             scrolled: Scrolled::START,
         }
@@ -263,6 +272,24 @@ impl Seat {
             }
             Input::Stopped => {
                 self.travel.settle();
+                return Owed::Nothing;
+            }
+            // Across, positive to the right as the axis gives it, and the
+            // wheel's lines count toward the start, so it is negated as the
+            // vertical is.
+            Input::StepsAcross(st) => {
+                return self.wheel_across(term, Delta::Lines(-st), mods, g, sink);
+            }
+            Input::DistanceAcross(d) => {
+                let delta = Delta::Points {
+                    dy: -d,
+                    scale: 1.0,
+                    cell: g.cell.0,
+                };
+                return self.wheel_across(term, delta, mods, g, sink);
+            }
+            Input::StoppedAcross => {
+                self.travel_across.settle();
                 return Owed::Nothing;
             }
         };
@@ -425,6 +452,29 @@ impl Seat {
         }
     }
 
+    /// **The wheel across**: whole columns of the cell width, to a program
+    /// tracking the mouse as buttons 6 and 7, and nothing otherwise
+    /// (`wheel::route_on`), as on macOS.
+    fn wheel_across(
+        &mut self,
+        term: &mut Term<'_>,
+        delta: Delta,
+        mods: Modifiers,
+        g: Geometry,
+        sink: impl FnMut(&[u8]),
+    ) -> Owed {
+        let cols = self.travel_across.lines(delta);
+        if cols.get() == 0 {
+            return Owed::Nothing;
+        }
+        let axis = crate::wheel::Axis::Horizontal;
+        if crate::wheel::route_on(term, mouse_mods(mods), axis) == Route::Report {
+            let at = self.under(g);
+            crate::wheel::report_on(term, axis, cols, at, mouse_mods(mods), sink);
+        }
+        Owed::Nothing
+    }
+
     /// The selection's text, as Ctrl+Shift+C and a finished drag copy it;
     /// `None` without one or for one with no text.
     pub(crate) fn selected_text(&self, term: &Term<'_>) -> Option<String> {
@@ -577,6 +627,30 @@ mod tests {
     }
 
     const NONE: Modifiers = Modifiers::NONE;
+
+    /// **The wheel across on Linux**: a detent to the left is button 6 to
+    /// a program tracking the mouse, a touchpad's pixels by the cell's
+    /// width, a stop dropping what is not yet a column; untracked it moves
+    /// nothing.
+    #[test]
+    fn the_wheel_across_reports_buttons_6_and_7_under_tracking() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &b"line\r\n".repeat(30));
+        let mut seat = Seat::new();
+        put(&mut seat, &mut t, Input::Entered(25.0, 15.0), NONE);
+        let (owed, sent) = put(&mut seat, &mut t, Input::StepsAcross(-1.0), NONE);
+        assert_eq!((owed, sent.as_slice()), (Owed::Nothing, &b""[..]));
+        assert_eq!(t.window_back().index(), 0, "untracked, nothing moves");
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        let (_, sent) = put(&mut seat, &mut t, Input::StepsAcross(-1.0), NONE);
+        assert_eq!(sent, b"\x1b[<66;3;2M", "a detent left");
+        let (_, sent) = put(&mut seat, &mut t, Input::DistanceAcross(25.0), NONE);
+        assert_eq!(sent, b"\x1b[<67;3;2M\x1b[<67;3;2M", "25 px of 10-px cells");
+        put(&mut seat, &mut t, Input::StoppedAcross, NONE);
+        let (_, sent) = put(&mut seat, &mut t, Input::DistanceAcross(5.0), NONE);
+        assert_eq!(sent, b"", "the half column before the stop was dropped");
+    }
 
     /// **The wheel moves the window over the history**, a line a detent,
     /// a half detent kept until the other half comes, and a touchpad's

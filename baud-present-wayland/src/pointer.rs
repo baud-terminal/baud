@@ -6,8 +6,10 @@
 //! over when it ends, the axis pieces combined into one scroll; below
 //! version 5 there is no `frame`, and each event is its own.
 //!
-//! Only the vertical axis scrolls: the core's mouse reports have no
-//! buttons 6 and 7, and the history has no columns to move across.
+//! Both axes scroll, one a frame: the larger of the two when a frame
+//! carries both, as AppKit's scroll views keep a predominant axis
+//! (`[[source: apple-nsscrollview-usespredominantaxisscrolling]]`), the
+//! horizontal reaching a program tracking the mouse as buttons 6 and 7.
 //! `axis_source` is not read: whether a frame's scroll is detents or a
 //! length is whether it carries `axis_value120` or `axis_discrete`, which
 //! only a wheel sends, and a touchpad's lift is its `axis_stop`.
@@ -106,6 +108,11 @@ pub enum PointerEvent {
     /// the same axis_source after this event should be considered as the
     /// start of a new axis motion."
     ScrollStopped,
+    /// One frame's horizontal scroll, positive toward the right: the axis
+    /// value is "in a coordinate space identical to those of motion events".
+    ScrollAcross(Scroll),
+    /// `axis_stop` on the horizontal axis.
+    ScrollAcrossStopped,
 }
 
 /// Whether the pointer closes its groups with `frame`.
@@ -126,6 +133,10 @@ pub struct AxisCode(pub u32);
 impl AxisCode {
     fn vertical(self) -> bool {
         self.0 == protocol::wl_pointer::axis::VERTICAL_SCROLL
+    }
+
+    fn horizontal(self) -> bool {
+        self.0 == protocol::wl_pointer::axis::HORIZONTAL_SCROLL
     }
 }
 
@@ -150,7 +161,7 @@ enum Motion {
     Stopped,
 }
 
-/// The vertical axis's pieces within one frame. "When multiple
+/// One axis's pieces within one frame. "When multiple
 /// wl_pointer.axis events occur within the same frame, the motion vector is
 /// the combined motion of all events", so lengths and steps are summed.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -162,6 +173,18 @@ struct Axis {
 }
 
 impl Axis {
+    /// Add one piece.
+    fn add(&mut self, piece: Piece) {
+        match piece {
+            Piece::Length(l) => self.length = Some(self.length.unwrap_or(0.0) + l),
+            Piece::Value120(v) => {
+                self.value120 = Some(self.value120.unwrap_or(0).saturating_add(v))
+            }
+            Piece::Discrete(d) => self.discrete = Some(d),
+            Piece::Stop => self.motion = Motion::Stopped,
+        }
+    }
+
     /// The scroll the frame carried: its detents where the compositor gave
     /// them, its length otherwise.
     fn scroll(&self) -> Option<Scroll> {
@@ -180,6 +203,7 @@ pub struct Gather {
     framing: Framing,
     events: Vec<PointerEvent>,
     axis: Axis,
+    across: Axis,
 }
 
 impl Gather {
@@ -188,6 +212,7 @@ impl Gather {
             framing,
             events: Vec::new(),
             axis: Axis::default(),
+            across: Axis::default(),
         }
     }
 
@@ -200,20 +225,16 @@ impl Gather {
         }
     }
 
-    /// **One axis event on `axis`**, the vertical one kept: lengths and
+    /// **One axis event on `axis`**, either kept: lengths and
     /// `axis_value120`'s 120ths summed; "A wl_pointer.frame must not
     /// contain more than one axis_discrete event per axis type", so a
     /// second replaces the first. Below version 5 a length is its own frame,
     /// and the rest come only from version 5 on.
     pub fn axis(&mut self, axis: AxisCode, piece: Piece, out: &mut impl FnMut(PointerEvent)) {
         if axis.vertical() {
-            let a = &mut self.axis;
-            match piece {
-                Piece::Length(l) => a.length = Some(a.length.unwrap_or(0.0) + l),
-                Piece::Value120(v) => a.value120 = Some(a.value120.unwrap_or(0).saturating_add(v)),
-                Piece::Discrete(d) => a.discrete = Some(d),
-                Piece::Stop => a.motion = Motion::Stopped,
-            }
+            self.axis.add(piece);
+        } else if axis.horizontal() {
+            self.across.add(piece);
         }
         if self.framing == Framing::Single {
             self.frame(out);
@@ -230,13 +251,25 @@ impl Gather {
         for e in self.events.drain(..) {
             out(e);
         }
-        if let Some(s) = self.axis.scroll() {
-            out(PointerEvent::Scroll(s));
+        // The predominant axis alone, the vertical on a tie (`wheel.rs`'s
+        // `predominant` in the app).
+        let size = |s: Scroll| match s {
+            Scroll::Steps(v) | Scroll::Distance(v) => v.abs(),
+        };
+        match (self.axis.scroll(), self.across.scroll()) {
+            (Some(v), Some(h)) if size(h) > size(v) => out(PointerEvent::ScrollAcross(h)),
+            (Some(v), _) => out(PointerEvent::Scroll(v)),
+            (None, Some(h)) => out(PointerEvent::ScrollAcross(h)),
+            (None, None) => {}
         }
         if self.axis.motion == Motion::Stopped {
             out(PointerEvent::ScrollStopped);
         }
+        if self.across.motion == Motion::Stopped {
+            out(PointerEvent::ScrollAcrossStopped);
+        }
         self.axis = Axis::default();
+        self.across = Axis::default();
     }
 }
 
@@ -299,8 +332,8 @@ mod tests {
     }
 
     /// **A frame's axis pieces are one scroll**: two lengths summed, the
-    /// detents preferred to the length they come with, and the horizontal
-    /// axis dropped.
+    /// detents preferred to the length they come with, and of the two axes
+    /// the larger kept, the vertical on a tie.
     #[test]
     fn a_frame_sums_its_axis_and_prefers_detents() {
         let v = AxisCode(protocol::wl_pointer::axis::VERTICAL_SCROLL);
@@ -312,7 +345,26 @@ mod tests {
             g.axis(h, Piece::Length(9.0), &mut |e| out(e));
             g.frame(&mut |e| out(e));
         });
-        assert_eq!(got, [PointerEvent::Scroll(Scroll::Distance(7.5))]);
+        assert_eq!(got, [PointerEvent::ScrollAcross(Scroll::Distance(9.0))]);
+        let got = gathered(&mut g, |g, out| {
+            g.axis(v, Piece::Length(-4.0), &mut |e| out(e));
+            g.axis(h, Piece::Length(4.0), &mut |e| out(e));
+            g.frame(&mut |e| out(e));
+        });
+        assert_eq!(got, [PointerEvent::Scroll(Scroll::Distance(-4.0))], "a tie");
+        let got = gathered(&mut g, |g, out| {
+            g.axis(h, Piece::Value120(-240), &mut |e| out(e));
+            g.axis(h, Piece::Stop, &mut |e| out(e));
+            g.frame(&mut |e| out(e));
+        });
+        assert_eq!(
+            got,
+            [
+                PointerEvent::ScrollAcross(Scroll::Steps(-2.0)),
+                PointerEvent::ScrollAcrossStopped
+            ],
+            "the horizontal alone, and its stop"
+        );
         let got = gathered(&mut g, |g, out| {
             g.axis(v, Piece::Value120(60), &mut |e| out(e));
             g.axis(v, Piece::Length(15.0), &mut |e| out(e));

@@ -30004,3 +30004,32 @@ bytes  = 11508
 status = "retrieved"
 group  = "AW"
 # Retrieved 2026-10-20 (lane b123): "Returns the names of all available printers."
+
+[sources.apple-nsscrollview-usespredominantaxisscrolling]
+key    = "apple-nsscrollview-usespredominantaxisscrolling"
+title  = "NSScrollView.usesPredominantAxisScrolling -- 'predominantly scrolled one axis at a time ... With scroll balls and touch surfaces, it becomes more difficult to determine the user's intention'; default true (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscrollview/usespredominantaxisscrolling.json"
+file   = "apple-nsscrollview-usespredominantaxisscrolling.json"
+sha256 = "bcb0a446eefcf8c3ffe4cb5545261511d1c63dbe317d6404a8501472ff232f15"
+bytes  = 9663
+status = "retrieved"
+group  = "O"
+# Fetched 2026-10-21 (lane b125) for the horizontal wheel: one axis an event.
+
+[sources.alacritty-0151-input-mod]
+key    = "alacritty-0151-input-mod"
+title  = "alacritty 0.15.1, alacritty/src/input/mod.rs -- scroll_terminal: MOUSE_WHEEL_LEFT 66 / RIGHT 67, presses only; ESC O D / ESC O C on the alternate screen under ALTERNATE_SCROLL; a trackpad's pixel delta kept on one axis (~25 degrees)"
+author = "the Alacritty contributors (Apache-2.0)"
+year   = 2025
+venue  = "alacritty, tag v0.15.1"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/input/mod.rs"
+file   = ""
+sha256 = "d4e062f1bf2b9c48a01446c4fc1856f8066140860199c626e986ba964add6440"
+bytes  = 59559
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b125) for the horizontal wheel, lines 706-815.
+# Read, not copied.

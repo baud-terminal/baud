@@ -4964,7 +4964,7 @@ impl<'b> Term<'b> {
     /// every level but `?1001`, and for every event of `?1001`'s that is
     /// not button 1's handshake.
     fn tracking_report(&mut self, e: MouseEvent) -> bool {
-        use MouseButton::{Left, Middle, Right, WheelDown, WheelUp};
+        use MouseButton::{Left, Middle, Right, WheelDown, WheelLeft, WheelRight, WheelUp};
         let wanted = match (self.cold.mouse, e.kind, e.button) {
             (MouseTracking::Off, ..) => false,
             // The locator's reports are `Term::locator`'s.
@@ -4974,8 +4974,11 @@ impl<'b> Term<'b> {
             // under `X10_MOUSE` (`EditorButton`, `[[source: xterm-button]]`).
             (MouseTracking::X10Compat, MouseKind::Press, Left | Middle | Right) => true,
             (MouseTracking::X10Compat, ..) => false,
-            // "Release events for the wheel buttons are not reported."
-            (_, MouseKind::Release, WheelUp | WheelDown) => false,
+            // "Release events for the wheel buttons are not reported", and
+            // buttons 6 and 7 "are encoded like the wheel mice" (Jev's
+            // lean, PRESS_ONLY, where xterm's `EditorButton` reports their
+            // release and neovim reads one as a bare `<Release>`).
+            (_, MouseKind::Release, WheelUp | WheelDown | WheelLeft | WheelRight) => false,
             // `?1001` reports what `?1000` does: no motion.
             (MouseTracking::Normal | MouseTracking::Highlight, MouseKind::Motion, _) => false,
             (MouseTracking::ButtonEvent, MouseKind::Motion, b) => b != MouseButton::None,

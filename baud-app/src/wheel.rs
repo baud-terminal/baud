@@ -85,6 +85,35 @@ impl Travel {
     }
 }
 
+/// Which way a wheel event scrolls: up and down the lines, or across the
+/// columns -- a tilted wheel, Shift with a mouse wheel on macOS, a
+/// trackpad's sideways swipe.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Axis {
+    Vertical,
+    Horizontal,
+}
+
+/// **The one axis an event scrolls along: the larger of its two deltas**,
+/// the vertical on a tie. AppKit's scroll views do it by default, "Some
+/// content is scrollable in both the horizontal and vertical axes, but is
+/// predominantly scrolled one axis at a time ... With scroll balls and
+/// touch surfaces, it becomes more difficult to determine the user's
+/// intention" (`usesPredominantAxisScrolling`, default true,
+/// `[[source: apple-nsscrollview-usespredominantaxisscrolling]]`); alacritty
+/// keeps one axis of a trackpad's deltas too (`[[source:
+/// alacritty-0151-input-mod]]`). Without it a vertical swipe's small
+/// sideways deltas reach a program tracking the mouse as buttons 6 and 7.
+/// Jev, PREDOMINANT, 0.92 and 0.96. Per event, since the event names no
+/// gesture to latch an axis to; a wheel's event has one axis anyway.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub fn predominant(dx: f64, dy: f64) -> Axis {
+    match dx.abs() > dy.abs() {
+        true => Axis::Horizontal,
+        false => Axis::Vertical,
+    }
+}
+
 /// Where a wheel's lines go, decided from the terminal's state alone so a
 /// test can reach it: `Driver::scroll` is AppKit-bound and no test does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -128,6 +157,20 @@ pub enum Route {
 /// 10, "outside filter rectangle" (`SendLocatorPosition`, `[[source:
 /// xterm-button-c]]`), a numbering artifact not followed.
 pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
+    route_on(term, mods, Axis::Vertical)
+}
+
+/// [`route`] for a wheel along `axis`. **Across, only a program tracking
+/// the mouse takes it**, as buttons 6 and 7; otherwise it does nothing,
+/// on either screen: ctlseqs' Alternate Scroll sends "cursor up/down
+/// controls" and nothing for the columns, xterm binds nothing to buttons 6
+/// and 7 and foot nothing to `BTN_WHEEL_LEFT` and `BTN_WHEEL_RIGHT` by
+/// default, and the history has no columns to move across. alacritty sends
+/// cursor left and right on the alternate screen, practice not followed
+/// (Jev's lean, NOTHING, 0.86 and 0.92). Shift's override takes it as it
+/// takes the vertical wheel, so Shift with a mouse wheel, which macOS
+/// gives as a sideways scroll, reaches the program only under `CSI > 1 s`.
+pub fn route_on(term: &Term<'_>, mods: MouseMods, axis: Axis) -> Route {
     let shifted = mods.has(MouseMods::SHIFT) && term.shift_escape() == ShiftEscape::Override;
     let tracked = !matches!(
         term.mouse_tracking(),
@@ -135,6 +178,9 @@ pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
     );
     if tracked && !shifted {
         return Route::Report;
+    }
+    if axis == Axis::Horizontal {
+        return Route::Nothing;
     }
     match (term.screen(), term.alternate_scroll()) {
         (Screen::Normal, _) => Route::History,
@@ -178,12 +224,31 @@ pub fn report(
     lines: Lines,
     (row, col, px): (Row, Col, PointerPx),
     mods: MouseMods,
+    sink: impl FnMut(&[u8]),
+) {
+    report_on(term, Axis::Vertical, lines, (row, col, px), mods, sink)
+}
+
+/// [`report`] along `axis`: across, button 6 for each column toward the
+/// start of the line and 7 for each toward its end, "encoded like the
+/// wheel mice, by adding 64 (for buttons 6 and 7)" (`[[source: ctlseqs]]`),
+/// 6 the left as the X convention numbers them and foot sends
+/// `BTN_WHEEL_LEFT` for a step left (`[[source: foot-input]]`) -- ctlseqs' "button 7
+/// (left) and button 6 (right) with a Logitech mouse" reads the other way,
+/// a mouse's own numbering.
+pub fn report_on(
+    term: &mut Term<'_>,
+    axis: Axis,
+    lines: Lines,
+    (row, col, px): (Row, Col, PointerPx),
+    mods: MouseMods,
     mut sink: impl FnMut(&[u8]),
 ) {
-    let button = if lines.0 > 0 {
-        MouseButton::WheelUp
-    } else {
-        MouseButton::WheelDown
+    let button = match (axis, lines.0 > 0) {
+        (Axis::Vertical, true) => MouseButton::WheelUp,
+        (Axis::Vertical, false) => MouseButton::WheelDown,
+        (Axis::Horizontal, true) => MouseButton::WheelLeft,
+        (Axis::Horizontal, false) => MouseButton::WheelRight,
     };
     owed(term, &mut sink);
     for _ in 0..lines.0.unsigned_abs().min(WHEEL_MAX) {
@@ -235,6 +300,62 @@ mod tests {
     fn feed(t: &mut Term<'_>, b: &[u8]) {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    }
+
+    /// **The wheel across reaches a program tracking the mouse as buttons
+    /// 6 and 7**, toward the start of the line 6 and toward its end 7, one
+    /// press a column; with no tracking, and under `?9` or Shift's override,
+    /// it goes nowhere, on either screen, `?1007` set or not. Under
+    /// XTSHIFTESCAPE 1 Shift leaves it the program's, its Shift bit sent.
+    #[test]
+    fn the_wheel_across_is_buttons_6_and_7_and_nothing_untracked() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let across = Axis::Horizontal;
+        assert_eq!(route_on(&t, MouseMods::NONE, across), Route::Nothing);
+        feed(&mut t, b"\x1b[?1049h");
+        assert_eq!(t.alternate_scroll(), AlternateScroll::On, "the control");
+        assert_eq!(route(&t, MouseMods::NONE), Route::Keys, "the control");
+        assert_eq!(route_on(&t, MouseMods::NONE, across), Route::Nothing);
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        assert_eq!(route_on(&t, MouseMods::NONE, across), Route::Report);
+        assert_eq!(
+            route_on(&t, MouseMods::SHIFT, across),
+            Route::Nothing,
+            "Shift"
+        );
+        feed(&mut t, b"\x1b[>1s");
+        assert_eq!(
+            route_on(&t, MouseMods::SHIFT, across),
+            Route::Report,
+            "Shift under XTSHIFTESCAPE 1"
+        );
+        let mut child = Vec::new();
+        let at = (Row::from_index(2), Col::at_index(4), PX);
+        report_on(&mut t, across, Lines(1), at, MouseMods::SHIFT, |b| {
+            child.extend_from_slice(b)
+        });
+        assert_eq!(child, b"\x1b[<70;5;3M", "button 6 with Shift's 4");
+        child.clear();
+        feed(&mut t, b"\x1b[>0s");
+        report_on(&mut t, across, Lines(2), at, MouseMods::NONE, |b| {
+            child.extend_from_slice(b)
+        });
+        report_on(&mut t, across, Lines(-1), at, MouseMods::NONE, |b| {
+            child.extend_from_slice(b)
+        });
+        assert_eq!(child, b"\x1b[<66;5;3M\x1b[<66;5;3M\x1b[<67;5;3M");
+    }
+
+    /// **One axis an event, the larger**: a wheel's event has one, a
+    /// trackpad's swipe a little of the other, which goes.
+    #[test]
+    fn each_event_scrolls_along_its_larger_delta() {
+        assert_eq!(predominant(0.0, 3.0), Axis::Vertical);
+        assert_eq!(predominant(-2.0, 0.0), Axis::Horizontal);
+        assert_eq!(predominant(0.4, -9.5), Axis::Vertical, "a vertical swipe");
+        assert_eq!(predominant(-6.0, 1.5), Axis::Horizontal, "a sideways one");
+        assert_eq!(predominant(2.0, 2.0), Axis::Vertical, "a tie");
     }
 
     /// **A 40-line fling reaches the child as 40 reports.** It reached it as
