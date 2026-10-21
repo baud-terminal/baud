@@ -291,13 +291,22 @@ impl Term<'_> {
     fn dec_locator(&mut self, e: LocatorInput) -> bool {
         self.cold.locator.at = e.at;
         self.cold.locator.held = e.held;
-        // The indicator shows where the locator is while it reports.
+        let sent = self.locator_event(e.kind);
+        // The indicator shows where the locator is while it reports, and
+        // not once a one-shot report has turned it off: 070-14's Graphics
+        // Input Position Indicator "is only visible when graphics input is
+        // enabled" (p. 14-7).
         self.redraw_indicator();
+        sent
+    }
+
+    /// What one event reports, the pointer already kept.
+    fn locator_event(&mut self, kind: LocatorKind) -> bool {
         if self.cold.mouse != MouseTracking::Locator {
             return false;
         }
         let events = self.cold.locator.events;
-        let trigger = match e.kind {
+        let trigger = match kind {
             LocatorKind::Press(b) if events.has(LocatorEvents::DOWN) => {
                 Some(LocatorTrigger::Down(b))
             }

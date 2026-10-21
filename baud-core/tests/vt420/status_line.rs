@@ -472,6 +472,45 @@ fn the_indicator_shows_the_printer_and_the_print_mode() {
     );
 }
 
+/// **The locator's field shows only while the locator reports**: "The
+/// Graphics Input Position Indicator is only visible when graphics input
+/// is enabled" (070-14 p. 14-7), so a one-shot DECELR's report, which
+/// disables it, takes the field away with the pointer event that sent it,
+/// as DECELR 0 does at the end of its read.
+#[test]
+fn the_locator_field_goes_when_a_one_shot_report_disables_the_locator() {
+    support::with_term(&WIDE, |t| {
+        t.set_locator_device(LocatorDevice::Present);
+        support::feed(t, b"\x1b[1$~\x1b[2;2'z\x1b[1'{");
+        let at = Some(LocatorAt {
+            col: Col::at_index(6),
+            row: Row::from_index(2),
+            px: None,
+        });
+        let moved = LocatorInput {
+            kind: LocatorKind::Moved,
+            at,
+            held: LocatorButtons::NONE,
+        };
+        assert!(!t.locator(moved));
+        assert_eq!(&indicator(t)[..28], "    1(01,001)          [3,7]");
+        let press = LocatorInput {
+            kind: LocatorKind::Press(LocatorButton::Left),
+            at,
+            held: LocatorButtons::NONE.pressed(LocatorButton::Left),
+        };
+        assert!(t.locator(press), "the one-shot report");
+        assert_eq!(t.mouse_tracking(), MouseTracking::Off);
+        assert_eq!(indicator(t)[23..28].trim(), "");
+        // DECELR 0 from the byte stream, at the read's end.
+        support::feed(t, b"\x1b[1;2'z");
+        assert!(!t.locator(moved));
+        assert_eq!(&indicator(t)[23..28], "[3,7]");
+        support::feed(t, b"\x1b[0'z");
+        assert_eq!(indicator(t)[23..28].trim(), "");
+    });
+}
+
 /// "When the keyboard is locked ... the Wait indicator appears on the
 /// keyboard indicator line at the bottom of the screen" (`[[source:
 /// vt420-rm]]`, Unlocking the Keyboard; `[[source: vt510-kam]]`).
