@@ -1235,9 +1235,9 @@ pub(crate) enum StrKind {
     /// A `DCS Pc $ w`, DECLKD: the body is kept and loaded at the
     /// terminator (`Paint::locator_keys_end`).
     LocatorKeys,
-    /// A `DCS +`, with no parameter before it: its body, a `q` and then
-    /// the hex list for XTGETTCAP, is kept as a DECRQSS body is and read at
-    /// the terminator (`Paint::tcap_end`).
+    /// A `DCS +`, with no parameter before it: its body, a `q` or a `p` and
+    /// then the hex list, is kept as a DECRQSS body is and read at the
+    /// terminator (`Paint::tcap_end`), XTGETTCAP or XTSETTCAP.
     Tcap,
     /// A `Tcap` body cut at `OSC_MAX`: the name the cut fell in is not the
     /// name that was sent, so it is refused (`Paint::tcap_end`).

@@ -160,8 +160,9 @@ hex, `;` between them (`[[source: ctlseqs]]` 545-582). baud answers with
 the bytes the key sends in the modes in force, as xterm's own query does,
 so `kcuu1` is `CSI A` and, after DECCKM, `SS3 A`. The names are xterm's
 table, all 319, plus `Co`, `RGB` and `TN`; any other name, the entry's
-output strings and `Ms` among them, is refused as the text says. The row
-in `docs/vt-coverage.md` has the details.
+output strings and `Ms` among them, is refused as the text says. XTSETTCAP,
+`DCS + p`, is refused and counted: baud has no terminal database to load
+an entry from. The row in `docs/vt-coverage.md` has the details.
 
 ## Declined
 

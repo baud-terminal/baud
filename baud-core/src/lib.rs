@@ -186,6 +186,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 pub use baud_domain::{RegisHold, RegisInput, RegisTicks};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
+pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
 pub use logging::LogsRefused;

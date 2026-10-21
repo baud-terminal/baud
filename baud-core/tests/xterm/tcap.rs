@@ -1,4 +1,5 @@
-//! XTGETTCAP, `DCS + q Pt ST` (`[[source: ctlseqs]]` 545-582).
+//! XTGETTCAP, `DCS + q Pt ST`, and XTSETTCAP, `DCS + p Pt ST`
+//! (`[[source: ctlseqs]]` 535-582).
 //!
 //! A name is hex, `;` between names; the answer is `DCS 1 + r` and each
 //! `name=value` pair in one response, the value in hex, or `DCS 0 + r ST`
@@ -285,4 +286,23 @@ fn xtgettcap_names_the_terminal_description_the_embedder_exports() {
     assert!(TermName::new(b"xterm 256color").is_none());
     assert!(TermName::new(&[b'x'; 33]).is_none());
     assert!(TermName::new(&[b'x'; 32]).is_some());
+}
+
+/// **XTSETTCAP is refused and counted**: baud has no terminal database to
+/// retrieve an entry from, so it changes nothing, `TN` included.
+#[test]
+fn xtsettcap_is_refused_and_counted() {
+    support::with_corpus(|t| {
+        t.set_term_name(TermName::new(b"xterm-256color").expect("a name"));
+        let unsupported = t.unsupported;
+        let q = format!("\x1bP+p{}\x1b\\", hex(b"vt100"));
+        assert_eq!(t.tcap_sets_refused(), TcapSetsRefused::NONE);
+        assert_eq!(reply(t, q.as_bytes()), b"");
+        let once = t.tcap_sets_refused();
+        assert_ne!(once, TcapSetsRefused::NONE);
+        assert_eq!(t.unsupported, unsupported + 1);
+        support::feed(t, q.as_bytes());
+        assert_ne!(t.tcap_sets_refused(), once, "each is counted");
+        assert_eq!(reply(t, &ask(&["TN"])), valid(&[("TN", b"xterm-256color")]));
+    });
 }

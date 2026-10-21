@@ -496,8 +496,9 @@ pub struct StrBuf<'b> {
     /// the changes queued for the embedder (`crate::font`): here for the
     /// reason `window_asks` is, only an `OSC 50` reaches it.
     pub(crate) fonts: crate::font::FontAsks,
-    /// What XTGETTCAP's `TN` names (`crate::dcs::Tcap`): here for the
-    /// reason `window_asks` is, only a `DCS +` reaches it.
+    /// What XTGETTCAP's `TN` names and how many XTSETTCAPs were refused
+    /// (`crate::dcs::Tcap`): here for the reason `window_asks` is, only a
+    /// `DCS +` reaches it.
     pub(crate) tcap: crate::dcs::Tcap,
     /// The special-colour modes `OSC 6` and `OSC 106` turn on
     /// (`Term::color_modes`), the colours being in `palette`: here rather

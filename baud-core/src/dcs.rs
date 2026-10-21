@@ -1,4 +1,4 @@
-//! DECRQSS, and XTGETTCAP below it; Sixel (`sixel.rs`,
+//! DECRQSS, and XTGETTCAP and XTSETTCAP below it; Sixel (`sixel.rs`,
 //! entered by `Act::SixelStart`), ReGIS and DECRSPS are elsewhere.
 //!
 //! `[[source: ctlseqs]]` gives `DCS $ q Pt ST` as Request Status String, where
@@ -108,16 +108,32 @@ const _: () = assert!(DECRQSS_MAX <= REPLY);
 pub const XTGETTCAP_MAX: usize = tcap_reply_max(OSC_MAX - 1);
 const _: () = assert!(XTGETTCAP_MAX <= REPLY);
 
-/// What a `DCS +` reads: the name `TN` answers, the embedder's
-/// (`Term::set_term_name`), which `RIS` keeps.
+/// What a `DCS +` reads and leaves: the name `TN` answers, the embedder's
+/// (`Term::set_term_name`), which `RIS` keeps; and the XTSETTCAPs refused.
 pub(crate) struct Tcap {
     pub(crate) name: TermName,
+    pub(crate) sets_refused: TcapSetsRefused,
 }
 
 impl Tcap {
     pub(crate) const UNTOLD: Tcap = Tcap {
         name: TermName::UNTOLD,
+        sets_refused: TcapSetsRefused::NONE,
     };
+}
+
+/// How many XTSETTCAPs were refused since power-on, as a reading to
+/// compare (`Term::tcap_sets_refused`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TcapSetsRefused(u32);
+
+impl TcapSetsRefused {
+    /// None yet.
+    pub const NONE: TcapSetsRefused = TcapSetsRefused(0);
+
+    fn next(self) -> TcapSetsRefused {
+        TcapSetsRefused(self.0.wrapping_add(1))
+    }
 }
 
 /// Whether an XTGETTCAP list reached its terminator whole.
@@ -141,8 +157,8 @@ pub(crate) fn tcap_start(csi: &Csi) -> StrKind {
 }
 
 impl Paint<'_, '_> {
-    /// A `DCS +` string's terminator: `q` is XTGETTCAP
-    /// (`[[source: ctlseqs]]` 545-582); any other byte is a DCS no handler
+    /// A `DCS +` string's terminator: `q` is XTGETTCAP and `p` XTSETTCAP
+    /// (`[[source: ctlseqs]]` 535-582); any other byte is a DCS no handler
     /// reads, counted as one.
     ///
     /// **XTGETTCAP is answered** by `encode_tcap_reply`, from xterm's table
@@ -151,6 +167,16 @@ impl Paint<'_, '_> {
     /// dropped and counted in `reply_overflows`, as DECRQSS's is. A list cut
     /// at `OSC_MAX` ends before the name the cut fell in, which an
     /// even-length cut could make a different name.
+    ///
+    /// **XTSETTCAP is refused and counted** (`Term::tcap_sets_refused`),
+    /// because the text does not define it for baud. It names an entry
+    /// for xterm to "retrieve data from the terminal database", and baud
+    /// has none at run time: its core is `no_std` and its entries are
+    /// compiled. And it overrides the name XTGETTCAP uses, where xterm's
+    /// code changes no answer outside its tcap keyboard (`?1050`), which
+    /// baud does not have (`[[source: ctlseqs]]` 535-542;
+    /// `[[source: xterm-xtermcap-c]]` 624-657; note AM, 3 and 8.4). Jev
+    /// leaned to counting it, COUNT_REFUSE, 0.53/0.41.
     #[cold]
     #[inline(never)]
     pub(crate) fn tcap_end(&mut self, body: TcapBody) {
@@ -173,6 +199,10 @@ impl Paint<'_, '_> {
                     Some(len) => self.reply_len = ByteLen::from_index(at + len.index()),
                     None => self.reply_overflows += 1,
                 }
+            }
+            Some(b'p') => {
+                self.strs.tcap.sets_refused = self.strs.tcap.sets_refused.next();
+                self.unsupported_total += 1;
             }
             _ => {
                 self.strings_ignored += 1;

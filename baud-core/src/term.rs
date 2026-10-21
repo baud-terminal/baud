@@ -5522,6 +5522,13 @@ impl<'b> Term<'b> {
         self.store.strs.tcap.name = name;
     }
 
+    /// How many XTSETTCAPs, `DCS + p Pt ST`, were refused: baud has no
+    /// terminal database to load an entry from, so each changes nothing
+    /// (`Paint::tcap_end`). Each is counted in `unsupported` too.
+    pub fn tcap_sets_refused(&self) -> crate::dcs::TcapSetsRefused {
+        self.store.strs.tcap.sets_refused
+    }
+
     /// Run a key's bytes through the screen as the host's bytes run, in a
     /// parser state of the echo's own ([`EchoParse`]).
     ///
