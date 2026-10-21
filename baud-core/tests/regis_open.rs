@@ -8,7 +8,7 @@
 //! (80, 80, 20), 7 gray 53%.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, Pixel, RegisPhase, RegisRepainted};
+use baud_domain::{ImageBudget, Pixel, RegisBlink, RegisPhase, RegisRepainted};
 
 mod support;
 
@@ -376,7 +376,9 @@ fn a_page_with_no_blinking_pixel_left_stops_repainting() {
     // left and the next repaints nothing.
     let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0)P[0,0]V[9,0]"]);
     run(&bytes, |t| {
+        assert_eq!(t.regis_blink(), RegisBlink::On, "blinking pixels kept");
         assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::Yes);
+        assert_eq!(t.regis_blink(), RegisBlink::Off, "the flip found none");
         assert_eq!(t.set_regis_blink(RegisPhase::Shown), RegisRepainted::No);
         assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::No);
     });

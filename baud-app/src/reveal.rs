@@ -10,7 +10,9 @@
 //! scrolled-back window reveals nothing, which is what AppKit measured for a
 //! document that grows under a view that stays on its lines.
 
-use baud_domain::{Chan, HostTime, Rows, ScrollbarShown, WindowOps};
+use baud_domain::{Chan, HostTime, Rows};
+#[cfg(any(target_os = "macos", test))]
+use baud_domain::{ScrollbarShown, WindowOps};
 use baud_font::Px;
 use baud_render::{Hover, Look, Place, Scroller, Widths};
 use core::time::Duration;
@@ -73,6 +75,7 @@ pub struct Scale(pub f64);
 /// **The gutter the frame keeps for the scroller under `?30`**: the
 /// style's ([`baud_render::gutter`]), or none while a program has hidden
 /// the scrollbar, "Don't show scrollbar (rxvt)" (`[[source: ctlseqs]]`).
+#[cfg(any(target_os = "macos", test))]
 pub fn shown_gutter(scroller: Scroller, shown: ScrollbarShown, widths: Widths) -> Px {
     match shown {
         ScrollbarShown::Shown => baud_render::gutter(scroller, widths),
@@ -81,6 +84,7 @@ pub fn shown_gutter(scroller: Scroller, shown: ScrollbarShown, widths: Widths) -
 }
 
 /// What a change of `?30` asks of the window.
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BarChange {
     /// The overlay scroller lies over the grid: only what is drawn changes.
@@ -101,6 +105,7 @@ pub enum BarChange {
 /// [`BarChange`] for the scroller the setting asks for, whether the window
 /// is in full screen, and whether a program may resize it (`[window]
 /// operations`).
+#[cfg(any(target_os = "macos", test))]
 pub fn bar_change(scroller: Scroller, full: crate::winops::Full, ops: WindowOps) -> BarChange {
     use crate::winops::Full;
     match (scroller, full, ops) {
@@ -240,6 +245,15 @@ pub fn motion(scroller: Scroller, place: Place) -> Takes {
     }
 }
 
+/// What [`Reveal::pending`] says the look owes.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pending {
+    Nothing,
+    At(HostTime),
+    EveryFrame,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum State {
     Hidden,
@@ -326,6 +340,19 @@ impl Reveal {
         }
     }
 
+    /// **What the look owes a loop that waits rather than ticks**: a hold
+    /// changes nothing until it runs out, so its end is the one deadline;
+    /// a fade changes the look on every frame, so it owes each one, paced
+    /// by the compositor; hidden or hovered, the look moves only on input.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn pending(&self) -> Pending {
+        match self.state {
+            State::Held { until } => Pending::At(until),
+            State::Fading { .. } => Pending::EveryFrame,
+            State::Hidden | State::Hovered => Pending::Nothing,
+        }
+    }
+
     /// How the thumb is seen at `now`.
     pub fn look(&self, now: HostTime) -> Look {
         match self.state {
@@ -403,6 +430,23 @@ mod tests {
 
     fn at(d: Duration) -> HostTime {
         HostTime::of_secs(1000.0).unwrap().plus(d)
+    }
+
+    /// **A hold names its end, a fade every frame, and nothing else
+    /// waits**: the Linux loop's three answers. Perturbation: make a hold
+    /// owe every frame -- the hold's assertion fails.
+    #[test]
+    fn a_hold_ends_on_a_deadline_and_a_fade_owes_every_frame() {
+        let mut r = Reveal::HIDDEN;
+        assert_eq!(r.pending(), Pending::Nothing);
+        r.reveal(at(Duration::ZERO));
+        assert_eq!(r.pending(), Pending::At(at(HOLD)));
+        r.step(at(HOLD + MS));
+        assert_eq!(r.pending(), Pending::EveryFrame);
+        r.step(at(HOLD + FADE + MS));
+        assert_eq!(r.pending(), Pending::Nothing);
+        r.hover(Over::Strip, at(HOLD + FADE + MS));
+        assert_eq!(r.pending(), Pending::Nothing);
     }
 
     fn shown(r: &mut Reveal, d: Duration) -> Chan {

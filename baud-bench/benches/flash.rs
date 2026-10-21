@@ -98,9 +98,9 @@
 mod trail;
 
 /// `baud-app/src/bell.rs`'s `Moment`, the one item `trail.rs` takes from it:
-/// the one method `trail.rs` calls, `elapsed_since`, with the bodies of its
-/// `HostTime` and `Instant` impls as written there. (`after`, which only the
-/// bell calls, is left out.)
+/// the two methods `trail.rs` calls, `after` (a dwell's deadline) and
+/// `elapsed_since`, with the bodies of its `HostTime` and `Instant` impls as
+/// written there.
 #[cfg(target_os = "macos")]
 mod bell {
     use baud_domain::HostTime;
@@ -108,16 +108,25 @@ mod bell {
     use std::time::Instant;
 
     pub trait Moment: Copy + Ord {
+        fn after(self, d: Duration) -> Self;
         fn elapsed_since(self, earlier: Self) -> Duration;
     }
 
     impl Moment for HostTime {
+        fn after(self, d: Duration) -> HostTime {
+            self.plus(d)
+        }
+
         fn elapsed_since(self, earlier: HostTime) -> Duration {
             self.since(earlier).unwrap_or(Duration::ZERO)
         }
     }
 
     impl Moment for Instant {
+        fn after(self, d: Duration) -> Instant {
+            self + d
+        }
+
         fn elapsed_since(self, earlier: Instant) -> Duration {
             self.saturating_duration_since(earlier)
         }

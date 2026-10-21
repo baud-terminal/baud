@@ -22,6 +22,10 @@
 
 #[cfg(target_os = "macos")]
 mod app;
+// The scrollbar's thumb under the Linux driver's pointer: pure, so its
+// tests run on every platform; only the Linux driver drives it.
+#[cfg(any(target_os = "linux", test))]
+mod bar;
 // The visual bell's state is pure and its tests run on every platform; both
 // drivers read it, and so does the pty, for the one spelling of `TERM`.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -46,6 +50,11 @@ mod gesture;
 // run on every platform, and both drivers act on it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod hide;
+// The timed effects both drivers draw -- text blink's phases, the cursor a
+// trail follows, the window the thumb shows: pure, so its tests run on
+// every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod effects;
 // What a program's `OSC 50` does to the font: the faces a name reaches and
 // the size a step lands on, for both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -102,8 +111,8 @@ mod regis_font;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod reads;
 // xterm's readline modes, a click's cursor keys and a paste's shape: pure,
-// so its tests run on every platform; both drivers have a pointer, and only
-// the macOS driver a paste.
+// so its tests run on every platform; both drivers have a pointer and a
+// paste.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod readline;
 // What a program's pointer shape (`OSC 22`) shows as among AppKit's
@@ -111,9 +120,9 @@ mod readline;
 // shapes are `baud-present-wayland`'s.
 #[cfg(any(target_os = "macos", test))]
 mod pointer;
-// The scrollbar's reveal is pure and its tests run on every platform; only
-// the macOS driver draws a scrollbar, so the bin builds it there alone.
-#[cfg(any(target_os = "macos", test))]
+// The scrollbar's reveal is pure and its tests run on every platform; both
+// drivers draw the thumb through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod reveal;
 // The Linux driver's pointer between the compositor and the core: pure, so
 // its tests run on every platform; only the Linux driver drives it.
@@ -121,9 +130,13 @@ mod reveal;
 mod seat;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
-// The quad trail's driver is pure and its tests run on every platform; only
-// the macOS driver draws a trail today, so the bin builds it there alone.
-#[cfg(any(target_os = "macos", test))]
+// The Linux driver's timed effects, off its one wait's timeout and the
+// compositor's frame events: pure, so its tests run on every platform.
+#[cfg(any(target_os = "linux", test))]
+mod timed;
+// The quad trail's driver is pure and its tests run on every platform;
+// both drivers draw a trail through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod trail;
 // What a program's title becomes on the window: pure, so its tests run on
 // every platform, and both drivers read it.

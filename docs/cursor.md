@@ -46,8 +46,8 @@ a dark theme and dark on a light one.
 
 A move within a third of a second of the last ignition retargets the quad and
 keeps the flame already burning, so a fire lights at most three times a second.
-It is drawn on the GPU. The CPU path -- `BAUD_GPU=0`, or a Mac with no Metal
-device -- draws the quad alone. Both GPU paths run one shader, so they agree
+It is drawn on the GPU. The CPU path -- `BAUD_GPU=0`, a Mac with no Metal
+device, or Linux -- draws the quad alone. Both GPU paths run one shader, so they agree
 about any flame, a wrong one included; what holds the shader is a port of the
 flame to Rust, which the pixel oracle requires both paths to match to within
 one step of 255.
@@ -254,7 +254,10 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 
 ## Not built
 
-- **Linux.** The Linux driver reads the key and draws no trail.
+- **Linux** draws every trail on the CPU, so the fire, the plasma and the
+  rest of the effects run there as the quad, and the ghost and the sweep as
+  on a Mac. It reads no desktop motion preference yet, so the default trail
+  runs whatever the desktop says.
 - A trail rides only a smooth scroll on the GPU's cell path: under `[scroll]
   mode = "normal"`, on the CPU path and on the alternate screen, the screen
   jumps and the trail stays where it was drawn.

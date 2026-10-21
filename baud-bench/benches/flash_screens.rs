@@ -44,16 +44,25 @@ mod bell {
     use std::time::Instant;
 
     pub trait Moment: Copy + Ord {
+        fn after(self, d: Duration) -> Self;
         fn elapsed_since(self, earlier: Self) -> Duration;
     }
 
     impl Moment for HostTime {
+        fn after(self, d: Duration) -> HostTime {
+            self.plus(d)
+        }
+
         fn elapsed_since(self, earlier: HostTime) -> Duration {
             self.since(earlier).unwrap_or(Duration::ZERO)
         }
     }
 
     impl Moment for Instant {
+        fn after(self, d: Duration) -> Instant {
+            self + d
+        }
+
         fn elapsed_since(self, earlier: Instant) -> Duration {
             self.saturating_duration_since(earlier)
         }

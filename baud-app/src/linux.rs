@@ -18,17 +18,24 @@
 //! a socket pair, and this file is the wiring between them and the core.
 //! It says so at startup.
 //!
+//! **The timed effects are the macOS app's, on the CPU path** (`timed.rs`):
+//! `SGR 5` and `SGR 6` text blink at their own rates, the cursor trail --
+//! an effect such as the fire riding the quad, as the CPU path draws it --
+//! the alternate screen's fade under `[screen] transition`, and the
+//! scrollbar's thumb, AppKit's overlay style, with its hover, drag and jump
+//! (`bar.rs`) and `?30`. A change on the clock with no event to bring it
+//! bounds the one wait; motion in flight owes a frame on each turn, which
+//! the compositor's frame events pace.
+//!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
 //! path this paints on jumps (`docs/record.md`, "Smooth scroll slides the
 //! cell path on the ring, and the one-row cap is the latency answer"); the
-//! cursor trail, which this driver does not drive (the record, "Reduce
-//! Motion means no trail, unless the config names one": "the Linux driver
-//! draws no trail"); `SGR 5` and `SGR 6` text blink; the system caret's
-//! rate (this keeps xterm's 600/300 until the desktop's settings are read);
-//! the scrollbar, which this driver does not draw, and with it `?30`; a link
-//! opened by a click; a backing scale other than one -- the window binds no
-//! fractional-scale global; and the report every five seconds.
+//! desktop's motion preference, so the default trail runs and text blinks
+//! whatever it says; the system caret's rate (this keeps 333 ms a phase
+//! until the desktop's settings are read); a link opened by a click; a
+//! backing scale other than one -- the window binds no fractional-scale
+//! global; and the report every five seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -177,6 +184,9 @@ struct Driver {
     /// on each of its codepoints.
     composing: Vec<baud_domain::Codepoint>,
     composing_hints: Vec<baud_render::Hints>,
+    /// Text blink, the cursor trail, the alternate screen's fade and the
+    /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
+    timed: crate::timed::Timed,
 }
 
 /// Whether a one-time line has been logged.
@@ -382,6 +392,7 @@ pub fn run() {
         uncopied: Said::Not,
         composing: Vec::new(),
         composing_hints: Vec::new(),
+        timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition),
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -431,7 +442,15 @@ pub fn run() {
             true => Some(std::time::Duration::ZERO),
             false => d.pace.deadline().map(|t| t.saturating_duration_since(now)),
         };
-        let timeout = [sync, repeat, flash, caret, decode, paste, delay]
+        // The next blink flip of text on screen, a trail's dwell, the
+        // thumb's hold: always ahead of `now`. Motion in flight owes a
+        // frame on each turn instead, paced by the compositor's frame
+        // events (`timed.rs`).
+        let effects = d
+            .timed
+            .deadline(now)
+            .map(|t| t.saturating_duration_since(now));
+        let timeout = [sync, repeat, flash, caret, decode, paste, delay, effects]
             .into_iter()
             .flatten()
             .min();
@@ -504,15 +523,25 @@ pub fn run() {
         if d.caret.due(now, blinks) == Owes::Frame {
             d.pending = Pending::Dirty;
         }
+        match d.timed.turn(now, &mut d.term) {
+            crate::timed::Owes::Nothing => {}
+            crate::timed::Owes::Frame => d.pending = Pending::Dirty,
+            // A blink flip moves no cell word, so row damage cannot see it.
+            crate::timed::Owes::Full => {
+                d.damage = Damage::Full;
+                d.pending = Pending::Dirty;
+            }
+        }
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
                 Event::Frame => {}
                 Event::Key(k) => {
                     // A key snaps the window back to the live screen,
-                    // where its effect is.
+                    // where its effect is, and that reveals the thumb.
                     if d.seat.key(&mut d.term) {
                         d.pending = Pending::Dirty;
+                        d.reveal_thumb();
                     }
                     // Into an empty buffer, so it always fits and a `false`
                     // is a key that sends nothing (`reads::input`). It was
@@ -744,8 +773,16 @@ impl Driver {
             self.uncopied_once();
         }
         // The selection after the read: renumbered, or dropped where the
-        // read wrote over it, switched or reset (`seat.rs`).
-        self.seat.after_read(&self.term, before);
+        // read wrote over it, switched or reset (`seat.rs`). A switch takes
+        // the trail away and fades the new screen in; a reset that brought
+        // a looked-back window live reveals the thumb.
+        let after = self.seat.after_read(&self.term, before);
+        if after.surface == crate::seat::Surface::Switched {
+            self.timed.switched(Instant::now());
+        }
+        if after.thumb == crate::seat::Thumb::Reveal {
+            self.reveal_thumb();
+        }
         // A program's pointer shape, shown at once while the pointer is
         // over the window; outside it, the next enter shows it.
         self.show_pointer();
@@ -850,11 +887,28 @@ impl Driver {
             ),
         };
         let mods = self.window.modifiers();
+        // The scrollbar's thumb before the seat (`bar.rs`): a press it
+        // takes keeps its drags and its release, and a move it takes keeps
+        // the position and is no one else's. A crossing is the seat's too.
+        if self.thumb(input) == crate::bar::Took::Yes && !matches!(input, Input::Entered(..)) {
+            if let Input::Moved(x, y) = input {
+                self.seat.moved_to(x, y);
+                let act = self.hiding.moved();
+                self.hide_pointer(act);
+            }
+            return;
+        }
+        let back = self.term.primary_window_back();
         let outbox = &mut self.outbox;
-        match self
+        let owed = self
             .seat
-            .input(&mut self.term, input, mods, g, |b| outbox.push(b))
-        {
+            .input(&mut self.term, input, mods, g, |b| outbox.push(b));
+        // The wheel that moved the window over the history reveals the
+        // thumb, as AppKit's does.
+        if self.term.primary_window_back() != back {
+            self.reveal_thumb();
+        }
+        match owed {
             Owed::Nothing => {}
             Owed::Frame => self.pending = Pending::Dirty,
             Owed::Keys => self.caret.input(Instant::now()),
@@ -896,6 +950,56 @@ impl Driver {
             }
             _ => {}
         }
+    }
+
+    /// **The scrollbar's share of a pointer event** (`bar.rs`), at the
+    /// position the seat last had for a press or a release.
+    fn thumb(&mut self, input: crate::seat::Input) -> crate::bar::Took {
+        use crate::bar::{Event as Bar, Held, Left};
+        use crate::gesture::Pressed;
+        use crate::seat::Input;
+        let at = self.seat.at();
+        let e = match (input, at) {
+            (Input::Entered(x, y) | Input::Moved(x, y), _) => Bar::Moved {
+                x,
+                y,
+                held: match self.seat.button_down() {
+                    true => Held::Yes,
+                    false => Held::No,
+                },
+            },
+            (Input::Pressed { button, .. }, Some((x, y))) => Bar::Pressed {
+                x,
+                y,
+                left: match button {
+                    Pressed::Left => Left::Yes,
+                    _ => Left::No,
+                },
+            },
+            (Input::Released { .. }, Some((x, y))) => Bar::Released { x, y },
+            (Input::Left, _) => Bar::Left,
+            _ => return crate::bar::Took::No,
+        };
+        let m = self.renderer.metrics();
+        let f = crate::bar::Frame {
+            size: self.renderer.frame_size(),
+            cell_h: m.cell_h,
+            widths: crate::reveal::widths(crate::reveal::Scale(1.0)),
+        };
+        let now = self.timed.clock.host(Instant::now());
+        let (took, owes) = self.timed.bar.input(&mut self.term, e, f, now);
+        if owes == crate::bar::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
+        took
+    }
+
+    /// **The thumb shown, held and faded**: the window moved over the
+    /// history by the wheel, a key, a paste or a reset.
+    fn reveal_thumb(&mut self) {
+        let now = self.timed.clock.host(Instant::now());
+        self.timed.bar.reveal.reveal(now);
+        self.pending = Pending::Dirty;
     }
 
     /// **What a key, a move, a press or a read did to the pointer**
@@ -963,7 +1067,7 @@ impl Driver {
     /// modes give it (`paste.rs`), behind whatever is owed.
     fn paste(&mut self, text: &str) {
         if self.seat.key(&mut self.term) {
-            self.pending = Pending::Dirty;
+            self.reveal_thumb();
         }
         self.caret.input(Instant::now());
         self.flush_reply();
@@ -1206,6 +1310,9 @@ impl Driver {
         // A reflow re-cuts every line, so a selection's columns are gone;
         // a change of height alone on the primary keeps it (note V, V3).
         self.seat.resized(&self.term, was);
+        // A resize or a font change moves every cell's pixels under the
+        // trail, which names them: the next sighting starts afresh.
+        self.timed.snap();
         let words = usize::try_from(u64::from(width.0) * u64::from(height.0)).unwrap_or(0);
         self.frame = vec![self.margin.0; words];
         self.stride = Px::of(width.0);
@@ -1271,6 +1378,25 @@ impl Driver {
                 height: px(h),
             },
         );
+        // The thumb, the trail, the fade and the blink phases at this
+        // moment (`timed.rs`), in the macOS frame's order.
+        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let cell = crate::timed::Cell {
+            px: (side(m.cell_w), side(m.cell_h)),
+            height: baud_render::Points(side(m.cell_h)),
+        };
+        let renderer = &self.renderer;
+        let plan = self.timed.plan(
+            Instant::now(),
+            &self.term,
+            |r, c, style| renderer.cursor_rect(r, c, style),
+            cell,
+            crate::reveal::widths(crate::reveal::Scale(1.0)),
+        );
+        self.renderer.set_scrollbar(plan.scroll);
+        self.renderer.set_screen_fade(plan.fade);
+        self.renderer.set_blink(plan.blink);
+        self.renderer.set_trail(plan.trail);
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;
@@ -1284,6 +1410,9 @@ impl Driver {
         self.renderer
             .render(&mut self.term, &mut target, self.damage);
         self.damage = Damage::Incremental;
+        // The blink rates on screen, which bound the next wait.
+        self.timed
+            .drawn(self.renderer.blink_seen(), self.term.regis_blink());
         let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
         if self
             .window

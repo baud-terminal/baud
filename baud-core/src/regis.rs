@@ -1223,6 +1223,23 @@ impl Term<'_> {
         done
     }
 
+    /// **Whether the page shown keeps blinking pixels**, for an embedder
+    /// that wakes only when something is due: [`RegisBlink::On`] owes a
+    /// [`Term::set_regis_blink`] at each of SGR 5's flips, and
+    /// [`RegisBlink::Off`] none, a page whose blinking pixels were all
+    /// written over steadily reading `Off` once a flip has found none.
+    pub fn regis_blink(&self) -> RegisBlink {
+        let strs = &self.store.strs;
+        let rect = match strs.regis.surfaces().1 {
+            RegisSurface::First => &strs.regis_page.blink,
+            RegisSurface::Second => &strs.regis_second.blink,
+        };
+        match rect {
+            Some(_) => RegisBlink::On,
+            None => RegisBlink::Off,
+        }
+    }
+
     /// **A read's end with a cursor drawn or the second surface
     /// displayed**: if the read left the envelope, by a cancel, the
     /// cursors go -- the output cursor "only appears when the terminal is

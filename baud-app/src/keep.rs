@@ -19,16 +19,12 @@ pub(crate) use baud_core::Moved as Ring;
 pub(crate) struct Before {
     pub(crate) live: RowRot,
     pub(crate) epoch: baud_core::ScreenEpoch,
-    /// Read by the macOS pump's slide and its reset's reveal.
+    /// Read by the macOS pump's slide and both drivers' reset reveal.
     #[cfg_attr(
         target_os = "linux",
         expect(dead_code, reason = "the Linux driver draws no slide")
     )]
     pub(crate) region: baud_core::RegionScrolls,
-    #[cfg_attr(
-        target_os = "linux",
-        expect(dead_code, reason = "the Linux driver reveals no thumb")
-    )]
     pub(crate) erased: baud_core::HistoryErasures,
     pub(crate) resets: baud_core::Resets,
 }

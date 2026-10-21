@@ -16,7 +16,7 @@ use crate::keep::{
     stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{HistoryMark, Screen, Term};
+use baud_core::{Erasure, HistoryMark, Looking, Screen, Term};
 use baud_domain::{
     Col, Cols, EventMillis, ImagePx, LocatorAt, LocatorButtons, LocatorInput, LocatorKind,
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
@@ -152,6 +152,28 @@ fn press_of(m: Modifiers) -> Press {
     }
 }
 
+/// What a read did that the driver's effects answer: another surface up,
+/// and a thumb a reset revealed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AfterRead {
+    pub(crate) surface: Surface,
+    pub(crate) thumb: Thumb,
+}
+
+/// Whether a read put another surface up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Surface {
+    Switched,
+    Same,
+}
+
+/// Whether a read revealed the scrollbar's thumb.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Thumb {
+    Reveal,
+    Leave,
+}
+
 pub(crate) struct Seat {
     /// Where the pointer is over the surface; `None` outside it.
     at: Option<(f64, f64)>,
@@ -190,6 +212,23 @@ impl Seat {
     /// Whether the pointer is over the surface, for its shape.
     pub(crate) fn inside(&self) -> bool {
         self.at.is_some()
+    }
+
+    /// Where the pointer is over the surface, for the scrollbar's press.
+    pub(crate) fn at(&self) -> Option<(f64, f64)> {
+        self.at
+    }
+
+    /// Whether a button is physically down, for a move's kind.
+    pub(crate) fn button_down(&self) -> bool {
+        self.down.is_some()
+    }
+
+    /// **A move the scrollbar took** (`bar.rs`): the position is kept, so
+    /// the next event's cell and the pointer's shape are right, and no one
+    /// else is told.
+    pub(crate) fn moved_to(&mut self, x: f64, y: f64) {
+        self.at = Some((x, y));
     }
 
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
@@ -519,7 +558,20 @@ impl Seat {
     /// (`keep::followed`), dropped by a switch or a reset with the
     /// wheel's part-line, and clipped where the history it named is gone --
     /// the macOS pump's order (`app.rs`, `pump`).
-    pub(crate) fn after_read(&mut self, term: &Term<'_>, before: Before) {
+    pub(crate) fn after_read(&mut self, term: &Term<'_>, before: Before) -> AfterRead {
+        // The macOS pump's `restart`: a switch is a surface the trail and
+        // the fade answer, and a reset made from the primary while the
+        // window looked back brings it live, which reveals the thumb.
+        let after = AfterRead {
+            surface: match switched(term, before) {
+                true => Surface::Switched,
+                false => Surface::Same,
+            },
+            thumb: match term.first_erasure(before.erased) {
+                Some(Erasure::Reset(Screen::Normal, Looking::Back)) => Thumb::Reveal,
+                _ => Thumb::Leave,
+            },
+        };
         if self.selection.is_some() && stale_in_moved_rows(term) {
             self.selection = None;
         }
@@ -546,6 +598,7 @@ impl Seat {
         {
             self.selection = None;
         }
+        after
     }
 
     /// **What the frame highlights**: the selection's share of the view
@@ -631,6 +684,56 @@ mod tests {
     }
 
     const NONE: Modifiers = Modifiers::NONE;
+
+    /// **A read says what the effects answer**: a switch of surface, and
+    /// a reset from a primary looked back, which reveals the thumb; text
+    /// says neither. Perturbation: answer `Same` for a switch -- the first
+    /// assertion fails.
+    #[test]
+    fn a_read_names_a_switch_and_a_reset_that_reveals() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut seat = Seat::new();
+        let read = |seat: &mut Seat, t: &mut Term<'_>, b: &[u8]| {
+            let before = seat.before_read(t);
+            feed(t, b);
+            seat.after_read(t, before)
+        };
+        let alt = read(&mut seat, &mut t, b"\x1b[?1049h");
+        assert_eq!(alt.surface, Surface::Switched);
+        let back = read(&mut seat, &mut t, b"\x1b[?1049l");
+        assert_eq!(back.surface, Surface::Switched);
+        let text = read(&mut seat, &mut t, b"x");
+        assert_eq!((text.surface, text.thumb), (Surface::Same, Thumb::Leave));
+        for i in 0..40 {
+            feed(&mut t, format!("{i}\r\n").as_bytes());
+        }
+        t.set_window_back(Rows::of_count(5));
+        let reset = read(&mut seat, &mut t, b"\x1bc");
+        assert_eq!(reset.thumb, Thumb::Reveal);
+    }
+
+    /// **A move the scrollbar took keeps the position and tells no one**,
+    /// and a button down is seen for the next move's kind.
+    #[test]
+    fn a_taken_move_keeps_the_position() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut seat = Seat::new();
+        assert_eq!(seat.at(), None);
+        seat.moved_to(12.0, 3.0);
+        assert_eq!(seat.at(), Some((12.0, 3.0)));
+        assert!(!seat.button_down());
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(1)),
+            NONE,
+        );
+        assert!(seat.button_down());
+        put(&mut seat, &mut t, up(Pressed::Left, Ms::of_millis(2)), NONE);
+        assert!(!seat.button_down());
+    }
 
     /// **The wheel across on Linux**: a detent to the left is button 6 to
     /// a program tracking the mouse, a touchpad's pixels by the cell's

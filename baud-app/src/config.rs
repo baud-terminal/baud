@@ -479,8 +479,7 @@ pub enum CursorTrail {
 impl CursorTrail {
     /// What the trail driver runs for this trail: a fire, a sweep, or a
     /// quad for the rest, which either are the quad or never ask the
-    /// driver. Only the macOS driver has a trail, so Linux never asks.
-    #[cfg(any(target_os = "macos", test))]
+    /// driver.
     pub fn style(self) -> crate::trail::Style {
         use crate::trail::Style;
         use baud_render::Shape;
@@ -516,16 +515,14 @@ pub enum TrailPick {
 }
 
 /// The system's motion preference: macOS's Reduce Motion, read by the
-/// driver. It decides the default trail and holds `SGR 5` text shown.
-/// Only the macOS driver has a trail or blinks text, so Linux never asks.
-#[cfg(any(target_os = "macos", test))]
+/// driver. It decides the default trail and holds `SGR 5` text shown. The
+/// Linux driver reads no desktop preference yet, so it is full there.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SystemMotion {
     Full,
     Reduced,
 }
 
-#[cfg(any(target_os = "macos", test))]
 impl TrailPick {
     /// The trail drawn: a named one whatever the system says, and the
     /// default one -- the plasma -- unless the system asked for reduced

@@ -3,6 +3,7 @@
 
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
+use crate::effects::{TRANSITION_S, TrailCursor, regis_phase, text_blink, trail_cursor, window_of};
 use crate::gesture::{
     Kind, Owner, Pressed, Selected, Shift, To, held_after, locator_input, locator_under,
     pointer_route, pointer_under, shift_overrides,
@@ -26,8 +27,8 @@ use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, 
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers,
-    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisPhase,
-    RegisRepainted, Row, RowRot, Rows, WinSize,
+    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisRepainted, Row,
+    RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -38,7 +39,7 @@ use baud_present_macos::{
 };
 use baud_render::Place;
 use baud_render::{
-    Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
+    Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
     Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
     Window, back_for, copy_for_shader, gutter, place, thumb,
@@ -87,64 +88,6 @@ enum Pending {
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
-/// Half a slow blink cycle, milliseconds: text with `SGR 5` shows for this
-/// long, then hides for this long -- 75 blinks a minute. `[[source: ecma48]]`
-/// § 8.3.117 gives 5 as "slowly blinking (less then 150 per minute)".
-const BLINK_HALF_MS: u32 = 400;
-/// Half a rapid blink cycle, milliseconds: text with `SGR 6` shows for this
-/// long, then hides for this long -- 150 blinks a minute, 2.5 a second, the
-/// floor of § 8.3.117's "rapidly blinking (150 per minute or more)", which
-/// the owner chose on 2026-10-13. Under WCAG 2.3.1's "more than three times
-/// in any one second period" (`[[source: wcag22]]`), whose flash is "a pair
-/// of opposing changes": one shown-and-hidden cycle is one flash.
-const RAPID_HALF_MS: u32 = 200;
-// The two bounds, in integers: 150 a minute is exactly the rapid floor, so a
-// float comparison would sit on a rounding edge.
-const _: () = assert!(
-    60_000 < 150 * 2 * BLINK_HALF_MS,
-    "SGR 5 is slow blink: fewer than 150 a minute"
-);
-const _: () = assert!(
-    60_000 >= 150 * 2 * RAPID_HALF_MS,
-    "SGR 6 is rapid blink: 150 a minute or more"
-);
-/// The two halves in seconds, the display link's unit.
-const BLINK_HALF: f64 = BLINK_HALF_MS as f64 / 1000.0;
-const RAPID_HALF: f64 = RAPID_HALF_MS as f64 / 1000.0;
-
-/// The phases blinking text draws with at display-link time `target`, one a
-/// rate: the clock's, unless the system asks for reduced motion, when both
-/// are held shown. Apple's HIG names blinking under Reduce Motion, and WCAG
-/// 2.2.2 asks for a way to stop blinking that lasts past five seconds; this
-/// is that way, and the reasons are on
-/// `reduce_motion_holds_blinking_text_shown`. Held, no phase flips, so a
-/// blinking cell owes no frame. Each rate shows for half its cycle, as
-/// `SGR 5` always did: the text gives a rate and no duty cycle.
-fn text_blink(target: f64, motion: crate::config::SystemMotion) -> BlinkPhases {
-    use crate::config::SystemMotion;
-    let at = |half: f64| match (target / half).rem_euclid(2.0) < 1.0 {
-        true => Blink::Shown,
-        false => Blink::Hidden,
-    };
-    match motion {
-        SystemMotion::Reduced => BlinkPhases::SHOWN,
-        SystemMotion::Full => BlinkPhases {
-            slow: at(BLINK_HALF),
-            rapid: at(RAPID_HALF),
-        },
-    }
-}
-/// The phase a ReGIS page's blinking pixels show: text blink's slow one.
-fn regis_phase(slow: Blink) -> RegisPhase {
-    match slow {
-        Blink::Shown => RegisPhase::Shown,
-        Blink::Hidden => RegisPhase::Hidden,
-    }
-}
-
-/// How long the alternate-screen fade takes to reveal the new screen,
-/// seconds. Only paid on a screen switch when the transition is on.
-const TRANSITION_S: f64 = 0.15;
 
 /// An alternate-screen switch being animated: the display-link timestamp
 /// the fade began at. `progress` is `(now - start) / TRANSITION_S`, off the
@@ -196,11 +139,9 @@ enum Path {
 /// CPU path it rides the quad and runs as one -- no frames are owed for an
 /// effect nothing draws.
 fn chase_style(style: crate::trail::Style, path: Path) -> crate::trail::Style {
-    match (style, path) {
-        (crate::trail::Style::Effect(_), Path::Cpu) => {
-            crate::trail::Style::Smear(baud_render::Shape::Quad)
-        }
-        (style, _) => style,
+    match path {
+        Path::Cpu => crate::trail::on_cpu(style),
+        Path::Instances | Path::Cells => style,
     }
 }
 
@@ -3105,22 +3046,6 @@ fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     term.moved_since(before.live)
 }
 
-/// Where the window sits in the ring, for the scrollback's thumb: the
-/// core's window as drawn (`Term::window_back`), which is the live screen on
-/// the alternate screen, so the thumb, the cursor, a selection and the link
-/// under a click agree with what is drawn.
-fn window_of(term: &Term<'_>) -> Window {
-    Window {
-        // What the live surface can reach, by the same clamp: nothing on the
-        // alternate screen, so no thumb is drawn there even at the bottom
-        // of its travel, where a reveal would otherwise show one over the
-        // primary's history.
-        retained: term.looking_back(Rows::of_count(term.scrollback().len())),
-        back: term.window_back(),
-        rows: term.viewport().rows(),
-    }
-}
-
 /// The cursor to draw: the live screen's, while the window is on it, and
 /// on the status line's row below the grid while DECSASD selects the line
 /// (`Term::status_line`), where the main display's is not drawn.
@@ -3131,55 +3056,6 @@ fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
     match term.status_line().and_then(|l| l.cursor) {
         Some(c) => Some((Row::from_index(term.geometry().1.index()), c)),
         None => term.cursor_visible().then(|| term.cursor()),
-    }
-}
-
-/// The cursor a trail follows, while the window is on the live screen.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TrailCursor {
-    /// The cursor as it is drawn.
-    Shown(Row, Col),
-    /// Where a program put the cursor before it hid it
-    /// (`Term::placed_cursor`): helix's selection, where helix draws its own
-    /// block. Never drawn here -- the program hid it.
-    Placed(Row, Col),
-}
-
-impl TrailCursor {
-    fn cell(self) -> (Row, Col) {
-        match self {
-            TrailCursor::Shown(r, c) | TrailCursor::Placed(r, c) => (r, c),
-        }
-    }
-
-    /// The shape the trail arrives at: the drawn cursor's own, and the whole
-    /// cell for a placement, because the program draws a block there whatever
-    /// shape the terminal's cursor is configured to -- the smear's hole has to
-    /// be that block, or a bar-shaped hole leaves the trail over it.
-    fn style(self, drawn: baud_core::CursorStyle) -> baud_core::CursorStyle {
-        match self {
-            TrailCursor::Shown(..) => drawn,
-            TrailCursor::Placed(..) => baud_core::CursorStyle::SteadyBlock,
-        }
-    }
-}
-
-/// **The cursor a trail follows**: the one drawn, and while it is hidden,
-/// where a program placed it before hiding it. Helix hides the terminal's
-/// cursor for good and draws its own at the selection, moving the hidden one
-/// there first on every frame, so a trail that followed only the drawn cursor
-/// drew nothing on `gg` or `ge`. A hidden cursor no program placed is not
-/// followed: the trail keeps where it last was (`trail.rs`).
-fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
-    if term.window_back().index() != 0 {
-        return None;
-    }
-    match term.cursor_visible() {
-        true => {
-            let (r, c) = term.cursor();
-            Some(TrailCursor::Shown(r, c))
-        }
-        false => term.placed_cursor().map(|(r, c)| TrailCursor::Placed(r, c)),
     }
 }
 
@@ -6814,7 +6690,8 @@ mod motion_tests {
     /// caret is a drawn one.
     #[test]
     fn reduce_motion_holds_blinking_text_shown() {
-        use super::{BLINK_HALF, Blink, BlinkPhases, RAPID_HALF, text_blink};
+        use crate::effects::{BLINK_HALF, RAPID_HALF, text_blink};
+        use baud_render::{Blink, BlinkPhases};
         // Every eighth of a slow half-cycle across ten seconds, every phase
         // of both rates.
         let times = (0..800).map(|i| f64::from(i) * BLINK_HALF / 8.0);
@@ -6840,7 +6717,8 @@ mod motion_tests {
     /// minute" and "150 per minute or more" -- each shown for half its cycle.
     #[test]
     fn each_blink_rate_flips_at_its_own_rate() {
-        use super::{Blink, BlinkPhases, text_blink};
+        use crate::effects::text_blink;
+        use baud_render::{Blink, BlinkPhases};
         let phases: Vec<BlinkPhases> = (0..60_000)
             .map(|ms| text_blink(f64::from(ms) / 1000.0, M::Full))
             .collect();
@@ -6890,8 +6768,9 @@ mod motion_tests {
         const SRC: &str = include_str!("app.rs");
         let call = concat!("set_regis_", "blink(regis_phase(phase.slow))");
         assert_eq!(SRC.matches(call).count(), 1, "{call}");
-        use super::{Blink, regis_phase};
+        use crate::effects::regis_phase;
         use baud_domain::RegisPhase;
+        use baud_render::Blink;
         assert_eq!(regis_phase(Blink::Shown), RegisPhase::Shown);
         assert_eq!(regis_phase(Blink::Hidden), RegisPhase::Hidden);
     }

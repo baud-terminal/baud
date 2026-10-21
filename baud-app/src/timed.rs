@@ -1,0 +1,561 @@
+//! **The Linux driver's timed effects**: `SGR 5` and `SGR 6` text blink,
+//! the cursor trail, the alternate screen's fade and the scrollbar's thumb,
+//! each the macOS app's and each drawn by the CPU path the driver paints
+//! with. The clock is seconds since the driver started, where the macOS
+//! app reads the display link's timestamp; the loop has no tick, so an
+//! effect says what it owes instead:
+//!
+//! * **an instant**, for a change that comes on the clock with no event to
+//!   bring it -- the next blink flip of a rate on screen, the end of a
+//!   trail's dwell, the end of the thumb's hold -- which bounds the loop's
+//!   one wait (`deadline`);
+//! * **every frame**, for motion in flight -- a trail sweeping, the fade,
+//!   the thumb fading -- which the compositor's frame events pace: the loop
+//!   owes the next frame on each turn and presents it once the last one is
+//!   done, so a frame in flight never spins the wait.
+//!
+//! Every trail style runs as the CPU path draws it (`trail::on_cpu`): an
+//! effect -- the fire and its family -- is the GPU's, so here it rides the
+//! quad. Nothing on Linux reads the desktop's reduced-motion preference
+//! yet, so the motion is full and text blinks. Pure, over a real `Term`,
+//! so the tests run on every platform.
+
+use crate::config::{CursorTrail, ScreenTransition, SystemMotion};
+use crate::trail::Chase;
+use baud_core::{CursorStyle, Term};
+use baud_domain::{Col, HostTime, RegisBlink, RegisRepainted, Row};
+use baud_render::{
+    BlinkPhases, Blinking, Points, Rect, Scroll, Strength, Trail, TrailLook, Transition,
+};
+use std::time::{Duration, Instant};
+
+/// Seconds since the driver started: the clock every effect reads.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Clock {
+    epoch: Instant,
+}
+
+impl Clock {
+    pub(crate) fn new(epoch: Instant) -> Clock {
+        Clock { epoch }
+    }
+
+    pub(crate) fn secs(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.epoch).as_secs_f64()
+    }
+
+    /// The clock's reading as the reveal and the trails take it.
+    pub(crate) fn host(&self, now: Instant) -> HostTime {
+        let ns = now.saturating_duration_since(self.epoch).as_nanos();
+        HostTime::of_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
+    }
+
+    fn instant_of_secs(&self, secs: f64) -> Instant {
+        self.epoch + Duration::try_from_secs_f64(secs.max(0.0)).unwrap_or(Duration::MAX)
+    }
+
+    fn instant_of(&self, t: HostTime) -> Instant {
+        self.epoch + Duration::from_nanos(t.nanos())
+    }
+}
+
+/// A ghost's sweep in flight: the cells it left and reached, when it began
+/// on the clock, and how it is drawn.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Ghost {
+    from: (Row, Col),
+    to: (Row, Col),
+    start: f64,
+    strength: Strength,
+}
+
+/// What a turn of the loop owes the frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Owes {
+    Nothing,
+    /// A frame, its rows as damage says.
+    Frame,
+    /// A frame repainted whole: a blink flip moves no cell word, so row
+    /// damage cannot see it, as on macOS.
+    Full,
+}
+
+/// What the next frame draws, for the driver to hand the renderer.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Plan {
+    pub(crate) scroll: Option<Scroll>,
+    pub(crate) trail: Option<TrailLook>,
+    pub(crate) fade: Option<Transition>,
+    pub(crate) blink: BlinkPhases,
+}
+
+/// The cell the frame is drawn on: its size in pixels and its height in
+/// points, the flash bound's size gate (`trail::GATE`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Cell {
+    pub(crate) px: (f32, f32),
+    pub(crate) height: Points,
+}
+
+pub(crate) struct Timed {
+    pub(crate) clock: Clock,
+    motion: SystemMotion,
+    /// The phases the last frame drew with, and the rates it found on
+    /// screen (`Renderer::blink_seen`).
+    blink: BlinkPhases,
+    seen: Blinking,
+    /// Whether the ReGIS page shown keeps blinking pixels, which flip with
+    /// SGR 5 whether or not any text blinks (`Term::regis_blink`).
+    regis: RegisBlink,
+    trail: CursorTrail,
+    chase: Chase<HostTime>,
+    ghost: Option<Ghost>,
+    last_cell: Option<(Row, Col)>,
+    transition: ScreenTransition,
+    fade: Option<f64>,
+    /// The scrollbar's thumb (`bar.rs`).
+    pub(crate) bar: crate::bar::Bar,
+}
+
+impl Timed {
+    pub(crate) fn new(
+        epoch: Instant,
+        trail: crate::config::TrailPick,
+        transition: ScreenTransition,
+    ) -> Timed {
+        let motion = SystemMotion::Full;
+        let trail = trail.effective(motion);
+        Timed {
+            clock: Clock::new(epoch),
+            motion,
+            blink: BlinkPhases::SHOWN,
+            seen: Blinking::UNSEEN,
+            regis: RegisBlink::Off,
+            trail,
+            chase: Chase::new(crate::trail::on_cpu(trail.style())),
+            ghost: None,
+            last_cell: None,
+            transition,
+            fade: None,
+            bar: crate::bar::Bar::new(),
+        }
+    }
+
+    /// **The instant the loop must wake by**, if an effect changes on the
+    /// clock before any event could arrive: the next flip of a rate on
+    /// screen, a ReGIS page's blinking pixels flipping with the slow rate,
+    /// a trail's dwell, the thumb's hold. Always ahead of `now`, so a past
+    /// deadline never spins the wait.
+    pub(crate) fn deadline(&self, now: Instant) -> Option<Instant> {
+        let seen = match self.regis {
+            RegisBlink::On => self.seen.with(Blinking::SLOW),
+            RegisBlink::Off => self.seen,
+        };
+        let flip = crate::effects::next_flip(self.clock.secs(now), seen, self.motion)
+            .map(|s| self.clock.instant_of_secs(s));
+        let dwell = self.chase.deadline().map(|t| self.clock.instant_of(t));
+        let hold = self.bar.deadline().map(|t| self.clock.instant_of(t));
+        [flip, dwell, hold]
+            .into_iter()
+            .flatten()
+            .filter(|&t| t > now)
+            .min()
+    }
+
+    /// **What a turn of the loop at `now` owes**: a whole frame when a
+    /// blink rate on screen flipped or a ReGIS page's blinking pixels were
+    /// repainted, a frame while a trail, the fade or the thumb moves or a
+    /// dwell ran out, else nothing.
+    pub(crate) fn turn(&mut self, now: Instant, term: &mut Term<'_>) -> Owes {
+        let phase = crate::effects::text_blink(self.clock.secs(now), self.motion);
+        let mut owes = Owes::Nothing;
+        if phase != self.blink {
+            if self.seen.flips(self.blink, phase) {
+                owes = Owes::Full;
+            }
+            self.blink = phase;
+        }
+        // A ReGIS drawing's blinking pixels flip with SGR 5's phase, as on
+        // macOS; the core repaints them and says so, which owes a frame.
+        if term.set_regis_blink(crate::effects::regis_phase(phase.slow)) == RegisRepainted::Yes {
+            owes = Owes::Full;
+        }
+        let host = self.clock.host(now);
+        // The thumb steps every turn, whatever else is owed.
+        let thumb = self.bar.turn(host, term) == crate::bar::Owes::Frame;
+        let moving = thumb
+            || self.ghost.is_some()
+            || self.fade.is_some()
+            || self.chase.owes(host) == crate::caret::Owes::Frame;
+        match (owes, moving) {
+            (Owes::Full, _) => Owes::Full,
+            (_, true) => Owes::Frame,
+            _ => owes,
+        }
+    }
+
+    /// The rates the frame just drawn found on screen, and whether the
+    /// ReGIS page it showed keeps blinking pixels.
+    pub(crate) fn drawn(&mut self, seen: Blinking, regis: RegisBlink) {
+        self.seen = seen;
+        self.regis = regis;
+    }
+
+    /// **The cells moved under the trail** -- a resize, a font change: the
+    /// next sighting starts afresh, and no ghost sweeps across.
+    pub(crate) fn snap(&mut self) {
+        self.chase.snap();
+        self.last_cell = None;
+        self.ghost = None;
+    }
+
+    /// **Another surface came up**: no trail crosses the switch, and the
+    /// new screen fades in from the background when `[screen] transition`
+    /// is on.
+    pub(crate) fn switched(&mut self, now: Instant) {
+        self.snap();
+        if self.transition == ScreenTransition::On {
+            self.fade = Some(self.clock.secs(now));
+        }
+    }
+
+    /// **The next frame's effects at `now`**, the macOS frame's order: the
+    /// thumb as the reveal shows it, the trail spawned where the cursor now
+    /// is and advanced, the fade, the blink phases. `rect` is the
+    /// renderer's cursor rectangle for a cell and a style; `scroll` the
+    /// thumb's frame.
+    pub(crate) fn plan(
+        &mut self,
+        now: Instant,
+        term: &Term<'_>,
+        rect: impl Fn(Row, Col, CursorStyle) -> Rect,
+        cell: Cell,
+        widths: baud_render::Widths,
+    ) -> Plan {
+        let host = self.clock.host(now);
+        let secs = self.clock.secs(now);
+        let look = self.bar.look(host);
+        self.bar.drawn = look;
+        let scroll = match term.scrollbar_shown() {
+            baud_domain::ScrollbarShown::Shown => Some(Scroll {
+                window: crate::effects::window_of(term),
+                look,
+                widths,
+                scroller: self.bar.scroller(),
+            }),
+            baud_domain::ScrollbarShown::Hidden => None,
+        };
+        let followed = crate::effects::trail_cursor(term);
+        let cursor_cell = followed.map(crate::effects::TrailCursor::cell);
+        if self.trail == CursorTrail::Ghost {
+            let block = |(r, c): (Row, Col)| rect(r, c, CursorStyle::SteadyBlock);
+            let sweep = crate::trail::ghost_sweep(
+                self.chase.ledger(),
+                self.last_cell,
+                cursor_cell,
+                host,
+                block,
+                (cell.px, cell.height),
+            );
+            if let Some(sw) = sweep {
+                self.ghost = Some(Ghost {
+                    from: sw.from,
+                    to: sw.to,
+                    start: secs,
+                    strength: sw.strength,
+                });
+            }
+        }
+        self.last_cell = cursor_cell;
+        let ghost = self.ghost.and_then(|g| {
+            let p = crate::trail::ghost_progress(g.start, secs);
+            match p >= 1.0 {
+                // Landed: this frame draws no trail, which clears the
+                // ghost's last rows, and nothing more is owed.
+                true => None,
+                false => Some(Trail {
+                    from: g.from,
+                    to: g.to,
+                    progress: p.max(0.0),
+                    origin_dy: 0.0,
+                    lift: baud_font::Px::of(0),
+                    strength: g.strength,
+                }),
+            }
+        });
+        if ghost.is_none() {
+            self.ghost = None;
+        }
+        let trail = match self.trail {
+            CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
+            CursorTrail::Off => None,
+            CursorTrail::Quad
+            | CursorTrail::Sweep
+            | CursorTrail::Fire
+            | CursorTrail::Plasma
+            | CursorTrail::Lightning
+            | CursorTrail::Ice
+            | CursorTrail::Ufo
+            | CursorTrail::Orb
+            | CursorTrail::Liquid => {
+                // Looking back forgets where the cursor was, as on macOS.
+                if term.window_back().index() != 0 {
+                    self.chase.snap();
+                }
+                let style = term.cursor_style();
+                let r = followed.map(|f| {
+                    let (row, col) = f.cell();
+                    rect(row, col, f.style(style))
+                });
+                self.chase.frame(r, host, cell.px, cell.height)
+            }
+        };
+        let fade = self.fade.and_then(|start| {
+            let p = ((secs - start) / crate::effects::TRANSITION_S) as f32;
+            match p >= 1.0 {
+                // Settled: this frame draws no veil, which repaints the
+                // screen once to clear it.
+                true => None,
+                false => Some(Transition {
+                    progress: p.max(0.0),
+                }),
+            }
+        });
+        if fade.is_none() {
+            self.fade = None;
+        }
+        Plan {
+            scroll,
+            trail,
+            fade,
+            blink: self.blink,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::TrailPick;
+    use baud_core::Owned;
+    use baud_domain::{BytePos, ImageBudget, ReadLen, WinSize};
+
+    const WS: WinSize = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    const CELL: Cell = Cell {
+        px: (10.0, 20.0),
+        height: Points(20.0),
+    };
+
+    fn feed(t: &mut Term<'_>, b: &[u8]) {
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+    }
+
+    fn rect(r: Row, c: Col, _: CursorStyle) -> Rect {
+        let (x, y) = (c.index() as f32 * 10.0, r.index() as f32 * 20.0);
+        Rect {
+            left: x,
+            top: y,
+            right: x + 10.0,
+            bottom: y + 20.0,
+        }
+    }
+
+    fn widths() -> baud_render::Widths {
+        crate::reveal::widths(crate::reveal::Scale(1.0))
+    }
+
+    /// **An idle screen bounds no wait and owes no frame**: nothing blinks,
+    /// no trail is in flight, the thumb is hidden. This is what keeps an
+    /// idle Linux window from waking. Perturbation: give an unseen screen a
+    /// blink flip -- `deadline` names one and the first assertion fails.
+    #[test]
+    fn an_idle_screen_waits_for_nothing() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        for ms in [0u64, 7, 401, 5000] {
+            let now = t0 + Duration::from_millis(ms);
+            assert_eq!(fx.deadline(now), None, "{ms}");
+            assert_eq!(fx.turn(now, &mut t), Owes::Nothing, "{ms}");
+        }
+    }
+
+    /// **Blinking text on screen wakes the wait at each flip and repaints
+    /// whole there, and only there.** Slow-only text wakes at the slow
+    /// flips, 400 ms apart, not at the rapid ones. Perturbation: answer
+    /// `Owes::Frame` on a flip -- row damage would leave the cells as they
+    /// were, and the flip's assertion fails.
+    #[test]
+    fn blinking_text_wakes_at_its_own_flips_and_repaints_whole() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[5mslow\x1b[m");
+        let mut fx = Timed::new(
+            t0,
+            TrailPick::Named(CursorTrail::Off),
+            ScreenTransition::Off,
+        );
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        fx.drawn(Blinking::SLOW, RegisBlink::Off);
+        let wake = fx.deadline(t0).expect("a slow flip ahead");
+        let after = wake.saturating_duration_since(t0);
+        assert!(
+            after >= Duration::from_millis(400) && after <= Duration::from_millis(402),
+            "{after:?}"
+        );
+        assert_eq!(
+            fx.turn(t0 + Duration::from_millis(200), &mut t),
+            Owes::Nothing
+        );
+        assert_eq!(fx.turn(wake, &mut t), Owes::Full, "the slow flip");
+        assert_eq!(fx.turn(wake, &mut t), Owes::Nothing, "once");
+        // Every later wake, through the clock's round trip to an instant
+        // and back, finds its flip done: none is a wake for nothing.
+        fx.drawn(Blinking::BOTH, RegisBlink::Off);
+        let mut now = wake;
+        for n in 0..3000 {
+            let next = fx.deadline(now).expect("the next");
+            assert!(next > now, "{n}");
+            assert_eq!(fx.turn(next, &mut t), Owes::Full, "flip {n} at {next:?}");
+            now = next;
+        }
+    }
+
+    /// **A ReGIS page's blinking pixels wake the wait at the slow flips and
+    /// repaint whole there, with no text blinking**, as the macOS tick
+    /// flips them. The control is a steady drawing, which wakes for
+    /// nothing. Perturbations: leave the page out of `deadline` -- no wake
+    /// is named and the first `expect` fails; leave `set_regis_blink` out
+    /// of `turn` -- the flip owes nothing.
+    #[test]
+    fn a_blinking_regis_page_wakes_at_the_slow_flips() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4 << 20));
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1bPpP[0,0]V[9,0]\x1b\\");
+        assert_eq!(t.regis_blink(), RegisBlink::Off, "a steady drawing");
+        let off = TrailPick::Named(CursorTrail::Off);
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        fx.drawn(Blinking::UNSEEN, t.regis_blink());
+        assert_eq!(fx.deadline(t0), None, "nothing blinks");
+        feed(&mut t, b"\x1bPpW(I2,A1)P[0,2]V[9,2]\x1b\\");
+        assert_eq!(t.regis_blink(), RegisBlink::On);
+        fx.drawn(Blinking::UNSEEN, t.regis_blink());
+        let wake = fx.deadline(t0).expect("a slow flip ahead");
+        let after = wake.saturating_duration_since(t0);
+        assert!(
+            after >= Duration::from_millis(400) && after <= Duration::from_millis(402),
+            "{after:?}"
+        );
+        assert_eq!(
+            fx.turn(t0 + Duration::from_millis(200), &mut t),
+            Owes::Nothing
+        );
+        assert_eq!(fx.turn(wake, &mut t), Owes::Full, "hidden");
+        assert_eq!(fx.turn(wake, &mut t), Owes::Nothing, "once");
+        let next = fx.deadline(wake).expect("the next flip");
+        assert_eq!(fx.turn(next, &mut t), Owes::Full, "shown again");
+    }
+
+    /// **A long cursor move trails: the dwell is a deadline, the flight
+    /// owes every frame, and the landing frees the wait.** The default
+    /// trail is an effect, which the CPU path draws as the quad. The
+    /// control is a one-cell move, which snaps and owes nothing.
+    /// Perturbation: build the chase from the style itself rather than
+    /// `on_cpu` -- the fire is drawn as a `Vfx` and the quad assertion
+    /// fails.
+    #[test]
+    fn a_long_move_trails_as_the_quad_and_lands() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        feed(&mut t, b"\x1b[2C");
+        let _ = fx.plan(t0 + Duration::from_millis(1), &t, rect, CELL, widths());
+        assert_eq!(fx.deadline(t0), None, "a short move snaps");
+        feed(&mut t, b"\x1b[8;30H");
+        let at = t0 + Duration::from_millis(2);
+        let _ = fx.plan(at, &t, rect, CELL, widths());
+        let dwell = fx.deadline(at).expect("the dwell");
+        assert_eq!(fx.turn(dwell, &mut t), Owes::Frame, "the dwell ran out");
+        let p = fx.plan(dwell, &t, rect, CELL, widths());
+        assert!(
+            matches!(p.trail, Some(TrailLook::Smear(_))),
+            "{:?}",
+            p.trail
+        );
+        let mut now = dwell;
+        let mut frames = 0;
+        while fx.turn(now, &mut t) != Owes::Nothing {
+            let _ = fx.plan(now, &t, rect, CELL, widths());
+            now += Duration::from_millis(16);
+            frames += 1;
+            assert!(frames < 200, "the trail never landed");
+        }
+        assert!(frames > 1, "{frames}");
+        assert_eq!(fx.deadline(now), None);
+    }
+
+    /// **A switch fades the new screen in when `[screen] transition` is
+    /// on, and only then**, and the fade owes frames until it settles.
+    #[test]
+    fn a_switch_fades_in_only_when_the_transition_is_on() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        for (on, want) in [(ScreenTransition::On, true), (ScreenTransition::Off, false)] {
+            let mut fx = Timed::new(t0, TrailPick::Named(CursorTrail::Off), on);
+            fx.switched(t0);
+            let p = fx.plan(t0 + Duration::from_millis(50), &t, rect, CELL, widths());
+            assert_eq!(p.fade.is_some(), want, "{on:?}");
+            assert_eq!(
+                fx.turn(t0 + Duration::from_millis(60), &mut t) == Owes::Frame,
+                want
+            );
+            let p = fx.plan(t0 + Duration::from_millis(200), &t, rect, CELL, widths());
+            assert_eq!(p.fade, None, "settled");
+            assert_eq!(
+                fx.turn(t0 + Duration::from_millis(210), &mut t),
+                Owes::Nothing
+            );
+        }
+    }
+
+    /// **The ghost sweeps on any move and lands.** The control is no move.
+    #[test]
+    fn the_ghost_sweeps_on_a_move_and_lands() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(
+            t0,
+            TrailPick::Named(CursorTrail::Ghost),
+            ScreenTransition::Off,
+        );
+        let p = fx.plan(t0, &t, rect, CELL, widths());
+        assert_eq!(p.trail, None, "no move");
+        feed(&mut t, b"x");
+        let p = fx.plan(t0 + Duration::from_millis(5), &t, rect, CELL, widths());
+        assert!(
+            matches!(p.trail, Some(TrailLook::Ghost(_))),
+            "{:?}",
+            p.trail
+        );
+        assert_eq!(fx.turn(t0 + Duration::from_millis(6), &mut t), Owes::Frame);
+        let p = fx.plan(t0 + Duration::from_millis(400), &t, rect, CELL, widths());
+        assert_eq!(p.trail, None, "landed");
+        assert_eq!(
+            fx.turn(t0 + Duration::from_millis(401), &mut t),
+            Owes::Nothing
+        );
+    }
+}

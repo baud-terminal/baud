@@ -809,6 +809,17 @@ status = "built"
 platform = "macos"
 tests = ["baud-app/src/app.rs::each_blink_rate_flips_at_its_own_rate", "baud-app/src/app.rs::reduce_motion_holds_blinking_text_shown"]
 
+
+[[feature]]
+id = "blinking-text-linux"
+area = "text"
+name = "Blinking text on Linux"
+does = "Slow and fast blinking text, each at its own rate, and an idle window with nothing blinking never wakes for it."
+status = "partial"
+gap = "the desktop's reduced-motion setting is not read yet, so it always blinks."
+platform = "linux"
+tests = ["baud-app/src/timed.rs::blinking_text_wakes_at_its_own_flips_and_repaints_whole", "baud-app/src/timed.rs::an_idle_screen_waits_for_nothing"]
+
 [[feature]]
 id = "rare-styles"
 area = "text"
@@ -1082,6 +1093,17 @@ does = "It appears while you scroll and fades away, widens when you point at it,
 status = "built"
 platform = "macos"
 tests = ["baud-app/src/reveal.rs::the_look_changes_only_while_it_fades", "baud-app/src/app.rs::a_legacy_gutter_takes_its_columns_and_the_frame_fits"]
+
+
+[[feature]]
+id = "scrollbar-linux"
+area = "scroll"
+name = "The scrollbar on Linux"
+does = "The same thumb as on a Mac: it appears while you scroll and fades away, widens when you point at it while looking back, and can be dragged or clicked, and a program can hide it."
+status = "built"
+platform = "linux"
+tests = ["baud-app/src/bar.rs::a_drag_on_the_knob_moves_the_window_and_keeps_the_gesture", "baud-app/src/bar.rs::a_jump_needs_a_drawn_thumb_and_a_shown_scrollbar"]
+rows = ["vt:`?30`"]
 
 [[feature]]
 id = "smooth-scroll"
@@ -1463,6 +1485,17 @@ gap = "every trail style is drawn as the plain stretching one there."
 platform = "macos"
 tests = ["baud-app/src/app.rs::an_effect_on_the_cpu_path_runs_as_the_quad", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_trail"]
 shipped = ["2026-10-16-the-cursor-trail-and-see-through"]
+
+
+[[feature]]
+id = "trails-linux"
+area = "cursor"
+name = "Trails and fades on Linux"
+does = "The cursor trails when it jumps and the full-screen fade plays when a program switches screens, as on a Mac."
+status = "partial"
+gap = "the fire, plasma and other effects are drawn as the plain stretching trail, and the desktop's reduced-motion setting is not read yet."
+platform = "linux"
+tests = ["baud-app/src/timed.rs::a_long_move_trails_as_the_quad_and_lands", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
 
 # --- Pictures -----------------------------------------------------------------
 
