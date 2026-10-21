@@ -606,6 +606,19 @@ impl Seat {
         Owed::Nothing
     }
 
+    /// The count that numbers the selection's lines.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn scrolled(&self) -> Scrolled {
+        self.scrolled
+    }
+
+    /// **Select `selection`**, numbered by [`Seat::scrolled`]: the find's
+    /// current match.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn select(&mut self, selection: Option<Selection>) {
+        self.selection = selection;
+    }
+
     /// The selection's text, as Ctrl+Shift+C and a finished drag copy it;
     /// `None` without one or for one with no text.
     pub(crate) fn selected_text(&self, term: &Term<'_>) -> Option<String> {

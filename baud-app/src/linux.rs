@@ -195,6 +195,9 @@ struct Driver {
     /// on each of its codepoints.
     composing: Vec<baud_domain::Codepoint>,
     composing_hints: Vec<baud_render::Hints>,
+    /// The find field while it is open (`find.rs`), as the macOS app
+    /// keeps it: its current match is the seat's selection.
+    finding: Option<crate::find::Finding>,
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
@@ -423,6 +426,7 @@ pub fn run() {
         uncopied: Said::Not,
         composing: Vec::new(),
         composing_hints: Vec::new(),
+        finding: None,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition),
         bus,
         theme_choice: cfg.theme,
@@ -586,6 +590,13 @@ pub fn run() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
                 Event::Frame => {}
+                // The find field takes every key while it is open, before a
+                // key could snap the window away from the match it shows.
+                Event::Key(k) if d.finding.is_some() => {
+                    if k.kind != baud_domain::KeyEventKind::Release {
+                        d.find_key(crate::find::field_key(k.code, k.mods, k.text));
+                    }
+                }
                 Event::Key(k) => {
                     // A key snaps the window back to the live screen,
                     // where its effect is, and that reveals the thumb.
@@ -828,6 +839,19 @@ impl Driver {
         // the trail away and fades the new screen in; a reset that brought
         // a looked-back window live reveals the thumb.
         let after = self.seat.after_read(&self.term, before);
+        // The find's matches after the read, the current one selected
+        // again when it moved, as the macOS pump does.
+        if let Some(f) = self.finding.as_mut() {
+            if f.refresh(&self.term) == crate::find::Moved::Yes {
+                let scrolled = self.seat.scrolled();
+                self.seat.select(
+                    f.find()
+                        .current()
+                        .and_then(|m| crate::find::selection_of(&self.term, scrolled, m)),
+                );
+            }
+            self.pending = Pending::Dirty;
+        }
         if after.surface == crate::seat::Surface::Switched {
             self.timed.switched(Instant::now());
         }
@@ -1193,7 +1217,43 @@ impl Driver {
             Shortcut::ZoomIn => self.zoom(crate::fonts::Zoom::In),
             Shortcut::ZoomOut => self.zoom(crate::fonts::Zoom::Out),
             Shortcut::ZoomReset => self.zoom(crate::fonts::Zoom::Reset),
+            Shortcut::Find => {
+                if self.finding.is_none() {
+                    self.finding = Some(crate::find::Finding::open(&self.term, Vec::new()));
+                }
+                self.find_show();
+            }
         }
+    }
+
+    /// A key in the open field: the query edited, the current match
+    /// stepped, or the field closed, the selection left on what it found.
+    fn find_key(&mut self, key: crate::find::FieldKey) {
+        let Some(f) = self.finding.as_mut() else {
+            return;
+        };
+        if f.key(&self.term, key) == crate::find::Open::Closed {
+            self.finding = None;
+            self.pending = Pending::Dirty;
+            return;
+        }
+        self.find_show();
+    }
+
+    /// **The current match shown**: the window moved over the history to
+    /// it, which reveals the thumb, and selected.
+    fn find_show(&mut self) {
+        let Some(f) = self.finding.as_ref() else {
+            return;
+        };
+        let back = self.term.window_back();
+        if let Some(sel) = f.show(&mut self.term, self.seat.scrolled()) {
+            self.seat.select(Some(sel));
+        }
+        if self.term.window_back() != back {
+            self.reveal_thumb();
+        }
+        self.pending = Pending::Dirty;
     }
 
     /// **A zoom key**: the font in force at the size the step lands on
@@ -1234,6 +1294,12 @@ impl Driver {
     /// live screen, the cursor shown, and the text in the form the child's
     /// modes give it (`paste.rs`), behind whatever is owed.
     fn paste(&mut self, text: &str) {
+        // A paste while the find field is open goes into the query.
+        if let Some(f) = self.finding.as_mut() {
+            f.typed(&self.term, &crate::marked::codepoints(text));
+            self.find_show();
+            return;
+        }
         if self.seat.key(&mut self.term) {
             self.reveal_thumb();
         }
@@ -1478,6 +1544,13 @@ impl Driver {
         // A reflow re-cuts every line, so a selection's columns are gone;
         // a change of height alone on the primary keeps it (note V, V3).
         self.seat.resized(&self.term, was);
+        // The find's matches on the re-laid grid, and its current match
+        // selected again, as the macOS driver's resize does.
+        if let Some(f) = self.finding.as_mut() {
+            if let Some(sel) = f.after_resize(&self.term, self.seat.scrolled()) {
+                self.seat.select(Some(sel));
+            }
+        }
         // A resize or a font change moves every cell's pixels under the
         // trail, which names them: the next sighting starts afresh.
         self.timed.snap();
@@ -1527,6 +1600,12 @@ impl Driver {
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
         self.renderer.set_highlight(self.seat.highlight(&self.term));
+        // The find field and every match's mark, on the window drawn.
+        let look = self
+            .finding
+            .as_ref()
+            .map(|f| f.look(&self.term, self.term.window_back()));
+        self.renderer.set_find(&self.term, look);
         // The input method's composition at the live cursor, and the cell
         // its candidate window opens beside, sent when it moved.
         self.renderer.set_composition(crate::marked::composition(

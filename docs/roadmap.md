@@ -80,9 +80,9 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Scrollback, selection and resizing
 
 - [ ] **A selection survives a change of height** — Making the window taller or shorter keeps what you selected.
-- [ ] **Search the scrollback** — Find text in the history.
 - [ ] **The scrollbar follows a settings change at once** — Switching between always-visible and overlay scrollbars in System Settings shows without waiting for the next scroll.
 - [ ] **Widening the window brings back cut text** — A row cut off by narrowing the window comes back when it is widened again.
+- [x] **Search the scrollback** — Find text in the history and on the screen: every match marked, the newest selected, the window following as you step through them. (2026-10-21)
 - [x] **Wrapped lines re-wrap correctly after a resize** — A line is marked as wrapped only when its text really ran past the edge, whatever way the output arrived. The fix also costs a little less work per line than the first version. (2026-10-15)
 - [x] **The terminal remembers where you scrolled to** — Your place in the history is kept through output, resizes and clears, and returns to the live screen when the program redraws that line or you clear the history. (2026-10-14)
 - [x] **Programs can clear the scrollback** — Programs can clear scrollback from either screen, and a window scrolled into history returns to the live screen. (2026-10-09)

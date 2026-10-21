@@ -13,6 +13,7 @@ use crate::cellmap::{
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
+use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
@@ -477,6 +478,25 @@ const DESKTOPS: [Argb; 2] = [Argb(0xFFFF_FFFF), Argb(0xFF00_0000)];
 fn screen(v: i32) -> Screen {
     Screen(i16::try_from(v).unwrap_or(i16::MAX))
 }
+
+/// The marks a find overlay draws on `row`.
+fn marks_on(f: &Option<FindLook>, row: Row) -> impl Iterator<Item = &crate::find::Mark> {
+    f.iter()
+        .flat_map(move |f| f.marks.iter().filter(move |m| m.row == row))
+}
+
+/// The find field, when it is on `row`.
+fn field_on(f: &Option<FindLook>, row: Row) -> Option<&crate::find::Field> {
+    f.as_ref().map(|f| &f.field).filter(|f| f.row == row)
+}
+
+/// The palette entry a match is washed in, `SGR 33`'s yellow, which WezTerm
+/// gives its current match (`[[source: wezterm-copy-e2a98e1]]`): the theme's
+/// own yellow, so a palette a program or a theme sets moves it too.
+const MARK_SLOT: Chan = Chan::from_offset(33, 30);
+/// How much of it: enough to find on a page, little enough to read the
+/// text through.
+const MARK_ALPHA: u8 = 0x66;
 
 /// A filled rectangle `w` by `h` at `(x, y)` in `color`.
 fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
@@ -1379,6 +1399,13 @@ pub struct Renderer<'f, 'a> {
     composition: Option<Composition>,
     last_composition: Option<Composition>,
     compose_inst: Vec<Instance>,
+    /// The find overlay on this frame and the last ([`FindLook`]), and its
+    /// solids: each match's wash and the field's caret. The rows under
+    /// either frame's marks or field are dirty, and the cells under the
+    /// field are converted blank, as under a composition.
+    find: Option<FindLook>,
+    last_find: Option<FindLook>,
+    find_inst: Vec<Instance>,
     /// What the cursor is filled with, which a quad trail is drawn in: the
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
@@ -1637,6 +1664,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             composition: None,
             last_composition: None,
             compose_inst: Vec::new(),
+            find: None,
+            last_find: None,
+            find_inst: Vec::new(),
             cursor_fill: Argb::default(),
             flash_cap: Chan::from_u8(0),
             flash_held: flash::Held::Full,
@@ -1929,6 +1959,63 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// path draws it through [`crate::Overlay::composed`].
     pub fn set_composition(&mut self, c: Option<Composition>) {
         self.composition = c;
+    }
+
+    /// **The find overlay for the next frame**, or none: every match but
+    /// the current one washed in the palette's yellow, the current one
+    /// left to the selection the driver sets ([`Renderer::set_highlight`]),
+    /// and the field drawn over its cells in the selection's colours with
+    /// its caret. The instance and CPU paths draw it in their convert; the
+    /// cell path draws the field through [`crate::Overlay::composed`] and
+    /// appends [`Renderer::find_solids`] to its records.
+    pub fn set_find(&mut self, term: &Term<'_>, look: Option<FindLook>) {
+        let mut out = core::mem::take(&mut self.find_inst);
+        out.clear();
+        if let Some(f) = &look {
+            let (cw, ch) = (self.metrics.cell_w.value(), self.metrics.cell_h.value());
+            let x = |c: Col| {
+                screen(
+                    i32::try_from(u32::try_from(c.index()).unwrap_or(0).saturating_mul(cw))
+                        .unwrap_or(i32::MAX),
+                )
+            };
+            let y = |r: Row| screen(i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX));
+            let wash = self
+                .theme
+                .entry(MARK_SLOT, |ch| term.palette(ch))
+                .with_alpha(Chan::from_u8(MARK_ALPHA));
+            for m in f.marks.iter().filter(|m| m.current == Current::No) {
+                let n = u32::try_from(m.to.index().saturating_sub(m.from.index()) + 1).unwrap_or(0);
+                out.push(solid(
+                    x(m.from),
+                    y(m.row),
+                    Px::of(n.saturating_mul(cw)),
+                    Px::of(ch),
+                    wash,
+                ));
+            }
+            let line = self.metrics.thickness.value().max(2);
+            out.push(solid(
+                x(f.field.caret),
+                y(f.field.row),
+                Px::of(line),
+                Px::of(ch),
+                self.defaults.1,
+            ));
+        }
+        self.find_inst = out;
+        self.find = look;
+    }
+
+    /// The find overlay's solids, for a path that draws records of its
+    /// own: after the field's records.
+    pub fn find_solids(&self) -> &[Instance] {
+        &self.find_inst
+    }
+
+    /// The find field as the cell path draws it, or none.
+    pub fn find_field(&self) -> Option<Composition> {
+        self.find.as_ref().map(|f| f.field.composition())
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
@@ -3572,6 +3659,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 };
             }
         }
+        // The find field, on whatever view the window shows: the cells
+        // under it converted blank in their renditions, as under a
+        // composition, and drawn over by its records below in the
+        // selection's colours.
+        let field = self
+            .find
+            .as_ref()
+            .map(|f| f.field.composition())
+            .filter(|c| c.row.index() < main.index());
+        if let Some(c) = &field {
+            let (start, end) = c.columns(cols);
+            let at = c.row.index() * ncols;
+            for cell in &mut self.cur[at + start..at + end] {
+                *cell = PackedCell {
+                    content: baud_domain::Content::EMPTY,
+                    style: cell.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+            }
+        }
         if self.theme.finds_pictures() {
             self.pictures.find(term, &vp, self.video);
         } else {
@@ -3620,6 +3727,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self.fade != self.last_fade
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
+        let find_changed = self.find != self.last_find;
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
@@ -3678,6 +3786,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let on = |c: &Option<Composition>| c.as_ref().is_some_and(|c| c.row == row);
             let composed = (on(&composition) || on(&self.last_composition))
                 && composition != self.last_composition;
+            // A match marked, unmarked or moved on this row, or the find
+            // field come, gone or changed on it.
+            let found = find_changed
+                && (marks_on(&self.find, row).ne(marks_on(&self.last_find, row))
+                    || field_on(&self.find, row) != field_on(&self.last_find, row));
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -3702,7 +3815,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || pictured
                 || imaged
                 || partial
-                || composed;
+                || composed
+                || found;
         }
         self.place_diff = diff;
         if images == ImageRows::Repainted {
@@ -3727,6 +3841,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             (self.styles, self.compose_inst) = (styles, records);
         }
+        if let Some(c) = &field {
+            let styles = core::mem::take(&mut self.styles);
+            let mut records = core::mem::take(&mut self.compose_inst);
+            crate::overlay::composition_records(
+                self,
+                term,
+                c,
+                PackedCell::EMPTY,
+                &styles,
+                None,
+                cols,
+                LineRendition::Single,
+                Px::of(0),
+                &mut records,
+            );
+            (self.styles, self.compose_inst) = (styles, records);
+        }
+        self.compose_inst.extend_from_slice(&self.find_inst);
         self.reach_was.clone_from(&self.reach);
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -3773,6 +3905,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_fade = self.fade;
         self.last_clusters = clusters;
         self.last_composition = composition;
+        self.last_find.clone_from(&self.find);
         Converted {
             rows_dirty,
             rows_partial,

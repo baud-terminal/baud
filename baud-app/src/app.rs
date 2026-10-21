@@ -430,6 +430,9 @@ struct App {
     /// since launch that numbers those lines.
     selection: Option<Selection>,
     scrolled: Scrolled,
+    /// The find field while it is open (`find.rs`): its matches, kept
+    /// across reads, and the current one, which is the selection.
+    finding: Option<crate::find::Finding>,
     /// When the scrollbar's thumb is seen, off the display link: revealed
     /// by a scroll, held, faded, widened while hovered (`reveal`).
     reveal: Reveal,
@@ -1129,6 +1132,7 @@ impl App {
             pending: Pending::Dirty,
             selection: None,
             scrolled: Scrolled::START,
+            finding: None,
             reveal: Reveal::HIDDEN,
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
@@ -1335,6 +1339,12 @@ impl App {
             }
         };
         self.renderer.set_highlight(highlight);
+        // The find field and every match's mark, on the window drawn.
+        let look = self
+            .finding
+            .as_ref()
+            .map(|f| f.look(&self.term, self.term.window_back()));
+        self.renderer.set_find(&self.term, look);
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
@@ -1814,6 +1824,24 @@ impl App {
                         &mut cell.records,
                     );
                 }
+                // The find field over its cells, masked off the shader as a
+                // composition is, then every match's mark and its caret.
+                if let Some(c) = self.renderer.find_field() {
+                    cell.exceptions.composed(
+                        &mut self.renderer,
+                        &self.term,
+                        &c,
+                        PackedCell::EMPTY,
+                        &cell.styles_mem[set][..],
+                        None,
+                        view.cols(),
+                        baud_domain::LineRendition::Single,
+                        Px::of(0),
+                        &mut cell.overlay_mem[set][..],
+                        &mut cell.records,
+                    );
+                }
+                cell.records.extend_from_slice(self.renderer.find_solids());
                 // The leaving row, when its line is not single-width: drawn
                 // at its size by its records, its row of the mask the one
                 // after the screen's (`Overlay::leaving`).
@@ -7679,6 +7707,19 @@ impl Driver {
         if gone {
             self.app.selection = None;
         }
+        // The find's matches after the read: the lines it retired dropped,
+        // the lines it wrote read again, and the current match selected
+        // again when it moved.
+        if !drained.chunks.is_empty() {
+            if let Some(f) = self.app.finding.as_mut() {
+                if f.refresh(&self.app.term) == crate::find::Moved::Yes {
+                    self.app.selection = f.find().current().and_then(|m| {
+                        crate::find::selection_of(&self.app.term, self.app.scrolled, m)
+                    });
+                }
+                self.app.pending = Pending::Dirty;
+            }
+        }
         self.app.flush_reply();
         if drained.stream == Stream::Closed {
             // The child is gone: the window has nothing left to show, once
@@ -7807,15 +7848,40 @@ impl Responder for Driver {
             if let Some(selector) = menu_missed(&key.characters, m) {
                 self.command(selector);
             }
+            // The find chords, which the owner's menu carries no item for.
+            if !(m.option || m.control) {
+                let shift = match m.shift {
+                    true => crate::find::Shift::Down,
+                    false => crate::find::Shift::Up,
+                };
+                if let Some(chord) = crate::find::command_chord(&key.characters, shift) {
+                    self.find_chord(chord);
+                }
+            }
             return Handled::Consumed;
         }
         // `?1011`, scroll to the bottom on a key press: set at power-on, so a
-        // key snaps as it always has, and a program can turn it off.
-        if self.app.term.resource(baud_core::Resource::ScrollOnKey) {
+        // key snaps as it always has, and a program can turn it off -- but
+        // not while the find field is open, whose keys are its own and
+        // would snap the window away from the match it shows.
+        if self.app.finding.is_none() && self.app.term.resource(baud_core::Resource::ScrollOnKey) {
             self.snap_to_live();
         }
         if composing_first(key, &self.app.composing) {
             return Handled::Interpret;
+        }
+        // The find field takes every key while it is open.
+        if self.app.finding.is_some() {
+            return match special(key) {
+                Some(code) => {
+                    let key = crate::find::field_key(code, mods(key.modifiers), None);
+                    self.find_key(key);
+                    Handled::Consumed
+                }
+                None if key.modifiers.control || key.modifiers.option => Handled::Consumed,
+                // What it types arrives in `text`, through the input manager.
+                None => Handled::Interpret,
+            };
         }
         let m = mods(key.modifiers);
         let e = if let Some(code) = special(key) {
@@ -7839,6 +7905,11 @@ impl Responder for Driver {
     }
 
     fn text(&mut self, text: &str) {
+        if let Some(f) = self.app.finding.as_mut() {
+            f.typed(&self.app.term, &crate::marked::codepoints(text));
+            self.find_show();
+            return;
+        }
         let keyed = self.keyed.take();
         // One record per character: a paste through the input manager is
         // one `text` and as many keys as it has characters.
@@ -7860,6 +7931,14 @@ impl Responder for Driver {
             "zoomOut:" => return self.zoom_step(crate::fonts::Zoom::Out),
             "zoomActual:" => return self.zoom_step(crate::fonts::Zoom::Reset),
             _ => {}
+        }
+        // The find field keeps the editing commands from the program; its
+        // cancel closes it, as Escape does.
+        if self.app.finding.is_some() {
+            if selector == "cancelOperation:" {
+                self.find_key(crate::find::FieldKey::Close);
+            }
+            return;
         }
         let code = match selector {
             "insertNewline:" | "insertLineBreak:" => KeyCode::Enter,
@@ -9904,6 +9983,14 @@ impl Driver {
                 self.app.selection.take(),
                 self.app.scrolled,
             );
+            // The find's matches on the re-laid grid, and its current
+            // match selected again, before the frame below draws them: a
+            // silent child sends no read to bring them up to date.
+            if let Some(f) = self.app.finding.as_mut() {
+                if let Some(sel) = f.after_resize(&self.app.term, self.app.scrolled) {
+                    self.app.selection = Some(sel);
+                }
+            }
             // A new grid is a new surface, so repaint every row of it rather
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;
@@ -10129,6 +10216,66 @@ impl Driver {
         self.app.present(&self.view, Show::Event);
     }
 
+    /// **A find chord**: Command-F opens the field, on an empty query or
+    /// the one it holds; Command-E opens it on the selection's text;
+    /// Command-G and Shift-Command-G step the current match, opening the
+    /// field first when it is closed.
+    fn find_chord(&mut self, chord: crate::find::Chord) {
+        use crate::find::{Chord, Finding};
+        let selected = match chord {
+            Chord::UseSelection => self
+                .app
+                .selection
+                .map(|s| s.text(&self.app.term, self.app.scrolled)),
+            _ => None,
+        };
+        match (self.app.finding.as_mut(), selected) {
+            (_, Some(text)) => {
+                let query = crate::marked::codepoints(&text);
+                self.app.finding = Some(Finding::open(&self.app.term, query));
+            }
+            (Some(f), None) => f.chord(chord),
+            (None, None) => self.app.finding = Some(Finding::open(&self.app.term, Vec::new())),
+        }
+        self.find_show();
+    }
+
+    /// A key in the open field: the query edited, the current match
+    /// stepped, or the field closed, the selection left on what it found.
+    fn find_key(&mut self, key: crate::find::FieldKey) {
+        let Some(f) = self.app.finding.as_mut() else {
+            return;
+        };
+        if f.key(&self.app.term, key) == crate::find::Open::Closed {
+            self.app.finding = None;
+            self.app.pending = Pending::Dirty;
+            self.app.present(&self.view, Show::Event);
+            return;
+        }
+        self.find_show();
+    }
+
+    /// **The current match shown**: the window moved over the history to
+    /// it, which reveals the thumb, and selected; a frame now.
+    fn find_show(&mut self) {
+        let Some(f) = self.app.finding.as_ref() else {
+            return;
+        };
+        let back = self.app.term.window_back();
+        let selection = f.show(&mut self.app.term, self.app.scrolled);
+        if selection.is_some() {
+            self.app.selection = selection;
+        }
+        if self.app.term.window_back() != back {
+            self.app.travel.settle();
+            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
+                self.app.reveal.reveal(now);
+            }
+        }
+        self.app.pending = Pending::Dirty;
+        self.app.present(&self.view, Show::Event);
+    }
+
     /// Cmd-C: the selection's text to the pasteboard, if there is one.
     fn copy(&mut self) {
         let Some(sel) = self.app.selection else {
@@ -10146,6 +10293,12 @@ impl Driver {
         let Some(text) = clipboard::read_text() else {
             return;
         };
+        // A paste while the find field is open goes into the query.
+        if let Some(f) = self.app.finding.as_mut() {
+            f.typed(&self.app.term, &crate::marked::codepoints(&text));
+            self.find_show();
+            return;
+        }
         self.snap_to_live();
         self.app.caret.input(host_now());
         // Through the outbox, behind anything owed and ahead of anything

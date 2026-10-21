@@ -2233,6 +2233,44 @@ fn the_clipboard_keys_are_kept_from_the_program() {
     assert_eq!(got.len(), 4, "{got:?}");
 }
 
+const KEY_F: u32 = 33;
+
+/// **Ctrl+Shift+F opens the find field** (Ghostty's and Alacritty's
+/// binding): a shortcut, not a key, repeating and releasing nothing; Ctrl+F
+/// alone is the program's key.
+#[test]
+fn ctrl_shift_f_is_the_find_fields() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard: kb,
+        ..
+    } = clip_session();
+    repeat_info(&mut server, kb, 25, 600);
+    let (shift, ctrl) = (1u32, 4u32);
+    depressed(&mut server, kb, ctrl | shift);
+    key_at(&mut server, kb, 3, KEY_F, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [Event::Shortcut(Shortcut::Find)]);
+    assert_eq!(w.repeat_deadline(), None, "a shortcut does not repeat");
+    key_at(&mut server, kb, 4, KEY_F, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [], "nor release");
+    depressed(&mut server, kb, ctrl);
+    key_at(&mut server, kb, 5, KEY_F, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [typed(
+            'f',
+            Modifiers::NONE.with(Modifiers::CTRL),
+            KeyEventKind::Press
+        )]
+    );
+}
+
 // evdev codes for the zoom keys.
 const KEY_0: u32 = 11;
 const KEY_MINUS: u32 = 12;

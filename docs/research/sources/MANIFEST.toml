@@ -30779,3 +30779,199 @@ sha256 = "591cd36fe073193fcc307c516ba95147af27a9b4d612fe2b35773e940c26fa1c"
 bytes  = 301712
 status = "retrieved"
 group  = "J"
+
+# Find in the scrollback (lane b135, 2026-10-21): the HIG's find keys and
+# Edit menu, and the terminals read as practice.
+[sources.apple-hig-keyboards]
+key    = "apple-hig-keyboards"
+title  = "Human Interface Guidelines, Keyboards -- standard shortcuts: Command-F 'Open a Find window', Command-G 'Find the next occurrence of the selection', Shift-Command-G, Command-E, Esc (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/keyboards.json"
+file   = "apple-hig-keyboards.json"
+sha256 = "ef81add8bc05d6f5d641814e936076fd44400b45334160841e83c16e12eb8dee"
+bytes  = 66400
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-hig-the-menu-bar]
+key    = "apple-hig-the-menu-bar"
+title  = "Human Interface Guidelines, The menu bar -- the Edit menu's Find submenu: Find, Find and Replace, Find Next, Find Previous, Use Selection for Find, Jump to Selection (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/the-menu-bar.json"
+file   = "apple-hig-the-menu-bar.json"
+sha256 = "49021cdabc50e3cd7a0d0daedfc7fe3175a1b3331ce5b836cdf759183d5c7f46"
+bytes  = 84251
+status = "retrieved"
+group  = "AK"
+
+[sources.ghostty-config-521cf2c]
+key    = "ghostty-config-521cf2c"
+title  = "ghostty 521cf2c, config/Config.zig -- the search keybinds: ctrl+shift+f and super+f start_search, super+e search_selection, super+g and super+shift+g navigate_search, escape end_search"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/521cf2c5d30bd48028ca61546c64e7913764073d/src/config/Config.zig"
+file   = ""
+sha256 = "9074944c1de5e06031cc6f099ee5f9a5ef7d9343727f768220e2dedb78cd12d4"
+bytes  = 431718
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.ghostty-search-screen-521cf2c]
+key    = "ghostty-search-screen-521cf2c"
+title  = "ghostty 521cf2c, terminal/search/screen.zig -- results newest to oldest; select next goes older and wraps to the newest"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/521cf2c5d30bd48028ca61546c64e7913764073d/src/terminal/search/screen.zig"
+file   = ""
+sha256 = "629e28fcbb9a1b8e3a543a7635ca875385cb2f7279e4f79c5487281481936996"
+bytes  = 79152
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.alacritty-bindings-5421470]
+key    = "alacritty-bindings-5421470"
+title  = "alacritty 5421470, config/bindings.rs -- ctrl+shift+f and ctrl+shift+b searches, Enter and Shift+Enter focus the next and previous match, Escape cancels"
+author = "The Alacritty contributors"
+year   = 2026
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/542147067dd016fc5f49120ef0ba605a98a4e3a7/alacritty/src/config/bindings.rs"
+file   = ""
+sha256 = "5005bff766e77ae275228d92592ac302209ee6a1f31a88a597f948c76fd45434"
+bytes  = 61562
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.foot-search-cb27717]
+key    = "foot-search-cb27717"
+title  = "foot cb27717, search.c -- matches_cell: smart case on the base, a cell's combining characters compared whole"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2026
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/search.c"
+file   = ""
+sha256 = "1ef1ee5cfca3ccd438ede5e4a81a5c6626028e5f4323823e85e8b69c3c736feb"
+bytes  = 44121
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.foot-ini-cb27717]
+key    = "foot-ini-cb27717"
+title  = "foot cb27717, doc/foot.ini.5.scd -- search-start Control+Shift+r, and the search bindings: cancel, commit, find-prev Control+r, find-next Control+s"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2026
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/doc/foot.ini.5.scd"
+file   = ""
+sha256 = "4611cce41d79d747166711b611f82549952112788a0e3f74b3c8ea855708a782"
+bytes  = 76752
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.wezterm-copy-e2a98e1]
+key    = "wezterm-copy-e2a98e1"
+title  = "wezterm e2a98e1, wezterm-gui/src/overlay/copy.rs -- the search row in reverse video, the current match yellow on black and the others fuchsia on black, next and prior wrapping"
+author = "Wez Furlong and the WezTerm contributors"
+year   = 2026
+venue  = "WezTerm terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-gui/src/overlay/copy.rs"
+file   = ""
+sha256 = "4253926418182a0b1848a8cdbe387e03d6bb7b30636fc1fafe58329c254a854e"
+bytes  = 72202
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.iterm2-finddriver-654bb13]
+key    = "iterm2-finddriver-654bb13"
+title  = "iTerm2 654bb13, iTermFindDriver.m -- smart case the default mode when none is saved; Enter searches next and Shift-Enter previous"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 terminal emulator (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/654bb137632506fa4ea3da23ac74109e32cfa6e2/sources/SearchingFiltering/iTermFindDriver.m"
+file   = ""
+sha256 = "42cdc2a6cff2855c126b6a1c028d9efac913faeab3bc285895a32b75555c9fbe"
+bytes  = 26246
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, search in the scrollback) and hash-verified; read as practice, not copied.
+
+[sources.ghostty-surfaceview-521cf2c]
+key    = "ghostty-surfaceview-521cf2c"
+title  = "ghostty 521cf2c, macOS SurfaceView.swift -- SurfaceSearchOverlay, a floating bar whose default corner is topRight and which drags to any corner"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/521cf2c5d30bd48028ca61546c64e7913764073d/macos/Sources/Ghostty/Surface%20View/SurfaceView.swift"
+file   = ""
+sha256 = "e2d9871c1d61435f243a5e5b2f6e08f365b1cab9aea1939d602a9a7880a98003"
+bytes  = 48436
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+
+[sources.ghostty-search-overlay-521cf2c]
+key    = "ghostty-search-overlay-521cf2c"
+title  = "ghostty 521cf2c, GTK search-overlay.blp -- halign-target end, valign-target start: the top right"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/521cf2c5d30bd48028ca61546c64e7913764073d/src/apprt/gtk/ui/1.0/search-overlay.blp"
+file   = ""
+sha256 = "eca1eb7c932bb6e351f30c40f98ca0d1a047f4b6f68d1d152af3490189c224dd"
+bytes  = 2153
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+
+[sources.iterm2-dropdown-find-654bb13]
+key    = "iterm2-dropdown-find-654bb13"
+title  = "iTerm2 654bb13, iTermDropDownFindViewController.m -- fullSizeFrame: dropped down at the top against the right edge"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 terminal emulator (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/654bb137632506fa4ea3da23ac74109e32cfa6e2/sources/SearchingFiltering/iTermDropDownFindViewController.m"
+file   = ""
+sha256 = "caa8892517b3613707471ad77f4d338a1b4bf368394f2bdc340c8410e59714d8"
+bytes  = 16804
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+
+[sources.foot-render-cb27717]
+key    = "foot-render-cb27717"
+title  = "foot cb27717, render.c -- render_search_box: one cell tall, the full width less a margin, at the bottom over the grid"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2026
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/render.c"
+file   = ""
+sha256 = "97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb"
+bytes  = 187364
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+
+[sources.alacritty-display-5421470]
+key    = "alacritty-display-5421470"
+title  = "alacritty 5421470, display/mod.rs -- draw_search on a footer line, reserve_lines taking that line from the grid while a search is open"
+author = "The Alacritty contributors"
+year   = 2026
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/542147067dd016fc5f49120ef0ba605a98a4e3a7/alacritty/src/display/mod.rs"
+file   = ""
+sha256 = "46d30c2a2dbf8cb41c8cc30fa5f835bfc96dfc5a0ea88729f943aa45e4359f75"
+bytes  = 57272
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.

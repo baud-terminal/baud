@@ -125,6 +125,8 @@ struct Arms<'f, 'a> {
     fade: Option<Transition>,
     /// An input method's composition both arms draw, or none.
     composition: Option<Composition>,
+    /// The find field and its marks both arms draw, or none.
+    find: Option<baud_render::FindLook>,
     /// The window copied flat, in screen order -- research decision D4's
     /// buffer, and what the app binds. Held here so a third arm can draw
     /// from it and be compared against the two that read the live grid.
@@ -163,6 +165,7 @@ impl Arms<'_, '_> {
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
         self.renderer.set_composition(self.composition.clone());
+        self.renderer.set_find(t, self.find.clone());
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
@@ -233,6 +236,24 @@ impl Arms<'_, '_> {
                 &mut self.records,
             );
         }
+        // The find field and its marks as the app draws them on the cell
+        // path: the field's cells masked and its records, then the solids.
+        if let Some(c) = self.renderer.find_field() {
+            self.exceptions.composed(
+                &mut self.renderer,
+                t,
+                &c,
+                PackedCell::EMPTY,
+                self.styles_mem,
+                None,
+                view.cols(),
+                baud_domain::LineRendition::Single,
+                Px::of(0),
+                self.overlay_mem,
+                &mut self.records,
+            );
+        }
+        self.records.extend_from_slice(self.renderer.find_solids());
         // The leaving row of a slide, when its line is not single-width,
         // as the app draws it: masked after the screen's rows and drawn by
         // its records. Only where the history holds one.
@@ -1250,6 +1271,7 @@ macro_rules! arms {
             trail: None,
             fade: None,
             composition: None,
+            find: None,
             copy,
             copy_mem,
             slide: None,
@@ -2100,6 +2122,33 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the hints reached the pixels"
     );
     arms.composition = None;
+    // **The find field and every match's wash**: the field over the top
+    // row's right end in the selection's colours with its caret, and a
+    // yellow wash over each match but the current one, the selection's.
+    // The cell arm masks the field's cells and appends the solids to its
+    // records; the instance arm converts the cells blank.
+    let mut find = baud_render::Find::new();
+    find.set_query(
+        &t,
+        "e".chars().map(baud_domain::Codepoint::from_char).collect(),
+        arms.back,
+    );
+    assert!(find.matches().len() > 2, "the scene holds matches");
+    arms.find = Some(baud_render::FindLook {
+        marks: find.marks(&t, arms.back),
+        field: find.field(t.geometry().0),
+    });
+    let (find_a, find_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&find_a, &find_b),
+        0,
+        "the arms disagree over the find field and its marks"
+    );
+    assert!(
+        differing(&find_a, &plain) > 0,
+        "the find reached the pixels"
+    );
+    arms.find = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the
     // cell path's records -- and a change to the pixels. `plain` has the

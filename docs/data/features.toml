@@ -1098,6 +1098,16 @@ platform = "both"
 tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.rs::settling_drops_the_remainder"]
 
 [[feature]]
+id = "find"
+area = "scroll"
+name = "Find in the scrollback"
+does = "Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/search.rs::canonical_equivalents_match_each_other", "baud-core/tests/search.rs::a_wrapped_line_matches_across_the_wrap_and_a_newline_does_not", "baud-render/tests/find.rs::the_list_kept_across_reads_is_the_list_read_afresh", "baud-render/tests/find.rs::every_mark_and_the_field_are_drawn_and_leave_nothing_when_they_go", "baud-app/src/find.rs::typing_selects_the_newest_match_and_copying_takes_it"]
+shipped = ["SQ-v1.0-08"]
+
+[[feature]]
 id = "read-back"
 area = "scroll"
 name = "Reading back stays put"
@@ -1742,12 +1752,6 @@ tests = ["baud-core/tests/embedding.rs::the_embedding_guide_example_is_the_compi
 paths = ["docs/embedding.md", "baud-core/examples/quickstart.rs"]
 
 # --- Not built yet ------------------------------------------------------------
-
-[[missing]]
-name = "Search"
-area = "scroll"
-does = "Searching the scrollback is not built yet."
-roadmap = ["SQ-v1.0-08"]
 
 [[missing]]
 name = "Right-to-left text"

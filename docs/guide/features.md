@@ -135,6 +135,7 @@ Every key reaches the program, and copying and pasting stay safe.
 Your history stays where you left it, through output, selection and resizing.
 
 - **Scroll back through everything** — The wheel and trackpad move through the lines that scrolled off the top, with trackpad movement adding up to whole lines. <sub>[proof](../../baud-app/src/wheel.rs)</sub>
+- **Find in the scrollback** — Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does. <sub>[proof](../../baud-core/tests/search.rs)</sub>
 - **Reading back stays put** — New output doesn't drag you down while you read back; typing, pasting or clearing the history takes you back to the live screen. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **A scrollbar like macOS's** — It appears while you scroll and fades away, widens when you point at it, and can be dragged or clicked; with "Show scroll bars: Always" it gets its own strip beside the text. *macOS.* <sub>[proof](../../baud-app/src/reveal.rs)</sub>
 - **The scrollbar on Linux** — The same thumb as on a Mac: it appears while you scroll and fades away, widens when you point at it while looking back, and can be dragged or clicked, and a program can hide it. *Linux, headless so far.* <sub>[proof](../../baud-app/src/bar.rs) · [reference](../vt-coverage.md#csi-operations)</sub>
@@ -257,7 +258,6 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
 - **Solid image backgrounds** — foot and wezterm fill the solid background a Sixel image asks for. [Roadmap](../roadmap.md#pictures)
 - **Linux** — the Linux version has run only headless, with no GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
-- **Search** — Searching the scrollback is not built yet. [Roadmap](../roadmap.md#scrollback-selection-and-resizing)
 - **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **Copy on select** — Selecting text does not copy it yet; Cmd-C does. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **More than one window** — baud opens one window; Cmd-N for another is not built yet. [Roadmap](../roadmap.md#window-colours-and-bell)

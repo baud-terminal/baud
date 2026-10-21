@@ -407,6 +407,8 @@ files   = [
   "apple-hig-loading.json",
   "apple-hig-motion.json",
   "apple-hig-onboarding.json",
+  "apple-hig-keyboards.json",
+  "apple-hig-the-menu-bar.json",
   "apple-hig-toolbars.json",
   "apple-hig-windows.json",
   "apple-infoplist-lsenvironment.html",

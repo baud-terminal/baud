@@ -144,9 +144,10 @@ summary = "Selecting text copies it, on by default with a setting to turn it off
 [[item]]
 id = "SQ-v1.0-08"
 area = "scroll"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Search the scrollback"
-summary = "Find text in the history."
+summary = "Find text in the history and on the screen: every match marked, the newest selected, the window following as you step through them."
 
 [[item]]
 id = "SQ-v1.0-09"

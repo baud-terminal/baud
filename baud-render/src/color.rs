@@ -1054,7 +1054,7 @@ impl Theme {
 
     /// Palette entry `i`: the application's `OSC 4` override, else the
     /// theme's table.
-    fn entry(&self, i: Chan, palette: impl Fn(Chan) -> Option<(u8, u8, u8)>) -> Argb {
+    pub(crate) fn entry(&self, i: Chan, palette: impl Fn(Chan) -> Option<(u8, u8, u8)>) -> Argb {
         match palette(i) {
             Some((r, g, b)) => triple(r, g, b),
             None => self.palette[usize::from(i.get())],

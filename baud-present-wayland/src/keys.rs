@@ -212,6 +212,8 @@ pub enum Shortcut {
     ZoomOut,
     /// Ctrl+0 or Ctrl+KP_0: back to the configured size.
     ZoomReset,
+    /// Ctrl+Shift+F: the find field, Ghostty's and Alacritty's binding.
+    Find,
 }
 
 /// **The shortcut a press of `keycode` makes under `state`, if any.**
@@ -288,6 +290,7 @@ fn bound(sym: Keysym, chord: Modifiers) -> Option<Shortcut> {
     match (sym.0, chord) {
         (0x63, c) if c == ctrl_shift => Some(Shortcut::Copy),
         (0x76, c) if c == ctrl_shift => Some(Shortcut::Paste),
+        (0x66, c) if c == ctrl_shift => Some(Shortcut::Find),
         (INSERT, c) if c == Modifiers::SHIFT => Some(Shortcut::PasteSelection),
         (PLUS | EQUAL | KP_ADD, c) if c == ctrl => Some(Shortcut::ZoomIn),
         (MINUS | KP_SUBTRACT, c) if c == ctrl => Some(Shortcut::ZoomOut),
