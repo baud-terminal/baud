@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 300 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 301 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 291 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 829 | 36 | |
+| total | 830 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -554,7 +554,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 91
+- **Files:** 92
 
 | file | copied from |
 |---|---|
@@ -578,6 +578,7 @@ notice is, and the URL each file was copied from.
 | [vt3xx-text.html](docs/research/sources/vt3xx-text.html) | https://vt100.net/docs/vt3xx-gp/chapter7.html |
 | [vt3xx-vector.html](docs/research/sources/vt3xx-vector.html) | https://vt100.net/docs/vt3xx-gp/chapter5.html |
 | [vt3xx-write-control.html](docs/research/sources/vt3xx-write-control.html) | https://vt100.net/docs/vt3xx-gp/chapter3.html |
+| [vt420-uu-chapter4.html](docs/research/sources/vt420-uu-chapter4.html) | https://vt100.net/docs/vt420-uu/chapter4.html |
 | [vt420-uu-chapter9.html](docs/research/sources/vt420-uu-chapter9.html) | https://vt100.net/docs/vt420-uu/chapter9.html |
 | [vt510-CHA.html](docs/research/sources/vt510-CHA.html) | https://vt100.net/docs/vt510-rm/CHA.html |
 | [vt510-CHT.html](docs/research/sources/vt510-CHT.html) | https://vt100.net/docs/vt510-rm/CHT.html |

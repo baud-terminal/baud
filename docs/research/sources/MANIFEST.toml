@@ -15099,6 +15099,26 @@ group  = "C"
 # second edition of this book, published by Digital in June 1990" [text]. Read for its
 # SCS table: DEC Technical is `>` 3/14 (wf-untranslated) [text].
 
+[sources.vt420-uu-ch4]
+key    = "vt420-uu-ch4"
+title  = "Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 4: Using the Keyboard -- Table 4-2, Status Line Fields"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1990
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt420-uu/chapter4.html"
+file   = "vt420-uu-chapter4.html"
+sha256 = "4cb6361b77c736b767093f3d25568758bfbbb94c7dd0692a79bbaa32474c841b"
+bytes  = 49171
+status = "retrieved"
+group  = "AW"
+# Fetched 2026-10-21 (lane b128-indicator-fixes) for the indicator line's fields
+# [text]: "The default status line has four fields that show you: The page number of the
+# page displayed / Cursor position / Printer status / Modem status"; Table 4-2 field 3,
+# "Printer: Ready", "Printer: Not Ready", "Printer: None", "Printer: Auto Print",
+# "Printer: Controller", "Printer: Busy", "Printer: Assigned to 1 (or 2)"; and its
+# footnote, "Field 4 is blank, unless you have a modem connected to the Comm1 RS-232
+# connector and Modem Control is selected in the Communication Set-Up screen".
+
 [sources.vt100net-technical]
 key    = "vt100net-technical"
 title  = "DEC Technical Character Set (TCS) -- vt100.net's chart, with a Unicode mapping for each position"

@@ -3708,9 +3708,11 @@ impl<'b> Term<'b> {
     /// printer controller run keeps the program's printer data off the
     /// screen; the embedder holds the jobs until a printer is back. Absent
     /// until the embedder says otherwise; no sequence changes it, and `RIS`
-    /// forgets a printer that is gone.
+    /// forgets a printer that is gone. The indicator line's printer field
+    /// follows at once.
     pub fn set_printer(&mut self, port: PrinterPort) {
         self.store.strs.print.set_port(port);
+        self.redraw_indicator();
     }
 
     /// What [`Term::set_printer`] last set.

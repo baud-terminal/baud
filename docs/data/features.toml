@@ -1269,11 +1269,11 @@ rows = ["vt:`CSI 1 t` to `CSI 10 t`", "vt:`CSI Ps t` with `Ps` 24 and up"]
 id = "status-line"
 area = "window"
 name = "A status line under the screen"
-does = "A program can open a line of its own under the screen for its mail count, a clock or a build's state, or show baud's own line with where the cursor is and whether the keyboard is locked. The window grows a row to hold it, so the program keeps every row it had, and gives the row back when the line goes."
+does = "A program can open a line of its own under the screen for its mail count, a clock or a build's state, or show baud's own line with where the cursor is, whether the keyboard is locked and whether the printer is ready. The window grows a row to hold it, so the program keeps every row it had, and gives the row back when the line goes."
 status = "partial"
 gap = "Nobody has watched the window grow on a screen: its sizing is proven as data, the line's pixels on the software renderer, and the cell path checked against the instance path."
 platform = "both"
-tests = ["baud-core/tests/vt420/status_line.rs::text_between_two_decsasds_lands_on_the_line", "baud-core/tests/vt420/status_line.rs::the_indicator_shows_the_cursor_in_reverse_video", "baud-render/tests/status_line.rs::the_frame_grows_a_row_for_the_line_and_gives_it_back", "baud-app/src/winops.rs::the_status_line_grows_the_window_where_it_can_change_size"]
+tests = ["baud-core/tests/vt420/status_line.rs::text_between_two_decsasds_lands_on_the_line", "baud-core/tests/vt420/status_line.rs::the_indicator_shows_the_page_and_the_cursor_in_reverse_video", "baud-core/tests/vt420/status_line.rs::the_indicator_shows_the_printer_and_the_print_mode", "baud-render/tests/status_line.rs::the_frame_grows_a_row_for_the_line_and_gives_it_back", "baud-app/src/winops.rs::the_status_line_grows_the_window_where_it_can_change_size"]
 rows = ["vt:`CSI Ps $ ~`", "vt:`CSI Ps $ }`"]
 
 [[feature]]

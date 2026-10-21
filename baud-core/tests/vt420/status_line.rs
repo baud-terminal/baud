@@ -410,19 +410,66 @@ fn indicator(t: &Term<'_>) -> String {
 }
 
 /// "The indicator status display provides information about the current
-/// state of the terminal ... Text cursor position (line, column) ... It
-/// appears in reverse video" (`[[source: vt420-rm]]` p. 219); the active
-/// position indicator "Displays the current cursor position, row and
-/// column. Includes the page number if more than one page is available"
-/// (070-14 p. 14-6), and baud has one page. It follows the cursor.
+/// state of the terminal. Page number, Text cursor position (line, column)
+/// ... It appears in reverse video" (`[[source: vt420-rm]]` p. 219): the
+/// page, baud's one, and the cursor, as the VT340's "1(24,008)" (070-14
+/// p. 14-6). It follows the cursor.
 #[test]
-fn the_indicator_shows_the_cursor_in_reverse_video() {
+fn the_indicator_shows_the_page_and_the_cursor_in_reverse_video() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[1$~");
-        assert_eq!(indicator(t), "    (01,001)");
+        assert_eq!(indicator(t), "    1(01,001)");
         support::feed(t, b"\x1b[5;17H");
-        assert_eq!(indicator(t), "    (05,017)");
+        assert_eq!(indicator(t), "    1(05,017)");
     });
+}
+
+/// The indicator's width, the VT420's 80 columns: room for the printer
+/// field at column 42, where the VT340's line has it (070-14 p. 14-6).
+const WIDE: WinSize = WinSize {
+    ws_row: 6,
+    ws_col: 80,
+};
+
+/// The line's text past column 40: the printer field, and the modem field
+/// after it, which baud leaves blank.
+fn printer_field(t: &Term<'_>) -> String {
+    indicator(t).get(41..).unwrap_or("").to_string()
+}
+
+/// **The printer field shows the printer's state and the print mode**, in
+/// the VT420's words (`[[source: vt420-uu-ch4]]`, Table 4-2, field 3):
+/// None with no printer since power-up, Ready while the embedder has one,
+/// Not Ready once it is lost, and Auto Print or Controller while a run is
+/// on, whatever the port's state (Jev's lean, RUN_FIRST). The modem field
+/// is blank, "unless you have a modem connected", and a pty has none.
+/// `Term::set_printer` redraws it between reads.
+#[test]
+fn the_indicator_shows_the_printer_and_the_print_mode() {
+    let mut owned = Owned::new(&WIDE).with_printer(PrintBudget::of_bytes(4096));
+    let mut t = Term::new(owned.storage(), &WIDE);
+    support::feed(&mut t, b"\x1b[1$~");
+    assert_eq!(printer_field(&t), "Printer: None");
+    t.set_printer(PrinterPort::Ready);
+    assert_eq!(printer_field(&t), "Printer: Ready");
+    support::feed(&mut t, b"\x1b[?5i");
+    assert_eq!(printer_field(&t), "Printer: Auto Print");
+    support::feed(&mut t, b"\x1b[?4i");
+    assert_eq!(printer_field(&t), "Printer: Ready");
+    support::feed(&mut t, b"\x1b[5i");
+    assert_eq!(printer_field(&t), "Printer: Controller");
+    support::feed(&mut t, b"\x1b[4i");
+    assert_eq!(printer_field(&t), "Printer: Ready");
+    t.set_printer(PrinterPort::Absent);
+    assert_eq!(printer_field(&t), "Printer: Not Ready");
+    // A run's mode shows over the port's state: its prints are queued.
+    support::feed(&mut t, b"\x1b[?5i");
+    assert_eq!(printer_field(&t), "Printer: Auto Print");
+    support::feed(&mut t, b"\x1b[?4i");
+    assert_eq!(
+        indicator(&t),
+        format!("    1(01,001){}Printer: Not Ready", " ".repeat(28))
+    );
 }
 
 /// "When the keyboard is locked ... the Wait indicator appears on the
@@ -432,9 +479,9 @@ fn the_indicator_shows_the_cursor_in_reverse_video() {
 fn the_indicator_shows_wait_while_the_keyboard_is_locked() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[1$~\x1b[2h");
-        assert_eq!(indicator(t), "    (01,001)    Wait");
+        assert_eq!(indicator(t), "    1(01,001)   Wait");
         support::feed(t, b"\x1b[2l");
-        assert_eq!(indicator(t), "    (01,001)");
+        assert_eq!(indicator(t), "    1(01,001)");
     });
 }
 

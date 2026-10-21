@@ -235,7 +235,8 @@ impl Status {
 /// least one space (SP, 2/0) character between indicators").
 #[derive(Clone, Copy)]
 pub(crate) struct Indicators {
-    /// The active position, as `(line,column)`.
+    /// The active position, as `1(line,column)`: the page, baud's one,
+    /// then the cursor.
     pub(crate) at: (OneBased, OneBased),
     /// KAM: set, the keyboard is locked and the VT420's Wait indicator is
     /// shown.
@@ -243,16 +244,64 @@ pub(crate) struct Indicators {
     /// The locator's position while DEC locator reporting is enabled, in
     /// the units it reports: 070-14's Graphics Input Position Indicator.
     pub(crate) locator: Option<(OneBased, OneBased)>,
+    /// The printer status indicator's value.
+    pub(crate) printer: PrinterShown,
+}
+
+/// **The printer field's five values**, the VT420's Table 4-2, field 3
+/// (`[[source: vt420-uu-ch4]]`), and 070-14's list (p. 14-7): "Printer:
+/// None", "The printer is off or not connected"; "Printer: Ready", "can
+/// receive data for printing"; "Printer: Not Ready", "not ready to receive
+/// data"; "Printer: Auto Print" and "Printer: Controller", the two print
+/// modes. "Busy" and "Assigned to" are the VT420's for two sessions, and
+/// baud has one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PrinterShown {
+    None,
+    Ready,
+    NotReady,
+    AutoPrint,
+    Controller,
+}
+
+impl PrinterShown {
+    /// What `p` shows: a run's mode while one is on, else the port's
+    /// state, 070-7 § 7.3.2's three.
+    pub(crate) fn of(p: &crate::print::Printer) -> PrinterShown {
+        match (p.run, p.status()) {
+            (PrintRun::AutoPrint, _) => PrinterShown::AutoPrint,
+            (PrintRun::Controller, _) => PrinterShown::Controller,
+            (PrintRun::Idle, crate::print::Status::Ready) => PrinterShown::Ready,
+            (PrintRun::Idle, crate::print::Status::NotReady) => PrinterShown::NotReady,
+            (PrintRun::Idle, crate::print::Status::NotAvailable) => PrinterShown::None,
+        }
+    }
+
+    fn text(self) -> &'static [u8] {
+        match self {
+            PrinterShown::None => b"Printer: None",
+            PrinterShown::Ready => b"Printer: Ready",
+            PrinterShown::NotReady => b"Printer: Not Ready",
+            PrinterShown::AutoPrint => b"Printer: Auto Print",
+            PrinterShown::Controller => b"Printer: Controller",
+        }
+    }
 }
 
 /// The column each indicator starts at: the VT340's example line, "2
 /// 1(24,008) Edit Overstrike Mode Printer: None Modem: DSR" (070-14 p.
-/// 14-6), with the session digit and the page left out, as baud has one
-/// of each, and the Wait and locator indicators where its edit mode
-/// indicators would stand, which baud has none of.
-const AT_POSITION: usize = 4;
+/// 14-6), with the session digit left out, as baud has one session, and
+/// the Wait and locator indicators where its edit mode indicators would
+/// stand, which baud has none of. **The page is shown, 1**: the VT420's
+/// field 1 is the page always, 070-14's "if more than one page is
+/// available" asks for it only then. **The modem field is blank**, as the
+/// VT420's is "unless you have a modem connected ... and Modem Control is
+/// selected", 070-14's "not displayed if Modem Controls are not selected":
+/// a pty has no modem.
+const AT_PAGE: usize = 4;
 const AT_WAIT: usize = 16;
 const AT_LOCATOR: usize = 23;
+const AT_PRINTER: usize = 41;
 
 /// The line `cols` wide as the indicator, every cell in `style`.
 struct Line<'c> {
@@ -308,7 +357,7 @@ pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind:
         cells: &mut cells[..n],
         style,
     };
-    let x = line.put(Col::at_index(AT_POSITION), b"(");
+    let x = line.put(Col::at_index(AT_PAGE), b"1(");
     let x = line.number(x, ind.at.0, Cols::of_index(2));
     let x = line.put(x, b",");
     let x = line.number(x, ind.at.1, Cols::of_index(3));
@@ -323,6 +372,7 @@ pub(crate) fn compose(cells: &mut [PackedCell], cols: Cols, style: StyleId, ind:
         let at = line.number(at, x, Cols::of_index(1));
         line.put(at, b"]");
     }
+    line.put(Col::at_index(AT_PRINTER), ind.printer.text());
 }
 
 impl Paint<'_, '_> {
@@ -561,6 +611,7 @@ impl Paint<'_, '_> {
                 },
             )
             .or_else(|| crate::locator::shown(self.cold, self.rows, self.cols)),
+            printer: PrinterShown::of(&self.strs.print),
         };
         compose(self.status.cells, self.cols, style, ind);
     }
@@ -591,7 +642,8 @@ impl Term<'_> {
     }
 
     /// The indicator drawn again between reads, for what changes outside
-    /// one: the locator moved, the cursor clamped by a resize. In the
+    /// one: the locator moved or turned off by its report, the cursor
+    /// clamped by a resize, the printer the embedder has. In the
     /// rendition a read interned for it; before any read drew it there is
     /// none, and nothing to draw.
     pub(crate) fn redraw_indicator(&mut self) {
@@ -607,6 +659,7 @@ impl Term<'_> {
             wait: ModeChange::of(self.cold.modes.is_set(ModeBit::KeyboardAction)),
             locator: crate::regis::indicated(self.store.strs.regis, self.regis_inside())
                 .or_else(|| crate::locator::shown(&self.cold, self.rows, self.cols)),
+            printer: PrinterShown::of(&self.store.strs.print),
         };
         compose(self.store.status.cells, self.cols, style, ind);
     }
