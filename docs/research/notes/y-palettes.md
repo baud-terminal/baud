@@ -712,10 +712,10 @@ critic's change):
   old-polarity override after a mid-session flip until the next palette
   change. kitty has the same exposure.
 - **Linux** is the same core logic plus the portal's `color-scheme` and
-  `SettingChanged` in the Linux driver, which today resolves `auto` to dark
-  (`baud-app/src/linux.rs` lines 120-127). Deferred by the owner ("we will
-  need for linux but that is later work"); the portal's value 0 is left
-  undecided until then.
+  `SettingChanged` in the Linux driver, which since 2026-10-21 follows the
+  portal's `color-scheme` (`bus.rs`, `appearance.rs`). Value 0, no
+  preference, draws light, which was Jev's lean, LIGHT, at 0.88/0.86. With
+  no portal heard it draws dark.
 
 
 ## 8. The contrast floor

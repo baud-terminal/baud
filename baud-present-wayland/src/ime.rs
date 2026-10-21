@@ -39,7 +39,9 @@
 //! unaware of the text around the cursor, it should not issue this
 //! request" -- as VTE (`[[source: vte-0-80-vte-cc]]`), foot (`[[source:
 //! foot-2705e36-ime]]`) and kitty (`[[source:
-//! kitty-aef2bc23-wl-text-input]]`) do not. The preedit's `cursor_begin` and `cursor_end` are read and not
+//! kitty-aef2bc23-wl-text-input]]`) do not.
+//!
+//! The preedit's `cursor_begin` and `cursor_end` are read and not
 //! drawn: the cursor is drawn after the composition, with no caret or
 //! highlighted segment inside it, as the macOS app draws AppKit's marked
 //! text without its selected range.

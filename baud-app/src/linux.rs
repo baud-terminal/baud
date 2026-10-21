@@ -41,8 +41,9 @@
 //! cell path on the ring, and the one-row cap is the latency answer"); the
 //! desktop's motion preference, so the default trail runs and text blinks
 //! whatever it says; the system caret's rate (this keeps 333 ms a phase
-//! until the desktop's settings are read); a backing scale other than one -- the window binds no fractional-scale
-//! global; and the report every five seconds.
+//! until the desktop's settings are read); a backing scale other than
+//! one -- the window binds no fractional-scale global; and the report
+//! every five seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -50,7 +51,10 @@
 //! block selection with Shift's override of tracking; `?2001`'s click and
 //! the `OSC 133` prompt's; and `OSC 22`'s shape through `cursor-shape-v1`
 //! where the compositor offers it. Tested over a socket pair and through
-//! `seat.rs`, never on a compositor with a mouse.
+//! `seat.rs`, never on a compositor with a mouse. **Open**: while the
+//! scrollbar holds a press or a drag, its moves return before
+//! `Seat::input`, so DEC's locator does not see them here; the macOS app
+//! updates the locator first.
 //!
 //! **Copy and paste are the Linux desktop's** (`baud_present_wayland::clip`):
 //! Ctrl+Shift+C copies the selection to the clipboard and Ctrl+Shift+V
