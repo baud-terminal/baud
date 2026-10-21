@@ -41,10 +41,9 @@
 //! foot-2705e36-ime]]`) and kitty (`[[source:
 //! kitty-aef2bc23-wl-text-input]]`) do not.
 //!
-//! The preedit's `cursor_begin` and `cursor_end` are read and not
-//! drawn: the cursor is drawn after the composition, with no caret or
-//! highlighted segment inside it, as the macOS app draws AppKit's marked
-//! text without its selected range.
+//! The preedit's `cursor_begin` and `cursor_end` go with its text
+//! ([`PreeditCursor`]), double-buffered as it is, for the app to draw the
+//! cursor where the input method puts it.
 
 use crate::shm::Px;
 use baud_wayland::{Arg, ObjectId, Opcode, Sender, protocol};
@@ -130,19 +129,39 @@ pub struct Hinted {
     pub hint: Hint,
 }
 
-/// What the input method is composing and the hints it draws it with;
-/// empty for none.
+/// `preedit_string`'s `cursor_begin` or `cursor_end`: a byte offset into
+/// the preedit's text, or -1.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CursorAt(pub i32);
+
+/// **Where the input method puts the cursor in its preedit**: "counted in
+/// bytes relative to the beginning of the submitted text buffer", hidden
+/// "when both are equal to -1", a line where the two are the same and a
+/// highlight otherwise; both 0 until a `preedit_string` says, "the initial
+/// value".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PreeditCursor {
+    pub begin: CursorAt,
+    pub end: CursorAt,
+}
+
+/// What the input method is composing, the hints it draws it with and
+/// its cursor in it; empty for none.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Preedit {
     pub text: String,
     pub hints: Vec<Hinted>,
+    pub cursor: PreeditCursor,
 }
 
 impl From<&str> for Preedit {
+    /// The text with no hints and the cursor after it.
     fn from(text: &str) -> Preedit {
+        let at = CursorAt(i32::try_from(text.len()).unwrap_or(i32::MAX));
         Preedit {
             text: text.to_string(),
             hints: Vec::new(),
+            cursor: PreeditCursor { begin: at, end: at },
         }
     }
 }
@@ -187,6 +206,7 @@ pub struct TextInput {
     sync: Sync,
     pending_text: String,
     pending_hints: Vec<Hinted>,
+    pending_cursor: PreeditCursor,
     pending_commit: String,
     pending_action: Action,
     preedit: Preedit,
@@ -304,9 +324,10 @@ impl TextInput {
         }
     }
 
-    /// The pending preedit's text.
-    pub fn preedit_string(&mut self, text: Option<&str>) {
+    /// The pending preedit's text and its cursor.
+    pub fn preedit_string(&mut self, text: Option<&str>, cursor: PreeditCursor) {
         self.pending_text = text.unwrap_or_default().to_string();
+        self.pending_cursor = cursor;
     }
 
     /// `preedit_hint`: kept for the pending preedit, a value the protocol
@@ -343,6 +364,7 @@ impl TextInput {
         let preedit = Preedit {
             text: std::mem::take(&mut self.pending_text),
             hints: std::mem::take(&mut self.pending_hints),
+            cursor: std::mem::take(&mut self.pending_cursor),
         };
         let action = std::mem::take(&mut self.pending_action);
         let mut steps = Vec::new();

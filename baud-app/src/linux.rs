@@ -204,6 +204,8 @@ struct Driver {
     /// The find field while it is open (`find.rs`), as the macOS app
     /// keeps it: its current match is the seat's selection.
     finding: Option<crate::find::Finding>,
+    /// Where the input method puts the cursor in it (`marked::caret`).
+    composing_caret: baud_render::Caret,
     /// Text blink, the cursor trail, the alternate screen's fade and the
     /// scrollbar's thumb, each owing a deadline or a frame (`timed.rs`).
     timed: crate::timed::Timed,
@@ -493,6 +495,7 @@ pub fn run() {
         composing: Vec::new(),
         composing_hints: Vec::new(),
         finding: None,
+        composing_caret: baud_render::Caret::End,
         timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition),
         bus,
         theme_choice: cfg.theme,
@@ -744,9 +747,15 @@ pub fn run() {
                         .map(|h| (h.start.0, h.end.0, hint_of(h.hint)))
                         .collect();
                     let hints = crate::marked::hints(&p.text, &ranges);
-                    if composing != d.composing || hints != d.composing_hints {
+                    let cursor = (p.cursor.begin.0, p.cursor.end.0);
+                    let caret = crate::marked::caret(&p.text, cursor);
+                    let same = composing == d.composing
+                        && hints == d.composing_hints
+                        && caret == d.composing_caret;
+                    if !same {
                         d.composing = composing;
                         d.composing_hints = hints;
+                        d.composing_caret = caret;
                         d.pending = Pending::Dirty;
                     }
                 }
@@ -1681,6 +1690,7 @@ impl Driver {
             &self.term,
             &self.composing,
             &self.composing_hints,
+            self.composing_caret,
         ));
         let m = self.renderer.metrics();
         let [x, y, w, h] = crate::marked::cursor_cell(&self.term, m.cell_w, m.cell_h);

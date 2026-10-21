@@ -6,12 +6,16 @@
 //! driver from `text-input-v3`'s `preedit_string`, and it sends
 //! `set_cursor_rectangle` (`baud_present_wayland::ime`). One rule here, so
 //! a composition is drawn the same on both systems; only the Linux one is
-//! handed hints, `text-input-v3`'s `preedit_hint`s.
+//! handed hints, `text-input-v3`'s `preedit_hint`s, and the input method's
+//! cursor in it, `preedit_string`'s `cursor_begin` and `cursor_end`
+//! ([`caret`]). AppKit hands `setMarkedText:` a selected range too, which
+//! the macOS window crate does not pass on yet, so there the cursor is
+//! after the composition.
 
 use baud_core::Term;
 use baud_domain::Codepoint;
 use baud_font::Px;
-use baud_render::{Composition, Hints};
+use baud_render::{Caret, Composition, Hints};
 
 /// The composition's codepoints, from the text an input method hands over.
 pub fn codepoints(text: &str) -> Vec<Codepoint> {
@@ -57,14 +61,43 @@ pub fn hints(text: &str, ranges: &[(u32, u32, Hints)]) -> Vec<Hints> {
     }
 }
 
+/// **Where the input method puts the cursor in `text`**, from
+/// `preedit_string`'s `cursor_begin` and `cursor_end`, "counted in bytes"
+/// (`[[source: wp-text-input-unstable-v3]]`), as the codepoints of the
+/// composition: both -1 hides it -- "Cursor should be hidden when both are
+/// equal to -1"; equal, a cursor before the character starting there, or
+/// after the last at the text's length; apart, the characters between
+/// drawn as selected text, the protocol's "text highlight". A value that
+/// is past the text, inside a character -- "Indices must not point to
+/// middle bytes inside a code point" -- or negative but not both -1, or a
+/// reversed pair, says nothing, and the cursor is after the composition.
+#[cfg(any(target_os = "linux", test))]
+pub fn caret(text: &str, cursor: (i32, i32)) -> Caret {
+    let cp = |b: i32| {
+        usize::try_from(b)
+            .ok()
+            .filter(|&b| text.is_char_boundary(b))
+            .map(|b| text[..b].chars().count())
+    };
+    match cursor {
+        (-1, -1) => Caret::Hidden,
+        (begin, end) => match (cp(begin), cp(end)) {
+            (Some(b), Some(e)) if b == e => Caret::At(b),
+            (Some(b), Some(e)) if b < e => Caret::Range(b, e),
+            _ => Caret::End,
+        },
+    }
+}
+
 /// **The composition the renderer draws**, at the cursor of the live
-/// view, with its `hints` ([`hints`]): none while nothing is composed,
-/// and none while the window is over the history, where the cursor is
-/// not.
+/// view, with its `hints` ([`hints`]) and the input method's cursor in it
+/// ([`caret`]): none while nothing is composed, and none while the window
+/// is over the history, where the cursor is not.
 pub fn composition(
     term: &Term<'_>,
     composing: &[Codepoint],
     hints: &[Hints],
+    caret: Caret,
 ) -> Option<Composition> {
     (!composing.is_empty() && term.window_back().index() == 0).then(|| {
         let (row, col) = term.cursor();
@@ -74,6 +107,7 @@ pub fn composition(
             text: composing.to_vec(),
             ambiguous: term.ambiguous_width(),
             hints: hints.to_vec(),
+            caret,
         }
     })
 }
@@ -117,15 +151,16 @@ mod tests {
     fn a_composition_is_drawn_at_the_cursor_of_the_live_screen() {
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
-        assert_eq!(composition(&t, &[], &[]), None);
+        assert_eq!(composition(&t, &[], &[], Caret::End), None);
         feed(&mut t, b"ab\r\ncd");
         let kana = codepoints("かな");
         let marks = [Hints::SELECTION, Hints::WHOLE];
-        let c = composition(&t, &kana, &marks).expect("composed");
+        let c = composition(&t, &kana, &marks, Caret::At(1)).expect("composed");
         assert_eq!((c.row.index(), c.col.index()), (1, 2));
         assert_eq!(c.text, kana);
         assert_eq!(c.hints, marks);
         assert_eq!(c.ambiguous, t.ambiguous_width());
+        assert_eq!(c.caret, Caret::At(1), "the input method's cursor");
         for _ in 0..8 {
             feed(&mut t, b"\r\nline");
         }
@@ -134,7 +169,7 @@ mod tests {
             t.window_back().index() > 0,
             "the window is over the history"
         );
-        assert_eq!(composition(&t, &kana, &[]), None);
+        assert_eq!(composition(&t, &kana, &[], Caret::End), None);
     }
 
     /// **An input method's byte ranges land on the codepoints they
@@ -164,6 +199,28 @@ mod tests {
             assert_eq!(hints(text, &[(bad.0, bad.1, s)]), [], "{bad:?}: none");
         }
         assert_eq!(hints(text, &[]), []);
+    }
+
+    /// **The input method's cursor lands on the codepoints its bytes
+    /// count**: both -1 hidden; equal offsets a cursor before the character
+    /// starting there, after the last at the length; apart, a range; and a
+    /// value inside a character, past the text, negative alone or reversed
+    /// says nothing. Perturbations: read the offsets as codepoints -- the
+    /// three-byte kana's assertion fails; take -1 alone as hidden -- its
+    /// assertion fails.
+    #[test]
+    fn the_input_methods_cursor_lands_on_codepoints() {
+        // `か` and `な` are three bytes each, `a` one.
+        let text = "かなa";
+        assert_eq!(caret(text, (-1, -1)), Caret::Hidden);
+        assert_eq!(caret(text, (0, 0)), Caret::At(0));
+        assert_eq!(caret(text, (3, 3)), Caret::At(1));
+        assert_eq!(caret(text, (7, 7)), Caret::At(3), "after the last");
+        assert_eq!(caret(text, (3, 7)), Caret::Range(1, 3));
+        for bad in [(1, 1), (8, 8), (-1, 3), (3, -1), (6, 3), (-2, -2)] {
+            assert_eq!(caret(text, bad), Caret::End, "{bad:?}");
+        }
+        assert_eq!(caret("", (0, 0)), Caret::At(0));
     }
 
     /// The candidate window's cell is the cursor's, in pixels.

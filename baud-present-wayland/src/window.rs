@@ -13,7 +13,10 @@
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
-use crate::ime::{ActionCode, ByteAt, CursorRect, HintCode, Preedit, Serial, Step, TextInput};
+use crate::ime::{
+    ActionCode, ByteAt, CursorAt, CursorRect, HintCode, Preedit, PreeditCursor, Serial, Step,
+    TextInput,
+};
 use crate::keys::{self, Shortcut};
 use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
@@ -1386,12 +1389,16 @@ impl Handler for Window {
                     self.events.push_back(Event::Preedit(p));
                 }
             }
-            // The preedit's cursor_begin and cursor_end are not drawn
-            // (`ime.rs`).
-            ("zwp_text_input_v3", "preedit_string", [Read::Str(text), _, _])
-                if self.ime.is(ev.object) =>
-            {
-                self.ime.preedit_string(*text);
+            (
+                "zwp_text_input_v3",
+                "preedit_string",
+                [Read::Str(text), Read::Int(begin), Read::Int(end)],
+            ) if self.ime.is(ev.object) => {
+                let cursor = PreeditCursor {
+                    begin: CursorAt(*begin),
+                    end: CursorAt(*end),
+                };
+                self.ime.preedit_string(*text, cursor);
             }
             (
                 "zwp_text_input_v3",

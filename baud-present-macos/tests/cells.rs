@@ -31,7 +31,7 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, CursorPhase, Damage,
+    Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorPhase, Damage,
     FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
     Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
     StyleStamp, Target, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
@@ -179,13 +179,13 @@ impl Arms<'_, '_> {
         let live = t.looking_back(self.back).index() == 0;
         let composition = self.composition.clone().filter(|_| live);
         let shown = status_cursor(t, view.rows()).filter(|_| live).or_else(|| {
-            (t.cursor_visible() && live).then(|| {
-                let (r, c) = match &composition {
+            (t.cursor_visible() && live)
+                .then(|| match &composition {
                     Some(c) => c.cursor(c.width_on(&view)),
-                    None => t.cursor(),
-                };
-                (r, c, t.cursor_style())
-            })
+                    None => Some(t.cursor()),
+                })
+                .flatten()
+                .map(|(r, c)| (r, c, t.cursor_style()))
         });
         self.map.ensure(
             t,
@@ -376,13 +376,13 @@ impl Arms<'_, '_> {
         let cursor = status_cursor(t, view.rows())
             .filter(|_| live)
             .or_else(|| {
-                (t.cursor_visible() && live).then(|| {
-                    let (r, c) = match self.composition.as_ref().filter(|_| live) {
+                (t.cursor_visible() && live)
+                    .then(|| match self.composition.as_ref().filter(|_| live) {
                         Some(c) => c.cursor(c.width_on(&view)),
-                        None => t.cursor(),
-                    };
-                    (r, c, t.cursor_style())
-                })
+                        None => Some(t.cursor()),
+                    })
+                    .flatten()
+                    .map(|(r, c)| (r, c, t.cursor_style()))
             })
             .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         let input = CellInput {
@@ -2082,6 +2082,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             .collect(),
         ambiguous: baud_domain::AmbiguousWidth::Narrow,
         hints: Vec::new(),
+        caret: Caret::End,
     });
     let (comp_a, comp_b) = arms.draw(&mut t);
     assert_eq!(
@@ -2121,6 +2122,29 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&hint_a, &comp_a) > 0,
         "the hints reached the pixels"
     );
+    // **And the input method's cursor inside it**: on its second cluster
+    // in the block and in a bar, a range drawn selected with no cursor, and
+    // none -- each the same in both arms and each a change.
+    for (style, caret) in [
+        (&b"\x1b[2 q"[..], Caret::At(1)),
+        (&b"\x1b[6 q"[..], Caret::At(1)),
+        (&b"\x1b[2 q"[..], Caret::Range(1, 3)),
+        (&b"\x1b[2 q"[..], Caret::Hidden),
+    ] {
+        feed(&mut t, style);
+        if let Some(c) = arms.composition.as_mut() {
+            c.hints = Vec::new();
+            c.caret = caret;
+        }
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree over the input method's cursor, {caret:?}"
+        );
+        assert!(differing(&a, &comp_a) > 0, "{caret:?} reached the pixels");
+    }
+    feed(&mut t, b"\x1b[0 q");
     arms.composition = None;
     // **The find field and every match's wash**: the field over the top
     // row's right end in the selection's colours with its caret, and a
@@ -2534,6 +2558,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
             hints: Vec::new(),
+            caret: Caret::End,
         });
         // `draw` returns the instance arm first and the cell arm second.
         let (inst, cell) = arms.draw(&mut t);
@@ -2574,6 +2599,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             text: vec![baud_domain::Codepoint::new(u32::from('z')).unwrap()],
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
             hints: Vec::new(),
+            caret: Caret::End,
         });
         let (inst, cell) = arms.draw(&mut t);
         arms.composition = None;
@@ -3658,6 +3684,7 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
             hints: Vec::new(),
+            caret: Caret::End,
         });
         let (a, b) = arms.draw(t);
         let cpu = cpu_frame(arms, t);
@@ -4216,6 +4243,7 @@ fn composed_decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .collect(),
             ambiguous: baud_domain::AmbiguousWidth::Narrow,
             hints: Vec::new(),
+            caret: Caret::End,
         });
         feed(t, scene("").as_bytes());
         let (bare_a, bare_b) = arms.draw(t);

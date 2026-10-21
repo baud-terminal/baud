@@ -21,7 +21,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{AmbiguousWidth, BytePos, Codepoint, ReadLen};
 use baud_font::Face;
-use baud_render::{Composition, Damage, Highlight, Hints, Region, Renderer};
+use baud_render::{Caret, Composition, Damage, Highlight, Hints, Region, Renderer};
 use support::{Canvas, WS, font, renderer};
 
 fn feed(t: &mut Term<'_>, bytes: &[u8]) {
@@ -47,6 +47,7 @@ fn frame(r: &mut Renderer<'_, '_>, bytes: &[u8], composition: Option<&str>) -> V
         text: cps(s),
         ambiguous: AmbiguousWidth::Narrow,
         hints: Vec::new(),
+        caret: Caret::End,
     }));
     let mut c = Canvas::for_renderer(r);
     support::paint(r, &mut t, &mut c, Damage::Full);
@@ -141,6 +142,7 @@ fn an_ended_composition_repaints_the_cells_under_it() {
         text: cps("xyz"),
         ambiguous: AmbiguousWidth::Narrow,
         hints: Vec::new(),
+        caret: Caret::End,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Full);
     // Committed or cancelled: the incremental frame after it is the grid.
@@ -170,6 +172,7 @@ fn a_changed_composition_repaints_even_over_the_same_text() {
         text: cps("xyz"),
         ambiguous: AmbiguousWidth::Narrow,
         hints: Vec::new(),
+        caret: Caret::End,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, want, "the underline and the cursor moved in");
@@ -199,6 +202,7 @@ fn over_blank_cells_it_appears_and_goes_on_incremental_frames() {
         text: cps("xyz"),
         ambiguous: AmbiguousWidth::Narrow,
         hints: Vec::new(),
+        caret: Caret::End,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, composed, "it appeared");
@@ -244,6 +248,7 @@ fn a_composition_takes_the_configured_ambiguous_width() {
         text: cps(text),
         ambiguous,
         hints: Vec::new(),
+        caret: Caret::End,
     };
     let cols = baud_domain::Cols::of_index(usize::from(WS.ws_col));
     for (text, ambiguous, width) in [
@@ -260,7 +265,8 @@ fn a_composition_takes_the_configured_ambiguous_width() {
         t.set_ambiguous_width(ambiguous);
         feed(&mut t, text.as_bytes());
         assert_eq!(t.cursor().1.index(), width, "core {text:?} {ambiguous:?}");
-        assert_eq!(c.cursor(cols).1.index(), width, "{text:?} {ambiguous:?}");
+        let at = c.cursor(cols).expect("after it").1;
+        assert_eq!(at.index(), width, "{text:?} {ambiguous:?}");
     }
 }
 
@@ -310,6 +316,7 @@ fn hinted(
         text: cps(s),
         ambiguous: AmbiguousWidth::Narrow,
         hints,
+        caret: Caret::End,
     }));
     r.set_highlight(selected.map(|(a, b)| Highlight {
         from: (row, baud_domain::Col::at_index(a)),
@@ -425,4 +432,187 @@ fn hints_on_a_dimmed_page_draw_as_their_renditions() {
         let want = hinted(&mut r, format!("{base}{sgr}\x1b[m").as_bytes(), None, sel);
         assert!(got == want, "{name}: as written on a dimmed page");
     }
+}
+
+/// The frame of a term fed `bytes`, with `text` composed at its cursor and
+/// the input method's cursor at `caret`, and `selected` columns of the
+/// cursor's row highlighted.
+fn with_caret(
+    r: &mut Renderer<'_, '_>,
+    bytes: &[u8],
+    text: Option<(&str, Caret)>,
+    selected: Option<(usize, usize)>,
+) -> Vec<u32> {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, bytes);
+    let (row, col) = t.cursor();
+    r.set_composition(text.map(|(s, caret)| Composition {
+        row,
+        col,
+        text: cps(s),
+        ambiguous: AmbiguousWidth::Narrow,
+        hints: Vec::new(),
+        caret,
+    }));
+    r.set_highlight(selected.map(|(a, b)| Highlight {
+        from: (row, baud_domain::Col::at_index(a)),
+        to: (row, baud_domain::Col::at_index(b)),
+        region: Region::Stream,
+    }));
+    let mut c = Canvas::for_renderer(r);
+    support::paint(r, &mut t, &mut c, Damage::Full);
+    r.set_composition(None);
+    r.set_highlight(None);
+    c.pixels
+}
+
+/// **The input method's cursor is drawn where it puts it**, each case the
+/// same text written underlined with the terminal's cursor where the case
+/// says (`[[source: wp-text-input-unstable-v3]]`'s `cursor_begin` and
+/// `cursor_end`): at an index, the cursor on that character, in the style
+/// the program set -- a block, and a bar under `DECSCUSR 6`; at the count,
+/// after the composition, as with nothing said; a range, its characters
+/// selected and no cursor; hidden, no cursor. The control is the cursor
+/// after the composition, which every positioned case differs from.
+/// Perturbations: draw the cursor after the composition at an index -- the
+/// index's assertion fails; keep the cursor with a range -- the range's
+/// assertion fails.
+#[test]
+fn the_input_methods_cursor_is_drawn_where_it_puts_it() {
+    let data = jbm();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let base = b"abcdef\x1b[4D";
+    let written = |r: &mut Renderer<'_, '_>, tail: &str, sel| {
+        let mut b = base.to_vec();
+        b.extend_from_slice(tail.as_bytes());
+        with_caret(r, &b, None, sel)
+    };
+    let after = written(&mut r, "\x1b[4mxyz\x1b[24m", None);
+    let end = with_caret(&mut r, base, Some(("xyz", Caret::End)), None);
+    assert_eq!(end, after, "the control: nothing said, after it");
+    let at = with_caret(&mut r, base, Some(("xyz", Caret::At(1))), None);
+    assert_ne!(at, after, "the control differs");
+    assert_eq!(
+        at,
+        written(&mut r, "\x1b[4mxyz\x1b[24m\x1b[2D", None),
+        "on y"
+    );
+    let first = with_caret(&mut r, base, Some(("xyz", Caret::At(0))), None);
+    assert_eq!(first, written(&mut r, "\x1b[4mxyz\x1b[24m\x1b[3D", None));
+    let count = with_caret(&mut r, base, Some(("xyz", Caret::At(3))), None);
+    assert_eq!(count, after, "at the count, after the last");
+    let range = with_caret(&mut r, base, Some(("xyz", Caret::Range(1, 3))), None);
+    assert_eq!(
+        range,
+        written(&mut r, "\x1b[?25l\x1b[4mxyz\x1b[24m", Some((3, 4))),
+        "y and z selected, no cursor"
+    );
+    let hidden = with_caret(&mut r, base, Some(("xyz", Caret::Hidden)), None);
+    assert_eq!(hidden, written(&mut r, "\x1b[?25l\x1b[4mxyz\x1b[24m", None));
+    // The program's cursor style: a bar on y.
+    let bar = b"\x1b[6 qabcdef\x1b[4D";
+    let barred = with_caret(&mut r, bar, Some(("xyz", Caret::At(1))), None);
+    let mut b = bar.to_vec();
+    b.extend_from_slice(b"\x1b[4mxyz\x1b[24m\x1b[2D");
+    assert_eq!(barred, with_caret(&mut r, &b, None, None), "a bar on y");
+    // And an underline on y, over the composition's own line.
+    let under = b"\x1b[4 qabcdef\x1b[4D";
+    let lined = with_caret(&mut r, under, Some(("xyz", Caret::At(1))), None);
+    let mut b = under.to_vec();
+    b.extend_from_slice(b"\x1b[4mxyz\x1b[24m\x1b[2D");
+    assert_eq!(
+        lined,
+        with_caret(&mut r, &b, None, None),
+        "an underline on y"
+    );
+}
+
+/// **The input method moving its cursor over the same text repaints the
+/// row on an incremental frame**: no cell word and no text changes, only
+/// the caret, and the frame must equal a full paint of the new position.
+/// Perturbation: compare only the compositions' text for the row's damage
+/// -- the moved range is never repainted.
+#[test]
+fn a_moved_input_method_cursor_repaints_on_an_incremental_frame() {
+    let data = jbm();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let base = b"abcdef\x1b[4D";
+    let want = with_caret(&mut r, base, Some(("xyz", Caret::At(2))), None);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, base);
+    let (row, col) = t.cursor();
+    let comp = |caret| Composition {
+        row,
+        col,
+        text: cps("xyz"),
+        ambiguous: AmbiguousWidth::Narrow,
+        hints: Vec::new(),
+        caret,
+    };
+    let mut c = Canvas::for_renderer(&r);
+    r.set_composition(Some(comp(Caret::At(0))));
+    support::paint(&mut r, &mut t, &mut c, Damage::Full);
+    assert_ne!(c.pixels, want, "the control: the cursor on x");
+    r.set_composition(Some(comp(Caret::At(2))));
+    support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    assert_eq!(c.pixels, want, "the cursor moved to z");
+    // A range moved, with no cursor before or after: only the composition
+    // can say the row changed.
+    r.set_composition(None);
+    let ranged = with_caret(&mut r, base, Some(("xyz", Caret::Range(1, 3))), None);
+    r.set_composition(Some(comp(Caret::Range(0, 1))));
+    support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    assert_ne!(c.pixels, ranged, "the control: x selected");
+    r.set_composition(Some(comp(Caret::Range(1, 3))));
+    support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    r.set_composition(None);
+    assert_eq!(c.pixels, ranged, "y and z selected");
+}
+
+/// **A cursor inside a cluster or past a wide character lands on the
+/// cluster's cell**, as the clusters are laid: the index of a combining
+/// mark is its base's cell, and the character after a wide one is two
+/// cells on. A range ending inside a cluster selects the whole cluster.
+/// Perturbation: count a cluster as one codepoint -- the x after the
+/// cluster's assertion fails.
+#[test]
+fn the_input_methods_cursor_follows_the_clusters() {
+    let data = jbm();
+    let noto = font("NotoColorEmoji-subset.ttf");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&noto).unwrap()];
+    let mut r = renderer(&faces);
+    let base = b"abcdef\x1b[5D";
+    let written = |r: &mut Renderer<'_, '_>, tail: &str, sel| {
+        let mut b = base.to_vec();
+        b.extend_from_slice(tail.as_bytes());
+        with_caret(r, &b, None, sel)
+    };
+    let mark = with_caret(&mut r, base, Some(("e\u{301}x", Caret::At(1))), None);
+    assert_eq!(
+        mark,
+        written(&mut r, "\x1b[4me\u{301}x\x1b[24m\x1b[2D", None),
+        "the mark's index is the e's cell"
+    );
+    let past = with_caret(&mut r, base, Some(("e\u{301}x", Caret::At(2))), None);
+    assert_eq!(
+        past,
+        written(&mut r, "\x1b[4me\u{301}x\x1b[24m\x1b[D", None),
+        "the x after the cluster"
+    );
+    let wide = with_caret(&mut r, base, Some(("q\u{231a}z", Caret::At(2))), None);
+    assert_eq!(
+        wide,
+        written(&mut r, "\x1b[4mq\u{231a}z\x1b[24m\x1b[D", None),
+        "z, two cells past the watch"
+    );
+    let range = with_caret(&mut r, base, Some(("e\u{301}x", Caret::Range(1, 2))), None);
+    assert_eq!(
+        range,
+        written(&mut r, "\x1b[?25l\x1b[4me\u{301}x\x1b[24m", Some((1, 1))),
+        "the whole cluster selected"
+    );
 }

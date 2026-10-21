@@ -25,7 +25,7 @@ pub mod sys;
 pub mod window;
 
 pub use clip::{Board, Copied, Pasting, Want};
-pub use ime::{ByteAt, CursorRect, Hint, Hinted, Preedit};
+pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor};
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use shm::{Pool, Px};

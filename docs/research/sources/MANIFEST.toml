@@ -30975,3 +30975,47 @@ bytes  = 57272
 status = "external"
 group  = "Y"
 # Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+
+# The input method's cursor inside a composition (lane b137, 2026-10-21),
+# group H beside the other text-input sources: how GTK and AppKit draw text-input-v3's cursor_begin and
+# cursor_end and setMarkedText's selected range, and foot's practice beside
+# them. Read, not copied.
+
+[sources.gtk-3b438f05-gtktext]
+key    = "gtk-3b438f05-gtktext"
+title  = "GTK 3b438f05, gtk/gtktext.c -- the preedit's cursor_pos clamped to the preedit (4529) and the widget's own cursor drawn there, the caret or in overwrite mode the block (4927-4935)"
+author = "the GTK contributors (LGPL-2.1-or-later)"
+year   = 2026
+venue  = "GNOME/gtk @ 3b438f0576193689bf39835174a51aa747333281"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/3b438f0576193689bf39835174a51aa747333281/gtk/gtktext.c"
+file   = ""
+sha256 = "5c40deb98fff6ddf5d78c3d55f55f7817c864d21407475c066d949399ab9b976"
+bytes  = 251481
+status = "external"
+group  = "H"
+
+[sources.apple-nstextinputclient-setmarkedtext]
+key    = "apple-nstextinputclient-setmarkedtext"
+title  = "NSTextInputClient setMarkedText(_:selectedRange:replacementRange:) -- 'sets the selection'; selectedRange 'The range to set as the selection, computed from the beginning of the inserted string'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nstextinputclient/setmarkedtext(_:selectedrange:replacementrange:).json"
+file   = ""
+sha256 = "a67f72b847be4659f43afe1d88cb4e19c7d9babb432ffec6557e834c6a315ce8"
+bytes  = 19533
+status = "external"
+group  = "H"
+
+[sources.foot-2705e36-render]
+key    = "foot-2705e36-render"
+title  = "foot 2705e36, render.c -- the preedit's cursor: hidden at -1, a beam where begin equals end, a hollow block over a range (1839-1872)"
+author = "Daniel Eklöf and the foot contributors (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f0ecf3ef50c13b41165de852f134859d6"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/render.c"
+file   = ""
+sha256 = "97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb"
+bytes  = 187364
+status = "external"
+group  = "H"

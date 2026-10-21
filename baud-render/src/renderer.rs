@@ -2141,13 +2141,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // this frame's phase draws it.
         let live = term.looking_back(term.window_back()).index() == 0;
         let cursor = (term.cursor_visible() && live)
-            .then(|| {
-                let (r, c) = match &self.composition {
-                    Some(c) if c.row.index() < rows => c.cursor(c.width_on(&view)),
-                    _ => term.cursor(),
-                };
-                (r, c, term.cursor_style())
+            .then(|| match &self.composition {
+                Some(c) if c.row.index() < rows => c.cursor(c.width_on(&view)),
+                _ => Some(term.cursor()),
             })
+            .flatten()
+            .map(|(r, c)| (r, c, term.cursor_style()))
             .filter(|&(_, _, style)| self.cursor_drawn(style));
         let mut ids: Vec<(baud_domain::StyleId, Inked, Selected, Cursored)> = Vec::new();
         'walk: for r in &self.trail_inst {
@@ -3692,13 +3691,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|c| (Row::from_index(main.index()), c, term.cursor_style()));
         let live: Cursor = match on_line {
             Some(at) => (back.index() == 0).then_some(at),
-            None => (term.cursor_visible() && back.index() == 0).then(|| {
-                let (r, c) = match &composition {
+            None => (term.cursor_visible() && back.index() == 0)
+                .then(|| match &composition {
                     Some(c) => c.cursor(c.width_on(&vp)),
-                    None => term.cursor(),
-                };
-                (r, c, term.cursor_style())
-            }),
+                    None => Some(term.cursor()),
+                })
+                .flatten()
+                .map(|(r, c)| (r, c, term.cursor_style())),
         };
         self.set_cursor_glow_at(live);
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));

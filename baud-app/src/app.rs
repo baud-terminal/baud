@@ -1477,7 +1477,10 @@ impl App {
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
         // through its overlay below.
-        let composition = crate::marked::composition(&self.term, &self.composing, &[]);
+        // AppKit's selected range does not reach here (`marked.rs`), so
+        // the cursor is after the composition.
+        let composition =
+            crate::marked::composition(&self.term, &self.composing, &[], baud_render::Caret::End);
         self.renderer.set_composition(composition.clone());
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
@@ -1682,8 +1685,7 @@ impl App {
                 // instance and CPU paths do in their convert.
                 let cursor_at = match (cursor_at, &composition) {
                     (Some((_, _, style)), Some(c)) => {
-                        let (r, col) = c.cursor(c.width_on(&view));
-                        Some((r, col, style))
+                        c.cursor(c.width_on(&view)).map(|(r, col)| (r, col, style))
                     }
                     (c, _) => c,
                 };

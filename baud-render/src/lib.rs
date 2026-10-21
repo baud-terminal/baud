@@ -78,8 +78,8 @@ pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
-    Composition, Hints, MASK_BARE, MASK_PICTURE, MASK_RECORD, MASK_SIZED, Overlay, OverlayStats,
-    Scene,
+    Caret, Composition, Hints, MASK_BARE, MASK_PICTURE, MASK_RECORD, MASK_SIZED, Overlay,
+    OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{

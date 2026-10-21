@@ -2859,7 +2859,9 @@ fn nothing_before_the_title(i: &mut Ime) {
 /// it; a commit types its characters after the preedit is cleared; a
 /// `done` naming an older serial is applied and holds the cursor until a
 /// current one; `leave` clears the preedit and sends nothing after it; an
-/// `enter` on another surface enables nothing. On a compositor of version
+/// `enter` on another surface enables nothing. A preedit carries its
+/// `cursor_begin` and `cursor_end`, and a moved cursor over the same text
+/// is a new preedit. On a compositor of version
 /// 1, so no request version 2 adds reaches the wire.
 #[test]
 fn an_input_method_composes_at_the_cursor_and_commits_text() {
@@ -2896,14 +2898,22 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
     i.server.expect("zwp_text_input_v3", "commit");
     i.w.set_text_cursor(&mut i.conn.sender(), rect(27, 36, 9, 18));
     nothing_before_the_title(&mut i);
-    // Two commits so far: a preedit on done(2).
-    let pre = |i: &mut Ime, t: &str| {
+    // Two commits so far: a preedit on done(2), its cursor at byte 3.
+    let pre_at = |i: &mut Ime, t: &str, begin: i32, end: i32| {
         i.server.send(
             ti,
             "zwp_text_input_v3",
             "preedit_string",
-            &[Arg::Str(Some(t)), Arg::Int(3), Arg::Int(3)],
+            &[Arg::Str(Some(t)), Arg::Int(begin), Arg::Int(end)],
         );
+    };
+    let pre = |i: &mut Ime, t: &str| pre_at(i, t, 3, 3);
+    let with = |t: &str, begin: i32, end: i32| Preedit {
+        cursor: PreeditCursor {
+            begin: CursorAt(begin),
+            end: CursorAt(end),
+        },
+        ..Preedit::from(t)
     };
     let done = |i: &mut Ime, n: u32| {
         i.server
@@ -2916,7 +2926,21 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
     pre(&mut i, "かん");
     done(&mut i, 2);
     pump(&mut i.conn, &mut i.w);
-    assert_eq!(drain(&mut i.w), [Event::Preedit("かん".into())]);
+    assert_eq!(drain(&mut i.w), [Event::Preedit(with("かん", 3, 3))]);
+    // The cursor moved over the same text: a new preedit, its cursor a
+    // range, then hidden; the same again is no change.
+    pre_at(&mut i, "かん", 0, 6);
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit(with("かん", 0, 6))]);
+    pre_at(&mut i, "かん", -1, -1);
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [Event::Preedit(with("かん", -1, -1))]);
+    pre_at(&mut i, "かん", -1, -1);
+    done(&mut i, 2);
+    pump(&mut i.conn, &mut i.w);
+    assert_eq!(drain(&mut i.w), [], "no change");
     // A commit: the preedit cleared, then the text typed.
     i.server.send(
         ti,
@@ -2941,7 +2965,7 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
         "commit_string",
         &[Arg::Str(Some("a"))],
     );
-    pre(&mut i, "b");
+    pre_at(&mut i, "b", 1, 1);
     done(&mut i, 2);
     pump(&mut i.conn, &mut i.w);
     assert_eq!(
@@ -2953,13 +2977,13 @@ fn an_input_method_composes_at_the_cursor_and_commits_text() {
     pump(&mut i.conn, &mut i.w);
     assert_eq!(drain(&mut i.w), [Event::Preedit(Preedit::default())]);
     // An older serial: applied, and the cursor held until a current one.
-    pre(&mut i, "x");
+    pre_at(&mut i, "x", 1, 1);
     done(&mut i, 1);
     pump(&mut i.conn, &mut i.w);
     assert_eq!(drain(&mut i.w), [Event::Preedit("x".into())]);
     i.w.set_text_cursor(&mut i.conn.sender(), rect(36, 36, 9, 18));
     nothing_before_the_title(&mut i);
-    pre(&mut i, "x");
+    pre_at(&mut i, "x", 1, 1);
     done(&mut i, 2);
     pump(&mut i.conn, &mut i.w);
     let r = i.server.expect("zwp_text_input_v3", "set_cursor_rectangle");
@@ -3085,7 +3109,7 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
             ti,
             "zwp_text_input_v3",
             "preedit_string",
-            &[Arg::Str(Some(t)), Arg::Int(0), Arg::Int(0)],
+            &[Arg::Str(Some(t)), Arg::Int(6), Arg::Int(6)],
         );
     };
     let done = |i: &mut Ime| {
@@ -3106,8 +3130,8 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
     assert_eq!(
         typed_events(&mut i.w),
         [Event::Preedit(Preedit {
-            text: "かな".into(),
             hints: vec![hinted(0, 3, Hint::Selection), hinted(3, 6, Hint::Whole)],
+            ..Preedit::from("かな")
         })]
     );
     pre(&mut i, "かな");
@@ -3125,8 +3149,8 @@ fn an_input_method_at_version_2_hints_submits_and_asks_for_a_keyboard() {
     assert_eq!(
         typed_events(&mut i.w),
         [Event::Preedit(Preedit {
-            text: "かな".into(),
             hints: vec![hinted(0, 6, Hint::Prediction)],
+            ..Preedit::from("かな")
         })]
     );
     // A submit with a commit: the preedit goes, the text, then Return.

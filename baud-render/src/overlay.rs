@@ -1305,6 +1305,11 @@ impl Overlay {
 /// `SGR 9`, in the text's colour where GTK takes its error colour. Text
 /// no hint covers is "unhinted" and drawn plain; with no hints at all the
 /// whole composition is underlined, which is all the macOS app is given.
+///
+/// **The input method's cursor** ([`Caret`]) is drawn where it puts it:
+/// the terminal's cursor, in its own style, on the character it is before;
+/// a range drawn as selected text with no cursor; none at all; or, where
+/// it says nothing, after the composition.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Composition {
     pub row: Row,
@@ -1316,6 +1321,31 @@ pub struct Composition {
     pub ambiguous: AmbiguousWidth,
     /// The hints on each codepoint of `text`, or none at all.
     pub hints: Vec<Hints>,
+    /// Where the input method puts the cursor in it.
+    pub caret: Caret,
+}
+
+/// **Where an input method puts the cursor in its composition**, by
+/// codepoint of `Composition::text`: `text-input-v3`'s `cursor_begin` and
+/// `cursor_end`, which "could be represented by the client as a line if
+/// both values are the same, or as a text highlight otherwise", the cursor
+/// "hidden when both are equal to -1" (`[[source:
+/// wp-text-input-unstable-v3]]`), and AppKit's selected range, "the range
+/// to set as the selection" (`[[source: apple-nstextinputclient-setmarkedtext]]`).
+/// GTK draws its own cursor at the position (`[[source: gtk-3b438f05-gtktext]]`),
+/// so the terminal's cursor is drawn there in the style the program set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Caret {
+    /// Nothing said: after the composition, where a write of the same text
+    /// would leave the cursor -- all the macOS app is handed today.
+    #[default]
+    End,
+    /// Before the codepoint at this index; at the count, after the last.
+    At(usize),
+    /// The codepoints `start..end` drawn as selected text, and no cursor.
+    Range(usize, usize),
+    /// No cursor.
+    Hidden,
 }
 
 /// The preedit hints on one codepoint of a composition: any of
@@ -1343,7 +1373,8 @@ impl Hints {
 }
 
 /// One cluster of a composition: the column it starts at, its codepoints,
-/// how many cells it takes and the hints on its first.
+/// how many cells it takes and the hints on its first -- with the
+/// selection where the input method's range covers any of its codepoints.
 struct Piece {
     col: Col,
     cps: Vec<Codepoint>,
@@ -1426,14 +1457,25 @@ impl Composition {
     fn pieces(&self, cols: Cols) -> Vec<Piece> {
         let mut out: Vec<Piece> = Vec::new();
         let mut x = self.col.index();
-        for (&cp, hints) in self.text.iter().zip(self.hints_each()) {
+        let ranged = |i: usize| match self.caret {
+            Caret::Range(start, end) => (start..end).contains(&i),
+            Caret::End | Caret::At(_) | Caret::Hidden => false,
+        };
+        for (i, (&cp, hints)) in self.text.iter().zip(self.hints_each()).enumerate() {
             let w = Classified::of(cp).width(self.ambiguous);
             if w == Width::ZERO {
                 if let Some(last) = out.last_mut() {
                     last.cps.push(cp);
+                    if ranged(i) {
+                        last.hints = last.hints.with(Hints::SELECTION);
+                    }
                 }
                 continue;
             }
+            let hints = match ranged(i) {
+                true => hints.with(Hints::SELECTION),
+                false => hints,
+            };
             let span = if w == Width::WIDE {
                 CellSpan::Two
             } else {
@@ -1486,15 +1528,40 @@ impl Composition {
         (start, end)
     }
 
-    /// Where the cursor is drawn while it is held: the cell after its last,
-    /// or the last column when it runs to the edge, where a write of the
-    /// same text would leave the cursor.
-    pub fn cursor(&self, cols: Cols) -> (Row, Col) {
-        let (_, end) = self.columns(cols);
-        (
-            self.row,
-            Col::at_index(end.min(cols.index().saturating_sub(1))),
-        )
+    /// **Where the cursor is drawn while it is held**, if anywhere: with
+    /// nothing said, the cell after its last, or the last column when it
+    /// runs to the edge, where a write of the same text would leave the
+    /// cursor; at an index, the cell of the cluster that codepoint is in,
+    /// and past the clusters the edge cut, the same last column; with a
+    /// range or hidden, none.
+    pub fn cursor(&self, cols: Cols) -> Option<(Row, Col)> {
+        let last = cols.index().saturating_sub(1);
+        let after = |(_, end): (usize, usize)| (self.row, Col::at_index(end.min(last)));
+        match self.caret {
+            Caret::End => Some(after(self.columns(cols))),
+            Caret::At(i) => {
+                // A mark with nothing before it to join is in no cluster:
+                // the clusters' codepoints start after those.
+                let lead = self
+                    .text
+                    .iter()
+                    .take_while(|&&cp| Classified::of(cp).width(self.ambiguous) == Width::ZERO)
+                    .count();
+                if i < lead {
+                    return Some((self.row, self.col));
+                }
+                let mut first = lead;
+                for p in self.pieces(cols) {
+                    if i < first + p.cps.len() {
+                        return Some((self.row, p.col));
+                    }
+                    first += p.cps.len();
+                }
+                // At the count, or past the clusters the edge cut.
+                Some(after(self.columns(cols)))
+            }
+            Caret::Range(..) | Caret::Hidden => None,
+        }
     }
 }
 
@@ -1524,6 +1591,10 @@ pub(crate) fn composition_records(
     pan: Px,
     records: &mut Vec<Instance>,
 ) {
+    // Only a block swaps a cell's colours; a bar or an underline the input
+    // method put inside the composition is drawn over its row as anywhere.
+    let block = block
+        .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
     if size.is_double() {
         return sized_composition(r, term, c, under, styles, block, cols, size, pan, records);
     }

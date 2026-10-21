@@ -29,7 +29,7 @@ use baud_core::{
 };
 use baud_domain::{AmbiguousWidth, Classified, Codepoint, Col, Cols, LineIdx, Row, Rows, Width};
 
-use crate::overlay::{Composition, Hints};
+use crate::overlay::{Caret, Composition, Hints};
 use crate::units::Tally;
 
 /// The find field's least width, in columns, where the grid has them.
@@ -59,6 +59,9 @@ impl Field {
             text: self.text.clone(),
             ambiguous: AmbiguousWidth::Narrow,
             hints: vec![Hints::SELECTION; self.text.len()],
+            // The field draws its own caret, a bar at `caret`
+            // (`Renderer::set_find`); the terminal's cursor is not moved.
+            caret: Caret::Hidden,
         }
     }
 }

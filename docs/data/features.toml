@@ -934,6 +934,15 @@ tests = ["baud-render/tests/composition.rs::a_dead_key_accent_draws_as_one_under
 shipped = ["2026-10-15-text-being-composed-follows-the-wide"]
 
 [[feature]]
+id = "input-methods-linux"
+area = "input"
+name = "Input methods on Linux"
+does = "On Linux, text you compose with an input method such as IBus or Fcitx is drawn at the cursor, styled as GTK styles it, with the cursor where the input method puts it inside the text, or the part it marks highlighted."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::an_input_method_composes_at_the_cursor_and_commits_text", "baud-render/tests/composition.rs::the_input_methods_cursor_is_drawn_where_it_puts_it", "baud-render/tests/composition.rs::the_input_methods_cursor_follows_the_clusters", "baud-app/src/marked.rs::the_input_methods_cursor_lands_on_codepoints"]
+
+[[feature]]
 id = "backspace-letter"
 area = "input"
 name = "Backspace erases the whole letter"
