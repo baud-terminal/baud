@@ -84,6 +84,10 @@ mod paste;
 mod palette;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
+// ReGIS's built-in alphabet, drawn with the embedded face: both drivers
+// lend it the core, and its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod regis_font;
 // The child's reads into the core and its answers out: pure, so its tests
 // run on every platform, and both drivers feed through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

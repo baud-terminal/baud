@@ -388,7 +388,7 @@ impl<'a> RegisCanvas<'a> {
             x1 = x1.max(x);
             y1 = y1.max(y);
         }
-        let (sw, sh) = (i32::from(g.w.max(1)), g.rows.len().max(1) as i32);
+        let (sw, sh) = g.bits.size();
         for py in y0..=y1 {
             for px in x0..=x1 {
                 let (x, y) = (g.at.x + px as i32, g.at.y + py as i32);
@@ -405,14 +405,7 @@ impl<'a> RegisCanvas<'a> {
                     continue;
                 }
                 let (u, v) = ((u2 / 2) as i32, (v2 / 2) as i32);
-                let bit = if u < uw && v < uh {
-                    let su = u * sw / uw;
-                    let sv = v * sh / uh;
-                    let row = g.rows.get(sv as usize).copied().unwrap_or(0);
-                    row & (1 << (sw - 1 - su)) != 0
-                } else {
-                    false
-                };
+                let bit = u < uw && v < uh && g.bits.bit(u * sw / uw, v * sh / uh);
                 let on = match pen.negate {
                     Negate::Off => bit,
                     Negate::On => !bit,
@@ -447,12 +440,45 @@ impl<'a> RegisCanvas<'a> {
     }
 }
 
+/// A character's image, sampled into its unit cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CellBits<'a> {
+    /// A loaded cell's rows, most significant bit leftmost, `w` wide.
+    Rows { rows: &'a [u16], w: u8 },
+    /// A built-in character the font drew.
+    Glyph(GlyphBits<'a>),
+    /// The error character, a solid block.
+    Solid,
+}
+
+impl CellBits<'_> {
+    /// The image's width and height in its own bits.
+    fn size(&self) -> (i32, i32) {
+        match *self {
+            CellBits::Rows { rows, w } => (i32::from(w.max(1)), rows.len().max(1) as i32),
+            CellBits::Glyph(g) => (i32::from(g.w.max(1)), i32::from(g.h.max(1))),
+            CellBits::Solid => (1, 1),
+        }
+    }
+
+    /// Whether the image has a one at `(x, y)` of its own bits.
+    fn bit(&self, x: i32, y: i32) -> bool {
+        match *self {
+            CellBits::Rows { rows, w } => {
+                let row = rows.get(y as usize).copied().unwrap_or(0);
+                row & (1 << (i32::from(w.max(1)) - 1 - x)) != 0
+            }
+            CellBits::Glyph(g) => g.bit(x as usize, y as usize),
+            CellBits::Solid => true,
+        }
+    }
+}
+
 /// A character cell to draw, resolved to page pixels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CellDraw<'a> {
-    /// The cell's rows, most significant bit leftmost, `w` wide.
-    pub rows: &'a [u16],
-    pub w: u8,
+    /// The character's image.
+    pub bits: CellBits<'a>,
     pub at: RegisPoint,
     pub unit: (i32, i32),
     pub display: (i32, i32),

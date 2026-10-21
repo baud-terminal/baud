@@ -311,3 +311,90 @@ fn replace_writes_the_display_cell_s_background() {
         assert_eq!(px[110 * w + 100], BLACK);
     });
 }
+
+/// A stand-in for the embedder's font: every character a box round its
+/// cell's edge, so where and how large it is drawn can be read back.
+fn boxes(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+    let (w, h) = (w.raw(), h.raw());
+    for y in 0..h {
+        for x in 0..w {
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
+                set(ImagePx::of(x), ImagePx::of(y));
+            }
+        }
+    }
+}
+
+fn run_font(bytes: &[u8], f: impl FnOnce(&mut Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_regis_font(boxes);
+    support::feed(&mut t, bytes);
+    f(&mut t);
+}
+
+#[test]
+fn a_built_in_character_is_drawn_by_the_font_at_its_unit_cell() {
+    // Standard size 1: an 8 by 20 unit cell (`[[source: vt3xx-text]]`
+    // Table 7-3), its upper-left at the drawing position.
+    run_font(b"\x1bPpP[100,100]T'A'\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        let p = painted(&px, w);
+        let xs: Vec<_> = p.iter().map(|&(x, _, _)| x).collect();
+        let ys: Vec<_> = p.iter().map(|&(_, y, _)| y).collect();
+        assert_eq!((xs.iter().min(), xs.iter().max()), (Some(&100), Some(&107)));
+        assert_eq!((ys.iter().min(), ys.iter().max()), (Some(&100), Some(&119)));
+        // The box's edge, 2 * 8 + 2 * 18 pixels.
+        assert_eq!(p.len(), 2 * 8 + 2 * 18);
+    });
+}
+
+#[test]
+fn a_standard_size_draws_larger_and_a_turned_baseline_turns_it() {
+    run_font(b"\x1bPpP[100,100]T(S2)'A'\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        let p = painted(&px, w);
+        let xmax = p.iter().map(|&(x, _, _)| x).max().unwrap();
+        let ymax = p.iter().map(|&(_, y, _)| y).max().unwrap();
+        // Size 2's unit cell is 16 by 30.
+        assert_eq!((xmax, ymax), (115, 129));
+    });
+    // `T(D90)`: the character turned a quarter turn counterclockwise about
+    // its upper-left, so it lies above the drawing position.
+    run_font(b"\x1bPpP[100,100]T(D90)'A'\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        let p = painted(&px, w);
+        assert!(
+            p.iter()
+                .all(|&(x, y, _)| (100..=120).contains(&x) && (92..=100).contains(&y)),
+            "{p:?}"
+        );
+    });
+}
+
+#[test]
+fn without_a_font_a_built_in_character_is_counted() {
+    run(b"\x1bPpP[100,100]T'AB'\x1b\\", |t| {
+        assert_eq!(t.regis_counts().unfonted, 2);
+    });
+}
+
+#[test]
+fn command_display_shows_the_commands_on_the_bottom_line() {
+    // `DCS 2p`: the characters received drawn on the bottom line, ten device
+    // pixels a column, from row 460 (`[[source: vt3xx-regis-intro]]`).
+    run_font(b"\x1bP2pP[1,1]\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        let p = painted(&px, w);
+        // Six characters, `P[1,1]`, each a box of 10 by 20.
+        assert_eq!(p.len(), 6 * (2 * 10 + 2 * 18));
+        assert!(p.iter().all(|&(x, y, _)| x < 60 && (460..480).contains(&y)));
+    });
+    // A line feed erases the line to the background, the drawing under it
+    // with it.
+    run_font(b"\x1bP2pP[0,470]V[799,470]\n\x1b\\", |t| {
+        let (px, w, _) = page(t);
+        assert!((460..480).all(|y| (0..800).all(|x| px[y * w + x] == BLACK)));
+    });
+}

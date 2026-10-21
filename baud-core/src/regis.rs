@@ -86,6 +86,7 @@ impl Paint<'_, '_> {
     /// A `DCS Pn p`: enter ReGIS, `Pn` the envelope's first parameter.
     fn regis_start(&mut self, csi: &Csi) -> crate::osc::StrKind {
         let e = RegisEntry::of(Some(csi.params().raw(ParamIdx::FIRST, 0)));
+        self.strs.regis.set_encoding(self.cold.str_enc);
         self.regis_run(|regis, out| regis.enter(e, out));
         crate::osc::StrKind::Regis
     }
@@ -304,12 +305,15 @@ impl RegisOut for Out<'_, '_> {
     }
 
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
-        let GlyphSource::Loaded { rows, w } = g.source else {
-            return;
+        let bits = match g.source {
+            GlyphSource::Loaded { rows, w } => CellBits::Rows { rows, w },
+            GlyphSource::Builtin { cell: Some(b), .. } => CellBits::Glyph(b),
+            // No font set: counted where it was drawn.
+            GlyphSource::Builtin { cell: None, .. } => return,
+            GlyphSource::Error => CellBits::Solid,
         };
         let cell = CellDraw {
-            rows,
-            w,
+            bits,
             at: g.at,
             unit: g.unit,
             display: g.display,

@@ -1098,6 +1098,9 @@ impl App {
         // The kitty file mediums, read with the text's checks; leaked as
         // the storage is, for a `Term<'static>`.
         term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
+        // ReGIS draws its built-in alphabet with the embedded face
+        // (`regis_font.rs`).
+        term.set_regis_font(crate::regis_font::glyph);
         // A deleted picture's pages go back to the system (`pages.rs`).
         if let Some(release) = crate::pages::release() {
             term.set_page_release(release);

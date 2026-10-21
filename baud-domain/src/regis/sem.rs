@@ -5,7 +5,7 @@ use super::color::{Comp, REGIS_COLORS, REGIS_DEFAULT_MAP, RegisColor, regis_clos
 use super::num::RegisNum;
 use super::trig;
 use super::*;
-use crate::image::Pixel;
+use crate::image::{ImagePx, Pixel};
 use crate::vt::{Charset, Designation, Iso96};
 
 /// What the interpreter refused or could not do, each its own count.
@@ -13,9 +13,9 @@ use crate::vt::{Charset, Designation, Iso96};
 pub struct RegisCounts {
     /// `DCS p` envelopes entered.
     pub entered: u32,
-    /// Envelopes that asked for command display (`DCS 2p`, `DCS 3p`),
-    /// which is not built (§ 8.9.1, "not mandatory").
-    pub display_unbuilt: u32,
+    /// Built-in characters not drawn because no font is set
+    /// ([`Regis::set_font`]).
+    pub unfonted: u32,
     /// A macrograph definition inside a definition or a macrograph, `@.` in
     /// a macrograph, a definition named by no letter, a stray `@;`.
     pub macro_errors: u32,
@@ -535,6 +535,13 @@ pub(crate) struct Sem {
     /// Characters free in the macrograph store, for `R(M(=))`: the layer
     /// below sets it before each character it hands the lexer.
     pub(crate) macro_free: usize,
+    /// The embedder's font, which draws the built-in alphabet.
+    pub(crate) font: Option<RegisFont>,
+    /// Where a built-in character is drawn by the font before it is put on
+    /// the page.
+    glyph_bits: [u64; GLYPH_SIDE * GLYPH_SIDE / 64],
+    /// The command display's next column.
+    pub(crate) display_col: u8,
     /// Page pixels a device pixel spans, `(num, den)`: the 800 by 480
     /// device fitted to the page with its shape kept (§ 8.5.1.4.1.2), one
     /// to one on an 800 by 480 page.
@@ -548,7 +555,7 @@ impl Sem {
     pub(crate) const NEW: Sem = Sem {
         counts: RegisCounts {
             entered: 0,
-            display_unbuilt: 0,
+            unfonted: 0,
             macro_errors: 0,
             macro_recursion: 0,
             macro_nesting: 0,
@@ -592,6 +599,9 @@ impl Sem {
         tilt: Tilt::Ready,
         quote_start: (RegisNum::ZERO, RegisNum::ZERO),
         macro_free: MACRO_STORE,
+        font: None,
+        glyph_bits: [0; GLYPH_SIDE * GLYPH_SIDE / 64],
+        display_col: 0,
         scale: (1, 1),
         last_end: None,
     };
@@ -910,11 +920,16 @@ impl Sem {
         let _ = out;
     }
 
-    pub(crate) fn quote_char(&mut self, c: u8, out: &mut dyn RegisOut) {
+    /// One character of a quoted string, as its code in the in-use table,
+    /// or [`NO_CODE`].
+    pub(crate) fn quote_char(&mut self, c: u16, out: &mut dyn RegisOut) {
         let d = self.depth;
         if d == 0 && self.frames[0].key == b'T' {
             return self.text_char(c, out);
         }
+        let Ok(c) = u8::try_from(c) else {
+            return self.error(1, 0);
+        };
         if d == 0 && self.frames[0].key == b'L' {
             // "If more than one character is present in a string, the first
             // is used, and the rest are discarded" (§ 8.7.5.3).
@@ -1294,7 +1309,7 @@ impl Sem {
         self.pos = (self.pos.0.plus(s.0), self.pos.1.plus(s.1));
     }
 
-    fn text_char(&mut self, c: u8, out: &mut dyn RegisOut) {
+    fn text_char(&mut self, c: u16, out: &mut dyn RegisOut) {
         let esc = self.text.esc;
         match c {
             // "The carriage return code resets the drawing position ... to
@@ -1318,20 +1333,91 @@ impl Sem {
         }
     }
 
-    fn glyph(&mut self, c: u8, out: &mut dyn RegisOut) {
+    fn glyph(&mut self, c: u16, out: &mut dyn RegisOut) {
         let at = self.device(self.pos);
         let t = self.text;
         let pen = self.pen();
-        let source = match t.alphabet {
-            0 => match builtin(t.gl, t.gr, c) {
-                Some(ch) => GlyphSource::Builtin(ch),
-                None => GlyphSource::Error,
+        let unit = (self.page_len(t.unit.0), self.page_len(t.unit.1));
+        let display = (self.page_len(t.display.0), self.page_len(t.display.1));
+        self.draw_char(
+            c,
+            t.alphabet,
+            (t.gl, t.gr),
+            (at, unit, display),
+            (t.char_dir, t.slant),
+            &pen,
+            out,
+        );
+        self.last_end = None;
+    }
+
+    /// Draw character code `c` of `alphabet`: a built-in one through the
+    /// embedder's font at the unit cell, a loaded one from its stored cell,
+    /// and § 8.7.3.3's error character for "characters from a nonexistent or
+    /// undefined character set", "from outside the defined extent", and
+    /// "not-yet-defined characters".
+    #[allow(clippy::too_many_arguments)]
+    fn draw_char(
+        &mut self,
+        c: u16,
+        alphabet: u8,
+        sets: (Charset, Charset),
+        cell: (RegisPoint, (i32, i32), (i32, i32)),
+        turn: (i32, i32),
+        pen: &RegisPen,
+        out: &mut dyn RegisOut,
+    ) {
+        let (at, unit, display) = cell;
+        let code = u8::try_from(c).ok();
+        let builtin_ch = match (alphabet, code) {
+            (0, Some(b)) => builtin(sets.0, sets.1, b),
+            _ => None,
+        };
+        let (rw, rh) = (
+            unit.0.clamp(1, GLYPH_SIDE as i32),
+            unit.1.clamp(1, GLYPH_SIDE as i32),
+        );
+        let mut drawn = Drawn::No;
+        if let (Some(ch), Some(font)) = (builtin_ch, self.font) {
+            let n = (rw * rh) as usize;
+            self.glyph_bits[..n.div_ceil(64)].fill(0);
+            let bits = &mut self.glyph_bits;
+            font(
+                ch,
+                ImagePx::of(rw as u16),
+                ImagePx::of(rh as u16),
+                &mut |x, y| {
+                    let (x, y) = (x.index(), y.index());
+                    if x < rw as usize && y < rh as usize {
+                        let i = y * rw as usize + x;
+                        bits[i / 64] |= 1 << (i % 64);
+                    }
+                },
+            );
+            drawn = Drawn::Yes;
+        }
+        if builtin_ch.is_some() && drawn == Drawn::No {
+            self.counts.unfonted += 1;
+        }
+        let source = match (alphabet, builtin_ch) {
+            (0, Some(ch)) => GlyphSource::Builtin {
+                ch,
+                cell: match drawn {
+                    Drawn::Yes => Some(GlyphBits {
+                        bits: &self.glyph_bits[..((rw * rh) as usize).div_ceil(64)],
+                        w: rw as u16,
+                        h: rh as u16,
+                    }),
+                    Drawn::No => None,
+                },
             },
-            a => {
-                let (rows, w) = self.cell_bits(a, c);
+            (0, None) => GlyphSource::Error,
+            (a, _) => {
+                let (rows, w) = match code {
+                    Some(b) => self.cell_bits(a, b),
+                    None => (&[][..], 8),
+                };
                 match rows.is_empty() {
-                    // § 8.7.3.3: "An error character will be displayed for
-                    // ... An attempt to print not-yet-defined characters".
                     true => GlyphSource::Error,
                     false => GlyphSource::Loaded { rows, w },
                 }
@@ -1340,13 +1426,84 @@ impl Sem {
         let g = RegisGlyph {
             source,
             at,
-            unit: (self.page_len(t.unit.0), self.page_len(t.unit.1)),
-            display: (self.page_len(t.display.0), self.page_len(t.display.1)),
-            direction: t.char_dir,
-            slant: t.slant,
+            unit,
+            display,
+            direction: turn.0,
+            slant: turn.1,
         };
-        out.glyph(&g, &pen);
-        self.last_end = None;
+        out.glyph(&g, pen);
+    }
+
+    // ---------------------------------------------------------------
+    // Command display (§ 8.9.1).
+    // ---------------------------------------------------------------
+
+    /// **Command display**: a character received is shown on the page's
+    /// bottom line as it arrives -- `[[source: vt3xx-regis-intro]]`, "The
+    /// last line of ReGIS commands received appears on the bottom line of
+    /// the screen", "A line feed character makes the terminal erase the
+    /// ReGIS command display line, along with any graphic image previously
+    /// drawn there", "The terminal does not display characters that are not
+    /// part of the ReGIS character set (8-bit characters and control
+    /// characters)", "You can display up to 80 characters on the command
+    /// line. If the terminal receives more than 80 characters without a line
+    /// feed character, the terminal erases the text line before displaying
+    /// the next character", and "The appearance of the characters is based
+    /// only on the output map settings and the image that the characters are
+    /// drawn over. Other ReGIS-settable states have no effect": the text
+    /// foreground, index 7, drawn over the page, in the VT300's 80 columns
+    /// of ten device pixels. Jev's lean, 2026-10-20, BUILD (0.38 and 0.28).
+    pub(crate) fn display_char(&mut self, b: u8, out: &mut dyn RegisOut) {
+        if b == 0x0a {
+            return self.display_erase(out);
+        }
+        if !(0x20..0x7f).contains(&b) {
+            return;
+        }
+        if self.display_col == 80 {
+            self.display_erase(out);
+        }
+        let col = i64::from(self.display_col);
+        let at = self.page((col * 10 * 65536, i64::from(REGIS_HEIGHT - 20) * 65536));
+        let unit = (self.page_len(10), self.page_len(20));
+        let pen = RegisPen {
+            mode: WriteMode::Overlay,
+            negate: Negate::Off,
+            fg: RegisIndex(7),
+            bg: self.bg,
+            planes: RegisPlanes::ALL,
+            pattern: LinePattern::SOLID,
+            pattern_mul: 1,
+            shade: None,
+        };
+        let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
+        self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
+        self.display_col += 1;
+    }
+
+    /// The command display's line erased to the background.
+    fn display_erase(&mut self, out: &mut dyn RegisOut) {
+        let y0 = i64::from(REGIS_HEIGHT - 20) * 65536;
+        let y1 = i64::from(REGIS_HEIGHT) * 65536;
+        let x1 = i64::from(REGIS_WIDTH) * 65536;
+        let points = [
+            self.page((0, y0)),
+            self.page((x1, y0)),
+            self.page((x1, y1)),
+            self.page((0, y1)),
+        ];
+        let pen = RegisPen {
+            mode: WriteMode::Erase,
+            negate: Negate::Off,
+            fg: RegisIndex(7),
+            bg: self.bg,
+            planes: RegisPlanes::ALL,
+            pattern: LinePattern::SOLID,
+            pattern_mul: 1,
+            shade: None,
+        };
+        out.fill(&points, &[4], &pen);
+        self.display_col = 0;
     }
 
     // ---------------------------------------------------------------
@@ -2176,6 +2333,17 @@ impl Dest {
             _ => Dest::Fill,
         }
     }
+}
+
+/// The code a quoted character has when it has none in the in-use table:
+/// a UTF-8 character past U+00FF, or a malformed one.
+pub(crate) const NO_CODE: u16 = 0x100;
+
+/// Whether a font drew a character.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Drawn {
+    No,
+    Yes,
 }
 
 /// Whose writing controls a `W` changes.

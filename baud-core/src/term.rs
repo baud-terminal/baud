@@ -4331,6 +4331,14 @@ impl<'b> Term<'b> {
         self.store.strs.regis.counts()
     }
 
+    /// **The font ReGIS draws its built-in alphabet with**: the embedder's
+    /// own face, drawn by its own rasteriser at each character's unit cell
+    /// ([`baud_domain::RegisFont`]). With none set a built-in character is
+    /// not drawn, and counted in `regis_counts().unfonted`.
+    pub fn set_regis_font(&mut self, f: baud_domain::RegisFont) {
+        self.store.strs.regis.set_font(f);
+    }
+
     /// **Store an image the embedder decodes and place it at the cursor**,
     /// leaving the cursor where it is. `fill` paints the `width` x `height`
     /// pixels, straight ARGB and row-major, into the arena in place -- the

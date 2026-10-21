@@ -49,7 +49,7 @@ impl RegisOut for Rec {
     }
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
         let s = match g.source {
-            GlyphSource::Builtin(c) => Glyph::Builtin(c),
+            GlyphSource::Builtin { ch, .. } => Glyph::Builtin(ch),
             GlyphSource::Loaded { rows, w } => Glyph::Loaded(rows.to_vec(), w),
             GlyphSource::Error => Glyph::Error,
         };
@@ -777,10 +777,46 @@ fn alphabet_zero_cannot_be_loaded_and_the_extent_bounds_the_rest() {
 
 #[test]
 fn the_built_in_alphabet_reads_through_its_sets() {
-    let (_, rec) = run(b"T(A0(L\"00\"))'q'T(A0(L\"0B\",R\"1A\"))'\xe9'");
+    // `é` as UTF-8, the default encoding: the code E9 of the in-use table,
+    // Latin-1's in GR.
+    let (_, rec) = run("T(A0(L\"00\"))'q'T(A0(L\"0B\",R\"1A\"))'é'".as_bytes());
     let g = glyphs(&rec);
     assert_eq!(g[0].0, Glyph::Builtin('\u{2500}'));
     assert_eq!(g[1].0, Glyph::Builtin('\u{e9}'));
+    // DEC Supplemental in GR, the same code.
+    let (_, rec) = run("T(A0(R\"0%5\"))'é'".as_bytes());
+    assert_eq!(glyphs(&rec)[0].0, Glyph::Builtin('\u{e9}'));
+}
+
+#[test]
+fn a_utf8_character_outside_the_table_is_the_error_character() {
+    // U+2500 has no code in the 8-bit in-use table, and nor has U+0080, a
+    // C1 control. Both draw the error character, and the text around them
+    // is drawn (Jev's lean, DECODE_TO_TABLE).
+    let (_, rec) = run("T'a─b\u{80}c'".as_bytes());
+    let g: Vec<_> = glyphs(&rec).into_iter().map(|(g, _)| g).collect();
+    assert_eq!(
+        g,
+        vec![
+            Glyph::Builtin('a'),
+            Glyph::Error,
+            Glyph::Builtin('b'),
+            Glyph::Error,
+            Glyph::Builtin('c')
+        ]
+    );
+}
+
+#[test]
+fn under_latin1_each_byte_is_its_code() {
+    let mut r = Box::new(Regis::NEW);
+    let mut rec = Rec::default();
+    r.set_encoding(baud_domain::InputEncoding::Latin1);
+    r.enter(RegisEntry::of(None), &mut rec);
+    for &b in b"T'\xe9'" {
+        r.put(StreamByte::from_stream(b), &mut rec);
+    }
+    assert_eq!(glyphs(&rec)[0].0, Glyph::Builtin('\u{e9}'));
 }
 
 // ---------------------------------------------------------------------------
@@ -826,7 +862,6 @@ fn a_resynchronising_envelope_starts_a_new_command() {
         r.put(StreamByte::from_stream(b), &mut rec);
     }
     assert_eq!(lines(&rec).len(), 2);
-    assert_eq!(r.counts().display_unbuilt, 1);
 }
 
 // ---------------------------------------------------------------------------

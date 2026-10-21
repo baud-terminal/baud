@@ -37,7 +37,7 @@ pub use color::*;
 pub use num::RegisNum;
 pub use sem::{RegisCounts, RegisSpace};
 
-use crate::decode::StreamByte;
+use crate::decode::{InputEncoding, StreamByte};
 use num::{NumAcc, NumStep, Signed};
 use sem::Sem;
 
@@ -334,14 +334,55 @@ pub struct RegisGlyph<'a> {
 /// Where a character's image comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GlyphSource<'a> {
-    /// A character of the built-in alphabet 0, by Unicode scalar.
-    Builtin(char),
+    /// A character of the built-in alphabet 0, by Unicode scalar, drawn by
+    /// the embedder's font at the unit cell ([`RegisFont`]); `None` with no
+    /// font set.
+    Builtin {
+        ch: char,
+        cell: Option<GlyphBits<'a>>,
+    },
     /// A loaded cell: its rows, most significant bit leftmost, `w` wide.
     Loaded { rows: &'a [u16], w: u8 },
     /// The error character § 8.7.3.3 asks for: "Solid block characters or
-    /// checkerboard characters are acceptable".
+    /// checkerboard characters are acceptable", and the VT330/VT340
+    /// "displays a solid block error character" (`[[source: vt3xx-text]]`).
     Error,
 }
+
+/// A character drawn at its unit cell: `w` by `h` bits, a row after
+/// another, the first row's first bit the low bit of the first word.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GlyphBits<'a> {
+    pub bits: &'a [u64],
+    pub w: u16,
+    pub h: u16,
+}
+
+impl GlyphBits<'_> {
+    /// Whether the bit at `(x, y)` is set.
+    pub fn bit(&self, x: usize, y: usize) -> bool {
+        let i = y * usize::from(self.w) + x;
+        self.bits
+            .get(i / 64)
+            .is_some_and(|w| w & (1 << (i % 64)) != 0)
+    }
+}
+
+/// **The embedder's font, for the built-in alphabet**: draw character `c`
+/// in a `w` by `h` cell, calling `set(x, y)` for each pixel it covers. Each
+/// ReGIS device "must have a built in character definition and writing
+/// capability" (070-8 § 8.5.6); baud's is the embedder's own face, drawn by
+/// its own rasteriser at the size the character is shown.
+pub type RegisFont = fn(
+    c: char,
+    w: crate::image::ImagePx,
+    h: crate::image::ImagePx,
+    set: &mut dyn FnMut(crate::image::ImagePx, crate::image::ImagePx),
+);
+
+/// The largest cell a built-in character is drawn at, each way; a larger
+/// unit cell samples it.
+pub const GLYPH_SIDE: usize = 256;
 
 /// What the interpreter does to the world: draw, answer, wait.
 ///
@@ -576,6 +617,20 @@ pub struct Regis {
     again: [u8; 3],
     nagain: usize,
     sem: Sem,
+    /// The encoding the envelope began under ([`Regis::set_encoding`]).
+    enc: InputEncoding,
+    /// A UTF-8 character being read inside a quoted string: its value so
+    /// far and the continuation bytes still owed.
+    utf8: (u32, u8),
+    /// Command display (`DCS 2p`, `DCS 3p`): on for the envelope that asked.
+    display: Display,
+}
+
+/// Whether the envelope asked for command display.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Display {
+    Off,
+    On,
 }
 
 impl Regis {
@@ -590,6 +645,9 @@ impl Regis {
         again: [0; 3],
         nagain: 0,
         sem: Sem::NEW,
+        enc: InputEncoding::Utf8,
+        utf8: (0, 0),
+        display: Display::Off,
     };
 
     /// A reset to power-up: `RIS`. The page is the caller's to clear.
@@ -609,9 +667,11 @@ impl Regis {
     /// was left.
     pub fn enter(&mut self, e: RegisEntry, out: &mut dyn RegisOut) {
         self.sem.counts.entered += 1;
-        if e.display() {
-            self.sem.counts.display_unbuilt += 1;
-        }
+        self.display = match e.display() {
+            true => Display::On,
+            false => Display::Off,
+        };
+        self.sem.display_col = 0;
         if e.resync() {
             self.resync(out);
         }
@@ -630,6 +690,12 @@ impl Regis {
 
     /// One character of a ReGIS body, and any macrograph it invokes.
     pub fn put(&mut self, b: StreamByte, out: &mut dyn RegisOut) {
+        // "Characters appear as the terminal receives them (no case
+        // conversion, syntax checking, or macrograph expansion)"
+        // (`[[source: vt3xx-regis-intro]]`).
+        if self.display == Display::On {
+            self.sem.display_char(b.raw_byte(), out);
+        }
         self.layer(b.raw_byte(), Source::Host, out);
         self.drain(out);
     }
@@ -670,6 +736,17 @@ impl Regis {
     /// absent or full.
     pub fn unpaged(&mut self, n: usize) {
         self.sem.counts.unpaged = self.sem.counts.unpaged.saturating_add(n as u32);
+    }
+
+    /// The embedder's font, which draws the built-in alphabet.
+    pub fn set_font(&mut self, f: RegisFont) {
+        self.sem.font = Some(f);
+    }
+
+    /// The input encoding the envelope began under: a quoted string's
+    /// bytes are a UTF-8 character's under UTF-8.
+    pub fn set_encoding(&mut self, enc: InputEncoding) {
+        self.enc = enc;
     }
 
     /// The current drawing position, in the imposed space.
@@ -892,17 +969,17 @@ impl Regis {
     fn lex_one(&mut self, c: u8, out: &mut dyn RegisOut) {
         match self.lex {
             Lex::Quote { q } => {
-                if c == q {
+                if c == q && self.utf8.1 == 0 {
                     self.lex = Lex::QuoteEnd { q };
                 } else {
-                    self.sem.quote_char(c, out);
+                    self.quoted(c, out);
                 }
             }
             Lex::QuoteEnd { q } => {
                 if c == q {
                     // "the target quote character must be doubled".
                     self.lex = Lex::Quote { q };
-                    self.sem.quote_char(q, out);
+                    self.sem.quote_char(u16::from(q), out);
                 } else if matches!(c, 0x08 | 0x09 | 0x0a | 0x0d | b' ') || !is_control(c) {
                     // "Should paired-quotes ... be separated by BS, CR, LF,
                     // HT, or SP, then they are NOT considered doubled".
@@ -948,6 +1025,46 @@ impl Regis {
             }
             Lex::Bracket(mut br) => self.bracket(&mut br, c, out),
             Lex::Ground => self.ground(c, out),
+        }
+    }
+
+    /// One byte of a quoted string. **Under UTF-8 a character past ASCII
+    /// arrives as its bytes**, and is the code it is in the 8-bit in-use
+    /// table -- U+0020 to U+007E in GL, U+00A0 to U+00FF in GR, § 8.4.3.2's
+    /// "2/0 through 7/15, and 10/0 through 15/15" -- or the error character
+    /// for any other (Jev's lean, 2026-10-20, DECODE_TO_TABLE, 0.79 and
+    /// 0.74); under ISO 8859-1 each byte is its code.
+    fn quoted(&mut self, c: u8, out: &mut dyn RegisOut) {
+        if self.enc != InputEncoding::Utf8 || c < 0x80 {
+            if self.utf8.1 != 0 {
+                // A character cut short by an ASCII byte.
+                self.utf8 = (0, 0);
+                self.sem.quote_char(sem::NO_CODE, out);
+            }
+            return self.sem.quote_char(u16::from(c), out);
+        }
+        match (self.utf8.1, c) {
+            (0, 0xc2..=0xdf) => self.utf8 = (u32::from(c & 0x1f), 1),
+            (0, 0xe0..=0xef) => self.utf8 = (u32::from(c & 0x0f), 2),
+            (0, 0xf0..=0xf4) => self.utf8 = (u32::from(c & 0x07), 3),
+            (0, _) => self.sem.quote_char(sem::NO_CODE, out),
+            (n, 0x80..=0xbf) => {
+                let v = (self.utf8.0 << 6) | u32::from(c & 0x3f);
+                self.utf8 = (v, n - 1);
+                if n == 1 {
+                    self.utf8 = (0, 0);
+                    let code = match v {
+                        0xa0..=0xff => v as u16,
+                        _ => sem::NO_CODE,
+                    };
+                    self.sem.quote_char(code, out);
+                }
+            }
+            (_, _) => {
+                self.utf8 = (0, 0);
+                self.sem.quote_char(sem::NO_CODE, out);
+                self.quoted(c, out);
+            }
         }
     }
 
@@ -1020,6 +1137,7 @@ impl Regis {
             }
             b'\'' | b'"' => {
                 self.lex = Lex::Quote { q: c };
+                self.utf8 = (0, 0);
                 self.sem.quote_begin(out);
             }
             b',' => self.sem.comma(out),
