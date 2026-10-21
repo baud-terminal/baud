@@ -24,4 +24,4 @@ pub use clip::{Board, Copied, Pasting, Want};
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use shm::{Pool, Px};
-pub use window::{Event, Presented, Resize, Shaped, Shown, Toggle, Window};
+pub use window::{ConfigureBounds, Event, Presented, Resize, Shaped, Shown, Toggle, Window};

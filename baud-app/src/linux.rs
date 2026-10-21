@@ -146,6 +146,9 @@ struct Driver {
     decode: DecodeProgress,
     /// What the program's window operations did and did not do.
     performed: crate::winops::Performed,
+    /// What the bound `xdg_wm_base` allows of `configure_bounds`, as the
+    /// core was last told it for `OSC 61`.
+    bounds_event: crate::winops::BoundsEvent,
     /// The pointer: its position, the press that owns a gesture, the
     /// wheel's travel and the selection (`seat.rs`).
     seat: crate::seat::Seat,
@@ -264,7 +267,7 @@ pub fn run() {
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_window_abilities(
         &mut term,
-        crate::winops::wayland_abilities(),
+        crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),
         cfg.clipboard.osc52,
     );
     crate::host::set_logging(&mut term, cfg.logging);
@@ -342,6 +345,7 @@ pub fn run() {
         images: cfg.images,
         decode: DecodeProgress::Idle,
         performed: crate::winops::Performed::new(),
+        bounds_event: crate::winops::BoundsEvent::Never,
         seat: crate::seat::Seat::new(),
         shape: None,
         hiding,
@@ -543,6 +547,19 @@ pub fn run() {
         // The seat's pointer comes and goes with its capabilities: told
         // after the events, before the next read is parsed.
         crate::host::set_locator_device(&mut d.term, d.window.pointer_device());
+        // **Once the registry offers `xdg_wm_base`, `OSC 61` answers what
+        // its version allows**: below 4 no bounds ever come, and a resize
+        // in pixels or to the screen's size is listed as not done
+        // (`winops::BoundsEvent`).
+        let bounds = match d.window.configure_bounds() {
+            baud_present_wayland::ConfigureBounds::Offered => crate::winops::BoundsEvent::Offered,
+            baud_present_wayland::ConfigureBounds::Never => crate::winops::BoundsEvent::Never,
+        };
+        if bounds != d.bounds_event {
+            d.bounds_event = bounds;
+            d.term
+                .set_window_abilities(crate::winops::wayland_abilities(bounds));
+        }
         // The step the macOS display link takes a tick, here a turn; its
         // reply goes with the flush below.
         let (decode, shown) = crate::reads::decode_step(&mut d.term);

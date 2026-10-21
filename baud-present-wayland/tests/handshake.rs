@@ -2232,3 +2232,47 @@ fn without_the_globals_nothing_is_copied() {
         assert_eq!(w.paste(&mut conn.sender(), b), Pasting::Nothing);
     }
 }
+
+/// **Whether `configure_bounds` can come is the bound `xdg_wm_base`'s**:
+/// the event is "since 4" (`[[source: wp-xdg-shell]]`), so a compositor
+/// offering version 3 never sends it, one offering 4 or 6 may, and before
+/// the global is bound nothing is known.
+#[test]
+fn configure_bounds_comes_from_xdg_wm_base_version_4() {
+    for (offered, want) in [
+        (3u32, ConfigureBounds::Never),
+        (4, ConfigureBounds::Offered),
+        (6, ConfigureBounds::Offered),
+    ] {
+        let (c, s) = UnixStream::pair().unwrap();
+        let mut conn = Connection::over(c);
+        let mut server = Server::new(s);
+        let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+        conn.flush().unwrap();
+        assert_eq!(w.configure_bounds(), ConfigureBounds::Never, "before");
+        let r = server.expect("wl_display", "get_registry");
+        let Val::New(registry) = r.args[0] else {
+            panic!()
+        };
+        server
+            .objects
+            .insert(registry, Interface::named("wl_registry").unwrap());
+        let r = server.expect("wl_display", "sync");
+        let Val::New(sync) = r.args[0] else { panic!() };
+        for (name, iface, version) in [
+            (1u32, "wl_compositor", 6u32),
+            (2, "wl_shm", 2),
+            (3, "xdg_wm_base", offered),
+        ] {
+            server.send(
+                registry,
+                "wl_registry",
+                "global",
+                &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+            );
+        }
+        server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+        pump(&mut conn, &mut w);
+        assert_eq!(w.configure_bounds(), want, "xdg_wm_base {offered}");
+    }
+}

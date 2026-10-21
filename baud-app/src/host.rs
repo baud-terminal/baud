@@ -922,7 +922,10 @@ mod tests {
         let mac = ask(crate::winops::mac_abilities(), write);
         assert!(mac.starts_with("\x1b]61;GetWinState,"), "{mac:?}");
         assert!(mac.ends_with(",GetWinTitle,GetSelection\x07"), "{mac:?}");
-        let linux = ask(crate::winops::wayland_abilities(), write);
+        let linux = ask(
+            crate::winops::wayland_abilities(crate::winops::BoundsEvent::Offered),
+            write,
+        );
         assert!(
             linux.starts_with("\x1b]61;RestoreWin,SetWinPosition,RaiseWin,LowerWin,MaximizeWin,"),
             "{linux}"
@@ -941,7 +944,7 @@ mod tests {
             (
                 "Linux",
                 include_str!("linux.rs"),
-                "crate::winops::wayland_abilities(),",
+                "crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),",
                 "cfg.clipboard.osc52,",
             ),
         ] {
@@ -951,6 +954,17 @@ mod tests {
             assert!(args.contains(policy), "{driver} tells its own policy");
             assert!(args.contains(osc52), "{driver} tells its setting");
         }
+        // Linux tells it again once the bound `xdg_wm_base` is known.
+        let linux = include_str!("linux.rs");
+        let told = linux
+            .split("match d.window.configure_bounds()")
+            .nth(1)
+            .expect("the version read after each turn's events");
+        assert!(
+            told[..told.find("// The step").expect("the next step")]
+                .contains(".set_window_abilities(crate::winops::wayland_abilities(bounds))"),
+            "Linux tells the core the abilities the version allows"
+        );
     }
 
     /// **Both drivers tell the core whether there is a pointer**, so `DSR

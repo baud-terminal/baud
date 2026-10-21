@@ -687,8 +687,9 @@ GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07";
 /// embedder does not do**: each manipulation it says it carries out
 /// (`Term::set_window_abilities`) is honoured while the operations are on,
 /// and each report once the fact it answers from is told
-/// (`Term::set_window`, `Term::set_cell_size`). With the operations off
-/// every manipulation is named again, and `SetXprop` with them.
+/// (`Term::set_window`, `Term::set_cell_size`). A resize is done only if
+/// its size of 0, the display's, is. With the operations off every
+/// manipulation is named again, and `SetXprop` with them.
 #[test]
 fn osc_61_names_the_window_operations_the_embedder_does_not_do() {
     let all = WindowAbilities::of(|_| true);
@@ -739,6 +740,32 @@ fn osc_61_names_the_window_operations_the_embedder_does_not_do() {
         b"\x1b]61;RestoreWin,SetWinPosition,RaiseWin,LowerWin,MaximizeWin,\
 GetIconTitle,GetWinTitle,GetSelection,SetSelection\x07",
         "a manipulation done in part is refused"
+    );
+    // A driver that does not know the display's size: a 0, "the display's
+    // height or width" (`[[source: ctlseqs]]`), in pixels or in cells.
+    let blind = WindowAbilities::of(|r| {
+        !matches!(
+            r,
+            WindowRequest::ResizePixels {
+                height: SizeAsk::Screen,
+                ..
+            } | WindowRequest::ResizePixels {
+                width: SizeAsk::Screen,
+                ..
+            } | WindowRequest::ResizeCells {
+                rows: SizeAsk::Screen,
+                ..
+            } | WindowRequest::ResizeCells {
+                cols: SizeAsk::Screen,
+                ..
+            }
+        )
+    });
+    assert_eq!(
+        reply_of(ask, |t| told(t, blind)).0,
+        b"\x1b]61;SetWinSizePixels,SetWinSizeChars,\
+GetIconTitle,GetWinTitle,GetSelection,SetSelection\x07",
+        "a resize to the display's size is a form of each resize"
     );
     let (r, _) = reply_of(ask, |t| {
         told(t, all);

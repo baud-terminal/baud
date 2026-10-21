@@ -202,9 +202,13 @@ impl WindowManipulation {
     /// Whether `does` carries out every form of it: a subcategory done in
     /// part is not done, as `SetColor` is refused for the colours it
     /// refuses. Each form is given with typical values, since what an
-    /// embedder cannot do is a kind of request and not a size.
+    /// embedder cannot do is a kind of request and not a size; a resize's
+    /// forms are a size given and a size of 0, "the display's height or
+    /// width" (`[[source: ctlseqs]]`), which an embedder that does not know
+    /// the display's size cannot do.
     pub fn done_by(self, does: &impl Fn(WindowRequest) -> bool) -> bool {
         let size = SizeAsk::Exactly(24);
+        let screen = SizeAsk::Screen;
         let forms: &[WindowRequest] = match self {
             WindowManipulation::RestoreWin => &[WindowRequest::Deiconify],
             WindowManipulation::MinimizeWin => &[WindowRequest::Iconify],
@@ -212,17 +216,29 @@ impl WindowManipulation {
                 x: ScreenCoord(0),
                 y: ScreenCoord(0),
             })],
-            WindowManipulation::SetWinSizePixels => &[WindowRequest::ResizePixels {
-                height: size,
-                width: size,
-            }],
+            WindowManipulation::SetWinSizePixels => &[
+                WindowRequest::ResizePixels {
+                    height: size,
+                    width: size,
+                },
+                WindowRequest::ResizePixels {
+                    height: screen,
+                    width: screen,
+                },
+            ],
             WindowManipulation::RaiseWin => &[WindowRequest::Raise],
             WindowManipulation::LowerWin => &[WindowRequest::Lower],
             WindowManipulation::RefreshWin => &[WindowRequest::Refresh],
-            WindowManipulation::SetWinSizeChars => &[WindowRequest::ResizeCells {
-                rows: size,
-                cols: size,
-            }],
+            WindowManipulation::SetWinSizeChars => &[
+                WindowRequest::ResizeCells {
+                    rows: size,
+                    cols: size,
+                },
+                WindowRequest::ResizeCells {
+                    rows: screen,
+                    cols: screen,
+                },
+            ],
             WindowManipulation::MaximizeWin => &[
                 WindowRequest::Maximize(Maximize::Restore),
                 WindowRequest::Maximize(Maximize::Both),

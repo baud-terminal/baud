@@ -509,9 +509,10 @@ pub enum Unbuilt {
     /// A resize while maximised, where the configured size "must be
     /// obeyed", or in full screen, where it "is a maximum".
     Bound,
-    /// A resize in pixels before the compositor has sent its bounds, the
-    /// only size of the screen xdg-shell tells a client: none could be held
-    /// to the screen.
+    /// A resize in pixels, or to the screen's size (a 0 in pixels or in
+    /// cells), before the compositor has sent its bounds, the only size of
+    /// the screen xdg-shell tells a client: none could be held to the
+    /// screen, or taken from it.
     NoBounds,
 }
 
@@ -616,15 +617,36 @@ pub fn mac_abilities() -> baud_core::WindowAbilities {
     baud_core::WindowAbilities::of(|_| true)
 }
 
+/// **Whether the compositor can send `configure_bounds`**, the one size
+/// of the screen xdg-shell tells a client: the event is "since 4"
+/// (`[[source: wp-xdg-shell]]`), so on an `xdg_wm_base` bound below
+/// version 4 it never comes, and before the registry offers the global
+/// nothing is known. The Linux window's `ConfigureBounds`, here where
+/// the macOS build can test it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BoundsEvent {
+    /// Version 4 or later: the compositor may send it.
+    Offered,
+    /// Below version 4, or nothing bound yet: it never comes.
+    Never,
+}
+
 /// **The manipulations the Linux driver carries out, for `OSC 61`**: each
 /// whose every form [`wayland`] answers with a request on a floating
 /// window that knows its bounds, the one state that refuses nothing for
 /// the state's sake. A form xdg-shell lacks ([`Unbuilt::lacking`]) makes
-/// its manipulation one the driver does not do.
-pub fn wayland_abilities() -> baud_core::WindowAbilities {
+/// its manipulation one the driver does not do, and so does a form that
+/// needs the bounds where the compositor can never send them
+/// ([`BoundsEvent::Never`]): then `CSI 4 ; h ; w t`, whose sizes in
+/// pixels are held to the bounds, and `CSI 8 ; h ; w t`, whose 0 is "the
+/// display's height or width" (`[[source: ctlseqs]]`).
+pub fn wayland_abilities(bounds: BoundsEvent) -> baud_core::WindowAbilities {
     let floating = WaylandWindow {
         size: (800, 600),
-        bounds: Some((1920, 1080)),
+        bounds: match bounds {
+            BoundsEvent::Offered => Some((1920, 1080)),
+            BoundsEvent::Never => None,
+        },
         shown: Shown::Floating,
         cell: (8, 16),
         grid: Grid {
@@ -633,9 +655,10 @@ pub fn wayland_abilities() -> baud_core::WindowAbilities {
         },
         status: Rows::ZERO,
     };
-    baud_core::WindowAbilities::of(
-        |r| !matches!(wayland(r, &floating), WaylandAction::Unbuilt(u) if u.lacking()),
-    )
+    baud_core::WindowAbilities::of(|r| {
+        !matches!(wayland(r, &floating), WaylandAction::Unbuilt(u)
+            if u.lacking() || u == Unbuilt::NoBounds)
+    })
 }
 
 /// A reason a request was not done, macOS's or Wayland's.
@@ -1439,7 +1462,7 @@ mod tests {
         use baud_core::WindowManipulation as M;
         let mac = mac_abilities();
         assert!(M::ALL.iter().all(|&m| mac.has(m)), "macOS does them all");
-        let linux = wayland_abilities();
+        let linux = wayland_abilities(BoundsEvent::Offered);
         let not = [
             M::RestoreWin,
             M::SetWinPosition,
@@ -1470,6 +1493,45 @@ mod tests {
                     assert_eq!(lacks, !linux.has(m), "{m:?} {shown:?} {bounds:?}");
                 }
             }
+        }
+    }
+
+    /// **`OSC 61` answers what the bound `xdg_wm_base` allows**:
+    /// `configure_bounds` is "since 4" (`[[source: wp-xdg-shell]]`), so
+    /// below version 4, or before the global is bound, no bounds ever come,
+    /// so a resize in pixels is never done and neither is a size of 0, "the
+    /// display's height or width" (`[[source: ctlseqs]]`), in pixels or in
+    /// cells: `SetWinSizePixels` and `SetWinSizeChars` are listed, and from
+    /// 4 on both are claimed. `SetWinLines`, rows by number only, needs no
+    /// bounds and is claimed on both. Every manipulation claimed below 4 is
+    /// done, every form, by [`wayland`] on a floating window with no bounds.
+    #[test]
+    fn osc_61_answers_what_the_bound_xdg_wm_base_allows() {
+        use baud_core::WindowManipulation as M;
+        let below = wayland_abilities(BoundsEvent::Never);
+        let from = wayland_abilities(BoundsEvent::Offered);
+        for m in [M::SetWinSizePixels, M::SetWinSizeChars] {
+            assert!(!below.has(m), "{m:?} below 4");
+            assert!(from.has(m), "{m:?} from 4");
+        }
+        assert!(
+            below.has(M::SetWinLines) && from.has(M::SetWinLines),
+            "SetWinLines on both"
+        );
+        let floating = WaylandWindow {
+            size: (800, 600),
+            bounds: None,
+            shown: Shown::Floating,
+            cell: (8, 16),
+            grid: Grid {
+                cols: 100,
+                rows: 37,
+            },
+            status: Rows::ZERO,
+        };
+        for m in M::ALL.iter().copied().filter(|&m| below.has(m)) {
+            let done = m.done_by(&|r| !matches!(wayland(r, &floating), WaylandAction::Unbuilt(_)));
+            assert!(done, "{m:?} claimed below 4 and not done there");
         }
     }
 }

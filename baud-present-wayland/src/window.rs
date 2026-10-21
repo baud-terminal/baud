@@ -80,6 +80,17 @@ enum Scaling {
     None,
 }
 
+/// Whether the compositor can send `xdg_toplevel.configure_bounds`, from
+/// the `xdg_wm_base` version bound ([`Window::configure_bounds`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConfigureBounds {
+    /// Version 4 or later: it may send it.
+    Offered,
+    /// Below version 4, or nothing bound yet: it never comes.
+    #[default]
+    Never,
+}
+
 /// How the compositor last configured the toplevel, from the states its
 /// `xdg_toplevel.configure` carries (`[[source: wp-xdg-shell]]`, the
 /// `state` enum): full screen, where "the window geometry specified in the
@@ -164,6 +175,8 @@ struct Globals {
     compositor: Option<ObjectId>,
     shm: Option<ObjectId>,
     wm_base: Option<ObjectId>,
+    /// Whether the `xdg_wm_base` bound has `configure_bounds`.
+    configure_bounds: ConfigureBounds,
     seat: Option<ObjectId>,
     /// What the seat's version gives the pointer, which inherits it:
     /// `frame` from version 5, `release` from 3.
@@ -576,6 +589,13 @@ impl Window {
         self.bounds
     }
 
+    /// **Whether `configure_bounds` can ever arrive**: the event is "since
+    /// 4" (`[[source: wp-xdg-shell]]`), so an `xdg_wm_base` bound below
+    /// version 4 never sends it, and nothing is known before one is bound.
+    pub fn configure_bounds(&self) -> ConfigureBounds {
+        self.globals.configure_bounds
+    }
+
     /// `xdg_toplevel.set_minimized`, `CSI 2 t`'s request. "There is no way
     /// to know if the surface is currently minimized, nor is there any way
     /// to unset minimization on this surface", so there is no undoing it
@@ -923,8 +943,12 @@ impl Handler for Window {
                             Window::bind(s, self.registry, name, iface, version.min(2))
                     }
                     "xdg_wm_base" => {
-                        self.globals.wm_base =
-                            Window::bind(s, self.registry, name, iface, version.min(6))
+                        let version = version.min(6);
+                        self.globals.wm_base = Window::bind(s, self.registry, name, iface, version);
+                        self.globals.configure_bounds = match self.globals.wm_base {
+                            Some(_) if version >= 4 => ConfigureBounds::Offered,
+                            _ => ConfigureBounds::Never,
+                        };
                     }
                     "wl_seat" => {
                         let version = version.min(9);
