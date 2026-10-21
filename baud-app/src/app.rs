@@ -655,7 +655,8 @@ struct App {
     /// its deadline, and those behind a DSR `?15` waiting for the printer
     /// list (`reads::paced`).
     pace: crate::reads::Pace,
-    /// `[screen] printing`, read with the printer list (`print.rs`).
+    /// `[screen] printing`, read once at launch and passed with each
+    /// read of the printer list (`print.rs`).
     printing: crate::config::Printing,
     /// When the printer list is read again, and the thread that reads it
     /// (`print.rs`, `PrinterList`).

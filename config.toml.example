@@ -366,8 +366,8 @@ hide_while_typing = "on"
 # the styled faces carry it), or a font this file lists above -- or make
 # the text bigger or smaller a step at a time, within 6 to 72 points (on
 # Linux, which has no size keys, the step and the bounds are in pixels of
-# the configured size). "on" by default; "off" refuses
-# every change. A program can ask which font is in use either way.
+# the configured size). "on" by default; "off" refuses every change. A
+# program can ask which font is in use either way.
 [font]
 changes = "on"
 

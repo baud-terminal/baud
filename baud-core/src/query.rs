@@ -1,9 +1,10 @@
 //! The reports a VT420 and xterm answer that ride on no other operation:
 //! the DEC private device status reports, DECREQTPARM, DECRQUPSS, DECRQDE,
 //! XTQMODKEYS and XTQFMTKEYS. Each answers only what is true of baud -- no
-//! printer unless the embedder has one, no user-defined keys, a DEC locator that is a mouse, no macro
-//! memory, one page, one session, and a pty with no line to fail -- in the
-//! shape its text gives (`baud_domain::Report`'s variants carry each source).
+//! printer unless the embedder has one, no user-defined keys, a DEC
+//! locator that is a mouse, no macro memory, one page, one session, and a
+//! pty with no line to fail -- in the shape its text gives
+//! (`baud_domain::Report`'s variants carry each source).
 //!
 //! **One cold entry, [`Paint::answer_query`], which reads the parameters
 //! too**, as [`Paint::area_op`] does: `csi_final` hands it the sequence and

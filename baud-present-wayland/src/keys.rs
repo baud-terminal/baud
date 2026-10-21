@@ -97,10 +97,10 @@ pub enum Shortcut {
 /// (`[[source: kitty-options-definition]]`); Shift+Insert is xterm's
 /// default translation (`[[source: xterm-man]]`), and foot's, kitty's and
 /// wezterm's primary paste (`[[source: wezterm-3725482-commands]]`; Jev's
-/// lean, BIND, 0.66/0.44). The
-/// letter is the keysym lowered, so the Shift that made it capital is
-/// read from the modifiers, and Caps Lock, which is not Shift, makes no
-/// shortcut; Alt or Super held makes none either, the chord being exact.
+/// lean, BIND, 0.66/0.44). The letter is the keysym lowered, so the Shift
+/// that made it capital is read from the modifiers, and Caps Lock, which
+/// is not Shift, makes no shortcut; Alt or Super held makes none either,
+/// the chord being exact.
 pub fn shortcut(sym: Keysym, eff: baud_xkb::ModMask) -> Option<Shortcut> {
     let held = modifiers(eff);
     let chord = [
