@@ -38,6 +38,9 @@ const UNSYNTHESISABLE: &[(&str, &str)] = &[
     ("dcs_ignore", "a parser state"),
     ("osc_string", "a parser state"),
     ("sos_pm_apc_string", "a parser state"),
+    // A report baud sends, not a control it acts on: one a host sends is
+    // counted (`a_received_declrp_is_counted`).
+    ("CSI Pe ; Pb ; Pr ; Pc & w", "DECLRP, a report baud sends"),
 ];
 
 /// Rows whose function `[[source: dec-std-070]]` recognises only below
@@ -49,14 +52,82 @@ const BELOW_LEVEL_FOUR: &[(&str, &[u8])] = &[
     ("ESC Z", b"\x1b[62;1\"p"),
 ];
 
+/// Rows whose placeholders the default value cannot stand for, each with
+/// the bytes it is fed as: a value the operation defines, where `1` is
+/// not one or is another operation's. Kept as small as the lists above.
+const REPRESENTATIVE: &[(&str, &[u8])] = &[
+    // DECRQSS: `Pt` names a setting, SGR's.
+    ("DCS $ q Pt ST", b"\x1bP$qm\x1b\\"),
+    // DECSLPP is `Ps` 24 and up; below it the same final is a window
+    // operation.
+    ("CSI Ps t", b"\x1b[24t"),
+    // A Sixel's data: one sixel.
+    ("DCS Pa ; Pb ; Ph q ... ST", b"\x1bP0;1;0q~\x1b\\"),
+    // DECRSPS: `Ps` 2, a DECTABSR's data, one stop.
+    ("DCS Ps $ t D...D ST", b"\x1bP2$t9\x1b\\"),
+    // OSC 46's `Pt` names a file, OSC 50's asks which font: `?`.
+    ("OSC 46 ; Pt", b"\x1b]46;a.log\x1b\\"),
+    ("OSC 50 ; Pt", b"\x1b]50;?\x1b\\"),
+    // MC's `Ps` 0, print the page: `1` is ECMA-48's transfer from an
+    // auxiliary device, refused.
+    ("CSI Ps i", b"\x1b[0i"),
+    // The rows that name an `OSC` by its number alone: a body each
+    // defines. The colours set one, `OSC 52` copies "hi", `OSC 3` names
+    // the window.
+    ("OSC 4", b"\x1b]4;1;rgb:ff/00/00\x1b\\"),
+    ("OSC 5", b"\x1b]5;0;rgb:ff/00/00\x1b\\"),
+    ("OSC 10", b"\x1b]10;rgb:ff/ff/ff\x1b\\"),
+    ("OSC 12", b"\x1b]12;rgb:ff/ff/ff\x1b\\"),
+    ("OSC 17", b"\x1b]17;rgb:ff/ff/ff\x1b\\"),
+    ("OSC 52", b"\x1b]52;c;aGk=\x1b\\"),
+    ("OSC 3 ; prop=value", b"\x1b]3;WM_NAME=x\x1b\\"),
+    // And three whose bare number its handler passes over without a
+    // count: a title, a link and a prompt mark each given.
+    ("OSC 0/1/2", b"\x1b]0;t\x1b\\"),
+    ("OSC 8", b"\x1b]8;;https://e.x\x1b\\"),
+    ("OSC 133", b"\x1b]133;A\x1b\\"),
+];
+
+/// **A placeholder the table writes for a parameter** -- `Ps`, `Pn`,
+/// `Pm`, `Pt`, and the named ones such as `Pts` or `Pch` -- each `P` and
+/// lower-case letters, or `Ps..` for a list: `1`, a value every numeric
+/// operation the table carries defines. Fed as the bytes `P` and `s`, a
+/// row's `CSI Ps SP @` was `CSI P`, DCH, and the text after it, so every
+/// such row passed whatever its handler did.
+fn is_placeholder(word: &str) -> bool {
+    let w = word.strip_suffix("..").unwrap_or(word);
+    let mut c = w.chars();
+    c.next() == Some('P') && w.len() > 1 && c.all(|c| c.is_ascii_lowercase())
+}
+
+/// One token's bytes, its placeholders `1`: a token is split on `;`, as
+/// `Pt;Pl;Pb;Pr` writes four parameters in one.
+fn fill(tok: &str, out: &mut Vec<u8>) {
+    for (i, word) in tok.split(';').enumerate() {
+        if i > 0 {
+            out.push(b';');
+        }
+        match is_placeholder(word) {
+            true => out.push(b'1'),
+            false => out.extend_from_slice(word.as_bytes()),
+        }
+    }
+}
+
 /// Turn a table cell such as `CSI ? 2 l` or `ESC # 8` into wire bytes.
 ///
 /// Parameters are supplied where the row writes none but the operation needs
-/// one: a bare `CSI ? h` is not a sequence, it is a shape.
+/// one: a bare `CSI ? h` is not a sequence, it is a shape. A placeholder is
+/// `1` ([`is_placeholder`]) unless [`REPRESENTATIVE`] gives the row; `OSC`,
+/// `DCS` and `ST` are their bytes, and an `OSC` the row writes no end for
+/// is ended with `ST`.
 fn synthesise(seq: &str) -> Option<Vec<u8>> {
     let seq = seq.trim();
     if UNSYNTHESISABLE.iter().any(|(s, _)| *s == seq) {
         return None;
+    }
+    if let Some((_, bytes)) = REPRESENTATIVE.iter().find(|(s, _)| *s == seq) {
+        return Some(bytes.to_vec());
     }
     // Rows naming two forms (`CSI s` / `CSI u`) are exercised as the first.
     let seq = seq.split('/').next()?.trim();
@@ -65,6 +136,7 @@ fn synthesise(seq: &str) -> Option<Vec<u8>> {
     // stripping spaces turned `ESC SP F` into the three letters `S`, `P`, `F`.
     let mut out: Vec<u8> = Vec::new();
     let mut is_csi = false;
+    let mut is_osc = false;
     for tok in seq.split_whitespace() {
         match tok {
             "ESC" => out.push(0x1b),
@@ -72,12 +144,21 @@ fn synthesise(seq: &str) -> Option<Vec<u8>> {
                 out.extend_from_slice(b"\x1b[");
                 is_csi = true;
             }
+            "OSC" => {
+                out.extend_from_slice(b"\x1b]");
+                is_osc = true;
+            }
+            "DCS" => out.extend_from_slice(b"\x1bP"),
+            "ST" => out.extend_from_slice(b"\x1b\\"),
             "SP" => out.push(0x20),
-            _ => out.extend_from_slice(tok.as_bytes()),
+            _ => fill(tok, &mut out),
         }
     }
     if out.len() < 2 {
         return None;
+    }
+    if is_osc && !out.ends_with(b"\x1b\\") {
+        out.extend_from_slice(b"\x1b\\");
     }
     if !is_csi {
         return Some(out);
@@ -215,7 +296,7 @@ fn every_done_sequence_reaches_a_handler() {
         }
     }
     assert!(
-        checked > 45,
+        checked >= 230,
         "only {checked} sequences synthesised -- the table parser stopped matching"
     );
     assert!(
@@ -224,6 +305,36 @@ fn every_done_sequence_reaches_a_handler() {
         dropped.len(),
         dropped.join("\n  ")
     );
+}
+
+/// **A placeholder is fed as a parameter, and a string as its bytes.** Red
+/// while `synthesise` passed `Ps` through as the bytes `P` and `s` --
+/// `CSI Ps SP @` was `CSI P`, DCH, and the text ` @` -- and spelled `OSC`,
+/// `DCS` and `ST` as letters, so every such row was fed as printable text
+/// and passed whatever its handler did.
+#[test]
+fn a_placeholder_row_is_fed_as_its_sequence() {
+    for (row, want) in [
+        ("CSI Ps SP @", &b"\x1b[1 @"[..]),
+        ("CSI Pn Y", b"\x1b[1Y"),
+        ("CSI Pt;Pl;Pb;Pr $ z", b"\x1b[1;1;1;1$z"),
+        ("CSI Pt;Pl;Pb;Pr;Ps.. $ r", b"\x1b[1;1;1;1;1$r"),
+        ("CSI Ps ; Pu ' z", b"\x1b[1;1'z"),
+        ("CSI 22 ; Ps t", b"\x1b[22;1t"),
+        ("OSC 46 ; Pt", b"\x1b]46;a.log\x1b\\"),
+        ("OSC 133", b"\x1b]133;A\x1b\\"),
+        ("OSC 10", b"\x1b]10;rgb:ff/ff/ff\x1b\\"),
+        ("OSC 104", b"\x1b]104\x1b\\"),
+        ("DCS $ q Pt ST", b"\x1bP$qm\x1b\\"),
+        ("Emoji_Presentation=Yes", b"Emoji_Presentation=Yes"),
+    ] {
+        assert_eq!(
+            synthesise(row).as_deref(),
+            Some(want),
+            "{row}: {:?}",
+            synthesise(row).map(|b| b.escape_ascii().to_string())
+        );
+    }
 }
 
 /// The check can fail: a sequence the table does **not** carry is unsupported.
@@ -241,6 +352,17 @@ fn the_handler_check_can_actually_fail() {
         t.unsupported, 1,
         "an unimplemented final byte must be counted"
     );
+    // And for the two string families the table's `OSC` and `DCS` rows are
+    // fed as: an `OSC` number and a `DCS` final baud has no handler for.
+    for (what, bytes) in [
+        ("OSC 9999", &b"\x1b]9999;x\x1b\\"[..]),
+        ("DCS z", b"\x1bPz\x1b\\"),
+    ] {
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed(&mut t, bytes);
+        assert_eq!(t.unsupported, 1, "{what} must be counted");
+    }
 }
 
 /// **The standing refusals, each pinned to what it actually refuses.**
