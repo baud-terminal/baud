@@ -2865,8 +2865,8 @@ impl<'b> ImageStore<'b> {
     /// inside the margins move within it instead, and only its rows inside
     /// the band: pixels a move takes past the image's top, moving up, or
     /// past the band's bottom or the image's, whichever comes first,
-    /// moving down, are lost. The two paths move different rows. A kitty placement keeps the
-    /// text's rule (`ImageStore::scroll_band`).
+    /// moving down, are lost. The two paths move different rows. A kitty
+    /// placement keeps the text's rule (`ImageStore::scroll_band`).
     #[allow(clippy::too_many_arguments)]
     pub fn scroll_rect(
         &mut self,

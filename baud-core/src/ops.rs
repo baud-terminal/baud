@@ -3896,10 +3896,10 @@ impl Paint<'_, '_> {
     /// data to be cleared" (`[[source: dec-std-070]]` p. 5-71), `?1049`'s
     /// and `?1047`'s clear. The VT330 and VT340 keep text and graphics in
     /// one bitmap, and xterm's `ClearScreen` clears the graphics over every
-    /// row (`[[source: xterm-scroll]]`'s file, lines 2370-2374), so a Sixel and the ReGIS page lose their
-    /// pixels as ED 2's rows do (`Paint::erase_display`), each row read
-    /// before its rendition is reset, and the kitty placements on the
-    /// screen go as ED 2 takes them.
+    /// row (`[[source: xterm-scroll]]`'s file, lines 2370-2374), so a Sixel
+    /// and the ReGIS page lose their pixels as ED 2's rows do
+    /// (`Paint::erase_display`), each row read before its rendition is
+    /// reset, and the kitty placements on the screen go as ED 2 takes them.
     pub(crate) fn clear_screen(&mut self) {
         if self.past_edge() {
             self.clear_erased_rows_past_edge(Row::ZERO, Row::from_index(self.rows.index()));
