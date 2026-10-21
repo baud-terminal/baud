@@ -10,8 +10,16 @@
 //! bold, underline, blink and reverse (blink drawn plain, as paper cannot
 //! blink); `ESC # 3`, `4`, `5` and `6`, the line sizes. Every other control,
 //! escape sequence and control string prints nothing and is counted in
-//! [`Stripped`]. A character a `CR` or `BS` returns over replaces the one
-//! there, where a printer's head would strike both.
+//! [`Stripped`].
+//!
+//! **A character the head comes back over is struck over, not replaced**:
+//! after a `CR` or a `BS` the next character prints on top of the one
+//! there, as a printer's head strikes both and as `[[source: ecma48]]`
+//! A.2 has it, "= BS /" processed "in such a way that it is preserved and
+//! can be forwarded to a device which can indeed produce the intended
+//! composite symbol" (6.4.2: "Composite graphic characters may be obtained
+//! by using formator functions only"). A space adds no ink, so it strikes
+//! nothing unless it is reversed or underlined.
 //!
 //! **A double-height line pair is printed once** (Jev's lean, DOUBLE_SIZE,
 //! 0.70/0.72 then 0.76/0.78): the `ESC # 3` line at double width and height
@@ -84,12 +92,86 @@ impl core::fmt::Display for Columns {
     }
 }
 
-/// One column of a line: a character and its marks, or nothing for the
-/// second column of a wide one.
+/// One strike of the head: a character and its marks, in a look.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Cell {
+pub struct Struck {
     pub text: String,
     pub look: Look,
+}
+
+impl Struck {
+    /// Whether it puts ink on paper: anything but a space, and a space
+    /// reversed or underlined.
+    fn inks(&self) -> bool {
+        self.text != " " || self.look.has(Look::REVERSE) || self.look.has(Look::UNDERLINE)
+    }
+
+    /// The columns it takes.
+    fn width(&self) -> Columns {
+        let w = self.text.chars().next().map_or(1, |c| {
+            Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells()
+        });
+        Columns(w.max(1))
+    }
+}
+
+/// Whether a column is where a character starts, or the second column of a
+/// wide one the column before began.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Half {
+    Lead,
+    Tail,
+}
+
+/// One column of a line: what the head struck there, first struck first,
+/// none for a column nothing inked.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Cell {
+    pub strikes: Vec<Struck>,
+    pub half: Half,
+}
+
+impl Cell {
+    const BLANK: Cell = Cell {
+        strikes: Vec::new(),
+        half: Half::Lead,
+    };
+}
+
+/// A distance on paper, in points.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Points(pub f64);
+
+/// A run of characters in one look, and how many columns the head goes
+/// back after its last one, so that what follows is struck over it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Run {
+    pub text: String,
+    pub look: Look,
+    pub back: Columns,
+}
+
+impl Run {
+    pub fn new(text: &str, look: Look) -> Run {
+        Run {
+            text: text.into(),
+            look,
+            back: Columns(0),
+        }
+    }
+
+    /// **How far its last character moves the next one back**, on a line
+    /// of `scale` laid out at `layout`: its columns at `layout.column`
+    /// each, twice that on a double-width or double-height line, which is
+    /// drawn twice as wide. Zero for a run nothing is struck over.
+    pub fn kern(&self, layout: Layout, scale: Scale) -> Points {
+        let wide = match scale {
+            Scale::Single => 1.0,
+            Scale::DoubleWidth | Scale::DoubleTop | Scale::DoubleBottom => 2.0,
+        };
+        let back = f64::from(u32::try_from(self.back.0).unwrap_or(u32::MAX));
+        Points(-back * layout.column * wide)
+    }
 }
 
 /// One printed line.
@@ -107,19 +189,40 @@ impl Line {
         }
     }
 
-    /// The line's text in runs of one look, trailing blanks of the plain
-    /// look left off.
-    pub fn runs(&self) -> Vec<(String, Look)> {
-        let mut out: Vec<(String, Look)> = Vec::new();
-        let end = self
-            .cells
-            .iter()
-            .rposition(|c| !(c.text == " " && c.look == Look::PLAIN))
-            .map_or(0, |i| i + 1);
-        for c in &self.cells[..end] {
-            match out.last_mut() {
-                Some((t, l)) if *l == c.look => t.push_str(&c.text),
-                _ => out.push((c.text.clone(), c.look)),
+    /// **The line's text in runs of one look**, trailing blank columns left
+    /// off. The pen is followed across the line: a strike that starts left
+    /// of where the one before left it has the run before go back the
+    /// difference, so it is drawn over what is there, and one that starts
+    /// right of it is reached through blanks. A narrow strike over a wide
+    /// character's first column leaves the pen at its second, so what is
+    /// struck there is not moved back.
+    pub fn runs(&self) -> Vec<Run> {
+        let mut out: Vec<Run> = Vec::new();
+        let mut pen = 0usize;
+        for (at, c) in self.cells.iter().enumerate() {
+            for s in &c.strikes {
+                match pen.checked_sub(at) {
+                    Some(0) => {}
+                    Some(back) => {
+                        if let Some(r) = out.last_mut() {
+                            r.back = Columns(back);
+                        }
+                    }
+                    None => {
+                        let blanks = " ".repeat(at - pen);
+                        match out.last_mut() {
+                            Some(r) if r.look == Look::PLAIN && r.back.0 == 0 => {
+                                r.text.push_str(&blanks)
+                            }
+                            _ => out.push(Run::new(&blanks, Look::PLAIN)),
+                        }
+                    }
+                }
+                match out.last_mut() {
+                    Some(r) if r.look == s.look && r.back.0 == 0 => r.text.push_str(&s.text),
+                    _ => out.push(Run::new(&s.text, s.look)),
+                }
+                pen = at + s.width().0;
             }
         }
         out
@@ -190,32 +293,29 @@ impl Head {
         let cells = &mut lines[line].cells;
         let w = Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells();
         if w == 0 {
-            // A mark joins the character before it.
+            // A mark joins the character struck last before it.
             let before = col.min(cells.len());
             if let Some(prev) = cells[..before]
                 .iter_mut()
                 .rev()
-                .find(|c| !c.text.is_empty())
+                .find_map(|c| c.strikes.last_mut())
             {
                 prev.text.push(c);
             }
             return;
         }
         while cells.len() < col + w {
-            cells.push(Cell {
-                text: " ".into(),
-                look: Look::PLAIN,
-            });
+            cells.push(Cell::BLANK);
         }
-        cells[col] = Cell {
+        let strike = Struck {
             text: c.into(),
             look,
         };
+        if strike.inks() {
+            cells[col].strikes.push(strike);
+        }
         if w == 2 {
-            cells[col + 1] = Cell {
-                text: String::new(),
-                look,
-            };
+            cells[col + 1].half = Half::Tail;
         }
         self.col.0 += w;
     }
@@ -368,10 +468,10 @@ pub fn read(job: &[u8]) -> (Vec<Vec<Line>>, Stripped) {
         };
     }
     let mut forms = head.forms;
-    if forms
-        .last()
-        .is_some_and(|f| f.iter().all(|l| l.cells.is_empty()))
-    {
+    if forms.last().is_some_and(|f| {
+        f.iter()
+            .all(|l| l.cells.iter().all(|c| c.strikes.is_empty()))
+    }) {
         forms.pop();
     }
     (forms, head.stripped)
@@ -427,6 +527,8 @@ pub fn paginate(forms: &[Vec<Line>], per: Lines) -> Vec<Page> {
 pub struct Layout {
     pub size: f64,
     pub line_height: f64,
+    /// A column's width at `size`, what a run going back moves by.
+    pub column: f64,
     pub lines: Lines,
 }
 
@@ -443,6 +545,7 @@ impl Layout {
         Layout {
             size,
             line_height,
+            column: size * advance,
             lines,
         }
     }
@@ -452,8 +555,25 @@ impl Layout {
 mod tests {
     use super::*;
 
+    /// Each column's last strike, a blank a space and a wide character's
+    /// second column nothing.
     fn text(l: &Line) -> String {
-        l.cells.iter().map(|c| c.text.as_str()).collect()
+        l.cells
+            .iter()
+            .map(|c| match (c.half, c.strikes.last()) {
+                (_, Some(s)) => s.text.as_str(),
+                (Half::Tail, None) => "",
+                (Half::Lead, None) => " ",
+            })
+            .collect()
+    }
+
+    fn run(t: &str, look: Look, back: Columns) -> Run {
+        Run {
+            text: t.into(),
+            look,
+            back,
+        }
     }
 
     /// **The core's print page reads back as the screen it printed**: line
@@ -470,9 +590,9 @@ mod tests {
         assert_eq!(
             lines[0].runs(),
             [
-                ("B".to_string(), Look::BOLD),
-                ("U".to_string(), Look::UNDERLINE.with(Look::REVERSE)),
-                ("x".to_string(), Look::PLAIN),
+                Run::new("B", Look::BOLD),
+                Run::new("U", Look::UNDERLINE.with(Look::REVERSE)),
+                Run::new("x", Look::PLAIN),
             ]
         );
         assert_eq!(
@@ -494,7 +614,8 @@ mod tests {
         assert_eq!(text(&forms[0][0]), "Xbc     Z");
         assert_eq!(text(&forms[0][1]), "  \u{4e2d}e\u{301}    !");
         assert_eq!(
-            forms[0][1].cells[3].text, "",
+            forms[0][1].cells[3].half,
+            Half::Tail,
             "the wide character's second column"
         );
         assert_eq!(text(&forms[1][0]), "     next", "FF keeps the column");
@@ -506,7 +627,11 @@ mod tests {
     fn sgr_takes_the_four_attributes_and_passes_colours_over() {
         let (forms, _) =
             read(b"\x1b[38;2;1;4;7ma\x1b[1;4:3;5;7mb\x1b[22;24;25;27mc\x1b[4m\x1b[4:0md");
-        let looks: Vec<Look> = forms[0][0].cells.iter().map(|c| c.look).collect();
+        let looks: Vec<Look> = forms[0][0]
+            .cells
+            .iter()
+            .map(|c| c.strikes[0].look)
+            .collect();
         let all = Look::BOLD
             .with(Look::UNDERLINE)
             .with(Look::BLINK)
@@ -559,5 +684,132 @@ mod tests {
         assert_eq!(at(100).size, 8.0);
         assert_eq!(at(1000).size, 4.0);
         assert_eq!(widest(&read(b"ab\r\n\x1b#6abc").0), Columns(6));
+    }
+
+    /// **A character the head comes back over is struck over**: `BS` and
+    /// `CR` bring the head back, and what it strikes there is printed on top
+    /// of what was there, each strike in its own look (`[[source: ecma48]]`
+    /// A.2's "= BS /"); a mark joins the strike before it.
+    #[test]
+    fn a_struck_over_character_keeps_both() {
+        let (forms, _) = read("a\u{8}_b\rX\x1b[1m\u{8}\u{8}\u{8}+e\u{301}".as_bytes());
+        let col0: Vec<(&str, Look)> = forms[0][0].cells[0]
+            .strikes
+            .iter()
+            .map(|s| (s.text.as_str(), s.look))
+            .collect();
+        assert_eq!(
+            col0,
+            [
+                ("a", Look::PLAIN),
+                ("_", Look::PLAIN),
+                ("X", Look::PLAIN),
+                ("+", Look::BOLD)
+            ]
+        );
+        assert_eq!(forms[0][0].cells[1].strikes[1].text, "e\u{301}");
+        assert_eq!(
+            forms[0][0].runs(),
+            [
+                run("a", Look::PLAIN, Columns(1)),
+                run("_", Look::PLAIN, Columns(1)),
+                run("X", Look::PLAIN, Columns(1)),
+                run("+", Look::BOLD, Columns(0)),
+                run("b", Look::PLAIN, Columns(1)),
+                run("e\u{301}", Look::BOLD, Columns(0)),
+            ]
+        );
+    }
+
+    /// **A space strikes nothing unless reversed or underlined**, and a
+    /// wide character's second column struck over sends the head back
+    /// over the wide one.
+    #[test]
+    fn a_space_adds_no_ink_and_a_wide_tail_can_be_struck() {
+        let (forms, _) = read("ab\r \x1b[4m \x1b[0m\r\u{4e2d}\u{8}|".as_bytes());
+        let line = &forms[0][0];
+        let texts: Vec<Vec<&str>> = line
+            .cells
+            .iter()
+            .map(|c| c.strikes.iter().map(|s| s.text.as_str()).collect())
+            .collect();
+        assert_eq!(texts, [vec!["a", "\u{4e2d}"], vec!["b", " ", "|"]]);
+        assert_eq!(line.cells[1].half, Half::Tail);
+        assert_eq!(
+            line.runs(),
+            [
+                run("a", Look::PLAIN, Columns(1)),
+                run("\u{4e2d}", Look::PLAIN, Columns(1)),
+                run("b", Look::PLAIN, Columns(1)),
+                run(" ", Look::UNDERLINE, Columns(1)),
+                run("|", Look::PLAIN, Columns(0)),
+            ]
+        );
+    }
+
+    /// The column each glyph of `runs` is drawn at, as the printer draws
+    /// them: each at the pen, the pen going on its columns, a run's back
+    /// taking the pen back; a space is left out.
+    fn drawn(runs: &[Run]) -> Vec<(char, usize)> {
+        let mut pen = 0usize;
+        let mut out = Vec::new();
+        for r in runs {
+            for c in r.text.chars() {
+                let w = Width::of(Codepoint::from_char(c), AmbiguousWidth::Narrow).cells();
+                if w > 0 && c != ' ' {
+                    out.push((c, pen));
+                }
+                pen += w;
+            }
+            pen -= r.back.0;
+        }
+        out
+    }
+
+    /// **A narrow strike over a wide character's first column leaves the
+    /// pen at its second**, so what is struck there and after it is drawn
+    /// in its own column, and a second column nothing struck is a blank.
+    #[test]
+    fn a_narrow_strike_over_a_wide_character_keeps_the_columns() {
+        let line = |job: &str| read(job.as_bytes()).0[0][0].clone();
+        assert_eq!(
+            drawn(&line("\u{4e2d}\rax").runs()),
+            [('\u{4e2d}', 0), ('a', 0), ('x', 1)]
+        );
+        assert_eq!(
+            drawn(&line("\u{4e2d}\u{6587}\r____").runs()),
+            [
+                ('\u{4e2d}', 0),
+                ('_', 0),
+                ('_', 1),
+                ('\u{6587}', 2),
+                ('_', 2),
+                ('_', 3)
+            ]
+        );
+        assert_eq!(
+            drawn(&line("\u{4e2d}b\ra").runs()),
+            [('\u{4e2d}', 0), ('a', 0), ('b', 2)]
+        );
+        assert_eq!(
+            drawn(&line("a\u{8}_b").runs()),
+            [('a', 0), ('_', 0), ('b', 1)]
+        );
+    }
+
+    /// **A run going back moves the next glyph back its columns**, twice as
+    /// far on a line drawn twice as wide.
+    #[test]
+    fn a_run_going_back_kerns_by_its_columns() {
+        let at = Layout::fit(480.0, 720.0, 0.6, 1.2, Columns(80));
+        assert_eq!(at.column, 6.0, "ten points at 0.6 a point");
+        let r = run("a", Look::PLAIN, Columns(2));
+        assert_eq!(r.kern(at, Scale::Single), Points(-12.0));
+        assert_eq!(r.kern(at, Scale::DoubleWidth), Points(-24.0));
+        assert_eq!(r.kern(at, Scale::DoubleTop), Points(-24.0));
+        assert_eq!(
+            Run::new("a", Look::PLAIN).kern(at, Scale::Single),
+            Points(-0.0)
+        );
     }
 }

@@ -20,7 +20,7 @@
 //! nothing.
 #![allow(unsafe_code)]
 
-use baud_render::print::{Layout, Look, Page, Scale};
+use baud_render::print::{Layout, Look, Page, Run, Scale};
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use macos_liquid_glass::objc2_app_kit::{
@@ -86,11 +86,15 @@ const BACKGROUND: &str = "NSBackgroundColor";
 const UNDERLINE: &str = "NSUnderline";
 const EXPANSION: &str = "NSExpansion";
 const PARAGRAPH: &str = "NSParagraphStyle";
+const KERN: &str = "NSKern";
 
 /// One page's lines as attributed text at `layout`'s size: bold in the
 /// font's bold weight, underline single, reverse white on black, blink
 /// plain; a double-width line stretched to twice its width, a double-height
-/// one at twice the size over two lines' height.
+/// one at twice the size over two lines' height. **A character struck over
+/// is drawn under what struck it**: the run before carries a negative kern
+/// on its last character, the columns it goes back, so the next glyph
+/// starts where it did (`Run::kern`).
 fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString> {
     let out = NSMutableAttributedString::new();
     for line in &page.lines {
@@ -105,13 +109,16 @@ fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString>
         paragraph.setMinimumLineHeight(height);
         paragraph.setMaximumLineHeight(height);
         let mut runs = line.runs();
-        runs.push(("\n".to_string(), baud_render::print::Look::PLAIN));
-        for (text, look) in runs {
+        runs.push(Run::new("\n", Look::PLAIN));
+        for r in runs {
+            let look = r.look;
             let run = NSMutableAttributedString::initWithString(
                 NSMutableAttributedString::alloc(),
-                &NSString::from_str(&text),
+                &NSString::from_str(&r.text),
             );
             let all = NSRange::new(0, run.length());
+            let kern = r.kern(layout, line.scale).0;
+            let last = r.text.chars().next_back().map_or(0, char::len_utf16);
             // SAFETY: extern statics of the bindings, `CGFloat`s read.
             let weight = match look.has(Look::BOLD) {
                 true => unsafe { NSFontWeightBold },
@@ -124,7 +131,7 @@ fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString>
             };
             // SAFETY: each value is of the type its attribute takes -- a
             // font, a colour, a number, a paragraph style -- and `all` is
-            // the run's whole length.
+            // the run's whole length, `end` its last character's.
             unsafe {
                 run.addAttribute_value_range(&NSString::from_str(FONT), &font, all);
                 run.addAttribute_value_range(&NSString::from_str(COLOR), &ink, all);
@@ -139,6 +146,11 @@ fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString>
                 if expand != 0.0 {
                     let wide = NSNumber::new_f64(expand);
                     run.addAttribute_value_range(&NSString::from_str(EXPANSION), &wide, all);
+                }
+                if kern != 0.0 && last > 0 {
+                    let back = NSNumber::new_f64(kern);
+                    let end = NSRange::new(all.length - last, last);
+                    run.addAttribute_value_range(&NSString::from_str(KERN), &back, end);
                 }
             }
             out.appendAttributedString(&run);

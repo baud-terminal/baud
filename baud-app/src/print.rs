@@ -490,7 +490,10 @@ mod tests {
         assert_eq!(pages[0].lines.len(), 4);
         assert_eq!(
             pages[0].lines[0].runs(),
-            [("hello".to_string(), baud_render::print::Look::BOLD)]
+            [baud_render::print::Run::new(
+                "hello",
+                baud_render::print::Look::BOLD
+            )]
         );
         assert_eq!(layout.size, 10.0);
     }
