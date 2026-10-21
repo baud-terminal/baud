@@ -406,3 +406,242 @@ impl LocatorReport {
         }
     }
 }
+
+/// What a locator key's string is sent for in ReGIS graphics input: no
+/// transition -- a report the host asked for -- or a button pressed or
+/// released.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LocatorTransition {
+    Null,
+    Down(LocatorButton),
+    Up(LocatorButton),
+}
+
+/// "There are six bytes available to each of the locator keys" (070-13
+/// § 5.4); "You can only use 6 characters per button transition"
+/// (`[[source: vt3xx-locator]]`).
+pub const LOCATOR_KEY_MAX: usize = 6;
+
+/// One transition's string: the default, or what DECLKD loaded, up to
+/// [`LOCATOR_KEY_MAX`] bytes, empty for a transition that reports nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeyDef {
+    Default,
+    Loaded {
+        bytes: [u8; LOCATOR_KEY_MAX],
+        len: u8,
+    },
+}
+
+impl KeyDef {
+    const EMPTY: KeyDef = KeyDef::Loaded {
+        bytes: [0; LOCATOR_KEY_MAX],
+        len: 0,
+    };
+}
+
+/// **DECLKD's locator key definitions** (`[[source: dec-std-070]]` 070-13
+/// § 5.4; the VT330/VT340's DECLBD, `[[source: vt3xx-locator]]`): the
+/// string each of the four keys sends going down and coming up ahead of a
+/// ReGIS position report.
+///
+/// **The defaults** are "No button transition ESC [240 ~", "Ky1 down
+/// transition ESC [241 ~" to "Ky4 down transition ESC [247 ~", and "Up
+/// Transitions are ignored by default" -- the `CSI` sent as replies send
+/// it, seven or eight bits. A power-up and `RIS` restore them; "LKDs are
+/// not affected by Soft Terminal Reset (DECSTR)". The null button's string
+/// is not one of the four keys a definition names, and stays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LocatorKeys {
+    /// Down then up, for keys 1 to 4.
+    defs: [KeyDef; 8],
+    /// Definitions and strings refused (DECLKD's own count).
+    refused: u32,
+    /// The clear parameter of the DECLKD being read.
+    pc: u16,
+}
+
+/// The bytes a transition sends: its introducer and up to six more.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LocatorString {
+    bytes: [u8; 8],
+    len: u8,
+}
+
+impl LocatorString {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.len)]
+    }
+
+    fn of(parts: &[&[u8]]) -> LocatorString {
+        let mut s = LocatorString {
+            bytes: [0; 8],
+            len: 0,
+        };
+        for &b in parts.iter().flat_map(|p| p.iter()) {
+            if usize::from(s.len) < s.bytes.len() {
+                s.bytes[usize::from(s.len)] = b;
+                s.len += 1;
+            }
+        }
+        s
+    }
+}
+
+impl LocatorKeys {
+    /// Power-up: every key its default.
+    pub const DEFAULT: LocatorKeys = LocatorKeys {
+        defs: [KeyDef::Default; 8],
+        refused: 0,
+        pc: 0,
+    };
+
+    /// `RIS`: the defaults again; the count of refusals is a reading and
+    /// survives.
+    pub fn reset(&mut self) {
+        self.defs = [KeyDef::Default; 8];
+    }
+
+    /// How many definitions and strings DECLKD refused.
+    pub fn refused(&self) -> u32 {
+        self.refused
+    }
+
+    fn slot(b: LocatorButton) -> usize {
+        match b {
+            LocatorButton::Left => 0,
+            LocatorButton::Middle => 1,
+            LocatorButton::Right => 2,
+            LocatorButton::Fourth => 3,
+        }
+    }
+
+    /// The string `t` sends, with `csi` the introducer replies use.
+    pub fn string(&self, t: LocatorTransition, csi: &[u8]) -> LocatorString {
+        let (def, code): (KeyDef, &[u8]) = match t {
+            LocatorTransition::Null => return LocatorString::of(&[csi, b"240~"]),
+            LocatorTransition::Down(b) => {
+                let code: &[u8] = match b {
+                    LocatorButton::Left => b"241~",
+                    LocatorButton::Middle => b"243~",
+                    LocatorButton::Right => b"245~",
+                    LocatorButton::Fourth => b"247~",
+                };
+                (self.defs[2 * Self::slot(b)], code)
+            }
+            LocatorTransition::Up(b) => (self.defs[2 * Self::slot(b) + 1], b""),
+        };
+        match def {
+            KeyDef::Default if code.is_empty() => LocatorString::of(&[]),
+            KeyDef::Default => LocatorString::of(&[csi, code]),
+            KeyDef::Loaded { bytes, len } => LocatorString::of(&[&bytes[..usize::from(len)]]),
+        }
+    }
+
+    /// A DECLKD begins: `pc` its clear parameter, its body to follow
+    /// ([`LocatorKeys::end`]).
+    pub fn begin(&mut self, pc: u16) {
+        self.pc = pc;
+    }
+
+    /// **A DECLKD**, `DCS Pc $ w Ky1/Std1/Stu1;...;Kyn/Stdn/Stun ST`,
+    /// ends: `body` its data with every control already dropped.
+    ///
+    /// "0-(or omitted) Clear all LKDs before loading new values. All button
+    /// definition strings are empty (not the default). 1-Clear old
+    /// definition only for keys that are redefined"; any other value is no
+    /// DECLKD and the string is refused whole, as DECUDK's `OTHERWISE
+    /// VALID_UDK_SYNTAX:= FALSE` (070-11). Each definition is "Key
+    /// selection code n, slash delimiter (2/15), and string parameter n for
+    /// down and up key transitions. Kyn is a single ASCII digit, and
+    /// Std/Stu is a series of ASCII hex pairs. If Std or Stu is omitted,
+    /// the corresponding button string will be empty", separated by `;`.
+    /// Read as DECUDK's loading reads its definitions (070-11 FILL_KEYS),
+    /// all three decided by Jev: a key other than 1 to 4 skips its
+    /// definition (SKIP_DEFINITION, 0.96 and 0.94); a hex pair broken or a
+    /// character that is no hex digit stops the rest of the string, the
+    /// definitions before it kept (STOP, 0.96 and 0.98); a string past six
+    /// bytes is not stored -- the key keeps what the clear left it -- and
+    /// the rest of the string is ignored (UDK_OVERFLOW, 0.92 and 0.94).
+    /// Each refusal is counted.
+    pub fn end(&mut self, body: &[u8]) {
+        match self.pc {
+            0 => self.defs = [KeyDef::EMPTY; 8],
+            1 => {}
+            _ => {
+                self.refused += 1;
+                return;
+            }
+        }
+        for def in body.split(|&b| b == b';') {
+            if def.is_empty() {
+                continue;
+            }
+            match Self::definition(def) {
+                Def::Load(k, down, up) => {
+                    self.defs[2 * k] = down;
+                    self.defs[2 * k + 1] = up;
+                }
+                Def::Skip => self.refused += 1,
+                Def::Stop => {
+                    self.refused += 1;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// One `Ky/Std/Stu`.
+    fn definition(def: &[u8]) -> Def {
+        let mut parts = def.splitn(3, |&b| b == b'/');
+        let key = parts.next().unwrap_or(&[]);
+        let k = match key {
+            [d @ b'1'..=b'4'] => usize::from(d - b'1'),
+            [b'0'..=b'9'] => return Def::Skip,
+            _ => return Def::Stop,
+        };
+        let (Some(down), Some(up)) = (
+            hex_string(parts.next().unwrap_or(&[])),
+            hex_string(parts.next().unwrap_or(&[])),
+        ) else {
+            return Def::Stop;
+        };
+        Def::Load(k, down, up)
+    }
+}
+
+/// What one definition does.
+enum Def {
+    Load(usize, KeyDef, KeyDef),
+    Skip,
+    Stop,
+}
+
+/// A string of hex pairs as its bytes: `None` for a broken pair, a
+/// character no hex digit, or more than [`LOCATOR_KEY_MAX`] bytes.
+fn hex_string(s: &[u8]) -> Option<KeyDef> {
+    if !s.len().is_multiple_of(2) || s.len() > 2 * LOCATOR_KEY_MAX {
+        return None;
+    }
+    let mut bytes = [0u8; LOCATOR_KEY_MAX];
+    for (i, pair) in s.chunks(2).enumerate() {
+        let hi = hex_digit(pair[0])?;
+        let lo = hex_digit(pair[1])?;
+        bytes[i] = hi << 4 | lo;
+    }
+    Some(KeyDef::Loaded {
+        bytes,
+        len: (s.len() / 2) as u8,
+    })
+}
+
+/// "3/0 through 3/9 (0 through 9) 4/1 through 4/6 (A through F) 6/1
+/// through 6/6 (a through f)".
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
+    }
+}

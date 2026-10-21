@@ -188,7 +188,7 @@ impl Paint<'_, '_> {
         // `gr_as_gl` maps nothing: the bytes are a character's.
         if matches!(
             self.cold.str_kind,
-            StrKind::Decrqss | StrKind::RestoreCursor | StrKind::RestoreTabs
+            StrKind::Decrqss | StrKind::RestoreCursor | StrKind::RestoreTabs | StrKind::LocatorKeys
         ) {
             return self.status_data_put(b);
         }
@@ -452,6 +452,7 @@ impl Paint<'_, '_> {
             // locator will be disabled until ReGIS is re-entered" (070-13
             // § 5.2) and the output cursor shows only "in ReGIS mode".
             StrKind::Regis => self.regis_cursor_off(),
+            StrKind::LocatorKeys => self.locator_keys_end(),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -1207,6 +1208,9 @@ pub(crate) enum StrKind {
     /// A `DCS Pn p`, ReGIS: each body byte goes to the interpreter as it
     /// arrives (`crate::regis`), and nothing is kept.
     Regis,
+    /// A `DCS Pc $ w`, DECLKD: the body is kept and loaded at the
+    /// terminator (`Paint::locator_keys_end`).
+    LocatorKeys,
 }
 
 impl StrKind {

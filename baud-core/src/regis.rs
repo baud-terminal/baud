@@ -75,8 +75,25 @@ impl Paint<'_, '_> {
     pub(crate) fn dcs_start(&mut self, b: StreamByte, csi: &Csi) -> crate::osc::StrKind {
         match b.raw_byte() {
             b'p' => self.regis_start(csi),
+            b'w' => self.locator_keys_start(csi),
             _ => self.restore_start(csi),
         }
+    }
+
+    /// A `DCS Pc $ w`, DECLKD: its clear parameter kept for the end, and
+    /// its body kept as a DECRQSS body is, every control dropped
+    /// (`Paint::str_put`).
+    fn locator_keys_start(&mut self, csi: &Csi) -> crate::osc::StrKind {
+        let pc = csi.params().raw(ParamIdx::FIRST, 0);
+        self.strs.regis.locator_keys_mut().begin(pc);
+        crate::osc::StrKind::LocatorKeys
+    }
+
+    /// A DECLKD's terminator: its definitions loaded.
+    pub(crate) fn locator_keys_end(&mut self) {
+        let n = self.cold.str_len.index().min(self.strs.pending.len());
+        let strs = &mut *self.strs;
+        strs.regis.locator_keys_mut().end(&strs.pending[..n]);
     }
 
     /// A `DCS Pn p`: enter ReGIS, `Pn` the envelope's first parameter.
@@ -617,72 +634,9 @@ impl RegisOut for Out<'_, '_> {
     /// whole or dropped.
     fn interactive(&mut self, pos: &[u8]) {
         let mut b = [0u8; REPORT_MAX];
-        let r = report_bytes(
-            &mut b,
-            button_string(KeyTransition::Null, self.c1).as_bytes(),
-            pos,
-        );
+        let null = LocatorKeys::DEFAULT.string(LocatorTransition::Null, self.c1.csi());
+        let r = report_bytes(&mut b, null.as_bytes(), pos);
         self.reply(r);
-    }
-}
-
-/// What a locator transition is, for the string it sends: none (a report
-/// the host asked for), a button pressed or released.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum KeyTransition {
-    Null,
-    Down(LocatorButton),
-    Up(LocatorButton),
-}
-
-/// **The string a transition sends ahead of a ReGIS position report**:
-/// `[[source: vt3xx-locator]]` Table 15-1, the null button `CSI 240 ~`,
-/// buttons 1 to 4 pressed `CSI 241 ~`, `CSI 243 ~`, `CSI 245 ~` and `CSI
-/// 247 ~`, and "no report" for a release; 070-13 § 5.4 writes the same
-/// defaults ("Up Transitions are ignored by default"). Empty for a
-/// transition that reports nothing, which "will not terminate ReGIS
-/// One-Shot Graphics Input Mode" (DECLKD note 2).
-pub(crate) fn button_string(t: KeyTransition, c1: C1Transmit) -> KeyString {
-    let code: &[u8] = match t {
-        KeyTransition::Null => b"240~",
-        KeyTransition::Down(LocatorButton::Left) => b"241~",
-        KeyTransition::Down(LocatorButton::Middle) => b"243~",
-        KeyTransition::Down(LocatorButton::Right) => b"245~",
-        KeyTransition::Down(LocatorButton::Fourth) => b"247~",
-        KeyTransition::Up(_) => return KeyString::EMPTY,
-    };
-    let mut k = KeyString::EMPTY;
-    k.push(c1.csi());
-    k.push(code);
-    k
-}
-
-/// A transition's string: at most six bytes ("You can use only 6 characters
-/// per button transition") and its introducer.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct KeyString {
-    bytes: [u8; 8],
-    len: ByteLen,
-}
-
-impl KeyString {
-    pub(crate) const EMPTY: KeyString = KeyString {
-        bytes: [0; 8],
-        len: ByteLen::ZERO,
-    };
-
-    fn push(&mut self, s: &[u8]) {
-        for &b in s {
-            let at = self.len.index();
-            if at < self.bytes.len() {
-                self.bytes[at] = b;
-                self.len = ByteLen::from_index(at + 1);
-            }
-        }
-    }
-
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..self.len.index()]
     }
 }
 
@@ -850,7 +804,11 @@ impl Term<'_> {
     /// **The pointer while graphics input runs**: a move puts the input
     /// cursor under it, and a button's transition whose string is not empty
     /// sends that string, the position and a carriage return (070-13 § 5.1
-    /// and § 5.2), ending a one-shot input. Whether a report went.
+    /// and § 5.2), ending a one-shot input. The strings are DECLKD's
+    /// ([`LocatorKeys`]): by default `CSI 241 ~`, `243`, `245` and `247` for
+    /// the four buttons pressed (`[[source: vt3xx-locator]]` Table 15-1) and
+    /// nothing for a release, which "will not terminate ReGIS One-Shot
+    /// Graphics Input Mode" (DECLKD note 2). Whether a report went.
     pub(crate) fn regis_pointer(&mut self, e: &LocatorInput) -> bool {
         if self.regis_input() == RegisInput::Off {
             return false;
@@ -862,13 +820,14 @@ impl Term<'_> {
                 .input_point(i32::from(px.x.raw()), i32::from(px.y.raw()));
         }
         let t = match e.kind {
-            LocatorKind::Press(b) => Some(KeyTransition::Down(b)),
-            LocatorKind::Release(b) => Some(KeyTransition::Up(b)),
+            LocatorKind::Press(b) => Some(LocatorTransition::Down(b)),
+            LocatorKind::Release(b) => Some(LocatorTransition::Up(b)),
             LocatorKind::Moved => None,
         };
         let mut sent = false;
         if let Some(t) = t {
-            let s = button_string(t, self.cold.replies.c1());
+            let csi = self.cold.replies.c1().csi();
+            let s = self.store.strs.regis.locator_keys().string(t, csi);
             if !s.as_bytes().is_empty() {
                 sent = self.regis_report(s.as_bytes());
                 if self.regis_input() == RegisInput::OneShot {
@@ -878,6 +837,15 @@ impl Term<'_> {
         }
         self.regis_cursor_redraw();
         sent
+    }
+
+    /// How many DECLKD definitions and strings were refused: a key number
+    /// past 4, a broken hex pair, a string past six bytes, a clear
+    /// parameter past 1 ([`LocatorKeys::end`]).
+    pub fn locator_keys_refused(&self) -> Count {
+        Count::of(
+            usize::try_from(self.store.strs.regis.locator_keys().refused()).unwrap_or(usize::MAX),
+        )
     }
 
     /// **Give up a one-shot input**: the host wrote more than the embedder

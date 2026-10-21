@@ -30111,3 +30111,20 @@ bytes  = 2794
 status = "retrieved"
 group  = "C"
 # Retrieved 2026-10-21 (lane b126).
+
+[sources.vt340test-locatorprog]
+key    = "vt340test-locatorprog"
+title  = "vt340test, locator/locatorprog.sh -- DECLBD on a real VT340: each key's press string then its release string, as hex pairs"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locatorprog.sh"
+file   = "vt340test-locatorprog.sh"
+sha256 = "b02bf9dd9ebc7424c75bc3aaf6b1aec8984f73ee6aca1d09ffb80fce4fa0a8b8"
+bytes  = 8902
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-21 (lane b126) for DECLKD: `declbd 1 "${CSI}241~"
+# "${CSI}242~"` loads the press then the release, as 070-13 § 5.4 orders
+# them; the VT330/VT340 manual's own example and separator sentence put
+# the release first.

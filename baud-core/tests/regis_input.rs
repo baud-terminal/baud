@@ -628,3 +628,113 @@ fn an_esc_a_read_ends_on_keeps_the_cursor_until_the_next_byte() {
         assert_eq!(painted(&page(t)).len(), 2, "the vector alone");
     });
 }
+
+// ---------------------------------------------------------------------------
+// DECLKD, the locator key definitions (070-13 § 5.4).
+// ---------------------------------------------------------------------------
+
+fn press(t: &mut Term<'_>, b: LocatorButton) -> Vec<u8> {
+    pointer(t, LocatorKind::Press(b), 7, 9)
+}
+
+fn release(t: &mut Term<'_>, b: LocatorButton) -> Vec<u8> {
+    pointer(t, LocatorKind::Release(b), 7, 9)
+}
+
+/// **A DECLKD programs a key's press and release**: "Kyn / Stnd / Stnu
+/// ... string parameter n for down and up key transitions ... a series of
+/// ASCII hex pairs" (070-13 § 5.4), the press first as the standard and a
+/// real VT340's test script send it (`[[source: vt340test-locatorprog]]`
+/// loads `241~` then `242~`); a release with a string reports, in multiple
+/// mode too. The bytes go as loaded, 8-bit ones included.
+#[test]
+fn a_declkd_programs_a_keys_press_and_release() {
+    term(|t| {
+        read(t, b"\x1bP1$w1/41/42;3/8F50\x1b\\\x1bPpR(I1)");
+        answered(t);
+        assert_eq!(press(t, LocatorButton::Left), b"A[7,9]\r");
+        assert_eq!(release(t, LocatorButton::Left), b"B[7,9]\r");
+        assert_eq!(press(t, LocatorButton::Right), b"\x8fP[7,9]\r");
+        assert_eq!(release(t, LocatorButton::Right), b"", "no up string");
+        assert_eq!(press(t, LocatorButton::Middle), b"\x1b[243~[7,9]\r");
+    });
+}
+
+/// **`Pc` 0 empties every key, and an empty string does not end
+/// one-shot**: "All button definition strings are empty (not the
+/// default)", and "A locator transition for which the key definition is
+/// empty will not terminate ReGIS One-Shot Graphics Input Mode". The null
+/// button's `CSI 240 ~` is not one of the four keys and stays.
+#[test]
+fn pc_0_empties_every_key_and_an_empty_key_does_not_end_one_shot() {
+    term(|t| {
+        read(t, b"\x1bP0$w\x1b\\\x1bPpR(P(I))\x1b\\");
+        assert_eq!(press(t, LocatorButton::Left), b"");
+        assert_eq!(t.regis_input(), RegisInput::OneShot, "still waiting");
+        assert_eq!(key(t, letter('k'), Modifiers::NONE), b"k[7,9]\r");
+        let (reply, _) = read(t, b"\x1bPpR(I1)R(P(I))\x1b\\");
+        assert_eq!(reply, b"\r\x1b[240~[0,0]\r", "the null button stays");
+    });
+}
+
+/// **`Pc` 1 clears only the keys redefined**, both transitions of each.
+#[test]
+fn pc_1_clears_only_the_keys_redefined() {
+    term(|t| {
+        read(t, b"\x1bP1$w2/43\x1b\\\x1bPpR(I1)");
+        answered(t);
+        assert_eq!(press(t, LocatorButton::Middle), b"C[7,9]\r");
+        assert_eq!(press(t, LocatorButton::Left), b"\x1b[241~[7,9]\r");
+    });
+}
+
+/// **`RIS` restores the defaults and `DECSTR` keeps what was loaded**:
+/// "A power-up restart or Reset to Initial State (RIS) will cause the LKDs
+/// to be set to their default value. LKDs are not affected by Soft
+/// Terminal Reset (DECSTR)."
+#[test]
+fn ris_restores_the_keys_and_decstr_keeps_them() {
+    term(|t| {
+        read(t, b"\x1bP1$w1/41\x1b\\\x1b[!p\x1bPpR(I1)");
+        answered(t);
+        assert_eq!(press(t, LocatorButton::Left), b"A[7,9]\r", "DECSTR kept it");
+        read(t, b"\x1b\\\x1bc\x1bPpR(I1)");
+        answered(t);
+        assert_eq!(press(t, LocatorButton::Left), b"\x1b[241~[7,9]\r");
+    });
+}
+
+/// **A DECLKD is read as DECUDK's loading reads one** (070-11's
+/// `FILL_KEYS`; Jev): a key past 4 skips its definition, a broken hex pair
+/// stops the rest, a string past six bytes is not stored and stops the
+/// rest, a `Pc` past 1 refuses the string -- each counted.
+#[test]
+fn a_bad_declkd_is_refused_as_decudk_refuses_one() {
+    let case = |load: &[u8], left: &[u8], middle: &[u8]| {
+        term(|t| {
+            read(t, &[load, b"\x1bPpR(I1)"].concat());
+            answered(t);
+            assert_eq!(press(t, LocatorButton::Left), left, "{:?}", load);
+            assert_eq!(press(t, LocatorButton::Middle), middle, "{:?}", load);
+            assert_eq!(t.locator_keys_refused().index(), 1, "{:?}", load);
+        });
+    };
+    case(b"\x1bP1$w5/58;1/41\x1b\\", b"A[7,9]\r", b"\x1b[243~[7,9]\r");
+    case(
+        b"\x1bP1$w1/4;2/43\x1b\\",
+        b"\x1b[241~[7,9]\r",
+        b"\x1b[243~[7,9]\r",
+    );
+    case(b"\x1bP1$w2/43;1/4G\x1b\\", b"\x1b[241~[7,9]\r", b"C[7,9]\r");
+    case(
+        b"\x1bP1$w1/41424344454647;2/43\x1b\\",
+        b"\x1b[241~[7,9]\r",
+        b"\x1b[243~[7,9]\r",
+    );
+    case(b"\x1bP0$w1/41424344454647;2/43\x1b\\", b"", b"");
+    case(
+        b"\x1bP2$w1/41\x1b\\",
+        b"\x1b[241~[7,9]\r",
+        b"\x1b[243~[7,9]\r",
+    );
+}

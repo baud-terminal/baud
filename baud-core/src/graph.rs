@@ -1256,10 +1256,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         }
         // **`$ t` is DECRSPS**, `DCS Ps $ t D...D ST` (`[[source:
         // dec-std-070]]` p. 5-205), its `Ps` collected by `Dcs`'s digit
-        // edges; `DcsQuery` reads which of the two the byte names.
+        // edges, and **`$ w` DECLKD**, `DCS Pc $ w ... ST` (070-13 § 5.4);
+        // `DcsQuery` reads which of the three the byte names.
         Node::DcsDollar => {
             return match enc.gr_as_gl(b).raw_byte() {
-                b'q' | b't' => edge(Act::DcsQuery, Node::DcsStr),
+                b'q' | b't' | b'w' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
                 _ => edge(Act::Consume, Node::DcsStr),
@@ -2509,11 +2510,16 @@ mod classes {
         // 8859-1, `F0` in `Dcs` lead to the body as `DcsQuery`, where both
         // led there as `Consume`. 56 -> 58, 2,342 -> 2,454, 71,712 -> 75,689
         // and 1,945,172 -> 2,066,297 at strides 1 to 4, +6.2% at stride 4.
+        // **DECLKD's `w` after `DCS $`** (2026-10-21): `77` and, under ISO
+        // 8859-1, `F7` in `DcsDollar` lead to the body as `DcsQuery`, where
+        // both led there as `Consume`. 58 -> 59, 2,454 -> 2,505, 75,689 ->
+        // 77,196 and 2,066,297 -> 2,106,468 at strides 1 to 4, +1.9% at
+        // stride 4; which bytes parted was not decomposed.
         // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_454, "stride 2");
-        assert_eq!(three.len(), 75_689, "stride 3");
-        assert_eq!(four.len(), 2_066_297, "stride 4");
+        assert_eq!(two.len(), 2_505, "stride 2");
+        assert_eq!(three.len(), 77_196, "stride 3");
+        assert_eq!(four.len(), 2_106_468, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -3552,8 +3558,9 @@ mod classes {
     // tabulation stop it reaches, parting `0B` from `0A` and `0C`, made 55.
     // A Sixel's body, where `SUB` is a blank sixel and `CAN` places the
     // image, parting `1A` from `18`, made 56. ReGIS's `p` after a `DCS`, and
-    // under ISO 8859-1 its GR `F0`, made 58.
-    const CLASSES: usize = 58;
+    // under ISO 8859-1 its GR `F0`, made 58. DECLKD's `w` after `DCS $`,
+    // and its GR `F7`, made 59.
+    const CLASSES: usize = 59;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

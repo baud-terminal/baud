@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 290 | 25 | redistributable, and its notice is satisfied |
+| kept | 291 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 828 | 36 | |
+| total | 829 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -1174,7 +1174,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** CC0-1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
 - **Notice:** none needed
-- **Files:** 17
+- **Files:** 18
 
 | file | copied from |
 |---|---|
@@ -1190,6 +1190,7 @@ notice is, and the URL each file was copied from.
 | [vt340test-locator.md](docs/research/sources/vt340test-locator.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator.md |
 | [vt340test-locator1shot.sh](docs/research/sources/vt340test-locator1shot.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator1shot.sh |
 | [vt340test-locatormulti.sh](docs/research/sources/vt340test-locatormulti.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locatormulti.sh |
+| [vt340test-locatorprog.sh](docs/research/sources/vt340test-locatorprog.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locatorprog.sh |
 | [vt340test-p2effect.png](docs/research/sources/vt340test-p2effect.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.png |
 | [vt340test-p2effect.sh](docs/research/sources/vt340test-p2effect.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.sh |
 | [vt340test-physicalsixels.md](docs/research/sources/vt340test-physicalsixels.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/physicalsixels.md |

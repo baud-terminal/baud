@@ -694,6 +694,9 @@ pub struct Regis {
     display: Display,
     /// The cursors the caller drew, to take away ([`Regis::take_drawn`]).
     drawn: RegisDrawn,
+    /// DECLKD's locator key definitions, the strings graphics input sends
+    /// for the pointer's buttons.
+    keys: crate::LocatorKeys,
 }
 
 /// Whether the envelope asked for command display.
@@ -720,6 +723,7 @@ impl Regis {
         utf8: (0, 0),
         display: Display::Off,
         drawn: RegisDrawn::NONE,
+        keys: crate::LocatorKeys::DEFAULT,
     };
 
     /// A reset to power-up: `RIS`. The page is the caller's to clear.
@@ -739,6 +743,9 @@ impl Regis {
         self.sem.counts = counts;
         // The page they were drawn on goes with the reset's images.
         self.drawn = RegisDrawn::NONE;
+        // "A power-up restart or Reset to Initial State (RIS) will cause the
+        // LKDs to be set to their default value" (070-13 § 5.4).
+        self.keys.reset();
     }
 
     /// A `DCS Pn p`: the low bit of `Pn` resynchronises, "regardless of the
@@ -960,6 +967,16 @@ impl Regis {
     pub fn input_abandon(&mut self) {
         self.input_end();
         self.sem.counts.inputs_abandoned += 1;
+    }
+
+    /// DECLKD's locator key definitions.
+    pub fn locator_keys(&self) -> &crate::LocatorKeys {
+        &self.keys
+    }
+
+    /// DECLKD's locator key definitions, to load.
+    pub fn locator_keys_mut(&mut self) -> &mut crate::LocatorKeys {
+        &mut self.keys
     }
 
     /// What the caller drew of the cursors, and nothing kept after.

@@ -215,13 +215,13 @@ fn declrp_follows_s8c1t() {
     assert_eq!(reply(b"\x1b G\x1b['|").0, show(b"\x9b0&w"));
 }
 
-/// **The Locator Port's controls are out, and counted**: DECLKD, the
-/// locator keys' strings for ReGIS and Tektronix input, and locator
-/// controller mode, `CSI 6 i` and `CSI 7 i` (070-13 § 5.4, § 7), whose
-/// row in `docs/vt-coverage.md` says why.
+/// **Locator controller mode is out, and counted**: `CSI 6 i` and `CSI
+/// 7 i` (070-13 § 7), whose row in `docs/vt-coverage.md` says why. DECLKD,
+/// the other Locator Port control, is built with ReGIS graphics input
+/// (`baud-core/tests/regis_input.rs`).
 #[test]
-fn declkd_and_locator_controller_mode_are_counted() {
-    for q in [&b"\x1bP0$w1/1B5B/\x1b\\"[..], b"\x1b[6i", b"\x1b[7i"] {
+fn locator_controller_mode_is_counted() {
+    for q in [&b"\x1b[6i"[..], b"\x1b[7i"] {
         let (r, n) = reply(q);
         assert_eq!(r, "", "{}", show(q));
         assert!(n >= 1, "{} counted", show(q));
