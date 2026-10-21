@@ -225,6 +225,10 @@ impl Attrs {
     pub fn has(self, o: Attrs) -> bool {
         self.0 & o.0 == o.0
     }
+    /// The attributes of `self` that are also in `o`.
+    pub const fn only(self, o: Attrs) -> Attrs {
+        Attrs(self.0 & o.0)
+    }
     // No `as_bits`: `Attrs` is `repr(transparent)` over `u32`, so it can be
     // stored in a `repr(C)` rendition directly. Unpacking it was the only
     // reason a raw integer used to escape.

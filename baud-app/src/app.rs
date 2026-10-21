@@ -649,6 +649,13 @@ struct App {
     /// The reads a ReGIS delay holds, fed on the first tick at or after
     /// its deadline (`reads::paced`).
     pace: crate::reads::Pace,
+    /// `[screen] printing`, read again with the printer list at a focus
+    /// gain (`print.rs`).
+    printing: crate::config::Printing,
+    /// A program's print jobs waiting for the print panel (`print.rs`).
+    prints: crate::print::Prints,
+    /// Whether the print panel is up, shared with the block that shows it.
+    panel: std::sync::Arc<std::sync::atomic::AtomicU8>,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -711,6 +718,9 @@ struct Boot {
     window_ops: baud_domain::WindowOps,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
+    /// Whether a program's print opens the print panel, from `[screen]
+    /// printing`.
+    printing: crate::config::Printing,
     /// When a key hides the pointer at power-on, from `[pointer]
     /// hide_while_typing`.
     pointer_mode: baud_domain::PointerMode,
@@ -877,6 +887,7 @@ impl Boot {
             checksum: cfg.checksum,
             window_ops: cfg.window_ops,
             logging: cfg.logging,
+            printing: cfg.printing,
             pointer_mode: cfg.pointer_mode,
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
@@ -924,6 +935,7 @@ impl App {
             checksum,
             window_ops,
             logging,
+            printing,
             pointer_mode,
             ambiguous_width,
             clipboard,
@@ -950,7 +962,8 @@ impl App {
             let owned: &'static mut Owned = Box::leak(Box::new(
                 Owned::with_geometry(&MAX_GRID, &geom)
                     .with_images(images)
-                    .with_clipboard(clipboard.budget),
+                    .with_clipboard(clipboard.budget)
+                    .with_printer(crate::print::budget(printing)),
             ));
             Term::new(owned.storage(), ws)
         };
@@ -963,7 +976,8 @@ impl App {
                 let owned: &'static mut Owned = Box::leak(Box::new(
                     Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT)
                         .with_images(images)
-                        .with_clipboard(clipboard.budget),
+                        .with_clipboard(clipboard.budget)
+                        .with_printer(crate::print::budget(printing)),
                 ));
                 match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
@@ -1088,6 +1102,8 @@ impl App {
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_window_ops(&mut term, window_ops);
         crate::host::set_logging(&mut term, logging);
+        // A printer only where one is listed (`print.rs`; note AW).
+        crate::print::set_printer(&mut term, printing, printers_listed());
         crate::host::set_pointer_mode(&mut term, pointer_mode);
         crate::host::set_font_changes(&mut term, font_changes);
         crate::host::tell_font(&mut term, &fonts, font_size, font_size);
@@ -1205,6 +1221,9 @@ impl App {
             clips,
             widths,
             pace: crate::reads::Pace::new(),
+            printing,
+            prints: crate::print::Prints::new(),
+            panel: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(PANEL_IDLE)),
         }
     }
 
@@ -6277,6 +6296,7 @@ mod motion_tests {
                     resized = honour(widths.poll(t, host), t).or(resized);
                     fonts_asked.extend_from_slice(t.font_requests());
                     t.clear_font_requests();
+                    prints.take(t);
                     asked.extend_from_slice(t.window_requests());
                     t.clear_"#,
             r#"window_requests();
@@ -7079,7 +7099,7 @@ impl Driver {
         // **And its page width at the request**: the read stopped there, the
         // grid takes the columns before the rest is parsed, and the rest of
         // the app follows after the batch (`width.rs`, `program_resized`).
-        let (term, trace, outbox, clips, widths, hostlog, pace) = (
+        let (term, trace, outbox, clips, widths, hostlog, pace, prints) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
@@ -7087,6 +7107,7 @@ impl Driver {
             &mut self.app.widths,
             &mut self.app.hostlog,
             &mut self.app.pace,
+            &mut self.app.prints,
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
@@ -7097,6 +7118,8 @@ impl Driver {
         let mut asked = Vec::new();
         // And its font changes, performed after the read (`fonts.rs`).
         let mut fonts_asked = Vec::new();
+        // And its print jobs, taken after each part of a read as the core
+        // finishes them, for the print panel (`print.rs`).
         // **A ReGIS delay holds the reads behind it** until the tick its
         // deadline falls on; every tick calls this, so the held reads go
         // on with no chunk of their own.
@@ -7116,6 +7139,7 @@ impl Driver {
                 resized = honour(widths.poll(t, host), t).or(resized);
                 fonts_asked.extend_from_slice(t.font_requests());
                 t.clear_font_requests();
+                prints.take(t);
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
@@ -7151,6 +7175,7 @@ impl Driver {
         self.window_requests(&asked);
         self.scrollbar_mode();
         self.font_requests(&fonts_asked);
+        self.print_next();
         // An image the store refused is said once a pump, by the limit it
         // hit: the count was a total nothing here read, and yazi's previews
         // went blank against the body limit with no word of why.
@@ -7178,6 +7203,7 @@ impl Driver {
                 self.app.term.title(),
                 self.app.term.title_encoding(),
                 "baud",
+                self.app.term.print_run(),
             ) {
                 self.window.set_title(&t);
             }
@@ -8767,7 +8793,40 @@ impl Driver {
         if f == baud_core::Focus::Gained {
             self.read_caret_system();
             self.app.caret.input(host_now());
+            // And the printer list: a printer added in System Settings is
+            // the core's at the next gain (`print.rs`).
+            crate::print::set_printer(&mut self.app.term, self.app.printing, printers_listed());
         }
+    }
+
+    /// **The waiting print job onto the print panel**, once the panel
+    /// before it has gone: at most one at a time, shown as a sheet once the
+    /// callback this runs in has returned (`print_later`), and gone when the
+    /// window has no sheet attached.
+    fn print_next(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let panel = &self.app.panel;
+        if panel.load(Relaxed) == PANEL_SHOWN && self.window.ns_window().attachedSheet().is_none() {
+            panel.store(PANEL_IDLE, Relaxed);
+        }
+        if panel.load(Relaxed) != PANEL_IDLE {
+            return;
+        }
+        let Some(job) = self.app.prints.next(self.app.term.printer()) else {
+            return;
+        };
+        let window = crate::title::window_title(
+            self.app.term.title(),
+            self.app.term.title_encoding(),
+            "baud",
+        );
+        panel.store(PANEL_SCHEDULED, Relaxed);
+        print_later(
+            self.window.ns_window(),
+            crate::print::job_title(&window, job.cut),
+            job,
+            panel.clone(),
+        );
     }
 
     /// The system caret's rate and its non-blinking switch (`caret.rs`),
@@ -11307,6 +11366,64 @@ fn scroller_style() -> Scroller {
         NSScrollerStyle::Legacy => Scroller::Legacy,
         _ => Scroller::Overlay,
     }
+}
+
+/// The print panel's states, in the atomic the driver and the block that
+/// shows the panel share: none up, one scheduled on the main queue, one up.
+const PANEL_IDLE: u8 = 0;
+const PANEL_SCHEDULED: u8 = 1;
+const PANEL_SHOWN: u8 = 2;
+
+/// Whether macOS lists a printer, for the core's DSR `?15` (`print.rs`).
+fn printers_listed() -> crate::print::Printers {
+    match baud_present_macos::print::printers() {
+        baud_present_macos::print::Listed::Some => crate::print::Printers::Listed,
+        baud_present_macos::print::Listed::None => crate::print::Printers::None,
+    }
+}
+
+/// **A print job onto the print panel, laid out off the main thread and
+/// shown once the callback that took it has returned**, for the reason
+/// `widen_later` waits. The sheet's area and the font's measures are read
+/// here, on the main thread; the job is laid out on a thread of its own
+/// (`crate::print::pages`, 63 ms for a 2 MiB job in a release build), so
+/// the thread that feeds the core and draws does not wait for it; the text
+/// views and the sheet are AppKit's, on the main queue
+/// (`baud_present_macos::print::show_panel`), which returns with the sheet
+/// up. Nothing prints until the user presses Print.
+fn print_later(
+    window: &NSWindow,
+    title: String,
+    job: crate::print::Job,
+    panel: std::sync::Arc<std::sync::atomic::AtomicU8>,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (width, height) = baud_present_macos::print::sheet_area();
+    let (advance, leading) = baud_present_macos::print::font_metrics();
+    let w = dispatch2::MainThreadBound::new(window.retain(), window.mtm());
+    std::thread::spawn(move || {
+        let (pages, layout, stripped) =
+            crate::print::pages(&job.bytes, width, height, advance, leading);
+        crate::info!(
+            "print: {} sheets at {:.1} pt, {stripped} controls not printed",
+            pages.len(),
+            layout.size
+        );
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            let Some(mtm) = MainThreadMarker::new() else {
+                panel.store(PANEL_IDLE, Relaxed);
+                return;
+            };
+            // A job that prints nothing -- a controller run of SGR alone
+            // -- is no panel: there is no sheet to offer.
+            if pages.is_empty() {
+                panel.store(PANEL_IDLE, Relaxed);
+                return;
+            }
+            baud_present_macos::print::show_panel(w.get(mtm), &title, &pages, layout, mtm);
+            panel.store(PANEL_SHOWN, Relaxed);
+        });
+    });
 }
 
 /// The window to `width` points of content, its height kept, **once the

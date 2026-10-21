@@ -78,6 +78,10 @@ mod pages;
 // What a paste sends: both drivers paste through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod paste;
+// A program's print jobs on their way to the print panel, and whether the
+// core is told it has a printer: pure, so its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod print;
 // The theme files `[palette]` names: read at launch by both drivers, and
 // its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

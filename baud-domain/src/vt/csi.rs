@@ -825,6 +825,10 @@ pub enum Csi {
     WarningBellVolume(BellVolume),
     /// DECSMBV, `CSI Ps SP u`: the margin bell's volume (p. 5-138).
     MarginBellVolume(BellVolume),
+    /// MC, `CSI Ps i` and `CSI ? Ps i`: a print function
+    /// ([`crate::MediaCopy`]), a `Ps` it does not name being
+    /// [`Csi::Unsupported`].
+    MediaCopy(MediaCopy),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
     /// XTMODKEYS `CSI > Pp ; Pv m`, XTFMTKEYS `CSI > Pp ; Pv f` and the
@@ -1273,6 +1277,13 @@ impl Csi {
                         final_byte: f,
                     },
                 },
+                b'i' => match MediaCopy::private(p.at(ParamIdx::FIRST)) {
+                    Some(m) => Csi::MediaCopy(m),
+                    None => Csi::Unsupported {
+                        marker,
+                        final_byte: f,
+                    },
+                },
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1334,6 +1345,13 @@ impl Csi {
                 final_byte: f,
             },
             b'n' => Csi::DeviceStatus(StatusKind::from_param(p.at(ParamIdx::FIRST))),
+            b'i' => match MediaCopy::standard(p.at(ParamIdx::FIRST)) {
+                Some(m) => Csi::MediaCopy(m),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            },
             b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
             b'Z' => Csi::CursorBackTab(p.count(ParamIdx::FIRST)),
             b'g' => Csi::TabClear(TabClear::from_param(p.at(ParamIdx::FIRST))),
@@ -1636,6 +1654,9 @@ impl Csi {
             | Repeat(_)
             | DeviceAttributes
             | DeviceStatus(_) => Level::Vt100,
+            // "Levels: 1X, 2X, 3X" (070-7, each MC page): the Printer Port
+            // Extension at every level.
+            MediaCopy(_) => Level::Vt100,
 
             // "Levels: 1x, 2, 3, 4" (070-4 DECSCL), required from Level 2.
             SoftReset

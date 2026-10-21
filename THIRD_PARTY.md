@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 295 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 298 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 285 | 25 | redistributable, and its notice is satisfied |
+| kept | 286 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 818 | 36 | |
+| total | 822 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -388,7 +388,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 127
+- **Files:** 130
 
 | file | copied from |
 |---|---|
@@ -465,6 +465,9 @@ notice is, and the URL each file was copied from.
 | [apple-nsbeep.json](docs/research/sources/apple-nsbeep.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json |
 | [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
 | [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
+| [apple-nsprinter-printernames.json](docs/research/sources/apple-nsprinter-printernames.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter/printernames.json |
+| [apple-nsprintoperation-run.json](docs/research/sources/apple-nsprintoperation-run.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/run().json |
+| [apple-nsprintoperation-runmodal.json](docs/research/sources/apple-nsprintoperation-runmodal.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/runmodal(for:delegate:didrun:contextinfo:).json |
 | [apple-nsprintoperation-showsprintpanel.json](docs/research/sources/apple-nsprintoperation-showsprintpanel.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/showsprintpanel.json |
 | [apple-nsscreen-frame.json](docs/research/sources/apple-nsscreen-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/frame.json |
 | [apple-nsscreen-screens.json](docs/research/sources/apple-nsscreen-screens.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json |
@@ -1862,7 +1865,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 26
+- **Files:** 27
 
 | file | copied from |
 |---|---|
@@ -1880,6 +1883,7 @@ notice is, and the URL each file was copied from.
 | [xterm-keysym2ucs.c](docs/research/sources/xterm-keysym2ucs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/keysym2ucs.c |
 | [xterm-main.h](docs/research/sources/xterm-main.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h |
 | [xterm-misc.c](docs/research/sources/xterm-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c |
+| [xterm-print.c](docs/research/sources/xterm-print.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/print.c |
 | [xterm-ptydata.c](docs/research/sources/xterm-ptydata.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptydata.c |
 | [xterm-ptyx.h](docs/research/sources/xterm-ptyx.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h |
 | [xterm-tabs.c](docs/research/sources/xterm-tabs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/tabs.c |

@@ -272,10 +272,20 @@ trail_scroll = "ride"
 # relative name is read from there. A program on the other end of an ssh
 # connection, or a file you cat, can otherwise append to any such file,
 # your shell's startup files included; "off" stops that.
+#
+# printing: whether a program can print (DEC's Media Copy, autoprint and
+# printer controller mode). "on" by default: each print opens the macOS
+# print panel, which shows what will print and nothing reaches paper until
+# you press Print; a program that sends its output to the printer hides it
+# from the screen until it is done, and the title says "Printing" meanwhile.
+# Programs are told there is a printer only when macOS lists one. "off"
+# tells every program there is no printer. Linux has no print panel yet,
+# so programs there are always told there is no printer.
 [screen]
 transition = false
 checksum = "on"
 logging = "on"
+printing = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

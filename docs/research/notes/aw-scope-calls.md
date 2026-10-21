@@ -107,6 +107,24 @@ IN_COMMAND's probability was 0.03 at most.
 **Recommendation: in, through the print panel.** This is the one option that
 builds the whole VT420 printer and still prints nothing without the user.
 
+**Built 2026-10-20**, as the MC, `?18` and `?19` rows of
+`docs/vt-coverage.md` give it. What building it left open went to Jev,
+both orders, uncached, with the owner's call and standing rule quoted. The
+job's payload, 070-7's stream in UTF-8, was decided (0.95/0.95 and
+0.97/0.98). Every other fork stayed under 0.9 on a second ask and was
+taken as the lean:
+- DEC_PRINTER for what the app's printer acts on.
+- MERGE for jobs that finish while a panel is up.
+- SCROLLING_REGION for DECPEX's default, a source conflict.
+- ONE_PAGE for print all pages.
+- OWN_JOB for a print inside an autoprint run, as the definition above has
+  it.
+- SETTING, `[screen] printing`.
+- DOUBLE_SIZE for a double-height pair.
+The controller run's bound flipped between asks, and ending a run there
+departs from 070-7 § 7.3.6, so the text is followed: output stays hidden
+until `CSI 4 i`.
+
 ## 2. DEC's text locator: DECELR, DECSLE, DECEFR, DECRQLP
 
 **What a user sees.** A forms or menu program written for DEC terminals

@@ -301,6 +301,12 @@ pub enum ModeBit {
     /// draw it twice (Jev's lean, SET_NO_ECHO, 0.80/0.72). Kept by `DECSTR`,
     /// whose table names no SRM. Read only by `Term::key`.
     SendReceive,
+    /// Autoprint, `CSI ? 5 i` and `CSI ? 4 i` (`[[source: dec-std-070]]`
+    /// 070-7): a line leaving by `LF`, `VT`, `FF` or an autowrap is printed.
+    /// **A bit here, read where `LF` already reads LNM's**, so the per-byte
+    /// path tests one word it loads anyway; the run itself is
+    /// `crate::PrintRun`'s. Reset at power-on and by `RIS`, kept by `DECSTR`.
+    AutoPrint,
 }
 
 impl ModeBit {
@@ -372,6 +378,11 @@ impl Default for Modes {
 impl Modes {
     pub fn is_set(self, m: ModeBit) -> bool {
         self.0 & m.bit() != 0
+    }
+    /// Whether either of two modes is set: one test of the word, where two
+    /// `is_set` calls are two.
+    pub fn either_set(self, a: ModeBit, b: ModeBit) -> bool {
+        self.0 & (a.bit() | b.bit()) != 0
     }
     pub fn set(&mut self, m: ModeBit) {
         self.0 |= m.bit();
@@ -477,6 +488,12 @@ pub enum PrivateMode {
     /// (`[[source: ctlseqs]]`): the host's bytes appended to the file
     /// `OSC 46` names ([`LogMode`]).
     Logging,
+    /// `?18` DECPFF, print form feed: an `FF` after each print page, screen
+    /// or all pages (`[[source: dec-std-070]]` 070-7, [`PrintFormFeed`]).
+    PrintFormFeed,
+    /// `?19` DECPEX, print extent: the whole page or the scrolling region
+    /// (`[[source: dec-std-070]]` 070-7, [`PrintExtent`]).
+    PrintExtent,
     /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
     /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
     /// answers whether a cursor is saved.
@@ -1077,6 +1094,8 @@ impl PrivateMode {
             PrivateMode::Scrollbar => 54,
             PrivateMode::MarginBell => 55,
             PrivateMode::Logging => 56,
+            PrivateMode::PrintFormFeed => 57,
+            PrivateMode::PrintExtent => 58,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1115,6 +1134,8 @@ impl PrivateMode {
             41 => PrivateMode::MoreFix,
             44 => PrivateMode::MarginBell,
             46 => PrivateMode::Logging,
+            18 => PrivateMode::PrintFormFeed,
+            19 => PrivateMode::PrintExtent,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,

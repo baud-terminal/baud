@@ -2802,11 +2802,15 @@ impl Paint<'_, '_> {
             .next_after(self.cy, self.line_tab_end())
         {
             Some(y) => {
-                // A line ends where the cursor leaves it, as at `LF`.
+                // A line ends where the cursor leaves it, as at `LF`, and
+                // autoprint prints it, ended by `VT` (070-7 § 7.3.7).
+                if self.cold.modes.is_set(ModeBit::AutoPrint) {
+                    self.autoprint(crate::print::LineEnd::LineTab);
+                }
                 self.view.set_ended(self.cy);
                 self.set_row(y);
             }
-            None => self.line_feed(),
+            None => self.line_feed(crate::paint::Feed::LineTab),
         }
     }
 
@@ -3439,6 +3443,20 @@ impl Paint<'_, '_> {
             PrivateMode::PopOnBell => self.cold.modes.apply(ModeBit::PopOnBell, on),
             // **`?46` starts and stops the embedder's log** (`logging.rs`).
             PrivateMode::Logging => self.set_logging_mode(change, node),
+            // DECPFF and DECPEX (`print.rs`): set and reset whether or not
+            // there is a printer, as a mode needs no printer port.
+            PrivateMode::PrintFormFeed => {
+                self.strs.print.form_feed = match change {
+                    ModeChange::Set => baud_domain::PrintFormFeed::On,
+                    ModeChange::Reset => baud_domain::PrintFormFeed::Off,
+                }
+            }
+            PrivateMode::PrintExtent => {
+                self.strs.print.extent = match change {
+                    ModeChange::Set => baud_domain::PrintExtent::Page,
+                    ModeChange::Reset => baud_domain::PrintExtent::ScrollingRegion,
+                }
+            }
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
             // parameter", exclusive with the other four (`[[source:
@@ -3948,6 +3966,11 @@ impl Paint<'_, '_> {
         // defaults "after you power up or reset the terminal"
         // (`[[source: vt3xx-regis-intro]]`).
         self.strs.regis.reset();
+        // **The printer to its power-up state** (`print.rs`): an autoprint
+        // run's job ends, kept for the embedder, and DECPFF and DECPEX go
+        // back to their defaults; the port is the embedder's, and a printer
+        // that is gone is forgotten, "not available" again.
+        self.print_reset();
         // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
         // reset "to its initial state, i.e. the state it has after it is made
         // operational" (`[[source: ecma48]]`), and nothing is saved then.
@@ -4482,6 +4505,16 @@ impl Paint<'_, '_> {
             // xterm answers the flag, `MdBool(screen->marginbell)`
             // (`[[source: xterm-misc]]` 5579-5580).
             PrivateMode::Logging => self.strs.log.state(),
+            // xterm answers both, `MdBool(PrinterOf(screen).printer_formfeed)`
+            // and `printer_extent` (`[[source: xterm-misc]]` 5544-5548).
+            PrivateMode::PrintFormFeed => match self.strs.print.form_feed {
+                baud_domain::PrintFormFeed::On => ModeState::Set,
+                baud_domain::PrintFormFeed::Off => ModeState::Reset,
+            },
+            PrivateMode::PrintExtent => match self.strs.print.extent {
+                baud_domain::PrintExtent::Page => ModeState::Set,
+                baud_domain::PrintExtent::ScrollingRegion => ModeState::Reset,
+            },
             PrivateMode::MarginBell => match self.cold.bell.switch {
                 baud_domain::MarginBell::On => ModeState::Set,
                 baud_domain::MarginBell::Off => ModeState::Reset,

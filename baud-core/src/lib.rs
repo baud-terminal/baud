@@ -67,6 +67,7 @@ mod osc;
 mod paint;
 mod placed;
 mod presentation;
+mod print;
 mod prompt;
 mod query;
 mod rect;
@@ -151,6 +152,12 @@ pub use baud_domain::{FullScreen, LogMode, Logging, Maximize, SizeAsk, WindowOps
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// DEC's text locator's vocabulary: what [`Term::locator`] takes.
 pub use baud_domain::{LocatorAt, LocatorButton, LocatorButtons, LocatorInput, LocatorKind};
+/// Printing's vocabulary: what [`Term::set_printer`] takes and what
+/// [`Term::print_jobs`], [`Term::print_run`] and [`Term::print_refusals`]
+/// answer.
+pub use baud_domain::{
+    PRINT_QUEUE, PrintBudget, PrintCut, PrintJob, PrintRefusals, PrintRun, PrinterPort,
+};
 /// The page-width request's vocabulary: an embedder that cannot name a
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
 /// [`Term::requested_width`] answers without a [`WidthRequest`].

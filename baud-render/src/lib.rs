@@ -44,6 +44,7 @@ pub mod orb;
 mod overlay;
 mod picture;
 pub mod plasma;
+pub mod print;
 mod renderer;
 mod scroll;
 mod scrollbar;

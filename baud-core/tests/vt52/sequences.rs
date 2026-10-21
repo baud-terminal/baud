@@ -137,21 +137,24 @@ fn identify_answers_esc_slash_z() {
     assert_eq!(run(b"\x1b[?2l\x1bZ").2, b"\x1b/Z");
 }
 
-/// A VT52 sequence baud declines is counted, not silently dropped.
-///
-/// The print functions (`ESC ^ _ W X ] V`) have no printer to drive. Counting
-/// them is what keeps "accepted and did nothing" observable.
+/// **The print functions (`ESC ^ _ W X ] V`) with no printer are counted**,
+/// as `MC` is in ANSI mode: 070-7 § 7.3.2 ignores a print command on a
+/// terminal with no printer, and counting it keeps "accepted and did
+/// nothing" observable. With one they print (`tests/printing.rs`).
 #[test]
-fn declined_print_functions_are_counted() {
+fn print_functions_without_a_printer_are_counted() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    t.write_at(BytePos::ZERO, b"\x1b[?2l\x1bW\x1bX");
-    t.feed(
-        BytePos::ZERO,
-        ReadLen::from_index((b"\x1b[?2l\x1bW\x1bX").len()),
+    let prog = b"\x1b[?2l\x1bW\x1bX\x1b^\x1b_\x1b]\x1bV";
+    t.write_at(BytePos::ZERO, prog);
+    t.feed(BytePos::ZERO, ReadLen::from_index(prog.len()));
+    assert_eq!(
+        t.print_refusals().no_printer,
+        6,
+        "all six declined and counted"
     );
-    assert_eq!(t.vt52_unsupported, 2, "both declined and both counted");
+    assert_eq!(t.vt52_unsupported, 0, "each a print function, not unknown");
 }
 
 /// RIS is **not** reachable from VT52, and that is correct rather than a gap.

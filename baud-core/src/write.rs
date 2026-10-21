@@ -366,7 +366,7 @@ pub(crate) fn act(
         }
         // The edge named the operation; there is nothing left to test.
         Act::Index => {
-            p.line_feed();
+            p.line_feed(crate::paint::Feed::Received(from));
             ReadLen::ONE
         }
         // **`CR LF` is one step, not two.** `Return` and `Index` were 22.5%
@@ -412,6 +412,10 @@ pub(crate) fn act(
                 true => {
                     if p.view.extent(p.cy).wrapped() {
                         p.view.set_ended(p.cy);
+                    }
+                    // Autoprint prints the line the `LF` leaves (`print.rs`).
+                    if p.cold.modes.is_set(ModeBit::AutoPrint) {
+                        p.autoprint(crate::print::LineEnd::LineFeed);
                     }
                     p.index();
                     ReadLen::from_index(2)
@@ -897,6 +901,9 @@ pub(crate) fn act(
             *node = p.cold.width.resume;
             left
         }
+        // **A printer controller run**: the rest of the read is the
+        // printer's, up to the `CSI 4 i` that ends the run (`print.rs`).
+        Act::Printer => p.printer_bytes(from, left, node),
         // A byte that is no character: a replacement, as `Resync`'s is.
         Act::Bad => {
             replace(p);
@@ -2019,6 +2026,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.cold.bell.set_margin(v);
             p.rehook();
         }
+        // MC (`print.rs`).
+        DomCsi::MediaCopy(m) => p.media_copy(m, node),
         // **DECRQM, answered from the modes this core actually stores.**
         // `Paint::mode_state` returns `NotRecognized` for everything else,
         // which is the rule `docs/vt-coverage.md` states: answering `Reset`

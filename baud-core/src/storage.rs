@@ -510,6 +510,15 @@ pub struct StrBuf<'b> {
     /// rather than in `Book`, which the per-byte path carries and whose
     /// size is pinned, because only a resize writes it.
     pub(crate) reflow_dropped: Rows,
+    /// **The print stream's area**: the jobs finished and not yet taken,
+    /// then the one being collected (`print.rs`). Empty through
+    /// [`StrBuf::new`] and by default in [`Owned`], whose
+    /// [`Owned::with_printer`] provisions it; with none every job is cut
+    /// to nothing, so an embedder with a printer provisions one.
+    pub(crate) print_area: &'b mut [u8],
+    /// The printer's state beside it: the port, DECPFF, DECPEX, the run
+    /// and the jobs (`print.rs`). Here for the reason `window_asks` is.
+    pub(crate) print: crate::print::Printer,
 }
 
 impl<'b> StrBuf<'b> {
@@ -570,6 +579,8 @@ impl<'b> StrBuf<'b> {
             shell_other: crate::prompt::Shell::FRESH,
             prompts: PromptLog::new(&mut []),
             reflow_dropped: Rows::ZERO,
+            print_area: &mut [],
+            print: crate::print::Printer::NONE,
         }
     }
 }
@@ -620,6 +631,7 @@ pub struct Owned {
     kitty_scratch: alloc::vec::Vec<u8>,
     clip: alloc::vec::Vec<u8>,
     prompts: alloc::vec::Vec<PromptEntry>,
+    print: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
@@ -713,6 +725,9 @@ impl Owned {
             clip: vec::Vec::new(),
             // One prompt a ring row: a log that never fills.
             prompts: vec![PromptEntry::EMPTY; rows.index() + depth.lines()],
+            // The print area defaults absent, provisioned by
+            // [`Owned::with_printer`].
+            print: vec::Vec::new(),
         }
     }
 
@@ -761,6 +776,15 @@ impl Owned {
     /// refuses every write and counts it in `clipboard_writes_refused`.
     pub fn with_clipboard(mut self, budget: ClipboardBudget) -> Owned {
         self.clip = alloc::vec![0u8; budget.buffer()];
+        self
+    }
+
+    /// Provision the print stream's area: `budget`'s bytes for the jobs a
+    /// read finishes and the one being collected. [`Owned::new`] provisions
+    /// none, the [`Owned::with_clipboard`] shape: an embedder with a printer
+    /// sizes one, and one without never tells the core a printer is there.
+    pub fn with_printer(mut self, budget: PrintBudget) -> Owned {
+        self.print = alloc::vec![0u8; budget.bytes()];
         self
     }
 
@@ -851,6 +875,8 @@ impl Owned {
                 shell_other: crate::prompt::Shell::FRESH,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
+                print_area: &mut self.print,
+                print: crate::print::Printer::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -915,6 +941,8 @@ impl Owned {
                 shell_other: crate::prompt::Shell::FRESH,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
+                print_area: &mut self.print,
+                print: crate::print::Printer::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,

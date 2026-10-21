@@ -57,7 +57,7 @@ Each is a decision with a cost, not an oversight:
 
 | | why |
 |---|---|
-| printer control (`CSI i`, VT52 `ESC ^ _ W X ] V`) | no printer; each is recognised and counted, because accepting silently is the `parsed` failure |
+| `CSI 2 i`, a printer-to-host session, xterm's file dumps | unsafe: the screen typed back to the program, a printer talking to the host, files a program names; each counted. Printing itself is built, through the macOS print panel (`../vt-coverage.md`, the MC row) |
 | ReGIS | historical; no modern application emits it |
 | `OSC 52` clipboard **reads** | a remote program could read back what the user last copied |
 

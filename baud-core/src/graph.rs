@@ -218,14 +218,22 @@ pub enum Node {
     /// (070-9 §9.1, "exit DCS mode processing, exit Sixel mode, begin
     /// processing escape sequence").
     SixelEsc,
+    /// **A printer controller run**, `CSI 5 i` to `CSI 4 i` (`[[source:
+    /// dec-std-070]]` 070-7 § 7.3.6): "all data received at the host port
+    /// is transferred directly to the printer port without interpretation".
+    /// Every byte is `Act::Printer`, which takes the rest of the read to the
+    /// print job and watches for the sequence that ends the run
+    /// (`Paint::printer_bytes`), so no byte here is parsed, the anywhere
+    /// block's included. Last, so no other node's index moves.
+    Printing,
 }
 
-pub(crate) const NNODE: usize = 37;
+pub(crate) const NNODE: usize = 38;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 44;
+pub(crate) const NACT: usize = 45;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -266,6 +274,7 @@ impl Node {
         Node::SingleShift,
         Node::SixelStr,
         Node::SixelEsc,
+        Node::Printing,
     ];
 }
 
@@ -450,6 +459,9 @@ pub enum Act {
     /// edge's node, which performs it. Consumes nothing. Last, so no other
     /// action's encoding moves.
     SixelCut,
+    /// `Node::Printing`'s every byte: the rest of the read is a printer
+    /// controller run's, up to the `CSI 4 i` that ends it.
+    Printer,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -497,6 +509,7 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::SingleShift => 34,
         Node::SixelStr => 35,
         Node::SixelEsc => 36,
+        Node::Printing => 37,
     }] += 1;
 }
 
@@ -551,6 +564,7 @@ const fn node_name(n: Node) -> &'static str {
         Node::SingleShift => "SingleShift",
         Node::SixelStr => "SixelStr",
         Node::SixelEsc => "SixelEsc",
+        Node::Printing => "Printing",
     }
 }
 
@@ -602,6 +616,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Del => "Del",
         Act::LineTab => "LineTab",
         Act::SixelCut => "SixelCut",
+        Act::Printer => "Printer",
     }
 }
 
@@ -652,6 +667,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Del,
     Act::LineTab,
     Act::SixelCut,
+    Act::Printer,
 ];
 
 #[cfg(feature = "diag")]
@@ -765,6 +781,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Del => 41,
         Act::LineTab => 42,
         Act::SixelCut => 43,
+        Act::Printer => 44,
     }] += 1;
 }
 
@@ -881,6 +898,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // A held read: every byte is the rest, the anywhere block's included.
     if matches!(node, Node::Held) {
         return edge(Act::Hold, Node::AfterControl);
+    }
+    // A printer controller run: every byte the printer's, `CAN`, `SUB` and
+    // `ESC` included, which only its own step reads.
+    if matches!(node, Node::Printing) {
+        return edge(Act::Printer, Node::Printing);
     }
     // `[[source: williams]]`'s **anywhere** block: "CAN and SUB cancel any
     // escape sequence", from every state, with the same action. Here rather
@@ -1286,6 +1308,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         Node::AfterControl | Node::Vt52AfterControl => return after_control(enc, node, b),
         // Taken at the top, before the anywhere block.
         Node::Held => return edge(Act::Hold, Node::AfterControl),
+        Node::Printing => return edge(Act::Printer, Node::Printing),
         Node::Ground | Node::Vt52Ground => {}
     }
 
@@ -2615,6 +2638,11 @@ mod classes {
                         assert_eq!(got, edge(Act::Hold, Node::AfterControl), "{enc:?}");
                         continue;
                     }
+                    // Nor does a printer controller run: it is the printer's.
+                    if node == Node::Printing {
+                        assert_eq!(got, edge(Act::Printer, Node::Printing), "{enc:?}");
+                        continue;
+                    }
                     match ground_like {
                         // Nothing to cancel: `Ground` consumes it as an
                         // unrouted C0, a control all the same, and mid-character
@@ -2827,6 +2855,9 @@ mod classes {
                     Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52AfterControl),
                     // A held read: the `ESC` is the rest's, like every byte.
                     Node::Held => edge(Act::Hold, Node::AfterControl),
+                    // A printer controller run's `ESC` is the printer's
+                    // until its step reads `ESC [ 4 i`.
+                    Node::Printing => edge(Act::Printer, Node::Printing),
                     // A pending single shift is cancelled and the `ESC` is
                     // the ground's after a control, where it opens a sequence.
                     Node::SingleShift => edge(Act::Again, Node::AfterControl),

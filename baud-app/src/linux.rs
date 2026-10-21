@@ -260,6 +260,10 @@ pub fn run() {
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_logging(&mut term, cfg.logging);
+    // **No print panel in this driver**: the core is told there is no
+    // printer, so DSR `?15` answers "no printer" and a print is ignored and
+    // counted, whatever `[screen] printing` says (`print.rs`; note AW).
+    crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
     crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
     crate::host::set_font_changes(&mut term, cfg.font_changes);
     crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);
@@ -674,10 +678,12 @@ impl Driver {
         }
         // Output shows the cursor and restarts its blink (`caret.rs`).
         self.caret.restart(Instant::now());
-        if let Some(t) = self
-            .titles
-            .next(self.term.title(), self.term.title_encoding(), "baud")
-        {
+        if let Some(t) = self.titles.next(
+            self.term.title(),
+            self.term.title_encoding(),
+            "baud",
+            self.term.print_run(),
+        ) {
             self.window.set_title(&mut self.conn.sender(), &t);
         }
     }

@@ -235,7 +235,7 @@ impl Paint<'_, '_> {
         let at = self.cx;
         self.carriage_return();
         if self.cx != at {
-            self.line_feed();
+            self.line_feed(crate::paint::Feed::Unprinted);
         }
     }
 

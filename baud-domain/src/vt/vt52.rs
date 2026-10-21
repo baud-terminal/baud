@@ -19,9 +19,8 @@ pub enum TerminalMode {
 
 /// A VT52 escape sequence.
 ///
-/// The set is `[[source: vt510-decanm]]`'s Table 5-1. Print functions
-/// (`ESC ^ _ W X ] V`) are recognised and declined — there is no printer, and
-/// accepting them silently would be the `parsed` failure.
+/// The set is `[[source: vt510-decanm]]`'s Table 5-1. The print functions
+/// (`ESC ^ _ W X ] V`) are [`Vt52::Print`], performed as `MC` is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Vt52 {
     CursorUp,
@@ -45,6 +44,11 @@ pub enum Vt52 {
     ExitVt52,
     KeypadApplication,
     KeypadNumeric,
+    /// The print functions in VT52 mode (`[[source: vt420-rm]]`'s VT52
+    /// table): `ESC ^` and `ESC _` enter and exit autoprint, `ESC W` and
+    /// `ESC X` printer controller mode, `ESC ]` prints the screen and
+    /// `ESC V` the cursor's line, as `MC` does in ANSI mode.
+    Print(MediaCopy),
     /// Recognised and deliberately not acted on.
     Unsupported,
 }
@@ -67,6 +71,12 @@ impl Vt52 {
             b'<' => Vt52::ExitVt52,
             b'=' => Vt52::KeypadApplication,
             b'>' => Vt52::KeypadNumeric,
+            b'^' => Vt52::Print(MediaCopy::AutoPrintOn),
+            b'_' => Vt52::Print(MediaCopy::AutoPrintOff),
+            b'W' => Vt52::Print(MediaCopy::ControllerOn),
+            b'X' => Vt52::Print(MediaCopy::ControllerOff),
+            b']' => Vt52::Print(MediaCopy::PrintPage),
+            b'V' => Vt52::Print(MediaCopy::PrintLine),
             _ => Vt52::Unsupported,
         }
     }

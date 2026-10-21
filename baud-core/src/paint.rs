@@ -1638,6 +1638,11 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cx = CursorCol::written(self.cold.fence);
             return;
         }
+        // Autoprint prints the line an autowrap leaves, ended by `LF`
+        // (070-7 § 7.3.7, "or LF if Auto Wrap").
+        if self.cold.modes.is_set(ModeBit::AutoPrint) {
+            self.autoprint(crate::print::LineEnd::LineFeed);
+        }
         self.cx = CursorCol::moved(self.cold.left);
         // The row being left continues onto the next: the fact a reflow
         // needs, kept in the mark the write already touched.
@@ -1995,17 +2000,48 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// down and left the column alone whatever the application asked for.
     /// `baud-core2` always read it here, and the ported
     /// `lf_returns_to_column_one_when_lnm_is_set` is what found the gap.
+    ///
+    /// **Autoprint is read with LNM, one test of the mode word**, and both
+    /// are out of line behind it ([`Paint::line_feed_moded`]): `by` says
+    /// which byte moved the cursor, which is the line's ending in print.
     #[inline(always)]
-    pub(crate) fn line_feed(&mut self) {
+    pub(crate) fn line_feed(&mut self, by: Feed) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        // `CR` first: `[[source: dec-std-070]]` LF's algorithm (p. 5-60)
-        // calls `carriage_return()` before it moves, so the line it leaves
-        // decides where the next one starts under the margins.
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::LineFeedNewLine, ModeBit::AutoPrint)
+        {
+            self.line_feed_moded(by);
+        }
+        self.index();
+    }
+
+    /// [`Paint::line_feed`] under LNM or autoprint. **The line is printed
+    /// before anything moves**, as 070-7 § 7.3.7 prints "the active line";
+    /// then `CR` first: `[[source: dec-std-070]]` LF's algorithm (p. 5-60)
+    /// calls `carriage_return()` before it moves, so the line it leaves
+    /// decides where the next one starts under the margins.
+    #[cold]
+    #[inline(never)]
+    fn line_feed_moded(&mut self, by: Feed) {
+        if self.cold.modes.is_set(ModeBit::AutoPrint) {
+            let end = match by {
+                Feed::Received(at) if self.arena[at.index()] == 0x0c => {
+                    Some(crate::print::LineEnd::FormFeed)
+                }
+                Feed::Received(_) => Some(crate::print::LineEnd::LineFeed),
+                Feed::LineTab => Some(crate::print::LineEnd::LineTab),
+                Feed::Unprinted => None,
+            };
+            if let Some(end) = end {
+                self.autoprint(end);
+            }
+        }
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
             self.carriage_return();
         }
-        self.index();
     }
 
     /// Down one row, scrolling when that would leave the screen.
@@ -2080,6 +2116,17 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.cells = self.cells.plus(n.index());
         rot
     }
+}
+
+/// What moved the cursor down a line ([`Paint::line_feed`]): a byte the
+/// host sent, `LF` or `FF`, read back from the arena only when autoprint
+/// needs the line's ending; `VT` with no line tabulation stop after it; or
+/// no byte at all, `OSC 133`'s fresh line, which prints nothing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Feed {
+    Received(BytePos),
+    LineTab,
+    Unprinted,
 }
 
 /// How the cursor came to be on a row ([`Paint::enter_row`]): a move put it

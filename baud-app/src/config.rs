@@ -5,7 +5,7 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, `[screen] checksum` and `logging`, `[pointer]
+//! `[text] ambiguous_width`, `[screen] checksum`, `logging` and `printing`, `[pointer]
 //! hide_while_typing`, `[font] changes`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
@@ -55,6 +55,13 @@ pub enum FaceFrom {
     File,
     /// Bytes compiled into the binary.
     Embedded(&'static [u8]),
+}
+
+/// `[screen] printing`'s two values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Printing {
+    On,
+    Off,
 }
 
 /// Whether the embedded faces follow a configured stack -- the embedded
@@ -149,6 +156,13 @@ pub struct Config {
     /// otherwise append its output to any file the user owns that no one
     /// else may write.
     pub logging: baud_domain::Logging,
+    /// `[screen] printing`: whether a program's print request opens the
+    /// print panel (MC, autoprint and printer controller mode), `"on"` by
+    /// default (Jev's lean, SETTING, 0.70/0.82 then 0.82/0.88), or `"off"`,
+    /// under which the core is told there is no printer: DSR `?15` answers
+    /// "no printer" and every print request is ignored and counted. Nothing
+    /// prints without the user pressing Print in the panel either way.
+    pub printing: Printing,
     /// `[window] operations`: whether a program's window operations
     /// (XTWINOPS 1-10 and DECSLPP: move, resize, minimise, raise, lower,
     /// maximise, full screen) are performed, `"on"` by default (the owner's
@@ -647,6 +661,7 @@ impl Config {
             screen_transition: ScreenTransition::Off,
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
+            printing: Printing::On,
             window_ops: baud_domain::WindowOps::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
@@ -965,6 +980,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::Logging::On
+                        }
+                    };
+                }
+                ("screen", "printing") => {
+                    self.printing = match value.trim().trim_matches('"') {
+                        "on" => Printing::On,
+                        "off" => Printing::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] printing {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            Printing::On
                         }
                     };
                 }
@@ -2180,6 +2208,30 @@ mod reader {
         );
     }
 
+    /// **A program's print opens the panel unless `[screen] printing =
+    /// "off"`**, quoted or bare; any other value keeps the default and says
+    /// so, and the key is the `[screen]` section's.
+    #[test]
+    fn printing_is_on_unless_turned_off() {
+        assert_eq!(Config::defaults().printing, Printing::On);
+        assert_eq!(read("").printing, Printing::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nprinting = {off}\n");
+            assert_eq!(read(&text).printing, Printing::Off, "{off}");
+        }
+        assert_eq!(read("[screen]\nprinting = \"on\"\n").printing, Printing::On);
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nprinting = \"yes\"\n");
+        assert_eq!(c.printing, Printing::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("printing"), "{said:?}");
+        assert_eq!(
+            read("printing = \"off\"\n").printing,
+            Printing::On,
+            "not a top-level key"
+        );
+    }
+
     /// **The window operations are performed unless `[window] operations =
     /// "off"`** (the owner's call of 2026-10-19, option 4), quoted or bare;
     /// any other value keeps the default and says so, and the key is the
@@ -2979,11 +3031,14 @@ shadow     = "never"
             "the [screen] section did not land"
         );
         assert!(
-            text.contains("\n[screen]\ntransition = false\nchecksum = \"on\"\nlogging = \"on\"\n"),
-            "the [screen] checksum and logging"
+            text.contains(
+                "\n[screen]\ntransition = false\nchecksum = \"on\"\nlogging = \"on\"\nprinting = \"on\"\n"
+            ),
+            "the [screen] checksum, logging and printing"
         );
         assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
         assert_eq!(c.logging, baud_domain::Logging::On);
+        assert_eq!(c.printing, Printing::On);
         assert!(
             text.contains("\n[window]\noperations = \"on\"\n"),
             "the [window] operations"

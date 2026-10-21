@@ -390,6 +390,13 @@ group  = "C"
 # ESC, CSI or DCS first), rung by a character printed "from a column <= (RIGHT MARGIN -
 # 8) to any column on the same line > (RIGHT MARGIN - 8)", RING DISABLED when "The
 # cursor moves to a new line" (pp. 6-45 and 6-46, PDF 532-533).
+# Read 2026-10-20 (lane b123) for printing, the copy whose sha256 matches, on the text layer
+# [text]: 070-7, the Printer Port Extension, pp. 7-1 to 7-49 -- 7.3.2 printer status ("all
+# print commands which require the printer port are ignored"), 7.3.6 printer controller mode,
+# 7.3.7 auto print, 7.3.8 and 7.3.9, 7.4 transmitting print data and 7.4.2-7.4.3 attributes
+# and trailing spaces, 7.6 print operations, 7.7's DSR ?15, MC, DECPFF, DECPEX, PRINT PAGE and
+# PRINT LINE with their algorithms; host_state_init's printer port (PRINT_DISPLAY, NVM);
+# DECSTR's list ("NOT affected ... Printer Controller Mode, Auto Print Mode").
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -14893,6 +14900,13 @@ group  = "C"
 # and DECFI, p. 177 (PDF 199); DECRQCRA and the checksum report, pp. 243-244 (PDF 265-266),
 # with no algorithm; Table 12-4, the DECRQSS requests, "Select attribute change extent
 # DECSACE *x" (PDF 288).
+# Re-fetched 2026-10-20 (lane b123), the sha256 matching, and read on the text layer [text]:
+# chapter 11's printing, pp. 210-215 (DECPEX "Default: Scrolling region", DECPFF "Default: No
+# form feed", autoprint, printer controller mode "except NUL, XON, XOFF, and the printer
+# controller mode sequences", print page, composed display, all pages, cursor line, the
+# printer-to-host and assignment sequences, SGR 0, 1, 2 underline and 5 sent to a printer);
+# Table 11-5, which marks DECPEX's page "(D)"; DSR printer port, p. 239; the VT52 table's
+# ESC ^ _ W X ] V.
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -14918,6 +14932,11 @@ group  = "C"
 # "the warning bell volume", copy errors the VT520's page corrects; RIS, "Sets all
 # features listed on set-up screens to their saved settings" (p. 5-184); DECSTR's Table
 # 5-9, which names neither volume (p. 5-146).
+# Re-fetched 2026-10-20 (lane b123), the sha256 matching [text]: MC, pp. 5-177 to 5-179
+# (CSI 2 i "Sends screen data through host port", CSI 6/7 i and CSI ? 8/9 i printer-to-host),
+# DECPEX and DECPFF, p. 5-81 ("Default: Scrolling region"); Table 4-9's printer functions;
+# chapter 10, Printer Port, 10.4-10.8 (10.8 "Clear communications ... may be used to get out
+# of a hung state").
 
 [sources.vt520-rm]
 key    = "vt520-rm"
@@ -29911,3 +29930,67 @@ bytes  = 87028
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b121). Read, not copied.
+
+# lane b123, printing (note AW, section 1).
+[sources.xterm-print-c]
+key    = "xterm-print-c"
+title  = "xterm 411, print.c -- xtermMediaControl, xtermAutoPrint, xtermPrinterControl and printLine"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/print.c"
+file   = "xterm-print.c"
+sha256 = "babaff446bc6c1c3e7d48bcd143bce8537ccf82ced22f1beb62af86686b4b6c9"
+bytes  = 21665
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 (lane b123): xtermPrinterControl's table, the literal CSI 5 i, CSI 4 i,
+# ESC [ 5 i and ESC [ 4 i, with NUL, ^Q and ^S "ignored by application"; xtermMediaControl's
+# MC and DEC MC forms (?10 print screen, ?11 xtermPrintEverything, the saved lines and the
+# screen); printLine and send_SGR.
+
+[sources.apple-nsprintoperation-runmodal]
+key    = "apple-nsprintoperation-runmodal"
+title  = "NSPrintOperation runModal(for:delegate:didRun:contextInfo:) -- runs the print operation, calling a delegate method on completion (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/runmodal(for:delegate:didrun:contextinfo:).json"
+file   = "apple-nsprintoperation-runmodal.json"
+sha256 = "9f5f8cde9dabf36080c905488cdb881c420193e3d2ffad10a9c78fda940599d8"
+bytes  = 22038
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 (lane b123): "Runs the print operation, calling your custom delegate
+# method upon completion"; the window parameter, "The document window to receive a print
+# progress sheet."
+
+[sources.apple-nsprintoperation-run]
+key    = "apple-nsprintoperation-run"
+title  = "NSPrintOperation run() -- runs the print operation on the current thread (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/run().json"
+file   = "apple-nsprintoperation-run.json"
+sha256 = "62ad007ece0a297177dbe5f98064e8c5ba169af632dbac5930b88253449c024f"
+bytes  = 16276
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 (lane b123): "The operation runs to completion in the current thread,
+# blocking the application ... Use [runModal(for:delegate:didRun:contextInfo:)] to use
+# document-modal sheets".
+
+[sources.apple-nsprinter-printernames]
+key    = "apple-nsprinter-printernames"
+title  = "NSPrinter printerNames -- the names of all available printers (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter/printernames.json"
+file   = "apple-nsprinter-printernames.json"
+sha256 = "68eb8d537982c1bbf31fcc6debb75eb9cc22d319993f05db269176a806664380"
+bytes  = 11508
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 (lane b123): "Returns the names of all available printers."

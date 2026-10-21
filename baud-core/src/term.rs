@@ -3611,6 +3611,55 @@ impl<'b> Term<'b> {
         self.store.strs.log.refused
     }
 
+    /// **Whether the embedder has a printer** to hand print jobs to
+    /// (`print.rs`). With one DSR `?15` answers `?10n`, ready. With none
+    /// since power-up or `RIS` it answers `?13n`, "not connected", and
+    /// every print function is ignored and counted, as 070-7 § 7.3.2
+    /// ignores them on a terminal with no printer. **A printer lost after
+    /// it was there is "not ready"**: `?15` answers `?11n` and prints go on
+    /// collecting jobs, § 7.3.2's "print operations shall be queued", so a
+    /// printer controller run keeps the program's printer data off the
+    /// screen; the embedder holds the jobs until a printer is back. Absent
+    /// until the embedder says otherwise; no sequence changes it, and `RIS`
+    /// forgets a printer that is gone.
+    pub fn set_printer(&mut self, port: PrinterPort) {
+        self.store.strs.print.set_port(port);
+    }
+
+    /// What [`Term::set_printer`] last set.
+    pub fn printer(&self) -> PrinterPort {
+        self.store.strs.print.port
+    }
+
+    /// **What the printer is collecting for**: nothing, an autoprint run or
+    /// a printer controller run, during which the screen is not updated
+    /// (070-7 § 7.3.6), so an embedder can say why it went quiet.
+    pub fn print_run(&self) -> PrintRun {
+        self.store.strs.print.run
+    }
+
+    /// **The print jobs finished since the last [`Term::clear_print_jobs`]**,
+    /// oldest first, each 070-7's print stream in UTF-8 (`print.rs`). Take
+    /// them after every read: the core keeps [`crate::PRINT_QUEUE`], and one
+    /// past it joins the last after a form feed.
+    pub fn print_jobs(&self) -> impl Iterator<Item = PrintJob<'_>> + '_ {
+        let s = &self.store.strs;
+        s.print.jobs(s.print_area)
+    }
+
+    /// Forget the finished print jobs, the embedder having taken them.
+    pub fn clear_print_jobs(&mut self) {
+        let s = &mut self.store.strs;
+        s.print.clear(s.print_area);
+    }
+
+    /// The print functions that printed nothing: with no printer, the
+    /// kinds refused as unsafe, the bytes past the area's bound and the
+    /// jobs joined to another.
+    pub fn print_refusals(&self) -> PrintRefusals {
+        self.store.strs.print.refusals
+    }
+
     /// **The rows a change of width dropped from the oldest end of the
     /// history**, summed over every resize since `Term::new`: a re-cut to a
     /// narrower width makes each line longer in rows, and what no longer

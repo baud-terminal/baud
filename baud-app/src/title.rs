@@ -6,6 +6,7 @@
 //! text a window can show is the embedder's, and it is pure so a test reaches
 //! it -- the window it lands on is AppKit's or a compositor's.
 
+use baud_core::PrintRun;
 use baud_domain::InputEncoding;
 
 /// The title to show for the bytes a program set, or `fallback` when it set
@@ -41,7 +42,20 @@ pub fn window_title(bytes: &[u8], encoding: InputEncoding, fallback: &str) -> St
 /// sent. A read costs one comparison of at most `OSC_MAX` bytes, and a
 /// program that sets the same title on every prompt costs the window nothing.
 pub struct Shown {
-    last: Option<(Vec<u8>, InputEncoding)>,
+    last: Option<(Vec<u8>, InputEncoding, PrintRun)>,
+}
+
+/// **The title while a printer controller run hides the output**: a program
+/// sending its output to the printer leaves the screen as it was until it
+/// is done (`[[source: dec-std-070]]` 070-7 § 7.3.6, "The video display is
+/// not updated"), and the title says why, as the VT510 flashes "Printer" in
+/// its indicator line when the printer stalls (`[[source: vt510-rm-b]]`
+/// 10.6.3.2).
+pub fn marked(title: String, run: PrintRun) -> String {
+    match run {
+        PrintRun::Controller => format!("{title} \u{2014} Printing"),
+        PrintRun::Idle | PrintRun::AutoPrint => title,
+    }
 }
 
 impl Shown {
@@ -49,22 +63,25 @@ impl Shown {
         Shown { last: None }
     }
 
-    /// The title to send now, or `None` when the window already has it.
+    /// The title to send now, or `None` when the window already has it:
+    /// a change of the bytes, their encoding or the printer's run is a
+    /// change.
     pub fn next(
         &mut self,
         bytes: &[u8],
         encoding: InputEncoding,
         fallback: &str,
+        run: PrintRun,
     ) -> Option<String> {
         if self
             .last
             .as_ref()
-            .is_some_and(|(b, e)| b.as_slice() == bytes && *e == encoding)
+            .is_some_and(|(b, e, r)| b.as_slice() == bytes && *e == encoding && *r == run)
         {
             return None;
         }
-        self.last = Some((bytes.to_vec(), encoding));
-        Some(window_title(bytes, encoding, fallback))
+        self.last = Some((bytes.to_vec(), encoding, run));
+        Some(marked(window_title(bytes, encoding, fallback), run))
     }
 }
 
@@ -123,22 +140,33 @@ mod tests {
         let mut s = Shown::new();
         let u = InputEncoding::Utf8;
         assert_eq!(
-            s.next(b"", u, "baud"),
+            s.next(b"", u, "baud", PrintRun::Idle),
             Some("baud".into()),
             "the first is sent"
         );
-        assert_eq!(s.next(b"", u, "baud"), None);
-        assert_eq!(s.next(b"a", u, "baud"), Some("a".into()));
-        assert_eq!(s.next(b"a", u, "baud"), None);
+        assert_eq!(s.next(b"", u, "baud", PrintRun::Idle), None);
+        assert_eq!(s.next(b"a", u, "baud", PrintRun::Idle), Some("a".into()));
+        assert_eq!(s.next(b"a", u, "baud", PrintRun::Idle), None);
         assert_eq!(
-            s.next(b"a", InputEncoding::Latin1, "baud"),
+            s.next(b"a", InputEncoding::Latin1, "baud", PrintRun::Idle),
             Some("a".into()),
             "a change of encoding is a change"
         );
         assert_eq!(
-            s.next(b"", u, "baud"),
+            s.next(b"", u, "baud", PrintRun::Idle),
             Some("baud".into()),
             "and back to none"
+        );
+        assert_eq!(
+            s.next(b"", u, "baud", PrintRun::Controller),
+            Some("baud \u{2014} Printing".into()),
+            "a controller run marks the title"
+        );
+        assert_eq!(s.next(b"", u, "baud", PrintRun::Controller), None);
+        assert_eq!(
+            s.next(b"", u, "baud", PrintRun::AutoPrint),
+            Some("baud".into()),
+            "autoprint leaves the screen drawing, and no mark"
         );
     }
 }

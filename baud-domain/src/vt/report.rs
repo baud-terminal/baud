@@ -1407,6 +1407,12 @@ pub enum DecReply {
     /// `CSI ? 13 n`: "The printer is not connected to the terminal"
     /// (070-7 p. 7-33).
     NoPrinter,
+    /// `CSI ? 10 n`: "The printer is ready to print" (070-7 p. 7-32).
+    PrinterReady,
+    /// `CSI ? 11 n`: "The printer is not ready to print. The Data Set Ready
+    /// signal at the printer port was previously asserted (since power on),
+    /// but is not asserted now" (070-7 p. 7-32).
+    PrinterNotReady,
     /// `CSI ? 23 n`: "No User Defined Keys are present. The device does not
     /// support this extension" (070-11 p. 11-7).
     NoUserKeys,
@@ -1435,6 +1441,8 @@ impl DecReply {
     fn params(self) -> &'static [u16] {
         match self {
             DecReply::NoPrinter => &[13],
+            DecReply::PrinterReady => &[10],
+            DecReply::PrinterNotReady => &[11],
             DecReply::NoUserKeys => &[23],
             DecReply::KeyboardUnknown => &[27, 0, 0],
             DecReply::LocatorReady => &[50],

@@ -80,11 +80,10 @@ impl Paint<'_, '_> {
             }
             Vt52::KeypadApplication => self.cold.keypad = KeypadMode::Application,
             Vt52::KeypadNumeric => self.cold.keypad = KeypadMode::Numeric,
-            // **The print functions, and they are counted rather than
-            // silent.** `ESC ^`, `ESC _`, `ESC W`, `ESC X`, `ESC ]`, `ESC V`
-            // drive a printer this core does not have. A byte that is not a
-            // VT52 command at all lands here too, and both are the same
-            // answer: consumed, not drawn, and a number saying how often.
+            // A byte that is not a VT52 command: consumed, not drawn, and a
+            // number saying how often.
+            // The print functions, as `MC` performs them (`print.rs`).
+            Vt52::Print(m) => self.media_copy(m, node),
             Vt52::Unsupported => self.vt52_unsupported += 1,
         }
     }

@@ -1,7 +1,7 @@
 //! The reports a VT420 and xterm answer that ride on no other operation:
 //! the DEC private device status reports, DECREQTPARM, DECRQUPSS, DECRQDE,
 //! XTQMODKEYS and XTQFMTKEYS. Each answers only what is true of baud -- no
-//! printer, no user-defined keys, a DEC locator that is a mouse, no macro
+//! printer unless the embedder has one, no user-defined keys, a DEC locator that is a mouse, no macro
 //! memory, one page, one session, and a pty with no line to fail -- in the
 //! shape its text gives (`baud_domain::Report`'s variants carry each source).
 //!
@@ -50,7 +50,15 @@ impl Paint<'_, '_> {
                 let (row, col) = self.reported_cursor();
                 Report::ExtendedCursorPosition { row, col }
             }
-            DecStatus::Printer => Report::DecStatus(DecReply::NoPrinter),
+            // "?10n" ready while the embedder has a printer, "?11n" not
+            // ready while it had one since power-up or RIS, else "?13n",
+            // "not connected" (070-7 p. 7-32): the answer and what a print
+            // does agree, as § 7.3.2 ties them.
+            DecStatus::Printer => Report::DecStatus(match self.strs.print.status() {
+                crate::print::Status::Ready => DecReply::PrinterReady,
+                crate::print::Status::NotReady => DecReply::PrinterNotReady,
+                crate::print::Status::NotAvailable => DecReply::NoPrinter,
+            }),
             DecStatus::UserKeys => Report::DecStatus(DecReply::NoUserKeys),
             DecStatus::Keyboard => Report::DecStatus(DecReply::KeyboardUnknown),
             DecStatus::LocatorStatus => Report::DecStatus(DecReply::LocatorReady),
