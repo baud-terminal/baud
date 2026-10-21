@@ -22,6 +22,7 @@ enum Op {
     Recolor,
     Reply(Vec<u8>),
     Delay(u32),
+    Interactive(Vec<u8>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +69,10 @@ impl RegisOut for Rec {
     fn delay(&mut self, ticks: RegisTicks) {
         self.ops.push(Op::Delay(ticks.get()));
     }
+    fn interactive(&mut self, pos: &[u8]) {
+        self.ops.push(Op::Interactive(pos.to_vec()));
+    }
+    fn input_shown(&mut self) {}
 }
 
 fn run(body: &[u8]) -> (Box<Regis>, Rec) {
@@ -425,10 +430,39 @@ fn the_position_report_is_in_the_imposed_space() {
 }
 
 #[test]
-fn an_interactive_position_report_is_the_plain_one() {
-    // § 8.8.5.3's first response, "the result from a non-interactive device".
-    let (_, rec) = run(b"P[7,8]R(P(I))");
+fn an_interactive_position_report_without_a_hold_is_the_plain_one() {
+    // § 8.8.5.3's first response, "the result from a non-interactive device",
+    // for a caller that holds nothing.
+    let (r, rec) = run(b"P[7,8]R(P(I))");
     assert_eq!(replies(&rec), vec![b"[7,8]\r".to_vec()]);
+    assert_eq!(r.counts().inputs_unheld, 1);
+}
+
+/// **Under a hold a one-shot `R(P(I))` answers nothing and waits**, the
+/// next character held; **in multiple mode it asks the caller for the
+/// null button's report at once**, after `R(I1)`'s carriage return.
+#[test]
+fn an_interactive_report_waits_in_one_shot_and_goes_at_once_in_multiple() {
+    let mut r = Box::new(Regis::NEW);
+    r.set_hold(baud_domain::RegisHold::On);
+    let mut rec = Rec::default();
+    r.enter(RegisEntry::of(None), &mut rec);
+    for &b in b"P[7,8]R(P(I))" {
+        r.put(StreamByte::from_stream(b), &mut rec);
+    }
+    assert_eq!(rec.ops, vec![]);
+    assert!(r.held(), "the next character is held");
+    r.input_end();
+    assert!(!r.held());
+    let (r, rec) = run(b"P[7,8]R(I1)R(P(I))");
+    assert_eq!(
+        rec.ops,
+        vec![
+            Op::Reply(b"\r".to_vec()),
+            Op::Interactive(b"[7,8]".to_vec())
+        ]
+    );
+    assert_eq!(r.input_mode(), baud_domain::RegisInputMode::Multiple);
 }
 
 #[test]

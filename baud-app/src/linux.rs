@@ -392,8 +392,12 @@ pub fn run() {
             .transfer_deadline()
             .filter(|&t| t > now)
             .map(|t| t.saturating_duration_since(now));
-        // The reads a ReGIS delay holds, owed at its deadline.
-        let delay = d.pace.deadline().map(|t| t.saturating_duration_since(now));
+        // The reads a ReGIS delay holds, owed at its deadline, and those a
+        // one-shot ReGIS input held, owed at once when it has ended.
+        let delay = match d.pace.released(&d.term) {
+            true => Some(std::time::Duration::ZERO),
+            false => d.pace.deadline().map(|t| t.saturating_duration_since(now)),
+        };
         let timeout = [sync, repeat, flash, caret, decode, paste, delay]
             .into_iter()
             .flatten()
@@ -448,8 +452,9 @@ pub fn run() {
                 Chunk::Bytes(bytes) => d.feed(&bytes),
             }
         }
-        // A ReGIS delay's held reads, at its deadline, read or not.
-        if d.pace.due(Instant::now()) {
+        // A ReGIS delay's held reads, at its deadline, read or not, and a
+        // one-shot input's once it has ended.
+        if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
             d.feed(&[]);
         }
         // After a timeout as much as after readiness: a repeat is due on
@@ -482,8 +487,14 @@ pub fn run() {
                     // ignored, so a key after a reply-heavy read was lost.
                     // A full buffer here would be that again, and is said.
                     let overflows = d.term.reply_overflows;
+                    let drawn = d.term.images().generation();
                     let queued =
                         crate::reads::input(&mut d.term, |t| t.key(k), |b| d.outbox.push(b));
+                    // An arrow key moved a ReGIS input cursor, or a key
+                    // ended the input and took it away: a frame.
+                    if d.term.images().generation() != drawn {
+                        d.pending = Pending::Dirty;
+                    }
                     if !queued && d.term.reply_overflows != overflows {
                         crate::warn!("a key was dropped: the reply buffer had no room for it");
                     }
@@ -599,7 +610,7 @@ impl Driver {
 
     /// One read's worth of the child's output into the core.
     fn feed(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() && !self.pace.due(Instant::now()) {
+        if bytes.is_empty() && !self.pace.due(Instant::now()) && !self.pace.released(&self.term) {
             return;
         }
         let refused = self.term.images().refusals;

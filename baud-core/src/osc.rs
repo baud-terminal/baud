@@ -448,8 +448,10 @@ impl Paint<'_, '_> {
             }
             StrKind::RestoreTabs => self.restore_tab_end(),
             // ReGIS acts as its body arrives and keeps its state for the
-            // next envelope: nothing is left to do at the end of this one.
-            StrKind::Regis => {}
+            // next envelope; its cursors go with the envelope, "the ReGIS
+            // locator will be disabled until ReGIS is re-entered" (070-13
+            // § 5.2) and the output cursor shows only "in ReGIS mode".
+            StrKind::Regis => self.regis_cursor_off(),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;

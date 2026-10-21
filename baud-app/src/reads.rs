@@ -4,6 +4,7 @@
 //! took for the wheel.
 
 use baud_core::{BytePos, ReadLen, Rest, Term};
+use baud_domain::RegisInput;
 use baud_domain::{DecodeBudget, DecodeProgress};
 use std::time::{Duration, Instant};
 
@@ -36,11 +37,27 @@ pub fn feed<'r>(
 ///
 /// **Bounded at [`HELD_MAX`]**: a program that keeps writing through a
 /// long delay ends it early once that much waits, counted in `cut`.
+///
+/// **And a one-shot ReGIS input** (`Term::regis_input`): "no further data
+/// from the application (screen output) is processed until the locator
+/// input is complete" (`[[source: dec-std-070]]` 070-13 § 5.1). The reads
+/// wait with no deadline until a key or a button ends the input, and are
+/// fed by the next call after it, which [`Pace::released`] tells a driver
+/// to make at once. Past [`HELD_MAX`] the input is given up with the empty
+/// report (`Term::regis_input_abandon`), counted in the core.
 pub struct Pace {
     held: std::collections::VecDeque<Vec<u8>>,
     until: Option<Instant>,
+    input: Input,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
+}
+
+/// Whether the held reads wait on a one-shot ReGIS input.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Input {
+    Free,
+    Waits,
 }
 
 /// How many delays [`HELD_MAX`] ended early.
@@ -60,6 +77,7 @@ impl Pace {
         Pace {
             held: std::collections::VecDeque::new(),
             until: None,
+            input: Input::Free,
             cut: DelaysCut::NONE,
         }
     }
@@ -74,6 +92,13 @@ impl Pace {
     #[cfg(any(target_os = "linux", test))]
     pub fn due(&self, now: Instant) -> bool {
         self.until.is_some_and(|t| t <= now)
+    }
+
+    /// **Whether a one-shot input the reads waited on has ended**, so they
+    /// are owed a feed now.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn released(&self, term: &Term<'_>) -> bool {
+        self.input == Input::Waits && term.regis_input() != RegisInput::OneShot
     }
 
     fn keep(&mut self, bytes: &[u8]) {
@@ -147,6 +172,20 @@ pub fn paced<'r>(
 ) -> Fed {
     owed(term, &mut sink);
     log.follow(term);
+    if pace.input == Input::Waits {
+        let waiting: usize = pace.held.iter().map(Vec::len).sum();
+        if term.regis_input() == RegisInput::OneShot {
+            if waiting <= HELD_MAX {
+                for bytes in reads {
+                    pace.keep(bytes);
+                }
+                return Fed::Nothing;
+            }
+            term.regis_input_abandon();
+            owed(term, &mut sink);
+        }
+        pace.input = Input::Free;
+    }
     if let Some(t) = pace.until {
         let waiting: usize = pace.held.iter().map(Vec::len).sum();
         if now < t && waiting <= HELD_MAX {
@@ -185,8 +224,9 @@ fn paced_one(
     if bytes.is_empty() {
         return Fed::Nothing;
     }
-    // A delay met in this call holds the rest of the batch behind it.
-    if pace.until.is_some() {
+    // A delay or a one-shot input met in this call holds the rest of the
+    // batch behind it.
+    if pace.until.is_some() || pace.input == Input::Waits {
         pace.keep(bytes);
         return Fed::Nothing;
     }
@@ -208,6 +248,11 @@ fn paced_one(
         after(term);
         if let Some(w) = term.take_regis_wait() {
             pace.until = Some(now + Duration::from_micros(w.micros()));
+            if let Some(r) = next.take() {
+                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+            }
+        } else if term.regis_input() == RegisInput::OneShot {
+            pace.input = Input::Waits;
             if let Some(r) = next.take() {
                 pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
             }
@@ -551,6 +596,109 @@ mod tests {
         );
         assert_eq!(row0(&u), "ABCDEF");
         assert_eq!(pace.cut, DelaysCut::NONE);
+    }
+
+    /// **A one-shot ReGIS input holds the rest of its read and every read
+    /// after it until a key ends it**, with no deadline, and the next call
+    /// feeds them: "no further data from the application (screen output)
+    /// is processed until the locator input is complete" (070-13 § 5.1).
+    /// The report goes before any of the held output.
+    #[test]
+    fn a_one_shot_input_holds_the_reads_until_a_key_ends_it() {
+        let reads: [&[u8]; 2] = [b"\x1bPpR(P(I))\x1b\\AB", b"CD"];
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let mut child = Vec::new();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            reads,
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((row0(&t).as_str(), child.as_slice()), ("", &b""[..]));
+        assert_eq!(pace.deadline(), None, "no deadline: the user ends it");
+        assert!(!pace.released(&t));
+        let later = t0 + Duration::from_secs(60);
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            later,
+            [&b"EF"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Nothing, ""));
+        let key = baud_core::KeyEvent::press(
+            baud_domain::KeyCode::Char(baud_domain::Codepoint::from_char('q')),
+            baud_domain::Modifiers::NONE,
+        );
+        input(&mut t, |t| t.key(key), |b| child.extend_from_slice(b));
+        assert_eq!(child, b"q[0,0]\r");
+        assert!(pace.released(&t), "owed a feed now");
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            later,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Some, "ABCDEF"));
+        assert!(!pace.released(&t));
+    }
+
+    /// **A program writing more than [`HELD_MAX`] while one-shot input
+    /// waits gives the input up** with the empty report, a carriage return
+    /// alone (070-8 § 8.8.5.3), counted in the core, and its output is fed.
+    #[test]
+    fn a_one_shot_input_is_given_up_past_the_bound() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let t0 = Instant::now();
+        let mut child = Vec::new();
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [&b"\x1bPpR(P(I))\x1b\\"[..]],
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let chunk = vec![b'x'; READ_CHUNK];
+        let n = HELD_MAX / READ_CHUNK + 1;
+        paced(
+            &mut t,
+            &mut pace,
+            t0,
+            (0..n).map(|_| &chunk[..]),
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(child, b"", "at the bound, still waiting");
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            t0,
+            [],
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, child.as_slice()), (Fed::Some, &b"\r"[..]));
+        assert_eq!(t.regis_counts().inputs_abandoned, 1);
+        assert_eq!(row0(&t).len(), WS.ws_col.into(), "the output fed");
     }
 
     /// **A program writing through a long delay ends it early** once more

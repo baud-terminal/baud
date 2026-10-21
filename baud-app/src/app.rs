@@ -1281,7 +1281,14 @@ impl App {
     fn send(&mut self, e: KeyEvent) -> Sent {
         // Into an empty buffer, so the key always fits and `false` is only a
         // key that encodes to nothing (`reads::input`).
+        let drawn = self.term.images().generation();
         let encoded = crate::reads::input(&mut self.term, |t| t.key(e), |b| self.outbox.push(b));
+        // An arrow key moved a ReGIS input cursor, or a key ended the input
+        // and took it away: a frame, and the tick's pump feeds the reads
+        // the input held (`reads::Pace`).
+        if self.term.images().generation() != drawn {
+            self.pending = Pending::Dirty;
+        }
         // A key shows the cursor and restarts its blink, whether or not the
         // child echoes it back, and is input to the stop (`caret.rs`). The
         // wheel's arrow keys on the alternate screen do not come through
@@ -7659,10 +7666,15 @@ impl Responder for Driver {
                 at,
                 held: self.buttons,
             };
+            // A ReGIS cursor the move put under the pointer owes a frame.
+            let drawn = self.app.term.images().generation();
             if self.app.term.locator(e) {
                 self.app.flush_reply();
             }
             if crate::gesture::locator_redraws(&self.app.term) {
+                self.app.pending = Pending::Dirty;
+            }
+            if self.app.term.images().generation() != drawn {
                 self.app.pending = Pending::Dirty;
             }
         }
@@ -7685,21 +7697,30 @@ impl Responder for Driver {
             true => Shift::Held,
             false => Shift::Up,
         };
+        // ReGIS graphics input takes the buttons as a tracking child does
+        // (`gesture::pointer_tracking`).
+        let tracking = crate::gesture::pointer_tracking(
+            self.app.term.mouse_tracking(),
+            self.app.term.regis_input(),
+        );
         let (to, owner) = pointer_route(
             self.owner,
             kind,
-            self.app.term.mouse_tracking(),
+            tracking,
             shift_overrides(held, self.app.term.shift_escape(), kind, button),
         );
         self.owner = owner;
         if matches!(kind, Kind::Down | Kind::Up) {
             let at = self.locator_under(event.x, event.y);
-            let tracking = self.app.term.mouse_tracking();
+            let drawn = self.app.term.images().generation();
             let e = locator_input((kind, button, to), tracking, at, self.buttons);
             if self.app.term.locator(e) {
                 self.app.flush_reply();
             }
             if crate::gesture::locator_redraws(&self.app.term) {
+                self.app.pending = Pending::Dirty;
+            }
+            if self.app.term.images().generation() != drawn {
                 self.app.pending = Pending::Dirty;
             }
         }

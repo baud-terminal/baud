@@ -2,6 +2,10 @@
 //! device state, and what they draw.
 
 use super::color::{Comp, REGIS_COLORS, REGIS_DEFAULT_MAP, RegisColor, regis_closest};
+use super::cursor::{
+    Cursors, Input, Pending, REGIS_CURSOR_CELL, RegisCursor, RegisCursorPair, RegisCursorStyle,
+    RegisInputMode, Shown, tenths,
+};
 use super::num::RegisNum;
 use super::trig;
 use super::*;
@@ -45,9 +49,9 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: scrolling, the graphics cursor, hard copy, the clip rectangle,
-    /// scaling, data movement, drawing surfaces, blink, line width,
-    /// microcoded writing, flood, interactive input.
+    /// on: scrolling, hard copy, the clip rectangle, scaling, data
+    /// movement, drawing surfaces, blink, line width, microcoded writing,
+    /// flood.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -57,6 +61,13 @@ pub struct RegisCounts {
     /// `S(T)` delays passed over because the embedder holds no read
     /// ([`RegisHold::Off`]).
     pub delays_unheld: u32,
+    /// One-shot `R(P(I))` answered as a non-interactive device answers,
+    /// because the embedder holds no read ([`RegisHold::Off`]).
+    pub inputs_unheld: u32,
+    /// One-shot inputs ended with the empty report because the host wrote
+    /// more than its embedder holds while they waited
+    /// ([`super::Regis::input_abandon`]).
+    pub inputs_abandoned: u32,
 }
 
 /// The imposed coordinate space, `S(A[x1,y1][x2,y2])`: the user's
@@ -487,6 +498,14 @@ impl Frame {
     }
 }
 
+/// Which cursor an `S(C ...)` option sets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CursorWhich {
+    Output,
+    Input,
+    Both,
+}
+
 /// Which text tilt the `D` and `S` options of one text command have set,
 /// `[[source: vt3xx-text]]`: `T(D<a>)` alone the character's,
 /// `T(D<a>,S<n>)` the string's, `T(D<a>,S<n>,D<b>)` both.
@@ -557,6 +576,10 @@ pub(crate) struct Sem {
     /// Where the last line drawn ended, so the next one from there draws
     /// the joint once.
     last_end: Option<RegisPoint>,
+    /// The cursors' settings, `S(C ...)`.
+    pub(crate) cursors: Cursors,
+    /// Graphics input, `R(I<n>)` and `R(P(I))`.
+    pub(crate) input: Input,
 }
 
 impl Sem {
@@ -580,6 +603,8 @@ impl Sem {
             ignored: 0,
             unpaged: 0,
             delays_unheld: 0,
+            inputs_unheld: 0,
+            inputs_abandoned: 0,
         },
         pos: (RegisNum::ZERO, RegisNum::ZERO),
         space: RegisSpace::DEFAULT,
@@ -615,6 +640,8 @@ impl Sem {
         display_col: 0,
         scale: (1, 1),
         last_end: None,
+        cursors: Cursors::DEFAULT,
+        input: Input::NEW,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -1910,7 +1937,10 @@ impl Sem {
             // `S(F)`, "image complete": nothing to feed on a screen.
             (1, b'F') => {}
             (1, b'W') => {}
-            (1, b'C' | b'H' | b'P' | b'R' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
+            (1, b'C') => self.cursor_option(f, CursorWhich::Both),
+            (2, b'H') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Output),
+            (2, b'I') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Input),
+            (1, b'H' | b'P' | b'R' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
@@ -1965,6 +1995,205 @@ impl Sem {
         self.saved_text = None;
         self.size_escapement();
         self.load = 1;
+        // "Cursor visibility is set to ON, and the default cursors are
+        // selected" (§ 8.8.1.4.1 g), and one-shot input "is set by
+        // executing a valid S(A)"; "R(I0) or S(A) exit multiple input mode"
+        // (§ 8.8.5.2).
+        self.cursors = Cursors::DEFAULT;
+        self.input.mode = RegisInputMode::OneShot;
+    }
+
+    /// `S(C ...)` (§ 8.8.1.4.2): at the `C` itself a number turns the
+    /// output cursor on or off -- "S(C1) enables the cursor display, S(C0)
+    /// disables it", the VT340's "0 turns the output cursor off" -- and a
+    /// quoted pair with its offset defines both cursors, "for all possible
+    /// cursors at once"; under `H` and `I` a number picks the output's or
+    /// the input's style and a quoted pair defines that one. A number no
+    /// style has changes nothing, error 1.
+    fn cursor_option(&mut self, f: &Frame, which: CursorWhich) {
+        if f.nt > 0 {
+            let pair = self.cursor_pair(f);
+            if matches!(which, CursorWhich::Output | CursorWhich::Both) {
+                self.cursors.output = RegisCursorStyle::Pair;
+                self.cursors.output_pair = pair;
+            }
+            if matches!(which, CursorWhich::Input | CursorWhich::Both) {
+                self.cursors.input = RegisCursorStyle::Pair;
+                self.cursors.input_pair = pair;
+            }
+        }
+        let set = match which {
+            CursorWhich::Both => {
+                if let Some(n) = f.int() {
+                    self.cursors.shown = match n {
+                        0 => Shown::No,
+                        _ => Shown::Yes,
+                    };
+                }
+                Some(())
+            }
+            CursorWhich::Output if f.nt == 0 => self.cursors.set_output(f.int()),
+            CursorWhich::Input if f.nt == 0 => self.cursors.set_input(f.int()),
+            _ => Some(()),
+        };
+        if set.is_none() {
+            self.error(1, f.key);
+        }
+    }
+
+    /// The two characters of a quoted string, from "the alphabet currently
+    /// selected for drawing by T(A)", as device-pixel masks clipped to
+    /// [`REGIS_CURSOR_CELL`], and the extent's offset in cell pixels.
+    fn cursor_pair(&mut self, f: &Frame) -> RegisCursorPair {
+        let off = (
+            f.ext[0].x.value().map_or(0, |v| v.trunc()),
+            f.ext[0].y.value().map_or(0, |v| v.trunc()),
+        );
+        let mut pair = RegisCursorPair {
+            fg: [0; 24],
+            bg: [0; 24],
+            w: 0,
+            h: 0,
+            off,
+        };
+        let chars = [f.text[0], f.text[1]];
+        for (i, &c) in chars[..usize::from(f.nt.min(2))].iter().enumerate() {
+            let (mask, w, h) = self.cursor_mask(c);
+            pair.w = pair.w.max(w);
+            pair.h = pair.h.max(h);
+            match i {
+                0 => pair.fg = mask,
+                _ => pair.bg = mask,
+            }
+        }
+        pair
+    }
+
+    /// One character of the drawing alphabet as a mask: a loaded cell's
+    /// rows, a built-in one rasterised by the embedder's font at the unit
+    /// cell, or the solid error character for one not defined (§ 8.7.3.3).
+    fn cursor_mask(&mut self, c: u8) -> ([u16; 24], i32, i32) {
+        let (cw, ch) = REGIS_CURSOR_CELL;
+        let mut mask = [0u16; 24];
+        let t = self.text;
+        if t.alphabet == 0 {
+            let (w, h) = (t.unit.0.clamp(1, cw), t.unit.1.clamp(1, ch));
+            match (builtin(t.gl, t.gr, c), self.font) {
+                (Some(chr), Some(font)) => {
+                    font(
+                        chr,
+                        ImagePx::of(w as u16),
+                        ImagePx::of(h as u16),
+                        &mut |x, y| {
+                            let (x, y) = (x.index(), y.index());
+                            if x < w as usize && y < h as usize {
+                                mask[y] |= 0x8000 >> x;
+                            }
+                        },
+                    );
+                }
+                (Some(_), None) => self.counts.unfonted += 1,
+                (None, _) => mask[..h as usize].fill(solid_row(w)),
+            }
+            return (mask, w, h);
+        }
+        let (rows, w) = self.cell_bits(t.alphabet, c);
+        let w = i32::from(w).clamp(1, cw);
+        if rows.is_empty() {
+            let h = i32::from(self.alphabets[usize::from(t.alphabet - 1)].h).clamp(1, ch);
+            mask[..h as usize].fill(solid_row(w));
+            return (mask, w, h);
+        }
+        let aw = i32::from(self.alphabets[usize::from(t.alphabet - 1)].w.max(1));
+        let h = (rows.len() as i32).min(ch);
+        for (y, &row) in rows.iter().take(h as usize).enumerate() {
+            for x in 0..w {
+                if row & (1 << (aw - 1 - x)) != 0 {
+                    mask[y] |= 0x8000 >> x;
+                }
+            }
+        }
+        (mask, w, h)
+    }
+
+    /// The output cursor where the drawing position is, if `S(C)` shows it.
+    pub(crate) fn output_cursor(&self) -> Option<RegisCursor> {
+        if self.cursors.shown == Shown::No {
+            return None;
+        }
+        let at = self.space.fine(self.pos.0, self.pos.1);
+        Some(self.cursor_at(self.cursors.output, &self.cursors.output_pair, at, at))
+    }
+
+    /// The input cursor where graphics input has it.
+    pub(crate) fn input_cursor(&self) -> RegisCursor {
+        let i = self.input;
+        self.cursor_at(self.cursors.input, &self.cursors.input_pair, i.at, i.anchor)
+    }
+
+    fn cursor_at(
+        &self,
+        style: RegisCursorStyle,
+        pair: &RegisCursorPair,
+        at: Fine,
+        anchor: Fine,
+    ) -> RegisCursor {
+        let p = self.page(at);
+        match style {
+            RegisCursorStyle::Crosshair => RegisCursor::crosshair(
+                p,
+                self.page((
+                    i64::from(REGIS_WIDTH - 1) << 16,
+                    i64::from(REGIS_HEIGHT - 1) << 16,
+                )),
+            ),
+            RegisCursorStyle::Diamond => RegisCursor::diamond(p, self.page_len(10)),
+            RegisCursorStyle::RubberLine => RegisCursor::line(self.page(anchor), p),
+            RegisCursorStyle::RubberRect => RegisCursor::rect(self.page(anchor), p),
+            RegisCursorStyle::Pair => {
+                let o = (
+                    at.0 - (i64::from(pair.off.0) << 16),
+                    at.1 - (i64::from(pair.off.1) << 16),
+                );
+                RegisCursor::pair(
+                    self.page(o),
+                    (self.page_len(pair.w), self.page_len(pair.h)),
+                    *pair,
+                )
+            }
+        }
+    }
+
+    /// A page pixel as a position on the device, held to the device.
+    pub(crate) fn device_of_page(&self, x: i32, y: i32) -> Fine {
+        let (n, d) = (i128::from(self.scale.0.max(1)), i128::from(self.scale.1));
+        let f = |v: i32, max: i32| -> i64 {
+            let v = (i128::from(v) << 16) * d / n;
+            v.clamp(0, i128::from(max - 1) << 16) as i64
+        };
+        (f(x, REGIS_WIDTH), f(y, REGIS_HEIGHT))
+    }
+
+    /// The input position as a report's bracketed extent in user
+    /// coordinates, "an absolute bracketed extent in user coordinates"
+    /// (070-13 § 5.1), to a tenth ([`tenths`]).
+    pub(crate) fn input_position(&self, out: &mut [u8; 56]) -> usize {
+        let (ux, uy) = self.space.user_step(self.input.at.0, self.input.at.1);
+        let (x, y) = (self.space.x1.plus(ux), self.space.y1.plus(uy));
+        let mut n = 0;
+        let mut put = |s: &[u8], n: &mut usize| {
+            out[*n..*n + s.len()].copy_from_slice(s);
+            *n += s.len();
+        };
+        let mut b = [0u8; 24];
+        put(b"[", &mut n);
+        let k = tenths(x.raw(), &mut b);
+        put(&b[..k], &mut n);
+        put(b",", &mut n);
+        let k = tenths(y.raw(), &mut b);
+        put(&b[..k], &mut n);
+        put(b"]", &mut n);
+        n
     }
 
     fn stack_option(&mut self, own: u8, f: &Frame, r: usize, dest: Dest, out: &mut dyn RegisOut) {
@@ -2159,12 +2388,41 @@ impl Sem {
             }
         };
         match (f.key, f.sub) {
+            // **`R(P(I))`**, as graphics input runs (§ 8.8.5.3): in multiple
+            // mode the report goes at once, behind the null button's string
+            // ("If report position interactive is received, the report will
+            // be prefixed by the null button because no button transition
+            // initiated the report", 070-13 § 5.2), which the caller writes;
+            // in one-shot mode the input cursor appears and the report waits
+            // for the user's key or button, the interpretation suspended
+            // meanwhile -- under [`RegisHold::On`], where the caller holds
+            // what follows. An embedder that holds nothing has § 8.8.5.3's
+            // first response, "The normal bracketed coordinate specifier,
+            // just as from the normal R(P) command. This is the result from
+            // a non-interactive device", counted.
+            (b'P', b'I') if self.input.mode == RegisInputMode::Multiple => {
+                let mut pos = [0u8; 56];
+                let k = self.input_position(&mut pos);
+                return out.interactive(&pos[..k]);
+            }
+            (b'P', b'I') if self.hold == RegisHold::On => {
+                let at = self.space.fine(self.pos.0, self.pos.1);
+                self.input.at = at;
+                self.input.anchor = at;
+                self.input.pending = Pending::Yes;
+                return out.input_shown();
+            }
+            (b'P', b'I') => {
+                self.counts.inputs_unheld += 1;
+                put(b"[", &mut buf, &mut n);
+                put(decimal(self.pos.0.round()).as_bytes(), &mut buf, &mut n);
+                put(b",", &mut buf, &mut n);
+                put(decimal(self.pos.1.round()).as_bytes(), &mut buf, &mut n);
+                put(b"]", &mut buf, &mut n);
+            }
             // "The returned report is a bracketed position specifier of the
             // form [x,y] representing the current drawing position in the
-            // imposed coordinate system". `R(P(I))` from a device with no
-            // interactive input: § 8.8.5.3's first response, "The normal
-            // bracketed coordinate specifier, just as from the normal R(P)
-            // command. This is the result from a non-interactive device."
+            // imposed coordinate system".
             (b'P', _) => {
                 put(b"[", &mut buf, &mut n);
                 put(decimal(self.pos.0.round()).as_bytes(), &mut buf, &mut n);
@@ -2227,9 +2485,24 @@ impl Sem {
                 put(b")", &mut buf, &mut n);
             }
             // `R(I<n>)`: "When the terminal receives R(I), it returns a
-            // carriage return" (`[[source: vt3xx-report]]`); input
-            // mode itself is an Open Extension not built.
-            (b'I', _) => self.counts.unbuilt += 1,
+            // carriage return" (`[[source: vt3xx-report]]`). `R(I0)` selects
+            // one-shot mode and leaves multiple mode; `R(I1)` selects
+            // multiple mode, and "the input cursor appears on the screen"
+            // where the drawing position is. A number neither names
+            // changes nothing.
+            (b'I', _) => match f.int() {
+                Some(0) => self.input.mode = RegisInputMode::OneShot,
+                Some(1) => {
+                    if self.input.mode != RegisInputMode::Multiple {
+                        let at = self.space.fine(self.pos.0, self.pos.1);
+                        self.input.at = at;
+                        self.input.anchor = at;
+                    }
+                    self.input.mode = RegisInputMode::Multiple;
+                    out.input_shown();
+                }
+                _ => {}
+            },
             // "Requests for unimplemented reports are acknowledged by the
             // device's returning just a carriage return".
             _ => {}
@@ -2447,6 +2720,11 @@ fn builtin(gl: Charset, gr: Charset, c: u8) -> Option<char> {
     }
     let cp = crate::PackedCell::translate(StreamByte::from_stream(b), set);
     char::from_u32(cp.0)
+}
+
+/// A mask row of `w` ones from the left.
+fn solid_row(w: i32) -> u16 {
+    !(0xffffu16 >> w.clamp(0, 16))
 }
 
 /// `n` in decimal, a sign before a negative.

@@ -551,7 +551,16 @@ impl Paint<'_, '_> {
                 self.cx.reported(self.cold.right, self.cols).one_based(),
             ),
             wait: ModeChange::of(self.cold.modes.is_set(ModeBit::KeyboardAction)),
-            locator: crate::locator::shown(self.cold, self.rows, self.cols),
+            // ReGIS's input position while its input runs, the envelope
+            // read as open while the string ReGIS began is the last.
+            locator: crate::regis::indicated(
+                self.strs.regis,
+                match self.cold.str_kind {
+                    crate::osc::StrKind::Regis => RegisEnvelope::Open,
+                    _ => RegisEnvelope::Closed,
+                },
+            )
+            .or_else(|| crate::locator::shown(self.cold, self.rows, self.cols)),
         };
         compose(self.status.cells, self.cols, style, ind);
     }
@@ -596,7 +605,8 @@ impl Term<'_> {
                 self.cx.reported(self.cold.right, self.cols).one_based(),
             ),
             wait: ModeChange::of(self.cold.modes.is_set(ModeBit::KeyboardAction)),
-            locator: crate::locator::shown(&self.cold, self.rows, self.cols),
+            locator: crate::regis::indicated(self.store.strs.regis, self.regis_inside())
+                .or_else(|| crate::locator::shown(&self.cold, self.rows, self.cols)),
         };
         compose(self.store.status.cells, self.cols, style, ind);
     }

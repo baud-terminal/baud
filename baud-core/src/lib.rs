@@ -177,8 +177,9 @@ pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
 pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
 /// ReGIS's delay: an embedder that cannot name a [`RegisHold`] cannot
 /// call [`Term::set_regis_hold`], nor read [`Term::take_regis_wait`]'s
-/// ticks without [`RegisTicks`].
-pub use baud_domain::{RegisHold, RegisTicks};
+/// ticks without [`RegisTicks`]; nor route its keys and pointer by
+/// [`Term::regis_input`] without [`RegisInput`].
+pub use baud_domain::{RegisHold, RegisInput, RegisTicks};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};

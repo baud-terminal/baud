@@ -10,7 +10,8 @@ use crate::readline::{self, Arrow};
 use baud_core::{ClickHow, ClickKeys, Resource, Term};
 use baud_domain::{
     Col, ImagePx, KeyCode, KeyEvent, LocatorAt, LocatorButton, LocatorButtons, LocatorInput,
-    LocatorKind, Modifiers, MouseButton, MouseTracking, PointerPx, Row, Rows, ShiftEscape,
+    LocatorKind, Modifiers, MouseButton, MouseTracking, PointerPx, RegisInput, Row, Rows,
+    ShiftEscape,
 };
 use baud_render::{Grain, Press, Scrolled, Selection, Span};
 
@@ -144,6 +145,21 @@ pub(crate) fn shift_overrides(
         (_, ShiftEscape::Conditional, Kind::Moved, _)
         | (_, ShiftEscape::Conditional, _, Pressed::Left) => Shift::Held,
         (_, ShiftEscape::Conditional, ..) => Shift::Up,
+    }
+}
+
+/// **The tracking the pointer is routed by**: the core's own, unless ReGIS
+/// graphics input runs, when the buttons are the core's as they are DEC's
+/// locator's -- "pressing a locator button sends a cursor position report
+/// to the host" (`[[source: vt3xx-locator]]`) -- so a press reaches
+/// `Term::locator` as a press and not the selection. Shift still selects.
+/// A tracking protocol in force reports the same press as well, the two
+/// kept independent as 070-13 § 5.5 keeps ReGIS's and DEC's locator
+/// reports.
+pub(crate) fn pointer_tracking(tracking: MouseTracking, regis: RegisInput) -> MouseTracking {
+    match regis {
+        RegisInput::Off => tracking,
+        RegisInput::OneShot | RegisInput::Multiple => MouseTracking::Locator,
     }
 }
 
@@ -571,6 +587,33 @@ mod route_tests {
             held,
         );
         assert_eq!(other.kind, LocatorKind::Moved);
+    }
+
+    /// **ReGIS graphics input takes the buttons**: with no tracking a
+    /// press is the core's and reaches `Term::locator` as a press, not the
+    /// selection; Shift still selects; with input off the core's own
+    /// tracking routes as before.
+    #[test]
+    fn regis_input_takes_the_buttons_from_the_selection() {
+        use super::{Pressed as B, locator_input, pointer_tracking};
+        use baud_domain::{LocatorButton, LocatorButtons, LocatorKind, RegisInput};
+        for regis in [RegisInput::OneShot, RegisInput::Multiple] {
+            let tracking = pointer_tracking(MouseTracking::Off, regis);
+            let (to, _) = pointer_route(Owner::Free, K::Down, tracking, Shift::Up);
+            assert_eq!(to, To::Child, "{regis:?}");
+            let e = locator_input((K::Down, B::Left, to), tracking, None, LocatorButtons::NONE);
+            assert_eq!(e.kind, LocatorKind::Press(LocatorButton::Left));
+            let (to, _) = pointer_route(Owner::Free, K::Down, tracking, Shift::Held);
+            assert_eq!(to, To::Select, "Shift selects");
+        }
+        let off = pointer_tracking(MouseTracking::Off, RegisInput::Off);
+        assert_eq!(off, MouseTracking::Off);
+        let (to, _) = pointer_route(Owner::Free, K::Down, off, Shift::Up);
+        assert_eq!(to, To::Select);
+        assert_eq!(
+            pointer_tracking(MouseTracking::Normal, RegisInput::Off),
+            MouseTracking::Normal
+        );
     }
 
     /// **Off the text area the locator's position is undefined**: over the

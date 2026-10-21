@@ -278,6 +278,17 @@ impl Term<'_> {
     ///
     /// **Input-side and cold**: the per-byte loop never calls this.
     pub fn locator(&mut self, e: LocatorInput) -> bool {
+        // **ReGIS graphics input takes the pointer first**, and DEC's
+        // locator reports after it: "the characters for the locator button
+        // (if any) would be sent followed by the ReGIS position report, and
+        // finally the ANSI locator report (DECLRP) if enabled" (070-13
+        // § 5.5; `crate::regis`).
+        let regis = self.regis_pointer(&e);
+        self.dec_locator(e) | regis
+    }
+
+    /// [`Term::locator`] for DEC's text locator.
+    fn dec_locator(&mut self, e: LocatorInput) -> bool {
         self.cold.locator.at = e.at;
         self.cold.locator.held = e.held;
         // The indicator shows where the locator is while it reports.

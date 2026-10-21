@@ -356,6 +356,12 @@ impl Term<'_> {
         {
             self.store.book.window = crate::storage::HistoryWindow::Live;
         }
+        // **A ReGIS envelope this read cancelled takes its cursors with
+        // it**: `CAN`, `SUB` and a stray `ESC` leave the string with no
+        // terminator to say so. Once a read, never a byte.
+        if self.store.strs.regis.is_drawn() {
+            self.regis_read_ends();
+        }
         // **The fence may lag a line the cursor left, never one it is on**:
         // a fence above the line's own would let a write past a double
         // line's half (`Paint::enter_row`), and a sized line exists only

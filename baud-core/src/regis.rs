@@ -26,7 +26,7 @@
 //! scrolled contents move away beneath them.
 
 use crate::paint::Paint;
-use crate::term::Screen;
+use crate::term::{Screen, Term};
 use crate::write::Csi;
 use baud_domain::*;
 
@@ -58,7 +58,7 @@ impl Page {
 /// screen's window top, and the text area in pixels, an 800 by 480 page
 /// while no cell size is known.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Want {
+pub(crate) struct Want {
     screen: ImageScreen,
     line: LineIdx,
     w: ImagePx,
@@ -86,6 +86,9 @@ impl Paint<'_, '_> {
             return crate::osc::StrKind::Other;
         }
         let e = RegisEntry::of(Some(csi.params().raw(ParamIdx::FIRST, 0)));
+        // An envelope cancelled earlier in this read left its cursors
+        // drawn: they go at the read's end, and before this one draws.
+        self.regis_cursor_off();
         self.strs.regis.set_encoding(self.cold.str_enc);
         self.regis_run(|regis, out| regis.enter(e, out));
         crate::osc::StrKind::Regis
@@ -103,18 +106,68 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn regis_byte(&mut self, from: BytePos, left: ReadLen) -> ReadLen {
-        if self.strs.regis.playing() {
+        if self.strs.regis.held() {
             self.regis_run(|regis, out| regis.resume(out));
             if self.regis_hold(from, left) == Held::Yes {
+                self.regis_input_shown();
                 return left;
             }
         }
         self.regis_put(StreamByte::from_stream(self.arena[from.index()]));
         let rest = from.advance_read(ReadLen::ONE);
         match self.regis_hold(rest, left.less(ReadLen::ONE)) {
-            Held::Yes => left,
-            Held::No => ReadLen::ONE,
+            Held::Yes => {
+                self.regis_input_shown();
+                left
+            }
+            Held::No => {
+                // **The read ends inside the envelope**: ReGIS waits on the
+                // host, which is when the output cursor shows ("only
+                // appears when the terminal is in ReGIS mode and waiting for
+                // ReGIS input from the host", `[[source:
+                // vt3xx-regis-intro]]`), and multiple mode's input cursor
+                // with it. Drawn once a read, here, and taken away by the
+                // next byte's run.
+                if left == ReadLen::ONE {
+                    self.regis_cursor_on(Make::No);
+                }
+                ReadLen::ONE
+            }
         }
+    }
+
+    /// The input cursor drawn while a one-shot input holds the read; a
+    /// delay's hold shows nothing, ReGIS not waiting on the host then.
+    fn regis_input_shown(&mut self) {
+        if self.strs.regis.input(RegisEnvelope::Open) == RegisInput::OneShot {
+            self.regis_cursor_on(Make::Yes);
+        }
+    }
+
+    /// Take the cursors drawn away, from the plane they were drawn over.
+    pub(crate) fn regis_cursor_off(&mut self) {
+        if !self.strs.regis.is_drawn() {
+            return;
+        }
+        erase(&mut *self.images, self.strs.regis);
+    }
+
+    /// Draw the cursors ReGIS shows now, inside its envelope: the input
+    /// cursor while one-shot input waits, and otherwise the output cursor
+    /// and multiple mode's input cursor. `make` says whether a page may be
+    /// placed for them: at a read's end it may not, so where the reads fell
+    /// never decides whether a page is placed.
+    fn regis_cursor_on(&mut self, make: Make) {
+        let want = self.regis_want();
+        let marks = shown_marks(self.strs.regis, RegisEnvelope::Open);
+        let strs = &mut *self.strs;
+        draw(
+            &mut *self.images,
+            &mut strs.regis_page,
+            strs.regis,
+            want,
+            (marks, make),
+        );
     }
 
     /// **The terminator of an envelope whose macrograph a delay stopped**:
@@ -132,6 +185,7 @@ impl Paint<'_, '_> {
     ) -> ReadLen {
         self.regis_run(|regis, out| regis.resume(out));
         if self.regis_hold(from, left) == Held::Yes {
+            self.regis_input_shown();
             *node = match self.arena[from.index()] {
                 0x9c => crate::graph::Node::DcsStr,
                 _ => crate::graph::Node::StrEsc,
@@ -142,13 +196,22 @@ impl Paint<'_, '_> {
         ReadLen::ONE
     }
 
-    /// Hold the read from `at` if the interpreter met a delay.
+    /// Hold the read from `at` if the interpreter met a delay, or a
+    /// one-shot `R(P(I))` waits: "While the terminal is in graphics input
+    /// mode, no further data from the application (screen output) is
+    /// processed until the locator input is complete" (070-13 § 5.1). The
+    /// embedder reads the second from `Term::regis_input`, where the first
+    /// has its ticks.
     fn regis_hold(&mut self, at: BytePos, len: ReadLen) -> Held {
-        let Some(t) = self.strs.regis.take_wait() else {
+        let wait = self.strs.regis.take_wait();
+        let input = self.strs.regis.input(RegisEnvelope::Open) == RegisInput::OneShot;
+        if wait.is_none() && !input {
             return Held::No;
-        };
-        let w = self.strs.regis_wait.map_or(0, RegisTicks::get);
-        self.strs.regis_wait = Some(RegisTicks::of(w.saturating_add(t.get())));
+        }
+        if let Some(t) = wait {
+            let w = self.strs.regis_wait.map_or(0, RegisTicks::get);
+            self.strs.regis_wait = Some(RegisTicks::of(w.saturating_add(t.get())));
+        }
         self.cold.width.held = Some(crate::term::Rest { at, len });
         Held::Yes
     }
@@ -166,6 +229,9 @@ impl Paint<'_, '_> {
 
     /// Run the interpreter against the page, then show what it drew.
     fn regis_run(&mut self, f: impl FnOnce(&mut Regis, &mut dyn RegisOut)) {
+        // The cursors go first: a drawing shows its pixels from the plane,
+        // and a new page leaves the old one with whatever it shows.
+        self.regis_cursor_off();
         let want = self.regis_want();
         let regis = &mut *self.strs.regis;
         regis.set_page(i32::from(want.w.raw()), i32::from(want.h.raw()));
@@ -173,6 +239,7 @@ impl Paint<'_, '_> {
             reply: &mut *self.reply,
             reply_len: &mut self.reply_len,
             overflows: &mut self.reply_overflows,
+            c1: self.cold.replies.c1(),
             images: &mut *self.images,
             page: &mut self.strs.regis_page,
             want,
@@ -213,13 +280,188 @@ impl Paint<'_, '_> {
 
     /// The page the next drawing needs.
     fn regis_want(&self) -> Want {
-        let (screen, line) = match self.cold.screen {
-            Screen::Normal => (ImageScreen::Primary, self.book.top),
-            Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
-        };
-        let (w, h) = regis_page_size(self.cols, self.rows, self.cell_width, self.cell_height);
-        Want { screen, line, w, h }
+        want_of(
+            self.cold.screen,
+            self.book,
+            (self.cols, self.rows),
+            (self.cell_width, self.cell_height),
+        )
     }
+}
+
+/// The page the next drawing needs on `screen`: at its window's top line,
+/// the text area's size.
+pub(crate) fn want_of(
+    screen: Screen,
+    book: &crate::storage::Book<'_>,
+    (cols, rows): (Cols, Rows),
+    (cw, ch): (ImagePx, ImagePx),
+) -> Want {
+    let (screen, line) = match screen {
+        Screen::Normal => (ImageScreen::Primary, book.top),
+        Screen::Alternate => (ImageScreen::Alternate, book.alt_top),
+    };
+    let (w, h) = regis_page_size(cols, rows, cw, ch);
+    Want { screen, line, w, h }
+}
+
+/// The cursors to show with the envelope `inside`: while a one-shot input
+/// waits only the input cursor, the output cursor being for ReGIS waiting
+/// on the host; otherwise the output cursor inside the envelope and the
+/// input cursor in multiple mode there.
+pub(crate) fn shown_marks(regis: &Regis, inside: RegisEnvelope) -> [Option<RegisCursor>; 2] {
+    let input = regis.input(inside);
+    let output = match (inside, input) {
+        (RegisEnvelope::Open, RegisInput::Off | RegisInput::Multiple) => regis.output_cursor(),
+        _ => None,
+    };
+    let input = match input {
+        RegisInput::Off => None,
+        RegisInput::OneShot | RegisInput::Multiple => Some(regis.input_cursor()),
+    };
+    [output, input]
+}
+
+/// **The indicator's graphics input position while ReGIS input runs**: the
+/// input cursor's device pixel, line then column, one-based as the field
+/// shows DEC's locator in pixels -- "Graphics Input Position Indicator if
+/// some graphic input mode is enabled through ReGIS ... Indicates the pixel
+/// row and column of the input position" (070-14 p. 14-6), the real VT340's
+/// status line showing "the X and Y pixel coordinates" (`[[source:
+/// vt340test-locator]]`).
+pub(crate) fn indicated(regis: &Regis, inside: RegisEnvelope) -> Option<(OneBased, OneBased)> {
+    if regis.input(inside) == RegisInput::Off {
+        return None;
+    }
+    LocatorPos::pixel(regis.input_pixel()).map(|p| (p.row, p.col))
+}
+
+/// **Take the drawn cursors away**: each rectangle they cover shown again
+/// from the plane of the page they were drawn on, if it is still live.
+pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
+    let d = regis.take_drawn();
+    let map = regis.colors();
+    let Some((shown, plane)) = images.page_planes(d.shown, d.plane) else {
+        return;
+    };
+    for m in d.marks.iter().flatten() {
+        m.cover(&mut |r| RegisCanvas::show(plane, d.w, map, clip(r, d.w, d.h), shown));
+    }
+    images.repainted();
+}
+
+/// **Draw `marks` into the page's shown image**, the page placed where the
+/// next drawing needs it if it is not, and keep what was drawn. What was
+/// drawn before is the caller's to have taken away. With no room for a
+/// page the cursor is not drawn, and nothing is counted: a cursor is no
+/// drawing (`RegisCounts::unpaged`).
+pub(crate) fn draw(
+    images: &mut ImageStore<'_>,
+    page: &mut Page,
+    regis: &mut Regis,
+    want: Want,
+    (marks, make): ([Option<RegisCursor>; 2], Make),
+) {
+    if marks == [None, None] {
+        return;
+    }
+    let p = match make {
+        Make::Yes => place(images, page, want),
+        Make::No => current(images, *page, want),
+    };
+    let Some(p) = p else {
+        return;
+    };
+    let Some((shown, _)) = images.page_planes(p.shown, p.plane) else {
+        return;
+    };
+    let map = regis.colors();
+    let (w, h) = (i32::from(p.w.raw()), i32::from(p.h.raw()));
+    for m in marks.iter().flatten() {
+        m.paint(&mut |x, y, tone| {
+            if x < 0 || y < 0 || x >= w || y >= h {
+                return;
+            }
+            let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+                return;
+            };
+            if let Some(o) = shown.get_mut(y * p.w.index() + x) {
+                *o = map[tone.index().slot()];
+            }
+        });
+    }
+    images.repainted();
+    regis.set_drawn(RegisDrawn {
+        shown: p.shown,
+        plane: p.plane,
+        w: p.w,
+        h: p.h,
+        marks,
+    });
+}
+
+/// `r` held to a page `w` by `h`.
+fn clip(r: RegisRect, w: ImagePx, h: ImagePx) -> RegisRect {
+    let (w, h) = (i32::from(w.raw()), i32::from(h.raw()));
+    RegisRect {
+        x0: r.x0.clamp(0, w),
+        y0: r.y0.clamp(0, h),
+        x1: r.x1.clamp(0, w),
+        y1: r.y1.clamp(0, h),
+    }
+}
+
+/// Whether a cursor may place a page to be drawn on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Make {
+    No,
+    Yes,
+}
+
+/// The page, if it is where the next drawing needs it.
+fn current(images: &ImageStore<'_>, p: Page, w: Want) -> Option<Page> {
+    let here = p.screen == w.screen
+        && p.line == w.line
+        && p.w == w.w
+        && p.h == w.h
+        && images.is_page(p.shown, p.w, p.h)
+        && images.is_placed(p.shown)
+        && images.is_page(p.plane, RegisCanvas::plane_width(p.w), p.h);
+    here.then_some(p)
+}
+
+/// **The page to draw on, placed where the window's top line is** if the
+/// one there is not it. `None` without room.
+fn place(images: &mut ImageStore<'_>, page: &mut Page, w: Want) -> Option<Page> {
+    let p = *page;
+    if let Some(p) = current(images, p, w) {
+        return Some(p);
+    }
+    // The page left behind keeps what it shows; its indices go.
+    if images.is_page(p.plane, RegisCanvas::plane_width(p.w), p.h) {
+        images.free(p.plane);
+    }
+    let shown = images.store_page(w.w, w.h)?;
+    let Some(plane) = images.store_page(RegisCanvas::plane_width(w.w), w.h) else {
+        images.free(shown);
+        return None;
+    };
+    let pid = images.place_page(shown, w.screen, w.line, Col::ZERO, KittyPlace::NONE);
+    if pid.is_none() {
+        images.free(shown);
+        images.free(plane);
+        return None;
+    }
+    images.link_page(shown, plane);
+    *page = Page {
+        shown,
+        plane,
+        screen: w.screen,
+        line: w.line,
+        w: w.w,
+        h: w.h,
+    };
+    Some(*page)
 }
 
 /// Whether a delay held the read.
@@ -257,6 +499,8 @@ struct Out<'a, 'b> {
     reply: &'a mut [u8],
     reply_len: &'a mut ByteLen,
     overflows: &'a mut usize,
+    /// How the null button's `CSI` is sent (S7C1T, S8C1T).
+    c1: C1Transmit,
     images: &'a mut ImageStore<'b>,
     page: &'a mut Page,
     want: Want,
@@ -270,55 +514,11 @@ impl Out<'_, '_> {
     /// The page to draw on, made where the window's top line is if the one
     /// there is not it. `None`, and the drawing counted, without room.
     fn page(&mut self) -> Option<Page> {
-        let p = *self.page;
-        let w = self.want;
-        let current = p.screen == w.screen
-            && p.line == w.line
-            && p.w == w.w
-            && p.h == w.h
-            && self.images.is_page(p.shown, p.w, p.h)
-            && self.images.is_placed(p.shown)
-            && self
-                .images
-                .is_page(p.plane, RegisCanvas::plane_width(p.w), p.h);
-        if current {
-            return Some(p);
-        }
-        // The page left behind keeps what it shows; its indices go.
-        if self
-            .images
-            .is_page(p.plane, RegisCanvas::plane_width(p.w), p.h)
-        {
-            self.images.free(p.plane);
-        }
-        let Some(shown) = self.images.store_page(w.w, w.h) else {
+        let p = place(self.images, self.page, self.want);
+        if p.is_none() {
             self.unpaged = self.unpaged.more();
-            return None;
-        };
-        let Some(plane) = self.images.store_page(RegisCanvas::plane_width(w.w), w.h) else {
-            self.images.free(shown);
-            self.unpaged = self.unpaged.more();
-            return None;
-        };
-        let pid = self
-            .images
-            .place_page(shown, w.screen, w.line, Col::ZERO, KittyPlace::NONE);
-        if pid.is_none() {
-            self.images.free(shown);
-            self.images.free(plane);
-            self.unpaged = self.unpaged.more();
-            return None;
         }
-        self.images.link_page(shown, plane);
-        *self.page = Page {
-            shown,
-            plane,
-            screen: w.screen,
-            line: w.line,
-            w: w.w,
-            h: w.h,
-        };
-        Some(*self.page)
+        p
     }
 
     /// Draw on the page's plane with `f`, and keep what it touched.
@@ -403,4 +603,308 @@ impl RegisOut for Out<'_, '_> {
     }
 
     fn delay(&mut self, _: RegisTicks) {}
+
+    /// Graphics input shows its cursor from here: the page it is drawn on
+    /// is placed now, at the command, and not at whichever read ends next.
+    fn input_shown(&mut self) {
+        let _ = place(self.images, self.page, self.want);
+    }
+
+    /// `R(P(I))` in multiple mode: the null button's string, `CSI 240 ~`
+    /// (`[[source: vt3xx-locator]]` Table 15-1, "If the host requests a
+    /// report when none of the buttons are in use, the terminal responds
+    /// with a null-button code"), the position and the carriage return,
+    /// whole or dropped.
+    fn interactive(&mut self, pos: &[u8]) {
+        let mut b = [0u8; REPORT_MAX];
+        let r = report_bytes(
+            &mut b,
+            button_string(KeyTransition::Null, self.c1).as_bytes(),
+            pos,
+        );
+        self.reply(r);
+    }
+}
+
+/// What a locator transition is, for the string it sends: none (a report
+/// the host asked for), a button pressed or released.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum KeyTransition {
+    Null,
+    Down(LocatorButton),
+    Up(LocatorButton),
+}
+
+/// **The string a transition sends ahead of a ReGIS position report**:
+/// `[[source: vt3xx-locator]]` Table 15-1, the null button `CSI 240 ~`,
+/// buttons 1 to 4 pressed `CSI 241 ~`, `CSI 243 ~`, `CSI 245 ~` and `CSI
+/// 247 ~`, and "no report" for a release; 070-13 § 5.4 writes the same
+/// defaults ("Up Transitions are ignored by default"). Empty for a
+/// transition that reports nothing, which "will not terminate ReGIS
+/// One-Shot Graphics Input Mode" (DECLKD note 2).
+pub(crate) fn button_string(t: KeyTransition, c1: C1Transmit) -> KeyString {
+    let code: &[u8] = match t {
+        KeyTransition::Null => b"240~",
+        KeyTransition::Down(LocatorButton::Left) => b"241~",
+        KeyTransition::Down(LocatorButton::Middle) => b"243~",
+        KeyTransition::Down(LocatorButton::Right) => b"245~",
+        KeyTransition::Down(LocatorButton::Fourth) => b"247~",
+        KeyTransition::Up(_) => return KeyString::EMPTY,
+    };
+    let mut k = KeyString::EMPTY;
+    k.push(c1.csi());
+    k.push(code);
+    k
+}
+
+/// A transition's string: at most six bytes ("You can use only 6 characters
+/// per button transition") and its introducer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KeyString {
+    bytes: [u8; 8],
+    len: ByteLen,
+}
+
+impl KeyString {
+    pub(crate) const EMPTY: KeyString = KeyString {
+        bytes: [0; 8],
+        len: ByteLen::ZERO,
+    };
+
+    fn push(&mut self, s: &[u8]) {
+        for &b in s {
+            let at = self.len.index();
+            if at < self.bytes.len() {
+                self.bytes[at] = b;
+                self.len = ByteLen::from_index(at + 1);
+            }
+        }
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len.index()]
+    }
+}
+
+/// The longest ReGIS input report: a key's bytes, at most
+/// `KeyBytes::MAX_LEN`, a position and its carriage return.
+pub(crate) const REPORT_MAX: usize = KeyBytes::MAX_LEN + 64;
+
+/// `prefix`, the position and the carriage return into `out`: "Locator
+/// reports begin with the code(s) of the active non-arrow key or locator
+/// button pressed. Following this code is the current position of the
+/// input cursor ... The report ends with the carriage return character
+/// (CR)" (`[[source: vt3xx-locator]]`). The bytes written.
+pub(crate) fn report_bytes<'o>(
+    out: &'o mut [u8; REPORT_MAX],
+    prefix: &[u8],
+    pos: &[u8],
+) -> &'o [u8] {
+    let mut n = 0;
+    for part in [prefix, pos, b"\r"] {
+        let take = part.len().min(out.len() - n);
+        out[n..n + take].copy_from_slice(&part[..take]);
+        n += take;
+    }
+    &out[..n]
+}
+
+impl Term<'_> {
+    /// Whether the parser is inside a ReGIS envelope: the string ReGIS
+    /// began is open, its body or the `ESC` that may end it. An envelope a
+    /// `CAN` or a stray `ESC` cancelled is closed, as `ST` closes one.
+    pub(crate) fn regis_inside(&self) -> RegisEnvelope {
+        let open = self.cold.str_kind == crate::osc::StrKind::Regis
+            && matches!(
+                self.node,
+                crate::graph::Node::DcsStr | crate::graph::Node::StrEsc
+            );
+        match open {
+            true => RegisEnvelope::Open,
+            false => RegisEnvelope::Closed,
+        }
+    }
+
+    /// **What ReGIS graphics input is doing**, for an embedder routing its
+    /// keys and pointer: [`RegisInput::OneShot`] while an `R(P(I))` waits,
+    /// when a pointer button is the core's, not the selection's, and the
+    /// host's output is held (under [`RegisHold::On`], `Term::take_held`);
+    /// [`RegisInput::Multiple`] inside an envelope in multiple mode, when
+    /// the buttons are the core's too.
+    pub fn regis_input(&self) -> RegisInput {
+        self.store.strs.regis.input(self.regis_inside())
+    }
+
+    /// **A read's end with a cursor drawn**: if the read left the envelope
+    /// by a cancel, the cursors go, as at `ST` -- the output cursor "only
+    /// appears when the terminal is in ReGIS mode" (`[[source:
+    /// vt3xx-regis-intro]]`). An `ESC` a read ends on is still undecided,
+    /// the envelope open, and keeps them.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn regis_read_ends(&mut self) {
+        if self.regis_inside() == RegisEnvelope::Closed {
+            erase(&mut self.store.images, self.store.strs.regis);
+        }
+    }
+
+    /// The cursors taken away and drawn again where ReGIS has them now.
+    fn regis_cursor_redraw(&mut self) {
+        self.regis_cursor_again(Make::Yes);
+    }
+
+    /// [`Term::regis_cursor_redraw`], `make` saying whether a page may be
+    /// placed for the cursors.
+    fn regis_cursor_again(&mut self, make: Make) {
+        erase(&mut self.store.images, self.store.strs.regis);
+        let marks = shown_marks(self.store.strs.regis, self.regis_inside());
+        let want = want_of(
+            self.cold.screen,
+            &self.store.book,
+            (self.cols, self.rows),
+            (self.cell_width, self.cell_height),
+        );
+        let strs = &mut self.store.strs;
+        draw(
+            &mut self.store.images,
+            &mut strs.regis_page,
+            strs.regis,
+            want,
+            (marks, make),
+        );
+    }
+
+    /// `prefix`, the input position and a carriage return, queued whole or
+    /// dropped and counted.
+    fn regis_report(&mut self, prefix: &[u8]) -> bool {
+        let mut pos = [0u8; 56];
+        let k = self.store.strs.regis.input_position(&mut pos);
+        let mut b = [0u8; REPORT_MAX];
+        let r = report_bytes(&mut b, prefix, &pos[..k]);
+        let (at, n) = (self.reply_len.index(), r.len());
+        match at + n <= self.store.reply.len() {
+            true => {
+                self.store.reply[at..at + n].copy_from_slice(r);
+                self.reply_len = ByteLen::from_index(at + n);
+                true
+            }
+            false => {
+                self.reply_overflows += 1;
+                false
+            }
+        }
+    }
+
+    /// **A key while one-shot input waits**: `None` when none does, and the
+    /// key is the terminal's as ever, and otherwise whether a report went.
+    ///
+    /// An arrow key moves the input cursor a device pixel, Shift ten, and
+    /// sends nothing ("The cursor moves one pixel in the direction of the
+    /// arrow", "Shift-arrow key: The cursor moves 10 pixels",
+    /// `[[source: vt3xx-report]]`); a repeat moves it again where DECARM
+    /// lets keys repeat. "Pressing any non-arrow key that is not dead"
+    /// sends the key's own bytes, as the keyboard's modes encode them, then
+    /// the position and a carriage return, and ends the input (070-13
+    /// § 5.1); a key that sends nothing -- a modifier, a dead key -- and a
+    /// release leave it waiting. In multiple mode the keys are the
+    /// terminal's: "If you press an arrow key in multiple mode, the
+    /// terminal sends that key's escape sequence to the host"
+    /// (`[[source: vt3xx-locator]]`; decided by Jev, SEND, 0.96 and 0.96).
+    pub(crate) fn regis_key(&mut self, e: KeyEvent) -> Option<bool> {
+        if self.regis_input() != RegisInput::OneShot {
+            return None;
+        }
+        if e.kind == KeyEventKind::Release {
+            return Some(false);
+        }
+        if e.kind == KeyEventKind::Repeat && !self.cold.modes.is_set(ModeBit::AutoRepeat) {
+            return Some(false);
+        }
+        let n = match e.mods.has(Modifiers::SHIFT) {
+            true => 10,
+            false => 1,
+        };
+        let step = match e.code {
+            KeyCode::Up => Some((0, -n)),
+            KeyCode::Down => Some((0, n)),
+            KeyCode::Left => Some((-n, 0)),
+            KeyCode::Right => Some((n, 0)),
+            _ => None,
+        };
+        if let Some((dx, dy)) = step {
+            self.store.strs.regis.input_step(dx, dy);
+            self.regis_cursor_redraw();
+            self.redraw_indicator();
+            return Some(false);
+        }
+        let Some(k) = self.encode(e) else {
+            return Some(false);
+        };
+        let sent = self.regis_report(k.as_bytes());
+        self.store.strs.regis.input_end();
+        self.regis_cursor_redraw();
+        self.redraw_indicator();
+        Some(sent)
+    }
+
+    /// **The pointer while graphics input runs**: a move puts the input
+    /// cursor under it, and a button's transition whose string is not empty
+    /// sends that string, the position and a carriage return (070-13 § 5.1
+    /// and § 5.2), ending a one-shot input. Whether a report went.
+    pub(crate) fn regis_pointer(&mut self, e: &LocatorInput) -> bool {
+        if self.regis_input() == RegisInput::Off {
+            return false;
+        }
+        if let Some(px) = e.at.and_then(|a| a.px) {
+            self.store
+                .strs
+                .regis
+                .input_point(i32::from(px.x.raw()), i32::from(px.y.raw()));
+        }
+        let t = match e.kind {
+            LocatorKind::Press(b) => Some(KeyTransition::Down(b)),
+            LocatorKind::Release(b) => Some(KeyTransition::Up(b)),
+            LocatorKind::Moved => None,
+        };
+        let mut sent = false;
+        if let Some(t) = t {
+            let s = button_string(t, self.cold.replies.c1());
+            if !s.as_bytes().is_empty() {
+                sent = self.regis_report(s.as_bytes());
+                if self.regis_input() == RegisInput::OneShot {
+                    self.store.strs.regis.input_end();
+                }
+            }
+        }
+        self.regis_cursor_redraw();
+        sent
+    }
+
+    /// **Give up a one-shot input**: the host wrote more than the embedder
+    /// holds while it waited. The input ends with 070-8 § 8.8.5.3's empty
+    /// report, "Only the terminating CR is sent ... indicating that NO
+    /// INPUT was to be returned", counted in `regis_counts()`, and the held
+    /// output is the embedder's to feed. Jev's lean: EMPTY_REPORT at 0.38,
+    /// POSITION_REPORT at 0.22 in the other order, EMPTY_REPORT having the
+    /// higher probability averaged over the two orders, 0.495 against 0.37.
+    /// Whether the report went; nothing when no input waits.
+    pub fn regis_input_abandon(&mut self) -> bool {
+        if self.regis_input() != RegisInput::OneShot {
+            return false;
+        }
+        self.store.strs.regis.input_abandon();
+        self.regis_cursor_redraw();
+        let at = self.reply_len.index();
+        match at < self.store.reply.len() {
+            true => {
+                self.store.reply[at] = b'\r';
+                self.reply_len = ByteLen::from_index(at + 1);
+                true
+            }
+            false => {
+                self.reply_overflows += 1;
+                false
+            }
+        }
+    }
 }

@@ -218,8 +218,11 @@ impl Seat {
         sink: impl FnMut(&[u8]),
     ) -> Owed {
         let pointer = !matches!(e, Input::Steps(_) | Input::Distance(_) | Input::Stopped);
+        // A ReGIS cursor the pointer moved is a frame too.
+        let drawn = term.images().generation();
         match self.route(term, e, mods, g, sink) {
             Owed::Nothing if pointer && gesture::locator_redraws(term) => Owed::Frame,
+            Owed::Nothing if term.images().generation() != drawn => Owed::Frame,
             owed => owed,
         }
     }
@@ -308,17 +311,18 @@ impl Seat {
             true => Shift::Held,
             false => Shift::Up,
         };
+        let tracking = gesture::pointer_tracking(term.mouse_tracking(), term.regis_input());
         let (to, owner) = gesture::pointer_route(
             self.owner,
             kind,
-            term.mouse_tracking(),
+            tracking,
             gesture::shift_overrides(held, term.shift_escape(), kind, button),
         );
         self.owner = owner;
         if matches!(kind, Kind::Down | Kind::Up) {
             let e = gesture::locator_input(
                 (kind, button, to),
-                term.mouse_tracking(),
+                tracking,
                 self.locator_at(g),
                 self.buttons,
             );

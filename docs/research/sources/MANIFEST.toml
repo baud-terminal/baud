@@ -30048,3 +30048,66 @@ status = "retrieved"
 group  = "C"
 # Retrieved 2026-10-21 (lane b125) for erasing graphics: the one observation
 # of a DEC device's text and graphics found.
+
+[sources.vt3xx-locator]
+key    = "vt3xx-locator"
+title  = "Using a Mouse or Tablet (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 15)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter15.html"
+file   = "vt3xx-locator.html"
+sha256 = "a1992d21ba6779688b29d3495d65ab3890da7ef22c71f57505c38883ae98061e"
+bytes  = 44310
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-21 (lane b126) for ReGIS graphics input: one-shot and
+# multiple mode, what moves the input cursor, the keys and buttons that end
+# a one-shot report, Table 15-1's button codes (CSI 241 ~ to CSI 247 ~, the
+# null button CSI 240 ~), the report examples `A[102,200]<CR>` and
+# `<CSI>241~[102.5,200]<CR>`, multiple mode's "You cannot use the four
+# arrow keys to position the input cursor", and DECLBD's six characters a
+# transition.
+
+[sources.vt340test-locator]
+key    = "vt340test-locator"
+title  = "vt340test, locator/locator.md -- the VT340's ReGIS locator observed: fine crosshairs, the status line's pixel coordinates, multiple mode ended by leaving ReGIS"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator.md"
+file   = "vt340test-locator.md"
+sha256 = "c0489b9e733a2b788684a69cd8bca57136aa302e64f4edbce30b5450af7a6dbe"
+bytes  = 12813
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-21 (lane b126): a real VT340's behaviour beside the
+# manuals, evidence of practice and not of the standard.
+
+[sources.vt340test-locatormulti]
+key    = "vt340test-locatormulti"
+title  = "vt340test, locator/locatormulti.sh -- a VT340 multiple-mode test and its notes: arrow keys do not move the cursor, leaving ReGIS turns multiple mode off"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locatormulti.sh"
+file   = "vt340test-locatormulti.sh"
+sha256 = "9855a6998375a0708981c1868d330c167e207b06bd0175ade6bb8ad59d10989c"
+bytes  = 4290
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-21 (lane b126).
+
+[sources.vt340test-locator1shot]
+key    = "vt340test-locator1shot"
+title  = "vt340test, locator/locator1shot.sh -- a VT340 one-shot test: arrow keys a pixel, Shift ten, any other key typed first and then the position"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator1shot.sh"
+file   = "vt340test-locator1shot.sh"
+sha256 = "a3094d47026df830da94e29b956d0cf2832ffa3bfbad08af881aaba1c96270dd"
+bytes  = 2794
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-21 (lane b126).

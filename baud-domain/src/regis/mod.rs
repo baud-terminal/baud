@@ -28,12 +28,17 @@
 
 mod canvas;
 mod color;
+mod cursor;
 mod num;
 mod sem;
 mod trig;
 
 pub use canvas::*;
 pub use color::*;
+pub use cursor::{
+    REGIS_CURSOR_CELL, RegisCursor, RegisCursorPair, RegisCursorStyle, RegisCursorTone, RegisDrawn,
+    RegisInput, RegisInputMode,
+};
 pub use num::RegisNum;
 pub use sem::{RegisCounts, RegisSpace};
 
@@ -453,6 +458,25 @@ pub trait RegisOut {
     fn reply(&mut self, bytes: &[u8]);
     /// `S(T<n>)`: suspend interpretation for `ticks`.
     fn delay(&mut self, ticks: RegisTicks);
+    /// `R(P(I))` in multiple mode: the report `pos`, a bracketed extent,
+    /// to go at once behind the null button's string and before the
+    /// carriage return, whole (070-13 § 5.2).
+    fn interactive(&mut self, pos: &[u8]);
+    /// Graphics input's cursor appears: `R(I1)`, "the input cursor appears
+    /// on the screen", or a one-shot `R(P(I))`. The caller makes room for
+    /// it to be drawn.
+    fn input_shown(&mut self);
+}
+
+/// Whether the parser is inside a ReGIS envelope, between its `DCS p` and
+/// the `ST` or cancel that ends it: multiple mode's cursor and buttons work
+/// only inside one, "the ReGIS locator will be disabled until ReGIS is
+/// re-entered, at which time multiple input mode resumes with the input
+/// cursor at its last known position" (070-13 § 5.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisEnvelope {
+    Open,
+    Closed,
 }
 
 /// The macrograph store: 26 strings in one pool of [`MACRO_STORE`]
@@ -668,6 +692,8 @@ pub struct Regis {
     utf8: (u32, u8),
     /// Command display (`DCS 2p`, `DCS 3p`): on for the envelope that asked.
     display: Display,
+    /// The cursors the caller drew, to take away ([`Regis::take_drawn`]).
+    drawn: RegisDrawn,
 }
 
 /// Whether the envelope asked for command display.
@@ -693,6 +719,7 @@ impl Regis {
         enc: InputEncoding::Utf8,
         utf8: (0, 0),
         display: Display::Off,
+        drawn: RegisDrawn::NONE,
     };
 
     /// A reset to power-up: `RIS`. The page is the caller's to clear.
@@ -710,6 +737,8 @@ impl Regis {
         self.sem.font = font;
         self.sem.hold = hold;
         self.sem.counts = counts;
+        // The page they were drawn on goes with the reset's images.
+        self.drawn = RegisDrawn::NONE;
     }
 
     /// A `DCS Pn p`: the low bit of `Pn` resynchronises, "regardless of the
@@ -767,6 +796,12 @@ impl Regis {
         self.depth > 0
     }
 
+    /// Whether the next character is held: a macrograph a delay stopped is
+    /// still to play, or a one-shot `R(P(I))` waits.
+    pub fn held(&self) -> bool {
+        self.playing() || self.sem.input.pending == cursor::Pending::Yes
+    }
+
     /// Whether a delay stops the interpreter: see [`RegisHold`].
     pub fn set_hold(&mut self, hold: RegisHold) {
         self.sem.hold = hold;
@@ -782,7 +817,8 @@ impl Regis {
     /// Play the macrographs invoked, a character at a time, until none is,
     /// a delay stops them, or [`MACRO_PLAYED`] have played.
     fn drain(&mut self, out: &mut dyn RegisOut) {
-        while self.depth > 0 && self.sem.wait == 0 {
+        while self.depth > 0 && self.sem.wait == 0 && self.sem.input.pending == cursor::Pending::No
+        {
             if self.played == MACRO_PLAYED {
                 self.depth = 0;
                 self.sem.counts.macro_cut += 1;
@@ -860,6 +896,95 @@ impl Regis {
     /// The characters free in the macrograph store.
     pub fn macro_free(&self) -> usize {
         self.macros.free()
+    }
+
+    /// **What graphics input is doing**: a one-shot `R(P(I))` waiting, or
+    /// multiple mode inside an envelope (`inside`), or neither.
+    pub fn input(&self, inside: RegisEnvelope) -> RegisInput {
+        match (self.sem.input.pending, self.sem.input.mode, inside) {
+            (cursor::Pending::Yes, _, _) => RegisInput::OneShot,
+            (_, RegisInputMode::Multiple, RegisEnvelope::Open) => RegisInput::Multiple,
+            _ => RegisInput::Off,
+        }
+    }
+
+    /// The input mode `R(I<n>)` selected.
+    pub fn input_mode(&self) -> RegisInputMode {
+        self.sem.input.mode
+    }
+
+    /// Move the input cursor `dx`, `dy` device pixels, wrapping at the
+    /// screen's edge: an arrow key's step, "one pixel", Shift's "10 pixels"
+    /// (`[[source: vt3xx-report]]`), a pixel of the VT300's device that the
+    /// page is fitted from (Jev, DEVICE_PIXEL, 0.92 and 0.96).
+    pub fn input_step(&mut self, dx: i32, dy: i32) {
+        self.sem.input.step(dx, dy);
+    }
+
+    /// Put the input cursor under the pointer, at page pixel `x`, `y`: the
+    /// pointer is absolute, as the VT340's tablet is ("the tablet is an
+    /// absolute positioning device"), held to the device.
+    pub fn input_point(&mut self, x: i32, y: i32) {
+        self.sem.input.at = self.sem.device_of_page(x, y);
+    }
+
+    /// The device pixel the input cursor is on, from the device's upper-left:
+    /// what the status line's Graphics Input Position Indicator shows, "the
+    /// pixel row and column of the input position" (070-14 p. 14-6).
+    pub fn input_pixel(&self) -> crate::PointerPx {
+        let (x, y) = self.sem.input.at;
+        let px = |v: i64| crate::image::ImagePx::of(u16::try_from(v >> 16).unwrap_or(0));
+        crate::PointerPx { x: px(x), y: px(y) }
+    }
+
+    /// The input position as a report writes it, `[x,y]` in user
+    /// coordinates, into `out`; its length.
+    pub fn input_position(&self, out: &mut [u8; 56]) -> usize {
+        self.sem.input_position(out)
+    }
+
+    /// A one-shot report went: the input cursor goes and the interpreter
+    /// goes on (070-13 § 5.1, "The graphics input cursor disappears from
+    /// the screen and the terminal exits graphics input mode").
+    pub fn input_end(&mut self) {
+        self.sem.input.pending = cursor::Pending::No;
+    }
+
+    /// **A one-shot input given up** because the host wrote more than the
+    /// embedder holds while it waited: ended as [`Regis::input_end`] ends
+    /// it, counted; the caller sends 8.8.5.3's empty report, "Only the
+    /// terminating CR is sent ... indicating that NO INPUT was to be
+    /// returned". Jev's lean: EMPTY_REPORT at 0.38, POSITION_REPORT at
+    /// 0.22 in the other order, EMPTY_REPORT having the higher probability
+    /// averaged over the two orders, 0.495 against 0.37.
+    pub fn input_abandon(&mut self) {
+        self.input_end();
+        self.sem.counts.inputs_abandoned += 1;
+    }
+
+    /// What the caller drew of the cursors, and nothing kept after.
+    pub fn take_drawn(&mut self) -> RegisDrawn {
+        core::mem::replace(&mut self.drawn, RegisDrawn::NONE)
+    }
+
+    /// Whether any cursor is drawn.
+    pub fn is_drawn(&self) -> bool {
+        self.drawn != RegisDrawn::NONE
+    }
+
+    /// The caller drew `d`.
+    pub fn set_drawn(&mut self, d: RegisDrawn) {
+        self.drawn = d;
+    }
+
+    /// The output cursor at the drawing position, if `S(C)` shows it.
+    pub fn output_cursor(&self) -> Option<RegisCursor> {
+        self.sem.output_cursor()
+    }
+
+    /// The input cursor where graphics input has it.
+    pub fn input_cursor(&self) -> RegisCursor {
+        self.sem.input_cursor()
     }
 
     /// The macrograph layer: one character from the host or a playing

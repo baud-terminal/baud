@@ -5369,6 +5369,10 @@ impl<'b> Term<'b> {
         if self.cold.modes.is_set(ModeBit::KeyboardAction) {
             return false;
         }
+        // **A one-shot ReGIS input takes the keys** (`crate::regis`).
+        if let Some(sent) = self.regis_key(e) {
+            return sent;
+        }
         let Some(k) = self.queue_key(e) else {
             return false;
         };
@@ -5406,6 +5410,29 @@ impl<'b> Term<'b> {
     /// Encode a key into the reply buffer: the bytes queued, or `None` for a
     /// key that sends nothing or does not fit.
     fn queue_key(&mut self, e: KeyEvent) -> Option<KeyBytes> {
+        let k = self.encode(e)?;
+        let b = k.as_bytes();
+        let at = self.reply_len.index();
+        // A truncated key is a wrong answer, so it is dropped whole and
+        // counted rather than half-sent -- the same rule `want_reply` follows,
+        // and for the same reason: an application reads the first byte as the
+        // start of a sequence that never arrives.
+        match at + b.len() <= self.store.reply.len() {
+            true => {
+                self.store.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+                Some(k)
+            }
+            false => {
+                self.reply_overflows += 1;
+                None
+            }
+        }
+    }
+
+    /// A key's bytes as the keyboard's modes encode it, or `None` for a key
+    /// that sends nothing.
+    pub(crate) fn encode(&self, e: KeyEvent) -> Option<KeyBytes> {
         // **DECARM reset: a held key does not repeat.** `[[source: vt510-decarm]]`:
         // "Reset: keys do not autorepeat". The embedder delivers what its
         // keyboard does, and the terminal decides what a repeat is worth --
@@ -5425,24 +5452,7 @@ impl<'b> Term<'b> {
             delete: self.cold.delete,
             num_lock: self.cold.num_lock,
         };
-        let k = encode_key(e, s)?;
-        let b = k.as_bytes();
-        let at = self.reply_len.index();
-        // A truncated key is a wrong answer, so it is dropped whole and
-        // counted rather than half-sent -- the same rule `want_reply` follows,
-        // and for the same reason: an application reads the first byte as the
-        // start of a sequence that never arrives.
-        match at + b.len() <= self.store.reply.len() {
-            true => {
-                self.store.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
-                Some(k)
-            }
-            false => {
-                self.reply_overflows += 1;
-                None
-            }
-        }
+        encode_key(e, s)
     }
 
     /// Run a key's bytes through the screen as the host's bytes run, in a

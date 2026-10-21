@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 299 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 300 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 287 | 25 | redistributable, and its notice is satisfied |
+| kept | 290 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 824 | 36 | |
+| total | 828 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -554,7 +554,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 90
+- **Files:** 91
 
 | file | copied from |
 |---|---|
@@ -567,6 +567,7 @@ notice is, and the URL each file was copied from.
 | [vt320-uu-appendixe.html](docs/research/sources/vt320-uu-appendixe.html) | https://vt100.net/docs/vt320-uu/appendixe.html |
 | [vt3xx-curve.html](docs/research/sources/vt3xx-curve.html) | https://vt100.net/docs/vt3xx-gp/chapter6.html |
 | [vt3xx-load.html](docs/research/sources/vt3xx-load.html) | https://vt100.net/docs/vt3xx-gp/chapter8.html |
+| [vt3xx-locator.html](docs/research/sources/vt3xx-locator.html) | https://vt100.net/docs/vt3xx-gp/chapter15.html |
 | [vt3xx-macrographs.html](docs/research/sources/vt3xx-macrographs.html) | https://vt100.net/docs/vt3xx-gp/chapter9.html |
 | [vt3xx-polygon-fill.html](docs/research/sources/vt3xx-polygon-fill.html) | https://vt100.net/docs/vt3xx-gp/chapter11.html |
 | [vt3xx-position.html](docs/research/sources/vt3xx-position.html) | https://vt100.net/docs/vt3xx-gp/chapter4.html |
@@ -1173,7 +1174,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** CC0-1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
 - **Notice:** none needed
-- **Files:** 14
+- **Files:** 17
 
 | file | copied from |
 |---|---|
@@ -1186,6 +1187,9 @@ notice is, and the URL each file was copied from.
 | [vt340test-colormap.md](docs/research/sources/vt340test-colormap.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/colormap/colormap.md |
 | [vt340test-errata.md](docs/research/sources/vt340test-errata.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/errata.md |
 | [vt340test-faketextcolor.md](docs/research/sources/vt340test-faketextcolor.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/regis/faketextcolor.md |
+| [vt340test-locator.md](docs/research/sources/vt340test-locator.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator.md |
+| [vt340test-locator1shot.sh](docs/research/sources/vt340test-locator1shot.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locator1shot.sh |
+| [vt340test-locatormulti.sh](docs/research/sources/vt340test-locatormulti.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/locator/locatormulti.sh |
 | [vt340test-p2effect.png](docs/research/sources/vt340test-p2effect.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.png |
 | [vt340test-p2effect.sh](docs/research/sources/vt340test-p2effect.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.sh |
 | [vt340test-physicalsixels.md](docs/research/sources/vt340test-physicalsixels.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/physicalsixels.md |
