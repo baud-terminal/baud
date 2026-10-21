@@ -11,12 +11,12 @@
 //! **Where**: the name `OSC 46` gave; `-` is baud's standard output, as
 //! xterm's; a relative name is read from the directory the shell started
 //! in, and with no name the log is `baud.log.<host>.<date>.<pid>` there,
-//! after xterm's `Xterm.log.<host>.<date>.<pid>`, the date and time in UTC
-//! (`pty::start_dir`; Jev's leans, START_DIR and GENERATED_START_DIR). The
-//! file is appended to, created `0644` if absent, and refused unless the
-//! real user owns it and neither group nor others may write it, as xterm's
-//! `open_userfile` (`[[source: xterm-misc]]`; Jev, XTERM_CHECKS,
-//! 1.00/1.00).
+//! after xterm's `Xterm.log.<host>.<date>.<pid>`, the date and time local,
+//! as xterm's `localtime` gives them (`pty::start_dir`; Jev's leans,
+//! START_DIR and GENERATED_START_DIR). The file is appended to, created
+//! `0644` if absent, and refused unless the real user owns it and neither
+//! group nor others may write it, as xterm's `open_userfile`
+//! (`[[source: xterm-misc]]`; Jev, XTERM_CHECKS, 1.00/1.00).
 //!
 //! **Never on the read loop**: the open and every write are a writer
 //! thread's, fed through a queue the loop only pushes to, so a stalled disk
@@ -113,12 +113,45 @@ pub fn target(name: Option<&[u8]>, dir: &Path, generated: impl FnOnce() -> Strin
 }
 
 /// xterm's generated form, `<host>.<yyyy.mm.dd.hh.mm.ss>.<pid>` after
-/// `baud.log.`, at `since_epoch` in UTC.
-pub fn generated_name(host: &str, since_epoch: Duration, pid: Pid) -> String {
+/// `baud.log.`, at `at`: `"Xterm.log.%s%s.%lu"` with the time as
+/// `FMT_TIMESTAMP`, `".%Y.%m.%d.%H.%M.%S"` (`[[source: xterm-misc]]`
+/// `GenerateLogPath`, `[[source: xterm-xterm-h]]`).
+pub fn generated_name(host: &str, at: &crate::sys::Tm, pid: Pid) -> String {
+    format!(
+        "baud.log.{host}.{:04}.{:02}.{:02}.{:02}.{:02}.{:02}.{}",
+        i64::from(at.tm_year) + 1900,
+        at.tm_mon + 1,
+        at.tm_mday,
+        at.tm_hour,
+        at.tm_min,
+        at.tm_sec,
+        pid.0
+    )
+}
+
+/// `since_epoch` in local time, as xterm's `localtime(&now)` gives it: the
+/// zone `TZ` names, else the system's. A time `localtime_r` cannot convert
+/// is given in UTC, the one zone that needs no table.
+pub fn local(since_epoch: Duration) -> crate::sys::Tm {
+    let secs = crate::sys::TimeT::try_from(since_epoch.as_secs()).unwrap_or(crate::sys::TimeT::MAX);
+    let mut tm = crate::sys::Tm::ZERO;
+    // SAFETY: `tzset` reads the environment and takes nothing; `secs` and
+    // `tm` outlive the call, which writes `tm` alone.
+    let done = unsafe {
+        crate::sys::tzset();
+        crate::sys::localtime_r(&secs, &mut tm)
+    };
+    match done.is_null() {
+        true => utc(since_epoch),
+        false => tm,
+    }
+}
+
+/// `since_epoch` in UTC, Howard Hinnant's `civil_from_days` for days since
+/// 1970-01-01, which is never negative here.
+fn utc(since_epoch: Duration) -> crate::sys::Tm {
     let secs = since_epoch.as_secs();
     let (day, rest) = (secs / 86_400, secs % 86_400);
-    // Days to a civil date, Howard Hinnant's `civil_from_days` for days
-    // since 1970-01-01, which is never negative here.
     let z = day + 719_468;
     let era = z / 146_097;
     let doe = z - era * 146_097;
@@ -128,13 +161,16 @@ pub fn generated_name(host: &str, since_epoch: Duration, pid: Pid) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + u64::from(m <= 2);
-    format!(
-        "baud.log.{host}.{y:04}.{m:02}.{d:02}.{:02}.{:02}.{:02}.{}",
-        rest / 3600,
-        rest % 3600 / 60,
-        rest % 60,
-        pid.0
-    )
+    let field = |v: u64| core::ffi::c_int::try_from(v).unwrap_or(core::ffi::c_int::MAX);
+    crate::sys::Tm {
+        tm_sec: field(rest % 60),
+        tm_min: field(rest % 3600 / 60),
+        tm_hour: field(rest / 3600),
+        tm_mday: field(d),
+        tm_mon: field(m) - 1,
+        tm_year: field(y) - 1900,
+        ..crate::sys::Tm::ZERO
+    }
 }
 
 /// A process id, as the generated name carries it.
@@ -422,7 +458,7 @@ fn generate() -> String {
     let since = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    generated_name(&host(), since, Pid(std::process::id()))
+    generated_name(&host(), &local(since), Pid(std::process::id()))
 }
 
 /// Where the writer writes.
@@ -543,6 +579,55 @@ mod tests {
         crate::reads::feed(t, reads.iter().copied(), |_| {}, |_| {}, log);
     }
 
+    /// **The generated name's time is local**, as xterm's `GenerateLogPath`
+    /// takes `localtime(&now)` (`[[source: xterm-misc]]`): in the zone `TZ`
+    /// names. A zone is the process's, read at start and by `tzset`, so the
+    /// test runs itself again with `TZ` set, two POSIX zone strings that
+    /// need no zone table -- five hours forty-five east, across the hour,
+    /// and three west, across the day back over a leap day -- and `UTC0`,
+    /// the control, which must give the UTC name.
+    #[test]
+    fn a_generated_name_is_in_local_time() {
+        const CHILD: &str = "BAUD_TEST_LOCAL_AT";
+        if let Ok(at) = std::env::var(CHILD) {
+            let secs = at.parse().expect("seconds");
+            let name = generated_name("h", &local(Duration::from_secs(secs)), Pid(1));
+            println!("name={name}");
+            return;
+        }
+        let ask = |tz: &str, secs: u64| {
+            let out = std::process::Command::new(std::env::current_exe().expect("the test"))
+                .args([
+                    "--exact",
+                    "hostlog::tests::a_generated_name_is_in_local_time",
+                ])
+                .arg("--nocapture")
+                .env("TZ", tz)
+                .env(CHILD, secs.to_string())
+                .output()
+                .expect("run");
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.lines()
+                .find_map(|l| l.strip_prefix("name="))
+                .unwrap_or_else(|| panic!("the child named nothing: {text}"))
+                .to_string()
+        };
+        assert_eq!(
+            ask("UTC0", 1_760_965_384),
+            "baud.log.h.2025.10.20.13.03.04.1",
+            "the control"
+        );
+        assert_eq!(
+            ask("BAU-5:45", 1_760_965_384),
+            "baud.log.h.2025.10.20.18.48.04.1"
+        );
+        assert_eq!(
+            ask("BAU+3", 951_782_400),
+            "baud.log.h.2000.02.28.21.00.00.1",
+            "the day before a leap day, west of UTC"
+        );
+    }
+
     /// **The log is the host's bytes from after `?46 h` to the end of `?46
     /// l`, appended to the file `OSC 46` named**, across reads and a read
     /// that holds several changes, and a second start appends.
@@ -591,11 +676,11 @@ mod tests {
         );
         assert_eq!(target(Some(b"-"), dir, name), Target::Stdout);
         assert_eq!(
-            generated_name("h", Duration::from_secs(1_760_965_384), Pid(42)),
+            generated_name("h", &utc(Duration::from_secs(1_760_965_384)), Pid(42)),
             "baud.log.h.2025.10.20.13.03.04.42"
         );
         assert_eq!(
-            generated_name("h", Duration::from_secs(951_782_400), Pid(7)),
+            generated_name("h", &utc(Duration::from_secs(951_782_400)), Pid(7)),
             "baud.log.h.2000.02.29.00.00.00.7",
             "a leap day"
         );

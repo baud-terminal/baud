@@ -553,6 +553,57 @@ unsafe extern "C" {
 #[derive(Clone, Copy)]
 pub struct NameLen(pub usize);
 
+/// Seconds since the epoch, `time_t`: sixty-four bits signed on both
+/// systems' 64-bit targets, which the probe pins.
+pub type TimeT = i64;
+
+/// `struct tm`, a time broken down, which `localtime_r` fills: the
+/// generated log name's date and time, in local time as xterm's
+/// `GenerateLogPath` takes it (`localtime`, `[[source: xterm-misc]]`).
+/// Both systems carry `tm_gmtoff` and `tm_zone` after the nine fields
+/// POSIX names; the probe holds every offset.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Tm {
+    pub tm_sec: c_int,
+    pub tm_min: c_int,
+    pub tm_hour: c_int,
+    pub tm_mday: c_int,
+    pub tm_mon: c_int,
+    pub tm_year: c_int,
+    pub tm_wday: c_int,
+    pub tm_yday: c_int,
+    pub tm_isdst: c_int,
+    pub tm_gmtoff: core::ffi::c_long,
+    pub tm_zone: *const c_char,
+}
+
+impl Tm {
+    /// Every field zero and no zone: what `localtime_r` writes over.
+    pub const ZERO: Tm = Tm {
+        tm_sec: 0,
+        tm_min: 0,
+        tm_hour: 0,
+        tm_mday: 0,
+        tm_mon: 0,
+        tm_year: 0,
+        tm_wday: 0,
+        tm_yday: 0,
+        tm_isdst: 0,
+        tm_gmtoff: 0,
+        tm_zone: core::ptr::null(),
+    };
+}
+
+unsafe extern "C" {
+    /// "The localtime_r() function shall convert the time in seconds since
+    /// the Epoch pointed to by timer into a broken-down time stored in the
+    /// structure to which result points"; POSIX does not require it to
+    /// read `TZ`, which `tzset` does first.
+    pub fn localtime_r(timer: *const TimeT, result: *mut Tm) -> *mut Tm;
+    pub fn tzset();
+}
+
 // **Freed image pages back to the system** (`pages.rs`). The page size is
 // asked, never assumed: 16 KiB on this Mac and 4 KiB on most Linux, and
 // `madvise` rounds a length up, so a page assumed too small would zero a
@@ -710,6 +761,20 @@ int main(void) {
     printf("MAP_SHARED=%lld\n", (long long)MAP_SHARED);
     printf("size_t.size=%zu\n", sizeof(size_t));
     printf("uid_t.size=%zu\n", sizeof(uid_t));
+    printf("time_t.size=%zu\n", sizeof(time_t));
+    printf("time_t.signed=%d\n", (time_t)-1 < 0);
+    printf("tm.size=%zu\n", sizeof(struct tm));
+    printf("tm.sec=%zu\n", offsetof(struct tm, tm_sec));
+    printf("tm.min=%zu\n", offsetof(struct tm, tm_min));
+    printf("tm.hour=%zu\n", offsetof(struct tm, tm_hour));
+    printf("tm.mday=%zu\n", offsetof(struct tm, tm_mday));
+    printf("tm.mon=%zu\n", offsetof(struct tm, tm_mon));
+    printf("tm.year=%zu\n", offsetof(struct tm, tm_year));
+    printf("tm.wday=%zu\n", offsetof(struct tm, tm_wday));
+    printf("tm.yday=%zu\n", offsetof(struct tm, tm_yday));
+    printf("tm.isdst=%zu\n", offsetof(struct tm, tm_isdst));
+    printf("tm.gmtoff=%zu\n", offsetof(struct tm, tm_gmtoff));
+    printf("tm.zone=%zu\n", offsetof(struct tm, tm_zone));
     printf("uid_t.signed=%d\n", (uid_t)-1 < 0);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
@@ -756,7 +821,7 @@ int main(void) {
 
     /// The lines the probe prints on every platform, before its
     /// `#ifdef`s: the floor its output is held to.
-    const PRINTED_EVERYWHERE: usize = 43;
+    const PRINTED_EVERYWHERE: usize = 57;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -830,6 +895,20 @@ int main(void) {
         assert_eq!(h["size_t.size"], size_of::<NameLen>() as i128);
         assert_eq!(h["uid_t.size"], size_of::<Uid>() as i128);
         assert_eq!(h["uid_t.signed"], 0, "uid_t is unsigned");
+        assert_eq!(h["time_t.size"], size_of::<TimeT>() as i128);
+        assert_eq!(h["time_t.signed"], 1, "time_t is signed");
+        assert_eq!(h["tm.size"], size_of::<Tm>() as i128);
+        assert_eq!(h["tm.sec"], offset_of!(Tm, tm_sec) as i128);
+        assert_eq!(h["tm.min"], offset_of!(Tm, tm_min) as i128);
+        assert_eq!(h["tm.hour"], offset_of!(Tm, tm_hour) as i128);
+        assert_eq!(h["tm.mday"], offset_of!(Tm, tm_mday) as i128);
+        assert_eq!(h["tm.mon"], offset_of!(Tm, tm_mon) as i128);
+        assert_eq!(h["tm.year"], offset_of!(Tm, tm_year) as i128);
+        assert_eq!(h["tm.wday"], offset_of!(Tm, tm_wday) as i128);
+        assert_eq!(h["tm.yday"], offset_of!(Tm, tm_yday) as i128);
+        assert_eq!(h["tm.isdst"], offset_of!(Tm, tm_isdst) as i128);
+        assert_eq!(h["tm.gmtoff"], offset_of!(Tm, tm_gmtoff) as i128);
+        assert_eq!(h["tm.zone"], offset_of!(Tm, tm_zone) as i128);
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);

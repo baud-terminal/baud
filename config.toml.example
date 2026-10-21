@@ -268,7 +268,7 @@ trail_scroll = "ride"
 # logging: whether a program can log everything it sends to a file it names
 # (xterm's CSI ? 46 h and OSC 46). "on" by default: the file is appended to,
 # and only one you own that no one else may write; with no name the log is
-# baud.log.<host>.<date and time, UTC>.<pid> where the shell started, and a
+# baud.log.<host>.<local date and time>.<pid> where the shell started, and a
 # relative name is read from there. A program on the other end of an ssh
 # connection, or a file you cat, can otherwise append to any such file,
 # your shell's startup files included; "off" stops that.
