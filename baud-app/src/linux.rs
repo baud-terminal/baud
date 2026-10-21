@@ -35,15 +35,21 @@
 //! (`opener.rs`); Ctrl+plus, Ctrl+minus and Ctrl+0 zoom. Tested over a
 //! socket pair against another implementation's bytes, never on a desktop.
 //!
+//! **The desktop's accessibility settings are the macOS app's**: the
+//! portal's `reduced-motion` acts as Reduce Motion does -- blinking text
+//! held shown, the default trail off, the cursor's blink a hard switch --
+//! and its `contrast` as Increase Contrast does, a stricter contrast
+//! floor; `BAUD_MOTION` fixes the motion as on macOS (`access.rs`,
+//! `appearance.rs`). The portal has no transparency key, so the dim stays
+//! the half's.
+//!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
 //! path this paints on jumps (`docs/record.md`, "Smooth scroll slides the
 //! cell path on the ring, and the one-row cap is the latency answer"); the
-//! desktop's motion preference, so the default trail runs and text blinks
-//! whatever it says; the system caret's rate (this keeps 333 ms a phase
-//! until the desktop's settings are read); a backing scale other than
-//! one -- the window binds no fractional-scale global; and the report
-//! every five seconds.
+//! system caret's rate (this keeps 333 ms a phase until the desktop's
+//! settings are read); a backing scale other than one -- the window binds
+//! no fractional-scale global; and the report every five seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -211,6 +217,15 @@ struct Driver {
     halves: crate::palette::Halves,
     glass: crate::config::Glass,
     floor: baud_render::Floor,
+    /// The desktop's contrast setting, as last heard: standard until the
+    /// portal says otherwise.
+    contrast: crate::access::Contrast,
+    /// Where the motion preference comes from, `BAUD_MOTION` or the
+    /// desktop, the preference in force, and the config's blink
+    /// animation, which reduced motion makes a hard switch.
+    motion_source: crate::access::MotionSource,
+    motion: crate::config::SystemMotion,
+    blink_animation: crate::config::BlinkAnimation,
     /// The `xdg-open`s a link started, reaped on each turn, and this
     /// machine's name for a `file://host/` link.
     opener: crate::opener::Opener,
@@ -373,15 +388,20 @@ pub fn run() {
         None => crate::info!("compose: no Compose file found; dead keys type nothing"),
     }
     let bell = Bell::new(&term, crate::bell::LENGTH);
+    // `BAUD_MOTION` fixes the motion preference as on macOS; otherwise it
+    // is full until the portal says, which the answer to the launch's
+    // read usually does before the first frame.
+    let motion_source =
+        crate::access::motion_override(std::env::var("BAUD_MOTION").ok().as_deref());
     let widths = crate::width::Widths::new(&term);
     let clips = crate::clip::Clips::for_wayland(&term);
     let hiding = crate::hide::Hiding::new(&term);
     let mut d = Driver {
         bell,
         // The config's interval, else 333 ms a phase, and no switch: `auto`
-        // blinks here. Nothing on Linux reads the desktop's caret or its
-        // motion preference yet, so the choice is not kept and the
-        // animation is the config's.
+        // blinks here. Nothing on Linux reads the desktop's caret yet, so
+        // the choice is not kept; the animation is the config's until the
+        // motion preference says otherwise (`set_motion`).
         caret: Caret::new(
             Instant::now(),
             Cycle::of_config(cfg.blink_interval),
@@ -434,9 +454,16 @@ pub fn run() {
         halves,
         glass: cfg.glass,
         floor: cfg.floor,
+        contrast: crate::access::Contrast::Standard,
+        motion_source,
+        motion: crate::config::SystemMotion::Full,
+        blink_animation: cfg.blink_animation,
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
     };
+    if let crate::access::MotionSource::Fixed(m) = motion_source {
+        d.set_motion(m);
+    }
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
         return;
@@ -1107,6 +1134,22 @@ impl Driver {
                 );
             }
             Heard::NoScheme(_) => {}
+            Heard::Motion(m) => {
+                self.set_motion(crate::appearance::motion_of(self.motion_source, m))
+            }
+            Heard::Contrast(c) => {
+                let contrast = crate::appearance::contrast_of(c);
+                if contrast != self.contrast {
+                    self.contrast = contrast;
+                    crate::info!("contrast: {contrast:?}");
+                    // The contrast moves no colour the core reports, so
+                    // only the renderer is told, as on macOS.
+                    let theme = self.theme_of(self.half);
+                    self.renderer.set_theme(theme);
+                    self.damage = Damage::Full;
+                    self.pending = Pending::Dirty;
+                }
+            }
             Heard::Revealed => crate::info!("link revealed by the file manager"),
             Heard::NotRevealed(e) => {
                 crate::warn!("link not revealed: the file manager answered {e}")
@@ -1124,11 +1167,34 @@ impl Driver {
     /// compares.
     fn show_half(&mut self, half: crate::palette::Half, overrides: baud_core::Overrides) {
         self.half = half;
-        let theme = crate::palette::half_theme(half, &self.glass, self.floor, &self.halves);
+        let theme = self.theme_of(half);
         self.renderer.set_theme(theme);
         crate::host::tell_defaults(&mut self.term, self.renderer.theme(), overrides);
         self.damage = Damage::Full;
         self.pending = Pending::Dirty;
+    }
+
+    /// The theme `half` is drawn with under the desktop's contrast setting.
+    fn theme_of(&self, half: crate::palette::Half) -> baud_render::Theme {
+        crate::appearance::drawn_theme(half, &self.glass, self.floor, &self.halves, self.contrast)
+    }
+
+    /// **The motion preference moved**, from the portal or `BAUD_MOTION`:
+    /// blinking text, the trail and the cursor's blink animation follow
+    /// it, as `poll_motion` does on macOS -- reduced motion always means
+    /// a hard blink, whatever the config named.
+    fn set_motion(&mut self, m: crate::config::SystemMotion) {
+        if m == self.motion {
+            return;
+        }
+        self.motion = m;
+        crate::info!("motion: {m:?}");
+        self.caret.set_animation(self.blink_animation.effective(m));
+        if self.timed.set_motion(m, Instant::now()) == crate::timed::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
+        // Text a held phase hid is shown again on the next turn's flip
+        // check, which repaints whole.
     }
 
     /// **The scrollbar's share of a pointer event** (`bar.rs`), at the

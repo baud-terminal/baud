@@ -403,7 +403,7 @@ impl<M: Moment> Caret<M> {
 
     /// The animation, after the motion preference moved. The next plan
     /// draws it from where the cycle is.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub fn set_animation(&mut self, animation: BlinkAnimation) {
         self.animation = animation;
     }

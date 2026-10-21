@@ -587,7 +587,7 @@ impl BlinkAnimation {
     /// The animation drawn: the configured one, and none under Reduce
     /// Motion whatever the config says -- the owner's "Reduce Motion always
     /// means none".
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub fn effective(self, motion: SystemMotion) -> BlinkAnimation {
         match motion {
             SystemMotion::Full => self,

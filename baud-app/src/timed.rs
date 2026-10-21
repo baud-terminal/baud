@@ -16,9 +16,11 @@
 //!
 //! Every trail style runs as the CPU path draws it (`trail::on_cpu`): an
 //! effect -- the fire and its family -- is the GPU's, so here it rides the
-//! quad. Nothing on Linux reads the desktop's reduced-motion preference
-//! yet, so the motion is full and text blinks. Pure, over a real `Term`,
-//! so the tests run on every platform.
+//! quad. The motion is the desktop's preference, as the driver hears it
+//! from the Settings portal (`bus.rs`) or `BAUD_MOTION` fixes it, and
+//! full until then: reduced, text blink is held shown and the default
+//! trail is none, as under macOS's Reduce Motion ([`Timed::set_motion`]).
+//! Pure, over a real `Term`, so the tests run on every platform.
 
 use crate::config::{CursorTrail, ScreenTransition, SystemMotion};
 use crate::trail::Chase;
@@ -107,6 +109,8 @@ pub(crate) struct Timed {
     /// Whether the ReGIS page shown keeps blinking pixels, which flip with
     /// SGR 5 whether or not any text blinks (`Term::regis_blink`).
     regis: RegisBlink,
+    /// The config's trail, and the one drawn under the motion preference.
+    pick: crate::config::TrailPick,
     trail: CursorTrail,
     chase: Chase<HostTime>,
     ghost: Option<Ghost>,
@@ -124,21 +128,52 @@ impl Timed {
         transition: ScreenTransition,
     ) -> Timed {
         let motion = SystemMotion::Full;
-        let trail = trail.effective(motion);
+        let effective = trail.effective(motion);
         Timed {
             clock: Clock::new(epoch),
             motion,
             blink: BlinkPhases::SHOWN,
             seen: Blinking::UNSEEN,
             regis: RegisBlink::Off,
-            trail,
-            chase: Chase::new(crate::trail::on_cpu(trail.style())),
+            pick: trail,
+            trail: effective,
+            chase: Chase::new(crate::trail::on_cpu(effective.style())),
             ghost: None,
             last_cell: None,
             transition,
             fade: None,
             bar: crate::bar::Bar::new(),
         }
+    }
+
+    /// **The desktop's motion preference changed**: blinking text held
+    /// shown or blinking again from the next turn, and the trail the
+    /// config's pick gives under it -- only the default follows, as on
+    /// macOS (`TrailPick::effective`). A switched trail cuts any trail in
+    /// flight, a fire not left to burn out, and owes a frame to clear what
+    /// was drawn; at rest, or with the trail unchanged, nothing.
+    pub(crate) fn set_motion(&mut self, motion: SystemMotion, now: Instant) -> Owes {
+        self.motion = motion;
+        let next = self.pick.effective(motion);
+        if next == self.trail {
+            return Owes::Nothing;
+        }
+        let host = self.clock.host(now);
+        let drawn = self.chase.owes(host) == crate::caret::Owes::Frame || self.ghost.is_some();
+        self.trail = next;
+        self.chase.restyle(crate::trail::on_cpu(next.style()));
+        self.ghost = None;
+        self.last_cell = None;
+        match drawn {
+            true => Owes::Frame,
+            false => Owes::Nothing,
+        }
+    }
+
+    /// The trail drawn now.
+    #[cfg(test)]
+    fn trail(&self) -> CursorTrail {
+        self.trail
     }
 
     /// **The instant the loop must wake by**, if an effect changes on the
@@ -503,6 +538,61 @@ mod tests {
         }
         assert!(frames > 1, "{frames}");
         assert_eq!(fx.deadline(now), None);
+    }
+
+    /// **Reduced motion holds blinking text shown and turns the default
+    /// trail off, as Reduce Motion does on macOS**: no blink flip bounds
+    /// the wait or owes a frame, a trail in flight is cut with a frame
+    /// owed to clear it, and a trail the config names is kept; full motion
+    /// again blinks and trails. The controls are the same screen at full
+    /// motion. Perturbations: leave `motion` unset in `set_motion` -- the
+    /// held-shown assertion fails; take the trail full motion gives --
+    /// the default's assertion fails.
+    #[test]
+    fn reduced_motion_holds_text_shown_and_turns_the_default_trail_off() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[5mslow\x1b[m");
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        fx.drawn(Blinking::SLOW, RegisBlink::Off);
+        assert!(fx.deadline(t0).is_some(), "the control: it blinks");
+        assert_eq!(fx.trail(), CursorTrail::default(), "the control: trailed");
+        // A long move, in flight when the preference changes.
+        feed(&mut t, b"\x1b[8;30H");
+        let at = t0 + Duration::from_millis(2);
+        let _ = fx.plan(at, &t, rect, CELL, widths());
+        let dwell = fx.deadline(at).expect("the dwell");
+        assert_eq!(fx.turn(dwell, &mut t), Owes::Frame);
+        let _ = fx.plan(dwell, &t, rect, CELL, widths());
+        assert_eq!(
+            fx.set_motion(SystemMotion::Reduced, dwell),
+            Owes::Frame,
+            "the trail in flight is cut and cleared"
+        );
+        assert_eq!(fx.trail(), CursorTrail::Off);
+        assert_eq!(fx.deadline(dwell), None, "no flip, no dwell");
+        for ms in [0u64, 250, 401, 801, 1201] {
+            let now = dwell + Duration::from_millis(ms);
+            let p = fx.plan(now, &t, rect, CELL, widths());
+            assert_eq!(p.blink, BlinkPhases::SHOWN, "held shown at {ms}");
+            assert_eq!(p.trail, None, "{ms}");
+            assert_eq!(fx.turn(now, &mut t), Owes::Nothing, "{ms}");
+        }
+        assert_eq!(
+            fx.set_motion(SystemMotion::Reduced, dwell),
+            Owes::Nothing,
+            "no change"
+        );
+        let named = TrailPick::Named(CursorTrail::Ghost);
+        let mut kept = Timed::new(t0, named, ScreenTransition::Off);
+        assert_eq!(kept.set_motion(SystemMotion::Reduced, t0), Owes::Nothing);
+        assert_eq!(kept.trail(), CursorTrail::Ghost, "a named trail is kept");
+        let back = dwell + Duration::from_secs(2);
+        assert_eq!(fx.set_motion(SystemMotion::Full, back), Owes::Nothing);
+        assert_eq!(fx.trail(), CursorTrail::default());
+        assert!(fx.deadline(back).is_some(), "it blinks again");
     }
 
     /// **A switch fades the new screen in when `[screen] transition` is

@@ -9,8 +9,9 @@
 //! lean, LIGHT, 0.88/0.86). With no portal heard, `auto` draws dark, as on
 //! macOS before the system has said anything.
 
+use crate::access::{Contrast, MotionSource};
 use crate::bus::{Origin, Scheme};
-use crate::config::ThemeChoice;
+use crate::config::{SystemMotion, ThemeChoice};
 use crate::palette::Half;
 
 /// The half `choice` draws once the desktop has said `scheme`, or before.
@@ -43,6 +44,39 @@ pub(crate) fn overrides(origin: Origin) -> baud_core::Overrides {
         Origin::Changed => baud_core::Overrides::Drop,
         Origin::Read => baud_core::Overrides::Keep,
     }
+}
+
+/// **The desktop's contrast preference as the cells are drawn**: the
+/// portal's "Higher contrast" is macOS's Increase Contrast, and no
+/// preference, or a value it does not know, is the standard contrast
+/// (`[[source: xdg-portal-settings-v2]]`).
+pub(crate) fn contrast_of(c: crate::bus::Contrast) -> Contrast {
+    match c {
+        crate::bus::Contrast::Higher => Contrast::Increased,
+        crate::bus::Contrast::NoPreference => Contrast::Standard,
+    }
+}
+
+/// **The desktop's motion preference as the effects take it**: the
+/// portal's "Reduced motion" is macOS's Reduce Motion, unless
+/// `BAUD_MOTION` fixed the preference, which the desktop then never moves.
+pub(crate) fn motion_of(source: MotionSource, m: crate::bus::Motion) -> SystemMotion {
+    crate::access::system_motion(source, || m == crate::bus::Motion::Reduced)
+}
+
+/// **The theme a half is drawn with**: `palette::half_theme`, the floor
+/// as the contrast setting asks for it ([`Contrast::floor`]) -- what
+/// macOS's `accessible` does to the floor, so a light/dark switch under
+/// higher contrast keeps the stricter floor. Linux has no transparency
+/// key to follow, so the dim is the half's.
+pub(crate) fn drawn_theme(
+    half: Half,
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+    halves: &crate::palette::Halves,
+    contrast: Contrast,
+) -> baud_render::Theme {
+    crate::palette::half_theme(half, glass, contrast.floor(floor), halves)
 }
 
 #[cfg(test)]
@@ -106,5 +140,57 @@ mod tests {
         let report = t.reply().to_vec();
         assert_ne!(ask(&mut t), set, "the user's change drops it");
         assert_eq!(report, b"\x1b[?997;1n", "and reports the change once");
+    }
+
+    /// **Higher contrast on the desktop draws as Increase Contrast does on
+    /// macOS**: the floor a trigger of at least 3.0 and a target of at
+    /// least 4.5 on either half, over `floor = "off"` too, a stricter
+    /// floor kept; the standard contrast, the control, draws the floor as
+    /// configured, and the dim is the half's either way. Perturbation:
+    /// map higher contrast to the standard one -- the stricter floor's
+    /// assertion fails.
+    #[test]
+    fn higher_contrast_draws_the_stricter_floor_on_either_half() {
+        use baud_render::Floor;
+        let lift = |trigger, target| Floor::Lift { trigger, target };
+        let glass = crate::config::Glass::defaults();
+        let halves = crate::palette::Halves::default();
+        let higher = contrast_of(crate::bus::Contrast::Higher);
+        let normal = contrast_of(crate::bus::Contrast::NoPreference);
+        assert_eq!((higher, normal), (Contrast::Increased, Contrast::Standard));
+        for half in [Half::Dark, Half::Light] {
+            for (configured, want) in [
+                (Floor::DEFAULT, lift(3.0, 4.5)),
+                (Floor::Off, lift(3.0, 4.5)),
+                (lift(2.0, 4.5), lift(3.0, 4.5)),
+                (lift(7.0, 7.0), lift(7.0, 7.0)),
+            ] {
+                let plain = crate::palette::half_theme(half, &glass, configured, &halves);
+                let up = drawn_theme(half, &glass, configured, &halves, higher);
+                assert_eq!(up.floor, want, "{half:?} {configured:?}");
+                assert_eq!(up.bg_alpha, plain.bg_alpha, "the dim is the half's");
+                let off = drawn_theme(half, &glass, configured, &halves, normal);
+                assert_eq!(off.floor, configured, "the control");
+            }
+        }
+    }
+
+    /// **Reduced motion on the desktop is macOS's Reduce Motion, and
+    /// `BAUD_MOTION` outranks it**: the portal's reduced is reduced and no
+    /// preference full, while a fixed preference is what it fixed
+    /// whatever the desktop says. Perturbation: ask the portal under a
+    /// fixed source -- the fixed-full assertion fails.
+    #[test]
+    fn the_desktops_motion_is_reduce_motion_unless_fixed() {
+        use crate::bus::Motion;
+        use SystemMotion::{Full, Reduced};
+        let sys = MotionSource::System;
+        assert_eq!(motion_of(sys, Motion::Reduced), Reduced);
+        assert_eq!(motion_of(sys, Motion::NoPreference), Full);
+        for fixed in [Full, Reduced] {
+            for m in [Motion::Reduced, Motion::NoPreference] {
+                assert_eq!(motion_of(MotionSource::Fixed(fixed), m), fixed);
+            }
+        }
     }
 }

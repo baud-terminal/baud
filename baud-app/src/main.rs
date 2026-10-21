@@ -20,6 +20,10 @@
 //! and in `pages.rs`'s release of freed image pages, which forbid nothing
 //! and say why at every call; `app.rs` and `linux.rs` forbid it.
 
+// What the system's accessibility settings ask -- reduced motion, increased
+// contrast: both drivers read their own system and act through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod access;
 #[cfg(target_os = "macos")]
 mod app;
 // Which half of the palette the Linux window draws under `theme = "auto"`:

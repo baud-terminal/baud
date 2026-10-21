@@ -21,7 +21,11 @@
 //!   version 2's). The portal is `org.freedesktop.portal.Desktop` at
 //!   `/org/freedesktop/portal/desktop` (`[[source:
 //!   xdg-portal-api-reference]]` 11-12). `color-scheme` is 0 no preference,
-//!   1 dark, 2 light, and "Unknown values should be treated as 0".
+//!   1 dark, 2 light; `contrast` 0 no preference (normal contrast), 1
+//!   higher contrast; `reduced-motion` 0 no preference, 1 reduced motion;
+//!   and for each "Unknown values should be treated as 0". A portal
+//!   without the last two -- they are not in every version -- reads as no
+//!   preference for them.
 //! * **A reveal**: `ShowItems` of one `file:` URI on
 //!   `org.freedesktop.FileManager1`, which "is supposed to select the passed
 //!   items within their respective parent folders" (`[[source:
@@ -57,6 +61,40 @@ impl Scheme {
     }
 }
 
+/// The portal's `reduced-motion`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Motion {
+    NoPreference,
+    Reduced,
+}
+
+impl Motion {
+    /// 1 reduced, anything else no preference.
+    fn of(v: Word) -> Motion {
+        match v.0 {
+            1 => Motion::Reduced,
+            _ => Motion::NoPreference,
+        }
+    }
+}
+
+/// The portal's `contrast`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Contrast {
+    NoPreference,
+    Higher,
+}
+
+impl Contrast {
+    /// 1 higher, anything else no preference: normal contrast.
+    fn of(v: Word) -> Contrast {
+        match v.0 {
+            1 => Contrast::Higher,
+            _ => Contrast::NoPreference,
+        }
+    }
+}
+
 /// Whether a scheme is the one the desktop had at launch or a change.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Origin {
@@ -74,6 +112,11 @@ pub(crate) enum Heard {
     /// The portal could not be read: no portal, no Settings, or no
     /// `color-scheme` in its reply. The error's name, or what was missing.
     NoScheme(String),
+    /// The desktop's motion preference, read or changed; a reply without
+    /// one says nothing of it.
+    Motion(Motion),
+    /// The desktop's contrast preference, read or changed, the same way.
+    Contrast(Contrast),
     /// The file manager took a reveal.
     Revealed,
     /// It did not: the error's name.
@@ -462,12 +505,22 @@ fn parse(buf: &[u8]) -> Option<Message<'_>> {
     Some(m)
 }
 
-/// `color-scheme` in a `ReadAll` reply's `a{sa{sv}}`, if the appearance
-/// namespace holds it as a `u`.
-fn scheme_in_read_all(m: &Message<'_>) -> Option<Scheme> {
+/// The appearance namespace's three keys a `ReadAll` reply holds as `u`s,
+/// each `None` where it is absent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct Appearance {
+    scheme: Option<Scheme>,
+    contrast: Option<Contrast>,
+    motion: Option<Motion>,
+}
+
+/// **The appearance in a `ReadAll` reply's `a{sa{sv}}`**, in one pass, or
+/// `None` when the reply cannot be read.
+fn appearance_in_read_all(m: &Message<'_>) -> Option<Appearance> {
     if m.signature != "a{sa{sv}}" {
         return None;
     }
+    let mut found = Appearance::default();
     let mut r = Reader::new(m.body, m.order);
     let outer = r.len()?;
     r.align(Align::EIGHT)?;
@@ -482,18 +535,41 @@ fn scheme_in_read_all(m: &Message<'_>) -> Option<Scheme> {
             r.align(Align::EIGHT)?;
             let key = r.string()?;
             let sig = r.signature()?;
-            if namespace == APPEARANCE && key == "color-scheme" && sig == "u" {
-                return r.word().map(Scheme::of);
+            match (namespace == APPEARANCE, key, sig) {
+                (true, "color-scheme", "u") => found.scheme = Some(Scheme::of(r.word()?)),
+                (true, "contrast", "u") => found.contrast = Some(Contrast::of(r.word()?)),
+                (true, "reduced-motion", "u") => found.motion = Some(Motion::of(r.word()?)),
+                _ => {
+                    r.skip(sig)?;
+                }
             }
-            r.skip(sig)?;
         }
         r.at = inner_end;
     }
-    None
+    Some(found)
 }
 
-/// `color-scheme` in a `SettingChanged` signal's `(ssv)`.
-fn scheme_in_signal(m: &Message<'_>) -> Option<Scheme> {
+/// What a `ReadAll` reply says: the scheme, or that there is none, then
+/// the contrast and the motion where the reply holds them.
+fn heard_in_read_all(m: &Message<'_>) -> Vec<Heard> {
+    let Some(a) = appearance_in_read_all(m) else {
+        return vec![Heard::NoScheme(
+            "the portal's reply could not be read".into(),
+        )];
+    };
+    let scheme = match a.scheme {
+        Some(s) => Heard::Scheme(s, Origin::Read),
+        None => Heard::NoScheme("no color-scheme in the portal's reply".into()),
+    };
+    core::iter::once(scheme)
+        .chain(a.contrast.map(Heard::Contrast))
+        .chain(a.motion.map(Heard::Motion))
+        .collect()
+}
+
+/// An appearance key in a `SettingChanged` signal's `(ssv)`, as what it
+/// means.
+fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     let ours = m.kind == SIGNAL
         && m.interface == Some(SETTINGS)
         && m.member == Some("SettingChanged")
@@ -506,9 +582,15 @@ fn scheme_in_signal(m: &Message<'_>) -> Option<Scheme> {
     let namespace = r.string()?;
     let key = r.string()?;
     let sig = r.signature()?;
-    (namespace == APPEARANCE && key == "color-scheme" && sig == "u")
-        .then(|| r.word().map(Scheme::of))
-        .flatten()
+    if namespace != APPEARANCE || sig != "u" {
+        return None;
+    }
+    match key {
+        "color-scheme" => Some(Heard::Scheme(Scheme::of(r.word()?), Origin::Changed)),
+        "contrast" => Some(Heard::Contrast(Contrast::of(r.word()?))),
+        "reduced-motion" => Some(Heard::Motion(Motion::of(r.word()?))),
+        _ => None,
+    }
 }
 
 /// Where the handshake is.
@@ -704,34 +786,33 @@ impl Session {
             let Some(m) = parse(&bytes) else {
                 continue;
             };
-            if let Some(h) = self.heard(&m) {
-                heard.push(h);
-            }
+            heard.extend(self.heard(&m));
         }
         heard
     }
 
     /// What one message means, if it is one this waits for or a change of
-    /// the appearance.
-    fn heard(&mut self, m: &Message<'_>) -> Option<Heard> {
+    /// the appearance: a `ReadAll` reply can say three things.
+    fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
         if m.kind == SIGNAL {
-            return scheme_in_signal(m).map(|s| Heard::Scheme(s, Origin::Changed));
+            return heard_in_signal(m).into_iter().collect();
         }
-        let reply = m.reply_serial?;
-        let i = self.waiting.iter().position(|w| match w {
+        let Some(reply) = m.reply_serial else {
+            return Vec::new();
+        };
+        let Some(i) = self.waiting.iter().position(|w| match w {
             Waiting::ReadAll(s) | Waiting::ShowItems(s) => *s == reply,
-        })?;
+        }) else {
+            return Vec::new();
+        };
         let waited = self.waiting.swap_remove(i);
         let error = (m.kind == ERROR).then(|| m.error.unwrap_or("an unnamed error").to_owned());
         match (waited, m.kind, error) {
-            (Waiting::ReadAll(_), METHOD_RETURN, _) => Some(match scheme_in_read_all(m) {
-                Some(s) => Heard::Scheme(s, Origin::Read),
-                None => Heard::NoScheme("no color-scheme in the portal's reply".into()),
-            }),
-            (Waiting::ReadAll(_), _, Some(e)) => Some(Heard::NoScheme(e)),
-            (Waiting::ShowItems(_), METHOD_RETURN, _) => Some(Heard::Revealed),
-            (Waiting::ShowItems(_), _, Some(e)) => Some(Heard::NotRevealed(e)),
-            _ => None,
+            (Waiting::ReadAll(_), METHOD_RETURN, _) => heard_in_read_all(m),
+            (Waiting::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
+            (Waiting::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
+            (Waiting::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
+            _ => Vec::new(),
         }
     }
 }
@@ -1025,6 +1106,10 @@ mod tests {
     /// entry -- every reply is unread.
     #[test]
     fn the_portals_scheme_is_read_and_followed() {
+        const NORMAL: [Heard; 2] = [
+            Heard::Contrast(Contrast::NoPreference),
+            Heard::Motion(Motion::NoPreference),
+        ];
         for (fixture, want) in [
             ("read_all_dark", Heard::Scheme(Scheme::Dark, Origin::Read)),
             ("read_all_light", Heard::Scheme(Scheme::Light, Origin::Read)),
@@ -1041,15 +1126,16 @@ mod tests {
             let bytes = reply_bytes(fixture);
             let (a, b) = bytes.split_at(bytes.len() / 2);
             assert_eq!(s.received(a), [], "{fixture}: half a reply");
-            assert_eq!(s.received(b), [want], "{fixture}");
+            let mut all = vec![want];
+            all.extend(NORMAL);
+            assert_eq!(s.received(b), all, "{fixture}");
         }
         let mut s = ready();
-        assert_eq!(
-            s.received(&reply_bytes("read_all_missing")),
-            [Heard::NoScheme(
-                "no color-scheme in the portal's reply".into()
-            )]
-        );
+        let mut missing = vec![Heard::NoScheme(
+            "no color-scheme in the portal's reply".into(),
+        )];
+        missing.extend(NORMAL);
+        assert_eq!(s.received(&reply_bytes("read_all_missing")), missing);
         let mut s = ready();
         assert_eq!(
             s.received(&reply_bytes("read_all_error")),
@@ -1062,8 +1148,62 @@ mod tests {
             s.received(&reply_bytes("changed_light")),
             [Heard::Scheme(Scheme::Light, Origin::Changed)]
         );
-        assert_eq!(s.received(&reply_bytes("changed_contrast")), []);
         assert_eq!(s.received(&reply_bytes("name_acquired")), []);
+    }
+
+    /// **The desktop's contrast and motion preferences, read and
+    /// followed** (`[[source: xdg-portal-settings-v2]]`): `ReadAll`'s
+    /// reply holding both at 1 says higher contrast and reduced motion
+    /// beside the scheme; an unknown value is no preference, as the
+    /// interface says; a version-1 portal's reply, with neither key, says
+    /// nothing of them; a reply with no scheme still says them; each key's
+    /// `SettingChanged`, to 1 and back to 0. Fixtures are dbus-next's
+    /// bytes. Perturbations: read `contrast` 2 as higher -- the unknown
+    /// value's assertion fails; drop the signal's `reduced-motion` arm --
+    /// the change is unheard.
+    #[test]
+    fn the_portals_contrast_and_motion_are_read_and_followed() {
+        let read = |fixture: &str| ready().received(&reply_bytes(fixture));
+        assert_eq!(
+            read("read_all_accessible"),
+            [
+                Heard::Scheme(Scheme::Dark, Origin::Read),
+                Heard::Contrast(Contrast::Higher),
+                Heard::Motion(Motion::Reduced),
+            ]
+        );
+        assert_eq!(
+            read("read_all_unknown_access"),
+            [
+                Heard::Scheme(Scheme::Light, Origin::Read),
+                Heard::Contrast(Contrast::NoPreference),
+                Heard::Motion(Motion::NoPreference),
+            ]
+        );
+        assert_eq!(
+            read("read_all_v1"),
+            [Heard::Scheme(Scheme::Dark, Origin::Read)]
+        );
+        assert_eq!(
+            read("read_all_access_only"),
+            [
+                Heard::NoScheme("no color-scheme in the portal's reply".into()),
+                Heard::Contrast(Contrast::Higher),
+                Heard::Motion(Motion::Reduced),
+            ]
+        );
+        let mut s = ready();
+        for (fixture, want) in [
+            ("changed_contrast", Heard::Contrast(Contrast::Higher)),
+            (
+                "changed_contrast_off",
+                Heard::Contrast(Contrast::NoPreference),
+            ),
+            ("changed_motion", Heard::Motion(Motion::Reduced)),
+            ("changed_motion_off", Heard::Motion(Motion::NoPreference)),
+        ] {
+            assert_eq!(s.received(&reply_bytes(fixture)), [want], "{fixture}");
+        }
     }
 
     /// **A reveal is `ShowItems` of the one URI and an empty startup ID**,
@@ -1129,7 +1269,14 @@ mod tests {
         let n = theirs.read(&mut sink).unwrap();
         assert!(sink[..n].starts_with(b"BEGIN\r\n"), "{:?}", &sink[..n]);
         theirs.write_all(&reply_bytes("read_all_light")).unwrap();
-        assert_eq!(bus.pump(), [Heard::Scheme(Scheme::Light, Origin::Read)]);
+        assert_eq!(
+            bus.pump(),
+            [
+                Heard::Scheme(Scheme::Light, Origin::Read),
+                Heard::Contrast(Contrast::NoPreference),
+                Heard::Motion(Motion::NoPreference),
+            ]
+        );
         // A reveal goes out at once, behind nothing.
         bus.reveal("file:///tmp/x");
         assert!(!bus.wants_write());

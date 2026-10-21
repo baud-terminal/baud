@@ -824,11 +824,10 @@ tests = ["baud-app/src/app.rs::each_blink_rate_flips_at_its_own_rate", "baud-app
 id = "blinking-text-linux"
 area = "text"
 name = "Blinking text on Linux"
-does = "Slow and fast blinking text, each at its own rate, and an idle window with nothing blinking never wakes for it."
-status = "partial"
-gap = "the desktop's reduced-motion setting is not read yet, so it always blinks."
+does = "Slow and fast blinking text, each at its own rate, held steady when the desktop asks for reduced motion, and an idle window with nothing blinking never wakes for it."
+status = "built"
 platform = "linux"
-tests = ["baud-app/src/timed.rs::blinking_text_wakes_at_its_own_flips_and_repaints_whole", "baud-app/src/timed.rs::an_idle_screen_waits_for_nothing"]
+tests = ["baud-app/src/timed.rs::blinking_text_wakes_at_its_own_flips_and_repaints_whole", "baud-app/src/timed.rs::an_idle_screen_waits_for_nothing", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
 
 [[feature]]
 id = "rare-styles"
@@ -1359,6 +1358,15 @@ platform = "linux"
 tests = ["baud-app/src/appearance.rs::auto_follows_the_portal_and_a_pinned_theme_stays", "baud-app/src/bus.rs::the_portals_scheme_is_read_and_followed"]
 
 [[feature]]
+id = "linux-accessibility"
+area = "window"
+name = "Reduced motion and higher contrast on Linux"
+does = "With the desktop's reduced-motion setting on there is no default cursor trail, a plain blink and still blinking text; with its high-contrast setting on, text too close to its background is lifted further, as on a Mac. Both follow the setting the moment you change it."
+status = "built"
+platform = "linux"
+tests = ["baud-app/src/bus.rs::the_portals_contrast_and_motion_are_read_and_followed", "baud-app/src/appearance.rs::higher_contrast_draws_the_stricter_floor_on_either_half", "baud-app/src/appearance.rs::the_desktops_motion_is_reduce_motion_unless_fixed", "baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off"]
+
+[[feature]]
 id = "built-in-colours"
 area = "window"
 name = "Colours built in"
@@ -1523,9 +1531,9 @@ area = "cursor"
 name = "Trails and fades on Linux"
 does = "The cursor trails when it jumps and the full-screen fade plays when a program switches screens, as on a Mac."
 status = "partial"
-gap = "the fire, plasma and other effects are drawn as the plain stretching trail, and the desktop's reduced-motion setting is not read yet."
+gap = "the fire, plasma and other effects are drawn as the plain stretching trail."
 platform = "linux"
-tests = ["baud-app/src/timed.rs::a_long_move_trails_as_the_quad_and_lands", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
+tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_quad_and_lands", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
 
 # --- Pictures -----------------------------------------------------------------
 

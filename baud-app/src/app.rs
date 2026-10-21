@@ -1,6 +1,7 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
+use crate::access::{Contrast, MotionSource, motion_override, system_motion};
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::effects::{TRANSITION_S, TrailCursor, regis_phase, text_blink, trail_cursor, window_of};
@@ -2810,16 +2811,6 @@ enum Transparency {
     Reduced,
 }
 
-/// Increase Contrast: "UI should be presented with high contrast such as
-/// utilizing a less subtle color palette or bolder lines"
-/// ([[source: macos-sdk-nsaccessibility-h]] line 93).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-enum Contrast {
-    #[default]
-    Standard,
-    Increased,
-}
-
 /// The settings from the system's getters.
 fn display_settings(
     reduce_transparency: impl FnOnce() -> bool,
@@ -2852,33 +2843,8 @@ fn accessible(mut theme: Theme, display: Display) -> Theme {
     if display.transparency == Transparency::Reduced {
         theme.bg_alpha = baud_domain::Chan::from_u8(0xFF);
     }
-    if display.contrast == Contrast::Increased {
-        theme.floor = stricter(theme.floor);
-    }
+    theme.floor = display.contrast.floor(theme.floor);
     theme
-}
-
-/// **Increase Contrast's floor**: a trigger of at least 3.0 and a target
-/// of at least 4.5, the owner's note Y decision 9 (Jev's lean, 0.88/0.87,
-/// decisions 718/719), the HIG's "higher contrast color scheme when the
-/// system setting Increase Contrast is turned on"
-/// ([[source: apple-hig-accessibility]]). It overrides `floor = "off"` while
-/// the setting is on, as Reduce Transparency overrides the dim -- decided
-/// by analogy in note Y, which the owner can reverse. A reader's stricter
-/// floor is kept: "at least" is this reading of "stricter". The brief's
-/// "target 4.5" and `max(configured, 4.5)` agree for every config whose
-/// floor is at or below 4.5, because the config's `floor()` already parses
-/// every target to at least 4.5; they differ only for a floor above 4.5,
-/// such as `floor = 7`, which a literal 4.5 would loosen.
-fn stricter(floor: baud_render::Floor) -> baud_render::Floor {
-    let (trigger, target) = match floor {
-        baud_render::Floor::Off => (0.0, 0.0),
-        baud_render::Floor::Lift { trigger, target } => (trigger, target),
-    };
-    baud_render::Floor::Lift {
-        trigger: trigger.max(3.0),
-        target: target.max(4.5),
-    }
 }
 
 /// The appearance whose theme is in force: the pinned one, or under `auto`
@@ -12220,39 +12186,6 @@ fn os_at_least_15() -> bool {
         minorVersion: 0,
         patchVersion: 0,
     })
-}
-
-/// Where the motion preference comes from: the system, or `BAUD_MOTION`,
-/// read once at launch, for a check that must not change the owner's
-/// settings -- an instrument like `BAUD_SCROLLER`, not a configuration.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MotionSource {
-    System,
-    Fixed(crate::config::SystemMotion),
-}
-
-/// `BAUD_MOTION`: `reduced` or `full` fix the preference; anything else,
-/// or nothing, leaves it to the system.
-fn motion_override(v: Option<&str>) -> MotionSource {
-    use crate::config::SystemMotion;
-    match v {
-        Some("reduced") => MotionSource::Fixed(SystemMotion::Reduced),
-        Some("full") => MotionSource::Fixed(SystemMotion::Full),
-        _ => MotionSource::System,
-    }
-}
-
-/// The motion preference from `source`, asking the system through `read`
-/// only when nothing fixed it.
-fn system_motion(source: MotionSource, read: impl FnOnce() -> bool) -> crate::config::SystemMotion {
-    use crate::config::SystemMotion;
-    match source {
-        MotionSource::Fixed(m) => m,
-        MotionSource::System => match read() {
-            true => SystemMotion::Reduced,
-            false => SystemMotion::Full,
-        },
-    }
 }
 
 /// macOS's Reduce Motion, from the window crate's safe getter.
