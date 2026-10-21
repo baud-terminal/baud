@@ -652,11 +652,15 @@ struct App {
     /// The last page-width request acted on, and the counts (`width.rs`).
     widths: crate::width::Widths,
     /// The reads a ReGIS delay holds, fed on the first tick at or after
-    /// its deadline (`reads::paced`).
+    /// its deadline, and those behind a DSR `?15` waiting for the printer
+    /// list (`reads::paced`).
     pace: crate::reads::Pace,
-    /// `[screen] printing`, read again with the printer list at a focus
-    /// gain (`print.rs`).
+    /// `[screen] printing`, read with the printer list (`print.rs`).
     printing: crate::config::Printing,
+    /// When the printer list is read again, and the thread that reads it
+    /// (`print.rs`, `PrinterList`).
+    watch: crate::print::Watch,
+    printer_list: PrinterList,
     /// A program's print jobs waiting for the print panel (`print.rs`).
     prints: crate::print::Prints,
     /// Whether the print panel is up, shared with the block that shows it.
@@ -1115,8 +1119,10 @@ impl App {
         // cursor a mouse or a tablet drives.
         crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
         crate::host::set_logging(&mut term, logging);
-        // A printer only where one is listed (`print.rs`; note AW).
+        // A printer only where one is listed (`print.rs`; note AW), and a
+        // DSR `?15` held while the list is read again.
         crate::print::set_printer(&mut term, printing, printers_listed());
+        crate::print::set_hold(&mut term, printing);
         crate::host::set_pointer_mode(&mut term, pointer_mode);
         crate::host::set_font_changes(&mut term, font_changes);
         crate::host::tell_font(&mut term, &fonts, font_size, font_size);
@@ -1237,6 +1243,8 @@ impl App {
             widths,
             pace: crate::reads::Pace::new(),
             printing,
+            watch: crate::print::Watch::new(),
+            printer_list: PrinterList::new(waker),
             prints: crate::print::Prints::new(),
             panel: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(PANEL_IDLE)),
         }
@@ -1313,6 +1321,14 @@ impl App {
     /// for it, and a wheel's reveal draws nothing new.
     fn look(&self, now: HostTime) -> Look {
         self.reveal.look_under(self.scroller, now)
+    }
+
+    /// A read of the printer list for `why`, off this thread, with printing
+    /// on and none out (`print.rs`).
+    fn read_printers(&mut self, why: crate::print::Ask) {
+        if self.printing == crate::config::Printing::On && self.watch.ask(Instant::now(), why) {
+            self.printer_list.read();
+        }
     }
 
     /// Whatever the core answered to the child, behind whatever it is
@@ -6373,6 +6389,10 @@ mod motion_tests {
                     fonts_asked.extend_from_slice(t.font_requests());
                     t.clear_font_requests();
                     prints.take(t);
+                    if t.printer_asked() == baud_core::PrinterAsked::Owed
+                        && printing == crate::config::Printing::On
+                        && watch.ask(Instant::now(), crate::print::Ask::Now)
+                    { printer_list.read(); }
                     asked.extend_from_slice(t.window_requests());
                     t.clear_"#,
             r#"window_requests();
@@ -7124,7 +7144,17 @@ impl Driver {
             self.poll_focus();
             self.poll_motion();
             self.poll_display();
+            // The indicator line's printer field, read at the pace 070-14's
+            // 80 ms needs at this display's rate (`print::indicator_every`).
+            if self.app.term.status_type() == baud_core::StatusType::Indicator {
+                let tick = self.app.interval;
+                self.app
+                    .read_printers(crate::print::Ask::Indicator { tick });
+            }
         }
+        // The printer list a read brought back: the core's printer, which
+        // answers a held DSR `?15` before the reads behind it are fed.
+        self.printers_read();
         // **The window's facts before any byte is fed**, on every turn and
         // not only on a tick: a report answers the window as it is when the
         // program's question is read.
@@ -7185,6 +7215,11 @@ impl Driver {
             &mut self.app.pace,
             &mut self.app.prints,
         );
+        let (watch, printer_list, printing) = (
+            &mut self.app.watch,
+            &self.app.printer_list,
+            self.app.printing,
+        );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
         let mut resized = None;
@@ -7216,6 +7251,13 @@ impl Driver {
                 fonts_asked.extend_from_slice(t.font_requests());
                 t.clear_font_requests();
                 prints.take(t);
+                // A DSR `?15` held: the list is read off this thread.
+                if t.printer_asked() == baud_core::PrinterAsked::Owed
+                    && printing == crate::config::Printing::On
+                    && watch.ask(Instant::now(), crate::print::Ask::Now)
+                {
+                    printer_list.read();
+                }
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
@@ -8918,9 +8960,26 @@ impl Driver {
         if f == baud_core::Focus::Gained {
             self.read_caret_system();
             self.app.caret.input(host_now());
-            // And the printer list: a printer added in System Settings is
-            // the core's at the next gain (`print.rs`).
-            crate::print::set_printer(&mut self.app.term, self.app.printing, printers_listed());
+            // And the printer list, off this thread: a printer added in
+            // System Settings is the core's at the next gain (`print.rs`).
+            self.app.read_printers(crate::print::Ask::Now);
+        }
+    }
+
+    /// **The printer list a read brought back, to the core**: its printer,
+    /// which answers a held DSR `?15` (`Term::set_printer`), and a frame
+    /// when the indicator line's printer field changed.
+    fn printers_read(&mut self) {
+        let Some(listed) = self.app.printer_list.take() else {
+            return;
+        };
+        self.app.watch.landed();
+        let was = self.app.term.printer();
+        crate::print::set_printer(&mut self.app.term, self.app.printing, listed);
+        if self.app.term.printer() != was
+            && self.app.term.status_type() == baud_core::StatusType::Indicator
+        {
+            self.app.pending = Pending::Dirty;
         }
     }
 
@@ -11619,6 +11678,65 @@ fn printers_listed() -> crate::print::Printers {
     match baud_present_macos::print::printers() {
         baud_present_macos::print::Listed::Some => crate::print::Printers::Listed,
         baud_present_macos::print::Listed::None => crate::print::Printers::None,
+    }
+}
+
+/// **The printer list read on a thread of its own**: `printerNames` waits
+/// 0.3-0.8 ms on the print system's daemon a call, and 36-70 ms on the
+/// call that has to start it (docs/record.md), which the thread that
+/// feeds the core and draws does not. Started at the first read; each
+/// read's answer is left for the pump and the main thread woken
+/// for it. The thread ends with the app, its channel closed.
+struct PrinterList {
+    waker: Waker,
+    ask: std::cell::OnceCell<std::sync::mpsc::Sender<()>>,
+    found: std::sync::Arc<std::sync::atomic::AtomicU8>,
+}
+
+/// What [`PrinterList::found`] holds: nothing new, or the last read's.
+const LIST_NONE: u8 = 0;
+const LIST_LISTED: u8 = 1;
+const LIST_EMPTY: u8 = 2;
+
+impl PrinterList {
+    fn new(waker: Waker) -> PrinterList {
+        PrinterList {
+            waker,
+            ask: std::cell::OnceCell::new(),
+            found: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(LIST_NONE)),
+        }
+    }
+
+    /// Read the list again, off this thread.
+    fn read(&self) {
+        let tx = self.ask.get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
+            let (found, waker) = (self.found.clone(), self.waker);
+            std::thread::spawn(move || {
+                while rx.recv().is_ok() {
+                    let v = match printers_listed() {
+                        crate::print::Printers::Listed => LIST_LISTED,
+                        crate::print::Printers::None => LIST_EMPTY,
+                    };
+                    found.store(v, std::sync::atomic::Ordering::Release);
+                    waker.wake();
+                }
+            });
+            tx
+        });
+        let _ = tx.send(());
+    }
+
+    /// The last read's answer, once.
+    fn take(&self) -> Option<crate::print::Printers> {
+        match self
+            .found
+            .swap(LIST_NONE, std::sync::atomic::Ordering::Acquire)
+        {
+            LIST_LISTED => Some(crate::print::Printers::Listed),
+            LIST_EMPTY => Some(crate::print::Printers::None),
+            _ => None,
+        }
     }
 }
 

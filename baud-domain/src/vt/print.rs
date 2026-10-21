@@ -88,6 +88,25 @@ pub enum PrinterPort {
     Ready,
 }
 
+/// **Whether a DSR `?15` stops the read**, so the embedder can look at its
+/// printer again before the answer goes (`Term::set_printer_hold`). **Off
+/// by default**: the answer is then what the embedder last said, at once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PrinterHold {
+    #[default]
+    Off,
+    On,
+}
+
+/// Whether a DSR `?15` held under [`PrinterHold::On`] waits for its
+/// answer: owed until the embedder says what printer it has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PrinterAsked {
+    #[default]
+    No,
+    Owed,
+}
+
 /// What a printer is collecting for: nothing, an autoprint run (`CSI ? 5 i`
 /// to `CSI ? 4 i`) or a printer controller run (`CSI 5 i` to `CSI 4 i`),
 /// during which the screen is not updated, so an embedder can say why.

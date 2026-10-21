@@ -76,6 +76,9 @@ pub(crate) struct Printer {
     done: [Option<Done>; PRINT_QUEUE],
     matcher: Matcher,
     pub(crate) refusals: PrintRefusals,
+    /// Whether a DSR `?15` stops the read, and whether one is owed.
+    pub(crate) hold: PrinterHold,
+    pub(crate) asked: PrinterAsked,
 }
 
 /// Whether the port has had a printer since power-up or RIS, which tells
@@ -157,6 +160,8 @@ impl Printer {
         done: [None; PRINT_QUEUE],
         matcher: Matcher::IDLE,
         refusals: PrintRefusals::NONE,
+        hold: PrinterHold::Off,
+        asked: PrinterAsked::No,
     };
 
     /// The embedder's printer, which a printer that is there marks seen.
@@ -173,6 +178,15 @@ impl Printer {
             (PrinterPort::Ready, _) => Status::Ready,
             (PrinterPort::Absent, Seen::Since) => Status::NotReady,
             (PrinterPort::Absent, Seen::Never) => Status::NotAvailable,
+        }
+    }
+
+    /// What DSR `?15` answers now.
+    pub(crate) fn reply(&self) -> DecReply {
+        match self.status() {
+            Status::Ready => DecReply::PrinterReady,
+            Status::NotReady => DecReply::PrinterNotReady,
+            Status::NotAvailable => DecReply::NoPrinter,
         }
     }
 

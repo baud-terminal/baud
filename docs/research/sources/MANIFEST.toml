@@ -30029,6 +30029,40 @@ status = "retrieved"
 group  = "AW"
 # Retrieved 2026-10-20 (lane b123): "Returns the names of all available printers."
 
+[sources.apple-nsprinter]
+key    = "apple-nsprinter"
+title  = "NSPrinter -- 'An object that describes a printer's capabilities'; declared `class NSPrinter`, with no @MainActor (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter.json"
+file   = "apple-nsprinter.json"
+sha256 = "8545f56e7e851c740a95e22854c92bce9e6e68e27ab6cfa659cda67304eeb2fe"
+bytes  = 33257
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-21 (lane b128-indicator-fixes) [text]: the Swift declaration is
+# `class NSPrinter`, where NSView's and NSWindow's carry @MainActor; read for whether
+# printerNames may be called off the main thread.
+
+[sources.apple-thread-safety-summary]
+key    = "apple-thread-safety-summary"
+title  = "Threading Programming Guide: Thread Safety Summary -- AppKit's thread-unsafe classes and its main-thread-only classes (archived)"
+author = "Apple"
+year   = 2014
+venue  = "developer.apple.com/library/archive"
+url    = "https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html"
+file   = "apple-thread-safety-summary.html"
+sha256 = "3912f521c0af479cc477feb9d36f643501320f514573b6475cc62416a656d413"
+bytes  = 56112
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-21 (lane b128-indicator-fixes) [text]: "Thread-Unsafe Classes ...
+# NSGraphicsContext ... NSImage ... NSResponder / NSWindow and all of its descendants";
+# "Main Thread Only Classes: The following classes must be used only from the main
+# thread of an application. NSCell and all of its descendants / NSView and all of its
+# descendants". NSPrinter is in neither list.
+
 [sources.apple-nsscrollview-usespredominantaxisscrolling]
 key    = "apple-nsscrollview-usespredominantaxisscrolling"
 title  = "NSScrollView.usesPredominantAxisScrolling -- 'predominantly scrolled one axis at a time ... With scroll balls and touch surfaces, it becomes more difficult to determine the user's intention'; default true (documentation JSON)"

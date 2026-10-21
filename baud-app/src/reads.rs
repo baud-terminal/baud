@@ -3,7 +3,7 @@
 //! loops are platform-bound and no test reaches them, the shape `wheel.rs`
 //! took for the wheel.
 
-use baud_core::{BytePos, ReadLen, Rest, Term};
+use baud_core::{BytePos, PrinterAsked, ReadLen, Rest, Term};
 use baud_domain::RegisInput;
 use baud_domain::{DecodeBudget, DecodeProgress};
 use std::time::{Duration, Instant};
@@ -45,10 +45,16 @@ pub fn feed<'r>(
 /// fed by the next call after it, which [`Pace::released`] tells a driver
 /// to make at once. Past [`HELD_MAX`] the input is given up with the empty
 /// report (`Term::regis_input_abandon`), counted in the core.
+///
+/// **And the reads behind a DSR `?15` the core holds** (`Term::printer_asked`,
+/// under `PrinterHold::On`): they wait until the driver, which reads its
+/// printer list off the main thread, answers it through `Term::set_printer`,
+/// or at [`PRINTER_WAIT`] are answered from the printer it last had.
 pub struct Pace {
     held: std::collections::VecDeque<Vec<u8>>,
     until: Option<Instant>,
     input: Input,
+    why: Why,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
 }
@@ -59,6 +65,20 @@ enum Input {
     Free,
     Waits,
 }
+
+/// What holds the reads while [`Pace`] has a deadline.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Why {
+    Delay,
+    Printer,
+}
+
+/// How long a held DSR `?15` waits for the driver's look at its printers
+/// before it is answered from the last one: `printerNames` took 0.3-0.8
+/// ms a call off a process's first, 4.1-29 ms on its first with the print
+/// system's daemon running, and 36-70 ms, most of this wait, when that
+/// call had to start the daemon (docs/record.md).
+pub const PRINTER_WAIT: Duration = Duration::from_millis(100);
 
 /// How many delays [`HELD_MAX`] ended early.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -78,8 +98,15 @@ impl Pace {
             held: std::collections::VecDeque::new(),
             until: None,
             input: Input::Free,
+            why: Why::Delay,
             cut: DelaysCut::NONE,
         }
+    }
+
+    /// Whether the reads wait for the driver's printer.
+    #[cfg(test)]
+    pub fn waits_for_printer(&self) -> bool {
+        self.until.is_some() && self.why == Why::Printer
     }
 
     /// When the held reads go on, while a delay holds them.
@@ -156,6 +183,12 @@ impl Fed {
 /// and are fed first, in order, by the first call at or after it. `now` is
 /// the call's time, which a delay met here is measured from.
 ///
+/// **And a DSR `?15` under `PrinterHold::On`**: the core stops the read
+/// there with the answer owed, `after` asks the driver's printer list off
+/// the main thread, and the rest of the read and every read after it wait
+/// in `pace` until the driver answers through `Term::set_printer` or
+/// [`PRINTER_WAIT`] passes; the answer goes to `sink` ahead of them.
+///
 /// **And a program's log** (`hostlog.rs`): the core stops a read at each
 /// change of `?46` too, so each part is handed to `log` if the core was
 /// logging when it was fed, and `log` follows the core after it -- the
@@ -170,6 +203,7 @@ pub fn paced<'r>(
     mut after: impl FnMut(&mut Term<'_>),
     log: &mut impl crate::hostlog::Tee,
 ) -> Fed {
+    printer_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
     if pace.input == Input::Waits {
@@ -210,6 +244,23 @@ pub fn paced<'r>(
     fed
 }
 
+/// **A held DSR `?15`'s wait ends**: answered by the driver, or past
+/// [`PRINTER_WAIT`] or [`HELD_MAX`] answered here from the printer the core
+/// last had, so a driver whose look never lands holds nothing for long.
+fn printer_wait(term: &mut Term<'_>, pace: &mut Pace, now: Instant) {
+    let Some(t) = pace.until.filter(|_| pace.why == Why::Printer) else {
+        return;
+    };
+    let waiting: usize = pace.held.iter().map(Vec::len).sum();
+    if term.printer_asked() == PrinterAsked::Owed && (now >= t || waiting > HELD_MAX) {
+        let last = term.printer();
+        term.set_printer(last);
+    }
+    if term.printer_asked() == PrinterAsked::No {
+        pace.until = None;
+    }
+}
+
 /// One read for [`paced`]: held behind a delay this call met, or fed, and
 /// what is left of it held if it meets one.
 fn paced_one(
@@ -248,10 +299,20 @@ fn paced_one(
         after(term);
         if let Some(w) = term.take_regis_wait() {
             pace.until = Some(now + Duration::from_micros(w.micros()));
+            pace.why = Why::Delay;
             if let Some(r) = next.take() {
                 pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
             }
-        } else if term.regis_input() == RegisInput::OneShot {
+        }
+        // `after` saw the question and asked the driver's printer list.
+        if term.printer_asked() == PrinterAsked::Owed {
+            pace.until = Some(now + PRINTER_WAIT);
+            pace.why = Why::Printer;
+            if let Some(r) = next.take() {
+                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+            }
+        } else if pace.until.is_none() && term.regis_input() == RegisInput::OneShot {
+            // A delay taken in this feed holds the reads first.
             pace.input = Input::Waits;
             if let Some(r) = next.take() {
                 pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
@@ -699,6 +760,73 @@ mod tests {
         assert_eq!((fed, child.as_slice()), (Fed::Some, &b"\r"[..]));
         assert_eq!(t.regis_counts().inputs_abandoned, 1);
         assert_eq!(row0(&t).len(), WS.ws_col.into(), "the output fed");
+    }
+
+    /// **A held DSR `?15` waits for the driver's printer, and the reads
+    /// behind it wait for the answer**: nothing is answered or drawn until
+    /// the driver says what it found, and then `?10n` goes out ahead of the
+    /// text after the question, which lands in order. The control: a
+    /// driver that never answers is answered at [`PRINTER_WAIT`] from the
+    /// printer the core last had, `?13n` with none since power-up.
+    #[test]
+    fn a_held_printer_question_waits_for_the_drivers_answer() {
+        for answer in [Some(baud_core::PrinterPort::Ready), None] {
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            t.set_printer_hold(baud_core::PrinterHold::On);
+            let mut pace = Pace::new();
+            let mut out = Vec::new();
+            let t0 = Instant::now();
+            let reads: [&[u8]; 2] = [b"\x1b[?15nAB", b"CD"];
+            let mut asked = 0;
+            paced(
+                &mut t,
+                &mut pace,
+                t0,
+                reads,
+                |b| out.extend_from_slice(b),
+                |t| asked += usize::from(t.printer_asked() == PrinterAsked::Owed),
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(asked, 1, "the driver is asked once");
+            assert!(pace.waits_for_printer());
+            assert_eq!((out.as_slice(), row0(&t).as_str()), (&b""[..], ""));
+            let early = t0 + PRINTER_WAIT / 2;
+            paced(
+                &mut t,
+                &mut pace,
+                early,
+                [&b"EF"[..]],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(row0(&t), "", "{answer:?}: still waiting");
+            let at = match answer {
+                Some(port) => {
+                    t.set_printer(port);
+                    early
+                }
+                None => t0 + PRINTER_WAIT,
+            };
+            let fed = paced(
+                &mut t,
+                &mut pace,
+                at,
+                [],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            let want: &[u8] = match answer {
+                Some(_) => b"\x1b[?10n",
+                None => b"\x1b[?13n",
+            };
+            assert_eq!((fed, out.as_slice()), (Fed::Some, want), "{answer:?}");
+            assert_eq!(row0(&t), "ABCDEF", "{answer:?}");
+            assert!(!pace.waits_for_printer());
+            assert_eq!(t.printer_asked(), PrinterAsked::No);
+        }
     }
 
     /// **A program writing through a long delay ends it early** once more

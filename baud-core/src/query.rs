@@ -16,7 +16,12 @@ impl Paint<'_, '_> {
     /// A report: its parameters read, then answered.
     #[cold]
     #[inline(never)]
-    pub(crate) fn answer_query(&mut self, op: QueryOp, csi: &crate::write::Csi) {
+    pub(crate) fn answer_query(
+        &mut self,
+        op: QueryOp,
+        csi: &crate::write::Csi,
+        node: &mut crate::graph::Node,
+    ) {
         let p = csi.params();
         // **Parameters that name no report are an unsupported sequence**,
         // counted where `csi_final` counts one: the parse leaves them to be
@@ -30,6 +35,9 @@ impl Paint<'_, '_> {
             return;
         };
         match call {
+            QueryCall::DecStatus(DecStatus::Printer) if self.strs.print.hold == PrinterHold::On => {
+                self.hold_printer_status(node)
+            }
             QueryCall::DecStatus(k) => self.dec_status(k),
             QueryCall::TerminalParameters { sol } => {
                 self.want_reply(Report::TerminalParameters { sol })
@@ -44,6 +52,19 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **DSR `?15` under [`PrinterHold::On`]: the read stops here and the
+    /// answer is owed**, so the embedder can look at its printer, which
+    /// may have come or gone since it last said, and answer through
+    /// [`crate::Term::set_printer`] before the rest of the read is parsed.
+    /// A real port's status is its printer's at the moment it is asked
+    /// (070-7 § 7.3.2), and a list read off the read loop is not (Jev's
+    /// lean, HOLD, 0.92/0.89).
+    fn hold_printer_status(&mut self, node: &mut crate::graph::Node) {
+        self.strs.print.asked = PrinterAsked::Owed;
+        self.hold_read(node);
+    }
+
+    /// A DEC private status report, answered at once.
     fn dec_status(&mut self, k: DecStatus) {
         let r = match k {
             DecStatus::ExtendedCursor => {
@@ -54,11 +75,7 @@ impl Paint<'_, '_> {
             // ready while it had one since power-up or RIS, else "?13n",
             // "not connected" (070-7 p. 7-32): the answer and what a print
             // does agree, as § 7.3.2 ties them.
-            DecStatus::Printer => Report::DecStatus(match self.strs.print.status() {
-                crate::print::Status::Ready => DecReply::PrinterReady,
-                crate::print::Status::NotReady => DecReply::PrinterNotReady,
-                crate::print::Status::NotAvailable => DecReply::NoPrinter,
-            }),
+            DecStatus::Printer => Report::DecStatus(self.strs.print.reply()),
             DecStatus::UserKeys => Report::DecStatus(DecReply::NoUserKeys),
             DecStatus::Keyboard => Report::DecStatus(DecReply::KeyboardUnknown),
             DecStatus::LocatorStatus => Report::DecStatus(match self.cold.locator.device {

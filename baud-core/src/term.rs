@@ -3710,9 +3710,35 @@ impl<'b> Term<'b> {
     /// until the embedder says otherwise; no sequence changes it, and `RIS`
     /// forgets a printer that is gone. The indicator line's printer field
     /// follows at once.
+    ///
+    /// **And a DSR `?15` a read stopped at is answered here**, under
+    /// [`Term::set_printer_hold`]'s [`PrinterHold::On`], from `port`, before
+    /// the rest of that read is fed.
     pub fn set_printer(&mut self, port: PrinterPort) {
-        self.store.strs.print.set_port(port);
+        let print = &mut self.store.strs.print;
+        print.set_port(port);
+        if print.asked == PrinterAsked::Owed {
+            print.asked = PrinterAsked::No;
+            let r = Report::DecStatus(print.reply());
+            let _ = self.queue(r);
+        }
         self.redraw_indicator();
+    }
+
+    /// **Whether a DSR `?15` stops the read.** Set it only if you look at
+    /// your printer again when [`Term::printer_asked`] says one is owed,
+    /// call [`Term::set_printer`] with what you find -- which answers it --
+    /// and then feed the rest of the read [`Term::take_held`] hands back:
+    /// the program waits for the answer, and the bytes after its question
+    /// are parsed after it. Off, `?15` answers at once from what the
+    /// embedder last said. It survives `RIS`.
+    pub fn set_printer_hold(&mut self, hold: PrinterHold) {
+        self.store.strs.print.hold = hold;
+    }
+
+    /// Whether a DSR `?15` is waiting for [`Term::set_printer`].
+    pub fn printer_asked(&self) -> PrinterAsked {
+        self.store.strs.print.asked
     }
 
     /// What [`Term::set_printer`] last set.

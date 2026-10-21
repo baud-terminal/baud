@@ -11,6 +11,16 @@
 //! printing` is read once, at launch, so "off" is never a lost printer.
 //! The Linux driver has no print panel, so its core never has a printer.
 //!
+//! **The list is read again when a program asks, off the main thread**
+//! ([`Watch`]): on macOS a DSR `?15` stops the read (`PrinterHold::On`),
+//! the list is read on a thread of its own, and the answer goes from what
+//! it found before the rest of the read is parsed (`reads::paced`), as a
+//! port answers from its printer's state when asked (070-7 § 7.3.2; Jev's
+//! lean, HOLD, 0.92/0.89). It is read again at a focus gain, and while
+//! the indicator line shows the printer as often as 070-14's 80 ms for an
+//! indicator needs ([`indicator_every`]). Nothing reads it otherwise: each
+//! read launches the print system's daemon if it is not running.
+//!
 //! **At most one panel at a time; jobs that finish while one is up wait as
 //! one** (Jev's lean, MERGE, 0.02/0.06 then 0.48/0.30): each joins the
 //! waiting job on a new page, so however many finish while a panel is up,
@@ -65,6 +75,103 @@ pub fn set_printer(term: &mut Term<'_>, p: Printing, listed: Printers) {
         (Printing::On, Printers::Listed) => PrinterPort::Ready,
         _ => PrinterPort::Absent,
     });
+}
+
+#[cfg(any(target_os = "macos", test))]
+/// **Whether a DSR `?15` waits for the list to be read again**: with
+/// printing on, where there is a list to read; off, the core answers "no
+/// printer" at once.
+pub fn set_hold(term: &mut Term<'_>, p: Printing) {
+    term.set_printer_hold(match p {
+        Printing::On => baud_core::PrinterHold::On,
+        Printing::Off => baud_core::PrinterHold::Off,
+    });
+}
+
+#[cfg(any(target_os = "macos", test))]
+/// "The interval between the change in the state of a feature and the
+/// update of the appropriate indicator shall not exceed 80 milliseconds"
+/// (`[[source: dec-std-070]]` 070-14 p. 14-6).
+const INDICATOR_BOUND: std::time::Duration = std::time::Duration::from_millis(80);
+
+#[cfg(any(target_os = "macos", test))]
+/// A `printerNames` with the print daemon running: 0.30-0.83 ms wall
+/// measured (docs/record.md), so a millisecond.
+const READ_WARM: std::time::Duration = std::time::Duration::from_millis(1);
+
+#[cfg(any(target_os = "macos", test))]
+/// **How long after one read the indicator's next is due, on a display
+/// that ticks every `tick`**: 070-14's 80 ms less what follows a read
+/// being due -- up to a tick until the pump sends it, the read twice (a
+/// change can land just after it looks, and its answer comes back after
+/// the next one's), up to a tick until the frame that draws it, and that
+/// frame's vsync. 28 ms at 60 Hz and 53 ms at 120; below 38.5 Hz nothing
+/// is left, the list is read every tick and the bound is not met.
+/// The read is warm because these reads keep the daemon running; the one
+/// that starts it, 36-70 ms, is not inside the bound.
+pub fn indicator_every(tick: std::time::Duration) -> std::time::Duration {
+    INDICATOR_BOUND.saturating_sub(tick * 3 + READ_WARM * 2)
+}
+
+#[cfg(any(target_os = "macos", test))]
+/// Why the list would be read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ask {
+    /// A held DSR `?15`, or a focus gain: now.
+    Now,
+    /// The indicator line is shown, on a display that ticks every `tick`:
+    /// once [`indicator_every`] has passed.
+    Indicator { tick: std::time::Duration },
+}
+
+#[cfg(any(target_os = "macos", test))]
+/// **When the driver reads the printer list again**: never two reads at
+/// once -- a question asked while one is out is answered by it, a read
+/// that began before the question: under a millisecond with the print
+/// daemon running, and tens of milliseconds when the read had to start
+/// it -- and for the indicator no more often than [`indicator_every`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Watch {
+    out: Out,
+    last: Option<std::time::Instant>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Out {
+    Idle,
+    Reading,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Watch {
+    pub const fn new() -> Watch {
+        Watch {
+            out: Out::Idle,
+            last: None,
+        }
+    }
+
+    /// Whether to send a read now, for `why`; if so, one is out.
+    pub fn ask(&mut self, now: std::time::Instant, why: Ask) -> bool {
+        let due = self.out == Out::Idle
+            && match why {
+                Ask::Now => true,
+                Ask::Indicator { tick } => {
+                    self.last.is_none_or(|l| now >= l + indicator_every(tick))
+                }
+            };
+        if due {
+            self.out = Out::Reading;
+            self.last = Some(now);
+        }
+        due
+    }
+
+    /// The read came back.
+    pub fn landed(&mut self) {
+        self.out = Out::Idle;
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -254,6 +361,77 @@ mod tests {
         assert_eq!(job.cut, PrintCut::Whole);
         assert_eq!(prints.next(t.printer()), None);
         assert_eq!(t.print_run(), PrintRun::Idle);
+    }
+
+    /// The indicator's ask on a display that ticks every `tick`.
+    fn indicator(tick: std::time::Duration) -> Ask {
+        Ask::Indicator { tick }
+    }
+
+    /// **The list is read when a question needs it, one read at a time,
+    /// and for the indicator at its pace**: a held `?15` or a focus gain
+    /// sends a read at once unless one is out, and the indicator's reads
+    /// wait [`indicator_every`] from the last.
+    #[test]
+    fn the_list_is_read_once_at_a_time_and_paced_for_the_indicator() {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let tick = Duration::from_secs_f64(1.0 / 60.0);
+        let every = indicator_every(tick);
+        let mut w = Watch::new();
+        assert!(w.ask(t0, indicator(tick)), "the first look");
+        assert!(!w.ask(t0, Ask::Now), "one is out");
+        w.landed();
+        assert!(w.ask(t0, Ask::Now), "a question reads at once");
+        w.landed();
+        let soon = t0 + every - Duration::from_millis(1);
+        assert!(!w.ask(soon, indicator(tick)));
+        assert!(w.ask(t0 + every, indicator(tick)));
+        assert!(!w.ask(t0 + 2 * every, indicator(tick)), "one is out");
+    }
+
+    /// **A printer's change reaches the glass within 070-14's 80 ms** at
+    /// 60 and 120 Hz: driven a tick at a time, the longest gap between two
+    /// of the indicator's reads, a change landing just after one read
+    /// looked, plus the warm read twice (it looks partway in, and comes
+    /// back), the wait for the next tick to draw and that frame's vsync.
+    #[test]
+    fn a_printer_change_reaches_the_indicator_within_80_ms() {
+        use std::time::{Duration, Instant};
+        for hz in [60.0, 120.0] {
+            let tick = Duration::from_secs_f64(1.0 / hz);
+            let t0 = Instant::now();
+            let mut w = Watch::new();
+            let (mut sent, mut gap) = (None::<Instant>, Duration::ZERO);
+            for k in 0..600u32 {
+                let now = t0 + tick * k;
+                if w.ask(now, indicator(tick)) {
+                    if let Some(s) = sent {
+                        gap = gap.max(now - s);
+                    }
+                    sent = Some(now);
+                    w.landed();
+                }
+            }
+            let worst = gap + 2 * READ_WARM + 2 * tick;
+            assert!(
+                worst <= Duration::from_millis(80),
+                "{hz} Hz: {worst:?}, reads {gap:?} apart"
+            );
+        }
+    }
+
+    /// **A held `?15` only while printing is on**: off, the core answers "no
+    /// printer" at once, and with it on the question waits for the list.
+    #[test]
+    fn a_question_waits_for_the_list_only_with_printing_on() {
+        for (p, want) in [(Printing::On, &b""[..]), (Printing::Off, b"\x1b[?13n")] {
+            let mut s = Owned::new(&WS).with_printer(budget(p));
+            let mut t = Term::new(s.storage(), &WS);
+            set_hold(&mut t, p);
+            feed(&mut t, b"\x1b[?15n");
+            assert_eq!(t.reply(), want, "{p:?}");
+        }
     }
 
     /// **A lost printer holds the jobs until one is back**: the core

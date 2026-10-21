@@ -42,12 +42,18 @@ pub enum Listed {
 }
 
 /// The printers macOS lists, read when asked: a printer added while baud
-/// runs is seen at the next ask.
+/// runs is seen at the next ask. **Callable off the main thread**:
+/// `NSPrinter` is declared without `@MainActor` (`[[source:
+/// apple-nsprinter]]`), where `NSView` and `NSWindow` carry it, and is in
+/// neither of AppKit's restricted lists, the thread-unsafe classes and
+/// those "used only from the main thread" (`[[source:
+/// apple-thread-safety-summary]]`). In a pool of its own, which a thread
+/// AppKit does not run has none of.
 pub fn printers() -> Listed {
-    match NSPrinter::printerNames().count() {
+    macos_liquid_glass::objc2::rc::autoreleasepool(|_| match NSPrinter::printerNames().count() {
         0 => Listed::None,
         _ => Listed::Some,
-    }
+    })
 }
 
 /// The sheet's printable width and height in points: the shared print

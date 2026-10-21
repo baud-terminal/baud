@@ -96,6 +96,45 @@ fn dsr_15_answers_ready_with_a_printer_and_not_connected_without() {
     assert_eq!(t.reply(), b"\x1b[?10n");
 }
 
+/// **Under `PrinterHold::On` a DSR `?15` stops the read and waits for the
+/// embedder**: no answer until `Term::set_printer`, which answers from the
+/// printer it is given, and the rest of the read -- here a second `?15`
+/// and text -- is parsed after the answer, so the replies stay in order.
+/// Off, the answer is at once, from what the embedder last said.
+#[test]
+fn a_held_dsr_15_is_answered_from_the_printer_the_embedder_finds() {
+    let mut s = owned();
+    let mut t = Term::new(s.storage(), &WS);
+    t.set_printer_hold(PrinterHold::On);
+    let bytes = b"\x1b[?15nab\x1b[?15n";
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    assert_eq!(t.reply(), b"", "nothing until the embedder looks");
+    assert_eq!(t.printer_asked(), PrinterAsked::Owed);
+    let rest = t.take_held().expect("the read stopped at the question");
+    assert_eq!((rest.at.index(), rest.len.index()), (6, 8));
+    assert_eq!(row(&t, 0), "", "nothing after it parsed");
+    t.set_printer(PrinterPort::Ready);
+    assert_eq!(t.printer_asked(), PrinterAsked::No);
+    assert_eq!(t.reply(), b"\x1b[?10n");
+    t.clear_reply();
+    t.feed(rest.at, rest.len);
+    assert_eq!(t.reply(), b"", "the second waits too");
+    assert_eq!(t.printer_asked(), PrinterAsked::Owed, "stopped again");
+    assert_eq!(t.take_held().map_or(0, |r| r.len.index()), 0);
+    assert_eq!(row(&t, 0), "ab");
+    t.set_printer(PrinterPort::Absent);
+    assert_eq!(t.reply(), b"\x1b[?11n", "lost since it was seen");
+    t.clear_reply();
+    // Answered, a printer change answers nothing more.
+    t.set_printer(PrinterPort::Ready);
+    assert_eq!(t.reply(), b"");
+    t.set_printer_hold(PrinterHold::Off);
+    support::feed(&mut t, b"\x1b[?15n");
+    assert_eq!(t.reply(), b"\x1b[?10n");
+    assert!(t.take_held().is_none());
+}
+
 /// **Print page is the scrolling region while DECPEX is reset**, its
 /// default, and the whole page when set (070-7 p. 7-38); `CSI i` is
 /// `CSI 0 i`.

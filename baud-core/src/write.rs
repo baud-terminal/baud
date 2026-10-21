@@ -2108,7 +2108,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::RequestPresentationState => p.request_presentation_state(csi),
         // The reports a VT420 and xterm answer (`crate::query`), their
         // parameters read out of line.
-        DomCsi::Query(op) => p.answer_query(op, csi),
+        DomCsi::Query(op) => p.answer_query(op, csi, node),
         // DEC's text locator (`crate::locator`), its parameters read out
         // of line.
         DomCsi::Locator(op) => p.locator_op(op, csi),

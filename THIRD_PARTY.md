@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 301 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 303 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 291 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 830 | 36 | |
+| total | 832 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -388,7 +388,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 131
+- **Files:** 133
 
 | file | copied from |
 |---|---|
@@ -466,6 +466,7 @@ notice is, and the URL each file was copied from.
 | [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
 | [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
 | [apple-nsprinter-printernames.json](docs/research/sources/apple-nsprinter-printernames.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter/printernames.json |
+| [apple-nsprinter.json](docs/research/sources/apple-nsprinter.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter.json |
 | [apple-nsprintoperation-run.json](docs/research/sources/apple-nsprintoperation-run.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/run().json |
 | [apple-nsprintoperation-runmodal.json](docs/research/sources/apple-nsprintoperation-runmodal.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/runmodal(for:delegate:didrun:contextinfo:).json |
 | [apple-nsprintoperation-showsprintpanel.json](docs/research/sources/apple-nsprintoperation-showsprintpanel.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/showsprintpanel.json |
@@ -510,6 +511,7 @@ notice is, and the URL each file was copied from.
 | [apple-terminal-guide-change-title.html](docs/research/sources/apple-terminal-guide-change-title.html) | https://support.apple.com/guide/terminal/change-the-title-shown-in-a-terminal-window-trml15228/mac |
 | [apple-terminal-guide-tab-settings.html](docs/research/sources/apple-terminal-guide-tab-settings.html) | https://support.apple.com/guide/terminal/change-profiles-tab-settings-trmltab/mac |
 | [apple-terminal-guide-window-settings.html](docs/research/sources/apple-terminal-guide-window-settings.html) | https://support.apple.com/guide/terminal/change-profiles-window-settings-trmlwindw/mac |
+| [apple-thread-safety-summary.html](docs/research/sources/apple-thread-safety-summary.html) | https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html |
 | [apple-timeinterval.json](docs/research/sources/apple-timeinterval.json) | https://developer.apple.com/tutorials/data/documentation/foundation/timeinterval.json |
 | [apple-understanding-hangs-in-your-app.json](docs/research/sources/apple-understanding-hangs-in-your-app.json) | https://developer.apple.com/tutorials/data/documentation/xcode/understanding-hangs-in-your-app.json |
 | [apple-viewing-log-messages.json](docs/research/sources/apple-viewing-log-messages.json) | https://developer.apple.com/tutorials/data/documentation/os/viewing-log-messages.json |

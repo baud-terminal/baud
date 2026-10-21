@@ -167,7 +167,8 @@ pub use baud_domain::{
 /// [`Term::print_jobs`], [`Term::print_run`] and [`Term::print_refusals`]
 /// answer.
 pub use baud_domain::{
-    PRINT_QUEUE, PrintBudget, PrintCut, PrintJob, PrintRefusals, PrintRun, PrinterPort,
+    PRINT_QUEUE, PrintBudget, PrintCut, PrintJob, PrintRefusals, PrintRun, PrinterAsked,
+    PrinterHold, PrinterPort,
 };
 /// The page-width request's vocabulary: an embedder that cannot name a
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
