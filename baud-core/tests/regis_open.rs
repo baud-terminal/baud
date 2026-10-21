@@ -661,3 +661,22 @@ fn a_resize_while_the_second_is_displayed_keeps_the_first() {
         "the first's new line"
     );
 }
+
+#[test]
+fn s_d1_names_the_scrolling_model_and_s_d0_is_counted() {
+    // The scrolling model, the VT340's, is the one baud has: `S(D1)` names
+    // it and a scroll still moves the data; `S(D0)` asks for the windowing
+    // model and is counted, not acted on.
+    let bytes = regis(&[b"W(I2)P[100,0]V[109,0]S(D1)S[+100,+0]"]);
+    run(&bytes, |t| {
+        assert_eq!(t.regis_counts().unbuilt, 0);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "the data moved left");
+    });
+    for d in [&b"S(D0)"[..], b"S(D)", b"S(D2)"] {
+        let bytes = regis(&[b"W(I2)P[100,0]V[109,0]", d, b"S[+100,+0]"]);
+        run(&bytes, |t| {
+            assert_eq!(t.regis_counts().unbuilt, 1, "{d:?}");
+            assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "{d:?}: still scrolling");
+        });
+    }
+}

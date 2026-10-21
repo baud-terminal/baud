@@ -49,7 +49,8 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: data movement; and `S(N)`, which no DEC text here defines.
+    /// on: `S(D0)`, the windowing model of data movement, baud having the
+    /// scrolling model alone; and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -2371,9 +2372,20 @@ impl Sem {
                     out.surfaces(self.draw_surface, self.show_surface);
                 }
             }
-            // `S(D)` data movement: an Open Extension (§ 8.8.1). `S(N)`: no
-            // DEC text here defines it.
-            (1, b'D' | b'N') => self.counts.unbuilt += 1,
+            // **`S(D)`, data movement** (§ 8.8.1.4.3): "For devices
+            // supporting both data movement models, the D option switches
+            // between them". baud has the VT340's one, the scrolling model
+            // (Jev's lean, SCROLLING_ONLY, 0.70 and 0.54 on a second ask;
+            // "Neither model is required"): `S(D1)` names it, in force
+            // already, and `S(D0)`, the windowing model, is not acted on
+            // and is counted, as an omitted value is.
+            (1, b'D') => {
+                if f.int() != Some(1) {
+                    self.counts.unbuilt += 1;
+                }
+            }
+            // `S(N)`: no DEC text here defines it.
+            (1, b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
