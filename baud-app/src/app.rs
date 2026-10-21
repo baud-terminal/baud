@@ -26,8 +26,8 @@ use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, 
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers,
-    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, Row, RowRot, Rows,
-    WinSize,
+    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisPhase,
+    RegisRepainted, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -134,6 +134,14 @@ fn text_blink(target: f64, motion: crate::config::SystemMotion) -> BlinkPhases {
         },
     }
 }
+/// The phase a ReGIS page's blinking pixels show: text blink's slow one.
+fn regis_phase(slow: Blink) -> RegisPhase {
+    match slow {
+        Blink::Shown => RegisPhase::Shown,
+        Blink::Hidden => RegisPhase::Hidden,
+    }
+}
+
 /// How long the alternate-screen fade takes to reveal the new screen,
 /// seconds. Only paid on a screen switch when the transition is on.
 const TRANSITION_S: f64 = 0.15;
@@ -6743,6 +6751,19 @@ mod motion_tests {
             "the tick computes the phase itself again, past the preference"
         );
     }
+
+    /// A ReGIS page's blinking pixels flip with the slow phase the tick
+    /// took through the motion preference, and a repaint owes a frame.
+    #[test]
+    fn the_tick_flips_regis_blink_with_the_slow_phase() {
+        const SRC: &str = include_str!("app.rs");
+        let call = concat!("set_regis_", "blink(regis_phase(phase.slow))");
+        assert_eq!(SRC.matches(call).count(), 1, "{call}");
+        use super::{Blink, regis_phase};
+        use baud_domain::RegisPhase;
+        assert_eq!(regis_phase(Blink::Shown), RegisPhase::Shown);
+        assert_eq!(regis_phase(Blink::Hidden), RegisPhase::Hidden);
+    }
 }
 
 #[cfg(test)]
@@ -8152,6 +8173,13 @@ impl Responder for Driver {
                 self.app.pending = Pending::Dirty;
             }
             self.app.blink = phase;
+        }
+        // A ReGIS drawing's blinking pixels flip with SGR 5's phase, held
+        // shown under Reduce Motion with it; the core repaints them and says
+        // so, which owes a frame.
+        if self.app.term.set_regis_blink(regis_phase(phase.slow)) == RegisRepainted::Yes {
+            self.app.next_damage = Damage::Full;
+            self.app.pending = Pending::Dirty;
         }
         // The cursor's blink owes a frame at each flip, and when it stops in
         // the off phase -- focus lost, a steady style, hidden, looked away

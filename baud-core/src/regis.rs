@@ -42,6 +42,11 @@ pub(crate) struct Page {
     line: LineIdx,
     w: ImagePx,
     h: ImagePx,
+    /// **Where its plane's blinking pixels may be**: every drawing made
+    /// with blink on widens it, a scroll of the page widens it to the
+    /// page, and a flip of the blink phase repaints it and drops it when
+    /// none is left there. `None` when none can be.
+    blink: Option<RegisRect>,
 }
 
 impl Page {
@@ -53,7 +58,26 @@ impl Page {
         line: LineIdx::FIRST,
         w: ImagePx::ZERO,
         h: ImagePx::ZERO,
+        blink: None,
     };
+
+    /// Where the page is and what it is drawn from, without what blinks.
+    fn spot(self) -> Page {
+        Page {
+            blink: None,
+            ..self
+        }
+    }
+
+    /// The whole page.
+    fn whole(self) -> RegisRect {
+        RegisRect {
+            x0: 0,
+            y0: 0,
+            x1: i32::from(self.w.raw()),
+            y1: i32::from(self.h.raw()),
+        }
+    }
 }
 
 /// Where the page for the next drawing must be, and how large: the live
@@ -255,6 +279,11 @@ impl Paint<'_, '_> {
         // and a new page leaves the old one with whatever it shows.
         self.regis_cursor_off();
         let want = self.regis_want();
+        // A page the next drawing leaves behind shows its blinking pixels
+        // in their own colours from now on.
+        if current(self.images, self.strs.regis_page, want).is_none() {
+            settle_blink(self.images, &mut self.strs.regis_page, self.strs.regis);
+        }
         let regis = &mut *self.strs.regis;
         regis.set_page(i32::from(want.w.raw()), i32::from(want.h.raw()));
         // How the page shows its plane, for a carry inside the run and for
@@ -292,7 +321,7 @@ impl Paint<'_, '_> {
         // A new page is placed: text written later in this read may land on
         // it (`Paint::hooks`). Magnified, a carried page shows rows of the
         // plane that were past the window: it is shown whole again.
-        let placed = self.strs.regis_page != before;
+        let placed = self.strs.regis_page.spot() != before.spot();
         if placed {
             self.rehook();
         }
@@ -310,9 +339,10 @@ impl Paint<'_, '_> {
         };
         if let Some(rect) = rect {
             let map = *self.strs.regis.colors();
+            let blink = self.strs.regis.blink_show();
             self.images
                 .repaint_page(page.shown, page.plane, px_of(rect), |shown, plane| {
-                    RegisCanvas::show(plane, page.w, &map, rect, shown, zoom);
+                    RegisCanvas::show(plane, page.w, &map, rect, shown, zoom, blink);
                 });
         }
         // What the repaint showed again on the command display's line, or
@@ -402,6 +432,7 @@ pub(crate) fn indicated(regis: &Regis, inside: RegisEnvelope) -> Option<(OneBase
 /// from the plane of the page they were drawn on, if it is still live.
 pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
     let d = regis.take_drawn();
+    let blink = regis.blink_show();
     let map = regis.colors();
     let zoom = regis.zoom();
     let band = regis.display_band();
@@ -410,7 +441,7 @@ pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
         m.cover(&mut |r| {
             let r = clip(r, d.w, d.h);
             images.repaint_page(d.shown, d.plane, px_of(r), |shown, plane| {
-                RegisCanvas::show(plane, d.w, map, r, shown, zoom);
+                RegisCanvas::show(plane, d.w, map, r, shown, zoom, blink);
             });
             if meets(r, band) {
                 on_line = Meets::Yes;
@@ -453,9 +484,10 @@ fn paint_display(
     }
     let map = *regis.colors();
     let zoom = regis.zoom();
+    let blink = regis.blink_show();
     let (pw, ph) = (i32::from(w.raw()), i32::from(h.raw()));
     images.repaint_page(shown, plane, px_of(band), |px, pl| {
-        RegisCanvas::show(pl, w, &map, band, px, zoom);
+        RegisCanvas::show(pl, w, &map, band, px, zoom, blink);
         regis.display_glyphs(&mut |g, pen| {
             let Some(cell) = cell_of(g) else {
                 return;
@@ -558,6 +590,79 @@ pub(crate) fn draw(
     });
 }
 
+/// The smallest rectangle holding `a` and `b`.
+fn union(a: RegisRect, b: RegisRect) -> RegisRect {
+    RegisRect {
+        x0: a.x0.min(b.x0),
+        y0: a.y0.min(b.y0),
+        x1: a.x1.max(b.x1),
+        y1: a.y1.max(b.y1),
+    }
+}
+
+/// Whether `p` is a live page drawn from its plane, wherever the window is.
+fn live(images: &ImageStore<'_>, p: Page) -> bool {
+    images.is_page(p.shown, p.w, p.h)
+        && images.is_placed(p.shown)
+        && images.is_page(p.plane, RegisCanvas::plane_width(p.w), p.h)
+}
+
+/// **A page's blinking pixels repainted as the blink phase shows them**,
+/// as `show` says, where the page keeps them; the rectangle is dropped
+/// when none is left in it. Whether anything was repainted.
+fn repaint_blink(
+    images: &mut ImageStore<'_>,
+    page: &mut Page,
+    regis: &mut Regis,
+    show: RegisBlinkShow,
+) -> RegisRepainted {
+    let p = *page;
+    let Some(r) = p.blink else {
+        return RegisRepainted::No;
+    };
+    if !live(images, p) {
+        page.blink = None;
+        return RegisRepainted::No;
+    }
+    let map = *regis.colors();
+    let zoom = regis.zoom();
+    let shown = clip(zoom.shown(r), p.w, p.h);
+    let mut left = Blinks::No;
+    images.repaint_page(p.shown, p.plane, px_of(shown), |px, plane| {
+        if RegisCanvas::blinks(plane, p.w, r) {
+            left = Blinks::Yes;
+        }
+        RegisCanvas::show(plane, p.w, &map, shown, px, zoom, show);
+    });
+    if left == Blinks::No {
+        page.blink = None;
+    }
+    // The command display's line drawn over a magnified page again.
+    if zoom != RegisZoom::ONE && meets(shown, regis.display_band()) {
+        paint_display(images, regis, (p.shown, p.plane, p.w, p.h));
+    }
+    RegisRepainted::Yes
+}
+
+/// **A page left behind stops blinking**, its blinking pixels shown in
+/// their own colours: once the next drawing's page is elsewhere nothing
+/// repaints it at a flip. What blinks on the lines a carry takes to the
+/// new page goes on blinking there ([`place`]).
+fn settle_blink(images: &mut ImageStore<'_>, page: &mut Page, regis: &mut Regis) {
+    if regis.blink_phase() == RegisPhase::Hidden {
+        let keep = page.blink;
+        repaint_blink(images, page, regis, RegisBlinkShow::Shown);
+        page.blink = keep;
+    }
+}
+
+/// Whether a page's plane still holds a blinking pixel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Blinks {
+    No,
+    Yes,
+}
+
 /// `r` held to a page `w` by `h`.
 fn clip(r: RegisRect, w: ImagePx, h: ImagePx) -> RegisRect {
     let (w, h) = (i32::from(w.raw()), i32::from(h.raw()));
@@ -613,9 +718,12 @@ fn place(images: &mut ImageStore<'_>, page: &mut Page, w: Want) -> Option<Page> 
         if let Some(shown) = images.store_page(w.w, w.h) {
             let pid = images.place_page(shown, w.screen, w.line, Col::ZERO, KittyPlace::NONE);
             if !pid.is_none() && images.carry_page(p.shown, shown, dy) {
+                // The plane's rows moved up: what blinks is above where it
+                // was, and the rectangle reaching the top still holds it.
                 *page = Page {
                     shown,
                     line: w.line,
+                    blink: p.blink.map(|r| RegisRect { y0: 0, ..r }),
                     ..p
                 };
                 return Some(*page);
@@ -651,6 +759,7 @@ fn place(images: &mut ImageStore<'_>, page: &mut Page, w: Want) -> Option<Page> 
         line: w.line,
         w: w.w,
         h: w.h,
+        blink: None,
     };
     Some(*page)
 }
@@ -714,8 +823,9 @@ impl Out<'_, '_> {
         p
     }
 
-    /// Draw on the page's plane with `f`, and keep what it touched.
-    fn draw(&mut self, f: impl FnOnce(&mut RegisCanvas<'_>)) {
+    /// Draw on the page's plane with `f`, and keep what it touched, and
+    /// where it may have drawn blinking pixels when `blink` is on.
+    fn draw(&mut self, blink: RegisBlink, f: impl FnOnce(&mut RegisCanvas<'_>)) {
         let Some(p) = self.page() else {
             return;
         };
@@ -724,6 +834,9 @@ impl Out<'_, '_> {
         };
         let mut c = RegisCanvas::new(plane, p.w, p.h);
         f(&mut c);
+        if let (Some(d), RegisBlink::On) = (c.dirty(), blink) {
+            self.page.blink = Some(self.page.blink.map_or(d, |b| union(b, d)));
+        }
         if let Some(d) = c.dirty() {
             self.dirty = Some(match self.dirty {
                 Some(o) => RegisRect {
@@ -747,16 +860,16 @@ impl RegisOut for Out<'_, '_> {
         phase: &mut u32,
         span: LineSpan,
     ) {
-        self.draw(|c| c.line(a, b, pen, phase, span));
+        self.draw(pen.blink, |c| c.line(a, b, pen, phase, span));
     }
 
     fn fill(&mut self, points: &[RegisPoint], ends: &[u16], pen: &RegisPen) {
-        self.draw(|c| c.fill(points, ends, pen));
+        self.draw(pen.blink, |c| c.fill(points, ends, pen));
     }
 
     fn flood(&mut self, seed: RegisPoint, bound: RegisBound, pen: &RegisPen) {
         let mut stack = [RegisSpan::default(); FLOOD_STACK];
-        self.draw(|c| c.flood(seed, bound, pen, &mut stack));
+        self.draw(pen.blink, |c| c.flood(seed, bound, pen, &mut stack));
     }
 
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
@@ -764,15 +877,19 @@ impl RegisOut for Out<'_, '_> {
         let Some(cell) = cell_of(g) else {
             return;
         };
-        self.draw(|c| c.cell(&cell, pen));
+        self.draw(pen.blink, |c| c.cell(&cell, pen));
     }
 
     fn erase(&mut self, bg: RegisIndex) {
-        self.draw(|c| c.erase(bg));
+        self.draw(RegisBlink::Off, |c| c.erase(bg));
+        self.page.blink = None;
     }
 
     fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {
-        self.draw(|c| c.scroll(by, bg));
+        self.draw(RegisBlink::Off, |c| c.scroll(by, bg));
+        if self.page.blink.is_some() {
+            self.page.blink = Some(self.page.whole());
+        }
     }
 
     fn hard_copy(&mut self, area: RegisHardCopy, offset: RegisOffset) {
@@ -877,6 +994,36 @@ impl Term<'_> {
     /// the buttons are the core's too.
     pub fn regis_input(&self) -> RegisInput {
         self.store.strs.regis.input(self.regis_inside())
+    }
+
+    /// **The blink clock's phase**, from the embedder at each flip: a
+    /// ReGIS page's blinking pixels show their own colours in
+    /// [`RegisPhase::Shown`] and the background's in
+    /// [`RegisPhase::Hidden`] (070-8 § 8.8.3.1), at SGR 5's rate, as text
+    /// blinks (decided by Jev, SGR5_RATE, 0.98 and 0.98 on a second ask).
+    /// The page the next drawing goes on is repainted where it keeps its
+    /// blinking pixels, the cursors drawn over it again; whether anything
+    /// was, which owes a frame.
+    pub fn set_regis_blink(&mut self, phase: RegisPhase) -> RegisRepainted {
+        let regis = &mut *self.store.strs.regis;
+        if regis.blink_phase() == phase {
+            return RegisRepainted::No;
+        }
+        regis.set_blink_phase(phase);
+        if self.store.strs.regis_page.blink.is_none() {
+            return RegisRepainted::No;
+        }
+        erase(&mut self.store.images, self.store.strs.regis);
+        let strs = &mut self.store.strs;
+        let show = strs.regis.blink_show();
+        let done = repaint_blink(
+            &mut self.store.images,
+            &mut strs.regis_page,
+            strs.regis,
+            show,
+        );
+        self.regis_cursor_again(Make::No);
+        done
     }
 
     /// **A read's end with a cursor drawn**: if the read left the envelope

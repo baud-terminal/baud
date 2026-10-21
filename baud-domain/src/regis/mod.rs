@@ -347,6 +347,40 @@ pub enum Texture {
     },
 }
 
+/// `W(A<n>)`: whether what is drawn takes the blink attribute (070-8
+/// § 8.8.3.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisBlink {
+    Off,
+    On,
+}
+
+/// Which half of the blink cycle a page's blinking pixels show.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisPhase {
+    /// Their own colours.
+    Shown,
+    /// The background's.
+    Hidden,
+}
+
+/// **How a page's blinking pixels are shown now**: their own colours, or,
+/// in the hidden phase, the background index's, opaque -- "alternation ...
+/// between foreground and background intensities" (070-8 § 8.8.3.1;
+/// decided by Jev, BACKGROUND, 0.90 and 0.92 on a second ask).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisBlinkShow {
+    Shown,
+    Hidden(RegisIndex),
+}
+
+/// Whether a call repainted anything shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisRepainted {
+    No,
+    Yes,
+}
+
 /// **What bounds a flood**, `F(B ...)` (070-8 § 8.8.6.3.1.1), read against
 /// the index each pixel holds, a pixel never written holding 0 as
 /// complement writing reads it.
@@ -448,6 +482,8 @@ pub struct RegisPen {
     pub width: u16,
     /// The microcoded entries loaded, `W(W)` (§ 8.8.3.4).
     pub micro: RegisMicro,
+    /// Whether the foreground it writes blinks, `W(A)` (§ 8.8.3.1).
+    pub blink: RegisBlink,
 }
 
 /// **How many shown pixels a pixel of the page's plane is**, each way:
@@ -1151,6 +1187,26 @@ impl Regis {
     /// The background index `S(I)` names.
     pub fn background(&self) -> RegisIndex {
         self.sem.bg
+    }
+
+    /// **The blink phase pages are shown in**, set by the embedder at each
+    /// flip of its blink clock.
+    pub fn set_blink_phase(&mut self, phase: RegisPhase) {
+        self.sem.blink_phase = phase;
+    }
+
+    /// The blink phase pages are shown in.
+    pub fn blink_phase(&self) -> RegisPhase {
+        self.sem.blink_phase
+    }
+
+    /// How blinking pixels are shown now: in the hidden phase the
+    /// background index's colour.
+    pub fn blink_show(&self) -> RegisBlinkShow {
+        match self.sem.blink_phase {
+            RegisPhase::Shown => RegisBlinkShow::Shown,
+            RegisPhase::Hidden => RegisBlinkShow::Hidden(self.sem.bg),
+        }
     }
 
     /// The characters free in the macrograph store.

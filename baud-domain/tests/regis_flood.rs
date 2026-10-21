@@ -6,8 +6,9 @@
 //! same plane, the hand model.
 
 use baud_domain::{
-    FLOOD_STACK, ImagePx, LinePattern, MARK, Negate, RegisBound, RegisCanvas, RegisClip,
-    RegisIndex, RegisMicro, RegisPen, RegisPlanes, RegisPoint, RegisSpan, WRITTEN, WriteMode,
+    FLOOD_STACK, ImagePx, LinePattern, MARK, Negate, RegisBlink, RegisBound, RegisCanvas,
+    RegisClip, RegisIndex, RegisMicro, RegisPen, RegisPlanes, RegisPoint, RegisSpan, WRITTEN,
+    WriteMode,
 };
 
 const SIDE: u16 = 64;
@@ -25,6 +26,7 @@ fn pen() -> RegisPen {
         clip: RegisClip::Off,
         width: 1,
         micro: RegisMicro::NONE,
+        blink: RegisBlink::Off,
     }
 }
 

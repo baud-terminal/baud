@@ -49,8 +49,8 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: data movement, drawing surfaces (`P(P)`, the VT340's `S(P)`),
-    /// blink; and `S(N)`, which no DEC text here defines.
+    /// on: data movement and drawing surfaces (`P(P)`, the VT340's
+    /// `S(P)`); and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -285,6 +285,8 @@ struct Write {
     width: RegisNum,
     /// `W(W)`'s microcoded entries (§ 8.8.3.4).
     micro: RegisMicro,
+    /// `W(A)`, blink (§ 8.8.3.1).
+    blink: On,
 }
 
 impl Write {
@@ -304,6 +306,7 @@ impl Write {
         shade_with: None,
         width: RegisNum::ONE,
         micro: RegisMicro::NONE,
+        blink: On::No,
     };
 }
 
@@ -655,6 +658,8 @@ pub(crate) struct Sem {
     pub(crate) hard_offset: RegisOffset,
     /// What bounds a flood, `F(B)` (§ 8.8.6.3.1.1).
     bound: RegisBound,
+    /// The blink phase pages are shown in ([`super::Regis::set_blink_phase`]).
+    pub(crate) blink_phase: RegisPhase,
     /// The instruction's last flood seed, which a relative seed after it
     /// is measured from.
     seed: Option<Pt>,
@@ -729,6 +734,7 @@ impl Sem {
         hard_offset: RegisOffset::ZERO,
         bound: RegisBound::Seed,
         seed: None,
+        blink_phase: RegisPhase::Shown,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -759,6 +765,10 @@ impl Sem {
             clip: self.page_clip(),
             width: line_width(w.width),
             micro: w.micro,
+            blink: match w.blink {
+                On::Yes => RegisBlink::On,
+                On::No => RegisBlink::Off,
+            },
         }
     }
 
@@ -1816,6 +1826,7 @@ impl Sem {
             clip: RegisClip::Off,
             width: 1,
             micro: RegisMicro::NONE,
+            blink: RegisBlink::Off,
         }
     }
 
@@ -2200,8 +2211,15 @@ impl Sem {
                     w.width = v.abs();
                 }
             }
-            // `W(A)` blink: an Open Extension (§ 8.8.3.1).
-            (1, b'A') => self.counts.unbuilt += 1,
+            // "For values of <n> greater than zero, set the blink attribute
+            // on all foreground data drawn until blink is disabled"; `W(A0)`
+            // disables it, and so does a negative value, not greater than
+            // zero. Without a value nothing changes.
+            (1, b'A') => match f.int() {
+                Some(n) if n > 0 => w.blink = On::Yes,
+                Some(_) => w.blink = On::No,
+                None => {}
+            },
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
         }
@@ -2282,6 +2300,10 @@ impl Sem {
                 self.nstack = 0;
                 self.write.shade = On::No;
                 self.tw.shade = On::No;
+                // "Application of the blink attribute is disabled by
+                // W(A0), S(E), or valid S(A)" (§ 8.8.3.1).
+                self.write.blink = On::No;
+                self.tw.blink = On::No;
                 self.curve = Curve::NONE;
             }
             (1, b'I') => {

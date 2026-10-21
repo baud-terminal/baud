@@ -67,8 +67,9 @@ struct Visible<'p, 'a, 'b> {
     pictures: [Option<Picture>; PICTURES],
     fg: Pixel,
     bg: Pixel,
-    /// What the ReGIS output map shows index 0 as.
-    regis0: Pixel,
+    /// The ReGIS output map: index 0's colour is what a page left behind
+    /// is read by, and a blinking pixel prints its index's colour.
+    map: [Pixel; REGIS_COLORS],
     /// How the page being drawn shows its plane, `S(S)`.
     zoom: RegisZoom,
 }
@@ -177,16 +178,23 @@ impl Visible<'_, '_, '_> {
                 continue;
             };
             if p.owner == ImageOwner::Regis {
-                let index = |plane| {
-                    let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
-                    let (x, y) = self.zoom.plane_of(at(sx), at(sy));
-                    RegisCanvas::index_at(plane, view.width, x, y)
-                };
-                match imgs.page_indices(p.image).map(index) {
+                let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+                let (x, y) = self.zoom.plane_of(at(sx), at(sy));
+                let plane = imgs.page_indices(p.image);
+                let index = |plane| RegisCanvas::index_at(plane, view.width, x, y);
+                // A blinking pixel prints its own colour in either phase.
+                let blinks = plane.is_some_and(|pl| RegisCanvas::blinks_at(pl, view.width, x, y));
+                match plane.map(index) {
                     Some(None) => continue,
                     Some(Some(RegisIndex::ZERO)) => return Hit::Clear,
+                    Some(Some(i)) if blinks => {
+                        let (r, g, b) = self.map[i.slot()].rgb();
+                        return Hit::Ink(Pixel::opaque(r, g, b));
+                    }
                     Some(Some(_)) => {}
-                    None if px.alpha().get() != 0 && px == self.regis0 => return Hit::Clear,
+                    None if px.alpha().get() != 0 && px == self.map[RegisIndex::ZERO.slot()] => {
+                        return Hit::Clear;
+                    }
                     None => {}
                 }
             }
@@ -311,7 +319,7 @@ impl Paint<'_, '_> {
                 pictures: self.pictures(cell),
                 fg,
                 bg,
-                regis0: self.strs.regis.colors()[RegisIndex::ZERO.slot()],
+                map: *self.strs.regis.colors(),
                 zoom: self.strs.regis.zoom(),
             };
             let mut n = at;

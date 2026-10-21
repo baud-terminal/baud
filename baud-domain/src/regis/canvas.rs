@@ -21,6 +21,10 @@ pub const WRITTEN: u8 = 0x80;
 /// ([`RegisCanvas::unmark`] clears it when the stroke ends; a move of
 /// the page's rows drops it).
 pub const MARK: u8 = 0x40;
+/// **The bit a blinking pixel carries**, written with the foreground data
+/// a pen with `W(A1)` draws (070-8 § 8.8.3.1, "set the blink attribute on
+/// all foreground data drawn") and cleared by any other write.
+pub const BLINK: u8 = 0x20;
 
 /// A rectangle of the page, `x0..x1` by `y0..y1`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -161,7 +165,21 @@ impl<'a> RegisCanvas<'a> {
             },
         };
         let v = (had & !mask) | (value & mask);
-        self.plane[i] = WRITTEN | (v & 0x0f);
+        // **Foreground data takes the blink attribute** (decided by Jev,
+        // FOREGROUND_WRITES, 1.00 and 1.00): a one of the pattern, cell or
+        // texture under V, R and C, every pixel under E with N1, and a
+        // microcoded one; a background write clears it, as any write
+        // without blink does.
+        let foreground = match (micro, pen.mode) {
+            (Some(_), _) => bit == PatternBit::One,
+            (None, WriteMode::Erase) => pen.negate == Negate::On,
+            (None, _) => on,
+        };
+        let blink = match (pen.blink, foreground) {
+            (RegisBlink::On, true) => BLINK,
+            _ => 0,
+        };
+        self.plane[i] = WRITTEN | blink | (v & 0x0f);
         self.touch(x, y);
         true
     }
@@ -767,6 +785,28 @@ impl<'a> RegisCanvas<'a> {
         });
     }
 
+    /// **Whether any pixel of the plane's rectangle `r` blinks**: what a
+    /// page keeps of where its blinking pixels may be is a rectangle that
+    /// only grows, and this tells it when none is left there.
+    pub fn blinks(plane: &[u8], w: crate::image::ImagePx, r: RegisRect) -> bool {
+        let stride = RegisCanvas::stride(w);
+        let x1 = (r.x1.max(0) as usize).min(w.index());
+        let x0 = (r.x0.max(0) as usize).min(x1);
+        (r.y0.max(0) as usize..r.y1.max(0) as usize).any(|y| {
+            plane
+                .get(y * stride + x0..y * stride + x1)
+                .is_some_and(|row| row.iter().any(|&b| b & BLINK != 0))
+        })
+    }
+
+    /// **Whether pixel `(x, y)` of a `w`-pixel page's `plane` blinks.**
+    pub fn blinks_at(plane: &[u8], w: crate::image::ImagePx, x: usize, y: usize) -> bool {
+        x < w.index()
+            && plane
+                .get(y * RegisCanvas::stride(w) + x)
+                .is_some_and(|&b| b & BLINK != 0)
+    }
+
     /// **The index pixel `(x, y)` of a `w`-pixel page's `plane` holds**,
     /// read through the rows' stride; `None` for a pixel never written,
     /// which is clear, or one off the page.
@@ -785,7 +825,7 @@ impl<'a> RegisCanvas<'a> {
 
     /// The page pixels of `r` of a `w`-pixel page as colours through `map`
     /// into `out`, each the plane's pixel `zoom` shows there: a pixel never
-    /// written clear.
+    /// written clear, a blinking one as `blink` says.
     pub fn show(
         plane: &[u8],
         w: crate::image::ImagePx,
@@ -793,6 +833,7 @@ impl<'a> RegisCanvas<'a> {
         r: RegisRect,
         out: &mut [crate::image::Pixel],
         zoom: RegisZoom,
+        blink: RegisBlinkShow,
     ) {
         let (stride, w) = (RegisCanvas::stride(w), w.index());
         // Held to the page's width: a column past it is the next row's.
@@ -804,8 +845,9 @@ impl<'a> RegisCanvas<'a> {
                 else {
                     continue;
                 };
-                *o = match b & WRITTEN {
-                    0 => crate::image::Pixel::CLEAR,
+                *o = match (b & WRITTEN, b & BLINK, blink) {
+                    (0, _, _) => crate::image::Pixel::CLEAR,
+                    (_, BLINK, RegisBlinkShow::Hidden(bg)) => map[bg.slot()],
                     _ => map[usize::from(b & 0x0f)],
                 };
             }

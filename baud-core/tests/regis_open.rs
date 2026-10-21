@@ -8,7 +8,7 @@
 //! (80, 80, 20), 7 gray 53%.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, Pixel};
+use baud_domain::{ImageBudget, Pixel, RegisPhase, RegisRepainted};
 
 mod support;
 
@@ -285,5 +285,135 @@ fn the_clip_limits_what_a_flood_writes_not_where_it_spreads() {
         assert_eq!(at(t, 30, 10), RED, "reached round the wall");
         assert_eq!(at(t, 10, 35), CLEAR, "outside the clip");
         assert_eq!(at(t, 30, 26), CLEAR, "outside the clip");
+    });
+}
+
+/// Every placed page's pixels and width, oldest line first.
+fn pages(t: &Term<'_>) -> Vec<(Vec<u32>, usize, u64)> {
+    let imgs = t.images();
+    let mut v: Vec<_> = imgs
+        .placements()
+        .filter_map(|(_, p)| {
+            let v = imgs.image(p.image)?;
+            let px: Vec<u32> = v.pixels.iter().map(|px| px.bits()).collect();
+            Some((px, v.width.index(), p.line.value()))
+        })
+        .collect();
+    v.sort_by_key(|p| p.2);
+    v
+}
+
+#[test]
+fn a_blinking_drawing_shows_the_background_in_the_hidden_phase() {
+    // A blinking red line on row 0 and a steady one on row 2.
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0)P[0,2]V[9,2]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "shown at first");
+        assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::Yes);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK), "the background, opaque");
+        assert_eq!(row(t, 2, 0, 10), n_of(10, RED), "a steady line stays");
+        assert_eq!(at(t, 0, 1), CLEAR, "nothing drawn stays clear");
+        assert_eq!(
+            t.set_regis_blink(RegisPhase::Hidden),
+            RegisRepainted::No,
+            "the same phase again repaints nothing"
+        );
+        assert_eq!(t.set_regis_blink(RegisPhase::Shown), RegisRepainted::Yes);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED));
+        assert_eq!(t.regis_counts().unbuilt, 0, "W(A) is built");
+    });
+    // The background is S(I)'s when the phase is shown: blue here.
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]S(I1)"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLUE));
+    });
+}
+
+#[test]
+fn only_foreground_data_blinks_and_any_other_write_clears_it() {
+    // Replace with P2: eight ones in the foreground, eight zeros in the
+    // background (blue, S(I1)), only the ones blinking. Then S(I2): the
+    // hidden phase shows red where the ones were and the zeros keep blue.
+    let bytes = regis(&[b"S(I1)W(R,P2,A1)P[0,0]V[15,0]S(I2)"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        let mut want = n_of(8, RED);
+        want.extend(n_of(8, BLUE));
+        assert_eq!(row(t, 0, 0, 16), want);
+    });
+    // A steady line over part of a blinking one: that part stops.
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0,I3)P[0,0]V[4,0]"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        let mut want = n_of(5, GREEN);
+        want.extend(n_of(5, BLACK));
+        assert_eq!(row(t, 0, 0, 10), want);
+    });
+}
+
+#[test]
+fn w_a0_s_e_and_a_valid_s_a_end_the_attribute_and_drawn_pixels_keep_it() {
+    for end in [&b"W(A0)"[..], b"S(E)W(I2)", b"S(A[0,0][799,479])W(I2)"] {
+        let bytes = regis(&[b"W(I2,A1)", end, b"P[0,5]V[9,5]"]);
+        run(&bytes, |t| {
+            t.set_regis_blink(RegisPhase::Hidden);
+            assert_eq!(row(t, 5, 0, 10), n_of(10, RED), "{end:?}");
+        });
+    }
+    // "Clearing the subsequent application of the blink attribute by W(A0)
+    // does not change the blinking status of any displayed elements".
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0)"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK));
+    });
+}
+
+#[test]
+fn a_page_with_no_blinking_pixel_left_stops_repainting() {
+    // Every blinking pixel written over steadily: the first flip finds none
+    // left and the next repaints nothing.
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0)P[0,0]V[9,0]"]);
+    run(&bytes, |t| {
+        assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::Yes);
+        assert_eq!(t.set_regis_blink(RegisPhase::Shown), RegisRepainted::No);
+        assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::No);
+    });
+    // Nothing ever blinked: nothing to repaint.
+    let bytes = regis(&[b"P[0,0]V[9,0]"]);
+    run(&bytes, |t| {
+        assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::No);
+    });
+}
+
+#[test]
+fn a_page_left_behind_keeps_its_own_colours() {
+    // A blinking line, hidden; the text scrolls three lines and the next
+    // drawing begins a page at the window's top. The page left behind
+    // shows the line in its own colour, nothing repainting it again.
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        support::feed(t, b"\x1b[50;1H\n\n\n");
+        support::feed(t, &regis(&[b"W(A0)P[0,100]V[9,100]"]));
+        let p = pages(t);
+        assert_eq!(p.len(), 2, "a page each");
+        let (old, w, _) = &p[0];
+        assert_eq!(old[..10].to_vec(), n_of(10, RED));
+        assert_eq!(old[100 * w], CLEAR);
+        t.set_regis_blink(RegisPhase::Shown);
+        t.set_regis_blink(RegisPhase::Hidden);
+        assert_eq!(pages(t)[0].0[..10].to_vec(), n_of(10, RED));
+    });
+}
+
+#[test]
+fn a_blinking_flood_and_a_blinking_character_blink() {
+    let bytes = regis(&[BOX, b"W(I2,A1)F[20,20]"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Hidden);
+        assert_eq!(at(t, 20, 20), BLACK);
+        assert_eq!(at(t, 10, 10), GRAY50, "the steady boundary");
     });
 }
