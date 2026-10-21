@@ -55,6 +55,9 @@ pub enum Event {
     Pasted(Board, String),
     /// A paste whose owner sent nothing for `clip::RECEIVE_IDLE`.
     PasteAbandoned(Board),
+    /// A copy made without the keyboard was cancelled before the keyboard
+    /// came back (`clip::Done::Cancelled`).
+    CopyCancelled(Board),
     Closed,
 }
 
@@ -551,6 +554,7 @@ impl Window {
             self.events.push_back(match d {
                 Done::Pasted(b, text) => Event::Pasted(b, text),
                 Done::Abandoned(b) => Event::PasteAbandoned(b),
+                Done::Cancelled(b) => Event::CopyCancelled(b),
             });
         }
     }
@@ -915,6 +919,8 @@ fn at(x: Fixed, y: Fixed) -> At {
 impl Handler for Window {
     fn event(&mut self, s: &mut Sender<'_>, ev: Wire<'_>) {
         if self.clip.event(s, &ev) {
+            // A cancel of a copy made without the keyboard is said.
+            self.take_done();
             return;
         }
         match (ev.interface.name, ev.name(), ev.args) {
@@ -1243,6 +1249,7 @@ impl Handler for Window {
             // neither event's payload beyond its meaning is needed here.
             ("wl_keyboard", "enter", [Read::Uint(serial), ..]) => {
                 self.serial = Some(*serial);
+                self.clip.focus_gained();
                 self.events.push_back(Event::Focus(Focus::Gained));
             }
             // A keyboard that left the surface delivers no release for what

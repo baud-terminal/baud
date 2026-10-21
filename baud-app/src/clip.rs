@@ -165,6 +165,15 @@ pub struct Clips {
     /// which limit refused a write.
     core: ClipboardRefusals,
     host: Host,
+    /// Copies the Wayland driver sent while the window lacked the
+    /// keyboard, and those of them the compositor cancelled before it came
+    /// back, each said once.
+    #[cfg(any(target_os = "linux", test))]
+    pub unfocused: Tally,
+    #[cfg(any(target_os = "linux", test))]
+    pub cancelled: Tally,
+    #[cfg(any(target_os = "linux", test))]
+    away_said: [Said; 2],
 }
 
 impl Clips {
@@ -179,6 +188,12 @@ impl Clips {
             said: [Said::No; 3],
             core: term.clipboard_refusals(),
             host: Host::Pasteboard,
+            #[cfg(any(target_os = "linux", test))]
+            unfocused: Tally::default(),
+            #[cfg(any(target_os = "linux", test))]
+            cancelled: Tally::default(),
+            #[cfg(any(target_os = "linux", test))]
+            away_said: [Said::No; 2],
         }
     }
 
@@ -238,6 +253,33 @@ impl Clips {
         new
     }
 
+    /// **A copy sent while the window lacked the keyboard**, counted, and
+    /// said the first time: neither selection protocol asks for the
+    /// keyboard, but GNOME's compositor refuses a client without it (Jev's
+    /// lean, LAND, 0.64/0.32: sent with the last serial, not held).
+    #[cfg(any(target_os = "linux", test))]
+    pub fn sent_unfocused(&mut self) -> Option<String> {
+        self.unfocused.bump();
+        once(&mut self.away_said[0]).then(|| {
+            "clipboard: a copy was made while the window lacked the keyboard, named with \
+             the last key's serial; a compositor that requires the keyboard refuses it, \
+             and that is said"
+                .to_string()
+        })
+    }
+
+    /// **A copy sent without the keyboard was cancelled** before the
+    /// keyboard came back: counted, and said the first time.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn cancelled_unfocused(&mut self) -> Option<String> {
+        self.cancelled.bump();
+        once(&mut self.away_said[1]).then(|| {
+            "clipboard: a copy made while the window lacked the keyboard was cancelled: \
+             the compositor refused it, or another application copied after it"
+                .to_string()
+        })
+    }
+
     /// One warning for the writes the core refused since the last call --
     /// over the budget, no selection, no area -- naming the limit and the
     /// `[clipboard]` key that raises it; `None` when it refused none.
@@ -275,6 +317,14 @@ impl Clips {
     }
 }
 
+/// Whether `slot` had not been said, marking it said.
+#[cfg(any(target_os = "linux", test))]
+fn once(slot: &mut Said) -> bool {
+    let new = *slot == Said::No;
+    *slot = Said::Yes;
+    new
+}
+
 /// The one warning for a refusal reason.
 fn describe(why: Refusal, host: Host) -> String {
     match why {
@@ -306,6 +356,23 @@ mod tests {
         ws_row: 24,
         ws_col: 80,
     };
+
+    /// **A copy without the keyboard, and its cancel, are counted and each
+    /// said once**: every one counts, only the first of each says.
+    #[test]
+    fn a_copy_without_the_keyboard_and_its_cancel_are_counted() {
+        let mut s = Owned::new(&WS);
+        let t = Term::new(s.storage(), &WS);
+        let mut c = Clips::for_wayland(&t);
+        let first = c.sent_unfocused().expect("said");
+        assert!(first.contains("lacked the keyboard"), "{first}");
+        assert_eq!(c.sent_unfocused(), None);
+        let cancel = c.cancelled_unfocused().expect("said");
+        assert!(cancel.contains("cancelled"), "{cancel}");
+        assert_eq!(c.cancelled_unfocused(), None);
+        assert_eq!(c.cancelled_unfocused(), None);
+        assert_eq!((c.unfocused.value(), c.cancelled.value()), (2, 3));
+    }
 
     fn write<'a>(pc: &[u8], content: ClipboardContent<'a>) -> ClipboardWrite<'a> {
         ClipboardWrite {

@@ -1763,6 +1763,16 @@ fn clip_session() -> Clipped {
     }
 }
 
+/// The keyboard on the surface, with the enter's own serial.
+fn keyboard_enter(server: &mut Server, keyboard: ObjectId, serial: u32, surface: ObjectId) {
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "enter",
+        &[Arg::Uint(serial), Arg::Object(surface), Arg::Array(&[])],
+    );
+}
+
 /// A key event with its own serial.
 fn key_at(server: &mut Server, keyboard: ObjectId, serial: u32, code: u32, state: u32) {
     server.send(
@@ -1810,6 +1820,7 @@ fn a_copy_offers_text_and_answers_send_through_the_pipe() {
         mut server,
         mut w,
         keyboard,
+        surface,
         data_manager,
         data_device,
         ..
@@ -1819,6 +1830,7 @@ fn a_copy_offers_text_and_answers_send_through_the_pipe() {
         Copied::Unavailable,
         "no input event yet, so no serial"
     );
+    keyboard_enter(&mut server, keyboard, 41, surface);
     key_at(&mut server, keyboard, 42, KEY_Q, PRESSED);
     pump(&mut conn, &mut w);
     drain(&mut w);
@@ -2035,10 +2047,12 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
         mut server,
         mut w,
         keyboard,
+        surface,
         primary_manager,
         primary_device,
         ..
     } = clip_session();
+    keyboard_enter(&mut server, keyboard, 6, surface);
     key_at(&mut server, keyboard, 7, KEY_Q, PRESSED);
     pump(&mut conn, &mut w);
     drain(&mut w);
@@ -2301,6 +2315,113 @@ fn the_clipboard_keys_are_found_on_a_cyrillic_layout() {
         "keys, not shortcuts: {got:?}"
     );
     assert_eq!(got.len(), 3, "{got:?}");
+}
+
+/// **A copy made without the keyboard is sent and said**: before any
+/// keyboard enter and after a leave the source is set with the last serial
+/// the client was given and the copy answers `Unfocused`; a cancel of that
+/// source before the keyboard returns is `CopyCancelled`, on its own
+/// board. A cancel of a source set with the keyboard says nothing, and the
+/// keyboard's return stops the watch on one set without it.
+#[test]
+fn a_copy_without_the_keyboard_is_sent_and_its_cancel_said() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard,
+        surface,
+        ..
+    } = clip_session();
+    let sources = |server: &mut Server, iface: &str| {
+        let r = server.expect(
+            iface,
+            match iface {
+                "wl_data_device_manager" => "create_data_source",
+                _ => "create_source",
+            },
+        );
+        let Val::New(id) = r.args[0] else { panic!() };
+        server.objects.insert(
+            id,
+            Interface::named(match iface {
+                "wl_data_device_manager" => "wl_data_source",
+                _ => "zwp_primary_selection_source_v1",
+            })
+            .unwrap(),
+        );
+        loop {
+            let r = server.next();
+            if r.name == "set_selection" {
+                let Val::Uint(serial) = r.args[1] else {
+                    panic!()
+                };
+                return (id, serial);
+            }
+        }
+    };
+    let manager = |b| match b {
+        Board::Clipboard => "wl_data_device_manager",
+        Board::Primary => "zwp_primary_selection_device_manager_v1",
+    };
+    let source_iface = |b| match b {
+        Board::Clipboard => "wl_data_source",
+        Board::Primary => "zwp_primary_selection_source_v1",
+    };
+    // A key before any enter: the copy is sent, with the key's serial.
+    key_at(&mut server, keyboard, 5, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    for b in [Board::Clipboard, Board::Primary] {
+        assert_eq!(w.copy(&mut conn.sender(), b, "early"), Copied::Unfocused);
+        conn.flush().unwrap();
+        let (id, serial) = sources(&mut server, manager(b));
+        assert_eq!(serial, 5, "the last serial");
+        server.send(id, source_iface(b), "cancelled", &[]);
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [Event::CopyCancelled(b)], "{b:?}");
+        server.expect(source_iface(b), "destroy");
+    }
+    // With the keyboard: set, and a cancel is another client's copy.
+    keyboard_enter(&mut server, keyboard, 8, surface);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Clipboard, "here"),
+        Copied::Set
+    );
+    conn.flush().unwrap();
+    let (id, serial) = sources(&mut server, manager(Board::Clipboard));
+    assert_eq!(serial, 8);
+    server.send(id, "wl_data_source", "cancelled", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [], "a focused copy's cancel is not said");
+    server.expect("wl_data_source", "destroy");
+    // Gone again: sent with the last serial, the enter's.
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(9), Arg::Object(surface)],
+    );
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Clipboard, "away"),
+        Copied::Unfocused
+    );
+    assert_eq!(
+        w.clear(&mut conn.sender(), Board::Primary),
+        Copied::Unfocused
+    );
+    conn.flush().unwrap();
+    let (id, serial) = sources(&mut server, manager(Board::Clipboard));
+    assert_eq!(serial, 8, "the enter's, the last a key or enter gave");
+    // The keyboard back before the cancel: the watch is over.
+    keyboard_enter(&mut server, keyboard, 10, surface);
+    server.send(id, "wl_data_source", "cancelled", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [Event::Focus(baud_domain::Focus::Gained)]);
 }
 
 /// **No manager, no copy**: a compositor without the globals gets no

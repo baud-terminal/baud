@@ -542,6 +542,11 @@ pub fn run() {
                 Event::PasteAbandoned(_) => crate::warn!(
                     "paste: the selection's owner sent nothing for two seconds; nothing was pasted"
                 ),
+                Event::CopyCancelled(_) => {
+                    if let Some(line) = d.clips.cancelled_unfocused() {
+                        crate::warn!("{line}");
+                    }
+                }
                 Event::Closed => break 'run,
             }
         }
@@ -665,8 +670,14 @@ impl Driver {
                     if let Some(line) = warn {
                         crate::warn!("{line}");
                     }
-                    if program_copy(window, conn, t, d) == Copied::Unavailable {
-                        uncopied = Copied::Unavailable;
+                    match program_copy(window, conn, t, d) {
+                        Copied::Set => {}
+                        Copied::Unavailable => uncopied = Copied::Unavailable,
+                        Copied::Unfocused => {
+                            if let Some(line) = clips.sent_unfocused() {
+                                crate::warn!("{line}");
+                            }
+                        }
                     }
                 }
                 if let Some((_, Some(line))) = widths.poll(t, crate::width::Host::NoResize) {
@@ -882,8 +893,14 @@ impl Driver {
         let Some(text) = self.seat.selected_text(&self.term) else {
             return;
         };
-        if self.window.copy(&mut self.conn.sender(), board, &text) == Copied::Unavailable {
-            self.uncopied_once();
+        match self.window.copy(&mut self.conn.sender(), board, &text) {
+            Copied::Set => {}
+            Copied::Unavailable => self.uncopied_once(),
+            Copied::Unfocused => {
+                if let Some(line) = self.clips.sent_unfocused() {
+                    crate::warn!("{line}");
+                }
+            }
         }
     }
 
@@ -1228,7 +1245,8 @@ fn board_of(b: crate::clip::Board) -> Board {
 
 /// **A program's `OSC 52` write on the seat's selections**: each it names
 /// (`clip::boards`) set or emptied, or nothing where the policy refused
-/// it. `Unavailable` when the compositor could take none of them.
+/// it. `Unavailable` when the compositor could take none of them, and
+/// `Unfocused` when any went without the keyboard.
 fn program_copy(
     window: &mut Window,
     conn: &mut baud_wayland::Connection,
@@ -1249,9 +1267,11 @@ fn program_copy(
             Decision::Clear => window.clear(&mut conn.sender(), b),
             Decision::Refused(_) => return Copied::Set,
         };
-        if c == Copied::Set {
-            took = Copied::Set;
-        }
+        took = match (took, c) {
+            (_, Copied::Unfocused) | (Copied::Unfocused, _) => Copied::Unfocused,
+            (_, Copied::Set) | (Copied::Set, _) => Copied::Set,
+            _ => Copied::Unavailable,
+        };
     }
     took
 }

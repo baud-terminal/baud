@@ -69,6 +69,13 @@ pub const RECEIVE_IDLE: Duration = Duration::from_secs(2);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Copied {
     Set,
+    /// Sent while the window lacks the keyboard, named with the last
+    /// serial the client was given. Neither protocol's `set_selection`
+    /// asks for the keyboard, but GNOME's compositor refuses a client
+    /// without it and cancels the source, which arrives as
+    /// [`Done::Cancelled`]; wlroots takes it unless a later copy came first
+    /// (Jev's lean, LAND, 0.64/0.32).
+    Unfocused,
     /// The compositor offers no manager for this selection, the seat has
     /// no device yet, or no input event has given a serial to name.
     Unavailable,
@@ -101,6 +108,18 @@ pub enum Done {
     Pasted(Board, String),
     /// The owner sent nothing for [`RECEIVE_IDLE`].
     Abandoned(Board),
+    /// A source set without the keyboard was cancelled before the keyboard
+    /// came back: the compositor refused it, or another client's copy
+    /// replaced it.
+    Cancelled(Board),
+}
+
+/// Whether the window has the keyboard, as the selections' rules read it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Keyboard {
+    #[default]
+    Away,
+    Here,
 }
 
 /// Which of a protocol's three objects an event is on.
@@ -127,6 +146,8 @@ struct Side {
     introduced: Vec<Offer>,
     selection: Option<Offer>,
     source: Option<(ObjectId, Rc<[u8]>)>,
+    /// The source set without the keyboard, until the keyboard returns.
+    away: Option<ObjectId>,
 }
 
 /// The two protocols' requests, by selection: (create the source, get the
@@ -202,6 +223,7 @@ pub struct Clip {
     sending: Vec<Sending>,
     receiving: Option<Receiving>,
     done: Vec<Done>,
+    keyboard: Keyboard,
 }
 
 impl Clip {
@@ -255,7 +277,8 @@ impl Clip {
     /// **`text` becomes `b`'s selection**: a fresh source -- a used one
     /// "may not be used in any further set_selection" -- offering the text
     /// types, set with `serial`, the input event that asked; the source it
-    /// replaces is destroyed.
+    /// replaces is destroyed. Without the keyboard it is sent all the same,
+    /// and said ([`Copied::Unfocused`]).
     pub fn copy(
         &mut self,
         s: &mut Sender<'_>,
@@ -264,6 +287,7 @@ impl Clip {
         serial: Option<u32>,
     ) -> Copied {
         let o = ops(b);
+        let keyboard = self.keyboard;
         let side = self.side(b);
         let (Some(manager), Some(device), Some(serial)) = (side.manager, side.device, serial)
         else {
@@ -282,12 +306,22 @@ impl Clip {
         if let Some((old, _)) = side.source.replace((source, Rc::from(text.as_bytes()))) {
             let _ = s.request(old, o.source_destroy, &[]);
         }
-        Copied::Set
+        match keyboard {
+            Keyboard::Here => {
+                side.away = None;
+                Copied::Set
+            }
+            Keyboard::Away => {
+                side.away = Some(source);
+                Copied::Unfocused
+            }
+        }
     }
 
     /// **`b` emptied**: "To unset the selection, set the source to NULL."
     pub fn clear(&mut self, s: &mut Sender<'_>, b: Board, serial: Option<u32>) -> Copied {
         let o = ops(b);
+        let keyboard = self.keyboard;
         let side = self.side(b);
         let (Some(device), Some(serial)) = (side.device, serial) else {
             return Copied::Unavailable;
@@ -300,7 +334,11 @@ impl Clip {
         if let Some((old, _)) = side.source.take() {
             let _ = s.request(old, o.source_destroy, &[]);
         }
-        Copied::Set
+        side.away = None;
+        match keyboard {
+            Keyboard::Here => Copied::Set,
+            Keyboard::Away => Copied::Unfocused,
+        }
     }
 
     /// **A paste from `b`.** This client's own text at once, where it owns
@@ -424,12 +462,20 @@ impl Clip {
     /// The keyboard left: a clipboard offer "is valid until ... the client
     /// loses keyboard focus", and the primary's the same, so both go.
     pub fn focus_lost(&mut self, s: &mut Sender<'_>) {
+        self.keyboard = Keyboard::Away;
         for b in [Board::Clipboard, Board::Primary] {
             let o = ops(b);
             if let Some(offer) = self.side(b).selection.take() {
                 let _ = s.request(offer.id, o.offer_destroy, &[]);
             }
         }
+    }
+
+    /// The keyboard came: a source set without it is no longer watched.
+    pub fn focus_gained(&mut self) {
+        self.keyboard = Keyboard::Here;
+        self.clipboard.away = None;
+        self.primary.away = None;
     }
 
     /// **An event of either protocol's**, or `false` for one that is not.
@@ -513,6 +559,9 @@ impl Clip {
             {
                 side.source = None;
                 let _ = s.request(ev.object, o.source_destroy, &[]);
+                if side.away.take() == Some(ev.object) {
+                    self.done.push(Done::Cancelled(board));
+                }
             }
             _ => {}
         }

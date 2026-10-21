@@ -30253,3 +30253,73 @@ bytes  = 19763
 status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b131). Read, not copied.
+
+[sources.mutter-47-data-device]
+key    = "mutter-47-data-device"
+title  = "mutter 47.0, src/wayland/meta-wayland-data-device.c -- data_device_set_selection cancels the source and returns when the client is not the keyboard's focus (1081-1086)"
+author = "the GNOME project (GPL-2.0-or-later)"
+year   = 2026
+venue  = "mutter, gitlab.gnome.org/GNOME/mutter @ 47.0"
+url    = "https://gitlab.gnome.org/GNOME/mutter/-/raw/47.0/src/wayland/meta-wayland-data-device.c"
+file   = ""
+sha256 = "db53c709efb2fa9393ba9fbb97e8e1352e46b3b689838cc5d871a458c5ca773b"
+bytes  = 43265
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
+
+[sources.wlroots-0-18-2-data-device]
+key    = "wlroots-0-18-2-data-device"
+title  = "wlroots 0.18.2, types/data_device/wlr_data_device.c -- wlr_seat_request_set_selection rejects a serial never given to the client or older than the selection's, focused or not (144-165)"
+author = "the wlroots contributors (MIT)"
+year   = 2026
+venue  = "wlroots, gitlab.freedesktop.org/wlroots/wlroots @ 0.18.2"
+url    = "https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/0.18.2/types/data_device/wlr_data_device.c"
+file   = ""
+sha256 = "a4e1c83049dfd26065f73c7a207ba31364acabecf69074bddad1c991b5933beb"
+bytes  = 9713
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
+
+[sources.wlroots-0-18-2-seat]
+key    = "wlroots-0-18-2-seat"
+title  = "wlroots 0.18.2, types/seat/wlr_seat.c -- wlr_seat_client_validate_event_serial, the ring of serials given to a client (468-492)"
+author = "the wlroots contributors (MIT)"
+year   = 2026
+venue  = "wlroots, gitlab.freedesktop.org/wlroots/wlroots @ 0.18.2"
+url    = "https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/0.18.2/types/seat/wlr_seat.c"
+file   = ""
+sha256 = "acd9accffef28f73b982d0941b294966adb04169f0aead316e125d57e2597d7a"
+bytes  = 15248
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
+
+[sources.smithay-clipboard-0-7-2-state]
+key    = "smithay-clipboard-0-7-2-state"
+title  = "smithay-clipboard 0.7.2, src/state.rs -- store_selection refuses while the seat lacks keyboard focus (110-140); the latest serial is the enter's or a key's (520-540)"
+author = "the Smithay contributors (MIT)"
+year   = 2026
+venue  = "Smithay/smithay-clipboard @ v0.7.2, alacritty's Wayland clipboard"
+url    = "https://raw.githubusercontent.com/Smithay/smithay-clipboard/v0.7.2/src/state.rs"
+file   = ""
+sha256 = "d24c62f5103526311e41b8a6b3e6bd22f10a7cef90a8a01195a4d3cb852915ca"
+bytes  = 20216
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
+
+[sources.kitty-0-43-1-wl-window]
+key    = "kitty-0-43-1-wl-window"
+title  = "kitty 0.43.1, glfw/wl_window.c -- the clipboard set with the latest serial received, focused or not (2655-2676)"
+author = "Kovid Goyal and the GLFW authors (zlib)"
+year   = 2026
+venue  = "kovidgoyal/kitty @ v0.43.1"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/glfw/wl_window.c"
+file   = ""
+sha256 = "76c3ce2990b9f7d1f20d20978eb9f602ed4a743419a1547117cb88d3f6b51870"
+bytes  = 120492
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
