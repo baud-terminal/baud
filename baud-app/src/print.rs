@@ -119,7 +119,7 @@ const READ_WARM: std::time::Duration = std::time::Duration::from_millis(1);
 /// sends its read that much later, against a margin of about 11 ms
 /// at 60 Hz and about 3 ms at 120.
 /// The read is warm because these reads keep the daemon running; the one
-/// that starts it, 36-70 ms, is not inside the bound.
+/// that starts it, 40-78 ms, is not inside the bound.
 pub fn indicator_every(tick: std::time::Duration) -> std::time::Duration {
     INDICATOR_BOUND.saturating_sub(tick * 3 + READ_WARM * 2)
 }

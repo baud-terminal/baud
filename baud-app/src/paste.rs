@@ -226,7 +226,9 @@ fn filtered(text: &str, specials: Specials) -> String {
 
 /// The bytes a paste sends: [`FILTER`]'s characters replaced, then
 /// bracketed as `?2004` specifies -- no ESC survives the filter, so the
-/// text cannot carry a bracket's end the child would take as the end --
+/// text cannot carry the 7-bit end, `ESC [ 2 0 1 ~`; under `ESC % @` the
+/// text is ISO 8859-1 with bytes 0x80-0x9F deleted, as xterm drops them
+/// outside UTF-8 ([`latin1`]), so no `9B` forms the 8-bit end either --
 /// or, unbracketed, with line endings as typed input carries them unless
 /// `?2006` keeps them. Under
 /// `?2005` each byte of the text, never of a bracket, follows the
@@ -272,8 +274,8 @@ mod tests {
     /// **xterm's default paste controls become spaces, in every paste**:
     /// BS, DEL, ENQ, EOT, ESC and NUL, and the tty's special characters;
     /// every other C0 control passes, and so does text past ASCII. No ESC
-    /// survives, so no end of a bracket can be forged, whole or in pieces
-    /// that would meet once a piece was taken out.
+    /// survives, so no 7-bit end of a bracket can be forged, whole or in
+    /// pieces that would meet once a piece was taken out.
     #[test]
     fn a_paste_replaces_xterms_default_controls_with_a_space() {
         let specials = Specials::of(

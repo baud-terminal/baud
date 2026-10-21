@@ -75,9 +75,9 @@ enum Why {
 
 /// How long a held DSR `?15` waits for the driver's look at its printers
 /// before it is answered from the last one: `printerNames` took 0.3-0.8
-/// ms a call off a process's first, 4.1-29 ms on its first with the print
-/// system's daemon running, and 36-70 ms, most of this wait, when that
-/// call had to start the daemon (docs/record.md).
+/// ms a call off a process's first, 3.5-8.6 ms on its first with the
+/// print system's daemon running, and 40-78 ms, inside this wait, when
+/// that call had to start the daemon (docs/record.md).
 pub const PRINTER_WAIT: Duration = Duration::from_millis(100);
 
 /// How many delays [`HELD_MAX`] ended early.

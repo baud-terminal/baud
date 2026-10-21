@@ -12187,7 +12187,7 @@ fn printers_listed() -> crate::print::Printers {
 }
 
 /// **The printer list read on a thread of its own**: `printerNames` waits
-/// 0.3-0.8 ms on the print system's daemon a call, and 36-70 ms on the
+/// 0.3-0.8 ms on the print system's daemon a call, and 40-78 ms on the
 /// call that has to start it (docs/record.md), which the thread that
 /// feeds the core and draws does not. Started at the first read; each
 /// read's answer is left for the pump and the main thread woken

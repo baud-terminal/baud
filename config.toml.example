@@ -357,9 +357,10 @@ body_kb = 256
 # Whether finishing a selection with the mouse copies it. "on" by default:
 # on macOS the selection goes to the clipboard as you let go; "off" leaves
 # the clipboard to Cmd-C, unless a program asks for copy-on-select itself
-# (xterm's ?1041). On Linux a finished selection always sets the primary
-# selection, which the middle button pastes, as Linux terminals do; this
-# key does not change that.
+# (xterm's ?1041). On Linux a finished selection sets the primary
+# selection, which the middle button pastes, as Linux terminals do, or the
+# clipboard while a program has asked for that with ?1041; this key
+# changes neither.
 copy_on_select = "on"
 
 # Whether a program can move, resize, minimise, raise, lower, maximise or
