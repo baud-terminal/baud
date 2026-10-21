@@ -71,6 +71,10 @@ pub(crate) struct Printer {
     seen: Seen,
     pub(crate) form_feed: PrintFormFeed,
     pub(crate) extent: PrintExtent,
+    /// DECGEPM, `?43`.
+    pub(crate) size: PrintSize,
+    /// The other four graphics print choices, the user's.
+    pub(crate) graphics: GraphicsPrint,
     pub(crate) run: PrintRun,
     open: Collecting,
     done: [Option<Done>; PRINT_QUEUE],
@@ -155,6 +159,8 @@ impl Printer {
         seen: Seen::Never,
         form_feed: PrintFormFeed::Off,
         extent: PrintExtent::ScrollingRegion,
+        size: PrintSize::Compressed,
+        graphics: GraphicsPrint::DEFAULT,
         run: PrintRun::Idle,
         open: Collecting::Nothing,
         done: [None; PRINT_QUEUE],
@@ -197,6 +203,29 @@ impl Printer {
             .rev()
             .find_map(|d| d.map(|d| d.end))
             .unwrap_or(ReadLen::ZERO)
+    }
+
+    /// Where the job being collected ends in the area: where a hard copy
+    /// writes its dump. `None` with none open.
+    pub(crate) fn open_end(&self) -> Option<ReadLen> {
+        match self.open {
+            Collecting::Job { len, .. } => Some(self.base().plus(len)),
+            Collecting::Nothing => None,
+        }
+    }
+
+    /// `n` more bytes written to the job being collected past
+    /// [`Printer::open_end`], and `lost` more that did not fit, which cut
+    /// it.
+    pub(crate) fn wrote(&mut self, n: ReadLen, lost: ReadLen) {
+        if let Collecting::Job { len, cut, .. } = &mut self.open {
+            *len = len.plus(n);
+            if !lost.is_zero() {
+                *cut = PrintCut::Cut;
+                let l = u64::try_from(lost.index()).unwrap_or(u64::MAX);
+                self.refusals.dropped = self.refusals.dropped.saturating_add(l);
+            }
+        }
     }
 
     /// The finished jobs, oldest first, read from `area`.
@@ -364,6 +393,8 @@ impl Paint<'_, '_> {
             // Outside a run, reached only from the screen: inside one the
             // run's own step takes it (`Paint::printer_bytes`).
             MediaCopy::ControllerOff => {}
+            // A hard copy always goes to the printer (`hardcopy.rs`).
+            MediaCopy::GraphicsToPrinter => {}
             MediaCopy::Refused => {}
         }
     }
@@ -390,14 +421,14 @@ impl Paint<'_, '_> {
     }
 
     /// A print in the middle of an autoprint run ends the run's job there.
-    fn end_run_job(&mut self) {
+    pub(crate) fn end_run_job(&mut self) {
         if self.strs.print.run == PrintRun::AutoPrint {
             self.finish_job();
         }
     }
 
     /// And the run goes on into a job of its own after the print.
-    fn resume_run_job(&mut self) {
+    pub(crate) fn resume_run_job(&mut self) {
         if self.strs.print.run == PrintRun::AutoPrint {
             self.begin_job();
         }
@@ -512,7 +543,7 @@ impl Paint<'_, '_> {
 
     /// A job begins where the last finished one ends; with the queue full
     /// it will join that one, after a form feed.
-    fn begin_job(&mut self) {
+    pub(crate) fn begin_job(&mut self) {
         let p = &mut self.strs.print;
         let join = match p.done.iter().all(Option::is_some) {
             true => Join::Last,
@@ -528,13 +559,13 @@ impl Paint<'_, '_> {
         }
     }
 
-    fn finish_job(&mut self) {
+    pub(crate) fn finish_job(&mut self) {
         self.strs.print.finish();
     }
 
     /// Append `bytes` to the job being collected, as far as the area holds
     /// them; the rest are dropped and counted, and the job is cut.
-    fn put(&mut self, bytes: &[u8]) {
+    pub(crate) fn put(&mut self, bytes: &[u8]) {
         let s = &mut *self.strs;
         let base = s.print.base();
         let Collecting::Job { len, cut, .. } = &mut s.print.open else {
@@ -698,6 +729,7 @@ impl Paint<'_, '_> {
         p.run = PrintRun::Idle;
         p.form_feed = PrintFormFeed::Off;
         p.extent = PrintExtent::ScrollingRegion;
+        p.size = PrintSize::Compressed;
         p.matcher = Matcher::IDLE;
         p.seen = Seen::Never;
         p.set_port(p.port);

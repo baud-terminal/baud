@@ -566,6 +566,40 @@ pub trait RegisOut {
     /// A wide stroke has ended: the marks its pixels carry in `r` go
     /// ([`RegisCanvas::unmark`]), on the page drawn now, if there is one.
     fn unmark(&mut self, r: RegisRect);
+    /// `S(H)`: retransmit `area` of the visible image to the printer, its
+    /// upper left at `offset` there (070-8 § 8.8.1.4.4). A caller with no
+    /// printer does nothing.
+    fn hard_copy(&mut self, area: RegisHardCopy, offset: RegisOffset) {
+        let _ = (area, offset);
+    }
+}
+
+/// **What `S(H)` retransmits** (`[[source: dec-std-070]]` 070-8
+/// § 8.8.1.4.4): "If no position specifiers are given, the whole visible
+/// screen is output"; else the rectangle two page pixels are opposite
+/// corners of, both inside it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisHardCopy {
+    Screen,
+    Rect(RegisPoint, RegisPoint),
+}
+
+/// **`S(H(P[x,y]))`, where the dump's upper left goes on the printer**, in
+/// its pixels: "The upper left corner of the area retransmitted will be
+/// offset by the amount indicated" (070-8 § 8.8.1.4.4), and "S(H(P[])) -
+/// The hard-copy offset is not coupled to current position ... Missing
+/// values are interpreted as 0" (§ 8.4.5.2 item 6), a negative part 0
+/// here, a printer having no pixel before its left margin; the dump holds
+/// each part to a sheet's length. `[0,0]` at power-up and after a valid
+/// `S(A)` (070-8; the VT330/VT340 manual's `[50,0]` is that device's).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegisOffset {
+    pub x: u16,
+    pub y: u16,
+}
+
+impl RegisOffset {
+    pub const ZERO: RegisOffset = RegisOffset { x: 0, y: 0 };
 }
 
 /// Whether the parser is inside a ReGIS envelope, between its `DCS p` and
@@ -962,6 +996,11 @@ impl Regis {
     /// The embedder's font, which draws the built-in alphabet.
     pub fn set_font(&mut self, f: RegisFont) {
         self.sem.font = Some(f);
+    }
+
+    /// The embedder's font, if it gave one.
+    pub fn font(&self) -> Option<RegisFont> {
+        self.sem.font
     }
 
     /// The input encoding the envelope began under: a quoted string's

@@ -128,6 +128,8 @@ enum Raster {
 pub struct SixelCanvas<'a> {
     pixels: &'a mut [Pixel],
     width: SixelPx,
+    /// How many of the image's pixels each way one of the canvas's holds.
+    by: u16,
 }
 
 impl<'a> SixelCanvas<'a> {
@@ -135,7 +137,20 @@ impl<'a> SixelCanvas<'a> {
     ///
     /// A row of the image is `width` consecutive words.
     pub fn new(pixels: &'a mut [Pixel], width: SixelPx) -> SixelCanvas<'a> {
-        SixelCanvas { pixels, width }
+        SixelCanvas::shrunk(pixels, width, 1)
+    }
+
+    /// **A canvas holding the image at one `by`-th of its size each way**:
+    /// pixel `(x, y)` lands at `(x / by, y / by)`, the last painted in each
+    /// `by` by `by` block kept, so a line one pixel thin still shows. What
+    /// a printer reads a picture larger than it holds into; a `by` of zero
+    /// is one.
+    pub fn shrunk(pixels: &'a mut [Pixel], width: SixelPx, by: u16) -> SixelCanvas<'a> {
+        SixelCanvas {
+            pixels,
+            width,
+            by: by.max(1),
+        }
     }
 
     fn height(&self) -> SixelPx {
@@ -148,6 +163,10 @@ impl<'a> SixelCanvas<'a> {
     /// Paint one pixel. Returns whether it landed inside the canvas; a write
     /// past the edge is refused, never wrapped, and the caller counts it.
     fn paint(&mut self, x: SixelPx, y: SixelPx, colour: Pixel) -> Painted {
+        let (x, y) = (
+            SixelPx::of(x.raw() / self.by),
+            SixelPx::of(y.raw() / self.by),
+        );
         if x >= self.width || y >= self.height() {
             return Painted::Refused;
         }
@@ -386,7 +405,21 @@ impl Sixel {
     /// pixels land differs, a canvas the caller sized here and the store's
     /// arena there.
     pub fn decode(data: &[u8], aspect: SixelAspect, canvas: &mut SixelCanvas) -> SixelReport {
+        Sixel::decode_inked(data, aspect, Pixel::CLEAR, canvas)
+    }
+
+    /// [`Sixel::decode`] with an undefined register painting `ink`: what a
+    /// printer reading a dump does, whose "default Sixel color" is its
+    /// paper's contrast (070-9 § 10) and whose monochrome dump names no
+    /// register at all.
+    pub fn decode_inked(
+        data: &[u8],
+        aspect: SixelAspect,
+        ink: Pixel,
+        canvas: &mut SixelCanvas,
+    ) -> SixelReport {
         let mut walk = Walk::new(aspect);
+        walk.regs = [ink; REGISTERS];
         let mut sink = Clipped { canvas, refused: 0 };
         for &b in data {
             walk.put(b, &mut sink);

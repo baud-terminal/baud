@@ -731,6 +731,9 @@ struct Boot {
     /// Whether a program's print opens the print panel, from `[screen]
     /// printing`.
     printing: crate::config::Printing,
+    /// How a printed picture is sent, from `[screen] print_colour`,
+    /// `print_rgb`, `print_background` and `print_rotated`.
+    graphics_print: baud_domain::GraphicsPrint,
     /// When a key hides the pointer at power-on, from `[pointer]
     /// hide_while_typing`.
     pointer_mode: baud_domain::PointerMode,
@@ -898,6 +901,7 @@ impl Boot {
             window_ops: cfg.window_ops,
             logging: cfg.logging,
             printing: cfg.printing,
+            graphics_print: cfg.graphics_print,
             pointer_mode: cfg.pointer_mode,
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
@@ -946,6 +950,7 @@ impl App {
             window_ops,
             logging,
             printing,
+            graphics_print,
             pointer_mode,
             ambiguous_width,
             clipboard,
@@ -1124,6 +1129,7 @@ impl App {
         // DSR `?15` held while the list is read again.
         crate::print::set_printer(&mut term, printing, printers_listed());
         crate::print::set_hold(&mut term, printing);
+        term.set_graphics_print(graphics_print);
         crate::host::set_pointer_mode(&mut term, pointer_mode);
         crate::host::set_font_changes(&mut term, font_changes);
         crate::host::tell_font(&mut term, &fonts, font_size, font_size);
@@ -9162,12 +9168,7 @@ impl Driver {
             "baud",
         );
         panel.store(PANEL_SCHEDULED, Relaxed);
-        print_later(
-            self.window.ns_window(),
-            crate::print::job_title(&window, job.cut),
-            job,
-            panel.clone(),
-        );
+        print_later(self.window.ns_window(), window, job, panel.clone());
     }
 
     /// The system caret's rate and its non-blinking switch (`caret.rs`),
@@ -12007,7 +12008,7 @@ impl PrinterList {
 /// up. Nothing prints until the user presses Print.
 fn print_later(
     window: &NSWindow,
-    title: String,
+    name: String,
     job: crate::print::Job,
     panel: std::sync::Arc<std::sync::atomic::AtomicU8>,
 ) {
@@ -12019,10 +12020,13 @@ fn print_later(
         let (pages, layout, stripped) =
             crate::print::pages(&job.bytes, width, height, advance, leading);
         crate::info!(
-            "print: {} sheets at {:.1} pt, {stripped} controls not printed",
+            "print: {} sheets at {:.1} pt, {stripped} controls not printed, {} pictures reduced, {} left out",
             pages.len(),
-            layout.size
+            layout.size,
+            stripped.reduced(),
+            stripped.left_out()
         );
+        let title = crate::print::job_title(&name, job.cut, stripped);
         dispatch2::DispatchQueue::main().exec_async(move || {
             let Some(mtm) = MainThreadMarker::new() else {
                 panel.store(PANEL_IDLE, Relaxed);

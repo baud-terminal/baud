@@ -21,13 +21,31 @@
 //! by using formator functions only"). A space adds no ink, so it strikes
 //! nothing unless it is reversed or underlined.
 //!
+//! **A sixel dump prints its picture** (`[[source: dec-std-070]]` 070-9):
+//! `DCS P1 ; P2 ; P3 q ... ST` is decoded as baud's terminal decodes a
+//! Sixel, an undefined register inked black, the printer's "default Sixel
+//! color" contrasting with white paper, and put on a line of its own where
+//! the head is, each pixel the grid size square: `P3` in the units of the
+//! last `SSU` (`CSI Ps SP I`; decipoints, 1/720 inch, until one is sent),
+//! or with `P3` zero or absent the grid `P1` names (070-9 § 7.1-§ 7.3). The
+//! background `P2` selects is "no action" on a hardcopy device (§ 7.2). A
+//! picture wider or taller than the sheet is shrunk to fit it, its shape
+//! kept. The head goes on at the start of the line after it. **A job's
+//! pictures hold at most the [`PictureBudget`] the app sets**, all of them
+//! together, since the size a dump names is the host's: one larger than
+//! what is left is decoded at every k-th pixel each way, each pixel k times
+//! larger so its size on paper is kept, and one with none left is left
+//! out; both are counted in [`Stripped`].
+//!
 //! **A double-height line pair is printed once** (Jev's lean, DOUBLE_SIZE,
 //! 0.70/0.72 then 0.76/0.78): the `ESC # 3` line at double width and height
 //! over two lines' space, and an `ESC # 4` line straight after it not again,
 //! since a screen sends the same text on both halves; a lone `ESC # 4` line
 //! is drawn as the top half is.
 
-use baud_domain::{AmbiguousWidth, Codepoint, Width};
+use baud_domain::{
+    AmbiguousWidth, Chan, Codepoint, Pixel, Sixel, SixelAspect, SixelCanvas, SixelPx, Width,
+};
 
 /// Bold, underline, blink and reverse, as 070-7 § 7.4.2 sends them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -76,6 +94,13 @@ impl Scale {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Lines(usize);
 
+impl Lines {
+    /// How tall they are at `layout`.
+    pub fn points(self, layout: Layout) -> Points {
+        Points(f64::from(u32::try_from(self.0).unwrap_or(u32::MAX)) * layout.line_height)
+    }
+}
+
 impl core::fmt::Display for Lines {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
@@ -85,6 +110,18 @@ impl core::fmt::Display for Lines {
 /// A count of columns: the widest line decides the type size.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Columns(usize);
+
+impl Columns {
+    /// How far across they go at `layout`.
+    pub fn points(self, layout: Layout) -> Points {
+        Points(f64::from(u32::try_from(self.0).unwrap_or(u32::MAX)) * layout.column)
+    }
+
+    /// As many spaces, what a picture's column is indented by.
+    pub fn spaces(self) -> String {
+        " ".repeat(self.0)
+    }
+}
 
 impl core::fmt::Display for Columns {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -174,11 +211,49 @@ impl Run {
     }
 }
 
-/// One printed line.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// A picture a sixel dump printed: its pixels, row by row, a pixel's side
+/// on paper, and the column its upper left is at.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Picture {
+    pub width: SixelPx,
+    pub height: SixelPx,
+    pub pixels: Vec<Pixel>,
+    pub dot: Points,
+    pub column: Columns,
+}
+
+impl Picture {
+    /// **Its size on paper at `layout`**: each pixel `dot` square, shrunk
+    /// to fit the sheet's width less its column, and its height, with its
+    /// shape kept.
+    pub fn size(&self, layout: Layout) -> (Points, Points) {
+        let px = |v: SixelPx| f64::from(v.raw());
+        let (w, h) = (px(self.width) * self.dot.0, px(self.height) * self.dot.0);
+        let room = (layout.width - self.column.points(layout).0).max(1.0);
+        let shrink = (room / w.max(f64::MIN_POSITIVE))
+            .min(layout.height / h.max(f64::MIN_POSITIVE))
+            .min(1.0);
+        (Points(w * shrink), Points(h * shrink))
+    }
+
+    /// The lines it takes at `layout`, at least one.
+    pub fn lines(&self, layout: Layout) -> Lines {
+        let h = self.size(layout).1.0;
+        let fit = (1usize..=100_000)
+            .take_while(|&n| {
+                f64::from(u32::try_from(n - 1).unwrap_or(u32::MAX)) * layout.line_height < h
+            })
+            .count();
+        Lines(fit.max(1))
+    }
+}
+
+/// One printed line: text, or a picture.
+#[derive(Clone, PartialEq, Debug)]
 pub struct Line {
     pub scale: Scale,
     pub cells: Vec<Cell>,
+    pub picture: Option<Picture>,
 }
 
 impl Line {
@@ -186,6 +261,15 @@ impl Line {
         Line {
             scale: Scale::Single,
             cells: Vec::new(),
+            picture: None,
+        }
+    }
+
+    /// The lines it takes on paper at `layout`: a picture's, or its size's.
+    pub fn height(&self, layout: Layout) -> Lines {
+        match &self.picture {
+            Some(p) => p.lines(layout),
+            None => self.scale.lines(),
         }
     }
 
@@ -238,21 +322,62 @@ impl Line {
 }
 
 /// One sheet of paper's lines.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Page {
     pub lines: Vec<Line>,
 }
 
-/// What printed nothing: controls, escape sequences and control strings
-/// the printer does not act on.
+/// What did not print as sent: controls, escape sequences and control
+/// strings the printer does not act on, and the pictures reduced to fit the
+/// job's [`PictureBudget`] or, with none of it left, left out.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Stripped(usize);
+pub struct Stripped {
+    controls: Controls,
+    reduced: Pictures,
+    left_out: Pictures,
+}
+
+impl Stripped {
+    /// Pictures printed at a fraction of their pixels.
+    pub fn reduced(self) -> Pictures {
+        self.reduced
+    }
+
+    /// Pictures not printed.
+    pub fn left_out(self) -> Pictures {
+        self.left_out
+    }
+}
 
 impl core::fmt::Display for Stripped {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.controls.0)
+    }
+}
+
+/// A count of controls, escape sequences and control strings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct Controls(usize);
+
+/// A count of pictures.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct Pictures(pub usize);
+
+impl Pictures {
+    pub const NONE: Pictures = Pictures(0);
+}
+
+impl core::fmt::Display for Pictures {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
+
+/// **The most pixels a job's pictures may hold**, all of them together:
+/// the printer allocates each picture's pixels, four bytes each, from the
+/// size the job names, which a host chooses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PictureBudget(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -263,16 +388,45 @@ enum State {
     Csi,
     Str,
     StrEsc,
+    /// A `DCS`'s parameters, before its final.
+    Dcs,
+    /// A Sixel's body.
+    Sixel,
+    SixelEsc,
 }
 
+/// The unit `SSU` selects, in points: `[[source: ecma48]]` 8.3.139's
+/// millimetre, computer decipoint (1/720 inch), mil, basic measuring unit
+/// (1/1200 inch), micrometre and decipoint (0.03514 mm); `None` for the
+/// character, the dididot and the pixel, which have no length here.
+fn ssu_points(ps: &str) -> Option<f64> {
+    match ps.parse::<u16>().unwrap_or(0) {
+        1 => Some(72.0 / 25.4),
+        2 => Some(0.1),
+        4 => Some(0.072),
+        5 => Some(0.06),
+        6 => Some(72.0 / 25_400.0),
+        8 => Some(0.035_14 * 72.0 / 25.4),
+        _ => None,
+    }
+}
+
+/// The horizontal grid 070-9 § 7.1's macro parameter names, in thousandths
+/// of an inch, by its value 0 to 9: 7.5 for 0, 1 and 5, then 3, 4.5, 6, 9,
+/// 10.5, 12 and 13.5 for 2 to 4 and 6 to 9; past 9 as the default.
+const MACRO_GRID_MILS: [f64; 10] = [7.5, 7.5, 3.0, 4.5, 6.0, 7.5, 9.0, 10.5, 12.0, 13.5];
+
 /// The printer's head: the forms so far, the line and column it is at, the
-/// look it prints in.
+/// look it prints in, and the unit `SSU` selected, in points.
 struct Head {
     forms: Vec<Vec<Line>>,
     line: Lines,
     col: Columns,
     look: Look,
     stripped: Stripped,
+    unit: f64,
+    /// What is left of the job's picture budget.
+    budget: PictureBudget,
 }
 
 impl Head {
@@ -332,8 +486,99 @@ impl Head {
             }
             '\u{8}' => self.col.0 = self.col.0.saturating_sub(1),
             '\t' => self.col.0 = (self.col.0 / 8 + 1) * 8,
-            _ => self.stripped.0 += 1,
+            _ => self.stripped.controls.0 += 1,
         }
+    }
+
+    /// **A sixel dump's picture** on a line of its own where the head is,
+    /// the head going on at the start of the line after it.
+    fn picture(&mut self, params: &str, body: &[u8]) {
+        let mut ps = params.split(';').map(|p| p.parse::<u16>().ok());
+        let p1 = ps.next().flatten();
+        let p3 = ps.nth(1).flatten().unwrap_or(0);
+        let aspect = SixelAspect::from_macro(p1);
+        // The size the raster attributes give, "the number of pixels in an
+        // image" each way (070-9 § 8.1.2), or with none what the data
+        // reaches.
+        let ext = Sixel::extent(body, aspect);
+        let raster: Vec<u16> = match body.first() {
+            Some(b'"') => body[1..]
+                .split(|b| !(b.is_ascii_digit() || *b == b';'))
+                .next()
+                .unwrap_or(&[])
+                .split(|&b| b == b';')
+                .map(|n| {
+                    core::str::from_utf8(n)
+                        .ok()
+                        .and_then(|n| n.parse().ok())
+                        .unwrap_or(0)
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let at = |i: usize| SixelPx::of(raster.get(i).copied().unwrap_or(0));
+        let (w, h) = match (at(2), at(3)) {
+            (w, h) if w > SixelPx::ZERO && h > SixelPx::ZERO => (w, h),
+            _ => (ext.width, ext.height),
+        };
+        // **Held to what is left of the budget**: every `by`-th pixel each
+        // way, `by` the least that fits, and none when nothing is left
+        // (Jev's lean, SHRINK, 0.24/0.72 after a re-ask). The sheet shows
+        // it shrunk to fit anyway, a picture this large far more.
+        let left = self.budget.0;
+        if left == 0 && w.index() * h.index() > 0 {
+            self.stripped.left_out.0 += 1;
+            return;
+        }
+        let fits = |by: usize| w.index().div_ceil(by) * h.index().div_ceil(by) <= left;
+        // No `by` below the square root of the ratio fits, so the search
+        // starts there.
+        let least = (w.index() * h.index() / left.max(1)).isqrt().max(1);
+        let Some(by) = (least..=usize::from(u16::MAX)).find(|&by| fits(by)) else {
+            self.stripped.left_out.0 += 1;
+            return;
+        };
+        if by > 1 {
+            self.stripped.reduced.0 += 1;
+        }
+        let part = |v: SixelPx| SixelPx::of(u16::try_from(v.index().div_ceil(by)).unwrap_or(0));
+        let (w, h) = (part(w), part(h));
+        self.budget.0 -= w.index() * h.index();
+        let mut pixels = vec![Pixel::CLEAR; w.index() * h.index()];
+        let ink = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(0), Chan::from_u8(0));
+        let by16 = u16::try_from(by).unwrap_or(u16::MAX);
+        Sixel::decode_inked(
+            body,
+            aspect,
+            ink,
+            &mut SixelCanvas::shrunk(&mut pixels, w, by16),
+        );
+        let scale = f64::from(by16);
+        let dot = scale
+            * match p3 {
+                0 => {
+                    let i = usize::from(p1.unwrap_or(0));
+                    MACRO_GRID_MILS.get(i).copied().unwrap_or(7.5) * 0.072
+                }
+                n => f64::from(n) * self.unit,
+            };
+        let line = self.line.0;
+        let at = match self.lines()[line].cells.is_empty() {
+            true => line,
+            false => line + 1,
+        };
+        self.line = Lines(at);
+        let column = self.col;
+        let lines = self.lines();
+        lines[at].picture = Some(Picture {
+            width: w,
+            height: h,
+            pixels,
+            dot: Points(dot),
+            column,
+        });
+        self.line = Lines(at + 1);
+        self.col = Columns(0);
     }
 
     fn line_size(&mut self, c: char) {
@@ -343,7 +588,7 @@ impl Head {
             '5' => Scale::Single,
             '6' => Scale::DoubleWidth,
             _ => {
-                self.stripped.0 += 1;
+                self.stripped.controls.0 += 1;
                 return;
             }
         };
@@ -393,27 +638,36 @@ impl Head {
 
 /// **A job read into forms**, a form being what an `FF` ends; a form with
 /// nothing on it after the last `FF` (DECPFF's) is no form.
-pub fn read(job: &[u8]) -> (Vec<Vec<Line>>, Stripped) {
+pub fn read(job: &[u8], budget: PictureBudget) -> (Vec<Vec<Line>>, Stripped) {
     let text = String::from_utf8_lossy(job);
     let mut head = Head {
         forms: Vec::new(),
         line: Lines(0),
         col: Columns(0),
         look: Look::PLAIN,
-        stripped: Stripped(0),
+        stripped: Stripped::default(),
+        unit: 0.1,
+        budget,
     };
     let mut state = State::Ground;
     let mut params = String::new();
     let mut csi_plain = true;
+    let mut csi_space = false;
+    let mut body: Vec<u8> = Vec::new();
     for c in text.chars() {
         state = match (state, c) {
             (State::Ground, '\u{1b}') => State::Esc,
             (State::Ground, '\u{9b}') => {
                 params.clear();
                 csi_plain = true;
+                csi_space = false;
                 State::Csi
             }
-            (State::Ground, '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}') => State::Str,
+            (State::Ground, '\u{90}') => {
+                params.clear();
+                State::Dcs
+            }
+            (State::Ground, '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}') => State::Str,
             (State::Ground, c) if c.is_control() => {
                 head.control(c);
                 State::Ground
@@ -425,13 +679,18 @@ pub fn read(job: &[u8]) -> (Vec<Vec<Line>>, Stripped) {
             (State::Esc, '[') => {
                 params.clear();
                 csi_plain = true;
+                csi_space = false;
                 State::Csi
             }
             (State::Esc, '#') => State::EscHash,
-            (State::Esc, 'P' | 'X' | ']' | '^' | '_') => State::Str,
+            (State::Esc, 'P') => {
+                params.clear();
+                State::Dcs
+            }
+            (State::Esc, 'X' | ']' | '^' | '_') => State::Str,
             (State::Esc, '\u{20}'..='\u{2f}') => State::EscInter,
             (State::Esc | State::EscInter, _) => {
-                head.stripped.0 += 1;
+                head.stripped.controls.0 += 1;
                 State::Ground
             }
             (State::EscHash, c) => {
@@ -442,35 +701,76 @@ pub fn read(job: &[u8]) -> (Vec<Vec<Line>>, Stripped) {
                 params.push(c);
                 State::Csi
             }
+            (State::Csi, ' ') if csi_plain => {
+                csi_space = true;
+                csi_plain = false;
+                State::Csi
+            }
             (State::Csi, '\u{20}'..='\u{3f}') => {
                 csi_plain = false;
+                csi_space = false;
                 State::Csi
             }
             (State::Csi, 'm') if csi_plain => {
                 head.sgr(&params);
                 State::Ground
             }
+            (State::Csi, 'I') if csi_space => {
+                match ssu_points(&params) {
+                    Some(u) => head.unit = u,
+                    None => head.stripped.controls.0 += 1,
+                }
+                State::Ground
+            }
             (State::Csi, _) => {
-                head.stripped.0 += 1;
+                head.stripped.controls.0 += 1;
                 State::Ground
             }
             (State::Str, '\u{7}' | '\u{9c}') => {
-                head.stripped.0 += 1;
+                head.stripped.controls.0 += 1;
                 State::Ground
             }
             (State::Str, '\u{1b}') => State::StrEsc,
             (State::Str, _) => State::Str,
             (State::StrEsc, '\\') => {
-                head.stripped.0 += 1;
+                head.stripped.controls.0 += 1;
                 State::Ground
             }
             (State::StrEsc, _) => State::Str,
+            (State::Dcs, '0'..='9' | ';') => {
+                params.push(c);
+                State::Dcs
+            }
+            (State::Dcs, 'q') => {
+                body.clear();
+                State::Sixel
+            }
+            (State::Dcs, '\u{1b}') => State::StrEsc,
+            (State::Dcs, _) => State::Str,
+            (State::Sixel, '\u{1b}') => State::SixelEsc,
+            (State::Sixel, '\u{9c}') | (State::SixelEsc, '\\') => {
+                head.picture(&params, &body);
+                State::Ground
+            }
+            (State::Sixel, c) => {
+                if c.is_ascii() {
+                    body.push(u8::try_from(u32::from(c)).unwrap_or(b'?'));
+                }
+                State::Sixel
+            }
+            // An `ESC` that is not `ST` cuts the dump off: what came is
+            // printed, and the escape is counted.
+            (State::SixelEsc, _) => {
+                head.picture(&params, &body);
+                head.stripped.controls.0 += 1;
+                State::Ground
+            }
         };
     }
     let mut forms = head.forms;
     if forms.last().is_some_and(|f| {
         f.iter()
-            .all(|l| l.cells.iter().all(|c| c.strikes.is_empty()))
+            .all(|l| l.picture.is_none() && l.cells.iter().all(|c| c.strikes.is_empty()))
     }) {
         forms.pop();
     }
@@ -487,12 +787,13 @@ pub fn widest(forms: &[Vec<Line>]) -> Columns {
         .unwrap_or(Columns(0))
 }
 
-/// **The forms on sheets of `per` lines**: a form starts a sheet, a sheet
-/// that fills goes on to the next, a double-height line takes two lines and
-/// goes whole to the next sheet if one is left, and the bottom half of a
-/// pair is not printed again.
-pub fn paginate(forms: &[Vec<Line>], per: Lines) -> Vec<Page> {
-    let per = per.0.max(2);
+/// **The forms on sheets of the lines `layout` holds**: a form starts a
+/// sheet, a sheet that fills goes on to the next, a double-height line
+/// takes two lines and a picture the lines its height does, each going
+/// whole to the next sheet if one is left, and the bottom half of a
+/// double-height pair is not printed again.
+pub fn paginate(forms: &[Vec<Line>], layout: Layout) -> Vec<Page> {
+    let per = layout.lines.0.max(2);
     let mut pages = Vec::new();
     for form in forms {
         let mut page = Vec::new();
@@ -504,7 +805,7 @@ pub fn paginate(forms: &[Vec<Line>], per: Lines) -> Vec<Page> {
                 continue;
             }
             after_top = line.scale == Scale::DoubleTop;
-            let h = line.scale.lines().0;
+            let h = line.height(layout).0;
             if used + h > per {
                 pages.push(Page {
                     lines: core::mem::take(&mut page),
@@ -530,6 +831,9 @@ pub struct Layout {
     /// A column's width at `size`, what a run going back moves by.
     pub column: f64,
     pub lines: Lines,
+    /// The sheet's printable width and height, what a picture fits.
+    pub width: f64,
+    pub height: f64,
 }
 
 impl Layout {
@@ -547,6 +851,8 @@ impl Layout {
             line_height,
             column: size * advance,
             lines,
+            width,
+            height,
         }
     }
 }
@@ -554,6 +860,11 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A job read with room for a 1024 by 1024 picture.
+    fn read(job: &[u8]) -> (Vec<Vec<Line>>, Stripped) {
+        super::read(job, PictureBudget(1 << 20))
+    }
 
     /// Each column's last strike, a blank a space and a wide character's
     /// second column nothing.
@@ -583,7 +894,7 @@ mod tests {
     fn a_print_page_reads_back_as_its_lines() {
         let job = b"\x1b[0m\x1b#5\x1b[0;1mB\x1b[0;4;7mU\x1b[0mx\r\n\x1b#6wide\r\n\x0c\x1b[0m";
         let (forms, stripped) = read(job);
-        assert_eq!(stripped, Stripped(0));
+        assert_eq!(stripped, Stripped::default());
         assert_eq!(forms.len(), 1, "the closing FF makes no sheet");
         let lines = &forms[0];
         assert_eq!(lines.len(), 2, "the last LF leaves no empty line");
@@ -644,19 +955,27 @@ mod tests {
     #[test]
     fn what_the_printer_does_not_act_on_is_stripped_and_counted() {
         let (forms, stripped) =
-            read(b"a\x07\x1b(B\x1b[2;3H\x1b]0;title\x07\x1bPq#0~\x1b\\\x1b[?25lb\x1b#8");
+            read(b"a\x07\x1b(B\x1b[2;3H\x1b]0;title\x07\x1bP1$r0m\x1b\\\x1b[?25lb\x1b#8");
         assert_eq!(text(&forms[0][0]), "ab");
-        assert_eq!(stripped, Stripped(7));
+        assert_eq!(
+            stripped,
+            Stripped {
+                controls: Controls(7),
+                ..Stripped::default()
+            }
+        );
     }
 
-    /// **Sheets of `per` lines**, a form starting a sheet; a double-height
+    /// **Sheets of `layout.lines` lines**, a form starting a sheet; a double-height
     /// pair is one line two high, its bottom half not printed again, and
     /// goes whole to the next sheet.
     #[test]
     fn forms_go_on_sheets_and_a_double_height_pair_is_printed_once() {
         let (forms, _) =
             read(b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\x0cA\r\n\x1b#3T\r\n\x1b#4T\r\n\x1b#4L");
-        let pages = paginate(&forms, Lines(3));
+        let three = Layout::fit(480.0, 36.0, 0.6, 1.2, Columns(80));
+        assert_eq!(three.lines, Lines(3));
+        let pages = paginate(&forms, three);
         let shape: Vec<Vec<String>> = pages
             .iter()
             .map(|p| p.lines.iter().map(text).collect())
@@ -810,6 +1129,119 @@ mod tests {
         assert_eq!(
             Run::new("a", Look::PLAIN).kern(at, Scale::Single),
             Points(-0.0)
+        );
+    }
+
+    /// A dump `ST`-terminated, as the terminal's hard copy writes it.
+    fn red_dump(ssu: &str, p3: &str) -> Vec<u8> {
+        format!("A\r\n{ssu}\x1bP0;1;{p3}q\"1;1;4;6#1;2;100;0;0#1!4~-\x1b\\B").into_bytes()
+    }
+
+    /// **A sixel dump prints its picture on a line of its own**: decoded as
+    /// the terminal decodes a Sixel, the pixel the grid in the last SSU's
+    /// unit (decipoints until one is sent), the head on the line after it.
+    #[test]
+    fn a_sixel_dump_prints_its_picture() {
+        let (forms, stripped) = read(&red_dump("\x1b[2 I", "6"));
+        assert_eq!(
+            stripped,
+            Stripped::default(),
+            "the SSU and the dump are read"
+        );
+        let lines = &forms[0];
+        assert_eq!(lines.len(), 3, "A, the picture, B");
+        assert_eq!(text(&lines[0]), "A");
+        let p = lines[1].picture.as_ref().expect("a picture");
+        assert_eq!((p.width.raw(), p.height.raw()), (4, 6));
+        let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
+        assert!(p.pixels.iter().all(|&px| px == red));
+        assert!((p.dot.0 - 0.6).abs() < 1e-9, "six decipoints");
+        assert_eq!(text(&lines[2]), "B");
+        let (forms, _) = read(&red_dump("\x1b[1 I", "2"));
+        let p = forms[0][1].picture.as_ref().unwrap();
+        assert!(
+            (p.dot.0 - 2.0 * 72.0 / 25.4).abs() < 1e-9,
+            "two millimetres"
+        );
+        let (forms, _) = read(b"\x1bP9q~~\x1b\\");
+        let p = forms[0][0].picture.as_ref().unwrap();
+        assert!((p.dot.0 - 13.5 * 0.072).abs() < 1e-9, "macro 9's grid");
+        assert_eq!(
+            p.pixels[0],
+            Pixel::opaque(Chan::from_u8(0), Chan::from_u8(0), Chan::from_u8(0)),
+            "inked black"
+        );
+    }
+
+    /// **A picture fits the sheet, its shape kept, and takes the lines its
+    /// height does**; one too tall for what is left of a sheet starts the
+    /// next.
+    #[test]
+    fn a_picture_fits_the_sheet_and_takes_its_lines() {
+        let at = Layout::fit(480.0, 120.0, 0.6, 1.2, Columns(80));
+        let (forms, _) = read(b"\x1b[2 I\x1bP0;1;6q\"1;1;1000;100!1000~\x1b\\");
+        let p = forms[0][0].picture.as_ref().unwrap();
+        let (w, h) = p.size(at);
+        assert!(
+            (w.0 - 480.0).abs() < 1e-9 && (h.0 - 48.0).abs() < 1e-9,
+            "{w:?} {h:?}"
+        );
+        let (forms, _) = read(b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n\x1b[2 I\x1bP0;1;10q\"1;1;40;48!40~-!40~-!40~-!40~-!40~-!40~-!40~-!40~\x1b\\");
+        assert_eq!(forms[0][7].height(at), Lines(4), "48 points at 12 a line");
+        let pages = paginate(&forms, at);
+        assert_eq!(pages.len(), 2);
+        assert!(
+            pages[1].lines[0].picture.is_some(),
+            "it goes whole to the next sheet"
+        );
+    }
+
+    /// **A picture past the job's pixel budget is reduced to fit it**:
+    /// every k-th pixel each way, k the least that fits, each k times
+    /// larger on paper so its size is kept; the size the raster attributes
+    /// name and the one the data reaches are both held. With none of the
+    /// budget left a picture is left out. Both are counted.
+    #[test]
+    fn a_picture_past_the_budget_is_reduced_or_left_out() {
+        let budget = PictureBudget(10_000);
+        let black = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(0), Chan::from_u8(0));
+        let (forms, stripped) =
+            super::read(b"\x1b[2 I\x1bP0;1;6q\"1;1;65535;65535#1~\x1b\\", budget);
+        let p = forms[0][0].picture.as_ref().expect("a picture");
+        assert_eq!((p.width.raw(), p.height.raw()), (100, 100), "k = 656");
+        assert_eq!(p.pixels.len(), 10_000);
+        assert_eq!(p.pixels[0], black, "the sixel's six pixels in one");
+        assert!((p.dot.0 - 0.6 * 656.0).abs() < 1e-9, "{:?}", p.dot);
+        assert_eq!(
+            (stripped.reduced(), stripped.left_out()),
+            (Pictures(1), Pictures::NONE)
+        );
+        let (forms, _) = super::read(b"\x1bP0;1;6q\"1;1;1000;1000#1!500?~\x1b\\", budget);
+        let p = forms[0][0].picture.as_ref().expect("a picture");
+        assert_eq!(p.width.raw(), 100, "k = 10");
+        let lit: Vec<usize> = (0..p.pixels.len())
+            .filter(|&i| p.pixels[i] != Pixel::CLEAR)
+            .collect();
+        assert_eq!(lit, [50], "column 500, rows 0 to 5, in one pixel");
+        let mut far = b"\x1bP0;1;6q".to_vec();
+        far.extend(core::iter::repeat_n(b'-', 10_922));
+        far.extend_from_slice(b"!65535~\x1b\\");
+        let (forms, stripped) = super::read(&far, budget);
+        let p = forms[0][0].picture.as_ref().expect("a picture");
+        assert!(p.pixels.len() <= 10_000, "{}", p.pixels.len());
+        assert_eq!(
+            stripped.reduced(),
+            Pictures(1),
+            "the data's extent is held too"
+        );
+        let two = b"\x1bP0;1;6q\"1;1;100;100#1~\x1b\\\x1bP0;1;6q\"1;1;2;2#1~\x1b\\";
+        let (forms, stripped) = super::read(two, budget);
+        let p = forms[0][0].picture.as_ref().expect("the first, whole");
+        assert_eq!((p.width.raw(), p.height.raw()), (100, 100));
+        assert_eq!(forms[0].len(), 1, "the second left out");
+        assert_eq!(
+            (stripped.reduced(), stripped.left_out()),
+            (Pictures::NONE, Pictures(1))
         );
     }
 }

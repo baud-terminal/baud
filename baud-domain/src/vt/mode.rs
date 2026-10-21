@@ -494,6 +494,10 @@ pub enum PrivateMode {
     /// `?19` DECPEX, print extent: the whole page or the scrolling region
     /// (`[[source: dec-std-070]]` 070-7, [`PrintExtent`]).
     PrintExtent,
+    /// `?43` DECGEPM, graphics expanded print: a hard copy's dump
+    /// compressed or expanded (`[[source: vt3xx-gp-002]]` ch. 16,
+    /// [`PrintSize`]).
+    GraphicsExpandedPrint,
     /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
     /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
     /// answers whether a cursor is saved.
@@ -1167,6 +1171,7 @@ impl PrivateMode {
             PrivateMode::Logging => 56,
             PrivateMode::PrintFormFeed => 57,
             PrivateMode::PrintExtent => 58,
+            PrivateMode::GraphicsExpandedPrint => 59,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1207,6 +1212,7 @@ impl PrivateMode {
             46 => PrivateMode::Logging,
             18 => PrivateMode::PrintFormFeed,
             19 => PrivateMode::PrintExtent,
+            43 => PrivateMode::GraphicsExpandedPrint,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,

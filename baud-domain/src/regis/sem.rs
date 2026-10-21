@@ -49,9 +49,9 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: hard copy, data movement, drawing surfaces
-    /// (`P(P)`, the VT340's `S(P)`), blink, microcoded writing, flood; and
-    /// `S(N)`, which no DEC text here defines.
+    /// on: data movement, drawing surfaces (`P(P)`, the VT340's `S(P)`),
+    /// blink, microcoded writing, flood; and `S(N)`, which no DEC text
+    /// here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -649,6 +649,8 @@ pub(crate) struct Sem {
     stroke_end: Option<RegisPen>,
     /// How the plane is shown, `S(S)`.
     pub(crate) zoom: RegisZoom,
+    /// `S(H(P[x,y]))`'s offset, kept until the next or a valid `S(A)`.
+    pub(crate) hard_offset: RegisOffset,
 }
 
 impl Sem {
@@ -717,6 +719,7 @@ impl Sem {
         stroke: None,
         stroke_end: None,
         zoom: RegisZoom::ONE,
+        hard_offset: RegisOffset::ZERO,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -2284,10 +2287,20 @@ impl Sem {
             (1, b'S') => self.scale(f, true, true, out),
             (2, b'X') if parent.key == b'S' => self.scale(f, true, false, out),
             (2, b'Y') if parent.key == b'S' => self.scale(f, false, true, out),
-            // `S(H)` hard copy, `S(P)` the display page, `S(D)` data
-            // movement: Open Extensions (§ 8.8.1). `S(N)`: no DEC text here
-            // defines it.
-            (1, b'H' | b'P' | b'D' | b'N') => self.counts.unbuilt += 1,
+            (1, b'H') => self.hard_copy(f, out),
+            (2, b'P') if parent.key == b'H' => {
+                let part = |p: Part| match p.value() {
+                    Some(v) => u16::try_from(v.trunc().max(0)).unwrap_or(u16::MAX),
+                    None => 0,
+                };
+                self.hard_offset = RegisOffset {
+                    x: part(f.ext[0].x),
+                    y: part(f.ext[0].y),
+                };
+            }
+            // `S(P)` the display page, `S(D)` data movement: Open
+            // Extensions (§ 8.8.1). `S(N)`: no DEC text here defines it.
+            (1, b'P' | b'D' | b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
@@ -2349,6 +2362,34 @@ impl Sem {
         }
     }
 
+    /// **`S(H)`, hard copy** (070-8 § 8.8.1.4.4): the whole visible screen,
+    /// or the rectangle between two positions, or between one and the
+    /// drawing position. The positions are positional, "relate to the
+    /// imposed coordinate space, and may be expressed in terms of the
+    /// current position" (§ 8.4.5.2 item 6), the second relative to the
+    /// first as "multiple specifiers have cumulative action" (§ 8.4.5.1;
+    /// Jev, CUMULATIVE, 0.97/0.97); "Numeric arguments to the H option are
+    /// NOT interpreted as pixel vector specifiers". The texts disagree, and
+    /// two readings are departures: the VT330/VT340 manual's, relative
+    /// values "relative to the cursor position, not to any other position
+    /// specified" (`[[source: vt3xx-gp-002]]` p. 29), and § 8.8.1.4.4's,
+    /// "S(H[][]) is a non-positional use of bracketed extents ... always
+    /// interpreted absolutely".
+    fn hard_copy(&mut self, f: &Frame, out: &mut dyn RegisOut) {
+        let area = match f.next {
+            0 => RegisHardCopy::Screen,
+            n => {
+                let a = (f.ext[0].x.from(self.pos.0), f.ext[0].y.from(self.pos.1));
+                let b = match n {
+                    1 => self.pos,
+                    _ => (f.ext[1].x.from(a.0), f.ext[1].y.from(a.1)),
+                };
+                RegisHardCopy::Rect(self.device(a), self.device(b))
+            }
+        };
+        out.hard_copy(area, self.hard_offset);
+    }
+
     /// `S(A[][])`: valid with two extents whose four parts are present and
     /// none negative -- "Missing elements inside the brackets cause the
     /// command to be ignored" and "if the specified address space would
@@ -2386,6 +2427,7 @@ impl Sem {
     /// What a valid `S(A)` resets.
     fn defaults(&mut self) {
         self.pos = (RegisNum::ZERO, RegisNum::ZERO);
+        self.hard_offset = RegisOffset::ZERO;
         self.last_end = None;
         self.write = Write::DEFAULT;
         self.tw = Write::DEFAULT;

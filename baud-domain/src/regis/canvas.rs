@@ -572,6 +572,22 @@ impl<'a> RegisCanvas<'a> {
         });
     }
 
+    /// **The index pixel `(x, y)` of a `w`-pixel page's `plane` holds**,
+    /// read through the rows' stride; `None` for a pixel never written,
+    /// which is clear, or one off the page.
+    pub fn index_at(
+        plane: &[u8],
+        w: crate::image::ImagePx,
+        x: usize,
+        y: usize,
+    ) -> Option<RegisIndex> {
+        if x >= w.index() {
+            return None;
+        }
+        let b = *plane.get(y * RegisCanvas::stride(w) + x)?;
+        (b & WRITTEN != 0).then(|| RegisIndex::wrap(i64::from(b & 0x0f)))
+    }
+
     /// The page pixels of `r` of a `w`-pixel page as colours through `map`
     /// into `out`, each the plane's pixel `zoom` shows there: a pixel never
     /// written clear.

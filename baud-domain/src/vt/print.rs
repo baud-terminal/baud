@@ -18,7 +18,10 @@ use crate::*;
 /// **Refused, and counted apart from the unknown**: `CSI 2 i`, the VT510's
 /// "Sends screen data through host port" (`[[source: vt510-rm-b]]` p. 5-178),
 /// would type the screen back into the program's input, the reason the
-/// title reports are refused; `CSI ? 8 i` and `CSI ? 9 i` stop and start a
+/// title reports are refused; `CSI ? 2 i`, "Graphics to Host", which sends
+/// what ReGIS's hard copy prints to the host instead, the screen's image as
+/// a reply, refused for the same reason (Jev's lean, PRINTER_ONLY, 0.61/0.72);
+/// `CSI ? 8 i` and `CSI ? 9 i` stop and start a
 /// printer-to-host session, which needs a printer that talks back; xterm's
 /// `CSI 10 i` and `CSI 11 i` write HTML and SVG dumps to files
 /// (`[[source: ctlseqs]]`). A `Ps` no text gives is [`Csi::Unsupported`].
@@ -41,6 +44,10 @@ pub enum MediaCopy {
     PrintScreen,
     /// `CSI ? 11 i`: print all pages.
     PrintAllPages,
+    /// `CSI ? i` and `CSI ? 0 i`, "Graphics to Printer": ReGIS's hard copy
+    /// goes to the printer (`[[source: vt3xx-gp-002]]` ch. 16), the one
+    /// place baud sends it, so nothing changes.
+    GraphicsToPrinter,
     /// One of the four kinds above that are refused.
     Refused,
 }
@@ -62,10 +69,11 @@ impl MediaCopy {
 
     /// `CSI ? Ps i`, DEC's private namespace, or `None` for a `Ps` no text
     /// gives baud a function for: `?18` and `?19` assign and release the
-    /// printer between two sessions, and `?0` and `?2` are the VT125's
-    /// graphics print modes.
+    /// printer between two sessions.
     pub fn private(p: Option<Param>) -> Option<MediaCopy> {
         Some(match p.map_or(0, |x| x.0) {
+            0 => MediaCopy::GraphicsToPrinter,
+            2 => MediaCopy::Refused,
             1 => MediaCopy::PrintLine,
             4 => MediaCopy::AutoPrintOff,
             5 => MediaCopy::AutoPrintOn,
@@ -161,6 +169,85 @@ impl PrintBudget {
     }
 }
 
+/// `?43` DECGEPM, graphics expanded print mode: "selects whether the
+/// terminal sends a compressed or expanded graphics image to the printer"
+/// (`[[source: vt3xx-gp-002]]` ch. 16), a Level 2 dump's grid size 6 or 9
+/// decipoints (`[[source: dec-std-070]]` 070-7 § 7.8.2.4). **Compressed at
+/// power-on and after `RIS`**, "Default: Compressed"; `DECSTR` keeps it, the
+/// VT330/VT340's Table 13-1 naming no graphics print mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrintSize {
+    Compressed,
+    Expanded,
+}
+
+/// Monochrome or colour sixel printing, which "the user may select" (070-7
+/// § 7.8.2.1): the VT340's DECGPCM, whose number `?44` is xterm's margin
+/// bell here. "Monochrome Sixels are formed from the multiple plane image
+/// by a logical OR of all pixels which are selected for any color"; in
+/// colour "the terminal will send out color specifiers at the beginning of
+/// each Sixel dump". **Monochrome by default**, the text's "Default: Black
+/// and white" (Jev, DEFAULT_MONO, 0.98/0.98).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrintColour {
+    Mono,
+    Colour,
+}
+
+/// The colour coordinates a colour dump's specifiers use, DECGPCS: HLS,
+/// "Default: HLS", or RGB (`[[source: vt3xx-gp-002]]` ch. 16).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrintSyntax {
+    Hls,
+    Rgb,
+}
+
+/// Whether a colour dump prints the background, DECGPBM: "If PRINT
+/// BACKGROUND is selected, all pixels with no bits set in any plane are
+/// printed in the color value selected for index 0" (070-7 § 7.8.2.1);
+/// "Default: No background", and only in colour.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrintBackground {
+    Off,
+    On,
+}
+
+/// Whether a dump is turned a quarter, DECGRPM: "rotates the image by 90
+/// degrees so that an expanded image can fit on a single 8-1/2 inch wide
+/// page (rotated images are always expanded)", counter-clockwise as the
+/// VT240 does (070-7 § 7.8.2.3). "Default: compressed".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrintRotation {
+    Upright,
+    Rotated,
+}
+
+/// **The graphics print choices the user makes under local control**:
+/// 070-7 § 7.8.2 lets the user select colour, the background and rotation,
+/// and the VT340 the colour syntax, each also a DEC private mode
+/// (`?44`-`?47`) whose number xterm, and so baud, gives to the margin bell,
+/// reverse wraparound, logging and the alternate screen (Jev's lean,
+/// ESCAPE_43_SETTINGS_REST, 0.38/0.43 then 0.31/0.61). The embedder sets
+/// them ([`crate::GraphicsPrint::DEFAULT`] the texts' defaults).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GraphicsPrint {
+    pub colour: PrintColour,
+    pub syntax: PrintSyntax,
+    pub background: PrintBackground,
+    pub rotation: PrintRotation,
+}
+
+impl GraphicsPrint {
+    /// Black and white, HLS, no background, upright: every default the
+    /// VT330/VT340 manual gives.
+    pub const DEFAULT: GraphicsPrint = GraphicsPrint {
+        colour: PrintColour::Mono,
+        syntax: PrintSyntax::Hls,
+        background: PrintBackground::Off,
+        rotation: PrintRotation::Upright,
+    };
+}
+
 /// Whether a job is all its program sent to the printer, or lost bytes
 /// past the area's bound, counted in [`PrintRefusals::dropped`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -191,6 +278,9 @@ pub struct PrintRefusals {
     /// embedder had not taken, each joined to the last of them after a
     /// form feed.
     pub merged: u32,
+    /// ReGIS hard copies the area had no working room for, which printed
+    /// nothing.
+    pub hard_copies_cut: u32,
 }
 
 impl PrintRefusals {
@@ -199,6 +289,7 @@ impl PrintRefusals {
         unsafe_kinds: 0,
         dropped: 0,
         merged: 0,
+        hard_copies_cut: 0,
     };
 }
 

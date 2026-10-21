@@ -3531,6 +3531,14 @@ impl Paint<'_, '_> {
                     ModeChange::Reset => baud_domain::PrintExtent::ScrollingRegion,
                 }
             }
+            // DECGEPM (`hardcopy.rs`): a hard copy's grid, set and reset
+            // with or without a printer, as DECPEX is.
+            PrivateMode::GraphicsExpandedPrint => {
+                self.strs.print.size = match change {
+                    ModeChange::Set => baud_domain::PrintSize::Expanded,
+                    ModeChange::Reset => baud_domain::PrintSize::Compressed,
+                }
+            }
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
             // parameter", exclusive with the other four (`[[source:
@@ -4627,6 +4635,10 @@ impl Paint<'_, '_> {
             PrivateMode::PrintFormFeed => match self.strs.print.form_feed {
                 baud_domain::PrintFormFeed::On => ModeState::Set,
                 baud_domain::PrintFormFeed::Off => ModeState::Reset,
+            },
+            PrivateMode::GraphicsExpandedPrint => match self.strs.print.size {
+                baud_domain::PrintSize::Expanded => ModeState::Set,
+                baud_domain::PrintSize::Compressed => ModeState::Reset,
             },
             PrivateMode::PrintExtent => match self.strs.print.extent {
                 baud_domain::PrintExtent::Page => ModeState::Set,

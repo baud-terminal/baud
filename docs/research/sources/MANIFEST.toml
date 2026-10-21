@@ -444,6 +444,16 @@ group  = "C"
 # the command complement § 8.10 (PDF 893-902); p. 8-91 (PDF 838) rendered [img] to
 # check the OCR of the vertex list's "a capacity of less than 256 entries", which
 # the page reads too.
+# Read 2026-10-21 for graphics printing (lane b130), the copy whose sha256 matches, on
+# the text layer [text]: 070-7 § 7.6.1-7.6.4 (pp. 7-30, 7-31), print screen's guideline
+# "the contents of the screen (both text and graphics) may be transmitted as sixels";
+# § 7.8 Graphics Printing, pp. 7-58 to 7-64 -- 7.8.1.1 and 7.8.1.2 invoked "by the host
+# through the ReGIS hardcopy command", 7.8.2 sixel printing and the CR guideline, 7.8.2.1
+# colour and monochrome ("a logical OR of all pixels"), PRINT BACKGROUND, 7.8.2.2
+# expanded and 7.8.2.3 rotated (counter-clockwise), 7.8.2.4 Level 1 and Level 2 with
+# SSU and grid 6 or 9; 070-8 § 8.8.1.4.4 S(H) (p. 8-127, PDF 874), the P offset default
+# [0,0]; 070-9 § 7.1-7.3, the macro parameter's grid table, background select
+# "no action" on hardcopy devices, the grid in SSU units defaulting to decipoints.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -15064,6 +15074,9 @@ group  = "C"
 # layer for DECSDM [text]: Table 12-3, "DEC Private Modes for DECRQM, DECRPM, SM, and RM",
 # printed p. 221 (PDF 230), "Sixel display mode DECSDM 80", and no other mention -- the
 # volume does not say which of set and reset turns Sixel scrolling off.
+# Re-fetched 2026-10-21 (lane b130), the sha256 matching: Table 12-3 lists DECGEPM 43 to
+# DECGRPM 47 (printed p. 221) [text]; Table 13-1, DECSTR's states (printed pp. 242-243,
+# PDF 251-252), read on the page images [img], names no graphics print mode.
 # Re-fetched 2026-10-20 (lane b117), the sha256 matching, and read on the text layer
 # [text] for the locator port's DSR, printed pp. 203-204 (PDF 213-214): "CSI? 50 n
 # Locator device ready", "CSI? 53 n No locator device", "CSI? 57; 1 n ... Digital's
@@ -22737,6 +22750,12 @@ status = "external"
 group  = "C"
 # `external`: over 3 MB. Read 2026-10-11 (round 2026-10-11b): Sixel Scrolling Mode, PDF
 # 253 (printed 237); Sixel Display Mode Control Function, PDF 254 (printed 238).
+# Re-fetched 2026-10-21 (lane b130), the sha256 matching, read on the text layer [text]:
+# chapter 16, Printing Graphics, printed pp. 255-262 -- DECGEPM ?43, DECGPCM ?44, DECGPCS
+# ?45, DECGPBM ?46 and DECGRPM ?47 with their defaults, Graphics to Host CSI ? 2 i and
+# Graphics to Printer CSI ? i / CSI ? 0 i, Levels 1 and 2 and the LN03 example; chapter
+# 2's Hard Copy Control, printed pp. 27-29, S(H), its one- and two-position forms and the
+# P[X,Y] offset, default [50,0].
 
 [sources.vt3xx-tp-002]
 key    = "vt3xx-tp-002"

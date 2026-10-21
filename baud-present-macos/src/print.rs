@@ -14,22 +14,31 @@
 //! application" (`[[source: apple-nsprintoperation-run]]`), and the main
 //! thread is the one that feeds the core and draws.
 //!
-//! `unsafe` is allowed here, as in [`crate::metal`], for three calls the
+//! `unsafe` is allowed here, as in [`crate::metal`], for the calls the
 //! bindings mark so: the text view's storage and container, an attribute's
-//! value, and the sheet's run, whose delegate, selector and context are all
-//! nothing.
+//! value, the sheet's run, whose delegate, selector and context are all
+//! nothing, and a picture's bitmap, made with no planes of its own and
+//! written through the buffer it allocates.
+//!
+//! **A printed picture is an image attachment** on a line of its own, the
+//! size `Picture::size` gives, after as many spaces as its column, the line
+//! as tall as the lines it takes, so the sheets break where the printer's
+//! pages say.
 #![allow(unsafe_code)]
 
-use baud_render::print::{Layout, Look, Page, Run, Scale};
+use baud_render::print::{Layout, Look, Page, Picture, Run, Scale};
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
 use macos_liquid_glass::objc2_app_kit::{
-    NSColor, NSFont, NSFontWeightBold, NSFontWeightRegular, NSMutableParagraphStyle, NSPrintInfo,
-    NSPrintOperation, NSPrinter, NSPrintingPaginationMode, NSTextView, NSView, NSWindow,
+    NSAttributedStringAttachmentConveniences, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace,
+    NSFont, NSFontWeightBold, NSFontWeightRegular, NSImage, NSMutableParagraphStyle, NSPrintInfo,
+    NSPrintOperation, NSPrinter, NSPrintingPaginationMode, NSTextAttachment, NSTextView, NSView,
+    NSWindow,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
-    NSMutableAttributedString, NSNumber, NSPoint, NSRange, NSRect, NSSize, NSString,
+    NSAttributedString, NSMutableAttributedString, NSNumber, NSPoint, NSRange, NSRect, NSSize,
+    NSString,
 };
 
 /// Whether macOS lists a printer, "the names of all available printers"
@@ -88,6 +97,63 @@ const EXPANSION: &str = "NSExpansion";
 const PARAGRAPH: &str = "NSParagraphStyle";
 const KERN: &str = "NSKern";
 
+/// A picture's pixels as premultiplied RGBA into `out`, four bytes each:
+/// a picture's pixels are opaque or clear, so each is its colour or zero.
+fn rgba(p: &Picture, out: &mut [u8]) {
+    for (px, o) in p.pixels.iter().zip(out.chunks_exact_mut(4)) {
+        let (r, g, b) = px.rgb();
+        let a = px.alpha().get();
+        let c = |v: baud_domain::Chan| if a == 0 { 0 } else { v.get() };
+        o.copy_from_slice(&[c(r), c(g), c(b), a]);
+    }
+}
+
+/// **A picture as an attachment**, its pixels in a bitmap of their own at
+/// the size it is drawn; `None` for one with no pixels.
+fn picture_text(p: &Picture, layout: Layout) -> Option<Retained<NSMutableAttributedString>> {
+    let (w, h) = (p.width.index(), p.height.index());
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let side = |v: usize| isize::try_from(v).ok();
+    // SAFETY: no planes, so the rep allocates its own w by h by 4 bytes;
+    // the colour space name is an extern static of the bindings.
+    let rep = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(),
+            core::ptr::null_mut(),
+            side(w)?,
+            side(h)?,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            side(w * 4)?,
+            32,
+        )
+    }?;
+    let data = rep.bitmapData();
+    if data.is_null() {
+        return None;
+    }
+    // SAFETY: the buffer the rep allocated, w * h * 4 bytes, rows of
+    // `bytesPerRow` w * 4, which nothing else holds while it is written.
+    let bytes = unsafe { core::slice::from_raw_parts_mut(data, w * h * 4) };
+    rgba(p, bytes);
+    let (pw, ph) = p.size(layout);
+    let image = NSImage::initWithSize(NSImage::alloc(), NSSize::new(pw.0, ph.0));
+    image.addRepresentation(&rep);
+    let att = NSTextAttachment::new();
+    att.setImage(Some(&image));
+    att.setBounds(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(pw.0, ph.0)));
+    let one = NSAttributedString::attributedStringWithAttachment(&att);
+    Some(NSMutableAttributedString::initWithAttributedString(
+        NSMutableAttributedString::alloc(),
+        &one,
+    ))
+}
+
 /// One page's lines as attributed text at `layout`'s size: bold in the
 /// font's bold weight, underline single, reverse white on black, blink
 /// plain; a double-width line stretched to twice its width, a double-height
@@ -106,9 +172,17 @@ fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString>
             }
         };
         let paragraph = NSMutableParagraphStyle::new();
+        let height = match &line.picture {
+            Some(_) => line.height(layout).points(layout).0,
+            None => height,
+        };
         paragraph.setMinimumLineHeight(height);
         paragraph.setMaximumLineHeight(height);
         let mut runs = line.runs();
+        let picture = line.picture.as_ref().and_then(|p| {
+            runs = vec![Run::new(&p.column.spaces(), Look::PLAIN)];
+            picture_text(p, layout)
+        });
         runs.push(Run::new("\n", Look::PLAIN));
         for r in runs {
             let look = r.look;
@@ -154,6 +228,15 @@ fn page_text(page: &Page, layout: Layout) -> Retained<NSMutableAttributedString>
                 }
             }
             out.appendAttributedString(&run);
+            if let (Some(pic), true) = (&picture, r.text != "\n") {
+                let all = NSRange::new(0, pic.length());
+                // SAFETY: a paragraph style for the attachment's one
+                // character.
+                unsafe {
+                    pic.addAttribute_value_range(&NSString::from_str(PARAGRAPH), &paragraph, all);
+                }
+                out.appendAttributedString(pic);
+            }
         }
     }
     out
@@ -219,5 +302,31 @@ pub fn show_panel(
             None,
             core::ptr::null_mut(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use baud_domain::{Chan, Pixel, SixelPx};
+
+    /// **A printed picture's pixels reach its bitmap**, opaque ones as
+    /// their colour and clear ones as nothing, and it is one attachment.
+    #[test]
+    fn a_picture_is_one_attachment_of_its_pixels() {
+        let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
+        let (forms, _) = baud_render::print::read(
+            b"\x1bP0;1;6q\"1;1;2;1#1;2;100;0;0#1@\x1b\\",
+            baud_render::print::PictureBudget(2),
+        );
+        let p = forms[0][0].picture.clone().expect("a picture");
+        assert_eq!((p.width, p.height), (SixelPx::of(2), SixelPx::of(1)));
+        assert_eq!(p.pixels, [red, Pixel::CLEAR]);
+        let mut out = [9u8; 8];
+        rgba(&p, &mut out);
+        assert_eq!(out, [255, 0, 0, 255, 0, 0, 0, 0]);
+        let layout = Layout::fit(480.0, 720.0, 0.6, 1.2, baud_render::print::widest(&forms));
+        let text = picture_text(&p, layout).expect("an attachment");
+        assert_eq!(text.length(), 1);
     }
 }

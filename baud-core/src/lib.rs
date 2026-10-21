@@ -56,6 +56,7 @@ mod dcs;
 mod feed;
 mod font;
 mod graph;
+mod hardcopy;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
 mod kitty;

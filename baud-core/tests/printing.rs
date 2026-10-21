@@ -400,18 +400,19 @@ fn ris_ends_an_autoprint_run_and_keeps_its_job() {
 }
 
 /// **The kinds refused because answering is unsafe are counted apart**:
-/// `CSI 2 i` would send the screen to the host, `CSI ? 8 i` and `CSI ? 9 i`
-/// are a printer-to-host session, `CSI 10 i` and `CSI 11 i` xterm's file
-/// dumps. A `Ps` no text gives is unsupported.
+/// `CSI 2 i` would send the screen to the host, `CSI ? 2 i` a hard copy's
+/// image of it, `CSI ? 8 i` and `CSI ? 9 i` are a printer-to-host session,
+/// `CSI 10 i` and `CSI 11 i` xterm's file dumps. A `Ps` no text gives is
+/// unsupported.
 #[test]
 fn the_refused_kinds_are_counted_apart_from_the_unknown() {
     let mut s = owned();
     let mut t = ready(&mut s);
-    support::feed(&mut t, b"\x1b[2i\x1b[?8i\x1b[?9i\x1b[10i\x1b[11i");
-    assert_eq!(t.print_refusals().unsafe_kinds, 5);
+    support::feed(&mut t, b"\x1b[2i\x1b[?2i\x1b[?8i\x1b[?9i\x1b[10i\x1b[11i");
+    assert_eq!(t.print_refusals().unsafe_kinds, 6);
     assert_eq!(t.reply(), b"", "nothing is sent to the host");
     assert_eq!(t.unsupported, 0);
-    support::feed(&mut t, b"\x1b[3i\x1b[?18i\x1b[?2i");
+    support::feed(&mut t, b"\x1b[3i\x1b[?18i\x1b[?3i");
     assert_eq!(t.unsupported, 3);
     assert_eq!(t.print_jobs().count(), 0);
 }

@@ -271,6 +271,7 @@ impl Paint<'_, '_> {
             dirty: None,
             recolor: Recolor::No,
             unpaged: Unpaged::None,
+            hard_copy: None,
         };
         let before = *out.page;
         let line = regis.display_gen();
@@ -282,6 +283,7 @@ impl Paint<'_, '_> {
             let _ = out.page();
         }
         let (dirty, recolor, unpaged) = (out.dirty, out.recolor, out.unpaged);
+        let hard_copy = out.hard_copy;
         if let Unpaged::Some(n) = unpaged {
             regis.unpaged(n.index());
         }
@@ -320,6 +322,16 @@ impl Paint<'_, '_> {
             let p = (page.shown, page.plane, page.w, page.h);
             paint_display(self.images, self.strs.regis, p);
         }
+        if let Some((area, offset)) = hard_copy {
+            self.hard_copy(area, offset);
+        }
+    }
+
+    /// The page's size in pixels: the text area, or the VT300's 800 by 480
+    /// while no cell size is known -- what a hard copy's whole screen is.
+    pub(crate) fn regis_page_px(&self) -> (ImagePx, ImagePx) {
+        let w = self.regis_want();
+        (w.w, w.h)
     }
 
     /// The page the next drawing needs.
@@ -687,6 +699,8 @@ struct Out<'a, 'b> {
     recolor: Recolor,
     /// Drawings with no page to draw on: no image memory, or none left.
     unpaged: Unpaged,
+    /// An `S(H)` met, printed once the page shows what was drawn before it.
+    hard_copy: Option<(RegisHardCopy, RegisOffset)>,
 }
 
 impl Out<'_, '_> {
@@ -754,6 +768,10 @@ impl RegisOut for Out<'_, '_> {
 
     fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {
         self.draw(|c| c.scroll(by, bg));
+    }
+
+    fn hard_copy(&mut self, area: RegisHardCopy, offset: RegisOffset) {
+        self.hard_copy = Some((area, offset));
     }
 
     fn recolor(&mut self) {

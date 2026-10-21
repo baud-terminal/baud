@@ -33,7 +33,15 @@ use crate::config::Printing;
 use baud_core::{PrintBudget, PrintCut};
 use baud_core::{PrinterPort, Term};
 #[cfg(any(target_os = "macos", test))]
-use baud_render::print::{Layout, Page, Stripped};
+use baud_render::print::{Layout, Page, PictureBudget, Pictures, Stripped};
+
+#[cfg(any(target_os = "macos", test))]
+/// **The pixels a job's pictures may hold together**, 2^25, 128 MiB of
+/// picture and as much again in the panel's bitmaps: a hard copy of the
+/// whole text area of a 6K display, about 20 million pixels, fits whole,
+/// and a larger one is reduced to fit, which the sheet's shrinking to fit
+/// would have done to it anyway.
+pub const PICTURE_PIXELS: PictureBudget = PictureBudget(1 << 25);
 
 #[cfg(any(target_os = "macos", test))]
 /// The core's print area: the jobs one read finishes and the one being
@@ -268,7 +276,7 @@ pub fn pages(
     advance: f64,
     leading: f64,
 ) -> (Vec<Page>, Layout, Stripped) {
-    let (forms, stripped) = baud_render::print::read(job);
+    let (forms, stripped) = baud_render::print::read(job, PICTURE_PIXELS);
     let layout = Layout::fit(
         width,
         height,
@@ -277,7 +285,7 @@ pub fn pages(
         baud_render::print::widest(&forms),
     );
     (
-        baud_render::print::paginate(&forms, layout.lines),
+        baud_render::print::paginate(&forms, layout),
         layout,
         stripped,
     )
@@ -285,11 +293,23 @@ pub fn pages(
 
 #[cfg(any(target_os = "macos", test))]
 /// What the panel names the job: the window's title, so it says which
-/// window printed, and a word when some of it was lost.
-pub fn job_title(window: &str, cut: PrintCut) -> String {
-    match cut {
-        PrintCut::Whole => format!("{window} \u{2014} print"),
-        PrintCut::Cut => format!("{window} \u{2014} print (cut short)"),
+/// window printed, and a word for each way some of it was lost: the job
+/// cut short, pictures reduced to fit [`PICTURE_PIXELS`], pictures left
+/// out with none of it left.
+pub fn job_title(window: &str, cut: PrintCut, stripped: Stripped) -> String {
+    let mut lost = Vec::new();
+    if cut == PrintCut::Cut {
+        lost.push("cut short");
+    }
+    if stripped.reduced() > Pictures::NONE {
+        lost.push("pictures reduced");
+    }
+    if stripped.left_out() > Pictures::NONE {
+        lost.push("pictures left out");
+    }
+    match lost.is_empty() {
+        true => format!("{window} \u{2014} print"),
+        false => format!("{window} \u{2014} print ({})", lost.join(", ")),
     }
 }
 
@@ -498,6 +518,47 @@ mod tests {
         assert_eq!(layout.size, 10.0);
     }
 
+    /// **A ReGIS hard copy reaches the panel as a picture**: the core's
+    /// dump of the screen, its text drawn by the embedded face, read by
+    /// the printer into a picture the page's size at six decipoints a
+    /// pixel, the "H" inked inside its cell and nowhere past the "i".
+    #[test]
+    fn a_hard_copy_reaches_the_panel_as_a_picture() {
+        let mut s = Owned::new(&WS)
+            .with_images(baud_domain::ImageBudget::of(1 << 20))
+            .with_printer(BUDGET);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+        t.set_regis_font(crate::regis_font::glyph);
+        set_printer(&mut t, Printing::On, Printers::Listed);
+        let mut prints = Prints::new();
+        feed(&mut t, b"Hi\x1bPpS(H)\x1b\\");
+        prints.take(&mut t);
+        let job = prints.next(t.printer()).expect("the hard copy");
+        let (pages, layout, stripped) = pages(&job.bytes, 480.0, 720.0, 0.6, 1.2);
+        assert_eq!(stripped, Stripped::default());
+        let p = pages[0].lines[0].picture.as_ref().expect("a picture");
+        assert_eq!((p.width.raw(), p.height.raw()), (100, 80));
+        let (w, h) = p.size(layout);
+        assert!((w.0 - 60.0).abs() < 1e-9 && (h.0 - 48.0).abs() < 1e-9);
+        let lit: Vec<(usize, usize)> = p
+            .pixels
+            .iter()
+            .enumerate()
+            .filter(|(_, px)| px.alpha().get() != 0)
+            .map(|(i, _)| (i % 100, i / 100))
+            .collect();
+        assert!(lit.iter().any(|&(x, y)| x < 10 && y < 20), "the H");
+        assert!(
+            lit.iter().any(|&(x, y)| (10..20).contains(&x) && y < 20),
+            "the i"
+        );
+        assert!(
+            lit.iter().all(|&(x, y)| x < 20 && y < 20),
+            "nothing past them"
+        );
+    }
+
     /// **The panel always shows, as a sheet**: the AppKit side sets
     /// `showsPrintPanel` and runs the operation modal for the window, which
     /// returns at once, and never runs it in place, which would print with
@@ -543,10 +604,46 @@ mod tests {
 
     #[test]
     fn the_panel_names_the_window_that_printed() {
-        assert_eq!(job_title("vim", PrintCut::Whole), "vim \u{2014} print");
+        let none = Stripped::default();
         assert_eq!(
-            job_title("vim", PrintCut::Cut),
+            job_title("vim", PrintCut::Whole, none),
+            "vim \u{2014} print"
+        );
+        assert_eq!(
+            job_title("vim", PrintCut::Cut, none),
             "vim \u{2014} print (cut short)"
+        );
+    }
+
+    /// **A job naming a picture past the budget is laid out within it**,
+    /// and the panel says so: a 29-byte dump naming 65535 by 65535 pixels
+    /// holds at most [`PICTURE_PIXELS`]; after a picture of all of it, the
+    /// next is left out.
+    #[test]
+    fn a_picture_past_the_budget_is_reduced_and_the_title_says_so() {
+        let huge = b"\x1bP0;1;6q\"1;1;65535;65535#1~\x1b\\";
+        let (pages_of, _, stripped) = pages(huge, 480.0, 720.0, 0.6, 1.2);
+        let p = pages_of[0].lines[0].picture.as_ref().expect("a picture");
+        assert!(p.pixels.len() <= 1 << 25, "{}", p.pixels.len());
+        assert_eq!(
+            (stripped.reduced(), stripped.left_out()),
+            (Pictures(1), Pictures::NONE)
+        );
+        assert_eq!(
+            job_title("vim", PrintCut::Whole, stripped),
+            "vim \u{2014} print (pictures reduced)"
+        );
+        let mut job = b"\x1bP0;1;6q\"1;1;8192;4096#1~\x1b\\".to_vec();
+        job.extend_from_slice(huge);
+        let (pages_of, _, stripped) = pages(&job, 480.0, 720.0, 0.6, 1.2);
+        assert_eq!(pages_of.iter().map(|p| p.lines.len()).sum::<usize>(), 1);
+        assert_eq!(
+            (stripped.reduced(), stripped.left_out()),
+            (Pictures::NONE, Pictures(1))
+        );
+        assert_eq!(
+            job_title("vim", PrintCut::Cut, stripped),
+            "vim \u{2014} print (cut short, pictures left out)"
         );
     }
 }

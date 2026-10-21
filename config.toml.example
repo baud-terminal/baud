@@ -281,11 +281,23 @@ trail_scroll = "ride"
 # Programs are told there is a printer only when macOS lists one. "off"
 # tells every program there is no printer. Linux has no print panel yet,
 # so programs there are always told there is no printer.
+#
+# print_colour, print_rgb, print_background, print_rotated: how a picture a
+# program prints (a ReGIS hard copy) is sent to the printer, each "off" by
+# default as on DEC's VT340. print_colour "on" prints its colours, "off"
+# black and white, every coloured pixel inked; print_rgb "on" names the
+# colours in RGB rather than HLS; print_background "on" prints the
+# background too, in colour only; print_rotated "on" turns the picture a
+# quarter, counter-clockwise, to fit a large one down the page.
 [screen]
 transition = false
 checksum = "on"
 logging = "on"
 printing = "on"
+print_colour = "off"
+print_rgb = "off"
+print_background = "off"
+print_rotated = "off"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

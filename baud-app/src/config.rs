@@ -5,7 +5,8 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, `[screen] checksum`, `logging` and `printing`, `[pointer]
+//! `[text] ambiguous_width`, `[screen] checksum`, `logging`, `printing` and the four `print_`
+//! choices, `[pointer]
 //! hide_while_typing`, `[font] changes`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
@@ -55,6 +56,21 @@ pub enum FaceFrom {
     File,
     /// Bytes compiled into the binary.
     Embedded(&'static [u8]),
+}
+
+/// A `[screen]` print choice's value: `"on"` is true, `"off"` false, and
+/// anything else false, said.
+fn on_off(key: &str, value: &str, said: &mut Vec<String>) -> bool {
+    match value.trim().trim_matches('"') {
+        "on" => true,
+        "off" => false,
+        other => {
+            said.push(format!(
+                "config: [screen] {key} {other:?} is not on or off; using off"
+            ));
+            false
+        }
+    }
 }
 
 /// `[screen] printing`'s two values.
@@ -163,6 +179,13 @@ pub struct Config {
     /// "no printer" and every print request is ignored and counted. Nothing
     /// prints without the user pressing Print in the panel either way.
     pub printing: Printing,
+    /// `[screen] print_colour`, `print_rgb`, `print_background` and
+    /// `print_rotated`: how a program's printed picture (a ReGIS hard copy)
+    /// is sent, the choices DEC STD 070 leaves to the user (070-7 § 7.8.2):
+    /// in colour or black and white, its colours named in RGB or HLS, with
+    /// its background or without, turned a quarter or not. Each `"off"` by
+    /// default, the VT330/VT340's defaults.
+    pub graphics_print: baud_domain::GraphicsPrint,
     /// `[window] operations`: whether a program's window operations
     /// (XTWINOPS 1-10 and DECSLPP: move, resize, minimise, raise, lower,
     /// maximise, full screen) are performed, `"on"` by default (the owner's
@@ -662,6 +685,7 @@ impl Config {
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
+            graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
@@ -995,6 +1019,31 @@ impl Config {
                             Printing::On
                         }
                     };
+                }
+                ("screen", "print_colour") => {
+                    self.graphics_print.colour = match on_off("print_colour", &value, &mut said) {
+                        true => baud_domain::PrintColour::Colour,
+                        false => baud_domain::PrintColour::Mono,
+                    }
+                }
+                ("screen", "print_rgb") => {
+                    self.graphics_print.syntax = match on_off("print_rgb", &value, &mut said) {
+                        true => baud_domain::PrintSyntax::Rgb,
+                        false => baud_domain::PrintSyntax::Hls,
+                    }
+                }
+                ("screen", "print_background") => {
+                    self.graphics_print.background =
+                        match on_off("print_background", &value, &mut said) {
+                            true => baud_domain::PrintBackground::On,
+                            false => baud_domain::PrintBackground::Off,
+                        }
+                }
+                ("screen", "print_rotated") => {
+                    self.graphics_print.rotation = match on_off("print_rotated", &value, &mut said) {
+                        true => baud_domain::PrintRotation::Rotated,
+                        false => baud_domain::PrintRotation::Upright,
+                    }
                 }
                 ("window", "operations") => {
                     self.window_ops = match value.trim().trim_matches('"') {
@@ -2206,6 +2255,33 @@ mod reader {
             Logging::On,
             "not a top-level key"
         );
+    }
+
+    /// **A printed picture's four choices are off unless turned on**: each
+    /// `"on"` takes its other value, and anything but on or off keeps off
+    /// and says so.
+    #[test]
+    fn the_graphics_print_choices_are_off_unless_turned_on() {
+        use baud_domain::{
+            GraphicsPrint, PrintBackground, PrintColour, PrintRotation, PrintSyntax,
+        };
+        assert_eq!(read("").graphics_print, GraphicsPrint::DEFAULT);
+        let all = read(
+            "[screen]\nprint_colour = \"on\"\nprint_rgb = \"on\"\nprint_background = \"on\"\nprint_rotated = \"on\"\n",
+        );
+        assert_eq!(
+            all.graphics_print,
+            GraphicsPrint {
+                colour: PrintColour::Colour,
+                syntax: PrintSyntax::Rgb,
+                background: PrintBackground::On,
+                rotation: PrintRotation::Rotated,
+            }
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nprint_colour = \"yes\"\n");
+        assert_eq!(c.graphics_print, GraphicsPrint::DEFAULT);
+        assert!(said[0].contains("print_colour"), "{said:?}");
     }
 
     /// **A program's print opens the panel unless `[screen] printing =

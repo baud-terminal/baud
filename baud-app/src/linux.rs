@@ -275,6 +275,7 @@ pub fn run() {
     // printer, so DSR `?15` answers "no printer" and a print is ignored and
     // counted, whatever `[screen] printing` says (`print.rs`; note AW).
     crate::print::set_printer(&mut term, cfg.printing, crate::print::Printers::None);
+    term.set_graphics_print(cfg.graphics_print);
     crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
     crate::host::set_font_changes(&mut term, cfg.font_changes);
     crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);

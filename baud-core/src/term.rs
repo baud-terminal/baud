@@ -3725,6 +3725,20 @@ impl<'b> Term<'b> {
         self.redraw_indicator();
     }
 
+    /// **The graphics print choices the user makes under local control**
+    /// (`[[source: dec-std-070]]` 070-7 § 7.8.2): colour or black and white,
+    /// HLS or RGB, the background or not, upright or turned. A ReGIS hard
+    /// copy's dump is printed with them ([`GraphicsPrint::DEFAULT`] until
+    /// the embedder says).
+    pub fn set_graphics_print(&mut self, g: GraphicsPrint) {
+        self.store.strs.print.graphics = g;
+    }
+
+    /// The graphics print choices in force.
+    pub fn graphics_print(&self) -> GraphicsPrint {
+        self.store.strs.print.graphics
+    }
+
     /// **Whether a DSR `?15` stops the read.** Set it only if you look at
     /// your printer again when [`Term::printer_asked`] says one is owed,
     /// call [`Term::set_printer`] with what you find -- which answers it --

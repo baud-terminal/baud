@@ -2153,6 +2153,13 @@ impl<'b> ImageStore<'b> {
         }
     }
 
+    /// Whose a live image is: a Sixel's or a caller's, kitty's, or the
+    /// ReGIS page; `None` if `id` names none.
+    pub fn owner(&self, id: ImageId) -> Option<ImageOwner> {
+        let s = *self.slots.get(id.index()?)?;
+        (!s.is_empty()).then_some(s.owner)
+    }
+
     /// A read view of a live image, or `None` if `id` names none.
     pub fn image(&self, id: ImageId) -> Option<ImageView<'_>> {
         let i = id.index()?;
@@ -2417,6 +2424,21 @@ impl<'b> ImageStore<'b> {
         if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
             s.lit = s.lit.map(|n| n.saturating_sub(cleared));
         }
+    }
+
+    /// **The indices `page` is drawn from**, read: its plane, a byte a
+    /// pixel, while it is the page being drawn ([`ImageStore::link_page`]);
+    /// `None` for any other, a page left behind keeping only what it shows.
+    pub fn page_indices(&self, page: ImageId) -> Option<&[u8]> {
+        let (p, plane) = self.page_plane?;
+        if p != page {
+            return None;
+        }
+        let s = *self.slots.get(plane.index()?)?;
+        if s.is_empty() || s.owner != ImageOwner::Regis {
+            return None;
+        }
+        Some(self.pixels[s.start()..s.end()].as_bytes())
     }
 
     /// The page being drawn is `page`, drawn from the indices in `plane`.
