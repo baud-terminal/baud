@@ -2219,6 +2219,90 @@ fn the_clipboard_keys_are_kept_from_the_program() {
     assert_eq!(got.len(), 4, "{got:?}");
 }
 
+/// **The clipboard's keys are found on a Cyrillic layout too**, as foot
+/// finds a binding: with the `us,de,ru` keymap locked to Russian, the C key
+/// types `Cyrillic_es`, and Ctrl+Shift on it is still the copy, through
+/// the key's keysym in the first layout; Ctrl+Shift on V the paste.
+/// Control alone is still a key, and so is the chord on a key whose first
+/// layout has no `c`.
+#[test]
+fn the_clipboard_keys_are_found_on_a_cyrillic_layout() {
+    use baud_domain::KeyEventKind;
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard: kb,
+        ..
+    } = clip_session();
+    let keymap = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-xkb/tests/fixtures/keymap-us_de_ru__grp_win_space_toggle.xkb"
+    ))
+    .unwrap();
+    let mut kf = tempfile();
+    kf.write_all(&keymap).unwrap();
+    kf.write_all(&[0]).unwrap();
+    server.send(
+        kb,
+        "wl_keyboard",
+        "keymap",
+        &[
+            Arg::Uint(protocol::wl_keyboard::keymap_format::XKB_V1),
+            Arg::Fd(kf.as_fd()),
+            Arg::Uint(u32::try_from(keymap.len() + 1).unwrap()),
+        ],
+    );
+    let (shift, ctrl) = (1u32, 4u32);
+    let locked = |server: &mut Server, mask: u32| {
+        server.send(
+            kb,
+            "wl_keyboard",
+            "modifiers",
+            &[
+                Arg::Uint(1),
+                Arg::Uint(mask),
+                Arg::Uint(0),
+                Arg::Uint(0),
+                Arg::Uint(2),
+            ],
+        );
+    };
+    // The layout is Russian: the C key types es.
+    locked(&mut server, 0);
+    key_at(&mut server, kb, 3, KEY_C, PRESSED);
+    key_at(&mut server, kb, 4, KEY_C, RELEASED);
+    pump(&mut conn, &mut w);
+    let got = drain(&mut w);
+    assert!(
+        matches!(&got[..], [Event::Key(e), Event::Key(_)]
+            if e.code == baud_domain::KeyCode::Char(baud_domain::Codepoint::from_char('\u{441}'))),
+        "es on the C key: {got:?}"
+    );
+    for (code, want) in [(KEY_C, Shortcut::Copy), (KEY_V, Shortcut::Paste)] {
+        locked(&mut server, ctrl | shift);
+        key_at(&mut server, kb, 5, code, PRESSED);
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [Event::Shortcut(want)], "{want:?}");
+        key_at(&mut server, kb, 6, code, RELEASED);
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [], "nor release");
+    }
+    locked(&mut server, ctrl);
+    key_at(&mut server, kb, 7, KEY_C, PRESSED);
+    key_at(&mut server, kb, 8, KEY_C, RELEASED);
+    locked(&mut server, ctrl | shift);
+    key_at(&mut server, kb, 9, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    let got = drain(&mut w);
+    assert!(
+        got.iter()
+            .all(|e| matches!(e, Event::Key(k) if k.kind != KeyEventKind::Repeat)),
+        "keys, not shortcuts: {got:?}"
+    );
+    assert_eq!(got.len(), 3, "{got:?}");
+}
+
 /// **No manager, no copy**: a compositor without the globals gets no
 /// device requests, and a copy or a paste is refused rather than sent.
 #[test]

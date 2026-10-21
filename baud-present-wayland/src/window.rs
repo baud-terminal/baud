@@ -702,7 +702,7 @@ impl Window {
         let km = self.keymap.as_ref()?;
         let mut st = State::new(km);
         st.update(self.mods, self.group);
-        keys::shortcut(st.sym(code), st.mods().effective())
+        keys::shortcut(km, &st, code)
     }
 
     /// The key event `code` produces under the modifiers in force, as `kind`;

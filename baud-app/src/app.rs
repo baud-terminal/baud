@@ -7708,6 +7708,33 @@ impl Driver {
     }
 }
 
+/// **Command-C or Command-V that the Edit menu did not take**, by what the
+/// key types with Command held, `NSEvent.characters`. The menu matches its
+/// key equivalent against the key's own character: given the Hebrew,
+/// Russian or Greek layout's Command-C, whose characters are `c` and whose
+/// own is `ב`, `с` or `ψ`, an `NSMenu` holding Copy on `c` took nothing
+/// with the US layout selected, where the US layout's event was taken (a
+/// headless probe through `UCKeyTranslate` and `performKeyEquivalent:`,
+/// `docs/record.md`); whether AppKit's own localization of an unreachable
+/// key equivalent takes it with the Hebrew layout selected was not
+/// observed, and a key the menu took never gets here. Those layouts type the
+/// Latin letter under Command, so the copy is found by it, as foot finds a
+/// binding on a non-Latin layout by the key's Latin keysym. Command alone:
+/// Shift, Option or Control held makes another command.
+fn menu_missed(
+    characters: &str,
+    m: macos_liquid_glass::drawable::Modifiers,
+) -> Option<&'static str> {
+    if m.shift || m.option || m.control {
+        return None;
+    }
+    match characters {
+        "c" => Some("copy:"),
+        "v" => Some("paste:"),
+        _ => None,
+    }
+}
+
 /// What a polled `OSC 52` write does: the pasteboard written or emptied, or a
 /// refusal's one warning said.
 fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) {
@@ -7734,7 +7761,8 @@ impl Responder for Driver {
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
             // here, and one it does not sends nothing to the child -- but
-            // Command-Up and Command-Down, which jump between prompts.
+            // Command-Up and Command-Down, which jump between prompts, and
+            // Command-C and Command-V the menu missed (`menu_missed`).
             let m = key.modifiers;
             if !(m.shift || m.option || m.control) {
                 match key.key_code {
@@ -7742,6 +7770,9 @@ impl Responder for Driver {
                     0x7D => self.jump_to_prompt(PromptJump::Next),
                     _ => {}
                 }
+            }
+            if let Some(selector) = menu_missed(&key.characters, m) {
+                self.command(selector);
             }
             return Handled::Consumed;
         }
@@ -10441,6 +10472,50 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Command-C and Command-V the menu missed are copy and paste**, by
+    /// what the key types with Command held: the Hebrew, Russian and Greek
+    /// layouts' Command-C and Command-V type `c` and `v`, as
+    /// `UCKeyTranslate` reads them, so the copy and the paste are found;
+    /// their own characters are not Latin and find nothing; Shift, Option
+    /// or Control held finds nothing. The key handler asks it for every
+    /// Command key, after the prompt jumps.
+    #[test]
+    fn a_command_key_the_menu_missed_still_copies_and_pastes() {
+        use macos_liquid_glass::drawable::Modifiers as Held;
+        let cmd = Held {
+            command: true,
+            ..Held::default()
+        };
+        assert_eq!(menu_missed("c", cmd), Some("copy:"));
+        assert_eq!(menu_missed("v", cmd), Some("paste:"));
+        for own in ["\u{5d1}", "\u{5d4}", "\u{441}", "\u{3c8}", "x"] {
+            assert_eq!(menu_missed(own, cmd), None, "{own}");
+        }
+        for held in [
+            Held { shift: true, ..cmd },
+            Held {
+                option: true,
+                ..cmd
+            },
+            Held {
+                control: true,
+                ..cmd
+            },
+        ] {
+            assert_eq!(menu_missed("c", held), None, "{held:?}");
+        }
+        let src = include_str!("app.rs");
+        let block = src
+            .split(concat!("if key.modifiers.", "command {"))
+            .nth(1)
+            .expect("the Command block");
+        let block = &block[..block.find("return Handled::Consumed;").expect("its end")];
+        assert!(
+            block.contains(concat!("menu_missed(&key.", "characters, m)")),
+            "the key handler asks"
+        );
+    }
 
     /// A switch only under `auto` and only when the resolved appearance
     /// changes: a callback repeating the appearance the palette is set for --

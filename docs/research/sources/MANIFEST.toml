@@ -30225,3 +30225,31 @@ group  = "C"
 # "${CSI}242~"` loads the press then the release, as 070-13 § 5.4 orders
 # them; the VT330/VT340 manual's own example and separator sentence put
 # the release first.
+
+[sources.foot-2705e36-input]
+key    = "foot-2705e36-input"
+title  = "foot 2705e36, input.c -- a key binding matched on the active layout's first-level keysyms, then the translated keysym, then the key codes (1709-1745)"
+author = "Daniel Eklof and the foot contributors (MIT)"
+year   = 2026
+venue  = "foot terminal emulator, codeberg.org/dnkl/foot @ 2705e36"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/input.c"
+file   = ""
+sha256 = "e7c46dd6f39be85b33214c2e0a5d6aab94eace9110fdd39e3a7ed1492850db42"
+bytes  = 126975
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131). Practice for matching a shortcut on a non-Latin layout; read, not copied.
+
+[sources.foot-2705e36-key-binding]
+key    = "foot-2705e36-key-binding"
+title  = "foot 2705e36, key-binding.c -- key_codes_for_xkb_sym: every key code whose keysym is the binding's under a fresh state, the first layout (269-290)"
+author = "Daniel Eklof and the foot contributors (MIT)"
+year   = 2026
+venue  = "foot terminal emulator, codeberg.org/dnkl/foot @ 2705e36"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/key-binding.c"
+file   = ""
+sha256 = "b9f3ae9bdbceee1129205f33e622fc77f60dc9a522a3e83cfb70e6a239c9e896"
+bytes  = 19763
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131). Read, not copied.

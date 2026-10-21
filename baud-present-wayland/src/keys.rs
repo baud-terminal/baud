@@ -4,7 +4,7 @@
 //! `Term::key` wants it: a character with its text, or a functional key.
 
 use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, KeypadKey, Modifiers};
-use baud_xkb::{Keycode, Keysym, State};
+use baud_xkb::{Keycode, Keymap, Keysym, State};
 
 /// The modifiers `Term::key` cares about, from the real bits: Shift, Lock,
 /// Control, Mod1 (Alt), Mod2 (NumLock), Mod4 (Super).
@@ -90,20 +90,50 @@ pub enum Shortcut {
     PasteSelection,
 }
 
-/// **The shortcut a press of `sym` makes under the effective modifiers
-/// `eff`, if any.** Ctrl+Shift+C and Ctrl+Shift+V are foot's
-/// `clipboard-copy` and `clipboard-paste` (`[[source:
-/// foot-2705e36-foot-ini-5]]`) and kitty's `kitty_mod+c` and `kitty_mod+v`
-/// (`[[source: kitty-options-definition]]`); Shift+Insert is xterm's
-/// default translation (`[[source: xterm-man]]`), and foot's, kitty's and
+/// **The shortcut a press of `keycode` makes under `state`, if any.**
+/// Ctrl+Shift+C and Ctrl+Shift+V are foot's `clipboard-copy` and
+/// `clipboard-paste` (`[[source: foot-2705e36-foot-ini-5]]`) and kitty's
+/// `kitty_mod+c` and `kitty_mod+v` (`[[source:
+/// kitty-options-definition]]`); Shift+Insert is xterm's default
+/// translation (`[[source: xterm-man]]`), and foot's, kitty's and
 /// wezterm's primary paste (`[[source: wezterm-3725482-commands]]`; Jev's
-/// lean, BIND, 0.66/0.44). The letter is the keysym lowered, so the Shift
-/// that made it capital is read from the modifiers, and Caps Lock, which
-/// is not Shift, makes no shortcut; Alt or Super held makes none either,
-/// the chord being exact.
-pub fn shortcut(sym: Keysym, eff: baud_xkb::ModMask) -> Option<Shortcut> {
-    let held = modifiers(eff);
-    let chord = [
+/// lean, BIND, 0.66/0.44).
+///
+/// **Matched as foot matches a binding** (`[[source: foot-2705e36-input]]`
+/// 1709-1745): the key's first-level keysyms in the active layout against
+/// the exact chord, then the keysym the state translates to against the
+/// chord less what the lookup consumed, then the key's keysym in the first
+/// layout, as foot lists a binding's key codes with a fresh state
+/// (`[[source: foot-2705e36-key-binding]]` 269-290). The last is what
+/// makes Ctrl+Shift+C on a Cyrillic or Hebrew layout listed after a Latin
+/// one. The chord is Shift, Control, Alt and Super, exact, so Caps Lock,
+/// which is not Shift, makes no shortcut and Alt or Super held makes none.
+pub fn shortcut(km: &Keymap, state: &State<'_>, keycode: Keycode) -> Option<Shortcut> {
+    let key = km.key(keycode)?;
+    let eff = state.mods().effective();
+    let lookup = state.lookup(keycode)?;
+    let first = |layout: usize| -> &[Keysym] {
+        key.groups
+            .get(layout)
+            .and_then(|g| g.levels.first())
+            .map_or(&[], Vec::as_slice)
+    };
+    if let Some(s) = first(lookup.layout)
+        .iter()
+        .find_map(|&sym| bound(sym, chord(eff)))
+    {
+        return Some(s);
+    }
+    if let Some(s) = bound(lookup.sym, chord(eff & !lookup.consumed)) {
+        return Some(s);
+    }
+    bound(State::new(km).sym(keycode), chord(eff))
+}
+
+/// The chord of a modifier mask: Shift, Control, Alt and Super.
+fn chord(mask: baud_xkb::ModMask) -> Modifiers {
+    let held = modifiers(mask);
+    [
         Modifiers::SHIFT,
         Modifiers::CTRL,
         Modifiers::ALT,
@@ -111,10 +141,15 @@ pub fn shortcut(sym: Keysym, eff: baud_xkb::ModMask) -> Option<Shortcut> {
     ]
     .into_iter()
     .filter(|m| held.has(*m))
-    .fold(Modifiers::NONE, Modifiers::with);
+    .fold(Modifiers::NONE, Modifiers::with)
+}
+
+/// The shortcut bound to `sym` under `chord`: foot's keysyms, `c`, `v` and
+/// `Insert`, lower case as its bindings name them.
+fn bound(sym: Keysym, chord: Modifiers) -> Option<Shortcut> {
     let ctrl_shift = Modifiers::NONE.with(Modifiers::CTRL).with(Modifiers::SHIFT);
     const INSERT: u32 = 0xff63;
-    match (sym.to_lower().0, chord) {
+    match (sym.0, chord) {
         (0x63, c) if c == ctrl_shift => Some(Shortcut::Copy),
         (0x76, c) if c == ctrl_shift => Some(Shortcut::Paste),
         (INSERT, c) if c == Modifiers::SHIFT => Some(Shortcut::PasteSelection),
