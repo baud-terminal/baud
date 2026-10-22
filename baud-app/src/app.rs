@@ -2974,6 +2974,9 @@ struct Driver {
     /// The title the window was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than on every read.
     titles: crate::title::Shown,
+    /// The minimized window's title last set: the icon name, else the
+    /// title (`title::Mini`).
+    mini: crate::title::Mini,
     /// The folder and program a title is derived from when a program set
     /// none, read once a tick when a read, a key or a process event owes
     /// it (`title.rs`), and the process events (`fg::Watch`).
@@ -8744,6 +8747,7 @@ pub fn run() {
         glass: glass.clone(),
         window: window.clone(),
         titles: crate::title::Shown::new(),
+        mini: crate::title::Mini::new(),
         derive: crate::title::Derive::new(),
         watch,
         hosts: machine_names(),
@@ -9259,16 +9263,34 @@ impl Driver {
         title.unwrap_or_else(|| "baud".to_string())
     }
 
-    /// The window's title, sent when it changed (`title::Shown`).
+    /// The window's title, sent when it changed (`title::Shown`), and the
+    /// minimized window's after it: the icon name, else the title
+    /// (`title::Mini`), set again after every title set, which AppKit
+    /// lets overwrite it. Through the crate's `ns_window`, as the window's
+    /// size is set, since the crate has no call of its own for it.
     fn send_title(&mut self) {
         let fallback = self.derived_title();
-        if let Some(t) = self.titles.next(
+        let sent = self.titles.next(
             self.app.term.title(),
             self.app.term.title_encoding(),
             &fallback,
             self.app.term.print_run(),
+        );
+        if let Some(t) = &sent {
+            self.window.set_title(t);
+        }
+        let Some(title) = self.titles.sent() else {
+            return;
+        };
+        if let Some(m) = self.mini.next(
+            sent.as_deref(),
+            self.app.term.icon_name(),
+            self.app.term.icon_name_encoding(),
+            title,
         ) {
-            self.window.set_title(&t);
+            self.window
+                .ns_window()
+                .setMiniwindowTitle(Some(&NSString::from_str(&m)));
         }
     }
 

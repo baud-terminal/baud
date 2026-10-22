@@ -47,9 +47,11 @@ fn shown(text: &str) -> String {
 /// changed since the last one sent. A read compares at most `OSC_MAX` bytes
 /// and builds the derived title. A program that sets the same title on every
 /// prompt costs the window nothing while the folder and program stay the
-/// same.
+/// same. A change of the derived title sends the program's unchanged title
+/// again, and on macOS sets the minimized window's title again.
 pub struct Shown {
     last: Option<(Vec<u8>, InputEncoding, PrintRun, String)>,
+    sent: Option<String>,
 }
 
 /// **The title while a printer controller run hides the output**: a program
@@ -67,7 +69,17 @@ pub fn marked(title: String, run: PrintRun) -> String {
 
 impl Shown {
     pub fn new() -> Shown {
-        Shown { last: None }
+        Shown {
+            last: None,
+            sent: None,
+        }
+    }
+
+    /// The title last sent, which the minimized window's follows
+    /// ([`Mini`]).
+    #[cfg(any(target_os = "macos", test))]
+    pub fn sent(&self) -> Option<&str> {
+        self.sent.as_deref()
     }
 
     /// The title to send now, or `None` when the window already has it:
@@ -87,7 +99,53 @@ impl Shown {
             return None;
         }
         self.last = Some((bytes.to_vec(), encoding, run, fallback.to_string()));
-        Some(marked(window_title(bytes, encoding, fallback), run))
+        let t = marked(window_title(bytes, encoding, fallback), run);
+        self.sent = Some(t.clone());
+        Some(t)
+    }
+}
+
+/// **The icon name on macOS: the minimized window's title** (note AK
+/// question 8, I1, decided by Jev at 0.92 both orders, decisions
+/// 1209-1210). ctlseqs: "Ps = 1 -> Change Icon Name to Pt"; AppKit's
+/// nearest place is `miniwindowTitle`, and "changing the full-size
+/// `NSWindow` object's title ... automatically changes the minimized
+/// window's title as well" (`[[source: apple-nswindow-miniwindowtitle]]`),
+/// so it is set again after every title set. With no icon name the
+/// minimized window shows the window's title, AppKit's own default. Read
+/// in the encoding the core kept with it (`Term::icon_name_encoding`) and
+/// shown as a title is. Wayland's `xdg_toplevel` has a title and no icon
+/// name (`[[source: wp-xdg-shell]]`), so Linux keeps it stored.
+#[cfg(any(target_os = "macos", test))]
+pub struct Mini {
+    sent: Option<String>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Mini {
+    pub fn new() -> Mini {
+        Mini { sent: None }
+    }
+
+    /// The minimized window's title to set now, or `None` when it has it.
+    /// `just_set` is the window's title if this turn set one, which AppKit
+    /// set the minimized window's to; `title` is the window's title now.
+    pub fn next(
+        &mut self,
+        just_set: Option<&str>,
+        icon: &[u8],
+        encoding: InputEncoding,
+        title: &str,
+    ) -> Option<String> {
+        if let Some(t) = just_set {
+            self.sent = Some(t.to_string());
+        }
+        let want = window_title(icon, encoding, title);
+        if self.sent.as_deref() == Some(want.as_str()) {
+            return None;
+        }
+        self.sent = Some(want.clone());
+        Some(want)
     }
 }
 
@@ -599,6 +657,8 @@ mod tests {
             Some("main.rs - VIM"),
             "the program's own"
         );
+        assert_eq!(s.next(b"main.rs - VIM", u, derived, PrintRun::Idle), None);
+        assert_eq!(s.sent(), Some("main.rs - VIM"), "what the window has");
     }
 
     /// With nothing read, the derived title is whichever half is known.
@@ -718,6 +778,67 @@ mod tests {
             1,
             "Linux sends through send_title alone"
         );
+    }
+
+    /// **The icon name is the minimized window's title, set again after
+    /// every title set**, since AppKit's title set overwrites it; with no
+    /// icon name the minimized window keeps the window's title.
+    #[test]
+    fn the_icon_name_is_the_minimized_title_after_every_title_set() {
+        let (mut m, u) = (Mini::new(), InputEncoding::Utf8);
+        let vim = "main.rs - VIM";
+        assert_eq!(
+            m.next(Some(vim), b"", u, vim),
+            None,
+            "no icon name: the title's"
+        );
+        assert_eq!(m.next(None, b"main.rs", u, vim).as_deref(), Some("main.rs"));
+        assert_eq!(m.next(None, b"main.rs", u, vim), None, "once");
+        assert_eq!(
+            m.next(Some("other - VIM"), b"main.rs", u, "other - VIM")
+                .as_deref(),
+            Some("main.rs"),
+            "set again after the title set"
+        );
+        assert_eq!(
+            m.next(None, b"", u, "other - VIM").as_deref(),
+            Some("other - VIM"),
+            "an emptied icon name gives the title back"
+        );
+        assert_eq!(
+            m.next(None, b"caf\xe9\x07", InputEncoding::Latin1, "x")
+                .as_deref(),
+            Some("café"),
+            "read in its encoding and shown as a title"
+        );
+    }
+
+    /// **macOS sets the minimized window's title after the window's, in
+    /// the one place titles are sent.** AppKit-bound, so the source is held.
+    #[test]
+    fn macos_sets_the_minimized_title_after_the_title() {
+        const MAC: &str = include_str!("app.rs");
+        let send = body(MAC, concat!("    fn send_title(", "&mut self) {"), "    ");
+        let set = send
+            .find(concat!("self.window", ".set_title("))
+            .expect("the title set");
+        let next = send.find(concat!("self.mini", ".next(")).expect("told");
+        assert!(
+            send[next..]
+                .trim_start_matches(concat!("self.mini", ".next("))
+                .trim_start()
+                .starts_with("sent.as_deref(),"),
+            "told of the title set"
+        );
+        let mini = send
+            .find(concat!("setMiniwindow", "Title("))
+            .expect("the minimized title");
+        assert!(
+            set < next && next < mini,
+            "set, told, then the minimized title"
+        );
+        assert!(send.contains(concat!("icon_name", "_encoding()")));
+        assert_eq!(MAC.matches(concat!("setMiniwindow", "Title(")).count(), 1);
     }
 
     #[test]
