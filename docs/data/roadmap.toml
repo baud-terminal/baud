@@ -129,9 +129,9 @@ summary = "Programs such as neovim and tmux can ask which bytes each key sends, 
 [[item]]
 id = "SQ-v1.0-05"
 area = "window"
-status = "planned"
+status = "in_progress"
 title = "A window title with the folder and the running program"
-summary = "When a program sets no title, the window shows the current folder and what is running in it."
+summary = "When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet."
 
 [[item]]
 id = "SQ-v1.0-06"
@@ -158,7 +158,8 @@ summary = "Find text in the history and on the screen: every match marked, the n
 [[item]]
 id = "SQ-v1.0-09"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Folder, notification and progress messages from programs"
 summary = "Programs can tell baud the folder they are in, post a desktop notification or show a progress bar."
 

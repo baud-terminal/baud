@@ -13,7 +13,6 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **A hidden cursor moves with scrolling output** — A cursor a program hid and placed stays on its text while output scrolls.
 - [ ] **A saved cursor follows its text through a resize** — A position a program saved stays on the same text when the window is resized.
 - [ ] **Choose a terminal generation** — Programs can ask baud to behave as a VT100, VT220 or VT420, and every answer it gives follows that choice.
-- [ ] **Folder, notification and progress messages from programs** — Programs can tell baud the folder they are in, post a desktop notification or show a progress bar.
 - [ ] **More answers to programs' status questions** — More of the questions programs ask about the cursor and the terminal's settings get a true answer.
 - [ ] **More colour controls for programs** — Programs can set the selection and pointer colours, name colours, and save and restore the palette.
 - [ ] **More from shell prompt marks** — Clicking to move the cursor within a command line, and the exit status of each command.
@@ -25,6 +24,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Save and restore the whole terminal state** — Programs that save the terminal's state and put it back later can do so.
 - [ ] **The rest of the old character-set switching** — Single and locking shifts and the second character table that some older programs use.
 - [ ] **Window position reports** — Programs can ask where the window is on screen and get a true answer, beside the size reports already answered.
+- [x] **Folder, notification and progress messages from programs** — Programs can tell baud the folder they are in, post a desktop notification or show a progress bar. (2026-10-21)
 - [x] **The old terminal-ID request answers** — Programs that identify the terminal with ESC Z, the VT100's original request, now get the same answer as the modern one; VT52 mode keeps its own reply. (2026-10-16)
 - [x] **Cursor up and down stop at the scroll margins** — Inside a scrolling region, cursor up and down now stop at its edge, as DEC's text, xterm and ghostty do. (2026-10-15)
 - [x] **New lines and cursor moves stay inside side margins** — With left and right margins set, as in a vertical split, a new line starts at the left margin and cursor moves stop at the margins, as DEC's VT420 does. (2026-10-15)
@@ -89,11 +89,11 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Window, colours and bell
 
+- [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet. *In progress.*
 - [ ] **Readable colours on the light and dark glass** — Check the built-in light and dark colours for contrast over the see-through window, and tune them where they fall short. *In progress.*
 - [ ] **A launch splash** — baud's colour logo, gone in a burst of plasma by the time the shell is ready, with a setting to turn it off.
 - [ ] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window.
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
-- [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it.
 - [ ] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off.
 - [ ] **Blinking text follows Dim Flashing Lights** — macOS's Dim Flashing Lights setting will calm blinking text too.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
