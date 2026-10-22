@@ -337,10 +337,11 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// The style whose face a cell of `style` is drawn from: its own, when
-    /// the stack has one, else regular -- the fallback chain. A missing style
-    /// never borrows another style's face (Bold Italic is not drawn bold) and
-    /// nothing is synthesised. Jev, 0.67, asked with baud's principles;
-    /// kitty's rule.
+    /// the stack has one, else regular -- the fallback chain -- and nothing
+    /// is synthesised (Jev, 0.67, then R_REGULAR 0.98/0.98). Which face a
+    /// style has is the caller's: baud-app gives a configured family's
+    /// styles by CSS Fonts' style search, which can give Bold Italic the
+    /// Bold face of a family with no italic.
     pub fn effective(&self, style: FaceStyle) -> FaceStyle {
         if self.styled.get(style).is_some() {
             style

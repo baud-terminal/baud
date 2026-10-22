@@ -33,8 +33,11 @@
 //! configured, then baud's embedded font, then the system, which is not
 //! built for a configured stack yet (note AC decision 9); and the owner's
 //! call of 2026-10-03, as every terminal that bundles faces keeps them behind
-//! a configured font), unless `font_fallback = false`. A configured stack has
-//! no styled faces yet.
+//! a configured font), unless `font_fallback = false`. A configured stack's
+//! styled faces are the Bold, Italic and Bold Italic of the family of the
+//! first of its fonts that is found, picked by CSS Fonts' style search ([`Config::resolve`]), and a
+//! style the family has no nearer face for is drawn from its regular face,
+//! never synthesised.
 //!
 //! **A font is named by its family**, as ghostty's `font-family`, kitty's
 //! `font_family`, alacritty's `font.normal.family` and WezTerm's
@@ -795,6 +798,17 @@ impl Config {
     /// face `cat` picks for its regular style (`[[source: css-fonts-3]]`
     /// 5.2, [`crate::discover::pick`]), and a file that does not exist
     /// left out. Once at launch, off every per-byte and per-frame path.
+    /// **The first font of a config's list that is found brings its
+    /// family's styled faces**:
+    /// its Bold, Italic and Bold Italic, each the face CSS 5.2 picks for the
+    /// style in the family it names (found among the installed faces, and
+    /// for a font named by path beside its file too), left out where that
+    /// pick is the regular face itself -- so a family without a bold draws
+    /// bold from its regular face, never a synthesised one (Jev, R_REGULAR,
+    /// 0.98/0.98), and one without italics draws bold italic from its Bold
+    /// (B_CSS, Jev's lean). The default stack's styled faces are the
+    /// embedded ones, as they were.
+    ///
     /// Returns what it could not act on: a name a config gave that is no
     /// installed family, and a path that is no file, each left out of the
     /// stack; and, when nothing a config named is left, the built-in stack
@@ -802,15 +816,47 @@ impl Config {
     /// as a default path that did not exist always was.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn resolve(&mut self, cat: &crate::discover::Catalogue) -> Vec<String> {
-        use crate::discover::{Want, pick};
+        use crate::discover::{Picked, Want, pick};
         let mut said = Vec::new();
         let configured = self.stack == StackFrom::Configured;
         let mut kept = Vec::new();
-        for f in std::mem::take(&mut self.faces) {
+        // The first face a config named that was found, and its family's
+        // other styles: CSS 5.2's pick of each in the family it names.
+        let mut styled: Option<Vec<FaceSpec>> = None;
+        let styles_of = |family: &[&crate::discover::Known], regular: &Picked| {
+            use baud_render::FaceStyle;
+            [
+                (Want::BOLD, FaceStyle::Bold),
+                (Want::ITALIC, FaceStyle::Italic),
+                (Want::BOLD_ITALIC, FaceStyle::BoldItalic),
+            ]
+            .into_iter()
+            .filter_map(|(want, style)| {
+                let p = pick(family, want).filter(|p| p != regular)?;
+                Some(FaceSpec::picked(&p, baud_render::FaceRole::Style(style)))
+            })
+            .collect::<Vec<_>>()
+        };
+        for mut f in std::mem::take(&mut self.faces) {
             match f.from {
                 FaceFrom::Embedded(_) => kept.push(f),
                 FaceFrom::File => {
                     if std::fs::metadata(&f.path).is_ok_and(|m| m.is_file()) {
+                        if configured && styled.is_none() {
+                            // Drawn at the regular style's axis values, as
+                            // the face named by its family is, so a style
+                            // whose pick is this face is told apart from it.
+                            let beside = cat.beside(&f.path, f.index);
+                            if let Some(p) = beside.regular() {
+                                f.variations = p.variations.clone();
+                            }
+                            let regular = Picked {
+                                path: f.path.clone(),
+                                index: f.index,
+                                variations: f.variations.clone(),
+                            };
+                            styled = Some(styles_of(&beside.faces(), &regular));
+                        }
                         kept.push(f);
                     } else if configured {
                         said.push(format!(
@@ -820,7 +866,12 @@ impl Config {
                     }
                 }
                 FaceFrom::Family => match pick(&cat.family(&f.path), Want::REGULAR) {
-                    Some(p) => kept.push(FaceSpec::picked(&p, f.role)),
+                    Some(p) => {
+                        if configured && styled.is_none() {
+                            styled = Some(styles_of(&cat.family(&f.path), &p));
+                        }
+                        kept.push(FaceSpec::picked(&p, f.role));
+                    }
                     None if configured => said.push(format!(
                         "config: no installed font is the family {:?}; the stack goes on without it",
                         f.path
@@ -838,6 +889,7 @@ impl Config {
             said.extend(self.resolve(cat));
             return said;
         }
+        kept.extend(styled.unwrap_or_default());
         self.faces = kept;
         said
     }
@@ -1447,9 +1499,9 @@ impl Config {
             // `baud-font/tests/fonts/FiraCode-Regular.ttf`: the 52, 360 that
             // drew from STIX before, 8 from the icon face (U+23FB-23FE,
             // U+26A1, U+276E-276F, U+2B58) and 38 more that were boxes.
-            // Regular only: a configured stack has no styled faces, so its
-            // bold and italic Hebrew draws from this face too, upright and
-            // regular weight.
+            // Regular only: a styled face is not in the chain, so the bold
+            // and italic Hebrew a configured family's styled faces lack
+            // draws from this face, upright and regular weight.
             if self.font_fallback == FontFallback::Embedded {
                 faces.push(FaceSpec::embedded(crate::embedded::REGULAR));
                 faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
@@ -1990,14 +2042,19 @@ mod named {
         );
         assert_eq!(c.faces[0].role, baud_render::FaceRole::Fallback);
         assert!(
-            c.faces[1..]
+            c.faces[1..4]
                 .iter()
                 .all(|f| matches!(f.from, FaceFrom::Embedded(_)))
         );
+        assert!(
+            c.faces[4..]
+                .iter()
+                .all(|f| matches!(f.role, baud_render::FaceRole::Style(_)))
+        );
         assert_eq!(
             c.faces.len(),
-            4,
-            "the face and the three embedded fallbacks"
+            7,
+            "the face, the three embedded fallbacks and its family's three styles"
         );
         assert_eq!(c.stack, StackFrom::Configured);
     }
@@ -2025,6 +2082,255 @@ mod named {
             "the defaults' misses are quiet"
         );
         assert!(d.faces.iter().all(|f| f.from != FaceFrom::Family));
+    }
+
+    /// Each style's face in `c`, by the file name it was read from and,
+    /// for a variable face, its `wght`.
+    fn styles(c: &Config) -> Vec<(baud_render::FaceStyle, String, Option<f32>)> {
+        let wght = baud_font::Tag::from_bytes(*b"wght");
+        c.faces
+            .iter()
+            .filter_map(|f| match f.role {
+                baud_render::FaceRole::Style(s) => Some((
+                    s,
+                    f.path.rsplit('/').next().unwrap_or("").to_string(),
+                    f.variations
+                        .iter()
+                        .find(|v| v.tag == wght)
+                        .map(|v| v.value.to_f32()),
+                )),
+                baud_render::FaceRole::Fallback => None,
+            })
+            .collect()
+    }
+
+    use baud_render::FaceStyle::{Bold, BoldItalic, Italic};
+
+    /// **A configured family's own Bold, Italic and Bold Italic are its
+    /// styled faces** (the owner, 2026-09-29: "if there is bold font, baud
+    /// should not fake it and use the bold font"), found by CSS 5.2's
+    /// search in the family the first font named, and the stack they make
+    /// is one the renderer takes, each style drawn from its own face.
+    #[test]
+    fn a_configured_family_brings_its_own_styles() {
+        let mut c = read("fonts = [\"JetBrains Mono\"]\n");
+        assert!(c.resolve(&jetbrains()).is_empty());
+        assert_eq!(
+            styles(&c),
+            [
+                (Bold, "JetBrainsMono-Bold.ttf".into(), None),
+                (Italic, "JetBrainsMono-Italic.ttf".into(), None),
+                (BoldItalic, "JetBrainsMono-BoldItalic.ttf".into(), None),
+            ]
+        );
+        let data: Vec<Vec<u8>> = c
+            .faces
+            .iter()
+            .map(|f| match f.from {
+                FaceFrom::Embedded(b) => b.to_vec(),
+                _ => std::fs::read(&f.path).unwrap(),
+            })
+            .collect();
+        let faces: Vec<baud_font::Face<'_>> = data
+            .iter()
+            .zip(&c.faces)
+            .map(|(d, f)| baud_font::Face::parse_index(d, f.index).unwrap())
+            .collect();
+        let roles: Vec<_> = c.faces.iter().map(|f| f.role).collect();
+        let stack = baud_render::Stack::with_roles(&faces, &roles).expect("a stack");
+        for s in [Bold, Italic, BoldItalic] {
+            assert_eq!(stack.effective(s), s);
+        }
+    }
+
+    /// The four JetBrains Mono files' `names` copied into a directory of
+    /// this test's own.
+    fn some_of_jetbrains(tag: &str, names: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("baud-b141-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in names {
+            std::fs::copy(
+                format!("{ROOT}/baud-app/fonts/jetbrains-mono/{n}"),
+                dir.join(n),
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    /// **A family with a Bold and no italic draws italic from its regular
+    /// face and bold italic from its Bold** (CSS 5.2: style first, then
+    /// weight; Jev's lean B_CSS); nothing is synthesised (R_REGULAR).
+    #[test]
+    fn a_family_without_italics_draws_bold_italic_bold() {
+        let dir = some_of_jetbrains(
+            "noitalic",
+            &["JetBrainsMono-Regular.ttf", "JetBrainsMono-Bold.ttf"],
+        );
+        let mut c = read("fonts = [\"JetBrains Mono\"]\n");
+        assert!(
+            c.resolve(&Catalogue::scan(std::slice::from_ref(&dir)))
+                .is_empty()
+        );
+        assert_eq!(
+            styles(&c),
+            [
+                (Bold, "JetBrainsMono-Bold.ttf".into(), None),
+                (BoldItalic, "JetBrainsMono-Bold.ttf".into(), None),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **A font named by its path brings its family's styles from beside
+    /// it and from the installed fonts**: FiraCode-Regular.ttf's directory
+    /// holds FiraCode-VF.ttf, whose wght reaches 700, so bold is the
+    /// variable face at 700 (Jev, V_AXIS); alone in a directory, with
+    /// nothing installed, it is the only face and every style draws from
+    /// it.
+    #[test]
+    fn a_font_named_by_path_brings_its_familys_styles() {
+        let path = format!("{ROOT}/baud-font/tests/fonts/FiraCode-Regular.ttf");
+        let none = Catalogue::scan(&[]);
+        let mut c = read(&format!("fonts = [\"{path}\"]\n"));
+        assert!(c.resolve(&none).is_empty());
+        assert_eq!(
+            styles(&c),
+            [
+                (Bold, "FiraCode-VF.ttf".into(), Some(700.0)),
+                (BoldItalic, "FiraCode-VF.ttf".into(), Some(700.0)),
+            ]
+        );
+        let dir = std::env::temp_dir().join(format!("baud-b141-fira-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let alone = dir.join("FiraCode-Regular.ttf");
+        std::fs::copy(&path, &alone).unwrap();
+        let mut c = read(&format!("fonts = [\"{}\"]\n", alone.display()));
+        assert!(c.resolve(&none).is_empty());
+        assert!(styles(&c).is_empty(), "{:?}", styles(&c));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **A variable font named by its path is drawn at the weight
+    /// searched, as one named by its family is**: FiraCode-VF.ttf, whose
+    /// wght runs 300-700 with 300 its default, alone in a directory, is
+    /// the regular face at 400 and its own bold at 700, and italic draws
+    /// from the regular face as drawn rather than from a second copy of
+    /// it.
+    #[test]
+    fn a_variable_font_named_by_path_is_drawn_at_the_weight_searched() {
+        let wght = baud_font::Tag::from_bytes(*b"wght");
+        let at = |c: &Config| {
+            c.faces[0]
+                .variations
+                .iter()
+                .find(|v| v.tag == wght)
+                .map(|v| v.value.to_f32())
+        };
+        let dir = std::env::temp_dir().join(format!("baud-b141-firavf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vf = dir.join("FiraCode-VF.ttf");
+        std::fs::copy(format!("{ROOT}/baud-font/tests/fonts/FiraCode-VF.ttf"), &vf).unwrap();
+        let mut by_path = read(&format!("fonts = [\"{}\"]\n", vf.display()));
+        assert!(by_path.resolve(&Catalogue::scan(&[])).is_empty());
+        let mut by_name = read("fonts = [\"Fira Code\"]\n");
+        assert!(
+            by_name
+                .resolve(&Catalogue::scan(std::slice::from_ref(&dir)))
+                .is_empty()
+        );
+        for c in [&by_path, &by_name] {
+            assert_eq!(at(c), Some(400.0));
+            assert_eq!(
+                styles(c),
+                [
+                    (Bold, "FiraCode-VF.ttf".into(), Some(700.0)),
+                    (BoldItalic, "FiraCode-VF.ttf".into(), Some(700.0)),
+                ]
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **Only a path font's own folder is read, not the folders below
+    /// it**: a font saved in the home folder must not have the home folder
+    /// walked at every launch. JetBrains Mono's Bold one level down is not
+    /// found; beside the Regular it is.
+    #[test]
+    fn a_path_fonts_folder_is_read_one_level() {
+        let dir = some_of_jetbrains("onelevel", &["JetBrainsMono-Regular.ttf"]);
+        std::fs::create_dir_all(dir.join("below")).unwrap();
+        std::fs::copy(
+            format!("{ROOT}/baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+            dir.join("below/JetBrainsMono-Bold.ttf"),
+        )
+        .unwrap();
+        let regular = dir.join("JetBrainsMono-Regular.ttf");
+        let none = Catalogue::scan(&[]);
+        let mut c = read(&format!("fonts = [\"{}\"]\n", regular.display()));
+        assert!(c.resolve(&none).is_empty());
+        assert!(styles(&c).is_empty(), "{:?}", styles(&c));
+        std::fs::rename(
+            dir.join("below/JetBrainsMono-Bold.ttf"),
+            dir.join("JetBrainsMono-Bold.ttf"),
+        )
+        .unwrap();
+        let mut c = read(&format!("fonts = [\"{}\"]\n", regular.display()));
+        assert!(c.resolve(&none).is_empty());
+        assert_eq!(
+            styles(&c).len(),
+            2,
+            "bold and bold italic: {:?}",
+            styles(&c)
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **The system's own families, on macOS**: Menlo's four styles are
+    /// the four faces of one collection; Hiragino Sans GB has no 700, so
+    /// bold is its W6 at 600, as 700 searches up and then down; Apple SD
+    /// Gothic Neo's Bold is found by its weight class, 700, though its
+    /// `fsSelection` names neither bold nor regular.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_systems_families_bring_their_styles() {
+        let cat = Catalogue::system();
+        let indexed = |c: &Config| -> Vec<(baud_render::FaceStyle, String)> {
+            c.faces
+                .iter()
+                .filter_map(|f| match f.role {
+                    baud_render::FaceRole::Style(s) => {
+                        Some((s, format!("{}@{:?}", f.path, f.index)))
+                    }
+                    baud_render::FaceRole::Fallback => None,
+                })
+                .collect()
+        };
+        let at = |p: &str, i| {
+            format!(
+                "/System/Library/Fonts/{p}@{:?}",
+                baud_font::FaceIndex::of(i)
+            )
+        };
+        let mut c = read("fonts = [\"menlo\"]\n");
+        assert!(c.resolve(cat).is_empty());
+        assert_eq!(
+            indexed(&c),
+            [
+                (Bold, at("Menlo.ttc", 1)),
+                (Italic, at("Menlo.ttc", 2)),
+                (BoldItalic, at("Menlo.ttc", 3))
+            ]
+        );
+        let mut c = read("fonts = [\"Hiragino Sans GB\"]\n");
+        assert!(c.resolve(cat).is_empty());
+        assert_eq!(indexed(&c)[0], (Bold, at("Hiragino Sans GB.ttc", 2)));
+        let mut c = read("fonts = [\"Apple SD Gothic Neo\"]\n");
+        assert!(c.resolve(cat).is_empty());
+        assert_eq!(indexed(&c)[0], (Bold, at("AppleSDGothicNeo.ttc", 6)));
     }
 }
 

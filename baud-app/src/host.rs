@@ -634,7 +634,14 @@ mod tests {
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
             let loaded = super::load_faces(&mut cfg);
-            assert_eq!(loaded.len(), faces, "{extra:?}");
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
             assert!(
                 loaded[0].glyph(alef).is_none(),
                 "the control: FiraCode has no Hebrew"
@@ -651,6 +658,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **A configured font's own Bold, Italic and Bold Italic are its
+    /// styled faces in the renderer's stack, for both drivers**, which
+    /// both load through `Config::load`, `load_faces`' path and `stack`:
+    /// JetBrains Mono named by its Regular's path brings the three styles
+    /// beside it, each style is drawn from its own face, the embedded
+    /// styled faces are not among them, and a program's `OSC 50` that
+    /// names the family again keeps them (`Fonts::stack`).
+    #[test]
+    fn a_configured_fonts_styles_reach_the_renderer() {
+        use baud_render::{FaceRole, FaceStyle};
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
+        );
+        let mut cfg = crate::config::Config::defaults();
+        let said = cfg.apply(&format!("fonts = [\"{font}\"]\n"));
+        assert!(said.is_empty(), "{said:?}");
+        let loaded = super::load_faces(&mut cfg);
+        let stack = super::stack(&cfg, loaded);
+        for (style, file) in [
+            (FaceStyle::Bold, "JetBrainsMono-Bold.ttf"),
+            (FaceStyle::Italic, "JetBrainsMono-Italic.ttf"),
+            (FaceStyle::BoldItalic, "JetBrainsMono-BoldItalic.ttf"),
+        ] {
+            assert_eq!(stack.effective(style), style);
+            let at = cfg
+                .faces
+                .iter()
+                .position(|f| f.role == FaceRole::Style(style))
+                .expect("a styled face");
+            assert!(cfg.faces[at].path.ends_with(file), "{}", cfg.faces[at].path);
+            assert!(
+                !matches!(cfg.faces[at].from, crate::config::FaceFrom::Embedded(_)),
+                "the configured family's, not the embedded one's"
+            );
+        }
+        let data = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let slot = fonts.resolve(b"JETBRAINS MONO").expect("the family");
+        let built = fonts.stack(slot).expect("its stack");
+        let styled = built
+            .roles
+            .iter()
+            .filter(|r| matches!(r, FaceRole::Style(_)))
+            .count();
+        assert_eq!(styled, 3);
     }
 
     /// **An icon the configured font lacks draws from the embedded one.**
@@ -674,7 +730,14 @@ mod tests {
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
             let loaded = super::load_faces(&mut cfg);
-            assert_eq!(loaded.len(), faces, "{extra:?}");
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
             assert!(
                 loaded[0].glyph(folder).is_none(),
                 "the control: no icon in it"
@@ -771,7 +834,14 @@ mod tests {
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
             let loaded = super::load_faces(&mut cfg);
-            assert_eq!(loaded.len(), faces, "{extra:?}");
+            // The chain; the family's styled faces beside the file follow
+            // it, out of the chain.
+            let chain = cfg
+                .faces
+                .iter()
+                .filter(|f| f.role == baud_render::FaceRole::Fallback)
+                .count();
+            assert_eq!(chain, faces, "{extra:?}");
             for c in [arrow, bullet] {
                 assert!(
                     loaded[0].glyph(c).is_none(),

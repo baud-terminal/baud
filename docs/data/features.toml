@@ -519,13 +519,10 @@ tests = ["baud-app/src/config.rs::a_name_resolves_to_its_face_and_a_miss_is_said
 id = "own-fonts-styles"
 area = "text"
 name = "Bold and italic in your own fonts"
-does = "With your own fonts, bold and italic text is drawn."
-status = "partial"
-gap = "it uses your font's regular face for now, because fonts can't yet be named by family."
+does = "With your own font, bold, italic and bold-italic text is drawn from the font's own bold and italic faces, found by its family name; a style your font has no face for is drawn from its nearest face, never faked."
+status = "built"
 platform = "both"
-paths = ["config.toml.example"]
-behind = "other terminals find your font's bold and italic faces by family name."
-roadmap = ["SQ-v1.0-12", "SQ-v1.0-06"]
+tests = ["baud-app/src/config.rs::a_configured_family_brings_its_own_styles", "baud-app/src/config.rs::a_family_without_italics_draws_bold_italic_bold", "baud-app/src/host.rs::a_configured_fonts_styles_reach_the_renderer"]
 
 [[feature]]
 id = "variable-fonts"

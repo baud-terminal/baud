@@ -66,7 +66,7 @@ Text that lines up, in any script, with fonts that work out of the box.
 - **A box, never a blank** — A character no font can draw shows a missing-glyph box, never an empty cell. <sub>[proof](../../baud-render/tests/refused_glyph.rs)</sub>
 - **Accents no font can draw** — If your font lacks one accent on a letter, the letter's other accents still show. **Partly:** an accent no installed font can draw is left off rather than shown as a placeholder, which the Unicode Standard asks for. <sub>[proof](../../baud-render/tests/missing_mark.rs)</sub>
 - **Your own fonts, by name** — Name your own fonts by family, such as "Fira Code", and baud finds them among the fonts installed on your machine; list them in order, each filling in what the ones before it lack. A font file's path works too. baud's built-in fonts stay behind yours unless you turn that off. <sub>[proof](../../baud-app/src/config.rs)</sub>
-- **Bold and italic in your own fonts** — With your own fonts, bold and italic text is drawn. **Partly:** it uses your font's regular face for now, because fonts can't yet be named by family. <sub>[proof](../../config.toml.example)</sub>
+- **Bold and italic in your own fonts** — With your own font, bold, italic and bold-italic text is drawn from the font's own bold and italic faces, found by its family name; a style your font has no face for is drawn from its nearest face, never faked. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **Variable fonts** — Variable fonts and the TrueType, OpenType, CFF2 and collection formats are read and drawn. **Partly:** there is no setting yet to pick a weight. <sub>[proof](../../baud-render/tests/varied_face.rs)</sub>
 - **A bad font can't crash it** — A broken or malicious font file cannot crash the terminal. <sub>[proof](../../baud-font/tests/hostile.rs)</sub>
 - **Its own text engine** — baud reads fonts and arranges glyphs itself, each script by its own font rules, matching HarfBuzz on 576 test cases, with no third-party font library. <sub>[proof](../../baud-render/tests/script_runs.rs)</sub>
@@ -257,7 +257,6 @@ Where other terminals do more today, and what baud does not do yet, with a
 link where the [roadmap](../roadmap.md) plans it.
 
 - **A fixed list of fallback fonts** — most terminals search every installed font for a character the others lack; baud searches a fixed list.
-- **Bold and italic in your own fonts** — other terminals find your font's bold and italic faces by family name. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **Layered colour fonts** — kitty and wezterm draw the gradient form of layered colour fonts.
 - **Rare text styles** — ghostty and wezterm draw overlined text.
 - **Key releases** — the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)

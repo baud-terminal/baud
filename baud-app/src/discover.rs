@@ -82,6 +82,9 @@ struct Axis {
 pub struct Known {
     path: String,
     index: FaceIndex,
+    /// The family the module's order in baud-font's `name.rs` prefers,
+    /// nameID 16 else 1: what a face named by its path is a face of.
+    family: Option<String>,
     names: Vec<String>,
     width: Span,
     weight: Span,
@@ -104,6 +107,11 @@ impl Known {
         if names.is_empty() {
             return None;
         }
+        let family = d.family().and_then(|f| {
+            let mut out = [0u8; 256];
+            f.utf8(&mut out)
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+        });
         let axis = |tag: &[u8; 4]| {
             d.axis(Tag::from_bytes(*tag)).map(|a| Axis {
                 tag: a.tag,
@@ -154,6 +162,7 @@ impl Known {
         Some(Known {
             path: path.to_string(),
             index,
+            family,
             names,
             width,
             weight,
@@ -191,26 +200,14 @@ impl Want {
         italic: Italic::No,
         weight: baud_font::Weight::REGULAR,
     };
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests ask for a styled face yet")
-    )]
     pub const BOLD: Want = Want {
         italic: Italic::No,
         weight: baud_font::Weight::BOLD,
     };
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests ask for a styled face yet")
-    )]
     pub const ITALIC: Want = Want {
         italic: Italic::Yes,
         weight: baud_font::Weight::REGULAR,
     };
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests ask for a styled face yet")
-    )]
     pub const BOLD_ITALIC: Want = Want {
         italic: Italic::Yes,
         weight: baud_font::Weight::BOLD,
@@ -442,9 +439,14 @@ impl Catalogue {
     /// The faces under `dirs`, each walked in name order, earlier
     /// directories first; a directory that does not exist adds nothing.
     pub fn scan(dirs: &[PathBuf]) -> Catalogue {
+        Catalogue::read(dirs, DEPTH_MAX)
+    }
+
+    /// The faces under `dirs`, walked to `max` levels below each.
+    fn read(dirs: &[PathBuf], max: Depth) -> Catalogue {
         let mut files = Vec::new();
         for d in dirs {
-            walk(d, Depth(0), &mut files);
+            walk(d, Depth(0), max, &mut files);
         }
         let threads = std::thread::available_parallelism()
             .map_or(1, std::num::NonZero::get)
@@ -486,6 +488,51 @@ impl Catalogue {
     pub fn family(&self, name: &str) -> Vec<&Known> {
         self.faces.iter().filter(|k| k.answers_to(name)).collect()
     }
+
+    /// **The faces of the font a config names by path**: its file and the
+    /// font files beside it in its own directory, not below it, read on
+    /// their own -- a font named by path need not be in any font directory,
+    /// and the directory may be the home folder -- and the faces here, kept
+    /// where they are of its family.
+    pub fn beside(&self, path: &str, index: FaceIndex) -> Beside {
+        let p = Path::new(path);
+        let near = Catalogue::read(p.parent().map(Path::to_path_buf).as_slice(), Depth(0));
+        let own = read_file(p);
+        let named = own.iter().find(|k| k.index == index);
+        let family = named.and_then(|k| k.family.clone());
+        let regular = named.and_then(|k| pick(&[k], Want::REGULAR));
+        let faces = match &family {
+            Some(f) => near
+                .faces
+                .into_iter()
+                .chain(own)
+                .chain(self.faces.iter().cloned())
+                .filter(|k| k.answers_to(f))
+                .collect(),
+            None => Vec::new(),
+        };
+        Beside { faces, regular }
+    }
+}
+
+/// The faces of a font named by path's family ([`Catalogue::beside`]).
+pub struct Beside {
+    faces: Vec<Known>,
+    regular: Option<Picked>,
+}
+
+impl Beside {
+    pub fn faces(&self) -> Vec<&Known> {
+        self.faces.iter().collect()
+    }
+
+    /// **The named face at the axis values CSS 5.2's search gives the
+    /// regular style**: a variable face at `wght` 400 where its axis
+    /// reaches it, as the same face named by its family is drawn, and not
+    /// at its `fvar` default; `None` when the file has no such face.
+    pub fn regular(&self) -> Option<&Picked> {
+        self.regular.as_ref()
+    }
 }
 
 /// Whether `p` names a font file by its extension.
@@ -498,8 +545,8 @@ fn is_font(p: &Path) -> bool {
 }
 
 /// The font files under `dir`, in name order, following symbolic links
-/// (Home Manager links its fonts) to [`DEPTH_MAX`].
-fn walk(dir: &Path, depth: Depth, out: &mut Vec<PathBuf>) {
+/// (Home Manager links its fonts), to `max` levels below.
+fn walk(dir: &Path, depth: Depth, max: Depth, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return;
     };
@@ -516,7 +563,7 @@ fn walk(dir: &Path, depth: Depth, out: &mut Vec<PathBuf>) {
             k => k,
         };
         match kind {
-            Some(k) if k.is_dir() && depth < DEPTH_MAX => walk(&p, Depth(depth.0 + 1), out),
+            Some(k) if k.is_dir() && depth < max => walk(&p, Depth(depth.0 + 1), max, out),
             Some(k) if k.is_file() && is_font(&p) => out.push(p),
             _ => {}
         }
@@ -685,6 +732,7 @@ mod tests {
         Known {
             path: path.to_string(),
             index: FaceIndex::FIRST,
+            family: Some("Test Family".into()),
             names: vec!["Test Family".into()],
             width: Span::at(100.0),
             weight,
@@ -943,10 +991,26 @@ mod tests {
                 all.as_secs_f64() * 1e3
             );
         }
+        let cat = Catalogue::scan(&dirs);
+        for path in [
+            "/System/Library/Fonts/Menlo.ttc@0",
+            "/System/Library/Fonts/SFNSMono.ttf",
+        ] {
+            for _ in 0..3 {
+                let t = std::time::Instant::now();
+                let mut c = crate::config::Config::defaults();
+                assert!(c.apply(&format!("fonts = [\"{path}\"]\n")).is_empty());
+                let said = c.resolve(&cat);
+                println!(
+                    "{path} named first: its family's styles in {:.2} ms ({said:?})",
+                    t.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        }
         let t = std::time::Instant::now();
         let mut files = Vec::new();
         for d in &dirs {
-            walk(d, Depth(0), &mut files);
+            walk(d, Depth(0), DEPTH_MAX, &mut files);
         }
         let walked = t.elapsed();
         let n: usize = files.iter().map(|p| read_file(p).len()).sum();

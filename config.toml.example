@@ -95,9 +95,17 @@ bell = "sound"
 # whatever else JetBrains Mono maps that your faces lack -- behind FiraCode,
 # 458 code points by cmap, among them 8 symbols (U+23FB-23FE, U+26A1,
 # U+276E-276F, U+2B58) that drew from the icon face before -- so those come
-# from it, not the icon face. A stack named here draws bold and italic in its
-# regular faces, unfaked. A file path that does not start with / is read
-# beside this file, so "fonts/Mine.ttf" is the fonts directory next to it:
+# from it, not the icon face. Bold, italic and bold italic text draw from the
+# family of the first font in the list that is found: its Bold, Italic and
+# Bold Italic, found among the installed fonts (and, for a font given by
+# path, in its own folder), a variable
+# font at the weight asked for. That first font, if variable, is drawn at
+# the weight searched whether it is named by family or by path: its regular
+# text at 400 where its weight axis reaches it. A style the family has no face for draws
+# from the nearest face it has -- bold italic from its Bold when it has no
+# italic, bold from its regular face when it has no bold -- and is never
+# faked. A file path that does not start with / is read beside this file,
+# so "fonts/Mine.ttf" is the fonts directory next to it:
 # fonts = [
 #   "Menlo",
 #   "Apple Color Emoji",
