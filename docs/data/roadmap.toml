@@ -189,9 +189,10 @@ summary = "Draw the Linux version on the GPU with Vulkan, as the macOS app draws
 [[item]]
 id = "F1-01"
 area = "scroll"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "The scrollbar follows a settings change at once"
-summary = "Switching between always-visible and overlay scrollbars in System Settings shows without waiting for the next scroll."
+summary = "Switching between always-visible and overlay scrollbars in System Settings shows at once, without waiting for the next scroll."
 
 [[item]]
 id = "F1-03"

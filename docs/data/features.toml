@@ -1240,10 +1240,11 @@ shipped = ["2026-10-14-the-terminal-remembers-where-you-scrolled"]
 id = "scrollbar"
 area = "scroll"
 name = "A scrollbar like macOS's"
-does = "It appears while you scroll and fades away, widens when you point at it, and can be dragged or clicked; with \"Show scroll bars: Always\" it gets its own strip beside the text."
+does = "It appears while you scroll and fades away, widens when you point at it, and can be dragged or clicked; with \"Show scroll bars: Always\" it gets its own strip beside the text, and changing that setting in System Settings shows at once."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/reveal.rs::the_look_changes_only_while_it_fades", "baud-app/src/app.rs::a_legacy_gutter_takes_its_columns_and_the_frame_fits"]
+tests = ["baud-app/src/reveal.rs::the_look_changes_only_while_it_fades", "baud-app/src/app.rs::a_legacy_gutter_takes_its_columns_and_the_frame_fits", "baud-present-macos/src/settings.rs::the_scroller_notification_is_heard_once_a_tick", "baud-app/src/app.rs::a_heard_scroller_change_lays_the_window_out_at_once"]
+shipped = ["F1-01"]
 
 
 [[feature]]

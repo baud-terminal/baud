@@ -80,7 +80,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Scrollback, selection and resizing
 
-- [ ] **The scrollbar follows a settings change at once** — Switching between always-visible and overlay scrollbars in System Settings shows without waiting for the next scroll.
+- [x] **The scrollbar follows a settings change at once** — Switching between always-visible and overlay scrollbars in System Settings shows at once, without waiting for the next scroll. (2026-10-22)
 - [x] **Search the scrollback** — Find text in the history and on the screen: every match marked, the newest selected, the window following as you step through them. (2026-10-21)
 - [x] **A selection survives a change of height** — Making the window taller or shorter keeps what you selected on its lines; a change of width, or a full-screen program, still clears it. (2026-10-20)
 - [x] **A taller window brings back cut text** — Rows a shorter window cut off below the cursor come back when the window grows again, if they held any text. (2026-10-20)

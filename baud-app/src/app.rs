@@ -32,6 +32,7 @@ use baud_domain::{
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
+use baud_present_macos::settings::{Heard, Setting};
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer, SurfaceSpace,
@@ -3113,6 +3114,9 @@ struct Driver {
     /// The Accessibility Display settings the theme in force was drawn
     /// for, read on the tick (`poll_display`).
     display: Display,
+    /// The observers of the settings AppKit announces a change of, whose
+    /// marks the tick takes (`follow_settings`).
+    settings: baud_present_macos::settings::Watch,
     /// The window and screen as last handed to the core for XTWINOPS's
     /// reports, read on the tick (`poll_window`).
     window_facts: baud_core::WindowFacts,
@@ -6811,6 +6815,62 @@ mod motion_tests {
         assert!(read < first, "the settings are read after the first frame");
     }
 
+    /// **A heard "Show scroll bars" change lays the window out at once**,
+    /// either way between the two styles, and only when the style moved:
+    /// the same style after a notification moves no column, and with
+    /// nothing heard the setting is not read.
+    #[test]
+    fn a_heard_scroller_change_lays_the_window_out_at_once() {
+        use super::{Relayout, Scroller, scroller_change};
+        use baud_present_macos::settings::Heard;
+        for (drawn, now) in [
+            (Scroller::Legacy, Scroller::Overlay),
+            (Scroller::Overlay, Scroller::Legacy),
+        ] {
+            assert_eq!(
+                scroller_change(Heard::Changed, drawn, || now),
+                Relayout::Now
+            );
+            assert_eq!(
+                scroller_change(Heard::Changed, now, || now),
+                Relayout::Nothing,
+                "the control: an unmoved style lays nothing out"
+            );
+            assert_eq!(
+                scroller_change(Heard::Unchanged, drawn, || panic!(
+                    "read with nothing heard"
+                )),
+                Relayout::Nothing
+            );
+        }
+    }
+
+    /// **The window observes the settings from launch and the tick takes
+    /// what was heard**: both AppKit-bound, so the source is what can fail.
+    #[test]
+    fn the_tick_follows_the_settings_heard() {
+        const SRC: &str = include_str!("app.rs");
+        let tick = SRC
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .map(|(arm, _)| arm)
+            .expect("the tick arm");
+        assert!(tick.contains("self.poll_display();"), "the control: {tick}");
+        assert!(
+            tick.contains(concat!("self.follow_", "settings();")),
+            "{tick}"
+        );
+        assert_eq!(
+            SRC.matches(concat!(
+                "settings: baud_present_macos::settings::Watch::",
+                "start(),"
+            ))
+            .count(),
+            1,
+            "the driver starts its watch"
+        );
+    }
+
     /// **The pump rings a read's bells before anything can return**, and
     /// the shim makes the calls `ring` names. Both are AppKit-bound, so the
     /// source is what can fail: a ring after the held-update or the
@@ -7666,6 +7726,7 @@ impl Driver {
             self.poll_hover();
             self.poll_motion();
             self.poll_display();
+            self.follow_settings();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
             if self.app.term.status_type() == baud_core::StatusType::Indicator {
@@ -9097,6 +9158,7 @@ pub fn run() {
         glass_cfg,
         themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
         display: Display::default(),
+        settings: baud_present_macos::settings::Watch::start(),
         window_facts: baud_core::WindowFacts::UNKNOWN,
         status_took: crate::winops::StatusChange::Resize,
         saved_frame: None,
@@ -9696,8 +9758,8 @@ impl Driver {
     /// The Accessibility Display settings, read on the tick beside Reduce
     /// Motion and on the same terms: AppKit's own observer of the
     /// display-options notification invalidates the cached answers, which
-    /// the Reduce Motion design probed for that setting, so no observer of
-    /// baud's is added; that a live toggle of these two reads fresh within
+    /// the Reduce Motion design probed for that setting, so baud adds no
+    /// observer of its own for these (`follow_settings` observes others); that a live toggle of these two reads fresh within
     /// a frame is the owner's check, and the cost of these two reads is
     /// carried over from Reduce Motion's, not measured for them.
     /// **Not through `apply_style`**, whose early return for a
@@ -9714,6 +9776,20 @@ impl Driver {
         self.show_theme(in_force(self.theme_choice, self.palette_for));
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
+    }
+
+    /// **A setting AppKit said changed, followed on this tick**: the
+    /// observers in `baud_present_macos::settings` mark what was posted,
+    /// and this takes the marks. A change of "Show scroll bars" lays the
+    /// window out again at once when the style it asks for is not the one
+    /// drawn, so the legacy strip comes or goes, and the grid's columns
+    /// with it, without waiting for the next wheel or resize.
+    fn follow_settings(&mut self) {
+        let heard = self.settings.take(Setting::Scroller);
+        if scroller_change(heard, self.app.scroller, scroller_style) == Relayout::Now {
+            crate::info!("scroller: {:?}", scroller_style());
+            let _ = self.relayout(self.view.frame().size, self.app.scale);
+        }
     }
 
     /// Set the renderer's theme to `appearance`'s as the display settings
@@ -12964,6 +13040,25 @@ fn scroller_style() -> Scroller {
     match NSScroller::preferredScrollerStyle(mtm) {
         NSScrollerStyle::Legacy => Scroller::Legacy,
         _ => Scroller::Overlay,
+    }
+}
+
+/// What a change of a setting owes the window's layout.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Relayout {
+    Now,
+    Nothing,
+}
+
+/// **Whether a heard "Show scroll bars" change lays the window out
+/// again**: only when the style the setting asks for now is not the one
+/// drawn. A notification that leaves the style as it was -- a mouse
+/// plugged in under "Always" -- moves no column, and with nothing heard
+/// the style is not read at all.
+fn scroller_change(heard: Heard, drawn: Scroller, read: impl FnOnce() -> Scroller) -> Relayout {
+    match heard {
+        Heard::Changed if read() != drawn => Relayout::Now,
+        Heard::Changed | Heard::Unchanged => Relayout::Nothing,
     }
 }
 

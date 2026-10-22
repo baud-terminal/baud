@@ -30255,6 +30255,34 @@ status = "retrieved"
 group  = "O"
 # Fetched 2026-10-21 (lane b125) for the horizontal wheel: one axis an event.
 
+[sources.apple-nsscroller-preferredscrollerstyle]
+key    = "apple-nsscroller-preferredscrollerstyle"
+title  = "NSScroller.preferredScrollerStyle -- set by 'Show scroll bars' and the pointing devices; 'may therefore change over time'; 'register to receive preferredScrollerStyleDidChangeNotification notifications' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscroller/preferredscrollerstyle.json"
+file   = "apple-nsscroller-preferredscrollerstyle.json"
+sha256 = "725865f625a30b2f4f1cbdc76f04179f8785bfa208e1afa137c9bef4d3620c96"
+bytes  = 15895
+status = "retrieved"
+group  = "L"
+# Fetched 2026-10-22 (lane b157) for the scrollbar following the setting.
+
+[sources.apple-nsscroller-preferredscrollerstyledidchange]
+key    = "apple-nsscroller-preferredscrollerstyledidchange"
+title  = "NSScroller.preferredScrollerStyleDidChangeNotification -- 'Posted if the preferred scroller style changes'; macOS 10.7 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscroller/preferredscrollerstyledidchangenotification.json"
+file   = "apple-nsscroller-preferredscrollerstyledidchange.json"
+sha256 = "5a286ad3933d03646067e43de5c5690dfd16fecef39c36b7c1c6a3d77e2b553c"
+bytes  = 12060
+status = "retrieved"
+group  = "L"
+# Fetched 2026-10-22 (lane b157) for the scrollbar following the setting.
+
 [sources.alacritty-0151-input-mod]
 key    = "alacritty-0151-input-mod"
 title  = "alacritty 0.15.1, alacritty/src/input/mod.rs -- scroll_terminal: MOUSE_WHEEL_LEFT 66 / RIGHT 67, presses only; ESC O D / ESC O C on the alternate screen under ALTERNATE_SCROLL; a trackpad's pixel delta kept on one axis (~25 degrees)"
