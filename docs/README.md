@@ -99,6 +99,7 @@ its filename's prefix, and several notes share one.
 | [ax-program-notifications.md](research/notes/ax-program-notifications.md) | AX. Notifications and progress from programs | open |
 | [ay-fonts-by-name.md](research/notes/ay-fonts-by-name.md) | AY. Fonts by family name, and a family's own bold and italic | open |
 | [az-background-window.md](research/notes/az-background-window.md) | AZ. A window in the background: the cursor and the selection | open |
+| [ba-link-preview.md](research/notes/ba-link-preview.md) | BA. Holding Cmd over a link: what other terminals show | done 2026-10-22, `b43ab68` |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |

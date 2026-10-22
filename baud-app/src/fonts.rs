@@ -368,7 +368,11 @@ mod tests {
         let stix = f.resolve(b"STIX Two Math").expect("the math face");
         assert!(!f.leads(nerd) && !f.leads(stix) && nerd != stix);
         assert_eq!(f.resolve(b"No Such Family"), None, "not loaded");
-        assert_eq!(f.resolve(b"JetBrains Mono"), None, "a styled face's");
+        assert_eq!(
+            f.resolve(b"JetBrains Mono"),
+            None,
+            "no loaded face carries it"
+        );
     }
 
     /// **A program names a face by its PostScript name or its full name**,
@@ -376,9 +380,10 @@ mod tests {
     /// each embedded face's nameID 6 and US English nameID 4 find it, read
     /// from the faces themselves. Symbols Nerd Font Mono's full name is its
     /// family name, so it finds the face as the family. A styled face
-    /// named alone, the embedded Bold, is found though no family name
-    /// reaches it, and leads its stack as the regular face, with its
-    /// family's Italic and Bold Italic and no Bold beside itself.
+    /// named alone, the embedded Bold, is found by its own name, though
+    /// its family name finds the Regular, and leads its stack as the
+    /// regular face, with its family's Italic and Bold Italic and no Bold
+    /// beside itself.
     #[test]
     fn a_program_names_a_face_by_its_postscript_or_full_name() {
         let mut f = fonts("");
