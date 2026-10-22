@@ -56,6 +56,10 @@ pub enum Event {
     Focus(Focus),
     /// What the pointer did, a `wl_pointer.frame` at a time.
     Pointer(PointerEvent),
+    /// `wl_keyboard.modifiers` that changed what is held, read through
+    /// [`Window::modifiers`]. A link under a resting pointer is shown
+    /// while Ctrl is held, without the pointer moving.
+    Modifiers,
     /// A clipboard key the terminal keeps (`keys::shortcut`): its press,
     /// in place of the key event, and its release goes nowhere.
     Shortcut(Shortcut),
@@ -1518,12 +1522,18 @@ impl Handler for Window {
                     Read::Uint(group),
                 ],
             ) => {
+                let was = self.modifiers();
                 self.mods = Mods {
                     depressed: *dep,
                     latched: *lat,
                     locked: *lock,
                 };
                 self.group = usize::try_from(*group).unwrap_or(0);
+                // Only a change of what is held: a compositor sends the
+                // event after every key, most of them changing nothing.
+                if self.modifiers() != was {
+                    self.events.push_back(Event::Modifiers);
+                }
             }
             (
                 "wl_keyboard",

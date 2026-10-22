@@ -54,9 +54,9 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSImage, NSImageView,
-    NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
-    NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage,
+    NSImageView, NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView,
+    NSWindow, NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -433,6 +433,12 @@ struct App {
     /// The find field while it is open (`find.rs`): its matches, kept
     /// across reads, and the current one, which is the selection.
     finding: Option<crate::find::Finding>,
+    /// The link preview (`link.rs`, `Hover`): the link under the pointer
+    /// while Command is held, underlined, and its address in a bar.
+    hover: crate::link::Hover,
+    /// The host a `file:` link is local to, for the preview: read once
+    /// when Command goes down and kept while it is held (`preview_host`).
+    hover_host: Option<String>,
     /// What the field left when it last closed, which Command-G reopens it
     /// on when the find pasteboard still holds its query; and the query
     /// last written to the find pasteboard.
@@ -1175,6 +1181,8 @@ impl App {
             selection: None,
             scrolled: Scrolled::START,
             finding: None,
+            hover: crate::link::Hover::default(),
+            hover_host: None,
             find_left: None,
             find_written: Vec::new(),
             reveal: Reveal::HIDDEN,
@@ -1360,6 +1368,50 @@ impl App {
         }
     }
 
+    /// **The link preview read again** while the pointer is over the
+    /// text (`link::Hover::refresh`): on the view shown now, with the
+    /// modifiers AppKit says are held now, `NSEvent.modifierFlags`, since
+    /// the window crate hands no event for a press or release of Command
+    /// alone. Whether what the frame draws changed.
+    fn read_hover(&mut self) -> bool {
+        if !self.hover.over_text() {
+            return false;
+        }
+        let flags = NSEvent::modifierFlags_class();
+        // Command, and not Shift, which is the selection's.
+        let chord = match flags.contains(NSEventModifierFlags::Command)
+            && !flags.contains(NSEventModifierFlags::Shift)
+        {
+            true => crate::link::Chord::Cmd,
+            false => crate::link::Chord::Other,
+        };
+        let host = self.preview_host(chord);
+        self.hover.refresh(
+            &self.term,
+            self.scrolled,
+            chord,
+            self.focus,
+            crate::link::Host(&host),
+        )
+    }
+
+    /// **The host the preview admits a `file:` link against**,
+    /// `NSProcessInfo.hostName`, read once when Command goes down and kept
+    /// while it is held: the display-link tick reads the preview on every
+    /// frame while Command is held, and the host is asked once a press.
+    fn preview_host(&mut self, chord: crate::link::Chord) -> String {
+        match chord {
+            crate::link::Chord::Cmd => self
+                .hover_host
+                .get_or_insert_with(baud_present_macos::link::host_name)
+                .clone(),
+            crate::link::Chord::Other => {
+                self.hover_host = None;
+                String::new()
+            }
+        }
+    }
+
     fn present(&mut self, screen: &DrawableView, show: Show) {
         // Row 11's ceiling arm: what an idle tick would cost if the
         // preamble below were free. Incorrect by construction -- the
@@ -1402,6 +1454,13 @@ impl App {
             )
         });
         self.renderer.set_find(&self.term, look);
+        // The link preview, read again under the pointer on the view shown
+        // now: a read or a wheel may have changed what is under it since
+        // the tick read it (`Driver::poll_hover`).
+        if self.read_hover() {
+            self.pending = Pending::Dirty;
+        }
+        self.renderer.set_link(self.hover.look().cloned());
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
@@ -1891,24 +1950,11 @@ impl App {
                         &mut cell.records,
                     );
                 }
-                // The find field over its cells, masked off the shader as a
-                // composition is, then every match's mark and its caret.
-                if let Some(c) = self.renderer.find_field() {
-                    cell.exceptions.composed(
-                        &mut self.renderer,
-                        &self.term,
-                        &c,
-                        PackedCell::EMPTY,
-                        &cell.styles_mem[set][..],
-                        None,
-                        view.cols(),
-                        baud_domain::LineRendition::Single,
-                        Px::of(0),
-                        &mut cell.overlay_mem[set][..],
-                        &mut cell.records,
-                    );
-                }
+                // Every match's mark and the link preview's underline, with
+                // the content; the find field and the link's bar are baud's
+                // own and go over the images, below.
                 cell.records.extend_from_slice(self.renderer.find_solids());
+                cell.records.extend_from_slice(self.renderer.link_solids());
                 // The leaving row, when its line is not single-width: drawn
                 // at its size by its records, its row of the mask the one
                 // after the screen's (`Overlay::leaving`).
@@ -1944,8 +1990,36 @@ impl App {
                 // while the cursor is not.
                 self.renderer.set_cursor_glow_at(cursor_at);
                 cell.records.extend_from_slice(self.renderer.cursor_glow());
+                // baud's own overlays, drawn over the images over the text
+                // (`CellInput::chrome`): the find field over its cells,
+                // masked off the shader as a composition is, and its caret;
+                // the link preview's bar the same way; the thumb; the fade.
+                let chrome_from = cell.records.len();
+                for (c, caret) in [
+                    (self.renderer.find_field(), true),
+                    (self.renderer.link_bar(), false),
+                ] {
+                    let Some(c) = c else { continue };
+                    cell.exceptions.composed(
+                        &mut self.renderer,
+                        &self.term,
+                        &c,
+                        PackedCell::EMPTY,
+                        &cell.styles_mem[set][..],
+                        None,
+                        view.cols(),
+                        baud_domain::LineRendition::Single,
+                        Px::of(0),
+                        &mut cell.overlay_mem[set][..],
+                        &mut cell.records,
+                    );
+                    if caret {
+                        cell.records.extend_from_slice(self.renderer.find_caret());
+                    }
+                }
                 cell.records.extend_from_slice(self.renderer.scrollbar());
                 cell.records.extend_from_slice(self.renderer.screen_fade());
+                let chrome = Tally::of(cell.records.len() - chrome_from);
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
@@ -1979,6 +2053,7 @@ impl App {
                     overlay: &cell.overlay[set],
                     records: &cell.records,
                     under: cell.exceptions.under(),
+                    chrome,
                     slide: sliding.then_some(pan),
                     set: at,
                 };
@@ -4477,6 +4552,53 @@ mod alt_window_tests {
         feed(&mut t, b"out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
         (hold, _) = hold_after(&t, hold, last);
         assert!(hold == Hold::Open, "the next prompt released the hold");
+    }
+
+    /// **The display-link tick reads the link preview's modifiers**, so a
+    /// press or release of Command with the pointer resting shows on an
+    /// idle screen: the window crate hands no modifier change of its own,
+    /// and a steady or hidden cursor draws no frame to read them in. The
+    /// tick branch is AppKit-bound and no test drives it, so this holds
+    /// the source: the pump's tick branch polls the hover after the focus
+    /// (a focus lost clears it first), and the poll reads the modifiers
+    /// held now, refreshes the hover and owes a frame when it changed.
+    /// `link.rs`'s `a_press_of_command_alone_shows_on_the_next_frame` holds
+    /// what the refresh does. Perturbations: delete the tick's call, or
+    /// the frame it owes -- each fails here.
+    #[test]
+    fn the_display_link_tick_reads_the_link_preview() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
+        const FOCUS: &str = concat!("self.poll_", "focus();");
+        const CALL: &str = concat!("self.poll_", "hover();");
+        const POLL: &str = concat!("    fn poll_", "hover(&mut self) {");
+        const READ: &str = concat!("    fn read_", "hover(&mut self) -> bool {");
+        let body = |head: &str| {
+            assert_eq!(SRC.matches(head).count(), 1, "one {head}");
+            let b = SRC.split(head).nth(1).expect(head);
+            &b[..b.find("\n    }\n").expect("the function ends")]
+        };
+        let pump = body(PUMP);
+        let tick = pump.split(TICK).nth(1).expect("the tick branch");
+        let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
+        let (focus, call) = (tick.find(FOCUS), tick.find(CALL));
+        assert!(call.is_some(), "the tick does not poll the hover");
+        assert!(focus < call, "the hover is polled before the focus");
+        assert_eq!(SRC.matches(CALL).count(), 1, "and nowhere else");
+        let poll = body(POLL);
+        assert!(
+            poll.contains(concat!("self.app.read_", "hover()"))
+                && poll.contains("self.app.pending = Pending::Dirty;"),
+            "the poll owes no frame when the preview changes"
+        );
+        let read = body(READ);
+        assert!(
+            read.contains(concat!("NSEvent::modifier", "Flags_class()"))
+                && read.contains(".refresh("),
+            "the read does not refresh with the modifiers held now"
+        );
     }
 
     /// **The `OSC 52` poll is the feed's per-read callback.** The pump is
@@ -7474,6 +7596,7 @@ impl Driver {
             self.title_check();
             self.notice_turn();
             self.poll_focus();
+            self.poll_hover();
             self.poll_motion();
             self.poll_display();
             // The indicator line's printer field, read at the pace 070-14's
@@ -7919,6 +8042,11 @@ impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
         self.key_kind = kind_of(key);
         self.keyed = None;
+        // A key without Command alone says it is no longer held: the
+        // window crate hands no modifier change of its own.
+        if (!key.modifiers.command || key.modifiers.shift) && self.app.hover.clear() {
+            self.app.pending = Pending::Dirty;
+        }
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
             // here, and one it does not sends nothing to the child -- but
@@ -8105,6 +8233,7 @@ impl Responder for Driver {
         let half = LocatorHalf::Unrouted;
         let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);
         self.locator_owed(owed);
+        self.hover_mouse(event);
         if self.scrollbar(event) == Took::Yes {
             return;
         }
@@ -9158,6 +9287,18 @@ impl Driver {
         }
     }
 
+    /// **The link preview at each display-link tick**: a press or release
+    /// of Command with the pointer resting is seen by no event, so the
+    /// tick reads the modifiers held now (`App::read_hover`) and owes a
+    /// frame when the preview changes, on an idle screen too -- a steady
+    /// or hidden cursor draws no frame of its own to read them in. After
+    /// `poll_focus`, so a focus lost has cleared the preview first.
+    fn poll_hover(&mut self) {
+        if self.app.read_hover() {
+            self.app.pending = Pending::Dirty;
+        }
+    }
+
     /// Whether this window is the key window, read from AppKit now.
     ///
     /// **The live check found the focus gate dead.** `GlassWindow::show`
@@ -9509,6 +9650,9 @@ impl Driver {
         // as xterm's `unselectwindow` does on a focus-out.
         if f == baud_core::Focus::Lost {
             hide_pointer(self.hiding.crossed(&self.app.term));
+            if self.app.hover.clear() {
+                self.app.pending = Pending::Dirty;
+            }
         }
         // A gain reads the system's caret again -- a change made in System
         // Settings while baud was in the background lands here -- and is
@@ -9686,6 +9830,34 @@ impl Driver {
                  blink = \"auto\" honours it"
             );
             self.app.warned_blink = Done::Yes;
+        }
+    }
+
+    /// **The link preview's share of a mouse event**: with Command held
+    /// (and not Shift, the selection's), the link under the pointer is
+    /// underlined and its address shown (`link::Hover`); a move without it,
+    /// or the pointer leaving, takes them away. Mouse events carry the
+    /// modifiers, and the window crate hands no change of them alone, so a
+    /// press or release of Command with the pointer still is read at the
+    /// next display-link tick, from `NSEvent.modifierFlags`, which owes a
+    /// frame when the preview changes (`poll_hover`).
+    /// The pointer's cell is kept whatever the modifiers, for that read.
+    fn hover_mouse(&mut self, event: &Mouse) {
+        use crate::link::{Chord, Host};
+        let chord = if event.modifiers.command && !event.modifiers.shift {
+            Chord::Cmd
+        } else {
+            Chord::Other
+        };
+        let at = (event.kind != ViewMouseKind::Exited).then(|| self.cell_under(event.x, event.y));
+        let app = &mut self.app;
+        let host = app.preview_host(chord);
+        if app
+            .hover
+            .update(&app.term, at, app.scrolled, chord, app.focus, Host(&host))
+        {
+            app.pending = Pending::Dirty;
+            app.present(&self.view, Show::Event);
         }
     }
 

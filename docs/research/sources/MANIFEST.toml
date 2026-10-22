@@ -32157,3 +32157,172 @@ sha256 = "a7349107a8716541ef53f12127df99d8bc05f20ae1f7c77fb80499d955944ea6"
 bytes  = 13087
 status = "external"
 group  = "Y"
+
+[sources.osc8-spec]
+key    = "osc8-spec"
+title  = "Egmont Koblinger, Hyperlinks (a.k.a. HTML-like anchors) in terminal emulators, gist revision 5965d6d -- 'Hover underlining and the id parameter' (same URI and nonempty id underlined together; heuristics for cells without an id) and 'Security' (let the user know the URI upfront)"
+author = "Egmont Koblinger"
+year   = 2017
+venue  = "gist.github.com/egmontkob"
+url    = "https://gist.githubusercontent.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda/raw/5965d6de1b609d8be0ff57b5ad9d4fe172500cf7/Hyperlinks_in_Terminal_Emulators.md"
+file   = ""
+sha256 = "fc706ddcaeab44f2a117aa94bd3e9bc583132ba908281b5bb62ad3f58367955f"
+bytes  = 17584
+status = "external"
+group  = "BU"
+
+[sources.utr36-15]
+key    = "utr36-15"
+title  = "UTR #36 Unicode Security Considerations, revision 15 (stabilized) -- 2.3 confusables, 2.5 bidirectional text spoofing, 2.8.1 punycode spoofs"
+author = "Mark Davis, Michel Suignard"
+year   = 2014
+venue  = "unicode.org/reports/tr36"
+url    = "https://www.unicode.org/reports/tr36/tr36-15.html"
+file   = ""
+sha256 = "8d4d95e2736f6370e41f871b1b44c31892b9db6695ad2aec338dd14a31e8b2f5"
+bytes  = 189063
+status = "external"
+group  = "BU"
+
+[sources.uts39-34]
+key    = "uts39-34"
+title  = "UTS #39 Unicode Security Mechanisms, revision 34 -- mixed-script and whole-script confusable detection; no display rule for a terminal"
+author = "Mark Davis, Michel Suignard"
+year   = 2025
+venue  = "unicode.org/reports/tr39"
+url    = "https://www.unicode.org/reports/tr39/tr39-34.html"
+file   = ""
+sha256 = "aba0abe1891b47c98acd65e91153ca9352473d7ea1ae4b03b6686d22c656f87c"
+bytes  = 138281
+status = "external"
+group  = "BU"
+
+[sources.ghostty-urlhoverbanner]
+key    = "ghostty-urlhoverbanner"
+title  = "Ghostty f54340a, macos/Sources/Helpers/URLHoverBanner.swift -- the hovered link's URL in a one-line banner at the bottom-left, moved to the bottom-right while the pointer is over it, truncated in the middle"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/macos/Sources/Helpers/URLHoverBanner.swift"
+file   = ""
+sha256 = "69b78ad65340dc2f68213ac3343ae880067487f076c4280c5c642b5ff4543038"
+bytes  = 1898
+status = "external"
+group  = "BU"
+
+[sources.ghostty-untrustedurl]
+key    = "ghostty-untrustedurl"
+title  = "Ghostty f54340a, macos/Sources/Helpers/UntrustedURL.swift -- displayString escapes C0/C1 controls, bidi controls, zero-width and separator characters as backslash-u escapes; such characters refuse the open"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/macos/Sources/Helpers/UntrustedURL.swift"
+file   = ""
+sha256 = "523708cda1ecf7663a228feae07f13d20cb91e50b123e432f24d74c7a4aea9a3"
+bytes  = 10204
+status = "external"
+group  = "BU"
+
+[sources.ghostty-surface-links]
+key    = "ghostty-surface-links"
+title  = "Ghostty f54340a, src/Surface.zig -- mouseRefreshLinks: a link under the pointer with the link modifier highlighted, the pointer shape set, and its URL previewed per link-previews"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/src/Surface.zig"
+file   = ""
+sha256 = "a63a77a8c01598366d82498661cfbb9244391036578422e7b3b37cbdc737b318"
+bytes  = 248219
+status = "external"
+group  = "BU"
+
+[sources.kitty-hyperlink-target]
+key    = "kitty-hyperlink-target"
+title  = "kitty v0.43.1, kitty/shaders.c -- draw_hyperlink_target: show_hyperlink_targets draws the target in a bar along the top, along the bottom when the link is in the top three rows"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/shaders.c"
+file   = ""
+sha256 = "6b5a1f2a97e3ca21b3b0d21701834a97285bd5ba5949a084d0b0e2ccb55d94e8"
+bytes  = 72846
+status = "external"
+group  = "BU"
+
+[sources.kitty-sanitize-url]
+key    = "kitty-sanitize-url"
+title  = "kitty v0.43.1, kitty/utils.py -- sanitize_url_for_display_to_user: the host IDNA-encoded, the path percent-decoded"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/utils.py"
+file   = ""
+sha256 = "c5b58e8a0da7d7344eab9389308f793d9fc2a934947e372d2575621418dfc1d8"
+bytes  = 35046
+status = "external"
+group  = "BU"
+
+[sources.iterm2-hover-underline]
+key    = "iterm2-hover-underline"
+title  = "iTerm2 v3.5.10, sources/PTYTextView+ARC.m -- Command held over a link underlines it, sets the pointing hand and asks for the hover URL of an OSC 8 link"
+author = "George Nachman"
+year   = 2024
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/v3.5.10/sources/PTYTextView+ARC.m"
+file   = ""
+sha256 = "884cf4d914b1e81617f01fad493ae6d3617451d1f3700d139575a4ce6d3358b0"
+bytes  = 96423
+status = "external"
+group  = "BU"
+
+[sources.iterm2-hover-url-view]
+key    = "iterm2-hover-url-view"
+title  = "iTerm2 v3.5.10, sources/SessionView.m -- setHoverURL and framesForURLPreviewWithPadding: the URL in a box at whichever corner overlaps the link least, bottom-left first"
+author = "George Nachman"
+year   = 2024
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/v3.5.10/sources/SessionView.m"
+file   = ""
+sha256 = "7d0a2c0f67aaf9be23534b2930aa764a113211a2966db1f3f33a0a279c885439"
+bytes  = 89965
+status = "external"
+group  = "BU"
+
+[sources.wezterm-hover]
+key    = "wezterm-hover"
+title  = "wezterm 20240203-110809-5046fc22, wezterm-gui/src/termwindow/mouseevent.rs -- a hovered hyperlink underlined and the hand pointer set; its target not shown"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/wezterm-gui/src/termwindow/mouseevent.rs"
+file   = ""
+sha256 = "e2647ccd5a942274c930eb31a8ee3128e130cc1c4b4ca93a7ca407c19dc71bc8"
+bytes  = 38349
+status = "external"
+group  = "BU"
+
+[sources.chromium-status-bubble]
+key    = "chromium-status-bubble"
+title  = "Chromium 1845772a, chrome/browser/ui/views/status_bubble_views.cc (gitiles TEXT, base64-decoded; the hash is of the decoded file) -- the status bubble at the bottom-left, AvoidMouse sliding it away within 20 px of the pointer"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "Chromium (BSD-3-Clause)"
+url    = "https://chromium.googlesource.com/chromium/src/+/1845772a32ae00419ed0e7b6a589ea2a1b26fa87/chrome/browser/ui/views/status_bubble_views.cc?format=TEXT"
+file   = ""
+sha256 = "cce1cf18e6acbc01437597ef1509ae7945ceba71455b49c66954761aa87815ea"
+bytes  = 38691
+status = "external"
+group  = "BU"
+
+[sources.apple-hig-pointing-devices]
+key    = "apple-hig-pointing-devices"
+title  = "Human Interface Guidelines, Pointing devices -- 'Pointing hand: The content beneath the pointer is a URL link to a webpage, document, or other item.' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/pointing-devices.json"
+file   = ""
+sha256 = "06001b6feb8b9ab4544eca1cd4e98adaf125ba9d79475b6039887efa7e934f40"
+bytes  = 86213
+status = "external"
+group  = "BU"

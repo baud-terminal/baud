@@ -39,16 +39,24 @@
 //!   whole gesture the terminal's -- a child tracking the mouse never sees
 //!   it, the way Shift already carves a selection out.
 //!
+//! * [`Hover`] shows where a link goes before it is opened, while the
+//!   gesture's modifier is held over it: its cells underlined and its
+//!   address in a bar ([`preview`]), escaped a byte at a time
+//!   ([`escaped`]), shortened to keep the end of its host ([`shortened`]),
+//!   and with the reason in words when a click will not open it.
+//!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break, and nothing
-//! marks a link until the pointer-cursor and hover underline land, both
-//! of which need a modifier-change callback the window crate does not
-//! carry yet.
+//! across a hard line break is read only up to the break; and the pointer
+//! keeps its shape over a link. On macOS, where the window crate hands no
+//! modifier change of its own, a press or release of Command alone is
+//! read from `NSEvent.modifierFlags` at the next display-link tick, which
+//! owes a frame when the preview changes.
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, Term};
-use baud_domain::{Attrs, Col, LinkId, PackedCell, Row, Rows, Wrap};
-use baud_render::{AbsLine, Point, Scrolled, row_of};
+
+use baud_domain::{Attrs, Codepoint, Col, Cols, LinkId, PackedCell, Row, Rows, Wrap};
+use baud_render::{AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of};
 use core::ops::Range;
 
 /// What an admitted target is for.
@@ -700,9 +708,9 @@ pub struct Spot {
 /// The link under the pointer, as [`gesture`] needs it: the `OSC 8` link
 /// of the cell, which is a lookup, or else -- on an unarmed Cmd press in
 /// a key window, and on the release of a press armed over text -- the URI
-/// [`find`] reads around it. No other event reads the text, so moving,
-/// dragging and drawing cost nothing for it: the work is a click's, and
-/// bounded by `LINK_MAX` ([`window`]).
+/// [`find`] reads around it. No other event reads the text for a click;
+/// the preview reads it on a move only while the modifier is held
+/// ([`hovered`]), bounded by `LINK_MAX` as a click's read is ([`window`]).
 pub fn under(
     term: &Term<'_>,
     spot: Spot,
@@ -824,6 +832,375 @@ pub fn gesture(
         },
         (Some(_), Press::Exited | Press::Down) => Gesture::Drop,
     }
+}
+
+// ---- seeing where a link goes ---------------------------------------------
+
+/// **The address a link preview shows**, a byte at a time: printable ASCII
+/// as it is, a backslash doubled, and every other byte -- a space, a
+/// control, DEL, any byte from `0x80` -- as `\xNN`. A URI is "a sequence
+/// of characters from a very limited set: the letters of the basic Latin
+/// alphabet, digits, and a few special characters" (`[[source: rfc3986]]`
+/// 1.2.1), and [`admit`] opens nothing else, so what is drawn is exactly
+/// the bytes and nothing shown can pass for an address that opens: no
+/// control can move or end the line, no bidi control can reorder it
+/// (`[[source: uax9-tr9-52]]`), and no letter can be a look-alike of
+/// another script's (`[[source: utr36-15]]` 2.5, 2.3). Jev's lean,
+/// E_BYTES, 0.76 and 0.74.
+pub fn escaped(uri: &[u8]) -> String {
+    let mut out = String::with_capacity(uri.len());
+    for &b in uri {
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            0x21..=0x7e => out.push(char::from(b)),
+            _ => out.push_str(&format!("\\x{b:02X}")),
+        }
+    }
+    out
+}
+
+/// What a refusal says in the preview, before a click: the rule it fails,
+/// in words.
+pub fn refusal_words(why: Refused) -> &'static str {
+    match why {
+        Refused::Length => "too long",
+        Refused::Byte => "not a plain address",
+        Refused::Scheme => "not a web, mail or file link",
+        Refused::Host => "no host, or a file on another computer",
+        Refused::Header => "a mail link with extra headers",
+        Refused::Syntax => "not a whole address",
+    }
+}
+
+/// The ellipsis a shortened address shows where it left text out.
+const ELLIPSIS: char = '\u{2026}';
+
+/// **An escaped address shortened to `room` columns**, keeping what a spoof
+/// cannot push off the row: the scheme, then the host -- whole if it fits,
+/// else its end, where the registrable domain is, after an ellipsis --
+/// then the end of the rest after an ellipsis. A host that starts like
+/// another site's (`accounts.example.com.aaaa....evil.test`) shows the part
+/// that names where it goes. Jev's lean, T_KEEP_HOST_END, 0.95 and 0.89.
+pub fn shortened(address: &str, room: Cols) -> String {
+    let room = room.index();
+    let chars: Vec<char> = address.chars().collect();
+    if chars.len() <= room {
+        return address.to_string();
+    }
+    // The scheme and its `//`, the host up to the first `/`, `?` or `#`,
+    // and the rest; an address without a scheme is all host.
+    let scheme =
+        chars
+            .iter()
+            .position(|&c| c == ':')
+            .map_or(0, |i| match chars.get(i + 1..i + 3) {
+                Some(['/', '/']) => i + 3,
+                _ => i + 1,
+            });
+    let host_end = chars[scheme..]
+        .iter()
+        .position(|c| matches!(c, '/' | '?' | '#'))
+        .map_or(chars.len(), |i| scheme + i);
+    let (head, host, rest) = (
+        &chars[..scheme],
+        &chars[scheme..host_end],
+        &chars[host_end..],
+    );
+    let take_end =
+        |s: &[char], n: usize| -> String { s[s.len() - n.min(s.len())..].iter().collect() };
+    let head_s: String = head.iter().collect();
+    // Too narrow for a scheme and anything after it: the address's end.
+    if room <= head.len() + 2 {
+        return format!("{ELLIPSIS}{}", take_end(&chars, room.saturating_sub(1)));
+    }
+    let after = room - head.len();
+    // The rest keeps at least a quarter of the row's room, so where the
+    // path ends is in sight too.
+    let tail = rest.len().min(room / 4);
+    let host_s: String = host.iter().collect();
+    if host.len() + 1 + tail <= after && !rest.is_empty() {
+        return format!(
+            "{head_s}{host_s}{ELLIPSIS}{}",
+            take_end(rest, after - host.len() - 1)
+        );
+    }
+    match rest.is_empty() {
+        true => format!("{head_s}{ELLIPSIS}{}", take_end(host, after - 1)),
+        false => {
+            let host_room = after.saturating_sub(2 + tail).max(1);
+            let tail = after.saturating_sub(2 + host_room);
+            format!(
+                "{head_s}{ELLIPSIS}{}{ELLIPSIS}{}",
+                take_end(host, host_room),
+                take_end(rest, tail)
+            )
+        }
+    }
+}
+
+/// **What the preview's bar says for a link**: its escaped address, after
+/// what refuses it in words when a click would open nothing, so the user
+/// knows before clicking (Jev's lean, R_REASON, 0.62 and 0.89), shortened
+/// to `room` columns. A reason too long for the room is cut to "Won't
+/// open".
+pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
+    let room = room.index();
+    let (uri, verdict) = match link {
+        Under::Osc8(id) => {
+            let uri = term.link_uri(*id)?;
+            (uri, admit(uri, host).map(|_| ()))
+        }
+        Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
+    };
+    let address = escaped(uri);
+    let label = match verdict {
+        Ok(()) => String::new(),
+        Err(why) => {
+            let long = format!("Won't open, {}  ", refusal_words(why));
+            match long.len() + 12 <= room {
+                true => long,
+                false => "Won't open  ".to_string(),
+            }
+        }
+    };
+    let left = room.saturating_sub(label.len());
+    Some(format!(
+        "{label}{}",
+        shortened(&address, Cols::of_index(left))
+    ))
+}
+
+/// The link under the pointer while the link gesture's modifier is held:
+/// the cell's `OSC 8` link, or the URI the text around it reads as. Read
+/// on every move while the modifier is held, bounded as a click's read is
+/// ([`window`]).
+pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
+    let view = term.view(spot.back);
+    let cell = *view.row(spot.row).get(spot.col.index())?;
+    let id = cell.flags.link();
+    if term.link_uri(id).is_some() {
+        return Some(Under::Osc8(id));
+    }
+    let line = spot.scrolled.line(spot.back, spot.row);
+    window(term, spot.scrolled, line, spot.col)?
+        .bare()
+        .map(Under::Bare)
+}
+
+/// **The link's cells on the view, a run a row.** An `OSC 8` link is every
+/// cell naming its slot -- one URI and one `id` -- connected or not: cells
+/// sharing a nonempty `id` "are always underlined together on mouseover",
+/// and for cells without one the terminal "does some heuristics"
+/// (`[[source: osc8-spec]]`, "Hover underlining and the id parameter");
+/// Jev's lean, U_SLOT, 0.82 and 0.94. A URI read from the text is its
+/// cells from its first to its last, across the rows a soft wrap joined.
+pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
+    let view = term.view(spot.back);
+    let (rows, cols) = (view.rows().index(), view.cols().index());
+    let mut out = Vec::new();
+    match link {
+        Under::Osc8(id) => {
+            for y in 0..rows {
+                let row = view.row(Row::from_index(y));
+                let mut run: Option<usize> = None;
+                for x in 0..=cols.min(row.len()) {
+                    let on = row.get(x).is_some_and(|c| c.flags.link() == *id);
+                    match (on, run) {
+                        (true, None) => run = Some(x),
+                        (false, Some(a)) => {
+                            out.push(LinkSpan {
+                                row: Row::from_index(y),
+                                from: Col::at_index(a),
+                                to: Col::at_index(x - 1),
+                            });
+                            run = None;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Under::Bare(b) => {
+            for y in 0..rows {
+                let line = spot.scrolled.line(spot.back, Row::from_index(y));
+                if line < b.from.line || line > b.to.line {
+                    continue;
+                }
+                let from = if line == b.from.line {
+                    b.from.col.index()
+                } else {
+                    0
+                };
+                let to = if line == b.to.line {
+                    b.to.col.index()
+                } else {
+                    cols.saturating_sub(1)
+                };
+                // A wide character's tail is under the link with its lead.
+                let to = match view.row(Row::from_index(y)).get(to + 1) {
+                    Some(c) if c.content.is_wide_tail() => to + 1,
+                    _ => to,
+                };
+                out.push(LinkSpan {
+                    row: Row::from_index(y),
+                    from: Col::at_index(from),
+                    to: Col::at_index(to.min(cols.saturating_sub(1))),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// **Where the bar goes**: on the bottom row from the left edge, as a
+/// browser's status bubble sits (`[[source: chromium-status-bubble]]`) and
+/// Ghostty's banner (`[[source: ghostty-urlhoverbanner]]`); at the bottom
+/// row's right end while the link has cells under it on the left, as both
+/// move away from the pointer; on the top row only when the link is under
+/// both. Jev's lean, P_BOTTOM_SIDE, 0.41 and 0.35.
+pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, Col) {
+    let (width, cols, rows) = (width.index(), cols.index(), rows.index());
+    let last = Row::from_index(rows.saturating_sub(1));
+    let under = |a: usize, b: usize| {
+        spans
+            .iter()
+            .any(|s| s.row == last && s.from.index() < b && s.to.index() >= a)
+    };
+    let right = cols.saturating_sub(width);
+    match (under(0, width), under(right, cols)) {
+        (false, _) => (last, Col::ZERO),
+        (true, false) => (last, Col::at_index(right)),
+        (true, true) => (Row::from_index(0), Col::ZERO),
+    }
+}
+
+/// **What the preview draws for `link` under `spot`**: its cells
+/// underlined and the bar with its address, a space either side, in the
+/// selection's colours, cell-aligned text a program could copy, which
+/// shows only while the chord is held (Jev, K_SELECTION, 0.96 and 0.99).
+pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
+    let view = term.view(spot.back);
+    let (rows, cols) = (view.rows().index(), view.cols().index());
+    let text = preview_text(link, term, host, Cols::of_index(cols.saturating_sub(2)))?;
+    let spans = link_spans(term, spot, link);
+    let text: Vec<Codepoint> = format!(" {text} ")
+        .chars()
+        .map(Codepoint::from_char)
+        .collect();
+    let (row, col) = bar_at(
+        &spans,
+        Cols::of_index(text.len()),
+        Cols::of_index(cols),
+        Rows::of_index(rows),
+    );
+    let n = text.len();
+    Some(LinkLook {
+        spans,
+        bar: Field {
+            row,
+            col,
+            hints: vec![Hints::SELECTION; n],
+            caret: Col::at_index(col.index() + n),
+            text,
+        },
+    })
+}
+
+/// **The link preview's state**: the cell under the pointer, whatever the
+/// modifiers, and what it draws. A driver updates it on each pointer
+/// event and modifier change, refreshes it while the pointer is over the
+/// text at each frame and, on macOS, at each display-link tick, owing a
+/// frame when it changes, and clears it when the window loses the
+/// keyboard. Every read builds its [`Spot`] from the view shown then, as
+/// a click at the same place would: a window held on its line while
+/// output retires lines, or moved by a wheel, shows other lines under a
+/// pointer that has not moved.
+#[derive(Default)]
+pub struct Hover {
+    at: Option<(Row, Col)>,
+    look: Option<LinkLook>,
+}
+
+impl Hover {
+    /// The pointer over screen cell `at` (none off the text), the
+    /// driver's count of lines retired `scrolled`, with `chord` held, in a
+    /// window with `focus`: the link there previewed while the chord is
+    /// the link gesture's and the window is key, else nothing. Whether
+    /// what the frame draws changed.
+    pub fn update(
+        &mut self,
+        term: &Term<'_>,
+        at: Option<(Row, Col)>,
+        scrolled: Scrolled,
+        chord: Chord,
+        focus: Focus,
+        host: Host<'_>,
+    ) -> bool {
+        self.at = at;
+        let look = at
+            .filter(|_| chord == Chord::Cmd && focus == Focus::Gained)
+            .and_then(|(row, col)| {
+                let s = spot_now(term, scrolled, row, col)?;
+                let link = hovered(term, s)?;
+                preview(term, s, &link, host)
+            });
+        let changed = look != self.look;
+        self.look = look;
+        changed
+    }
+
+    /// A frame under a pointer that has not moved: the link under it read
+    /// again on the view shown now, with `chord` the modifiers held now --
+    /// a read or a wheel may have changed what is under it, a press of
+    /// the modifier no event reported shows the preview, and a release
+    /// takes it away. Whether what the frame draws changed.
+    pub fn refresh(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        chord: Chord,
+        focus: Focus,
+        host: Host<'_>,
+    ) -> bool {
+        match self.at {
+            Some(at) => self.update(term, Some(at), scrolled, chord, focus, host),
+            None => false,
+        }
+    }
+
+    /// Nothing previewed, until the next update or refresh.
+    /// Whether what the frame draws changed.
+    pub fn clear(&mut self) -> bool {
+        self.look.take().is_some()
+    }
+
+    /// Whether the pointer is over the text, so a frame can change what
+    /// the preview shows.
+    pub fn over_text(&self) -> bool {
+        self.at.is_some()
+    }
+
+    /// What the next frame draws, or none.
+    pub fn look(&self) -> Option<&LinkLook> {
+        self.look.as_ref()
+    }
+}
+
+/// The spot a click on screen cell `row`, `col` would read now: on the
+/// view shown, the character column of a double-width line, none past a
+/// grid that shrank under the pointer.
+fn spot_now(term: &Term<'_>, scrolled: Scrolled, row: Row, col: Col) -> Option<Spot> {
+    let back = term.window_back();
+    let view = term.view(back);
+    if row.index() >= view.rows().index() {
+        return None;
+    }
+    Some(Spot {
+        scrolled,
+        back,
+        row,
+        col: baud_render::char_col(&view, row, col),
+    })
 }
 
 #[cfg(test)]
@@ -1759,5 +2136,368 @@ mod tests {
             read(Press::Dragged, Chord::Cmd, Focus::Gained, Some(&armed)),
             None
         );
+    }
+
+    // --- Seeing where a link goes ---------------------------------------
+
+    /// **The preview shows every byte a target holds, and nothing that
+    /// could pass for another address**: controls, a bidi override and an
+    /// isolate, a zero-width space, a look-alike letter of another script,
+    /// a space and DEL each as `\xNN`, a backslash doubled, so what is
+    /// drawn is printable ASCII and one line. The control: an address that
+    /// opens is shown as it is. Perturbation: show bytes from `0x80` as
+    /// they decode -- the look-alike's line fails.
+    #[test]
+    fn the_preview_shows_every_byte_a_target_holds() {
+        assert_eq!(
+            escaped(b"https://example.com/a?b=c#d"),
+            "https://example.com/a?b=c#d",
+            "the control"
+        );
+        for (uri, want) in [
+            (&b"https://x/\x1b[31m\x07"[..], "https://x/\\x1B[31m\\x07"),
+            (
+                "https://x/\u{202e}fdp.exe".as_bytes(),
+                "https://x/\\xE2\\x80\\xAEfdp.exe",
+            ),
+            (
+                "https://x/\u{2066}a".as_bytes(),
+                "https://x/\\xE2\\x81\\xA6a",
+            ),
+            (
+                "https://x/a\u{200b}b".as_bytes(),
+                "https://x/a\\xE2\\x80\\x8Bb",
+            ),
+            (
+                "https://\u{430}pple.example/".as_bytes(),
+                "https://\\xD0\\xB0pple.example/",
+            ),
+            (b"https://x/a b\x7f", "https://x/a\\x20b\\x7F"),
+            (b"https://x/a\\b", "https://x/a\\\\b"),
+            (b"https://good.com@evil.com/", "https://good.com@evil.com/"),
+        ] {
+            let shown = escaped(uri);
+            assert_eq!(shown, want, "{uri:?}");
+            assert!(shown.bytes().all(|b| (0x21..=0x7e).contains(&b)), "{shown}");
+        }
+    }
+
+    /// **A long address keeps its scheme and the end of its host**, where
+    /// the registrable domain is, and the end of what follows: a host that
+    /// starts like another site's shows where it goes. Every room from 3
+    /// columns to past the address fits, and an address that fits is
+    /// whole. Perturbation: cut from the end alone -- `evil.test` is lost.
+    #[test]
+    fn a_long_address_keeps_its_scheme_and_the_end_of_its_host() {
+        let host = format!("accounts.example.com.{}.evil.test", "a".repeat(40));
+        let long = format!("https://{host}/login?next=/settings/keys");
+        let at = |room| shortened(&long, Cols::of_index(room));
+        assert_eq!(at(long.len()), long, "the control: it fits");
+        let s = at(62);
+        assert!(s.starts_with("https://\u{2026}"), "{s}");
+        assert!(s.contains("evil.test\u{2026}"), "{s}");
+        assert!(s.ends_with("/settings/keys"), "{s}");
+        // A host that fits is whole, and the rest's end follows it.
+        let short = "https://example.com/a/very/long/path/to/a/file/somewhere/deep/inside.txt";
+        let s = shortened(short, Cols::of_index(40));
+        assert!(s.starts_with("https://example.com\u{2026}"), "{s}");
+        assert!(s.ends_with("inside.txt"), "{s}");
+        // `mailto` keeps the address's domain; userinfo before a host
+        // keeps the host.
+        let s = shortened(
+            &format!("mailto:{}@evil.test", "a".repeat(60)),
+            Cols::of_index(30),
+        );
+        assert!(
+            s.starts_with("mailto:\u{2026}") && s.ends_with("@evil.test"),
+            "{s}"
+        );
+        let s = shortened(
+            &format!("https://good.com{}@evil.com/x", "a".repeat(60)),
+            Cols::of_index(30),
+        );
+        assert!(s.contains("@evil.com"), "{s}");
+        for text in [long.as_str(), short] {
+            for room in 3..=text.len() + 2 {
+                let n = shortened(text, Cols::of_index(room)).chars().count();
+                assert!(n <= room, "{room}: {n}");
+                assert!(n == room || room > text.len(), "{room}: {n} leaves room");
+            }
+        }
+        // The longest target the core keeps, shown in a row.
+        let max = format!("https://x/{}", "p".repeat(MAX - 10));
+        assert_eq!(
+            shortened(&escaped(max.as_bytes()), Cols::of_index(78))
+                .chars()
+                .count(),
+            78
+        );
+    }
+
+    /// **A link the click refuses says why before the click**, in words;
+    /// one that opens shows its address alone; a row too narrow for the
+    /// reason says only that it will not open. Perturbation: no label on a
+    /// refusal -- the ftp line fails.
+    #[test]
+    fn a_refused_link_says_why_before_the_click() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b]8;;ftp://f.example/x\x1b\\ftp\x1b]8;;\x1b\\ \x1b]8;;https://h.example/\x1b\\web\x1b]8;;\x1b\\");
+        let link = |col| hovered(&t, spot(Scrolled::START, Row::ZERO, Col::at_index(col))).unwrap();
+        let text =
+            |col, room| preview_text(&link(col), &t, Host(""), Cols::of_index(room)).unwrap();
+        assert_eq!(
+            text(0, 80),
+            "Won't open, not a web, mail or file link  ftp://f.example/x"
+        );
+        assert_eq!(text(4, 80), "https://h.example/", "the control: it opens");
+        assert_eq!(text(0, 30), "Won't open  ftp://f.example/x", "a narrow row");
+    }
+
+    /// **The bar moves off the link**: the bottom row's left end, its right
+    /// end while the link is under the left, the top row while it is under
+    /// both. The control: a link elsewhere leaves it bottom left.
+    #[test]
+    fn the_bar_moves_off_the_link() {
+        let s = |r: usize, a: usize, b: usize| LinkSpan {
+            row: Row::from_index(r),
+            from: Col::at_index(a),
+            to: Col::at_index(b),
+        };
+        let (last, top) = (Row::from_index(9), Row::from_index(0));
+        assert_eq!(
+            bar_at(
+                &[s(3, 0, 5)],
+                Cols::of_index(20),
+                Cols::of_index(80),
+                Rows::of_index(10)
+            ),
+            (last, Col::ZERO),
+            "the control"
+        );
+        assert_eq!(
+            bar_at(
+                &[s(9, 70, 79)],
+                Cols::of_index(20),
+                Cols::of_index(80),
+                Rows::of_index(10)
+            ),
+            (last, Col::ZERO)
+        );
+        assert_eq!(
+            bar_at(
+                &[s(9, 5, 9)],
+                Cols::of_index(20),
+                Cols::of_index(80),
+                Rows::of_index(10)
+            ),
+            (last, Col::at_index(60))
+        );
+        assert_eq!(
+            bar_at(
+                &[s(9, 5, 70)],
+                Cols::of_index(20),
+                Cols::of_index(80),
+                Rows::of_index(10)
+            ),
+            (top, Col::ZERO)
+        );
+    }
+
+    /// **Every cell naming the link is underlined**, connected or not --
+    /// one URI and one `id` -- and no cell of another link. The control: a
+    /// second link between the two runs is not underlined.
+    #[test]
+    fn every_cell_naming_the_link_is_underlined() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]8;id=a;https://a.example/\x1b\\ab\x1b]8;;\x1b\\ \x1b]8;;https://b.example/\x1b\\cd\x1b]8;;\x1b\\\r\n  \x1b]8;id=a;https://a.example/\x1b\\ef\x1b]8;;\x1b\\",
+        );
+        let at = spot(Scrolled::START, Row::ZERO, Col::ZERO);
+        let link = hovered(&t, at).unwrap();
+        let s = |r: usize, a: usize, b: usize| LinkSpan {
+            row: Row::from_index(r),
+            from: Col::at_index(a),
+            to: Col::at_index(b),
+        };
+        assert_eq!(link_spans(&t, at, &link), vec![s(0, 0, 1), s(1, 2, 3)]);
+        let other = hovered(&t, spot(Scrolled::START, Row::ZERO, Col::at_index(3))).unwrap();
+        assert_eq!(link_spans(&t, at, &other), vec![s(0, 3, 4)], "the control");
+    }
+
+    // --- The preview held while the screen moves -----------------------
+
+    /// A 60-column grid, wide enough that no address here is shortened.
+    const WIDE: WinSize = WinSize {
+        ws_col: 60,
+        ws_row: 6,
+    };
+
+    /// Fourteen `OSC 8` links, one a line, `https://l{n}.example/`.
+    fn numbered_links() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for n in 0..14 {
+            bytes.extend_from_slice(
+                format!("\x1b]8;;https://l{n}.example/\x1b\\L{n}\x1b]8;;\x1b\\\r\n").as_bytes(),
+            );
+        }
+        bytes
+    }
+
+    /// The bar's text, as drawn.
+    fn bar_string(l: &LinkLook) -> String {
+        l.bar
+            .text
+            .iter()
+            .filter_map(|c| char::from_u32(c.value()))
+            .collect()
+    }
+
+    /// What a pointer event at the top-left cell would preview now: the
+    /// spot a click there would read, built from the view shown.
+    fn fresh(t: &Term<'_>, scrolled: Scrolled) -> Option<LinkLook> {
+        let s = Spot {
+            scrolled,
+            back: t.window_back(),
+            row: Row::ZERO,
+            col: Col::ZERO,
+        };
+        preview(t, s, &hovered(t, s)?, NONE)
+    }
+
+    /// **A preview held over a window on the history follows the view
+    /// shown**: the pointer rests on the top row of a window three lines
+    /// up, and two lines of output move the window up with its line, so
+    /// the view shows the same lines; the frame's refresh previews the
+    /// link drawn under the pointer, as a click there would read it. The
+    /// control: before the output, the preview is the fresh one.
+    /// Perturbation: refresh with the `back` of the last pointer event --
+    /// the bar after the output fails.
+    #[test]
+    fn a_held_preview_follows_the_view_as_output_moves_it() {
+        let mut owned = Owned::with_history(
+            &WIDE,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(50),
+        );
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(&mut t, &numbered_links());
+        t.set_window_back(Rows::of_count(3));
+        let at = Some((Row::ZERO, Col::ZERO));
+        let mut h = Hover::default();
+        let s = Scrolled::START;
+        assert!(h.update(&t, at, s, Chord::Cmd, Focus::Gained, NONE));
+        assert_eq!(h.look(), fresh(&t, Scrolled::START).as_ref(), "the control");
+        let shown = h.look().map(bar_string);
+        feed(&mut t, b"more\r\nmore\r\n");
+        assert_eq!(t.window_back(), Rows::of_count(5), "held on its line");
+        let _ = h.refresh(&t, s, Chord::Cmd, Focus::Gained, NONE);
+        assert_eq!(h.look().map(bar_string), shown, "the same link drawn there");
+        assert_eq!(h.look(), fresh(&t, Scrolled::START).as_ref());
+    }
+
+    /// **A wheel under a still pointer with Command held**: the window
+    /// moves over the history with no pointer event, and the next frame's
+    /// refresh previews the link the pointer is over now. Perturbation:
+    /// refresh with the `back` of the last pointer event -- this fails.
+    #[test]
+    fn a_wheel_under_a_held_preview_reads_the_new_view() {
+        let mut owned = Owned::with_history(
+            &WIDE,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(50),
+        );
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(&mut t, &numbered_links());
+        t.set_window_back(Rows::of_count(3));
+        let at = Some((Row::ZERO, Col::ZERO));
+        let mut h = Hover::default();
+        let s = Scrolled::START;
+        assert!(h.update(&t, at, s, Chord::Cmd, Focus::Gained, NONE));
+        let before = h.look().map(bar_string);
+        t.set_window_back(Rows::of_count(1));
+        assert!(
+            h.refresh(&t, s, Chord::Cmd, Focus::Gained, NONE),
+            "a frame redraws it"
+        );
+        assert_ne!(h.look().map(bar_string), before, "the control: it moved");
+        assert_eq!(h.look(), fresh(&t, Scrolled::START).as_ref());
+    }
+
+    /// **A URI in the text under a held preview, with lines retired**:
+    /// the driver's count of retired lines advances with the window, and
+    /// the refresh reads the URI and its cells on the line the view shows
+    /// under the pointer. Perturbation: refresh with the `back` of the last
+    /// pointer event -- the bar fails. The count cancels out of what the
+    /// preview reads (a line is the count less `back` plus the row, and a
+    /// read finds it from the same count), so a stale one cannot be seen
+    /// here; the spot carries the driver's current one, as a click's does.
+    #[test]
+    fn a_held_preview_of_a_uri_in_the_text_reads_the_lines_shown() {
+        let mut owned = Owned::with_history(
+            &WIDE,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(50),
+        );
+        let mut t = Term::new(owned.storage(), &WIDE);
+        let mut bytes = Vec::new();
+        for n in 0..14 {
+            bytes.extend_from_slice(format!("see https://u{n}.example/{n}\r\n").as_bytes());
+        }
+        feed(&mut t, &bytes);
+        // The driver's count: the lines retired since the first.
+        let retired = |t: &Term<'_>| Scrolled::START.advanced(Rows::of_count(t.scrollback().len()));
+        t.set_window_back(Rows::of_count(3));
+        let pointer = |t: &Term<'_>| Spot {
+            scrolled: retired(t),
+            back: t.window_back(),
+            row: Row::ZERO,
+            col: Col::at_index(6),
+        };
+        let mut h = Hover::default();
+        let at = Some((Row::ZERO, Col::at_index(6)));
+        assert!(h.update(&t, at, retired(&t), Chord::Cmd, Focus::Gained, NONE));
+        let shown = h.look().cloned();
+        feed(&mut t, b"more\r\nmore\r\n");
+        let _ = h.refresh(&t, retired(&t), Chord::Cmd, Focus::Gained, NONE);
+        let s = pointer(&t);
+        let want = preview(&t, s, &hovered(&t, s).unwrap(), NONE);
+        assert_eq!(h.look(), want.as_ref());
+        assert_eq!(h.look(), shown.as_ref(), "the same URI, on the same row");
+    }
+
+    /// **Command pressed with the pointer resting shows the preview at
+    /// the next frame**: a move without Command, then a frame's refresh
+    /// with it held, which says the frame changed so the driver draws it.
+    /// The control: let go again, the frame takes it away. Perturbation:
+    /// keep the pointer's cell only while Command is held -- the press
+    /// fails.
+    #[test]
+    fn a_press_of_command_alone_shows_on_the_next_frame() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://a.example/\x1b\\link\x1b]8;;\x1b\\",
+        );
+        let (at, s, key) = (Some((Row::ZERO, Col::ZERO)), Scrolled::START, Focus::Gained);
+        let mut h = Hover::default();
+        assert!(!h.update(&t, at, s, Chord::Other, key, NONE));
+        assert!(h.refresh(&t, s, Chord::Cmd, key, NONE), "the frame changes");
+        assert!(h.look().is_some(), "a press of Command alone shows");
+        assert!(
+            h.refresh(&t, s, Chord::Other, key, NONE),
+            "the control: let go"
+        );
+        assert!(h.look().is_none());
+        // Off the text nothing shows, and without the keyboard nothing
+        // shows.
+        assert!(!h.update(&t, None, s, Chord::Other, key, NONE));
+        assert!(!h.refresh(&t, s, Chord::Cmd, key, NONE), "off the text");
+        let _ = h.update(&t, at, s, Chord::Other, Focus::Lost, NONE);
+        let _ = h.refresh(&t, s, Chord::Cmd, Focus::Lost, NONE);
+        assert!(h.look().is_none(), "no keyboard, no preview");
     }
 }

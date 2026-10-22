@@ -504,6 +504,7 @@ fn main() {
                         overlay: &overlay,
                         records: &records,
                         under: exceptions.under(),
+                        chrome: Tally::default(),
                         slide: None,
                         // The bench drives one frame at a time, so a set a
                         // frame would say nothing; the presenter's wheel is

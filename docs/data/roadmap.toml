@@ -204,7 +204,8 @@ summary = "A web address a program prints as plain text opens on Cmd-click, as a
 [[item]]
 id = "F1-04"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "See where a link goes before opening it"
 summary = "Holding Cmd marks the linked text and shows its address."
 

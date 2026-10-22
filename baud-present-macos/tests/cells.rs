@@ -35,7 +35,7 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorPhase, Damage,
     FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
     Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
-    StyleStamp, Target, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
+    StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
     copy_for_shader, quad_coverage,
 };
 
@@ -128,6 +128,11 @@ struct Arms<'f, 'a> {
     composition: Option<Composition>,
     /// The find field and its marks both arms draw, or none.
     find: Option<baud_render::FindLook>,
+    /// The link preview both arms draw, or none.
+    link: Option<baud_render::LinkLook>,
+    /// How many of the cell arm's records, at the end, are baud's own
+    /// overlays, drawn over the images.
+    chrome: Tally,
     /// The window copied flat, in screen order -- research decision D4's
     /// buffer, and what the app binds. Held here so a third arm can draw
     /// from it and be compared against the two that read the live grid.
@@ -167,6 +172,7 @@ impl Arms<'_, '_> {
         self.renderer.set_screen_fade(self.fade);
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
+        self.renderer.set_link(self.link.clone());
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
@@ -237,24 +243,10 @@ impl Arms<'_, '_> {
                 &mut self.records,
             );
         }
-        // The find field and its marks as the app draws them on the cell
-        // path: the field's cells masked and its records, then the solids.
-        if let Some(c) = self.renderer.find_field() {
-            self.exceptions.composed(
-                &mut self.renderer,
-                t,
-                &c,
-                PackedCell::EMPTY,
-                self.styles_mem,
-                None,
-                view.cols(),
-                baud_domain::LineRendition::Single,
-                Px::of(0),
-                self.overlay_mem,
-                &mut self.records,
-            );
-        }
+        // The find's marks and the link preview's underline as the app
+        // draws them on the cell path, with the content.
         self.records.extend_from_slice(self.renderer.find_solids());
+        self.records.extend_from_slice(self.renderer.link_solids());
         // The leaving row of a slide, when its line is not single-width,
         // as the app draws it: masked after the screen's rows and drawn by
         // its records. Only where the history holds one.
@@ -289,8 +281,35 @@ impl Arms<'_, '_> {
         // filter, as the app builds it.
         self.renderer.set_cursor_glow_at(shown);
         self.records.extend_from_slice(self.renderer.cursor_glow());
+        // baud's own overlays last, over the images, as the app draws
+        // them: the find field's cells masked and its records and caret,
+        // the link preview's bar the same way, the thumb, the fade.
+        let chrome_from = self.records.len();
+        for (c, caret) in [
+            (self.renderer.find_field(), true),
+            (self.renderer.link_bar(), false),
+        ] {
+            let Some(c) = c else { continue };
+            self.exceptions.composed(
+                &mut self.renderer,
+                t,
+                &c,
+                PackedCell::EMPTY,
+                self.styles_mem,
+                None,
+                view.cols(),
+                baud_domain::LineRendition::Single,
+                Px::of(0),
+                self.overlay_mem,
+                &mut self.records,
+            );
+            if caret {
+                self.records.extend_from_slice(self.renderer.find_caret());
+            }
+        }
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
+        self.chrome = Tally::of(self.records.len() - chrome_from);
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
             grid: &self.grid,
@@ -304,6 +323,7 @@ impl Arms<'_, '_> {
             overlay: &self.overlay,
             records: &self.records,
             under: self.exceptions.under(),
+            chrome: self.chrome,
             // In place: the shared ring holds the leaving row one row up
             // (ring row `rot - 1`), reached by the shader's own modulo.
             slide: self.slide,
@@ -398,6 +418,7 @@ impl Arms<'_, '_> {
             overlay: &self.overlay,
             records: &self.records,
             under: self.exceptions.under(),
+            chrome: self.chrome,
             slide: self.slide,
         };
         let Some(Drawn::Frame(_)) =
@@ -1271,6 +1292,8 @@ macro_rules! arms {
             fade: None,
             composition: None,
             find: None,
+            link: None,
+            chrome: Tally::default(),
             copy,
             copy_mem,
             slide: None,
@@ -2395,6 +2418,48 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the composition reached the field's pixels"
     );
     arms.find = None;
+    // **The link preview**: a run of cells underlined on two rows and the
+    // address bar on the bottom row in the selection's colours. The cell
+    // arm masks the bar's cells and appends the underline to its records;
+    // the instance arm converts the cells blank.
+    let text: Vec<_> = " https://example.org/docs "
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    let n = text.len();
+    let last = Row::from_index(t.geometry().1.index() - 1);
+    arms.link = Some(baud_render::LinkLook {
+        spans: vec![
+            baud_render::LinkSpan {
+                row: Row::from_index(1),
+                from: Col::at_index(3),
+                to: Col::at_index(12),
+            },
+            baud_render::LinkSpan {
+                row: Row::from_index(2),
+                from: Col::at_index(0),
+                to: Col::at_index(4),
+            },
+        ],
+        bar: baud_render::Field {
+            row: last,
+            col: Col::ZERO,
+            text,
+            hints: vec![baud_render::Hints::SELECTION; n],
+            caret: Col::at_index(n),
+        },
+    });
+    let (link_a, link_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&link_a, &link_b),
+        0,
+        "the arms disagree over the link preview"
+    );
+    assert!(
+        differing(&link_a, &plain) > 0,
+        "the link preview reached the pixels"
+    );
+    arms.link = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the
     // cell path's records -- and a change to the pixels. `plain` has the
@@ -3311,6 +3376,34 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // it covers -- only a before/after can.
     feed(&mut t, b"\x1b[H\x1b[?25l");
     let (_, no_image) = arms.draw(&mut t);
+    // baud's own bars on row 0, over the image's top rows once it is
+    // placed: here first with no image under them.
+    let text: Vec<_> = " https://example.org/docs "
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    let n_bar = text.len();
+    let bar = baud_render::Field {
+        row: Row::ZERO,
+        col: Col::ZERO,
+        text,
+        hints: vec![baud_render::Hints::SELECTION; n_bar],
+        caret: Col::at_index(n_bar),
+    };
+    let link = baud_render::LinkLook {
+        spans: Vec::new(),
+        bar: bar.clone(),
+    };
+    let find = baud_render::FindLook {
+        marks: Vec::new(),
+        field: bar,
+    };
+    arms.link = Some(link.clone());
+    let (_, link_bare) = arms.draw(&mut t);
+    arms.link = None;
+    arms.find = Some(find.clone());
+    let (_, find_bare) = arms.draw(&mut t);
+    arms.find = None;
     feed(&mut t, SWIRL);
     let (img_a, img_b) = arms.draw(&mut t);
     let places = arms.renderer.image_placements();
@@ -3341,6 +3434,55 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the sixel changed its rect against the no-image frame: {changed} of {} pixels",
         rw * rh
     );
+    // **baud's own overlays over the image**: the link preview's bar and
+    // the find field on row 0, over the image's top, are what they are
+    // with no image there, in both arms; the fade veils the image too.
+    // Perturbation: draw the images over the text after every record
+    // again, in either arm -- the bar's cells are the image's.
+    let (cw, ch) = (
+        usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap(),
+        usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap(),
+    );
+    let bar_px = |px: &[u32]| -> Vec<u32> {
+        (0..ch)
+            .flat_map(|y| (0..n_bar * cw).map(move |x| y * iw + x))
+            .map(|i| px[i])
+            .collect()
+    };
+    assert_ne!(
+        bar_px(&img_b),
+        bar_px(&link_bare),
+        "the image is under the bar"
+    );
+    for (what, bare) in [("the link bar", &link_bare), ("the find field", &find_bare)] {
+        match what {
+            "the link bar" => arms.link = Some(link.clone()),
+            _ => arms.find = Some(find.clone()),
+        }
+        let (a, b) = arms.draw(&mut t);
+        (arms.link, arms.find) = (None, None);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on {what} over the image"
+        );
+        assert!(bar_px(&a) == bar_px(bare), "{what} is drawn over the image");
+    }
+    arms.fade = Some(Transition { progress: 0.5 });
+    let (a, b) = arms.draw(&mut t);
+    arms.fade = None;
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree on the fade over the image"
+    );
+    let rect = |px: &[u32]| -> Vec<u32> {
+        (ry..ry + rh)
+            .flat_map(|y| (rx..rx + rw).map(move |x| y * iw + x))
+            .map(|i| px[i])
+            .collect()
+    };
+    assert!(rect(&a) != rect(&img_b), "the fade veils the image");
 
     // **An image slides with its line.** The same strong reference the
     // grid's slide gate uses: a full-row slide at the live screen is the

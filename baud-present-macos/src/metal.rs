@@ -417,6 +417,11 @@ pub struct CellInput<'a> {
     /// decorations, as the instance path draws a row. The rest are drawn
     /// after the decoration pass.
     pub under: Tally,
+    /// How many of `records`, at the end, are baud's own overlays -- the
+    /// find field and its caret, the link preview's bar, the scrollbar's
+    /// thumb and the screen fade ([`baud_render::Renderer::chrome`]):
+    /// drawn after the images over the text, the rest before them.
+    pub chrome: Tally,
     /// Smooth scroll: `Some(pan)` shifts the screen down by `pan` pixels and
     /// draws one extra "leaving" row above the window -- ring row -1, the
     /// line just retired, which the shader reaches by the same modulo.
@@ -1603,6 +1608,10 @@ impl Gpu {
         let frame_px = renderer.frame_size();
         let clear = clear_of(renderer.clear_color());
         let count = renderer.instances().count();
+        // The instances before baud's own overlays, which go over the
+        // images over the text.
+        let chrome = usize::try_from(renderer.chrome().value()).map_or(count, |c| c.min(count));
+        let content = count - chrome;
         let bytes = count.saturating_mul(Instance::BYTES);
         let mut trail_at = None;
         let slot = self.ring.0;
@@ -1730,11 +1739,27 @@ impl Gpu {
             // Images under the text, over the backgrounds, as the CPU
             // compositor blits them into a repainted row.
             self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
-            if count > 0 {
+            if content > 0 {
                 self.draw_records(
                     &enc,
                     &self.instances[slot],
                     At(0),
+                    At(content),
+                    trail_at,
+                    trail.as_ref(),
+                    &uniforms,
+                    &mask,
+                    &color,
+                );
+            }
+            // Images over the text after the content, the way the CPU
+            // compositor blits them, and baud's own overlays over them.
+            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
+            if count > content {
+                self.draw_records(
+                    &enc,
+                    &self.instances[slot],
+                    At(content),
                     At(count),
                     trail_at,
                     trail.as_ref(),
@@ -1743,9 +1768,6 @@ impl Gpu {
                     &color,
                 );
             }
-            // Images over the text last, the way the CPU compositor blits
-            // them.
-            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -2028,13 +2050,30 @@ impl Gpu {
             }
             // The rest of the records after every cell pass: the parts of
             // glyphs above their rows, then what the caller appended -- a
-            // prediction, a composition, the trail, the thumb, the fade --
-            // drawn as the instance path draws them.
+            // prediction, a composition, the trail -- drawn as the instance
+            // path draws them; then the images over the text, and baud's
+            // own overlays over them, the thumb and the fade last.
+            let chrome = usize::try_from(input.chrome.value()).map_or(n, |c| c.min(n));
+            let content = (n - chrome).max(under);
             if let Some(slot) = records {
                 self.draw_records(
                     &enc,
                     &self.instances[slot],
                     At(under),
+                    At(content),
+                    trail_at,
+                    trail.as_ref(),
+                    &ru,
+                    &mask,
+                    &color,
+                );
+            }
+            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
+            if let Some(slot) = records {
+                self.draw_records(
+                    &enc,
+                    &self.instances[slot],
+                    At(content),
                     At(n),
                     trail_at,
                     trail.as_ref(),
@@ -2043,9 +2082,6 @@ impl Gpu {
                     &color,
                 );
             }
-            // Images over the text last, over the records, matching the
-            // instance path and the CPU compositor.
-            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);

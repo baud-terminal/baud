@@ -501,7 +501,7 @@ fn a_window_opens_shows_a_frame_and_types() {
     }
     pump(&mut conn, &mut w);
     use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, KeyEventKind, Modifiers};
-    let got: Vec<Event> = std::iter::from_fn(|| w.next_event()).collect();
+    let got = drain(&mut w);
     assert_eq!(
         got,
         [
@@ -1217,8 +1217,38 @@ fn repeat_info(server: &mut Server, keyboard: ObjectId, rate: i32, delay: i32) {
     );
 }
 
+/// The events a step left, but a change of the modifiers: the key tests
+/// read the keys, and `a_change_of_the_modifiers_is_an_event` the changes.
 fn drain(w: &mut Window) -> Vec<Event> {
-    std::iter::from_fn(|| w.next_event()).collect()
+    std::iter::from_fn(|| w.next_event())
+        .filter(|e| !matches!(e, Event::Modifiers))
+        .collect()
+}
+
+/// **A change of what the keyboard holds is an event**, so a driver can
+/// show the link under a resting pointer while Ctrl is held; the same
+/// state sent again, which a compositor does after every key, is not.
+/// Perturbation: push the event on every `modifiers` -- the second
+/// assertion fails.
+#[test]
+fn a_change_of_the_modifiers_is_an_event() {
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    let mods = |w: &mut Window| {
+        std::iter::from_fn(|| w.next_event())
+            .filter(|e| matches!(e, Event::Modifiers))
+            .count()
+    };
+    let _ = mods(&mut w);
+    depressed(&mut server, kb, 1);
+    pump(&mut conn, &mut w);
+    assert_eq!(mods(&mut w), 1, "Shift pressed");
+    depressed(&mut server, kb, 1);
+    pump(&mut conn, &mut w);
+    assert_eq!(mods(&mut w), 0, "the same state again");
+    depressed(&mut server, kb, 0);
+    pump(&mut conn, &mut w);
+    assert_eq!(mods(&mut w), 1, "Shift let go");
+    assert!(!w.modifiers().has(baud_domain::Modifiers::SHIFT));
 }
 
 fn typed(c: char, mods: baud_domain::Modifiers, kind: baud_domain::KeyEventKind) -> Event {

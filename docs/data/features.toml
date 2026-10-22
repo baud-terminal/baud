@@ -1162,25 +1162,24 @@ tests = ["baud-core/tests/xterm/osc.rs::a_clipboard_read_is_refused_silently"]
 id = "links"
 area = "input"
 name = "Links open safely"
-does = "Cmd-click opens web and mail links, whether a program marks them as links or prints the address as plain text, even one that wraps onto the next line; a link to a file is shown in Finder, never launched, and any other kind is refused."
+does = "Cmd-click opens web and mail links, whether a program marks them as links or prints the address as plain text, even one that wraps onto the next line; a link to a file is shown in Finder, never launched, and any other kind is refused. Hold Cmd over a link to see where it goes first: the link is underlined and its address shown at the bottom of the window, with the reason when a click won't open it."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/link.rs::a_file_link_is_local_or_refused", "baud-app/src/link.rs::a_hostless_web_url_is_refused", "baud-app/src/link.rs::a_cmd_click_on_a_soft_wrapped_url_opens_the_whole_url"]
+tests = ["baud-app/src/link.rs::a_file_link_is_local_or_refused", "baud-app/src/link.rs::a_hostless_web_url_is_refused", "baud-app/src/link.rs::a_cmd_click_on_a_soft_wrapped_url_opens_the_whole_url", "baud-app/src/link.rs::the_preview_shows_every_byte_a_target_holds", "baud-render/tests/link_preview.rs::the_link_preview_is_drawn_moved_and_cleared_without_a_trace", "baud-render/tests/link_preview.rs::baud_s_own_overlays_are_drawn_over_an_image"]
 rows = ["vt:`OSC 8`"]
 chips = ["hyperlinks"]
-behind = "a link's address is not shown before it opens."
-roadmap = ["F1-04"]
-shipped = ["F1-03"]
+behind = "the pointer keeps its shape over a link, where iTerm2 and WezTerm show a pointing hand."
+shipped = ["F1-03", "F1-04"]
 
 
 [[feature]]
 id = "links-linux"
 area = "input"
 name = "Links open safely on Linux"
-does = "Ctrl-click opens web and mail links in your browser and mail app, whether a program marks them as links or prints the address as plain text; a link to a file is shown in your file manager, never launched, and any other kind is refused."
+does = "Ctrl-click opens web and mail links in your browser and mail app, whether a program marks them as links or prints the address as plain text; a link to a file is shown in your file manager, never launched, and any other kind is refused. Hold Ctrl over a link to see its address first."
 status = "built"
 platform = "linux"
-tests = ["baud-app/src/seat.rs::a_ctrl_click_on_a_link_opens_it", "baud-app/src/opener.rs::a_link_is_one_argument_to_xdg_open", "baud-app/src/bus.rs::a_reveal_asks_the_file_manager"]
+tests = ["baud-app/src/seat.rs::a_ctrl_click_on_a_link_opens_it", "baud-app/src/seat.rs::ctrl_held_over_a_link_previews_it", "baud-app/src/opener.rs::a_link_is_one_argument_to_xdg_open", "baud-app/src/bus.rs::a_reveal_asks_the_file_manager"]
 rows = ["vt:`OSC 8`"]
 chips = ["hyperlinks"]
 

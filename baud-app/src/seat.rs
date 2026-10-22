@@ -211,6 +211,9 @@ pub(crate) struct Seat {
     armed: Option<crate::link::Armed>,
     opening: Option<crate::link::Under>,
     focus: Focus,
+    /// The link preview: the link under the pointer while Ctrl is held,
+    /// underlined, and its address in a bar (`link::Hover`).
+    hover: crate::link::Hover,
 }
 
 impl Seat {
@@ -229,12 +232,67 @@ impl Seat {
             armed: None,
             opening: None,
             focus: Focus::Lost,
+            hover: crate::link::Hover::default(),
         }
     }
 
-    /// The keyboard came or went: a link arms only in a focused window.
+    /// The keyboard came or went: a link arms only in a focused window,
+    /// and is previewed only in one.
     pub(crate) fn focused(&mut self, f: Focus) {
         self.focus = f;
+        if f == Focus::Lost {
+            self.hover.clear();
+        }
+    }
+
+    /// **The link preview after a pointer event or a change of the
+    /// modifiers**: with Ctrl held and not Shift -- the link gesture's
+    /// chord -- the link under the pointer is underlined and its address
+    /// shown; otherwise, or off the surface, nothing. Whether the frame
+    /// changed.
+    pub(crate) fn hover(
+        &mut self,
+        term: &Term<'_>,
+        mods: Modifiers,
+        g: Geometry,
+        host: crate::link::Host<'_>,
+    ) -> bool {
+        use crate::link::Chord;
+        let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
+            true => Chord::Cmd,
+            false => Chord::Other,
+        };
+        let at = self.at.map(|_| {
+            let (row, col, _) = self.under(g);
+            (row, col)
+        });
+        self.hover
+            .update(term, at, self.scrolled, chord, self.focus, host)
+    }
+
+    /// The preview read again under the pointer where it rests, after a
+    /// read, on the view shown now and with the modifiers held now:
+    /// whether the frame changed.
+    pub(crate) fn hover_refresh(
+        &mut self,
+        term: &Term<'_>,
+        mods: Modifiers,
+        host: crate::link::Host<'_>,
+    ) -> bool {
+        use crate::link::Chord;
+        let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
+            true => Chord::Cmd,
+            false => Chord::Other,
+        };
+        self.hover.over_text()
+            && self
+                .hover
+                .refresh(term, self.scrolled, chord, self.focus, host)
+    }
+
+    /// What the link preview draws, or none.
+    pub(crate) fn hover_look(&self) -> Option<&baud_render::LinkLook> {
+        self.hover.look()
     }
 
     /// The link a [`Owed::Link`] opens, once.
@@ -1508,5 +1566,134 @@ mod tests {
         );
         let h = block(&mut seat, &mut t, NONE, Ms::of_millis(3000));
         assert_eq!(h.region, Region::Stream, "the control: no Alt, a stream");
+    }
+
+    /// **Ctrl held over a link previews it**: its cells underlined and its
+    /// address in a bar on the bottom row; for a URI in the text, across
+    /// the soft wrap it runs over. Taken away when Ctrl is let go, with
+    /// Shift (the selection's), when the pointer leaves and when the window
+    /// loses the keyboard; never shown without the keyboard. Perturbation:
+    /// keep the preview without the keyboard -- the first assertion fails.
+    #[test]
+    fn ctrl_held_over_a_link_previews_it() {
+        use crate::link::Host;
+        use baud_render::LinkSpan;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://example.com/\x1b\\link\x1b]8;;\x1b\\ https://a.example/b",
+        );
+        let mut seat = Seat::new();
+        let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+        let host = Host("");
+        put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
+        assert!(!seat.hover(&t, ctrl, G, host), "no keyboard, no preview");
+        seat.focused(Focus::Gained);
+        assert!(seat.hover(&t, ctrl, G, host), "Ctrl held over the link");
+        let look = seat.hover_look().cloned().expect("a preview");
+        let span = |r: usize, a: usize, b: usize| LinkSpan {
+            row: Row::from_index(r),
+            from: Col::at_index(a),
+            to: Col::at_index(b),
+        };
+        assert_eq!(look.spans, vec![span(0, 0, 3)]);
+        assert_eq!(look.bar.row, Row::from_index(5), "the bottom row");
+        let text: String = look
+            .bar
+            .text
+            .iter()
+            .filter_map(|c| char::from_u32(c.value()))
+            .collect();
+        assert_eq!(
+            text, " https://\u{2026}ple.com\u{2026}/ ",
+            "shortened to the row"
+        );
+        assert!(seat.hover(&t, NONE, G, host), "Ctrl let go");
+        assert!(seat.hover_look().is_none());
+        let shift_ctrl = ctrl.with(Modifiers::SHIFT);
+        assert!(
+            !seat.hover(&t, shift_ctrl, G, host),
+            "Shift is the selection's"
+        );
+        // The URI in the text, from column 5 of the first row over the wrap
+        // to column 3 of the second.
+        put(&mut seat, &mut t, Input::Moved(75.0, 5.0), NONE);
+        assert!(seat.hover(&t, ctrl, G, host));
+        let look = seat.hover_look().cloned().expect("a preview");
+        assert_eq!(look.spans, vec![span(0, 5, 19), span(1, 0, 3)]);
+        // Leaving takes it away, and so does losing the keyboard.
+        put(&mut seat, &mut t, Input::Left, NONE);
+        assert!(seat.hover(&t, ctrl, G, host), "the pointer left");
+        put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
+        assert!(seat.hover(&t, ctrl, G, host));
+        seat.focused(Focus::Lost);
+        assert!(seat.hover_look().is_none(), "the keyboard gone");
+        assert!(!seat.hover_refresh(&t, ctrl, host));
+        // **A read under a pointer whose Ctrl went up unreported draws no
+        // preview**: Ctrl held over plain text, then a link written under
+        // the resting pointer, read again with Ctrl up. The control: with
+        // Ctrl still held, the link is previewed.
+        seat.focused(Focus::Gained);
+        put(&mut seat, &mut t, Input::Moved(15.0, 45.0), NONE);
+        assert!(!seat.hover(&t, ctrl, G, host), "plain text under it");
+        feed(
+            &mut t,
+            b"\x1b[5;1H\x1b]8;;https://c.example/\x1b\\later\x1b]8;;\x1b\\",
+        );
+        assert!(
+            !seat.hover_refresh(&t, NONE, host),
+            "Ctrl up: nothing drawn"
+        );
+        assert!(seat.hover_look().is_none());
+        assert!(
+            seat.hover_refresh(&t, ctrl, host),
+            "the control: Ctrl held, the pointer resting"
+        );
+    }
+
+    /// **A preview held over a window on the history follows the view**:
+    /// Ctrl held over the top row of a window three lines up, and two lines
+    /// of output that move the window up with its line, so the view shows
+    /// the same lines; the frame's refresh previews the link drawn under
+    /// the pointer, the one a move there would. The control: before the
+    /// output the refresh changes nothing. Perturbation:
+    /// refresh with the `back` of the last pointer event -- this fails.
+    #[test]
+    fn a_held_preview_follows_the_window_over_the_history() {
+        use crate::link::Host;
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(50),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut bytes = Vec::new();
+        for n in 0..14 {
+            bytes.extend_from_slice(
+                format!("\x1b]8;;http://l{n}/\x1b\\L{n}\x1b]8;;\x1b\\\r\n").as_bytes(),
+            );
+        }
+        feed(&mut t, &bytes);
+        t.set_window_back(baud_domain::Rows::of_count(3));
+        let mut seat = Seat::new();
+        seat.focused(Focus::Gained);
+        let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
+        let host = Host("");
+        put(&mut seat, &mut t, Input::Moved(5.0, 5.0), NONE);
+        assert!(seat.hover(&t, ctrl, G, host));
+        let bar = |seat: &Seat| -> String {
+            let look = seat.hover_look().expect("a preview");
+            look.bar
+                .text
+                .iter()
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect()
+        };
+        let shown = bar(&seat);
+        assert!(!seat.hover_refresh(&t, ctrl, host), "the control");
+        feed(&mut t, b"more\r\nmore\r\n");
+        let _ = seat.hover_refresh(&t, ctrl, host);
+        assert_eq!(bar(&seat), shown, "the link drawn under the pointer");
     }
 }

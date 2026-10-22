@@ -785,6 +785,7 @@ pub fn run() {
                     d.pending = Pending::Dirty;
                 }
                 Event::Pointer(p) => d.pointer(p),
+                Event::Modifiers => d.modifiers(),
                 Event::Shortcut(s) => d.shortcut(s),
                 Event::Pasted(_, text) => d.paste(&text),
                 Event::PasteAbandoned(_) => crate::warn!(
@@ -1164,15 +1165,7 @@ impl Driver {
         ) {
             self.caret.quiet(Instant::now());
         }
-        let m = self.renderer.metrics();
-        let (cols, rows) = self.term.geometry();
-        let g = crate::seat::Geometry {
-            cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
-            grid: (
-                u16::try_from(cols.index()).unwrap_or(u16::MAX),
-                u16::try_from(rows.index()).unwrap_or(u16::MAX),
-            ),
-        };
+        let g = self.seat_geometry();
         let mods = self.window.modifiers();
         // DEC's locator, then the scrollbar's thumb (`bar.rs`), then the
         // rest of the seat, the macOS order: the locator sees every
@@ -1193,6 +1186,11 @@ impl Driver {
         // thumb, as AppKit's does.
         if self.term.primary_window_back() != back {
             self.reveal_thumb();
+        }
+        // The link preview, under the pointer where it is now.
+        let host = crate::link::Host(&self.host);
+        if self.seat.hover(&self.term, mods, g, host) {
+            self.pending = Pending::Dirty;
         }
         match owed {
             Owed::Nothing => {}
@@ -1240,6 +1238,29 @@ impl Driver {
                 self.hide_pointer(act);
             }
             _ => {}
+        }
+    }
+
+    /// The cell and grid geometry the seat reads pointer positions in.
+    fn seat_geometry(&self) -> crate::seat::Geometry {
+        let m = self.renderer.metrics();
+        let (cols, rows) = self.term.geometry();
+        crate::seat::Geometry {
+            cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
+            grid: (
+                u16::try_from(cols.index()).unwrap_or(u16::MAX),
+                u16::try_from(rows.index()).unwrap_or(u16::MAX),
+            ),
+        }
+    }
+
+    /// **The modifiers changed**: Ctrl pressed or let go over a link shows
+    /// or takes away its preview, the pointer resting.
+    fn modifiers(&mut self) {
+        let (g, mods) = (self.seat_geometry(), self.window.modifiers());
+        let host = crate::link::Host(&self.host);
+        if self.seat.hover(&self.term, mods, g, host) {
+            self.pending = Pending::Dirty;
         }
     }
 
@@ -1979,6 +2000,12 @@ impl Driver {
         });
         let field = look.as_ref().map(|l| l.field.clone());
         self.renderer.set_find(&self.term, look);
+        // The link preview, read again where the pointer is while Ctrl is
+        // held: a read may have changed what is under it.
+        let host = crate::link::Host(&self.host);
+        let mods = self.window.modifiers();
+        let _ = self.seat.hover_refresh(&self.term, mods, host);
+        self.renderer.set_link(self.seat.hover_look().cloned());
         // The input method's composition at the live cursor, and where
         // its candidate window opens -- at the input method's own cursor
         // in it, as drawn -- sent when it moved; while it hides its

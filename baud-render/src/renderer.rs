@@ -16,6 +16,7 @@ use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
 use crate::instance::{Instance, Screen};
+use crate::linked::LinkLook;
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
 use crate::picture::Pictures;
@@ -491,6 +492,17 @@ fn field_on(f: &Option<FindLook>, row: Row) -> Option<&crate::find::Field> {
     f.as_ref().map(|f| &f.field).filter(|f| f.row == row)
 }
 
+/// The link preview's bar, when it is on `row`.
+fn bar_on(l: &Option<LinkLook>, row: Row) -> Option<&crate::find::Field> {
+    l.as_ref().map(|l| &l.bar).filter(|b| b.row == row)
+}
+
+/// The link preview's underlined runs on `row`.
+fn spans_on(l: &Option<LinkLook>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
+    l.iter()
+        .flat_map(move |l| l.spans.iter().filter(move |s| s.row == row))
+}
+
 /// The palette entry a match is washed in, `SGR 33`'s yellow, which WezTerm
 /// gives its current match (`[[source: wezterm-copy-e2a98e1]]`): the theme's
 /// own yellow, so a palette a program or a theme sets moves it too.
@@ -909,6 +921,27 @@ fn partial_over(now: &[ImagePlacement], on: &[usize]) -> bool {
 fn covers(p: &ImagePlacement, band: Band) -> bool {
     let top = i64::from(p.y);
     top < i64::from(band.bottom.value()) && top + i64::from(p.h) > i64::from(band.top.value())
+}
+
+/// Whether placement `p` meets the scrollbar's knob or track inside
+/// `band`: a row the CPU path repaints on every frame, since the thumb is
+/// drawn over the image's blit.
+fn bar_meets(bar: Option<Bar>, p: &ImagePlacement, band: Band) -> bool {
+    let (x0, x1) = (i64::from(p.x), i64::from(p.x) + i64::from(p.w));
+    bar.into_iter()
+        .flat_map(|b| [b.knob, b.track])
+        .flatten()
+        .any(|t| {
+            let left = i64::from(t.left.value());
+            let (top, bottom) = (
+                t.top.value(),
+                t.top.value().saturating_add(t.height.value()),
+            );
+            x0 < left + i64::from(t.width.value())
+                && left < x1
+                && top < band.bottom.value()
+                && band.top.value() < bottom
+        })
 }
 
 /// Whether the last CPU frame blitted a placement over the band that this
@@ -1411,6 +1444,21 @@ pub struct Renderer<'f, 'a> {
     find: Option<FindLook>,
     last_find: Option<FindLook>,
     find_inst: Vec<Instance>,
+    /// The find field's caret, drawn with the field over the images.
+    find_caret: Vec<Instance>,
+    /// The link preview on this frame and the last ([`LinkLook`]), and its
+    /// solids, the link's underline. The rows under either frame's runs or
+    /// bar are dirty, and the cells under the bar are converted blank, as
+    /// under the find field.
+    link: Option<LinkLook>,
+    last_link: Option<LinkLook>,
+    link_inst: Vec<Instance>,
+    /// **baud's own fields over the images**: the find field's records and
+    /// caret and the link preview's bar, which the instance and CPU paths
+    /// draw after the images over the text, with the thumb and the fade
+    /// ([`Renderer::chrome`]), so a program's picture can neither hide the
+    /// address the bar shows nor show one of its own in its place.
+    chrome_inst: Vec<Instance>,
     /// What the cursor is filled with, which a quad trail is drawn in: the
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
@@ -1678,6 +1726,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find: None,
             last_find: None,
             find_inst: Vec::new(),
+            find_caret: Vec::new(),
+            link: None,
+            last_link: None,
+            link_inst: Vec::new(),
+            chrome_inst: Vec::new(),
             cursor_fill: Argb::default(),
             block_paint: BlockPaint::SWAP,
             flash_cap: Chan::from_u8(0),
@@ -1979,10 +2032,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// and the field drawn over its cells in the selection's colours with
     /// its caret. The instance and CPU paths draw it in their convert; the
     /// cell path draws the field through [`crate::Overlay::composed`] and
-    /// appends [`Renderer::find_solids`] to its records.
+    /// appends [`Renderer::find_solids`] to its records with the content
+    /// and [`Renderer::find_caret`] after the field, over the images.
     pub fn set_find(&mut self, term: &Term<'_>, look: Option<FindLook>) {
         let mut out = core::mem::take(&mut self.find_inst);
         out.clear();
+        self.find_caret.clear();
         if let Some(f) = &look {
             let (cw, ch) = (self.metrics.cell_w.value(), self.metrics.cell_h.value());
             let x = |c: Col| {
@@ -2007,27 +2062,94 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 ));
             }
             let line = self.metrics.thickness.value().max(2);
-            out.push(solid(
+            let caret = solid(
                 x(f.field.caret),
                 y(f.field.row),
                 Px::of(line),
                 Px::of(ch),
                 self.defaults.1,
-            ));
+            );
+            self.find_caret.push(caret);
         }
         self.find_inst = out;
         self.find = look;
     }
 
-    /// The find overlay's solids, for a path that draws records of its
-    /// own: after the field's records.
+    /// The find overlay's marks, each match's wash, for a path that draws
+    /// records of its own: with the content, under the images over the
+    /// text.
     pub fn find_solids(&self) -> &[Instance] {
         &self.find_inst
+    }
+
+    /// The find field's caret, for a path that draws records of its own:
+    /// after the field's records, over the images.
+    pub fn find_caret(&self) -> &[Instance] {
+        &self.find_caret
     }
 
     /// The find field as the cell path draws it, or none.
     pub fn find_field(&self) -> Option<Composition> {
         self.find.as_ref().map(|f| f.field.composition())
+    }
+
+    /// **The link preview for the next frame**, or none: the link's cells
+    /// underlined at the face's underline, in the default foreground, and
+    /// its address in a bar drawn over its cells in the selection's
+    /// colours, as the find field is. The instance and CPU paths draw it in
+    /// their convert, the bar over the find field and over the images; the
+    /// cell path draws the bar through [`crate::Overlay::composed`], after
+    /// the images, and appends [`Renderer::link_solids`] to its records
+    /// with the content.
+    pub fn set_link(&mut self, look: Option<LinkLook>) {
+        self.link = look;
+        self.build_link();
+    }
+
+    /// The link preview's underline, in the default foreground as it is
+    /// now: again when the defaults move.
+    fn build_link(&mut self) {
+        let mut out = core::mem::take(&mut self.link_inst);
+        out.clear();
+        if let Some(l) = &self.link {
+            let cw = self.metrics.cell_w.value();
+            let x = |c: Col| {
+                screen(
+                    i32::try_from(u32::try_from(c.index()).unwrap_or(0).saturating_mul(cw))
+                        .unwrap_or(i32::MAX),
+                )
+            };
+            let (under, thick) = (self.metrics.underline.value(), self.metrics.thickness);
+            let y = |r: Row| {
+                screen(
+                    i32::try_from(self.band(r).top.value().saturating_add(under))
+                        .unwrap_or(i32::MAX),
+                )
+            };
+            for s in &l.spans {
+                let n = u32::try_from(s.to.index().saturating_sub(s.from.index()) + 1).unwrap_or(0);
+                out.push(solid(
+                    x(s.from),
+                    y(s.row),
+                    Px::of(n.saturating_mul(cw)),
+                    thick,
+                    self.defaults.0,
+                ));
+            }
+        }
+        self.link_inst = out;
+    }
+
+    /// The link preview's solids, the underline, for a path that draws
+    /// records of its own: with the content, under the images over the
+    /// text.
+    pub fn link_solids(&self) -> &[Instance] {
+        &self.link_inst
+    }
+
+    /// The link preview's bar as the cell path draws it, or none.
+    pub fn link_bar(&self) -> Option<Composition> {
+        self.link.as_ref().map(|l| l.bar.composition())
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
@@ -2722,6 +2844,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .extend(scrollbar::instances(b, self.defaults.0));
         }
         self.build_trail();
+        self.build_link();
         self.fade_inst.clear();
         if let Some(v) = self.fade {
             self.fade_inst
@@ -2943,12 +3066,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
         let under = self.image_places.iter().any(|p| p.layer.under_text());
-        let frame = match under {
-            true => self.paint_rows(target, converted, UnderImages(term.images())),
-            false => self.paint_rows(target, converted, NoUnder),
-        };
-        self.paint_images(term, target);
-        frame
+        let over = Some(term.images());
+        match under {
+            true => self.paint_rows(target, converted, UnderImages(term.images()), over),
+            false => self.paint_rows(target, converted, NoUnder, over),
+        }
     }
 
     /// Computes where every visible image placement lands this frame, into
@@ -3318,11 +3440,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Blits every image placement over the text over the frame, after
-    /// the glyphs, in order, reading the list [`Renderer::set_images`] built
-    /// and the term's own pixels.
-    fn paint_images(&self, term: &Term<'_>, target: &mut Target<'_>) {
+    /// the glyphs and before baud's own overlays, in order, reading the
+    /// list [`Renderer::set_images`] built and the term's own pixels.
+    fn paint_images(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>) {
         let page = self.page();
-        let imgs = term.images();
         let (_, h) = self.frame_size();
         let all = Band {
             top: Px::of(0),
@@ -3814,6 +3935,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 };
             }
         }
+        // The link preview's bar, the same way, over the find's.
+        let link_bar = self
+            .link
+            .as_ref()
+            .map(|l| l.bar.composition())
+            .filter(|c| c.row.index() < main.index());
+        if let Some(c) = &link_bar {
+            let (start, end) = c.columns(cols);
+            let at = c.row.index() * ncols;
+            for cell in &mut self.cur[at + start..at + end] {
+                *cell = PackedCell {
+                    content: baud_domain::Content::EMPTY,
+                    style: cell.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+            }
+        }
         if self.theme.finds_pictures() {
             self.pictures.find(term, &vp, self.video);
         } else {
@@ -3863,6 +4001,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
+        let link_changed = self.link != self.last_link;
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
@@ -3926,6 +4065,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let found = find_changed
                 && (marks_on(&self.find, row).ne(marks_on(&self.last_find, row))
                     || field_on(&self.find, row) != field_on(&self.last_find, row));
+            // A link's run underlined or not, or its bar come, gone or
+            // changed on this row.
+            let linked = link_changed
+                && (spans_on(&self.link, row).ne(spans_on(&self.last_link, row))
+                    || bar_on(&self.link, row) != bar_on(&self.last_link, row));
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -3937,6 +4081,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // And one under the text that arrived or changed on this row.
             let imaged =
                 imaged || (under_new && arrived_under(&self.image_places, &diff.arrived, band));
+            // And one over the text on a row that holds one of baud's own
+            // overlays, which the CPU path draws over the image's blit:
+            // repainted every frame, as a partly transparent image's row is,
+            // since the blit lands on every frame and would cover it.
+            // The thumb's share only where it meets the image, so a legacy
+            // track down every row repaints only the rows an image reaches
+            // it on.
+            let fields = field_on(&self.find, row).is_some()
+                || bar_on(&self.link, row).is_some()
+                || self.fade.is_some();
+            let chromed = images == ImageRows::Repainted
+                && self.image_places.iter().any(|p| {
+                    p.layer == ImageLayer::Over
+                        && covers(p, band)
+                        && (fields || bar_meets(self.bar, p, band))
+                });
             if partial {
                 rows_partial.bump();
             }
@@ -3950,8 +4110,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || pictured
                 || imaged
                 || partial
+                || chromed
                 || composed
-                || found;
+                || found
+                || linked;
         }
         self.place_diff = diff;
         if images == ImageRows::Repainted {
@@ -3976,9 +4138,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             (self.styles, self.compose_inst) = (styles, records);
         }
-        if let Some(c) = &field {
+        // The matches' marks and the link's underline with the content;
+        // the find field, its caret and the link's bar are baud's own and
+        // go over the images (`chrome_inst`).
+        self.compose_inst.extend_from_slice(&self.find_inst);
+        self.compose_inst.extend_from_slice(&self.link_inst);
+        self.chrome_inst.clear();
+        // The find field with its caret, then the link's bar with none.
+        let carets = self.find_caret.len();
+        let fields = field.iter().map(|c| (c, carets));
+        for (c, carets) in fields.chain(link_bar.iter().map(|c| (c, 0))) {
             let styles = core::mem::take(&mut self.styles);
-            let mut records = core::mem::take(&mut self.compose_inst);
+            let mut records = core::mem::take(&mut self.chrome_inst);
             crate::overlay::composition_records(
                 self,
                 term,
@@ -3991,9 +4162,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Px::of(0),
                 &mut records,
             );
-            (self.styles, self.compose_inst) = (styles, records);
+            (self.styles, self.chrome_inst) = (styles, records);
+            self.chrome_inst
+                .extend_from_slice(&self.find_caret[..carets]);
         }
-        self.compose_inst.extend_from_slice(&self.find_inst);
         self.reach_was.clone_from(&self.reach);
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -4041,6 +4213,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_clusters = clusters;
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
+        self.last_link.clone_from(&self.link);
         Converted {
             rows_dirty,
             rows_partial,
@@ -4065,7 +4238,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Paints the rows the last [`Renderer::convert`] found dirty into
     /// `target`, which must still hold the frame before.
     pub fn paint(&mut self, target: &mut Target<'_>, converted: Converted) -> Frame {
-        self.paint_rows(target, converted, NoUnder)
+        self.paint_rows(target, converted, NoUnder, None)
     }
 
     /// [`Renderer::paint`], with what is drawn between a repainted row's
@@ -4077,6 +4250,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         converted: Converted,
         under: impl Under,
+        over: Option<&ImageStore<'_>>,
     ) -> Frame {
         let t1 = Instant::now();
         let mut frame = Frame {
@@ -4130,11 +4304,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // glyphs of the rows above that reach down into this band, the
             // row's own glyphs and decorations, the glyphs of the rows below
             // that reach up into it -- each row's glyphs and then its
-            // decorations, rows top to bottom -- then the trail under the
-            // scrollbar, then the screen fade over everything. The trail and
-            // the fade dirtied these rows (`trail_moved`, and a fade makes
-            // the frame full), so a row repainted without them would draw
-            // them out.
+            // decorations, rows top to bottom -- then the trail; baud's own
+            // overlays, the scrollbar and the screen fade over everything,
+            // come after the images, below the loop. The trail and the fade
+            // dirtied these rows (`trail_moved`, and a fade makes the frame
+            // full), so a row repainted without them would draw them out.
             // Only the glyphs whose own rows meet the band: a row that
             // reaches holds mostly glyphs that do not.
             let meets = |g: &&Instance| Reach::of(core::slice::from_ref(*g)).meets(band);
@@ -4182,8 +4356,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }
                 }
             }
+            for inst in &self.glow_inst {
+                target.over(inst, &self.atlas, self.blend, page, band);
+            }
+        }
+        // The images over the text, then baud's own overlays over them
+        // (`Renderer::chrome`) on the rows repainted: a row that holds both
+        // is repainted on every frame (`chromed` in `convert`), so the
+        // image's blit, which lands on every frame, never covers an
+        // overlay drawn on an earlier one.
+        if let Some(imgs) = over {
+            self.paint_images(imgs, target);
+        }
+        for r in (0..self.rows.index()).filter(|&r| self.dirty[r]) {
+            let band = self.band(Row::from_index(r));
             for inst in self
-                .glow_inst
+                .chrome_inst
                 .iter()
                 .chain(&self.bar_inst)
                 .chain(&self.fade_inst)
@@ -4206,8 +4394,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())
             .chain(self.glow_inst.iter())
+            .chain(self.chrome_inst.iter())
             .chain(self.bar_inst.iter())
             .chain(self.fade_inst.iter())
+    }
+
+    /// How many of [`Renderer::instances`], at the end, are baud's own
+    /// overlays -- the find field and its caret, the link preview's bar,
+    /// the scrollbar's thumb and the screen fade -- which a path draws
+    /// after the images over the text, as kitty draws its scrollbar and
+    /// hyperlink target after them (`[[source: kitty-hyperlink-target]]`).
+    pub fn chrome(&self) -> Tally {
+        Tally::of(self.chrome_inst.len() + self.bar_inst.len() + self.fade_inst.len())
     }
 
     /// The background word of every cell, row-major, `cols` by `rows`.

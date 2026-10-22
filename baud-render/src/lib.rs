@@ -39,6 +39,7 @@ mod flash;
 pub mod ice;
 mod instance;
 pub mod lightning;
+mod linked;
 pub mod liquid;
 mod metrics;
 pub mod orb;
@@ -76,6 +77,7 @@ pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
 pub use instance::{Instance, Screen};
+pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
     Caret, Composition, Hints, MASK_BARE, MASK_PICTURE, MASK_RECORD, MASK_SIZED, Overlay,

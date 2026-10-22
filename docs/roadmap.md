@@ -67,8 +67,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Keyboard, mouse and clipboard
 
 - [ ] **Key releases and modifier keys on macOS** — Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them. *In progress.*
-- [ ] **See where a link goes before opening it** — Holding Cmd marks the linked text and shows its address.
 - [x] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off, and the selection takes the colours you or your theme choose. (2026-10-22)
+- [x] **See where a link goes before opening it** — Holding Cmd marks the linked text and shows its address. (2026-10-22)
 - [x] **Keypad and Backspace key modes** — Programs can choose whether the keypad types digits or sends its own codes, whether Backspace sends DEL or BS and whether Delete sends DEL, as on DEC terminals, and ask which they have. (2026-10-20)
 - [x] **Keyboard lock and local echo** — Two old modes: a program can lock the keyboard, or have typed text shown on the screen as well as sent. (2026-10-19)
 - [x] **Programs choose whether Shift selects** — A program that uses the mouse can say whether Shift-drag still selects text, or whether Shift reaches the program for every button but the one that selects. (2026-10-19)

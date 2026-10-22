@@ -457,8 +457,11 @@ fn main() {
             );
             self.records.extend_from_slice(self.renderer.trail());
             self.records.extend_from_slice(self.renderer.cursor_glow());
+            // The thumb and the fade are baud's own, drawn over the images.
+            let chrome_from = self.records.len();
             self.records.extend_from_slice(self.renderer.scrollbar());
             self.records.extend_from_slice(self.renderer.screen_fade());
+            let chrome = Tally::of(self.records.len() - chrome_from);
             let input = CellInput {
                 set: SetIx(0),
                 grid: &self.copy,
@@ -472,6 +475,7 @@ fn main() {
                 overlay: &self.overlay,
                 records: &self.records,
                 under: self.exceptions.under(),
+                chrome,
                 slide: None,
             };
             let Some(Drawn::Frame(_)) =
