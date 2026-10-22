@@ -24,6 +24,7 @@ mod pointer_mode;
 mod save_restore_modes;
 mod soft_reset_scope;
 mod tcap;
+mod xres;
 
 /// **No gaps, and there never was one here.**
 ///

@@ -26,6 +26,7 @@ mod vt52;
 mod window;
 mod x_colour_names;
 mod xcms;
+mod xres;
 
 pub use charset::*;
 pub use clipboard::*;
@@ -52,3 +53,4 @@ pub use stack::*;
 pub use tcap::*;
 pub use vt52::*;
 pub use window::*;
+pub use xres::*;

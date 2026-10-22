@@ -1,4 +1,4 @@
-//! DECRQSS, and XTGETTCAP and XTSETTCAP below it; Sixel (`sixel.rs`,
+//! DECRQSS, and XTGETTCAP, XTSETTCAP and XTGETXRES below it; Sixel (`sixel.rs`,
 //! entered by `Act::SixelStart`), ReGIS and DECRSPS are elsewhere.
 //!
 //! `[[source: ctlseqs]]` gives `DCS $ q Pt ST` as Request Status String, where
@@ -109,6 +109,11 @@ const _: () = assert!(DECRQSS_MAX <= REPLY);
 pub const XTGETTCAP_MAX: usize = tcap_reply_max(OSC_MAX - 1);
 const _: () = assert!(XTGETTCAP_MAX <= REPLY);
 
+/// The longest XTGETXRES answer ([`xres_reply_max`]) to a list of
+/// `OSC_MAX` bytes less its `Q`: the reply buffer holds it.
+pub const XTGETXRES_MAX: usize = xres_reply_max(OSC_MAX - 1);
+const _: () = assert!(XTGETXRES_MAX <= REPLY);
+
 /// What a `DCS +` reads and leaves: the name `TN` answers, the embedder's
 /// (`Term::set_term_name`), which `RIS` keeps; and the XTSETTCAPs refused.
 pub(crate) struct Tcap {
@@ -158,9 +163,9 @@ pub(crate) fn tcap_start(csi: &Csi) -> StrKind {
 }
 
 impl Paint<'_, '_> {
-    /// A `DCS +` string's terminator: `q` is XTGETTCAP and `p` XTSETTCAP
-    /// (`[[source: ctlseqs]]` 535-582); any other byte is a DCS no handler
-    /// reads, counted as one.
+    /// A `DCS +` string's terminator: `q` is XTGETTCAP, `p` XTSETTCAP and
+    /// `Q` XTGETXRES (`[[source: ctlseqs]]` 510-582); any other byte is a
+    /// DCS no handler reads, counted as one.
     ///
     /// **XTGETTCAP is answered** by `encode_tcap_reply`, from xterm's table
     /// and the keys as they would be sent now, whole or not at all: an
@@ -208,10 +213,63 @@ impl Paint<'_, '_> {
                 self.strs.tcap.sets_refused = self.strs.tcap.sets_refused.next();
                 self.unsupported_total += 1;
             }
+            Some(b'Q') => self.report_resources(body),
             _ => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
             }
+        }
+    }
+
+    /// XTGETXRES, `DCS + Q Pt ST` ([`encode_xres_reply`]): each resource
+    /// baud has an equivalent of answered with the value it starts from,
+    /// in xterm's shape, whole or not at all. A list cut at `OSC_MAX` ends
+    /// before the name the cut fell in, as XTGETTCAP's does; a list with no
+    /// first name gets no reply, as xterm gives none, and is counted in
+    /// `unsupported_param`.
+    fn report_resources(&mut self, body: TcapBody) {
+        let n = self.cold.str_len.index().min(self.strs.pending.len());
+        let mut list = &self.strs.pending[1..n];
+        if body == TcapBody::Cut {
+            let kept = list.iter().rposition(|&b| b == b';').unwrap_or(0);
+            list = &list[..kept];
+        }
+        let cold = &*self.cold;
+        let value = |r: XResource| match r {
+            XResource::Fixed(v) => v,
+            XResource::Allow(c) => XValue::of(self.category_allowed(c)),
+            XResource::CursorBlink => {
+                XValue::of(cold.initial_cursor == cold.initial_cursor.with_blink(true))
+            }
+            XResource::CursorUnderLine => XValue::of(matches!(
+                cold.initial_cursor,
+                CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline
+            )),
+            XResource::CursorBar => XValue::of(matches!(
+                cold.initial_cursor,
+                CursorStyle::BlinkingBar | CursorStyle::SteadyBar
+            )),
+            XResource::PointerMode => XValue::Int(cold.initial_pointer_mode.code()),
+            XResource::CjkWidth => XValue::of(cold.ambiguous == AmbiguousWidth::Wide),
+        };
+        let mut out = [0u8; XTGETXRES_MAX];
+        match encode_xres_reply(list, cold.replies.c1(), value, &mut out) {
+            // No first name xterm reads, and so no reply: counted as a
+            // parameter not acted on, as XTQMODKEYS counts a resource it
+            // does not have.
+            Some(ByteLen::ZERO) => self.unsupported_param += 1,
+            Some(len) => {
+                let len = len.index();
+                let at = self.reply_len.index();
+                match self.reply.get_mut(at..at + len) {
+                    Some(dst) => {
+                        dst.copy_from_slice(&out[..len]);
+                        self.reply_len = ByteLen::from_index(at + len);
+                    }
+                    None => self.reply_overflows += 1,
+                }
+            }
+            None => self.reply_overflows += 1,
         }
     }
 

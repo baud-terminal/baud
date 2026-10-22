@@ -513,6 +513,16 @@ pub enum PointerMode {
 }
 
 impl PointerMode {
+    /// The mode's `Ps`, 0 to 3, as XTGETXRES answers `pointerMode`.
+    pub fn code(self) -> u8 {
+        match self {
+            PointerMode::Never => 0,
+            PointerMode::UnlessTracking => 1,
+            PointerMode::Always => 2,
+            PointerMode::AlwaysEvenLeaving => 3,
+        }
+    }
+
     /// `Ps`, or `None` past 3, which ctlseqs does not list among the
     /// "Valid values for the parameter": refused and counted, as
     /// XTSHIFTESCAPE's unlisted values are, where xterm's

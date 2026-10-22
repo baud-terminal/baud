@@ -860,29 +860,7 @@ impl Paint<'_, '_> {
     /// those it says it replaces, none until it says, and `OSC 60` never
     /// claims the category. A malformed query is counted.
     fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
-        let facts = Facts {
-            font: match (self.strs.fonts.known(), self.strs.fonts.changes) {
-                (None, _) => Fonts::Untold,
-                (Some(_), FontChanges::On) => Fonts::Changeable,
-                (Some(_), FontChanges::Off) => Fonts::Fixed,
-            },
-            checksum: self.cold.checksum_report,
-            window_ops: self.strs.window_asks.ops,
-            abilities: self.strs.window_asks.abilities,
-            window: self.strs.window,
-            cell: match self.cell_width != ImagePx::ZERO && self.cell_height != ImagePx::ZERO {
-                true => Cell::Known,
-                false => Cell::Untold,
-            },
-            clipboard: match (
-                self.strs.clip_area.is_empty(),
-                self.strs.window_asks.clipboard,
-            ) {
-                (false, Osc52Writes::On) => Clipboard::Provisioned,
-                _ => Clipboard::Unprovisioned,
-            },
-            paste: self.strs.window_asks.paste,
-        };
+        let facts = self.allow_facts();
         let mut out = AllowList::new(match q {
             AllowQuery::Allowed => b"60",
             AllowQuery::Disallowed(_) => b"61",
@@ -895,8 +873,7 @@ impl Paint<'_, '_> {
         match q {
             AllowQuery::Allowed => {
                 for c in AllowCategory::ALL {
-                    let whole = c.subcategories().iter().all(|s| honoured(c, s, facts));
-                    if whole && c != AllowCategory::PasteControls {
+                    if allowed(c, facts) {
                         out.item(c.name());
                     }
                 }
@@ -926,6 +903,40 @@ impl Paint<'_, '_> {
         }
         let len = out.len.index();
         self.push_reply(&[&out.buf[..len], end]);
+    }
+
+    /// Whether `OSC 60` lists category `c` now: the one reading XTGETXRES
+    /// answers the `allow*` resources from, so the two cannot disagree.
+    pub(crate) fn category_allowed(&self, c: AllowCategory) -> bool {
+        allowed(c, self.allow_facts())
+    }
+
+    /// What baud honours of xterm's feature categories, from the embedder's
+    /// settings and what it has told.
+    fn allow_facts(&self) -> Facts {
+        Facts {
+            font: match (self.strs.fonts.known(), self.strs.fonts.changes) {
+                (None, _) => Fonts::Untold,
+                (Some(_), FontChanges::On) => Fonts::Changeable,
+                (Some(_), FontChanges::Off) => Fonts::Fixed,
+            },
+            checksum: self.cold.checksum_report,
+            window_ops: self.strs.window_asks.ops,
+            abilities: self.strs.window_asks.abilities,
+            window: self.strs.window,
+            cell: match self.cell_width != ImagePx::ZERO && self.cell_height != ImagePx::ZERO {
+                true => Cell::Known,
+                false => Cell::Untold,
+            },
+            clipboard: match (
+                self.strs.clip_area.is_empty(),
+                self.strs.window_asks.clipboard,
+            ) {
+                (false, Osc52Writes::On) => Clipboard::Provisioned,
+                _ => Clipboard::Unprovisioned,
+            },
+            paste: self.strs.window_asks.paste,
+        }
     }
 
     /// Answer `OSC 4 ; c ; ?` in the same shape as the setter.
@@ -981,6 +992,12 @@ impl Paint<'_, '_> {
             term,
         });
     }
+}
+
+/// Whether `OSC 60` lists category `c`: every subcategory honoured, and
+/// never the paste controls, which are the embedder's to filter.
+fn allowed(c: AllowCategory, facts: Facts) -> bool {
+    c != AllowCategory::PasteControls && c.subcategories().iter().all(|s| honoured(c, s, facts))
 }
 
 /// Whether baud honours one of xterm's feature subcategories
