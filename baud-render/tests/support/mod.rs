@@ -81,6 +81,23 @@ impl Canvas {
     }
 }
 
+/// The pixel rows `after` differs from `before` in, none outside a band
+/// `bands` names: the rows that are not covered, empty when the bands
+/// hold every change.
+pub fn uncovered(before: &Canvas, after: &Canvas, bands: &[baud_render::Band]) -> Vec<Px> {
+    let w = after.width;
+    let row = |y: usize| Px::of(u32::try_from(y).unwrap());
+    (0..after.height)
+        .filter(|&y| before.pixels[y * w..(y + 1) * w] != after.pixels[y * w..(y + 1) * w])
+        .map(row)
+        .filter(|&y| {
+            !bands
+                .iter()
+                .any(|b| b.top.value() <= y.value() && y.value() < b.bottom.value())
+        })
+        .collect()
+}
+
 pub fn renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
     let stack = Stack::new(faces).unwrap();
     Renderer::new(

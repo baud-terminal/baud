@@ -88,7 +88,9 @@ use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, PointerHides, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
-use baud_present_wayland::{Board, Copied, Event, PointerEvent, Presented, Shaped, Window};
+use baud_present_wayland::{
+    Board, Changed, Copied, Event, PointerEvent, Presented, Shaped, Window,
+};
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
@@ -154,6 +156,9 @@ struct Driver {
     margin: Argb,
     pending: Pending,
     damage: Damage,
+    /// The rows the last frame painted, as the window is told them: what
+    /// it copies and damages (`Window::present`).
+    strips: Vec<baud_present_wayland::Strip>,
     /// When the synchronised update open now opened, for `SYNC_MAX`.
     updates: UpdateClock<Instant>,
     /// The visual bell no frame drew, ended on the `poll` timeout
@@ -497,6 +502,7 @@ pub fn run() {
         margin,
         pending: Pending::Clean,
         damage: Damage::Full,
+        strips: Vec::new(),
         updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
         derive: crate::title::Derive::new(),
@@ -1943,16 +1949,34 @@ impl Driver {
         let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) else {
             return;
         };
+        // A frame the driver repaints whole -- a new size, the margin
+        // refilled -- changed pixels past the grid's rows too, which no
+        // band the renderer paints covers: the whole buffer is damaged.
+        let whole = self.damage;
         self.renderer
             .render(&mut self.term, &mut target, self.damage);
         self.damage = Damage::Incremental;
+        self.strips.clear();
+        let px = |p: Px| baud_present_wayland::Px(p.value());
+        self.strips.extend(
+            self.renderer
+                .painted()
+                .map(|b| baud_present_wayland::Strip {
+                    top: px(b.top),
+                    bottom: px(b.bottom),
+                }),
+        );
+        let changed = match whole {
+            Damage::Full => Changed::Whole,
+            Damage::Incremental => Changed::Strips(&self.strips),
+        };
         // The blink rates on screen, which bound the next wait.
         self.timed
             .drawn(self.renderer.blink_seen(), self.term.regis_blink());
         let pitch = usize::try_from(self.stride.value()).unwrap_or(0);
         if self
             .window
-            .present(&mut self.conn.sender(), &self.frame, pitch)
+            .present(&mut self.conn.sender(), &self.frame, pitch, changed)
             == Presented::Yes
         {
             startup_first("first present", &FIRST_PRESENT);

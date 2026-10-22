@@ -1292,6 +1292,16 @@ shipped = ["2026-10-16-linux-and-macos-give-the-same"]
 roadmap = ["F2-02"]
 
 [[feature]]
+id = "linux-redraw"
+area = "window"
+name = "Only what changed, on Linux"
+does = "Each frame hands the desktop only the rows that changed, so a typed letter or a blink of the cursor copies one row of the window instead of all of it."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::a_frame_copies_and_damages_only_the_rows_it_changed", "baud-render/tests/incremental.rs::the_painted_bands_hold_every_pixel_a_frame_changes", "baud-render/tests/image.rs::an_image_that_arrives_is_in_the_painted_bands"]
+shipped = ["F2-08"]
+
+[[feature]]
 id = "window-frame"
 area = "window"
 name = "A margin around the text"

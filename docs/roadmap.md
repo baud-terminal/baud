@@ -138,11 +138,11 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and the plain cursor trail work on Linux; the fire, plasma and other trail effects are drawn there as the plain trail so far. *In progress.*
 - [ ] **Check Linux on a real screen** — The Linux version has run only headless; next is looking at what it draws on a real display.
 - [ ] **GPU drawing on Linux** — Draw the Linux version on the GPU with Vulkan, as the macOS app draws with Metal.
-- [ ] **Redraw only what changed on Linux** — Send the compositor only the rows that changed, instead of the whole window every frame.
 - [ ] **Smoother frames and pointer shapes on Linux** — Frame timing from the compositor, the right pointer shape over text, and input methods.
 - [x] **Clipboard and middle-click paste on Linux** — Copy and paste through the desktop's clipboard, the primary selection and middle-click paste. (2026-10-21)
 - [x] **Compose key, dead keys and input methods on Linux** — Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method. (2026-10-21)
 - [x] **Mouse, wheel, selection and paste on Linux** — The mouse in programs, the wheel, selecting text, the scrollbar and pasting, on Linux as on macOS. (2026-10-21)
+- [x] **Redraw only what changed on Linux** — Each frame hands the desktop only the rows that changed, instead of the whole window. (2026-10-21)
 - [x] **Zoom, links and light and dark on Linux** — Ctrl + and Ctrl - to zoom, Ctrl-click to open links, and following the desktop's light or dark setting. (2026-10-21)
 - [x] **Linux and macOS give the same shade over the see-through window** — Both systems now round colours through one shared function; before, about half of all colour and transparency combinations came out one step darker on Linux. (2026-10-16)
 - [x] **A baud opened from the Dock starts your shell in your home folder** — It no longer reads a config.toml from whatever folder it started in. Relative font and theme paths are read beside the config file. (2026-10-14)

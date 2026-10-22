@@ -287,9 +287,12 @@ fn a_window_opens_shows_a_frame_and_types() {
     // A frame: the pool arrives with its file, two buffers, then attach,
     // damage, a frame callback and the commit.
     let frame = vec![0x80ff_0000u32; 320 * 200];
-    assert_eq!(w.present(&mut conn.sender(), &frame, 320), Presented::Yes);
     assert_eq!(
-        w.present(&mut conn.sender(), &frame, 320),
+        w.present(&mut conn.sender(), &frame, 320, Changed::Whole),
+        Presented::Yes
+    );
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 320, Changed::Whole),
         Presented::No,
         "one frame in flight"
     );
@@ -336,7 +339,10 @@ fn a_window_opens_shows_a_frame_and_types() {
     pump(&mut conn, &mut w);
     assert_eq!(w.next_event(), Some(Event::Frame));
     assert!(!w.in_flight());
-    assert_eq!(w.present(&mut conn.sender(), &frame, 320), Presented::Yes);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 320, Changed::Whole),
+        Presented::Yes
+    );
     conn.flush().unwrap();
     let r = server.expect("wl_surface", "attach");
     assert!(
@@ -533,6 +539,209 @@ fn a_window_opens_shows_a_frame_and_types() {
     let r = server.expect("xdg_wm_base", "pong");
     assert!(matches!(r.args[0], Val::Uint(99)));
     assert_eq!(w.next_event(), Some(Event::Closed));
+}
+
+/// The pixel words of buffer `i` of a pool of `w` x `h`, read from the
+/// pool's file as the compositor would.
+fn buffer_words(file: &std::fs::File, i: usize, w: usize, h: usize) -> Vec<u32> {
+    use std::os::unix::fs::FileExt as _;
+    let mut bytes = vec![0u8; w * 4 * h];
+    file.read_exact_at(&mut bytes, u64::try_from(i * w * 4 * h).unwrap())
+        .unwrap();
+    bytes
+        .chunks_exact(4)
+        .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+        .collect()
+}
+
+/// The `damage_buffer` rectangles of one frame, up to its commit, and
+/// whether it attached a buffer.
+fn frame_requests(server: &mut Server) -> (Option<ObjectId>, Vec<[i32; 4]>, ObjectId) {
+    let (mut attached, mut damage, mut callback) = (None, Vec::new(), None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_surface", "attach", [Val::Obj(b), ..]) => attached = Some(*b),
+            (
+                "wl_surface",
+                "damage_buffer",
+                [Val::Int(x), Val::Int(y), Val::Int(w), Val::Int(h)],
+            ) => {
+                damage.push([*x, *y, *w, *h]);
+            }
+            ("wl_surface", "frame", [Val::New(cb)]) => callback = Some(*cb),
+            ("wl_surface", "commit", _) => break,
+            ("wl_shm", "create_pool", _) | ("wl_shm_pool", "create_buffer", _) => {}
+            (i, n, a) => panic!("{i}.{n} {a:?}"),
+        }
+    }
+    (attached, damage, callback.expect("a frame callback"))
+}
+
+/// **A frame copies and damages only the rows it changed, and a buffer used
+/// again is brought up to date first** (`damage.rs`). The first frame is
+/// whole; the second goes to the new second buffer, which is copied whole
+/// and damaged in its ten rows alone; the third reuses the first buffer,
+/// which missed the second frame's rows, and copies those with its own --
+/// twenty rows -- and damages its own ten. A compositor that releases at
+/// once has the same buffer back missing nothing, and a frame refused while
+/// one is in flight goes with the next. In each, the buffer's file holds the
+/// whole frame. A frame that changed nothing attaches nothing and still
+/// asks for the callback.
+#[test]
+fn a_frame_copies_and_damages_only_the_rows_it_changed() {
+    let (mut conn, mut server, mut w, top, xdg) = configured(&[]);
+    let (wu, hu) = (640usize, 480usize);
+    let strip = |top: u32, bottom: u32| Strip {
+        top: Px(top),
+        bottom: Px(bottom),
+    };
+    let paint = |f: &mut [u32], top: usize, bottom: usize, px: u32| {
+        f[top * wu..bottom * wu].fill(px);
+    };
+    let mut frame = vec![0xff10_2030u32; wu * hu];
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Whole),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let r = server.expect("wl_shm", "create_pool");
+    let Val::Int(size) = r.args[2] else { panic!() };
+    assert_eq!(size, 2 * 2560 * 480);
+    let file = std::fs::File::from(server.fds.pop_front().unwrap());
+    let mut buffers = Vec::new();
+    for _ in 0..2 {
+        let r = server.expect("wl_shm_pool", "create_buffer");
+        let Val::New(b) = r.args[0] else { panic!() };
+        buffers.push(b);
+    }
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 0, 640, 480]], "the first frame is whole");
+    assert_eq!(w.rows_copied(), Px(480));
+    let done = |server: &mut Server, cb: ObjectId| {
+        server.send(cb, "wl_callback", "done", &[Arg::Uint(0)]);
+    };
+    done(&mut server, cb);
+    pump(&mut conn, &mut w);
+
+    // The second frame, while the compositor holds the first buffer.
+    paint(&mut frame, 10, 20, 0xff00_ff00);
+    assert_eq!(
+        w.present(
+            &mut conn.sender(),
+            &frame,
+            wu,
+            Changed::Strips(&[strip(10, 20)])
+        ),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[1]));
+    assert_eq!(damage, [[0, 10, 640, 10]], "only the rows it changed");
+    assert_eq!(w.rows_copied(), Px(480), "a new buffer is copied whole");
+    assert_eq!(buffer_words(&file, 1, wu, hu), frame);
+
+    // The third, into the first buffer again: it missed rows 10..20.
+    server.send(buffers[0], "wl_buffer", "release", &[]);
+    done(&mut server, cb);
+    pump(&mut conn, &mut w);
+    paint(&mut frame, 50, 60, 0xff00_00ff);
+    assert_eq!(
+        w.present(
+            &mut conn.sender(),
+            &frame,
+            wu,
+            Changed::Strips(&[strip(50, 60)])
+        ),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 50, 640, 10]]);
+    assert_eq!(w.rows_copied(), Px(20), "its own ten and the ten it missed");
+    assert_eq!(buffer_words(&file, 0, wu, hu), frame);
+
+    // Released at once: the first buffer again, missing nothing.
+    server.send(buffers[0], "wl_buffer", "release", &[]);
+    server.send(buffers[1], "wl_buffer", "release", &[]);
+    done(&mut server, cb);
+    pump(&mut conn, &mut w);
+    paint(&mut frame, 100, 101, 0xffff_ffff);
+    assert_eq!(
+        w.present(
+            &mut conn.sender(),
+            &frame,
+            wu,
+            Changed::Strips(&[strip(100, 101)])
+        ),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 100, 640, 1]]);
+    assert_eq!(w.rows_copied(), Px(1));
+    assert_eq!(buffer_words(&file, 0, wu, hu), frame);
+
+    // Refused while that frame is in flight, then sent with the next.
+    paint(&mut frame, 150, 160, 0xff80_8080);
+    assert_eq!(
+        w.present(
+            &mut conn.sender(),
+            &frame,
+            wu,
+            Changed::Strips(&[strip(150, 160)])
+        ),
+        Presented::No
+    );
+    server.send(buffers[0], "wl_buffer", "release", &[]);
+    done(&mut server, cb);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!(attached, Some(buffers[0]));
+    assert_eq!(damage, [[0, 150, 640, 10]], "the refused frame's rows");
+    assert_eq!(buffer_words(&file, 0, wu, hu), frame);
+
+    // Nothing changed: no buffer, and the callback still asked for.
+    server.send(buffers[0], "wl_buffer", "release", &[]);
+    done(&mut server, cb);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let (attached, damage, cb) = frame_requests(&mut server);
+    assert_eq!((attached, damage), (None, Vec::new()));
+    assert_eq!(w.rows_copied(), Px(0));
+    assert!(w.in_flight(), "paced by the callback as any frame");
+
+    // A new width is a new pool at the same height, shown whole whatever
+    // the frame says.
+    done(&mut server, cb);
+    configure(&mut server, top, xdg, 320, 480, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, wu, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    server.expect("wl_buffer", "destroy");
+    server.expect("wl_buffer", "destroy");
+    server.expect("wl_shm_pool", "destroy");
+    let (attached, damage, _) = frame_requests(&mut server);
+    assert!(attached.is_some());
+    assert_eq!(damage, [[0, 0, 320, 480]]);
+    assert_eq!(w.rows_copied(), Px(480));
 }
 
 /// A session as far as a keyboard with the `us` keymap: the globals bound,

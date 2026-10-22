@@ -2,10 +2,11 @@
 //! frame and a key.** The handshake is the protocol's: bind the globals
 //! (`wl_compositor`, `wl_shm`, `xdg_wm_base`, `wl_seat`), make a surface
 //! and its xdg role, commit, and wait for the configure to ack; then a
-//! frame is a buffer attached, damaged and committed with a frame callback
-//! requested, and the next frame waits for that callback -- one frame in
-//! flight, foot's pacing. The keyboard hands over a keymap as a file, which
-//! `baud-xkb` compiles, and reports keys and modifier masks the compiler
+//! frame is a buffer attached, damaged in the rows it changed and
+//! committed with a frame callback requested, and the next frame waits for
+//! that callback -- one frame in flight, foot's pacing. The keyboard hands
+//! over a keymap as a file, which `baud-xkb` compiles, and reports keys
+//! and modifier masks the compiler
 //! turns into the key events the core encodes. The pointer reports where
 //! it is, its buttons and its scrolling a frame at a time (`pointer.rs`),
 //! and shows the shape `cursor-shape-v1` names where the compositor offers
@@ -13,6 +14,7 @@
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
 use crate::cursor::{self, Drawn, Scale};
+use crate::damage::{Changed, RowSet};
 use crate::ime::{
     ActionCode, ByteAt, CursorAt, CursorRect, HintCode, Preedit, PreeditCursor, Serial, Step,
     TextInput,
@@ -159,7 +161,8 @@ pub enum Resize {
 pub enum Presented {
     Yes,
     /// Not configured yet, a frame still in flight, no buffer free, or the
-    /// frame is smaller than the window.
+    /// frame is smaller than the window. What it changed is kept, and goes
+    /// with the next frame shown.
     No,
 }
 
@@ -261,6 +264,11 @@ pub struct Window {
     /// excluding any panels"; `None` while unknown.
     bounds: Option<(Px, Px)>,
     pool: Option<Pool>,
+    /// The rows frames changed that no buffer has shown yet: those of a
+    /// frame refused, sent with the next one.
+    owed: RowSet,
+    /// The rows the last frame shown copied into its buffer.
+    copied: Px,
     callback: Option<ObjectId>,
     keymap: Option<Keymap>,
     mods: Mods,
@@ -333,6 +341,8 @@ impl Window {
             shown: Shown::Floating,
             bounds: None,
             pool: None,
+            owed: RowSet::default(),
+            copied: Px(0),
             callback: None,
             keymap: None,
             mods: Mods::default(),
@@ -860,20 +870,37 @@ impl Window {
     /// Show `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
     /// at least the window's size -- premultiplied into a free buffer, the
     /// encoding `ARGB8888` names, by the function the macOS presenter
-    /// uses, with a frame callback for the next.
-    pub fn present(&mut self, s: &mut Sender<'_>, frame: &[u32], stride: usize) -> Presented {
+    /// uses, with a frame callback for the next. `changed` is what it
+    /// changed of the frame before: only those rows, and those the buffer
+    /// missed while others were shown, are copied (`damage.rs`), and only
+    /// those it changed are damaged, a strip of rows the buffer's width
+    /// each. A frame that changed nothing, with nothing owed, attaches no
+    /// buffer: the commit carries the frame callback alone, so the pacing
+    /// is the same.
+    pub fn present(
+        &mut self,
+        s: &mut Sender<'_>,
+        frame: &[u32],
+        stride: usize,
+        changed: Changed<'_>,
+    ) -> Presented {
         let (Some(surface), Some(shm), Some((w, h))) = (self.surface, self.globals.shm, self.size)
         else {
             return Presented::No;
         };
-        if self.callback.is_some() {
-            return Presented::No;
-        }
         let (wu, hu) = (
             usize::try_from(w.0).unwrap_or(0),
             usize::try_from(h.0).unwrap_or(0),
         );
-        if stride < wu || frame.len() < stride * hu {
+        // What this frame changed and what refused frames did: kept
+        // until a buffer shows it. A new height is every row.
+        let mut rows = core::mem::take(&mut self.owed);
+        if rows.height() != h {
+            rows = RowSet::all(h);
+        }
+        rows.add_changed(changed);
+        if self.callback.is_some() || stride < wu || frame.len() < stride * hu {
+            self.owed = rows;
             return Presented::No;
         }
         if self.pool.as_ref().is_some_and(|p| p.size() != (w, h)) {
@@ -884,46 +911,83 @@ impl Window {
         if self.pool.is_none() {
             match Pool::new(s, shm, w, h) {
                 Ok(p) => self.pool = Some(p),
-                Err(_) => return Presented::No,
+                Err(_) => {
+                    self.owed = rows;
+                    return Presented::No;
+                }
             }
+            // The surface shows a buffer of another size, or none.
+            rows = RowSet::all(h);
+        }
+        let cb = |s: &mut Sender<'_>| {
+            let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::FRAME),
+                &[Arg::NewId(cb)],
+            );
+            cb
+        };
+        if rows.is_empty() {
+            let callback = cb(s);
+            let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+            self.callback = Some(callback);
+            self.copied = Px(0);
+            self.owed = rows;
+            return Presented::Yes;
         }
         let pool = self.pool.as_mut().expect("just made");
         let dst_stride = pool.stride();
-        let Some((buffer, pixels)) = pool.free() else {
+        let Some((buffer, stale, pixels)) = pool.free() else {
+            self.owed = rows;
             return Presented::No;
         };
-        for y in 0..hu {
-            let src = &frame[y * stride..y * stride + wu];
-            let dst = &mut pixels[y * dst_stride..y * dst_stride + wu];
-            for (d, &px) in dst.iter_mut().zip(src) {
-                *d = premultiply(px);
+        let mut copy = stale.clone();
+        copy.union(&rows);
+        let at = |p: Px| usize::try_from(p.0).unwrap_or(0);
+        for strip in copy.runs() {
+            for y in at(strip.top)..at(strip.bottom) {
+                let src = &frame[y * stride..y * stride + wu];
+                let dst = &mut pixels[y * dst_stride..y * dst_stride + wu];
+                for (d, &px) in dst.iter_mut().zip(src) {
+                    *d = premultiply(px);
+                }
             }
         }
+        pool.shown(buffer, &rows);
         pool.committed(buffer);
         let _ = s.request(
             surface,
             Opcode(protocol::wl_surface::request::ATTACH),
             &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
         );
-        let _ = s.request(
-            surface,
-            Opcode(protocol::wl_surface::request::DAMAGE_BUFFER),
-            &[
-                Arg::Int(0),
-                Arg::Int(0),
-                Arg::Int(i32::try_from(w.0).unwrap_or(i32::MAX)),
-                Arg::Int(i32::try_from(h.0).unwrap_or(i32::MAX)),
-            ],
-        );
-        let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
-        let _ = s.request(
-            surface,
-            Opcode(protocol::wl_surface::request::FRAME),
-            &[Arg::NewId(cb)],
-        );
+        let int = |v: u32| Arg::Int(i32::try_from(v).unwrap_or(i32::MAX));
+        for strip in rows.runs() {
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::DAMAGE_BUFFER),
+                &[
+                    Arg::Int(0),
+                    int(strip.top.0),
+                    int(w.0),
+                    int(strip.bottom.0 - strip.top.0),
+                ],
+            );
+        }
+        let callback = cb(s);
         let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
-        self.callback = Some(cb);
+        self.callback = Some(callback);
+        self.copied = copy.count();
+        // Shown: nothing owed, and the set kept for the next frame's.
+        rows.clear();
+        self.owed = rows;
         Presented::Yes
+    }
+
+    /// The rows the last frame shown copied into its buffer: what it
+    /// changed and what the buffer had missed, none when it changed nothing.
+    pub fn rows_copied(&self) -> Px {
+        self.copied
     }
 
     /// The pointer's shape device, once both the pointer and the

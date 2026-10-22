@@ -3,8 +3,10 @@
 //! so a compositor that imports shared memory as a dmabuf (KWin's udmabuf
 //! path) does so without a copy. Two buffers, because the compositor holds
 //! one while the client draws the next; `wl_buffer.release` says which is
-//! free again.
+//! free again. Each buffer keeps the rows changed since it was last shown
+//! (`damage.rs`), so a frame copies only those.
 
+use crate::damage::RowSet;
 use crate::sys;
 use baud_wayland::{Arg, ObjectId, Opcode, Sender, protocol};
 use std::io;
@@ -27,6 +29,9 @@ pub struct Pool {
     map: sys::Map,
     pool: ObjectId,
     buffers: [(ObjectId, Held); BUFFERS],
+    /// The rows each buffer is missing: every row of a new one, and since
+    /// it was last shown, every row a frame shown in another changed.
+    stale: [RowSet; BUFFERS],
     width: Px,
     height: Px,
     /// Words a row, and `stride * 4` is a multiple of 256.
@@ -87,6 +92,7 @@ impl Pool {
             map,
             pool,
             buffers,
+            stale: core::array::from_fn(|_| RowSet::all(height)),
             width,
             height,
             stride,
@@ -101,12 +107,28 @@ impl Pool {
         self.stride
     }
 
-    /// A free buffer's id and its pixels, if the compositor has released one.
-    pub fn free(&mut self) -> Option<(ObjectId, &mut [u32])> {
+    /// A free buffer, if the compositor has released one: its id, the
+    /// rows it is missing and its pixels.
+    pub fn free(&mut self) -> Option<(ObjectId, &RowSet, &mut [u32])> {
         let i = self.buffers.iter().position(|(_, h)| *h == Held::Free)?;
         let one = self.stride * usize::try_from(self.height.0).unwrap_or(0);
         let (id, _) = self.buffers[i];
-        Some((id, &mut self.map.words()[i * one..(i + 1) * one]))
+        Some((
+            id,
+            &self.stale[i],
+            &mut self.map.words()[i * one..(i + 1) * one],
+        ))
+    }
+
+    /// `buffer` is up to date and shown with `changed`: it misses
+    /// nothing, and every other buffer misses those rows too.
+    pub fn shown(&mut self, buffer: ObjectId, changed: &RowSet) {
+        for ((id, _), stale) in self.buffers.iter().zip(self.stale.iter_mut()) {
+            match *id == buffer {
+                true => stale.clear(),
+                false => stale.union(changed),
+            }
+        }
     }
 
     /// The buffer is attached and committed: the compositor holds it.

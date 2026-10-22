@@ -2762,6 +2762,48 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The pixel rows the last [`Renderer::render`] wrote**, top to
+    /// bottom: each run of repainted rows as one band, then the rows under
+    /// each image blitted over the text, clipped to the frame -- every
+    /// such image is blitted on every frame, and one that arrived changes
+    /// rows no cell moved (`render_at`). What a presenter copies and
+    /// tells its compositor changed; a pixel outside every band is the
+    /// frame before's. Bands may overlap.
+    pub fn painted(&self) -> impl Iterator<Item = Band> + '_ {
+        let h = self.metrics.cell_h.value();
+        let rows = self.rows.index().min(self.dirty.len());
+        let mut r = 0;
+        let runs = core::iter::from_fn(move || {
+            while r < rows && !self.dirty[r] {
+                r += 1;
+            }
+            let start = r;
+            while r < rows && self.dirty[r] {
+                r += 1;
+            }
+            let px = |i: usize| Px::of(u32::try_from(i).unwrap_or(u32::MAX).saturating_mul(h));
+            (start < r).then(|| Band {
+                top: px(start),
+                bottom: px(r),
+            })
+        });
+        let bottom = i64::from(self.frame_size().1.value());
+        let images = self
+            .image_places
+            .iter()
+            .filter(|p| p.layer == ImageLayer::Over)
+            .filter_map(move |p| {
+                let top = i64::from(p.y).clamp(0, bottom);
+                let end = (i64::from(p.y) + i64::from(p.h)).clamp(0, bottom);
+                let px = |v: i64| Px::of(u32::try_from(v).unwrap_or(0));
+                (top < end).then(|| Band {
+                    top: px(top),
+                    bottom: px(end),
+                })
+            });
+        runs.chain(images)
+    }
+
     /// Reads the terminal, converts the rows that changed and paints them
     /// into `target`: [`Renderer::convert`] then [`Renderer::paint`].
     pub fn render(

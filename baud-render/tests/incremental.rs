@@ -96,3 +96,41 @@ fn a_glyph_reaching_into_another_row_repaints_it() {
         was = Some(now);
     }
 }
+
+/// **Every pixel an incremental frame changes is in a band
+/// [`baud_render::Renderer::painted`] names**, which is what a presenter
+/// copies and tells its compositor changed: across the three recordings
+/// that redraw in place, against the frame before. The controls: some
+/// frame changed pixels, and some frame named fewer rows than the grid
+/// has, or the bands were the whole frame and nothing was tested.
+#[test]
+fn the_painted_bands_hold_every_pixel_a_frame_changes() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let (mut changed, mut narrow) = (0usize, 0usize);
+    for name in ["utf8/btop.raw", "utf8/vim-unicode.raw", "utf8/cava.raw"] {
+        let bytes = recording(name);
+        let mut r = renderer(&faces);
+        let mut c = Canvas::for_renderer(&r);
+        let mut was = Canvas::for_renderer(&r);
+        replay(&bytes, |t, i| {
+            was.pixels.copy_from_slice(&c.pixels);
+            paint(&mut r, t, &mut c, Damage::Incremental);
+            let bands: Vec<_> = r.painted().collect();
+            let missed = uncovered(&was, &c, &bands);
+            assert!(
+                missed.is_empty(),
+                "{name}: read {i} changed rows {missed:?} unnamed"
+            );
+            if was.pixels != c.pixels {
+                changed += 1;
+            }
+            let named: u32 = bands.iter().map(|b| b.bottom.value() - b.top.value()).sum();
+            if usize::try_from(named).unwrap() < c.height {
+                narrow += 1;
+            }
+        });
+    }
+    assert!(changed >= 40, "{changed}");
+    assert!(narrow >= 10, "{narrow}");
+}

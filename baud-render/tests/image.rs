@@ -863,3 +863,36 @@ fn a_regis_input_cursor_is_drawn_and_taken_away() {
     assert_eq!(at(&c, 300, 50), bg, "the crosshair gone");
     assert_eq!(at(&c, 100, 300), bg);
 }
+
+/// **An image's rows are in the painted bands on the frame it arrives**:
+/// its blit lands on rows no cell moved, so a presenter copying only the
+/// repainted rows would leave the swirl unshown. Every row the frame
+/// changed is named, and the premise holds: the frame changed rows.
+#[test]
+fn an_image_that_arrives_is_in_the_painted_bands() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let was = Canvas {
+        pixels: c.pixels.clone(),
+        width: c.width,
+        height: c.height,
+    };
+    feed(&mut t, SWIRL);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental);
+    }
+    assert!(was.pixels != c.pixels, "the premise: the swirl drew");
+    let bands: Vec<_> = r.painted().collect();
+    let missed = support::uncovered(&was, &c, &bands);
+    assert!(missed.is_empty(), "rows {missed:?} changed and are unnamed");
+}

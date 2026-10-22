@@ -91,9 +91,10 @@ summary = "Typing accented letters with the Compose key and dead keys, and compo
 [[item]]
 id = "F2-08"
 area = "platforms"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Redraw only what changed on Linux"
-summary = "Send the compositor only the rows that changed, instead of the whole window every frame."
+summary = "Each frame hands the desktop only the rows that changed, instead of the whole window."
 
 [[item]]
 id = "F2-09"

@@ -31036,7 +31036,7 @@ group  = "H"
 
 [sources.foot-2705e36-render]
 key    = "foot-2705e36-render"
-title  = "foot 2705e36, render.c -- the preedit's cursor: hidden at -1, a beam where begin equals end, a hollow block over a range (1839-1872)"
+title  = "foot 2705e36, render.c -- the preedit's cursor: hidden at -1, a beam where begin equals end, a hollow block over a range (1839-1872); reapply_old_damage, a reused buffer brought up to date from the last one shown (3197-3291), the frame's damage as damage_buffer boxes (3596-3611)"
 author = "Daniel Eklöf and the foot contributors (MIT)"
 year   = 2026
 venue  = "codeberg.org/dnkl/foot @ 2705e36f0ecf3ef50c13b41165de852f134859d6"
@@ -31505,3 +31505,17 @@ status = "external"
 group  = "AX"
 # Read for the names kitty's universal icon names map to on Linux; it has
 # none for a system monitor.
+
+[sources.foot-2705e36-shm]
+key    = "foot-2705e36-shm"
+title  = "foot 2705e36, shm.c -- a new buffer's age forces a full repaint (507), a busy buffer ages a frame each time another is taken (608)"
+author = "Daniel Eklöf and the foot contributors (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f0ecf3ef50c13b41165de852f134859d6"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/shm.c"
+file   = ""
+sha256 = "5bf9f02a6a5a1d7205b3e719e003c5427c0fa98f5210977f685b62b1cb77aee8"
+bytes  = 30394
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b140): practice for baud-present-wayland/src/damage.rs. Read, not copied.
