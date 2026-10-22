@@ -162,6 +162,8 @@ pub struct Face<'a> {
     data: Bytes<'a>,
     records: Bytes<'a>,
     tables: Count,
+    /// The face's `sfntVersion`, kept for the directory it came from.
+    version: crate::describe::Flavour,
     upem: UnitsPerEm,
     glyphs: GlyphCount,
     line: LineMetrics,
@@ -250,6 +252,8 @@ pub(crate) struct Directory<'a> {
     data: Bytes<'a>,
     records: Bytes<'a>,
     tables: Count,
+    /// The face's own `sfntVersion`, at its directory.
+    version: crate::describe::Flavour,
 }
 
 impl<'a> Directory<'a> {
@@ -293,7 +297,18 @@ impl<'a> Directory<'a> {
             data: b,
             records,
             tables,
+            version: match version {
+                SFNT_CFF => crate::describe::Flavour::Cff,
+                SFNT_APPLE_TRUE => crate::describe::Flavour::AppleTrue,
+                SFNT_APPLE_TYP1 => crate::describe::Flavour::AppleType1,
+                _ => crate::describe::Flavour::TrueType,
+            },
         })
+    }
+
+    /// The face's `sfntVersion`.
+    pub(crate) fn flavour(&self) -> crate::describe::Flavour {
+        self.version
     }
 
     fn record(&self, i: Index) -> Option<Record> {
@@ -349,12 +364,14 @@ impl<'a> Face<'a> {
             data,
             records,
             tables,
+            version,
         } = dir;
 
         let mut face = Face {
             data,
             records,
             tables,
+            version,
             upem: UnitsPerEm(0),
             glyphs: GlyphCount(0),
             line: LineMetrics {
@@ -559,6 +576,7 @@ impl<'a> Face<'a> {
             data: self.data,
             records: self.records,
             tables: self.tables,
+            version: self.version,
         }
     }
 

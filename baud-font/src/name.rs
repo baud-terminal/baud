@@ -130,15 +130,19 @@ struct Entry<'a> {
     name: Family<'a>,
 }
 
-/// A record's nameID.
+/// A record's nameID (`[[source: ms-opentype-name]]`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct NameId(u16);
+pub struct NameId(u16);
 
 impl NameId {
-    const FAMILY: NameId = NameId(1);
-    const FULL: NameId = NameId(4);
-    const POSTSCRIPT: NameId = NameId(6);
-    const TYPOGRAPHIC_FAMILY: NameId = NameId(16);
+    pub const FAMILY: NameId = NameId(1);
+    pub const FULL: NameId = NameId(4);
+    pub const POSTSCRIPT: NameId = NameId(6);
+    pub const TYPOGRAPHIC_FAMILY: NameId = NameId(16);
+    /// The Macintosh full name, nameID 18.
+    pub const MAC_FULL: NameId = NameId(18);
+    /// The WWS family, nameID 21.
+    pub const WWS_FAMILY: NameId = NameId(21);
 }
 
 /// Whether a record is in the language CSS's `local()` prefers: US
@@ -258,6 +262,12 @@ pub(crate) fn family_in(t: Bytes<'_>) -> Option<Family<'_>> {
         }
     }
     best.map(|(_, f)| f)
+}
+
+/// Every record of `name` table `t` with nameID `id` in an encoding read
+/// here, in the table's order.
+pub(crate) fn names_in(t: Bytes<'_>, id: NameId) -> impl Iterator<Item = Family<'_>> {
+    entries(t).filter(move |e| e.id == id).map(|e| e.name)
 }
 
 /// Every family record of `name` table `t`, nameIDs 16 and 1, in the

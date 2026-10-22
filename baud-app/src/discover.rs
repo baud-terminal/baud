@@ -36,6 +36,7 @@
 //! build gave the stock italics the built family's name records (Jev,
 //! N_SHARE, 0.92/0.96) -- and the icon and maths faces by theirs.
 
+use crate::fontconf::{FaceView, FcIndex, Kept, Select};
 use baud_font::var::{Fixed, Variation};
 use baud_font::{Described, FaceIndex, Slope, Tag};
 use std::path::{Path, PathBuf};
@@ -490,18 +491,26 @@ impl Catalogue {
     /// baud's embedded faces, then the faces under `dirs`, each walked in
     /// name order, earlier directories first; a directory that does not
     /// exist adds nothing.
+    #[cfg(test)]
     pub fn scan(dirs: &[PathBuf]) -> Catalogue {
+        Catalogue::scan_selected(dirs, &Select::default())
+    }
+
+    /// [`Catalogue::scan`], keeping of what `dirs` hold what `select`
+    /// keeps: fontconfig's `<selectfont>` rules ([`crate::fontconf::Select`]).
+    pub fn scan_selected(dirs: &[PathBuf], select: &Select) -> Catalogue {
         let mut faces = embedded();
-        faces.extend(Catalogue::read(dirs, DEPTH_MAX).faces);
+        faces.extend(Catalogue::read(dirs, DEPTH_MAX, select).faces);
         Catalogue { faces }
     }
 
-    /// The faces under `dirs`, walked to `max` levels below each.
-    fn read(dirs: &[PathBuf], max: Depth) -> Catalogue {
+    /// The faces under `dirs` that `select` keeps, walked to `max` levels
+    /// below each.
+    fn read(dirs: &[PathBuf], max: Depth, select: &Select) -> Catalogue {
         let mut files = Vec::new();
         let mut seen = Seen::default();
         for d in dirs {
-            walk(d, Depth(0), max, &mut seen, &mut files);
+            walk(d, Depth(0), max, &mut seen, &mut files, select);
         }
         let threads = std::thread::available_parallelism()
             .map_or(1, std::num::NonZero::get)
@@ -516,7 +525,7 @@ impl Catalogue {
                     s.spawn(move || {
                         (t..files.len())
                             .step_by(threads)
-                            .map(|i| (i, read_file(&files[i])))
+                            .map(|i| (i, read_selected(&files[i], select)))
                             .collect::<Vec<_>>()
                     })
                 })
@@ -533,10 +542,14 @@ impl Catalogue {
     }
 
     /// The faces of the system's font directories ([`system_dirs`]),
-    /// scanned once per process.
+    /// scanned once per process; on Linux, with fontconfig's
+    /// `<selectfont>` rules applied to what they hold.
     pub fn system() -> &'static Catalogue {
         static SYSTEM: std::sync::OnceLock<Catalogue> = std::sync::OnceLock::new();
-        SYSTEM.get_or_init(|| Catalogue::scan(&system_dirs()))
+        SYSTEM.get_or_init(|| {
+            let (dirs, select) = system_config();
+            Catalogue::scan_selected(&dirs, &select)
+        })
     }
 
     /// The faces whose family names include `name`.
@@ -611,7 +624,13 @@ impl Catalogue {
     /// where they are of its family.
     pub fn beside(&self, path: &str, index: FaceIndex) -> Beside {
         let p = Path::new(path);
-        let near = Catalogue::read(p.parent().map(Path::to_path_buf).as_slice(), Depth(0));
+        // A font named by path is opened as named, as fontconfig's
+        // `<selectfont>` does not reach a file an application opens.
+        let near = Catalogue::read(
+            p.parent().map(Path::to_path_buf).as_slice(),
+            Depth(0),
+            &Select::default(),
+        );
         let own = read_file(p);
         let named = own.iter().find(|k| k.index == index);
         let family = named.and_then(|k| k.family.clone());
@@ -707,8 +726,19 @@ impl Seen {
 
 /// The font files under `dir`, in name order, following symbolic links
 /// (Home Manager links its fonts), to `max` levels below, each directory
-/// once ([`Seen`]).
-fn walk(dir: &Path, depth: Depth, max: Depth, seen: &mut Seen, out: &mut Vec<PathBuf>) {
+/// once ([`Seen`]); a file or a directory below `dir` that `select`'s globs
+/// refuse is left out, by the path the walk spells, `dir`, `/` and the
+/// name, as `FcConfigAddCache` tests each font file and subdirectory
+/// (`[[source: fontconfig-fccfg-2-15-0]]`). `dir` itself is not tested:
+/// fontconfig tests no configured directory.
+fn walk(
+    dir: &Path,
+    depth: Depth,
+    max: Depth,
+    seen: &mut Seen,
+    out: &mut Vec<PathBuf>,
+    select: &Select,
+) {
     if !seen.first(dir) {
         return;
     }
@@ -727,9 +757,12 @@ fn walk(dir: &Path, depth: Depth, max: Depth, seen: &mut Seen, out: &mut Vec<Pat
             Some(k) if k.is_symlink() => std::fs::metadata(&p).ok().map(|m| m.file_type()),
             k => k,
         };
+        if select.path(&p) == Kept::No {
+            continue;
+        }
         match kind {
             Some(k) if k.is_dir() && depth < max => {
-                walk(&p, Depth(depth.0 + 1), max, seen, out);
+                walk(&p, Depth(depth.0 + 1), max, seen, out, select);
             }
             Some(k) if k.is_file() && is_font(&p) => out.push(p),
             _ => {}
@@ -745,6 +778,30 @@ fn embedded() -> Vec<Known> {
     [REGULAR, BOLD, ITALIC, BOLD_ITALIC, SYMBOLS, STIX]
         .into_iter()
         .filter_map(|e| Known::read(e.name, Origin::Embedded(e.bytes), e.bytes, FaceIndex::FIRST))
+        .collect()
+}
+
+/// Every face of the file at `p` that `select`'s patterns keep
+/// ([`Select::face`] over [`FaceView::of`]), read only when a pattern asks.
+fn read_selected(p: &Path, select: &Select) -> Vec<Known> {
+    if !select.tests_faces() {
+        return read_file(p);
+    }
+    let Some(path) = p.to_str() else {
+        return Vec::new();
+    };
+    let Some(map) = Mapped::open(p) else {
+        return Vec::new();
+    };
+    let data = map.bytes();
+    let n = baud_font::faces(data).map_or(0, |n| n.value());
+    (0..n)
+        .filter(|&i| {
+            Described::of(data, FaceIndex::of(i)).is_some_and(|d| {
+                select.face(&FaceView::of(&d, path, FcIndex(i64::from(i)))) == Kept::Yes
+            })
+        })
+        .filter_map(|i| Known::read(path, Origin::File, data, FaceIndex::of(i)))
         .collect()
 }
 
@@ -817,7 +874,14 @@ impl Drop for Mapped {
 /// then the system's. Elsewhere, the directories fontconfig's
 /// configuration names, in its order ([`crate::fontconf`]), and where no
 /// configuration is found, [`xdg_dirs`]'s list.
+#[cfg(test)]
 pub fn system_dirs() -> Vec<PathBuf> {
+    system_config().0
+}
+
+/// [`system_dirs`] and, on Linux where fontconfig's configuration is
+/// found, its `<selectfont>` rules; elsewhere rules that keep everything.
+fn system_config() -> (Vec<PathBuf>, Select) {
     let home = std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
@@ -829,17 +893,21 @@ pub fn system_dirs() -> Vec<PathBuf> {
                 assets.extend(rd.flatten().map(|e| e.path()));
             }
         }
-        mac_dirs(home, assets)
+        (mac_dirs(home, assets), Select::default())
     } else {
         // fontconfig's own list where its configuration is found (Jev's
         // lean, C_CONF_ONLY); the fixed list where there is none.
-        crate::fontconf::dirs(&crate::fontconf::Env::from_process()).unwrap_or_else(|| {
-            xdg_dirs(
-                home,
-                std::env::var_os("XDG_DATA_HOME"),
-                std::env::var_os("XDG_DATA_DIRS"),
-            )
-        })
+        match crate::fontconf::load(&crate::fontconf::Env::from_process()) {
+            Some(c) => (c.dirs, c.select),
+            None => (
+                xdg_dirs(
+                    home,
+                    std::env::var_os("XDG_DATA_HOME"),
+                    std::env::var_os("XDG_DATA_DIRS"),
+                ),
+                Select::default(),
+            ),
+        }
     }
 }
 
@@ -1048,6 +1116,196 @@ mod tests {
         assert_eq!(picked(&obl, Want::REGULAR).as_deref(), Some("upright"));
     }
 
+    /// **What the Linux scan costs, headless, on a fixture tree**: a
+    /// `fonts.conf` with a `conf.d` of 20 files (each a `<dir>` and a
+    /// `<selectfont>` rule, a glob and a pattern), and 360 font files, the
+    /// nine under `baud-font/tests/fonts` linked into 40 directories. Each
+    /// round reads the configuration (`fontconf::load`), walks the
+    /// directories and reads every face on the scan's threads, once with
+    /// the rules and once without; 11 rounds, the first not counted. Run by
+    /// hand (`--ignored --nocapture`) for the record; it asserts the counts.
+    #[test]
+    #[ignore]
+    fn measure_the_linux_scan_on_a_fixture_tree() {
+        let root = std::env::temp_dir().join(format!("baud-b155-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("etc/conf.d")).unwrap();
+        let root = root.canonicalize().unwrap();
+        let src = PathBuf::from(format!("{ROOT}/baud-font/tests/fonts"));
+        let mut fonts: Vec<PathBuf> = std::fs::read_dir(&src)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_font(p))
+            .collect();
+        fonts.sort();
+        assert_eq!(fonts.len(), 9);
+        for d in 0..40 {
+            let dir = root.join(format!("fonts/d{d:02}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            for f in &fonts {
+                std::os::unix::fs::symlink(f, dir.join(f.file_name().unwrap())).unwrap();
+            }
+        }
+        let r = root.display();
+        std::fs::write(
+            root.join("etc/fonts.conf"),
+            format!("<fontconfig><dir>{r}/fonts</dir><include>conf.d</include></fontconfig>"),
+        )
+        .unwrap();
+        for i in 0..20 {
+            std::fs::write(
+                root.join(format!("etc/conf.d/{i:02}-rule.conf")),
+                format!(
+                    "<fontconfig><dir>{r}/fonts/d{i:02}</dir><selectfont><rejectfont>\
+                     <glob>{r}/fonts/none-{i}/*</glob><pattern><patelt name=\"family\">\
+                     <string>No Such Family {i}</string></patelt></pattern></rejectfont>\
+                     </selectfont></fontconfig>"
+                ),
+            )
+            .unwrap();
+        }
+        let env = crate::fontconf::Env {
+            home: None,
+            xdg_data_home: None,
+            xdg_data_dirs: None,
+            xdg_config_home: None,
+            file: None,
+            path: None,
+            config_dir: root.join("etc"),
+            cwd: Some(root.clone()),
+        };
+        let mut rows: Vec<[f64; 5]> = Vec::new();
+        for round in 0..11 {
+            let t = std::time::Instant::now();
+            let c = crate::fontconf::load(&env).unwrap();
+            let conf = t.elapsed();
+            let t = std::time::Instant::now();
+            let mut files = Vec::new();
+            let mut seen = Seen::default();
+            for d in &c.dirs {
+                walk(d, Depth(0), DEPTH_MAX, &mut seen, &mut files, &c.select);
+            }
+            let walked = t.elapsed();
+            let t = std::time::Instant::now();
+            let ruled = Catalogue::read(&c.dirs, DEPTH_MAX, &c.select).faces.len();
+            let with_rules = t.elapsed();
+            let t = std::time::Instant::now();
+            let plain = Catalogue::read(&c.dirs, DEPTH_MAX, &Select::default())
+                .faces
+                .len();
+            let without = t.elapsed();
+            assert_eq!(
+                c.dirs.len(),
+                21,
+                "the tree and twenty of its directories, each walked once"
+            );
+            assert_eq!(files.len(), 360);
+            assert_eq!((ruled, plain), (ruled, ruled));
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
+            println!(
+                "round {round}: config {:.3} ms, walk {:.3} ms ({} files), \
+                 walk+read with rules {:.2} ms, without {:.2} ms ({ruled} faces)",
+                ms(conf),
+                ms(walked),
+                files.len(),
+                ms(with_rules),
+                ms(without)
+            );
+            if round > 0 {
+                rows.push([ms(conf), ms(walked), ms(with_rules), ms(without), 0.0]);
+            }
+        }
+        for (i, name) in ["config", "walk", "walk+read, rules", "walk+read, none"]
+            .iter()
+            .enumerate()
+        {
+            let mut v: Vec<f64> = rows.iter().map(|r| r[i]).collect();
+            v.sort_by(f64::total_cmp);
+            println!(
+                "{name}: median {:.3} ms, range {:.3}-{:.3}",
+                v[v.len() / 2],
+                v[0],
+                v[v.len() - 1]
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **fontconfig's `<selectfont>` keeps a face out of the catalogue**,
+    /// on a tree of three fonts read through `fontconf::load`: a
+    /// `<rejectfont>` glob on a subdirectory drops what is below it, and a
+    /// pattern on a family drops that family's face, its name matched
+    /// without spaces or case. A glob equal to the configured
+    /// directory drops nothing, as fontconfig tests no configured
+    /// directory; one that ends in `*` below it drops all of it.
+    #[test]
+    fn the_scan_keeps_what_selectfont_keeps() {
+        let root = std::env::temp_dir().join(format!("baud-b155-sel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let fonts = root.join("fonts");
+        std::fs::create_dir_all(fonts.join("keep")).unwrap();
+        std::fs::create_dir_all(fonts.join("drop")).unwrap();
+        let fonts = fonts.canonicalize().unwrap();
+        let src = |n: &str| PathBuf::from(format!("{ROOT}/baud-font/tests/fonts/{n}"));
+        let link = |n: &str, at: PathBuf| std::os::unix::fs::symlink(src(n), at).unwrap();
+        link(
+            "JetBrainsMono-Regular.ttf",
+            fonts.join("keep/JetBrainsMono-Regular.ttf"),
+        );
+        link(
+            "JetBrainsMono-Variable.ttf",
+            fonts.join("drop/JetBrainsMono-Variable.ttf"),
+        );
+        link("FiraCode-Regular.ttf", fonts.join("FiraCode-Regular.ttf"));
+        let f = fonts.display();
+        let files = |rules: &str| -> Vec<String> {
+            let conf = root.join("fonts.conf");
+            std::fs::write(
+                &conf,
+                format!("<fontconfig><dir>{f}</dir>{rules}</fontconfig>"),
+            )
+            .unwrap();
+            let env = crate::fontconf::Env {
+                home: None,
+                xdg_data_home: None,
+                xdg_data_dirs: None,
+                xdg_config_home: None,
+                file: Some(conf.into()),
+                path: None,
+                config_dir: root.join("etc"),
+                cwd: Some(root.clone()),
+            };
+            let c = crate::fontconf::load(&env).unwrap();
+            let cat = Catalogue::scan_selected(&c.dirs, &c.select);
+            let mut v: Vec<String> = cat
+                .faces
+                .iter()
+                .filter(|k| k.origin == Origin::File)
+                .map(|k| k.path.replace(&f.to_string(), "F"))
+                .collect();
+            v.sort();
+            v
+        };
+        let all = [
+            "F/FiraCode-Regular.ttf",
+            "F/drop/JetBrainsMono-Variable.ttf",
+            "F/keep/JetBrainsMono-Regular.ttf",
+        ];
+        // Positive control: with no rules every face is in.
+        assert_eq!(files(""), all);
+        let rules = format!(
+            "<selectfont><rejectfont><glob>{f}/drop</glob><pattern>\
+             <patelt name=\"family\"><string>firacode</string></patelt></pattern></rejectfont></selectfont>"
+        );
+        assert_eq!(files(&rules), ["F/keep/JetBrainsMono-Regular.ttf"]);
+        let own = format!("<selectfont><rejectfont><glob>{f}</glob></rejectfont></selectfont>");
+        assert_eq!(files(&own), all, "the configured directory is not tested");
+        let below = format!("<selectfont><rejectfont><glob>{f}/*</glob></rejectfont></selectfont>");
+        assert!(files(&below).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// **A variable face covers its axis and is drawn at the value the
     /// search lands on** (Jev, V_AXIS): FiraCode's wght runs 300 to 700, so
     /// regular is 400 and bold 700, from the one file.
@@ -1221,7 +1479,14 @@ mod tests {
         let mut files = Vec::new();
         let mut seen = Seen::default();
         for d in &dirs {
-            walk(d, Depth(0), DEPTH_MAX, &mut seen, &mut files);
+            walk(
+                d,
+                Depth(0),
+                DEPTH_MAX,
+                &mut seen,
+                &mut files,
+                &Select::default(),
+            );
         }
         let walked = t.elapsed();
         let n: usize = files.iter().map(|p| read_file(p).len()).sum();

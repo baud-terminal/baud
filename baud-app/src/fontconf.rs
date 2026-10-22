@@ -9,7 +9,13 @@
 //!   absolute is looked for along `FONTCONFIG_PATH` and then the configuration
 //!   directory, one that starts with `~` is `HOME` and the rest
 //!   (`[[source: fontconfig-fccfg-2-15-0]]` `FcConfigGetFilename`,
-//!   `FcConfigGetPath`). The directory is `SYSCONFDIR/fonts`
+//!   `FcConfigGetPath`), and a file that cannot be opened for reading is
+//!   passed over for the next, as `FcConfigFileExists` passes over one
+//!   that `access(R_OK)` refuses; baud opens the file to ask, which waits
+//!   on a named FIFO that has no writer yet, where `access` does not. A
+//!   root file that is a named pipe is read under the name given, as
+//!   `FcConfigRealFilename` leaves it, so `FONTCONFIG_FILE=<(...)` works.
+//!   The directory is `SYSCONFDIR/fonts`
 //!   (`[[source: fontconfig-configure-2-15-0]]`, `--with-baseconfigdir`);
 //!   baud takes `/etc/fonts`, and a fontconfig built for another directory is
 //!   reached through the two variables, as fontconfig itself reads them.
@@ -38,6 +44,35 @@
 //!   directory, as `FcStrBuildFilename` writes no `/` after an empty first
 //!   part; an `<include prefix="xdg">` under an empty `XDG_CONFIG_HOME` is
 //!   `/` and its name, as `FcParseInclude` writes the `/` itself.
+//!
+//! * **`<selectfont>`** (`[[source: fontconfig-fcxml-2-15-0]]`
+//!   `FcParseAcceptRejectFont`, `[[source: fontconfig-fccfg-2-15-0]]`
+//!   `FcConfigAddCache`): each `<glob>` and `<pattern>` of an `<acceptfont>`
+//!   or `<rejectfont>`, in any file read, is a rule, and an accepting rule
+//!   wins. A glob, made absolute as a `<dir>` is, tests every font file and
+//!   every directory below a configured one by the path the scan spells
+//!   ([`Select::path`]); the user documentation's "globs only apply to
+//!   directories" is not what the code does. A pattern tests each face as
+//!   `FcListPatternMatchAny` does (`[[source: fontconfig-fclist-2-15-0]]`),
+//!   over [`FaceView`]: the objects baud reads from a face, family, full
+//!   name, PostScript name, file, index, outline, scalable, colour,
+//!   variable and font format, each as FreeType and fontconfig set it (Jev's
+//!   lean, READ_OBJECTS, 0.86/0.94, re-asked 0.85/0.92).
+//!
+//! **Departures in the patterns, open.** A pattern that names any other
+//! object -- `lang`, `charset`, `style`, `weight` and the rest a face has --
+//! matches no face, where fontconfig tests it. A `<const>` is not resolved,
+//! which matters only for `index`. A variable face is one face here, kept
+//! while fontconfig would keep either its variable pattern or its named
+//! instances' (`variable` false), with the instances' own names not read.
+//! Names are the records baud's name reader decodes, which leaves out a
+//! few platform encodings fontconfig transcodes, and strings are compared
+//! by default caseless match with spaces dropped, close to fontconfig's
+//! case folding. `<match target="scan">` edits, which fontconfig applies
+//! to a face's pattern before `<selectfont>` tests it
+//! (`[[source: fontconfig-user]]` `<selectfont>`,
+//! `[[source: fontconfig-fcdir-2-15-0]]` `FcFileScanFontConfig`), are not
+//! read, so a pattern is tested against the face as FreeType reads it.
 //!
 //! The XML is read by a small reader of its own that knows elements,
 //! attributes, character data, the five predefined entities and character
@@ -100,16 +135,35 @@ impl Env {
 /// order; `None` when no configuration file is found, where fontconfig
 /// would load its fallback configuration (one of the module's open
 /// departures).
+#[cfg(test)]
 pub fn dirs(env: &Env) -> Option<Vec<PathBuf>> {
+    load(env).map(|c| c.dirs)
+}
+
+/// What fontconfig's configuration says of the fonts: the directories to
+/// scan, in order, and which of what they hold to keep ([`Select`]).
+pub struct Config {
+    pub dirs: Vec<PathBuf>,
+    pub select: Select,
+}
+
+/// **The configuration, read**: [`dirs`] and the `<selectfont>` rules of
+/// every file read; `None` as [`dirs`] is.
+pub fn load(env: &Env) -> Option<Config> {
     let name = env.file.clone().unwrap_or_else(|| "fonts.conf".into());
     let mut load = Load {
         env,
         read: HashSet::new(),
         dirs: Vec::new(),
+        select: Select::default(),
+        pending: Pending::default(),
     };
     let root = load.filename(&name)?;
-    load.parse(&root);
-    Some(load.dirs)
+    load.parse_root(&root);
+    Some(Config {
+        dirs: load.dirs,
+        select: load.select,
+    })
 }
 
 /// A reading of the configuration in progress.
@@ -118,6 +172,493 @@ struct Load<'e> {
     /// The files and directories read, by real path.
     read: HashSet<PathBuf>,
     dirs: Vec<PathBuf>,
+    select: Select,
+    /// The parts of a `<selectfont>` rule read but not yet taken by the
+    /// element they are inside.
+    pending: Pending,
+}
+
+/// What fontconfig's parse stack holds between a selector's parts and the
+/// element that takes them: a `<patelt>`'s values, a `<pattern>`'s
+/// elements, an `<acceptfont>`'s or `<rejectfont>`'s globs and patterns.
+#[derive(Default)]
+struct Pending {
+    values: Vec<Value>,
+    elements: Vec<Patelt>,
+    selectors: Vec<Selector>,
+}
+
+/// One `<acceptfont>` or `<rejectfont>` child.
+enum Selector {
+    Glob(Vec<u8>),
+    Pattern(Pattern),
+}
+
+/// **`<selectfont>`, gathered over the whole configuration**
+/// (`[[source: fontconfig-fccfg-2-15-0]]` `FcConfigGlobAdd`,
+/// `FcConfigAcceptFilename`, `FcConfigPatternsAdd`, `FcConfigAcceptFont`):
+/// a path or a face an `<acceptfont>` matches is kept, else one a
+/// `<rejectfont>` matches is dropped, else it is kept -- whatever order the
+/// rules came in, and `<reset-dirs/>` leaves them.
+#[derive(Default)]
+pub struct Select {
+    accept_globs: Vec<Vec<u8>>,
+    reject_globs: Vec<Vec<u8>>,
+    accept: Vec<Pattern>,
+    reject: Vec<Pattern>,
+}
+
+/// Whether a selector keeps a path or a face.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kept {
+    Yes,
+    No,
+}
+
+impl Select {
+    /// `FcConfigAcceptFilename`, for a font file or a directory below a
+    /// configured one, as the scan spells it: the directory, `/`, the name.
+    pub fn path(&self, p: &Path) -> Kept {
+        use std::os::unix::ffi::OsStrExt;
+        let s = p.as_os_str().as_bytes();
+        if self.accept_globs.iter().any(|g| glob_match(g, s)) {
+            return Kept::Yes;
+        }
+        match self.reject_globs.iter().any(|g| glob_match(g, s)) {
+            true => Kept::No,
+            false => Kept::Yes,
+        }
+    }
+
+    /// Whether any rule tests a face's pattern, so a scan reads what one
+    /// needs only when it is asked.
+    pub fn tests_faces(&self) -> bool {
+        !(self.accept.is_empty() && self.reject.is_empty())
+    }
+
+    /// `FcConfigAcceptFont` for face `f`. A variable face is one pattern
+    /// with `variable` true and its named instances more with it false;
+    /// baud keeps the face while either reading keeps it.
+    pub fn face(&self, f: &FaceView) -> Kept {
+        let read = |variable: Has| {
+            let accepted = self.accept.iter().any(|p| p.matches(f, variable));
+            let rejected = self.reject.iter().any(|p| p.matches(f, variable));
+            match (accepted, rejected) {
+                (true, _) | (false, false) => Kept::Yes,
+                (false, true) => Kept::No,
+            }
+        };
+        match f.variable {
+            Has::Yes if read(Has::Yes) == Kept::Yes => Kept::Yes,
+            _ => read(Has::No),
+        }
+    }
+}
+
+/// `FcStrGlobMatch` (`[[source: fontconfig-fcstr-2-15-0]]`): `*` any run of
+/// bytes, `/` included, `?` any one byte, every other byte itself.
+fn glob_match(glob: &[u8], s: &[u8]) -> bool {
+    match glob.split_first() {
+        None => s.is_empty(),
+        Some((b'*', rest)) => {
+            if rest.is_empty() {
+                return true;
+            }
+            (0..s.len()).any(|i| glob_match(rest, &s[i..]))
+        }
+        Some((b'?', rest)) => s.split_first().is_some_and(|(_, t)| glob_match(rest, t)),
+        Some((c, rest)) => s
+            .split_first()
+            .is_some_and(|(b, t)| b == c && glob_match(rest, t)),
+    }
+}
+
+/// Whether a face has a property, as fontconfig's booleans read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Has {
+    Yes,
+    No,
+}
+
+/// **A face as fontconfig's pattern of it names it**, for the objects baud
+/// reads (`[[source: fontconfig-fcfreetype-2-15-0]]`
+/// `FcFreeTypeQueryFaceInternal`): its families (nameIDs 21, 16 and 1),
+/// full names (4 and 18), PostScript name, file, index, and FreeType's
+/// view of its outlines and colour ([`Has`]); `scalable` is outline or
+/// colour, as fontconfig sets it.
+#[derive(Clone, Debug)]
+pub struct FaceView {
+    pub families: Vec<String>,
+    pub full_names: Vec<String>,
+    pub postscript: Option<String>,
+    pub file: String,
+    pub index: FcIndex,
+    pub outline: Has,
+    pub color: Has,
+    pub variable: Has,
+    pub format: Option<&'static str>,
+}
+
+impl FaceView {
+    /// **Face `index` of the file at `file`, as fontconfig's pattern names
+    /// it.** The families are nameIDs 21, 16 and 1 and the full names 4 and
+    /// 18, every language (`FcFreeTypeQueryFaceInternal`'s name walk);
+    /// `fontformat` is the FreeType driver's name, "CFF" for an `'OTTO'`
+    /// face and "TrueType" for a `0x00010000` or `'true'` one
+    /// (`[[source: freetype-cffobjs-2-13-3]]`, `[[source: freetype-ttobjs-2-13-3]]`),
+    /// none for `'typ1'`, which neither driver opens. `outline` and `color`
+    /// are FreeType's face flags (`[[source: freetype-sfobjs-2-13-3]]`
+    /// `sfnt_load_face()`, `[[source: freetype-ttsbit-2-13-3]]`):
+    ///
+    /// * **Outlines** are `glyf`, `CFF ` or `CFF2`, none when `CBLC` or
+    ///   `CBDT` is present; with outlines a face with `sbix` is flagged
+    ///   SBIX rather than scalable, and a face with neither outlines nor a
+    ///   bitmap strike is scalable ("it has only empty glyphs then").
+    ///   FreeType clips a strike count to the table's length,
+    ///   (length - 8) / 48 for `CBLC`, `EBLC` and `bloc` and
+    ///   (length - 8) / 4 for `sbix`, and drops a strike whose metrics
+    ///   fail to load or whose ppem is zero. baud reads `numSizes` and
+    ///   `numStrikes` unclipped, so a truncated table is read as having
+    ///   strikes FreeType would not see.
+    /// * **Colour** is a `CBLC` sbit table, an `sbix` one when there is no
+    ///   `CBLC`, `EBLC` or `bloc`, or a `COLR` or `SVG ` table.
+    pub fn of(d: &baud_font::Described<'_>, file: &str, index: FcIndex) -> FaceView {
+        use baud_font::{Flavour, NameId, Tag};
+        let has = |t: &[u8; 4]| d.table(Tag::from_bytes(*t)).is_some();
+        let text = |f: baud_font::Family<'_>| f.chars().collect::<Option<String>>();
+        let names = |ids: &[NameId]| -> Vec<String> {
+            ids.iter()
+                .flat_map(|&id| d.names(id).filter_map(text))
+                .collect()
+        };
+        // The one sbit table FreeType reads: `CBLC`, else `EBLC`, else
+        // `bloc`, else `sbix`.
+        let sbit = [b"CBLC", b"EBLC", b"bloc", b"sbix"]
+            .into_iter()
+            .find(|t| has(t));
+        let cblc = sbit == Some(b"CBLC");
+        let sbix = sbit == Some(b"sbix");
+        let outlines = (has(b"glyf") || has(b"CFF ") || has(b"CFF2")) && !(cblc || has(b"CBDT"));
+        let strikes = sbit.is_some_and(|t| strikes(d, t) && (sbix || sbit_data(d)));
+        // With outlines, `sbix` anywhere makes the face SBIX, not scalable;
+        // a face then neither scalable nor with a strike is scalable.
+        let outline = match (outlines && !has(b"sbix"), strikes) {
+            (true, _) | (false, false) => Has::Yes,
+            (false, true) => Has::No,
+        };
+        let color = match cblc || sbix || has(b"COLR") || has(b"SVG ") {
+            true => Has::Yes,
+            false => Has::No,
+        };
+        FaceView {
+            families: names(&[
+                NameId::WWS_FAMILY,
+                NameId::TYPOGRAPHIC_FAMILY,
+                NameId::FAMILY,
+            ]),
+            full_names: names(&[NameId::MAC_FULL, NameId::FULL]),
+            postscript: d.postscript_name().and_then(text),
+            file: file.to_owned(),
+            index,
+            outline,
+            color,
+            variable: match has(b"fvar") {
+                true => Has::Yes,
+                false => Has::No,
+            },
+            format: match d.flavour() {
+                Flavour::Cff => Some("CFF"),
+                Flavour::TrueType | Flavour::AppleTrue => Some("TrueType"),
+                Flavour::AppleType1 => None,
+            },
+        }
+    }
+}
+
+/// Whether table `tag` names at least one strike, read as FreeType reads
+/// it: `numSizes` (`EBLC`, `CBLC`, `bloc`) or `numStrikes` (`sbix`) at
+/// offset 4, in a table at least 8 bytes long. FreeType then sets an
+/// `EBLC`-style count to zero without a data table ([`sbit_data`]).
+fn strikes(d: &baud_font::Described<'_>, tag: &[u8; 4]) -> bool {
+    use baud_font::bytes::Offset;
+    d.table(baud_font::Tag::from_bytes(*tag)).is_some_and(|t| {
+        t.as_slice().len() >= 8 && t.read::<u32>(Offset::of(4u32)).is_some_and(|n| n > 0)
+    })
+}
+
+/// Whether the face has a bitmap data table for its `EBLC`, `CBLC` or
+/// `bloc`: `CBDT`, `EBDT` or `bdat`.
+fn sbit_data(d: &baud_font::Described<'_>) -> bool {
+    [b"CBDT", b"EBDT", b"bdat"]
+        .iter()
+        .any(|t| d.table(baud_font::Tag::from_bytes(**t)).is_some())
+}
+
+/// A face's `index` as fontconfig's pattern holds it: its place in its
+/// file.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FcIndex(pub i64);
+
+/// A value a `<patelt>` holds, after `FcPopValue`: what `<string>`,
+/// `<int>`, `<double>` and `<bool>` read to, the types baud does not read
+/// from a face, and `Void` for an element `FcPopValue` makes nothing of.
+#[derive(Clone, Debug, PartialEq)]
+enum Value {
+    Str(String),
+    Int(i64),
+    Double(f64),
+    Bool(Fc3),
+    Other(Other),
+}
+
+/// fontconfig's three-valued boolean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fc3 {
+    False,
+    True,
+    DontCare,
+}
+
+/// A value of a type baud does not read from a face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Other {
+    CharSet,
+    LangSet,
+    Range,
+    Matrix,
+    /// An unknown `<const>`, an expression, or any element `FcPopValue`
+    /// gives no value for: it ends the `<patelt>`'s reading.
+    Void,
+}
+
+/// The type a pattern object holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FcType {
+    Str,
+    Int,
+    Double,
+    Range,
+    Bool,
+    Matrix,
+    CharSet,
+    LangSet,
+}
+
+/// **fontconfig's objects by name and type**: the names
+/// `[[source: fontconfig-fontconfig-h-2-15-0]]` defines and the types
+/// `[[source: fontconfig-fcobjs-2-15-0]]` gives them. A name not here is an
+/// object of fontconfig's own making that takes any type.
+const FC_OBJECTS: [(&str, FcType); 55] = [
+    ("family", FcType::Str),
+    ("familylang", FcType::Str),
+    ("style", FcType::Str),
+    ("stylelang", FcType::Str),
+    ("fullname", FcType::Str),
+    ("fullnamelang", FcType::Str),
+    ("slant", FcType::Int),
+    ("weight", FcType::Range),
+    ("width", FcType::Range),
+    ("size", FcType::Range),
+    ("aspect", FcType::Double),
+    ("pixelsize", FcType::Double),
+    ("spacing", FcType::Int),
+    ("foundry", FcType::Str),
+    ("antialias", FcType::Bool),
+    ("hintstyle", FcType::Int),
+    ("hinting", FcType::Bool),
+    ("verticallayout", FcType::Bool),
+    ("autohint", FcType::Bool),
+    ("globaladvance", FcType::Bool),
+    ("file", FcType::Str),
+    ("index", FcType::Int),
+    ("rasterizer", FcType::Str),
+    ("outline", FcType::Bool),
+    ("scalable", FcType::Bool),
+    ("dpi", FcType::Double),
+    ("rgba", FcType::Int),
+    ("scale", FcType::Double),
+    ("minspace", FcType::Bool),
+    ("charwidth", FcType::Int),
+    ("charheight", FcType::Int),
+    ("matrix", FcType::Matrix),
+    ("charset", FcType::CharSet),
+    ("lang", FcType::LangSet),
+    ("fontversion", FcType::Int),
+    ("capability", FcType::Str),
+    ("fontformat", FcType::Str),
+    ("embolden", FcType::Bool),
+    ("embeddedbitmap", FcType::Bool),
+    ("decorative", FcType::Bool),
+    ("lcdfilter", FcType::Int),
+    ("namelang", FcType::Str),
+    ("fontfeatures", FcType::Str),
+    ("prgname", FcType::Str),
+    ("hash", FcType::Str),
+    ("postscriptname", FcType::Str),
+    ("color", FcType::Bool),
+    ("symbol", FcType::Bool),
+    ("fontvariations", FcType::Str),
+    ("variable", FcType::Bool),
+    ("fonthashint", FcType::Bool),
+    ("order", FcType::Int),
+    ("desktop", FcType::Str),
+    ("namedinstance", FcType::Bool),
+    ("fontwrapper", FcType::Str),
+];
+
+/// `FcObjectValidType` (`[[source: fontconfig-fcname-2-15-0]]`): whether
+/// `object` takes `v`. A number fits an
+/// integer, a double or a range; a string fits a language set too.
+fn takes(object: &str, v: &Value) -> bool {
+    let Some(&(_, t)) = FC_OBJECTS.iter().find(|(n, _)| *n == object) else {
+        return true;
+    };
+    matches!(
+        (t, v),
+        (
+            FcType::Int | FcType::Double | FcType::Range,
+            Value::Int(_) | Value::Double(_)
+        ) | (FcType::Str | FcType::LangSet, Value::Str(_))
+            | (FcType::Bool, Value::Bool(_))
+            | (FcType::Range, Value::Other(Other::Range))
+            | (FcType::Matrix, Value::Other(Other::Matrix))
+            | (FcType::CharSet, Value::Other(Other::CharSet))
+            | (FcType::LangSet, Value::Other(Other::LangSet))
+    )
+}
+
+/// `FcParsePatelt`'s loop: the values are popped last first, and the first
+/// that is `Void` or that the object does not take ends it, with what came
+/// before it in the file left unread.
+fn patelt_values(object: &str, values: Vec<Value>) -> Vec<Value> {
+    values
+        .into_iter()
+        .rev()
+        .take_while(|v| *v != Value::Other(Other::Void) && takes(object, v))
+        .collect()
+}
+
+/// One `<patelt>`: its object and the values `FcParsePatelt` kept.
+#[derive(Clone, Debug)]
+struct Patelt {
+    object: String,
+    values: Vec<Value>,
+}
+
+/// One `<pattern>`: its elements, one an object.
+#[derive(Clone, Debug, Default)]
+pub struct Pattern {
+    elements: Vec<Patelt>,
+}
+
+impl Pattern {
+    /// `FcListPatternMatchAny`: every object the pattern names is on the
+    /// face, and each of its values equals one of the face's
+    /// (`FcListValueListMatchAny` under `FcOpListing`). `namelang` is
+    /// skipped, as fontconfig skips it. An object baud does not read from
+    /// a face fails the pattern, an open departure (the module's doc).
+    fn matches(&self, f: &FaceView, variable: Has) -> bool {
+        self.elements.iter().all(|e| {
+            if e.object == "namelang" {
+                return true;
+            }
+            let Some(have) = face_values(f, &e.object, variable) else {
+                return false;
+            };
+            e.values.iter().all(|p| have.iter().any(|v| listing(v, p)))
+        })
+    }
+}
+
+/// The face's values for `object`, or `None` for an object baud does not
+/// read.
+fn face_values(f: &FaceView, object: &str, variable: Has) -> Option<Vec<Value>> {
+    let strs = |v: &[String]| v.iter().cloned().map(Value::Str).collect();
+    let flag = |h: Has| {
+        vec![Value::Bool(match h {
+            Has::Yes => Fc3::True,
+            Has::No => Fc3::False,
+        })]
+    };
+    Some(match object {
+        "family" => strs(&f.families),
+        "fullname" => strs(&f.full_names),
+        "postscriptname" => f.postscript.iter().cloned().map(Value::Str).collect(),
+        "file" => vec![Value::Str(f.file.clone())],
+        "index" => vec![Value::Int(f.index.0)],
+        "outline" => flag(f.outline),
+        "color" => flag(f.color),
+        "scalable" => flag(match (f.outline, f.color) {
+            (Has::No, Has::No) => Has::No,
+            _ => Has::Yes,
+        }),
+        "variable" => flag(variable),
+        "fontformat" => f.format.iter().map(|s| Value::Str((*s).into())).collect(),
+        _ => return None,
+    })
+}
+
+/// `FcConfigCompareValue(font, FcOpListing | FcOpFlagIgnoreBlanks,
+/// pattern)`: strings equal ignoring spaces and case, booleans equal or
+/// the face's `DontCare`, numbers equal with an integer promoted to a
+/// double, and values of two types never.
+fn listing(font: &Value, pat: &Value) -> bool {
+    match (font, pat) {
+        (Value::Str(a), Value::Str(b)) => baud_domain::caseless_eq(
+            a.chars().filter(|&c| c != ' '),
+            b.chars().filter(|&c| c != ' '),
+        ),
+        (Value::Int(a), Value::Int(b)) => a == b,
+        (Value::Int(a), Value::Double(b)) | (Value::Double(b), Value::Int(a)) => {
+            // An index fits a double exactly.
+            #[allow(clippy::cast_precision_loss)]
+            let a = *a as f64;
+            a == *b
+        }
+        (Value::Double(a), Value::Double(b)) => a == b,
+        (Value::Bool(a), Value::Bool(b)) => a == b || *a == Fc3::DontCare,
+        _ => false,
+    }
+}
+
+/// `FcNameBool` (`[[source: fontconfig-fcname-2-15-0]]`): by the first letter, `t` `y` `1` true, `f` `n` `0` false,
+/// `d` `x` `2` don't care, and `on` `off` `or`; anything else is false, as
+/// `FcConfigLexBool` returns after its warning.
+fn name_bool(s: &str) -> Fc3 {
+    let mut c = s.bytes().map(|b| b.to_ascii_lowercase());
+    match (c.next(), c.next()) {
+        (Some(b't' | b'y' | b'1'), _) | (Some(b'o'), Some(b'n')) => Fc3::True,
+        (Some(b'd' | b'x' | b'2'), _) | (Some(b'o'), Some(b'r')) => Fc3::DontCare,
+        _ => Fc3::False,
+    }
+}
+
+/// `strtol(s, &end, 0)` that must consume all of `s`, as `FcParseInt`
+/// asks: leading space, a sign, then `0x` hexadecimal, a leading `0`
+/// octal, else decimal.
+fn parse_int(s: &str) -> Option<i64> {
+    let t = s.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);
+    let (neg, t) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let (radix, digits) = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        (16, h)
+    } else if t.len() > 1 && t.starts_with('0') {
+        (8, &t[1..])
+    } else {
+        (10, t)
+    };
+    if digits.is_empty() {
+        return None;
+    }
+    let v = i64::from_str_radix(digits, radix).ok()?;
+    let v = if neg { -v } else { v };
+    // `strtol` into an `int`: fontconfig keeps the low 32 bits of a value
+    // past `int`'s range; baud drops such a value, a departure only an
+    // index past 2^31 reaches.
+    i32::try_from(v).ok().map(i64::from)
 }
 
 /// `a` and `b` joined by one `/`, as `FcParseInclude` and
@@ -152,9 +693,13 @@ fn starts_with_tilde(name: &OsStr) -> bool {
 }
 
 impl Load<'_> {
-    /// `FcConfigGetFilename`: the file `name` names, if it exists.
+    /// `FcConfigGetFilename`: the file `name` names, if it can be opened
+    /// for reading. A file that cannot is passed over for the next, as
+    /// `FcConfigFileExists` passes over one that `access(R_OK)` refuses;
+    /// baud opens the file to ask, which waits on a named FIFO that has
+    /// no writer yet, where `access` does not.
     fn filename(&self, name: &OsStr) -> Option<PathBuf> {
-        let exists = |p: PathBuf| std::fs::metadata(&p).is_ok().then_some(p);
+        let exists = |p: PathBuf| std::fs::File::open(&p).is_ok().then_some(p);
         if Path::new(name).is_absolute() {
             return exists(name.into());
         }
@@ -175,6 +720,23 @@ impl Load<'_> {
             .find_map(|d| exists(join(d.as_os_str(), name).into()))
     }
 
+    /// The root file: as [`Load::parse`], but a named pipe is read where it
+    /// is, under the name it was given -- `FcConfigRealFilename` resolves no
+    /// link to one for the root, so `FONTCONFIG_FILE=<(...)` reads the
+    /// pipe, whose `/dev/fd` link names no file on Linux.
+    fn parse_root(&mut self, path: &Path) {
+        use std::os::unix::fs::FileTypeExt;
+        let fifo = std::fs::metadata(path).is_ok_and(|m| m.file_type().is_fifo());
+        if !fifo {
+            self.parse(path);
+            return;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        self.read_bytes(&bytes, path);
+    }
+
     /// `_FcConfigParse`: the file or directory at `path`, once.
     fn parse(&mut self, path: &Path) {
         let Ok(real) = path.canonicalize() else {
@@ -190,8 +752,13 @@ impl Load<'_> {
         let Ok(bytes) = std::fs::read(&real) else {
             return;
         };
-        for e in Reader::new(&bytes).elements() {
-            self.element(&e, &real);
+        self.read_bytes(&bytes, &real);
+    }
+
+    /// Every element of one file's bytes, as each ends.
+    fn read_bytes(&mut self, bytes: &[u8], file: &Path) {
+        for e in Reader::new(bytes).elements() {
+            self.element(&e, file);
         }
     }
 
@@ -227,6 +794,78 @@ impl Load<'_> {
             }
             "reset-dirs" => self.dirs.clear(),
             "include" => self.include(&e.text, e.attr("prefix")),
+            _ => self.selector_part(e),
+        }
+    }
+
+    /// **A part of a `<selectfont>` rule** (`[[source: fontconfig-fcxml-2-15-0]]`
+    /// `FcParseAcceptRejectFont`, `FcParsePattern`, `FcParsePatelt`,
+    /// `FcPopValue`): each value inside a `<patelt>`, each `<patelt>` inside
+    /// a `<pattern>`, and each `<glob>` and `<pattern>` inside an
+    /// `<acceptfont>` or `<rejectfont>` waits for the element it is inside,
+    /// which takes it as it ends.
+    fn selector_part(&mut self, e: &Element) {
+        let parent = e.parent.as_deref();
+        match (e.name.as_str(), parent) {
+            ("string", Some("patelt")) => self.pending.values.push(Value::Str(e.text.clone())),
+            ("int", Some("patelt")) => {
+                if let Some(v) = parse_int(&e.text) {
+                    self.pending.values.push(Value::Int(v));
+                }
+            }
+            ("double", Some("patelt")) => {
+                let t = e.text.trim_start_matches([' ', '\t', '\n', '\r']);
+                if let Ok(v) = t.parse::<f64>() {
+                    self.pending.values.push(Value::Double(v));
+                }
+            }
+            ("bool", Some("patelt")) => self.pending.values.push(Value::Bool(name_bool(&e.text))),
+            ("charset", Some("patelt")) => self.pending.values.push(Value::Other(Other::CharSet)),
+            ("langset", Some("patelt")) => self.pending.values.push(Value::Other(Other::LangSet)),
+            ("range", Some("patelt")) => self.pending.values.push(Value::Other(Other::Range)),
+            ("matrix", Some("patelt")) => self.pending.values.push(Value::Other(Other::Matrix)),
+            // A `<const>` baud does not resolve, and the expressions.
+            (_, Some("patelt")) => self.pending.values.push(Value::Other(Other::Void)),
+            ("patelt", _) => {
+                let values = core::mem::take(&mut self.pending.values);
+                if let (Some(object), Some("pattern")) = (e.attr("name"), parent) {
+                    let values = patelt_values(object, values);
+                    if !values.is_empty() {
+                        self.pending.elements.push(Patelt {
+                            object: object.to_owned(),
+                            values,
+                        });
+                    }
+                }
+            }
+            ("pattern", _) => {
+                let elements = core::mem::take(&mut self.pending.elements);
+                if matches!(parent, Some("acceptfont" | "rejectfont")) {
+                    self.pending
+                        .selectors
+                        .push(Selector::Pattern(Pattern { elements }));
+                }
+            }
+            ("glob", Some("acceptfont" | "rejectfont")) => {
+                // `FcStrCopyFilename`: `~` is `HOME`, and the glob is made
+                // absolute and canonical; with no `HOME` it is not added.
+                if let Some(g) = self.canonical(OsStr::new(&e.text)) {
+                    use std::os::unix::ffi::OsStrExt;
+                    let g = g.as_os_str().as_bytes().to_vec();
+                    self.pending.selectors.push(Selector::Glob(g));
+                }
+            }
+            (which @ ("acceptfont" | "rejectfont"), _) => {
+                let accept = which == "acceptfont";
+                for s in core::mem::take(&mut self.pending.selectors) {
+                    match (s, accept) {
+                        (Selector::Glob(g), true) => self.select.accept_globs.push(g),
+                        (Selector::Glob(g), false) => self.select.reject_globs.push(g),
+                        (Selector::Pattern(p), true) => self.select.accept.push(p),
+                        (Selector::Pattern(p), false) => self.select.reject.push(p),
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -348,12 +987,13 @@ impl Load<'_> {
     }
 }
 
-/// One element the reader has seen end: its name, its attributes, and the
-/// character data directly inside it.
+/// One element the reader has seen end: its name, its attributes, the
+/// character data directly inside it, and the element it is inside.
 struct Element {
     name: String,
     attrs: Vec<(String, String)>,
     text: String,
+    parent: Option<String>,
 }
 
 impl Element {
@@ -425,7 +1065,10 @@ impl<'b> Reader<'b> {
                 }
                 self.rest = &self.rest[1..];
                 match open.pop() {
-                    Some(e) if e.name == name => done.push(e),
+                    Some(mut e) if e.name == name => {
+                        e.parent = open.last().map(|p| p.name.clone());
+                        done.push(e);
+                    }
                     _ => break,
                 }
             } else if rest.starts_with(b"<") {
@@ -434,6 +1077,8 @@ impl<'b> Reader<'b> {
                     break;
                 };
                 if empty {
+                    let mut e = e;
+                    e.parent = open.last().map(|p| p.name.clone());
                     done.push(e);
                 } else {
                     open.push(e);
@@ -500,6 +1145,7 @@ impl<'b> Reader<'b> {
                         name,
                         attrs,
                         text: String::new(),
+                        parent: None,
                     };
                     return Some((e, false));
                 }
@@ -512,6 +1158,7 @@ impl<'b> Reader<'b> {
                         name,
                         attrs,
                         text: String::new(),
+                        parent: None,
                     };
                     return Some((e, true));
                 }
@@ -813,6 +1460,355 @@ mod tests {
             "<fontconfig><dir>/a</dir><dir>/b&nbsp;</dir><dir>/c</dir></fontconfig>",
         );
         assert_eq!(dirs(&e).unwrap(), [PathBuf::from("/a")]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The `<selectfont>` rules of a configuration of `body` alone.
+    fn select_of(root: &Path, body: &str) -> Select {
+        let mut e = env(root);
+        e.file = Some(root.join("sel.conf").into());
+        write(
+            &root.join("sel.conf"),
+            &format!("<fontconfig>{body}</fontconfig>"),
+        );
+        load(&e).unwrap().select
+    }
+
+    /// **Globs as fontconfig 2.15.0's code reads them** (`FcStrGlobMatch`,
+    /// `FcConfigGlobAdd`, `FcConfigAcceptFilename`): `*` crosses `/` and `?`
+    /// is one byte; an `<acceptfont>` glob wins over a `<rejectfont>` one
+    /// whatever their order, and `<reset-dirs/>` leaves both; `~` is `HOME`,
+    /// a relative glob is made absolute against the working directory
+    /// (so the documentation's `*.pcf.gz` matches only there), and a glob
+    /// inside anything but `<acceptfont>` or `<rejectfont>` is no rule.
+    #[test]
+    fn selectfont_globs_read_as_fontconfig_reads_them() {
+        let root = scratch("globs");
+        let sel = select_of(
+            &root,
+            "<selectfont><acceptfont><glob>/x/fonts/ugly-but-kept/*</glob></acceptfont></selectfont>\
+             <reset-dirs/>\
+             <selectfont><rejectfont>\
+               <glob>/x/fonts/ugly*</glob><glob>*.pcf.gz</glob><glob>~/hidden/*</glob>\
+               <glob>/x/one?.ttf</glob><glob>/y/*/deep.ttf</glob>\
+             </rejectfont></selectfont>\
+             <match><glob>/x/fonts/*</glob></match>",
+        );
+        let kept = |p: &str| sel.path(Path::new(p));
+        assert_eq!(kept("/x/fonts/uglyfont.ttf"), Kept::No);
+        assert_eq!(kept("/x/fonts/uglyfont/sub/deep.ttf"), Kept::No);
+        assert_eq!(kept("/y/a/b/deep.ttf"), Kept::No, "* crosses /");
+        assert_eq!(kept("/y/a/b/deep.otf"), Kept::Yes);
+        assert_eq!(
+            kept("/x/fonts/ugly-but-kept/a.ttf"),
+            Kept::Yes,
+            "accept wins"
+        );
+        assert_eq!(
+            kept("/x/fonts/fine.ttf"),
+            Kept::Yes,
+            "a glob in <match> is no rule"
+        );
+        assert_eq!(kept("/x/one1.ttf"), Kept::No);
+        assert_eq!(kept("/x/one12.ttf"), Kept::Yes, "? is one byte");
+        let cwd = root.join("cwd");
+        assert_eq!(sel.path(&cwd.join("a.pcf.gz")), Kept::No);
+        assert_eq!(kept("/usr/share/fonts/a.pcf.gz"), Kept::Yes);
+        assert_eq!(sel.path(&root.join("home/hidden/x.ttf")), Kept::No);
+        assert!(!sel.tests_faces());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A face view with every property at a plain TrueType face's.
+    fn view() -> FaceView {
+        FaceView {
+            families: vec!["Noto Color Emoji".into(), "Noto Emoji Family".into()],
+            full_names: vec!["Noto Color Emoji Regular".into()],
+            postscript: Some("NotoColorEmoji".into()),
+            file: "/f/NotoColorEmoji.ttf".into(),
+            index: FcIndex(0),
+            outline: Has::Yes,
+            color: Has::No,
+            variable: Has::No,
+            format: Some("TrueType"),
+        }
+    }
+
+    /// **Patterns as `FcListPatternMatchAny` reads them**: every object
+    /// named must be on the face and every value of it one of the face's;
+    /// strings ignore spaces and case, a boolean reads `no` and `off` as
+    /// false and an integer `0x` as hexadecimal; `scalable` is outline or
+    /// colour; `namelang` is skipped; an object baud does not read fails
+    /// the pattern; and a value the object does not take ends the
+    /// `<patelt>`'s reading, so a pattern left with no elements matches
+    /// every face, as fontconfig's does.
+    #[test]
+    fn selectfont_patterns_read_as_fontconfig_reads_them() {
+        let root = scratch("patterns");
+        let rejects = |body: &str, v: &FaceView| {
+            let sel = select_of(
+                &root,
+                &format!("<selectfont><rejectfont>{body}</rejectfont></selectfont>"),
+            );
+            assert!(sel.tests_faces(), "{body}");
+            sel.face(v) == Kept::No
+        };
+        let pat = |elts: &str| format!("<pattern>{elts}</pattern>");
+        let mut bitmap = view();
+        bitmap.outline = Has::No;
+        let no_bitmaps = pat(r#"<patelt name="outline"><bool>false</bool></patelt>"#);
+        assert!(rejects(&no_bitmaps, &bitmap));
+        assert!(!rejects(&no_bitmaps, &view()));
+        let off = pat(r#"<patelt name="outline"><bool>off</bool></patelt>"#);
+        assert!(rejects(&off, &bitmap));
+        let not_scalable = pat(r#"<patelt name="scalable"><bool>no</bool></patelt>"#);
+        let mut colour_bitmap = bitmap.clone();
+        colour_bitmap.color = Has::Yes;
+        assert!(rejects(&not_scalable, &bitmap));
+        assert!(
+            !rejects(&not_scalable, &colour_bitmap),
+            "colour makes it scalable"
+        );
+        let family = pat(r#"<patelt name="family"><string>notocolor EMOJI</string></patelt>"#);
+        assert!(rejects(&family, &view()));
+        let both = pat(
+            r#"<patelt name="family"><string>Noto Color Emoji</string><string>Noto Emoji Family</string></patelt>"#,
+        );
+        assert!(rejects(&both, &view()), "each value is one of the face's");
+        let one_missing = pat(
+            r#"<patelt name="family"><string>Noto Color Emoji</string><string>Other</string></patelt>"#,
+        );
+        assert!(!rejects(&one_missing, &view()));
+        let index = pat(r#"<patelt name="index"><int>0x0</int></patelt>"#);
+        assert!(rejects(&index, &view()));
+        let format = pat(r#"<patelt name="fontformat"><string>Type 1</string></patelt>"#);
+        assert!(!rejects(&format, &view()));
+        let lang = pat(r#"<patelt name="lang"><string>he</string></patelt>"#);
+        assert!(
+            !rejects(&lang, &view()),
+            "an object baud does not read fails"
+        );
+        let skipped = pat(
+            r#"<patelt name="namelang"><string>en</string></patelt><patelt name="outline"><bool>false</bool></patelt>"#,
+        );
+        assert!(rejects(&skipped, &bitmap));
+        let wrong_type = pat(r#"<patelt name="outline"><string>false</string></patelt>"#);
+        assert!(
+            rejects(&wrong_type, &view()),
+            "an empty pattern matches every face"
+        );
+        // An `<acceptfont>` pattern keeps what a `<rejectfont>` one drops.
+        let sel = select_of(
+            &root,
+            &format!(
+                "<selectfont><rejectfont>{no_bitmaps}</rejectfont><acceptfont>{}</acceptfont></selectfont>",
+                pat(r#"<patelt name="color"><bool>true</bool></patelt>"#)
+            ),
+        );
+        assert_eq!(sel.face(&bitmap), Kept::No);
+        assert_eq!(sel.face(&colour_bitmap), Kept::Yes);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// **A face's view is FreeType's and fontconfig's**: a CBDT colour-emoji
+    /// face has no outline (`CBDT` overrides `glyf`) but is colour and so
+    /// scalable; a TrueType face has outlines and no colour; a CFF one is
+    /// "CFF"; a face with `fvar` is variable; the names are its records.
+    #[test]
+    fn a_face_is_viewed_as_fontconfig_views_it() {
+        let read = |name: &str| {
+            std::fs::read(format!(
+                "{}/../baud-font/tests/fonts/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap()
+        };
+        let at = |data: &[u8]| {
+            let d = baud_font::Described::of(data, baud_font::FaceIndex::FIRST).unwrap();
+            FaceView::of(&d, "/f", FcIndex(0))
+        };
+        let emoji = read("NotoColorEmoji-subset.ttf");
+        let v = at(&emoji);
+        assert_eq!(
+            (v.outline, v.color, v.format),
+            (Has::No, Has::Yes, Some("TrueType"))
+        );
+        let jbm = read("JetBrainsMono-Regular.ttf");
+        let v = at(&jbm);
+        assert_eq!(
+            (v.outline, v.color, v.variable),
+            (Has::Yes, Has::No, Has::No)
+        );
+        assert!(
+            v.families.iter().any(|f| f == "JetBrains Mono"),
+            "{:?}",
+            v.families
+        );
+        assert_eq!(v.postscript.as_deref(), Some("JetBrainsMono-Regular"));
+        let cff = read("SourceCodeVF-Upright.otf");
+        let v = at(&cff);
+        assert_eq!(
+            (v.format, v.variable, v.outline),
+            (Some("CFF"), Has::Yes, Has::Yes)
+        );
+    }
+
+    /// An sfnt of `version` holding `tables`, each its tag and bytes: a
+    /// directory for [`FaceView::of`], which reads nothing else.
+    fn sfnt(version: &[u8; 4], tables: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let n = tables.len();
+        let mut out = version.to_vec();
+        out.extend_from_slice(&u16::try_from(n).unwrap().to_be_bytes());
+        out.extend_from_slice(&[0; 6]);
+        let mut at = 12 + 16 * n;
+        for (tag, body) in tables {
+            out.extend_from_slice(&tag[..]);
+            out.extend_from_slice(&[0; 4]);
+            out.extend_from_slice(&u32::try_from(at).unwrap().to_be_bytes());
+            out.extend_from_slice(&u32::try_from(body.len()).unwrap().to_be_bytes());
+            at += body.len();
+        }
+        for (_, body) in tables {
+            out.extend_from_slice(body);
+        }
+        out
+    }
+
+    /// **FreeType's face flags, rule by rule** (`sfnt_load_face()`,
+    /// `tt_face_load_sbit()`): `CBDT` takes the outline from a face with
+    /// `glyf`; `sbix` beside outlines makes it SBIX, not scalable; a face
+    /// with neither outlines nor a strike is scalable; an `EBLC` strike
+    /// with its data and no outlines is a bitmap face, without its data
+    /// it has no strike; `sbix` is colour only when no `CBLC`, `EBLC` or
+    /// `bloc` comes first; `COLR` and `SVG ` are colour; `'OTTO'` is CFF
+    /// and `'typ1'` no format. FreeType clips a strike count to the
+    /// table's length, (length - 8) / 48 for `CBLC`, `EBLC` and `bloc` and
+    /// (length - 8) / 4 for `sbix`, and drops a strike whose metrics fail
+    /// to load or whose ppem is zero. baud reads `numSizes` and
+    /// `numStrikes` unclipped, so a truncated table is read as having
+    /// strikes FreeType would not see. The fixtures therefore hold whole
+    /// strikes: a 56-byte `CBLC`/`EBLC` with one 48-byte `BitmapSize`
+    /// record at 20 ppem, and a 16-byte `sbix` whose one strike offset
+    /// points at a 20 ppem strike header, so the strike count FreeType
+    /// reads from each table is the one baud reads.
+    #[test]
+    fn freetype_flags_rule_by_rule() {
+        let mut strikes1 = [0u8; 56];
+        strikes1[..8].copy_from_slice(&[0, 2, 0, 0, 0, 0, 0, 1]);
+        // BitmapSize at 8: ppemX at +44, ppemY at +45.
+        strikes1[8 + 44] = 20;
+        strikes1[8 + 45] = 20;
+        // version 1, flags 1, one strike at offset 12: ppem 20, 72 dpi.
+        let sbix1 = [0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 12, 0, 20, 0, 72];
+        let view = |v: &[u8; 4], t: &[(&[u8; 4], &[u8])]| {
+            let data = sfnt(v, t);
+            let d = baud_font::Described::of(&data, baud_font::FaceIndex::FIRST).unwrap();
+            let f = FaceView::of(&d, "/f", FcIndex(0));
+            (f.outline, f.color, f.format)
+        };
+        let tt = b"\0\x01\0\0";
+        let (y, n) = (Has::Yes, Has::No);
+        let ttf = Some("TrueType");
+        assert_eq!(view(tt, &[(b"glyf", &[0; 4])]), (y, n, ttf));
+        assert_eq!(
+            view(tt, &[(b"CBDT", &[0; 4]), (b"glyf", &[0; 4])]),
+            (y, n, ttf),
+            "no strike"
+        );
+        assert_eq!(
+            view(
+                tt,
+                &[(b"CBDT", &[0; 4]), (b"CBLC", &strikes1), (b"glyf", &[0; 4])]
+            ),
+            (n, y, ttf),
+            "CBDT takes the outline"
+        );
+        assert_eq!(
+            view(tt, &[(b"glyf", &[0; 4]), (b"sbix", &sbix1)]),
+            (n, y, ttf)
+        );
+        assert_eq!(
+            view(tt, &[(b"head", &[0; 4])]),
+            (y, n, ttf),
+            "no outline, no strike"
+        );
+        assert_eq!(
+            view(tt, &[(b"EBDT", &[0; 4]), (b"EBLC", &strikes1)]),
+            (n, n, ttf)
+        );
+        assert_eq!(
+            view(tt, &[(b"EBLC", &strikes1)]),
+            (y, n, ttf),
+            "no data, no strike"
+        );
+        assert_eq!(
+            view(
+                tt,
+                &[
+                    (b"EBDT", &[0; 4]),
+                    (b"EBLC", &strikes1),
+                    (b"glyf", &[0; 4]),
+                    (b"sbix", &sbix1)
+                ]
+            ),
+            (n, n, ttf),
+            "EBLC comes before sbix"
+        );
+        assert_eq!(
+            view(tt, &[(b"COLR", &[0; 4]), (b"glyf", &[0; 4])]),
+            (y, y, ttf)
+        );
+        assert_eq!(
+            view(tt, &[(b"SVG ", &[0; 4]), (b"glyf", &[0; 4])]),
+            (y, y, ttf)
+        );
+        assert_eq!(view(b"OTTO", &[(b"CFF ", &[0; 4])]), (y, n, Some("CFF")));
+        assert_eq!(view(b"typ1", &[(b"head", &[0; 4])]).2, None);
+    }
+
+    /// **`FcConfigFileExists` asks for a file it can read**: an unreadable
+    /// `fonts.conf` on `FONTCONFIG_PATH` is passed over for the next.
+    #[test]
+    fn an_unreadable_file_is_passed_over() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("unreadable");
+        write(
+            &root.join("a/fonts.conf"),
+            "<fontconfig><dir>/from-a</dir></fontconfig>",
+        );
+        write(
+            &root.join("b/fonts.conf"),
+            "<fontconfig><dir>/from-b</dir></fontconfig>",
+        );
+        let locked = root.join("a/fonts.conf");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Positive control: the file is unreadable to this process.
+        assert!(std::fs::read(&locked).is_err());
+        let mut e = env(&root);
+        e.path = Some(std::env::join_paths([root.join("a"), root.join("b")]).unwrap());
+        assert_eq!(dirs(&e).unwrap(), [PathBuf::from("/from-b")]);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// **`FONTCONFIG_FILE` naming a pipe is read** (`FcConfigRealFilename`
+    /// keeps a named pipe's name for the root): `/dev/fd/N` of a pipe, as a
+    /// shell's `<(...)` passes it. On Linux that link names no file a path
+    /// can be made canonical through; on macOS it does, so this passes
+    /// there either way.
+    #[test]
+    fn a_pipe_as_the_file_is_read() {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let root = scratch("pipe");
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let body = b"<fontconfig><dir>/through-a-pipe</dir></fontconfig>";
+        writer.write_all(body).unwrap();
+        drop(writer);
+        let mut e = env(&root);
+        e.file = Some(format!("/dev/fd/{}", reader.as_raw_fd()).into());
+        assert_eq!(dirs(&e).unwrap(), [PathBuf::from("/through-a-pipe")]);
+        drop(reader);
         let _ = std::fs::remove_dir_all(root);
     }
 }

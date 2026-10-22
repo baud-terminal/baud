@@ -88,7 +88,7 @@ pub use bitmap::{
 pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
-pub use describe::{Angle, Described, Slope, Weight, Width};
+pub use describe::{Angle, Described, Flavour, Slope, Weight, Width};
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
@@ -100,7 +100,7 @@ pub use layout::{
     Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, LookupSet, MAX_LOOKUPS, ScriptTag,
 };
 pub use morx::Morx;
-pub use name::Family;
+pub use name::{Family, NameId};
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};

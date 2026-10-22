@@ -35,7 +35,7 @@
 
 use crate::bytes::{Bytes, Offset};
 use crate::face::Directory;
-use crate::name::{families_in, family_in, full_name_in, postscript_in};
+use crate::name::{NameId, families_in, family_in, full_name_in, names_in, postscript_in};
 use crate::var::{Axis, Fixed, Fvar};
 use crate::{FaceIndex, Family, Tag};
 
@@ -97,6 +97,17 @@ pub enum Slope {
     Oblique(Angle),
 }
 
+/// **A face's `sfntVersion`** (`[[source: ms-opentype-otff]]`): `0x00010000`
+/// for TrueType outlines, `'OTTO'` for CFF, and Apple's `'true'` and
+/// `'typ1'`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Flavour {
+    TrueType,
+    Cff,
+    AppleTrue,
+    AppleType1,
+}
+
 /// A face's names and style, from its directory and five tables.
 #[derive(Clone, Copy)]
 pub struct Described<'a> {
@@ -121,6 +132,26 @@ impl<'a> Described<'a> {
     /// Every family record, nameIDs 16 and 1, every language.
     pub fn families(&self) -> impl Iterator<Item = Family<'a>> {
         self.dir.table(Tag::NAME).into_iter().flat_map(families_in)
+    }
+
+    /// Every record with nameID `id`, every language, in the table's
+    /// order.
+    pub fn names(&self, id: NameId) -> impl Iterator<Item = Family<'a>> {
+        self.dir
+            .table(Tag::NAME)
+            .into_iter()
+            .flat_map(move |t| names_in(t, id))
+    }
+
+    /// The bytes of table `tag`, or `None` when the face has none or its
+    /// record points outside the file.
+    pub fn table(&self, tag: Tag) -> Option<Bytes<'a>> {
+        self.dir.table(tag)
+    }
+
+    /// The face's `sfntVersion`.
+    pub fn flavour(&self) -> Flavour {
+        self.dir.flavour()
     }
 
     /// The full name `local()` matches: nameID 4's US English record,
