@@ -437,9 +437,10 @@ summary = "A program that uses the mouse can say whether Shift-drag still select
 [[item]]
 id = "F1-71"
 area = "programs"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "More from shell prompt marks"
-summary = "Clicking in the command line you are typing moves the shell's cursor there, and on a Mac Command-Up and Command-Down jump between prompts; each command's exit status is kept but not shown yet."
+summary = "Clicking in the command line you are typing moves the shell's cursor there, on a Mac Command-Up and Command-Down jump between prompts, and a mark beside each prompt can show whether its command succeeded, failed or was cancelled."
 
 [[item]]
 id = "F1-83"

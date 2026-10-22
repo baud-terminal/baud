@@ -1305,6 +1305,17 @@ tests = ["baud-core/tests/reflow.rs::the_history_reflows_with_the_screen", "baud
 shipped = ["2026-10-15-wrapped-lines-re-wrap-correctly-after", "F1-34"]
 
 [[feature]]
+id = "exit-status"
+area = "programs"
+name = "Each command's result beside its prompt"
+does = "With `[screen] exit_status = \"on\"`, a mark beside each prompt your shell marks says how its command ended: a filled dot for success, a cross for failure and a ring for a cancelled one, in your theme's blue, red and grey. The marks have a column of their own, so they never cover text, and they stay with their prompt as you scroll, resize or read back."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/status_marks.rs::a_mark_shows_each_status_the_shell_sent", "baud-render/tests/status_marks.rs::a_mark_follows_its_line_through_the_history_and_a_reflow", "baud-render/tests/status_marks.rs::the_marks_differ_without_their_colours", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws"]
+rows = ["vt:`OSC 133`"]
+shipped = ["F1-71"]
+
+[[feature]]
 id = "one-prompt"
 area = "scroll"
 name = "One prompt after a resize"

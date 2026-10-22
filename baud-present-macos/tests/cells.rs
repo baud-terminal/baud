@@ -35,8 +35,8 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorPhase, Damage,
     FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
     Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
-    StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
-    copy_for_shader, quad_coverage,
+    StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition, VideoFlash,
+    Widths, Window, copy_for_shader, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -155,7 +155,8 @@ struct Arms<'f, 'a> {
 impl Arms<'_, '_> {
     /// Both arms drawn offscreen and read back.
     fn draw(&mut self, t: &mut Term<'_>) -> (Vec<u32>, Vec<u32>) {
-        let (fw, fh) = self.renderer.frame_size();
+        // The whole frame: the exit-status strip, when kept, and the grid.
+        let (fw, fh) = self.renderer.whole_size();
         let (w, h) = (
             Px::of(fw.value() + self.margin.0),
             Px::of(fh.value() + self.margin.1),
@@ -173,6 +174,10 @@ impl Arms<'_, '_> {
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
         self.renderer.set_link(self.link.clone());
+        // The exit-status marks on this window, as the app places them for
+        // every path; none while the setting is off.
+        self.renderer
+            .place_marks(t, self.back, baud_render::Leaving::None, Px::of(0));
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
@@ -3560,6 +3565,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     partial_image_gate(&mut arms, &mut t);
     sixel_fill_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
+    status_marks_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
@@ -5403,12 +5409,83 @@ fn repeat_pass_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     arms.margin = margin;
 }
 
+/// **The exit-status strip on every path**: a session whose commands
+/// succeed, fail and are cancelled, with the marks on, drawn by the
+/// instance arm, the cell arm and the CPU arm into the whole frame, the
+/// strip at its left. The three agree on every pixel, the strip holds a
+/// mark of each kind (a positive control), and the grid beside it is the
+/// frame drawn with the marks off, moved right by the strip; off again,
+/// the frame is that one.
+fn status_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let margin = arms.margin;
+    arms.margin = (0, 0);
+    feed(t, b"\x1b[2J\x1b[H");
+    feed(
+        t,
+        b"\x1b]133;A\x07$ \x1b]133;B\x07ok\x1b]133;C\x07\r\nout\r\n\x1b]133;D;0\x07\
+          \x1b]133;A\x07$ \x1b]133;B\x07bad\x1b]133;C\x07\r\nerr\r\n\x1b]133;D;2\x07\
+          \x1b]133;A\x07$ \x1b]133;B\x07half\r\n\x1b]133;D\x07\
+          \x1b]133;A\x07$ ",
+    );
+    let (off_a, _) = arms.draw(t);
+    let (fw, fh) = arms.renderer.whole_size();
+    let (fw, fh) = (
+        usize::try_from(fw.value()).unwrap(),
+        usize::try_from(fh.value()).unwrap(),
+    );
+    arms.renderer.set_status_marks(StatusMarks::On);
+    let (a, b) = arms.draw(t);
+    let c = cpu_frame(arms, t);
+    assert_eq!(
+        arms.renderer.strip_records().len(),
+        3,
+        "three ended commands"
+    );
+    let (w, h) = arms.renderer.whole_size();
+    let (w, h) = (
+        usize::try_from(w.value()).unwrap(),
+        usize::try_from(h.value()).unwrap(),
+    );
+    let s = usize::try_from(arms.renderer.strip().value()).unwrap();
+    assert_eq!((w, h), (fw + s, fh));
+    assert_eq!(differing(&a, &b), 0, "the GPU arms agree with the strip");
+    assert_eq!(differing(&a, &c), 0, "the CPU arm agrees with the strip");
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let clear = a[0];
+    let strip_row = |p: &[u32], row: usize| -> Vec<u32> {
+        (row * ch..(row + 1) * ch)
+            .flat_map(|y| p[y * w..y * w + s].to_vec())
+            .collect()
+    };
+    for (row, marked) in [(0, true), (1, false), (2, true), (4, true), (5, false)] {
+        let any = strip_row(&a, row).iter().any(|&p| p != clear);
+        assert_eq!(any, marked, "row {row} of the strip");
+    }
+    assert_ne!(
+        strip_row(&a, 0),
+        strip_row(&a, 2),
+        "success and failure differ"
+    );
+    for y in 0..h {
+        assert_eq!(
+            &a[y * w + s..y * w + w],
+            &off_a[y * fw..y * fw + fw],
+            "grid row {y}"
+        );
+    }
+    arms.renderer.set_status_marks(StatusMarks::Off);
+    let (again, _) = arms.draw(t);
+    assert_eq!(again, off_a, "off draws the frame without the strip");
+    feed(t, b"\x1b[2J\x1b[H");
+    arms.margin = margin;
+}
+
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
 /// put through the macOS presenter's own `premultiply`, as
 /// `Presenter::present` copies a frame into its surface -- the form the
 /// two GPU arms' readback is in.
 fn cpu_frame(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
-    let (fw, fh) = arms.renderer.frame_size();
+    let (fw, fh) = arms.renderer.whole_size();
     let n = usize::try_from(fw.value() * fh.value()).unwrap();
     let mut px = vec![0u32; n];
     let mut target = Target::new(&mut px, fw, fw, fh).expect("target");

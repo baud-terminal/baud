@@ -154,6 +154,13 @@ impl<'b> PromptLog<'b> {
         (0..self.len).map(move |i| self.at(i))
     }
 
+    /// The entries on `line` and after it, oldest first, the first found by
+    /// bisection: what a reader of a window of lines walks, stopping past
+    /// the window's last, with no walk of the lines above it.
+    pub fn entries_from(&self, line: LineIdx) -> impl Iterator<Item = PromptEntry> + '_ {
+        (self.first_from(line)..self.len).map(move |i| self.at(i))
+    }
+
     /// A new command's prompt, its first row on `line`, opened by `aid`.
     /// An `N` first finishes the innermost open command with the same
     /// `aid` and every one nested in it; an `A` nests in whatever is open.
@@ -419,6 +426,27 @@ mod tests {
                 ExitStatus::Exited(ExitCode::of(1)),
             ]
         );
+    }
+
+    /// **The entries from a line on**: the first at or after it, whatever
+    /// the slot the ring has it in, and none past the newest.
+    #[test]
+    fn entries_from_a_line_start_at_its_first_prompt() {
+        let mut slots = [PromptEntry::EMPTY; 4];
+        let mut log = PromptLog::new(&mut slots);
+        for n in [2, 5, 9, 12, 20] {
+            log.open_bare(line(n));
+        }
+        let from = |n| -> Vec<u64> {
+            log.entries_from(line(n))
+                .map(|e| e.line().value())
+                .collect()
+        };
+        assert_eq!(lines(&log), [5, 9, 12, 20], "the oldest let go");
+        assert_eq!(from(0), [5, 9, 12, 20]);
+        assert_eq!(from(9), [9, 12, 20]);
+        assert_eq!(from(10), [12, 20]);
+        assert!(from(21).is_empty());
     }
 
     /// An `N` finishes the innermost command of its `aid` and everything in

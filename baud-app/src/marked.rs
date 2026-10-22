@@ -179,8 +179,35 @@ pub fn candidate_rect(
     ])
 }
 
+/// **A rectangle of the grid, in the frame's pixels**: `rect`, grid
+/// pixels, moved by `origin`, where the grid begins -- past the exit-status
+/// strip, and on macOS the padding too -- so an input method's window opens
+/// at the cursor it is for.
+pub fn in_frame(rect: [Px; 4], origin: (Px, Px)) -> [Px; 4] {
+    let [x, y, w, h] = rect;
+    [
+        Px::of(x.value().saturating_add(origin.0.value())),
+        Px::of(y.value().saturating_add(origin.1.value())),
+        w,
+        h,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// **The candidate window opens where the grid's cell is**: a grid
+    /// rectangle moved by where the grid begins, the strip and the
+    /// padding, its size kept.
+    #[test]
+    fn a_grid_rectangle_moves_by_where_the_grid_begins() {
+        let r = [Px::of(30), Px::of(40), Px::of(10), Px::of(20)];
+        assert_eq!(in_frame(r, (Px::of(0), Px::of(0))), r);
+        assert_eq!(
+            in_frame(r, (Px::of(17), Px::of(8))),
+            [Px::of(47), Px::of(48), Px::of(10), Px::of(20)]
+        );
+    }
     use super::*;
     use baud_core::{BytePos, Owned, ReadLen, WinSize};
     use baud_domain::Rows;

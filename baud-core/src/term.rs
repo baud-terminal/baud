@@ -213,6 +213,20 @@ pub struct PromptMark {
     pub status: ExitStatus,
 }
 
+/// Entry `e` of the prompt log as [`Term::prompts`] gives it, the live
+/// screen's top on line `top`.
+fn prompt_mark(e: baud_domain::PromptEntry, top: LineIdx) -> PromptMark {
+    PromptMark {
+        line: match top.since(e.line()) {
+            Some(n) if n.index() > 0 => PromptLine::Back(n),
+            _ => PromptLine::Screen(Row::from_index(
+                e.line().since(top).map_or(0, |r| r.index()),
+            )),
+        },
+        status: e.status(),
+    }
+}
+
 /// Which way [`Term::jump_to_prompt`] goes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PromptJump {
@@ -3504,15 +3518,23 @@ impl<'b> Term<'b> {
             .prompts
             .entries()
             .filter(move |e| e.line() >= floor)
-            .map(move |e| PromptMark {
-                line: match top.since(e.line()) {
-                    Some(n) if n.index() > 0 => PromptLine::Back(n),
-                    _ => PromptLine::Screen(Row::from_index(
-                        e.line().since(top).map_or(0, |r| r.index()),
-                    )),
-                },
-                status: e.status(),
-            })
+            .map(move |e| prompt_mark(e, top))
+    }
+
+    /// **The prompts on the window `back` lines up the history and below
+    /// it**, oldest first, as [`Term::prompts`] gives them: the first by
+    /// bisection, so a reader of the window stops past its last row with
+    /// no walk of the lines above it.
+    pub fn prompts_from(&self, back: Rows) -> impl Iterator<Item = PromptMark> + '_ {
+        let book = &self.store.book;
+        let top = book.top;
+        let floor = top.minus(book.hist).unwrap_or(LineIdx::FIRST);
+        let start = top.minus(back).unwrap_or(LineIdx::FIRST).max(floor);
+        self.store
+            .strs
+            .prompts
+            .entries_from(start)
+            .map(move |e| prompt_mark(e, top))
     }
 
     /// Prompts the log let go because it was full, the oldest first: none

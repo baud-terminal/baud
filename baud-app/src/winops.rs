@@ -493,6 +493,9 @@ pub struct WaylandWindow {
     pub grid: Grid,
     /// The status line's rows below the grid, as [`MacWindow::status`].
     pub status: Rows,
+    /// Whether the exit-status strip, one cell wide, is beside the grid,
+    /// which a resize in cells keeps.
+    pub marks: baud_render::StatusMarks,
 }
 
 /// A toplevel state set or unset.
@@ -595,7 +598,10 @@ pub fn wayland(r: WindowRequest, w: &WaylandWindow) -> WaylandAction {
                 w.cell.0,
                 max.ws_col,
                 w.bounds.map(|b| b.0),
-                0,
+                match w.marks {
+                    baud_render::StatusMarks::On => 1,
+                    baud_render::StatusMarks::Off => 0,
+                },
             ),
             cells(
                 rows,
@@ -666,6 +672,7 @@ pub fn wayland_abilities(bounds: BoundsEvent) -> baud_core::WindowAbilities {
             rows: 37,
         },
         status: Rows::ZERO,
+        marks: baud_render::StatusMarks::Off,
     };
     baud_core::WindowAbilities::of(|r| {
         !matches!(wayland(r, &floating), WaylandAction::Unbuilt(u)
@@ -1120,6 +1127,7 @@ mod tests {
             cell: (16, 32),
             grid: Grid { cols: 80, rows: 22 },
             status: Rows::ZERO,
+            marks: baud_render::StatusMarks::Off,
         }
     }
 
@@ -1141,6 +1149,10 @@ mod tests {
             ..w
         };
         let no_bounds = WaylandWindow { bounds: None, ..w };
+        let marked = WaylandWindow {
+            marks: baud_render::StatusMarks::On,
+            ..w
+        };
         let px = |height, width| WindowRequest::ResizePixels { height, width };
         let cells = |rows, cols| WindowRequest::ResizeCells { rows, cols };
         for (r, on, want) in [
@@ -1214,6 +1226,8 @@ mod tests {
                 Resize(6400, 4800),
             ),
             (cells(Exactly(24), Exactly(80)), &w, Resize(1280, 768)),
+            // The exit-status strip is a cell beside the grid's 80.
+            (cells(Exactly(24), Exactly(80)), &marked, Resize(1296, 768)),
             (cells(Exactly(48), Keep), &w, Resize(1280, 1400)),
             (cells(Keep, Keep), &w, Resize(1280, 704)),
             (
@@ -1559,6 +1573,7 @@ mod tests {
                         rows: 37,
                     },
                     status: Rows::ZERO,
+                    marks: baud_render::StatusMarks::Off,
                 };
                 for m in M::ALL {
                     let lacks = !m.done_by(
@@ -1602,6 +1617,7 @@ mod tests {
                 rows: 37,
             },
             status: Rows::ZERO,
+            marks: baud_render::StatusMarks::Off,
         };
         for m in M::ALL.iter().copied().filter(|&m| below.has(m)) {
             let done = m.done_by(&|r| !matches!(wayland(r, &floating), WaylandAction::Unbuilt(_)));

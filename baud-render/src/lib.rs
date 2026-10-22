@@ -52,6 +52,7 @@ mod scroll;
 mod scrollbar;
 mod select;
 mod stack;
+pub mod status;
 mod stress_data;
 mod trail;
 mod transition;
@@ -99,6 +100,7 @@ pub use select::{
     row_of,
 };
 pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
+pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,

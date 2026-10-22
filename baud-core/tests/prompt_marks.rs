@@ -233,6 +233,38 @@ fn a_jump_goes_to_the_previous_and_the_next_prompt() {
     });
 }
 
+/// **The prompts from a window on are the log's from that window's top
+/// line**: the same marks [`Term::prompts`] gives, from the first on or
+/// below the window's top, at every depth of the history.
+#[test]
+fn the_prompts_from_a_window_are_those_on_and_below_its_top() {
+    support::with_term(&WS, |t| {
+        history_of_prompts(t);
+        let all: Vec<_> = t.prompts().collect();
+        assert_eq!(all.len(), 7);
+        let hist = (0..64)
+            .take_while(|&b| t.view(Rows::of_count(b)).rows().index() > 0 && b <= 30)
+            .count();
+        for back in 0..hist {
+            let from: Vec<_> = t.prompts_from(Rows::of_count(back)).collect();
+            let want: Vec<_> = all
+                .iter()
+                .copied()
+                .filter(|p| match p.line {
+                    PromptLine::Back(n) => n.index() <= back,
+                    PromptLine::Screen(_) => true,
+                })
+                .collect();
+            assert_eq!(from, want, "back {back}");
+        }
+        assert_eq!(
+            t.prompts_from(Rows::ZERO).count(),
+            3,
+            "cmd4, cmd5 and the open prompt"
+        );
+    });
+}
+
 /// **A re-cut moves each prompt with its line**: after a narrowing reflow
 /// of the history, a jump still lands on the prompt's text.
 #[test]

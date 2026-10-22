@@ -1169,6 +1169,24 @@ impl Atlas {
         slot
     }
 
+    /// **An exit-status mark's mask** ([`crate::status`]), the cell's box,
+    /// placed as a procedural glyph is and memoised the same way under the
+    /// mark's key; a rescale's [`Atlas::reset`] drops it with them.
+    pub fn status_mark(
+        &mut self,
+        mark: crate::status::Mark,
+        cell: crate::boxes::Cell,
+        baseline: Px,
+    ) -> Option<Slot> {
+        if let Some(slot) = self.procedural.get(&mark.key().0) {
+            return *slot;
+        }
+        let slot = crate::status::draw(mark, cell.w, cell.h, &mut self.scratch, &mut self.coverage)
+            .and_then(|extent| self.place_cell_mask(extent, baseline));
+        self.procedural.insert(mark.key().0, slot);
+        slot
+    }
+
     /// [`Atlas::ring`] for a line drawn at `stretch`: the part's mask at
     /// the box a character there takes, built as box drawing is
     /// ([`Atlas::synthetic_at`]) -- at twice the cell with twice the stroke

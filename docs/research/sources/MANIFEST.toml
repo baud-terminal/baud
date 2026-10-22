@@ -32500,3 +32500,94 @@ sha256 = "c3a85cafcf4e360cd170e0fbe5201ca98f8a0b9da3535ad44247b6ebe84bf3b0"
 bytes  = 34874
 status = "external"
 group  = "J"
+
+[sources.vscode-terminal-icons-ec01053]
+key    = "vscode-terminal-icons-ec01053"
+title  = "VS Code ec01053, terminal/browser/terminalIcons.ts -- the command decorations' icons: success circle-filled, error error-small (a cross), incomplete circle (hollow)"
+author = "Microsoft and VS Code contributors"
+year   = 2026
+venue  = "github.com/microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/workbench/contrib/terminal/browser/terminalIcons.ts"
+file   = ""
+sha256 = "3678bac495e214d53470c061d180ede4b81e4df2885e534053e018f440527643"
+bytes  = 2996
+status = "external"
+group  = "C"
+
+[sources.vscode-terminal-css-ec01053]
+key    = "vscode-terminal-css-ec01053"
+title  = "VS Code ec01053, terminal/browser/media/terminal.css -- 'All terminals have at least 20px left padding for the gutter'; the decoration's success, error and default colours"
+author = "Microsoft and VS Code contributors"
+year   = 2026
+venue  = "github.com/microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/workbench/contrib/terminal/browser/media/terminal.css"
+file   = ""
+sha256 = "ffa5b314ced3f9c44d833ac98fce8788251ae468aabe71240b070eee817000f2"
+bytes  = 21341
+status = "external"
+group  = "C"
+
+[sources.kitty-window-6d5d0c4]
+key    = "kitty-window-6d5d0c4"
+title  = "kitty 6d5d0c4, kitty/window.py -- cmd_output_marking and handle_cmd_end: D's exit status goes to watchers, the finish notification and the tab title's last_cmd_exit_status; nothing in the grid"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/window.py"
+file   = ""
+sha256 = "81b932ca6c2f8c196d180dedcbba48c798008589f22bc7a689b3968b1b9bb2b9"
+bytes  = 114737
+status = "external"
+group  = "C"
+
+[sources.ghostty-surface-b58ef1d]
+key    = "ghostty-surface-b58ef1d"
+title  = "Ghostty b58ef1d, src/Surface.zig -- stop_command: D's exit code goes to a command_finished action, a notification; nothing in the grid (stream_handler.zig sends it)"
+author = "Mitchell Hashimoto and Ghostty contributors"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ b58ef1d (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/Surface.zig"
+file   = ""
+sha256 = "a17e2b6af70214f41d15f63067736e49f3c93bec8b893c99d6fd6984171500a7"
+bytes  = 247204
+status = "external"
+group  = "C"
+
+[sources.wezterm-performer-e2a98e1]
+key    = "wezterm-performer-e2a98e1"
+title  = "WezTerm e2a98e1, term/src/terminalstate/performer.rs -- FinalTermSemanticPrompt::CommandStatus is parsed and ignored"
+author = "Wez Furlong"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ e2a98e1 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/terminalstate/performer.rs"
+file   = ""
+sha256 = "ed835157c98df179fe0dc1ac5fa86dd007f49bc4dcb56cdcd87f33b76b915ce3"
+bytes  = 49678
+status = "external"
+group  = "C"
+
+[sources.warp-block-basics]
+key    = "warp-block-basics"
+title  = "Warp documentation, Block basics -- 'Blocks that quit with a non-zero exit code have a red background and red sidebar' (closed source; retrieved 2026-10-22)"
+author = "Warp"
+year   = 2026
+venue  = "docs.warp.dev"
+url    = "https://docs.warp.dev/terminal/blocks/block-basics"
+file   = ""
+sha256 = "ba829fa49eb6dd0a2598cd0af33b97e4f3664b16f4d7a48625574cf75f4ed67d"
+bytes  = 155839
+status = "external"
+group  = "C"
+
+[sources.apple-terminal-marks]
+key    = "apple-terminal-marks"
+title  = "Apple, Terminal User Guide: Use marks and bookmarks -- prompt lines marked with square brackets at the window's edges; no exit status (closed source; retrieved 2026-10-22)"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com"
+url    = "https://support.apple.com/guide/terminal/use-marks-and-bookmarks-trml135fbc26/mac"
+file   = ""
+sha256 = "4512e91c660b43bda06a52955f9604b134205a7c28efdcb689faf83ab1325a42"
+bytes  = 574744
+status = "external"
+group  = "C"

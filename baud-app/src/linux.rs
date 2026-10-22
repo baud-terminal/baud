@@ -268,6 +268,18 @@ fn thumb(
     use crate::bar::{Event as Bar, Left};
     use crate::gesture::Pressed;
     use crate::seat::Input;
+    // The thumb's geometry is in frame pixels, the grid's: a surface point
+    // comes in less the exit-status strip at the frame's left.
+    let strip = f64::from(renderer.strip().value());
+    let beside = crate::seat::Beside {
+        at: beside.at.map(|(x, y)| (x - strip, y)),
+        input: match beside.input {
+            Input::Entered(x, y) => Input::Entered(x - strip, y),
+            Input::Moved(x, y) => Input::Moved(x - strip, y),
+            other => other,
+        },
+        ..beside
+    };
     let e = match (beside.input, beside.at) {
         (Input::Entered(x, y), _) => Bar::Entered { x, y },
         (Input::Moved(x, y), _) => Bar::Moved {
@@ -393,6 +405,9 @@ pub fn run() {
     )
     .expect("cell metrics");
     renderer.set_emoji_default(cfg.emoji);
+    // The exit-status strip before the first size: the grid gives it a
+    // column, as on macOS.
+    renderer.set_status_marks(cfg.exit_status);
     crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
     // The cell height for the Sixel cursor advance, before the first feed;
     // re-set on every `configure`.
@@ -1246,6 +1261,7 @@ impl Driver {
         let m = self.renderer.metrics();
         let (cols, rows) = self.term.geometry();
         crate::seat::Geometry {
+            pad: (self.renderer.strip().value(), 0),
             cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
             grid: (
                 u16::try_from(cols.index()).unwrap_or(u16::MAX),
@@ -1738,6 +1754,7 @@ impl Driver {
             cell: (m.cell_w.value(), m.cell_h.value()),
             grid: crate::width::Grid::of(&self.term),
             status: self.term.status_rows(),
+            marks: self.renderer.status_marks(),
         };
         let toggle = |s: Set| match s {
             Set::On => Toggle::Set,
@@ -1812,6 +1829,7 @@ impl Driver {
             cell: (m.cell_w.value(), m.cell_h.value()),
             grid: crate::width::Grid::of(&self.term),
             status: now,
+            marks: self.renderer.status_marks(),
         };
         let resized = match crate::winops::wayland_status(shown, self.term.window_ops()) {
             StatusChange::Resize => {
@@ -1892,7 +1910,9 @@ impl Driver {
             }),
             ..baud_core::WindowFacts::UNKNOWN
         });
-        let cols = (width.0 / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
+        // The exit-status strip, when kept, takes its column first.
+        let text_w = width.0.saturating_sub(self.renderer.strip().value());
+        let cols = (text_w / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
         let rows = (height.0 / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
         // The status line's row is the window's, below the grid: the grid
         // is what is left, and the child is told it (`Term::status_rows`).
@@ -2027,6 +2047,9 @@ impl Driver {
         };
         self.renderer.set_composition(composition);
         let px = |p: Px| baud_present_wayland::Px(p.value());
+        // In the surface's pixels: the grid begins past the exit-status
+        // strip.
+        let rect = rect.map(|r| crate::marked::in_frame(r, (self.renderer.strip(), Px::of(0))));
         if let Some([x, y, w, h]) = rect {
             self.window.set_text_cursor(
                 &mut self.conn.sender(),
@@ -2063,7 +2086,15 @@ impl Driver {
             self.frame.fill(margin.0);
             self.damage = Damage::Full;
         }
-        let (w, h) = self.renderer.frame_size();
+        // The marks on the window shown, and the whole frame they are
+        // drawn in: the strip at its left, then the grid.
+        self.renderer.place_marks(
+            &self.term,
+            self.term.window_back(),
+            baud_render::Leaving::None,
+            Px::of(0),
+        );
+        let (w, h) = self.renderer.whole_size();
         let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) else {
             return;
         };

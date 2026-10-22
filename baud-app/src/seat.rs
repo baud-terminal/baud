@@ -97,11 +97,13 @@ pub(crate) enum Input {
     StoppedAcross,
 }
 
-/// What turns a point into a cell: the cell in pixels and the grid in
-/// cells. The Linux frame draws the grid from its first pixel, so there is
-/// no padding, and no buffer scale, so a point is a pixel.
+/// What turns a point into a cell: where the grid begins, the cell in
+/// pixels and the grid in cells. The Linux frame draws from its first
+/// pixel, the grid after the exit-status strip when it is kept, and has no
+/// buffer scale, so a point is a pixel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Geometry {
+    pub(crate) pad: (u32, u32),
     pub(crate) cell: (f64, f64),
     pub(crate) grid: (u16, u16),
 }
@@ -311,13 +313,13 @@ impl Seat {
 
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
         let at = self.at.unwrap_or((0.0, 0.0));
-        gesture::pointer_under(at, 1.0, g.cell, g.grid, (0, 0))
+        gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad)
     }
 
     /// Where DEC's locator is: `None` off the surface or its text area.
     fn locator_at(&self, g: Geometry) -> Option<LocatorAt> {
         self.at
-            .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, (0, 0)))
+            .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, g.pad))
     }
 
     /// **One pointer input** with no scrollbar beside it
@@ -883,6 +885,7 @@ mod tests {
 
     /// Ten-pixel cells on the 20x6 grid.
     const G: Geometry = Geometry {
+        pad: (0, 0),
         cell: (10.0, 10.0),
         grid: (20, 6),
     };
@@ -1153,6 +1156,7 @@ mod tests {
             ws_row: 6,
         };
         let g = Geometry {
+            pad: (0, 0),
             cell: (10.0, 10.0),
             grid: (40, 6),
         };

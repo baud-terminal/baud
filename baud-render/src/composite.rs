@@ -65,6 +65,32 @@ impl<'p> Target<'p> {
         self.pixels
     }
 
+    /// **`width` columns from column `x` on, as a target of their own** over
+    /// the same rows and stride: the grid beside the strip a frame keeps for
+    /// the exit-status marks ([`crate::status`]). `None` past the width.
+    pub fn columns(&mut self, x: Px, width: Px) -> Option<Target<'_>> {
+        let (s, x0, w, h) = (
+            slots(self.stride),
+            slots(x),
+            slots(width),
+            slots(self.height),
+        );
+        if x0.checked_add(w)? > slots(self.width) {
+            return None;
+        }
+        // The last row's end is the farthest pixel any row of it reaches.
+        let need = match h {
+            0 => 0,
+            _ => (h - 1).checked_mul(s)?.checked_add(x0 + w)?,
+        };
+        (need <= self.pixels.len()).then(|| Target {
+            pixels: &mut self.pixels[x0..],
+            stride: self.stride,
+            width,
+            height: self.height,
+        })
+    }
+
     fn rows_of(&self, band: Band) -> core::ops::Range<usize> {
         let h = slots(self.height);
         slots(band.top).min(h)..slots(band.bottom).min(h)

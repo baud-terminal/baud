@@ -511,6 +511,13 @@ const MARK_SLOT: Chan = Chan::from_offset(33, 30);
 /// text through.
 const MARK_ALPHA: u8 = 0x66;
 
+/// Whether a CPU frame repainted the exit-status strip.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StripFresh {
+    Yes,
+    No,
+}
+
 /// A filled rectangle `w` by `h` at `(x, y)` in `color`.
 fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
     Instance {
@@ -1449,6 +1456,18 @@ pub struct Renderer<'f, 'a> {
     bar_inst: Vec<Instance>,
     /// The pixels past the grid the frame keeps for a legacy scroller.
     gutter: Px,
+    /// **The exit-status marks** ([`crate::status`]): whether the strip is
+    /// kept, the marks on the window this frame, their records in the
+    /// strip's own pixels, and what the CPU path last painted there -- the
+    /// clear colour and those records -- so it repaints the strip only when
+    /// one of them changed or the frame is new.
+    status: crate::status::StatusMarks,
+    placed: Vec<crate::status::Placed>,
+    strip_inst: Vec<Instance>,
+    strip_painted: Option<(Argb, Vec<Instance>)>,
+    /// Whether the last CPU frame repainted the strip, for
+    /// [`Renderer::painted`]: its whole height then.
+    strip_fresh: StripFresh,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
@@ -1744,6 +1763,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bar: None,
             last_bar: None,
             gutter: Px::of(0),
+            status: crate::status::StatusMarks::Off,
+            placed: Vec::new(),
+            strip_inst: Vec::new(),
+            strip_painted: None,
+            strip_fresh: StripFresh::No,
             bar_inst: Vec::new(),
             trail: None,
             last_trail: None,
@@ -2947,6 +2971,126 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **Whether the exit-status strip is kept** ([`crate::status`]): on,
+    /// the frame keeps a cell's width at its left for the marks
+    /// ([`Renderer::strip`]), which a driver's window arithmetic counts as
+    /// it counts the gutter.
+    pub fn set_status_marks(&mut self, marks: crate::status::StatusMarks) {
+        if marks != self.status {
+            self.status = marks;
+            self.strip_painted = None;
+            if marks == crate::status::StatusMarks::Off {
+                self.placed.clear();
+                self.strip_inst.clear();
+            }
+        }
+    }
+
+    pub fn status_marks(&self) -> crate::status::StatusMarks {
+        self.status
+    }
+
+    /// The strip's width: a cell's, while the marks are on; else none.
+    pub fn strip(&self) -> Px {
+        match self.status {
+            crate::status::StatusMarks::On => self.metrics.cell_w,
+            crate::status::StatusMarks::Off => Px::of(0),
+        }
+    }
+
+    /// **The whole frame**: the strip, then [`Renderer::frame_size`]'s grid
+    /// and gutter. What a driver allocates and a presenter centres; the
+    /// grid is drawn [`Renderer::strip`] pixels in from its left.
+    pub fn whole_size(&self) -> (Px, Px) {
+        let (w, h) = self.frame_size();
+        (Px::of(w.value().saturating_add(self.strip().value())), h)
+    }
+
+    /// **The marks for the next frame**, read from the prompts on the
+    /// window `back` lines up the history (`Term::prompts_from`): each in
+    /// its palette entry over the strip, at its row's top, lowered by `pan`
+    /// and with the line above the window when a smooth scroll draws it
+    /// (`leaving`), as the cell path's grid is. Every path draws them: the
+    /// CPU path in [`Renderer::render_at`], the GPU paths from
+    /// [`Renderer::strip_records`] in a pass over the strip.
+    pub fn place_marks(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        leaving: crate::status::Leaving,
+        pan: Px,
+    ) {
+        self.strip_inst.clear();
+        if self.status == crate::status::StatusMarks::Off {
+            return;
+        }
+        let mut placed = core::mem::take(&mut self.placed);
+        crate::status::placed(term, back, self.main_rows(), leaving, &mut placed);
+        let cell = crate::boxes::Cell {
+            w: self.metrics.cell_w,
+            h: self.metrics.cell_h,
+        };
+        let (ch, base) = (px_i32(self.metrics.cell_h), px_i32(self.metrics.baseline));
+        let lift = px_i32(pan);
+        for p in &placed {
+            let Some(slot) = self.atlas.status_mark(p.mark, cell, self.metrics.baseline) else {
+                continue;
+            };
+            let top = match p.row {
+                crate::status::ViewRow::Leaving => -ch,
+                crate::status::ViewRow::On(r) => {
+                    i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX)
+                }
+            };
+            let color = self.theme.entry(p.mark.slot(), |c| term.palette(c));
+            self.strip_inst.push(Instance {
+                x: screen(slot.left),
+                y: screen(top + lift + base + slot.top),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color,
+                kind: slot.kind,
+                // The identity: a mark is a shape, not text to bend.
+                curve: CurveRow::default(),
+            });
+        }
+        self.placed = placed;
+    }
+
+    /// The marks' records, in the strip's own pixels: x from its left edge,
+    /// y as the grid's rows.
+    pub fn strip_records(&self) -> &[Instance] {
+        &self.strip_inst
+    }
+
+    /// Paints the strip into `target`, the strip's own columns: the clear
+    /// colour the GPU passes clear to, then the marks, when either changed
+    /// since the last paint or the frame is new.
+    fn paint_strip(&mut self, target: &mut Target<'_>, damage: Damage) {
+        let clear = self.clear_color();
+        let fresh = match &self.strip_painted {
+            Some((c, insts)) => damage == Damage::Full || *c != clear || *insts != self.strip_inst,
+            None => true,
+        };
+        if !fresh {
+            return;
+        }
+        self.strip_fresh = StripFresh::Yes;
+        let (_, h) = self.frame_size();
+        let all = Band {
+            top: Px::of(0),
+            bottom: h,
+        };
+        target.fill_band(all, &[], self.metrics.cell_w, clear);
+        let page = self.page();
+        for inst in &self.strip_inst {
+            target.over(inst, &self.atlas, self.blend, page, all);
+        }
+        self.strip_painted = Some((clear, self.strip_inst.clone()));
+    }
+
     /// The pixel size of the frame: the grid, and the scroller's gutter
     /// beside it. What a presenter letterboxes, what a CPU target is, and
     /// what the scrollbar is drawn and hit-tested against; the cells are
@@ -3046,7 +3190,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     bottom: px(end),
                 })
             });
-        runs.chain(images)
+        let strip = (self.strip_fresh == StripFresh::Yes).then_some(Band {
+            top: Px::of(0),
+            bottom: self.frame_size().1,
+        });
+        runs.chain(images).chain(strip)
     }
 
     /// Reads the terminal, converts the rows that changed and paints them
@@ -3096,10 +3244,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
         let under = self.image_places.iter().any(|p| p.layer.under_text());
         let over = Some(term.images());
-        match under {
-            true => self.paint_rows(target, converted, UnderImages(term.images()), over),
-            false => self.paint_rows(target, converted, NoUnder, over),
+        // With the exit-status strip kept, `target` is the whole frame: the
+        // grid is painted into the columns past the strip, and the strip on
+        // its own.
+        let strip = self.strip();
+        self.strip_fresh = StripFresh::No;
+        if strip.value() == 0 {
+            return match under {
+                true => self.paint_rows(target, converted, UnderImages(term.images()), over),
+                false => self.paint_rows(target, converted, NoUnder, over),
+            };
         }
+        let (w, _) = self.frame_size();
+        let frame = match target.columns(strip, w) {
+            Some(mut grid) => match under {
+                true => self.paint_rows(&mut grid, converted, UnderImages(term.images()), over),
+                false => self.paint_rows(&mut grid, converted, NoUnder, over),
+            },
+            None => Frame::default(),
+        };
+        if let Some(mut own) = target.columns(Px::of(0), strip) {
+            self.paint_strip(&mut own, damage);
+        }
+        frame
     }
 
     /// Computes where every visible image placement lands this frame, into

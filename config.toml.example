@@ -345,6 +345,14 @@ trail_scroll = "ride"
 # colours in RGB rather than HLS; print_background "on" prints the
 # background too, in colour only; print_rotated "on" turns the picture a
 # quarter, counter-clockwise, to fit a large one down the page.
+#
+# exit_status: whether each command's result is shown beside its prompt,
+# for a shell that marks its prompts (shell integration, OSC 133): a filled
+# dot when it succeeded, a cross when it failed and a ring when it was
+# cancelled, in the theme's blue, red and grey. "off" by default. "on" gives
+# the marks a column of their own at the left, so the text has one column
+# fewer; a command still running, or one the shell reported nothing for,
+# has no mark.
 [screen]
 transition = false
 checksum = "on"
@@ -355,6 +363,7 @@ print_colour = "off"
 print_rgb = "off"
 print_background = "off"
 print_rotated = "off"
+exit_status = "off"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

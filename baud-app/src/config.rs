@@ -208,6 +208,12 @@ pub struct Config {
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
+    /// `[screen] exit_status`: whether each command's exit status, which a
+    /// shell's prompt marks report (`OSC 133 ; D`), is shown as a mark in a
+    /// strip one cell wide beside the text, the grid giving it a column;
+    /// `"off"` by default (Jev's lean, `baud_render::status`), `"on"` shows
+    /// it.
+    pub exit_status: baud_render::StatusMarks,
     /// `[screen] checksum`: whether a program's request for a checksum of
     /// the screen (DECRQCRA) is answered, `"on"` by default (the
     /// owner's call of 2026-10-19, option 3), or `"off"`, which leaves every
@@ -754,6 +760,7 @@ impl Config {
             blink_animation: BlinkAnimation::Plasma,
             blink_interval: BlinkInterval::Default,
             screen_transition: ScreenTransition::Off,
+            exit_status: baud_render::StatusMarks::Off,
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
@@ -1218,6 +1225,19 @@ impl Config {
                                  using false"
                             ));
                             ScreenTransition::Off
+                        }
+                    };
+                }
+                ("screen", "exit_status") => {
+                    self.exit_status = match value.trim().trim_matches('"') {
+                        "on" => baud_render::StatusMarks::On,
+                        "off" => baud_render::StatusMarks::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] exit_status {other:?} is not on or off; \
+                                 using off"
+                            ));
+                            baud_render::StatusMarks::Off
                         }
                     };
                 }
@@ -3429,6 +3449,34 @@ mod reader {
         );
     }
 
+    /// **Exit-status marks are off unless `[screen] exit_status = "on"`**,
+    /// quoted or bare; any other value keeps them off and says so, and the
+    /// key is the `[screen]` section's.
+    #[test]
+    fn exit_status_marks_are_off_unless_turned_on() {
+        use baud_render::StatusMarks;
+        assert_eq!(Config::defaults().exit_status, StatusMarks::Off);
+        assert_eq!(read("").exit_status, StatusMarks::Off);
+        for on in ["\"on\"", "on"] {
+            let text = format!("[screen]\nexit_status = {on}\n");
+            assert_eq!(read(&text).exit_status, StatusMarks::On, "{on}");
+        }
+        assert_eq!(
+            read("[screen]\nexit_status = \"off\"\n").exit_status,
+            StatusMarks::Off
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nexit_status = \"yes\"\n");
+        assert_eq!(c.exit_status, StatusMarks::Off);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("exit_status"), "{said:?}");
+        assert_eq!(
+            read("exit_status = \"on\"\n").exit_status,
+            StatusMarks::Off,
+            "not a top-level key"
+        );
+    }
+
     /// **The screen checksum is answered unless `[screen] checksum = "off"`**
     /// (the owner's call of 2026-10-19, option 3), quoted or bare; any other
     /// value keeps the default and says so, and the key is the `[screen]`
@@ -4264,6 +4312,11 @@ shadow     = "never"
             "the [screen] notifications"
         );
         assert_eq!(c.notifications, Notifications::On);
+        assert!(
+            text.contains("\nexit_status = \"off\"\n"),
+            "the [screen] exit_status"
+        );
+        assert_eq!(c.exit_status, baud_render::StatusMarks::Off);
         assert!(
             text.contains("\n[window]\noperations = \"on\"\n"),
             "the [window] operations"

@@ -850,6 +850,9 @@ impl Boot {
         )
         .expect("cell metrics");
         renderer.set_emoji_default(cfg.emoji);
+        // The exit-status strip before any size is taken: the window's
+        // arithmetic counts it as it counts the gutter.
+        renderer.set_status_marks(cfg.exit_status);
         startup_mark("renderer");
         Boot {
             request,
@@ -1005,7 +1008,7 @@ impl App {
         renderer.set_gutter(gutter(scroller, crate::reveal::widths(Scale(scale))));
         let mut term = term;
         crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
-        let (frame_w, frame_h) = renderer.frame_size();
+        let (frame_w, frame_h) = renderer.whole_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
                 (Some(styled), Some((first_map, entries))) => {
@@ -1275,6 +1278,14 @@ impl App {
     fn metrics_cell(&self) -> (f64, f64) {
         let m = self.renderer.metrics();
         (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()))
+    }
+
+    /// The pixels beside the grid the window keeps, in device pixels: the
+    /// legacy scroller's gutter `bar` and the exit-status strip
+    /// ([`Renderer::strip`]), which every width the window is given or
+    /// gives the grid counts.
+    fn beside(&self, bar: Px) -> f64 {
+        f64::from(bar.value().saturating_add(self.renderer.strip().value()))
     }
 
     /// Tells the child the grid the terminal *has* and the text area in
@@ -1613,12 +1624,12 @@ impl App {
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
         // between them is the gap.
-        let (w, h) = self.renderer.frame_size();
+        // The whole frame -- the exit-status strip, when kept, then the
+        // grid and the gutter -- is centred; the pad is the grid's origin,
+        // the strip in from the letterbox.
+        let (w, h) = self.renderer.whole_size();
         let (sw, sh) = self.view_px;
-        self.pad_px = (
-            Px::of(sw.value().saturating_sub(w.value()) / 2),
-            Px::of(sh.value().saturating_sub(h.value()) / 2),
-        );
+        self.pad_px = grid_origin((sw, sh), (w, h), self.renderer.strip());
         let surface_stale = self.presenter.as_ref().map(Presenter::size) != Some((sw, sh));
         if (w, h) != (self.frame_w, self.frame_h) || surface_stale || self.presenter.is_none() {
             self.frame_w = w;
@@ -1748,6 +1759,14 @@ impl App {
         let lift = if sliding { pan } else { Px::of(0) };
         self.renderer
             .set_trail(trail_look.map(|l| l.lifted(trail_lift(self.trail_scroll, lift))));
+        // The exit-status marks on the window shown, for every path: on the
+        // cell path's slide they ride with the grid, its leaving row too.
+        let leaving = match sliding {
+            true => baud_render::Leaving::Drawn,
+            false => baud_render::Leaving::None,
+        };
+        self.renderer
+            .place_marks(&self.term, self.term.window_back(), leaving, lift);
         match (
             self.presenter.as_ref().map(Presenter::mode),
             self.cell.as_mut(),
@@ -8659,6 +8678,9 @@ impl Responder for Driver {
             ),
             None => crate::marked::cursor_cell(&self.app.term, m.cell_w, m.cell_h),
         };
+        // In the view's points: the grid begins past the padding and the
+        // exit-status strip (`pad_px`).
+        let cell = crate::marked::in_frame(cell, self.app.pad_px);
         let [x, y, w, h] = cell.map(|p| f64::from(p.value()) / self.app.scale);
         Rect { x, y, w, h }
     }
@@ -8825,11 +8847,14 @@ pub fn run() {
         })
     });
     let (cw, ch) = boot.metrics_cell();
+    // The exit-status strip takes its column from the start, so the child
+    // is spawned at the grid it keeps.
+    let strip = boot.renderer.strip();
     let ws = grid.as_ref().map_or_else(
         || {
             grid_for(
                 NSSize::new(
-                    (size.width - 2.0 * padding).max(0.0),
+                    (size.width - 2.0 * padding - f64::from(strip.value()) / scale).max(0.0),
                     (size.height - inset - 2.0 * padding).max(0.0),
                 ),
                 scale,
@@ -8932,8 +8957,9 @@ pub fn run() {
         // A legacy scroller's gutter is beside the grid, so the window is
         // that much wider; `relayout` then gives it the same gutter back.
         let bar = gutter(scroller_style(), crate::reveal::widths(Scale(scale)));
+        let beside = f64::from(bar.value().saturating_add(strip.value()));
         let wanted = NSSize::new(
-            f64::from(ws.ws_col) * cw / scale + 2.0 * padding + f64::from(bar.value()) / scale,
+            f64::from(ws.ws_col) * cw / scale + 2.0 * padding + beside / scale,
             f64::from(ws.ws_row) * ch / scale + inset + 2.0 * padding,
         );
         window.ns_window().setContentSize(wanted);
@@ -9285,7 +9311,7 @@ impl Driver {
             scale,
             cell: self.app.metrics_cell(),
             padding: self.app.padding,
-            gutter: f64::from(bar.value()),
+            gutter: self.app.beside(bar),
             grid: crate::width::Grid::of(&self.app.term),
             status: self.app.term.status_rows(),
             minimized: match w.isMiniaturized() {
@@ -10251,7 +10277,7 @@ impl Driver {
         );
         let (cw, _) = self.app.metrics_cell();
         let width =
-            crate::width::content_width(grid, cw, scale, self.app.padding, f64::from(bar.value()));
+            crate::width::content_width(grid, cw, scale, self.app.padding, self.app.beside(bar));
         widen_later(self.window.ns_window(), width);
     }
 
@@ -10296,7 +10322,7 @@ impl Driver {
                     cw,
                     scale,
                     self.app.padding,
-                    f64::from(bar.value()),
+                    self.app.beside(bar),
                 );
                 widen_later(self.window.ns_window(), width);
             }
@@ -10418,7 +10444,7 @@ impl Driver {
             grid_in(
                 (px_w, px_h),
                 self.app.padding * scale,
-                f64::from(bar.value()),
+                self.app.beside(bar),
                 (cw, ch),
             ),
             self.app.term.status_rows(),
@@ -10968,6 +10994,16 @@ impl Driver {
             (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
         )
     }
+}
+
+/// **Where the grid begins in the view**, in device pixels: the whole
+/// frame `whole` -- the exit-status strip, the grid and the gutter --
+/// centred in the view `view`, and the grid `strip` in from its left.
+fn grid_origin(view: (Px, Px), whole: (Px, Px), strip: Px) -> (Px, Px) {
+    (
+        Px::of((view.0.value().saturating_sub(whole.0.value()) / 2).saturating_add(strip.value())),
+        Px::of(view.1.value().saturating_sub(whole.1.value()) / 2),
+    )
 }
 
 /// What turns a view point into a cell and a pixel: the backing scale, the
@@ -12436,6 +12472,33 @@ mod tests {
         assert_eq!((r.index(), c.index()), (0, 0));
         let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
+    }
+
+    /// **The grid begins after the exit-status strip**: the whole frame is
+    /// centred, and a point over the strip names the first column, as one
+    /// over the padding does; a point one strip in from the frame's left
+    /// edge is the first pixel of the first cell.
+    #[test]
+    fn the_grid_begins_after_the_exit_status_strip() {
+        let (cell, grid, scale) = ((20.0, 40.0), (10, 5), 2.0);
+        let view = (Px::of(260), Px::of(220));
+        let whole = (Px::of(220), Px::of(200));
+        assert_eq!(
+            grid_origin(view, whole, Px::of(0)),
+            (Px::of(20), Px::of(10))
+        );
+        let pad = grid_origin(view, whole, Px::of(20));
+        assert_eq!(pad, (Px::of(40), Px::of(10)));
+        let pad = (pad.0.value(), pad.1.value());
+        // At 2x: the strip's middle, (30, 10) px, is over it.
+        let (r, c, px) = pointer_under((15.0, 5.0), scale, cell, grid, pad);
+        assert_eq!((r.index(), c.index(), px.x), (0, 0, ImagePx::ZERO));
+        // (40, 10) px, the strip's far edge, is the first cell's first pixel,
+        // and (61, 10) the second cell's second.
+        let (_, c, px) = pointer_under((20.0, 5.0), scale, cell, grid, pad);
+        assert_eq!((c.index(), px.x), (0, ImagePx::ZERO));
+        let (_, c, px) = pointer_under((30.5, 5.0), scale, cell, grid, pad);
+        assert_eq!((c.index(), px.x), (1, ImagePx::of(21)));
     }
 
     /// **The pixel `?1016` reports is in the cell the other encodings

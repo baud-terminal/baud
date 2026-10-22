@@ -1448,6 +1448,52 @@ impl Gpu {
         })
     }
 
+    /// **The exit-status marks** (records `from..to`), in a pass of their
+    /// own over the strip at the whole frame's left: the strip's viewport
+    /// and scissor, and uniforms that make its pixels the records' space,
+    /// x from the strip's left and y as the grid's rows. The surface's
+    /// clear is the strip's ground, as the CPU path fills it.
+    ///
+    /// # Safety
+    ///
+    /// The records lie inside `buffer`, as [`Gpu::draw_records`] asks.
+    unsafe fn draw_strip(
+        &self,
+        enc: &Encoder,
+        buffer: &Buffer,
+        (from, to): (At, At),
+        (target, vp, height): (&Target, MTLViewport, Px),
+        metrics: baud_render::Metrics,
+        (mask, color): (&Texture, &Texture),
+    ) -> Option<()> {
+        if to.0 <= from.0 || vp.width <= 0.0 {
+            return Some(());
+        }
+        let width = Px::of(u32::try_from(vp.width as i64).ok()?);
+        let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
+        let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
+        let origin = [vp.originX as f32, vp.originY as f32];
+        let u: [f32; UNIFORM_FLOATS] = [
+            px_f32(width),
+            px_f32(height),
+            px_f32(metrics.cell_w),
+            px_f32(metrics.cell_h),
+            0.0,
+            0.0,
+            side_m,
+            side_m,
+            side_c,
+            side_c,
+            origin[0],
+            origin[1],
+        ];
+        enc.setViewport(vp);
+        enc.setScissorRect(scissor(target, origin, (width, height)));
+        // SAFETY: the caller's.
+        unsafe { self.draw_records(enc, buffer, from, to, None, None, &u, mask, color) };
+        Some(())
+    }
+
     /// **Draws the records `from..end` of `buffer`**: the glyph pipeline for
     /// each run of them, and the trail's pipeline for its records `trail`
     /// -- a quad's one, an effect's bands and particles -- so the trail stays where
@@ -1618,7 +1664,9 @@ impl Gpu {
         // images over the text.
         let chrome = usize::try_from(renderer.chrome().value()).map_or(count, |c| c.min(count));
         let content = count - chrome;
-        let bytes = count.saturating_mul(Instance::BYTES);
+        // The exit-status marks after them, drawn in the strip's own pass.
+        let marks = renderer.strip_records().len();
+        let bytes = (count + marks).saturating_mul(Instance::BYTES);
         let mut trail_at = None;
         let slot = self.ring.0;
         if self.instances[slot].length() < bytes {
@@ -1634,7 +1682,7 @@ impl Gpu {
             let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
             for (i, (chunk, inst)) in dst
                 .chunks_exact_mut(Instance::BYTES)
-                .zip(renderer.instances())
+                .zip(renderer.instances().chain(renderer.strip_records()))
                 .enumerate()
             {
                 if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
@@ -1686,7 +1734,8 @@ impl Gpu {
             )),
             false => None,
         };
-        let (viewport, pad) = letterbox(target, frame_px);
+        let strip = renderer.strip();
+        let (viewport, pad, strip_vp) = letterbox_whole(target, renderer.whole_size(), strip);
         let trail = self.trail_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
             px_f32(frame_px.0),
@@ -1774,11 +1823,19 @@ impl Gpu {
                     &color,
                 );
             }
+            self.draw_strip(
+                &enc,
+                &self.instances[slot],
+                (At(count), At(count + marks)),
+                (target, strip_vp, frame_px.1),
+                metrics,
+                (&mask, &color),
+            )?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
         Some(Drawn::Frame(GpuFrame {
-            instances: Tally::of(count),
+            instances: Tally::of(count + marks),
             upload: upload_time,
             submit,
             gpu,
@@ -1830,7 +1887,8 @@ impl Gpu {
             )?),
             false => None,
         };
-        let (viewport, pad) = letterbox(target, frame_px);
+        let strip = renderer.strip();
+        let (viewport, pad, strip_vp) = letterbox_whole(target, renderer.whole_size(), strip);
         let trail = self.trail_draw(renderer, pad);
         let (cursor_row, cursor_col) = input
             .cursor
@@ -1912,10 +1970,13 @@ impl Gpu {
             // decoration pass.
             let n = input.records.len();
             let under = usize::try_from(input.under.value()).map_or(n, |u| u.min(n));
+            // The exit-status marks after the records, drawn in the strip's
+            // own pass.
+            let marks = renderer.strip_records().len();
             let mut trail_at = None;
             let mut records = None;
-            if n > 0 {
-                let bytes = n.saturating_mul(Instance::BYTES);
+            if n + marks > 0 {
+                let bytes = (n + marks).saturating_mul(Instance::BYTES);
                 let slot = self.ring.0;
                 if self.instances[slot].length() < bytes {
                     let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
@@ -1927,7 +1988,7 @@ impl Gpu {
                     let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
                     for (i, (chunk, inst)) in dst
                         .chunks_exact_mut(Instance::BYTES)
-                        .zip(input.records)
+                        .zip(input.records.iter().chain(renderer.strip_records()))
                         .enumerate()
                     {
                         if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
@@ -2087,12 +2148,22 @@ impl Gpu {
                     &mask,
                     &color,
                 );
+                self.draw_strip(
+                    &enc,
+                    &self.instances[slot],
+                    (At(n), At(n + marks)),
+                    (target, strip_vp, frame_px.1),
+                    metrics,
+                    (&mask, &color),
+                )?;
             }
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
         Some(Drawn::Frame(GpuFrame {
-            instances: Tally::of(count.saturating_add(input.records.len())),
+            instances: Tally::of(
+                count.saturating_add(input.records.len() + renderer.strip_records().len()),
+            ),
             upload: upload_time,
             submit,
             gpu,
@@ -2231,6 +2302,27 @@ fn letterbox(target: &Target, grid: (Px, Px)) -> (MTLViewport, [f32; 2]) {
         },
         [pad_x as f32, pad_y as f32],
     )
+}
+
+/// **The whole frame centred**: [`letterbox`] of the exit-status strip,
+/// the grid and the gutter, then the grid's viewport and pad `strip`
+/// pixels in from the whole's left, and the strip's own viewport at that
+/// left ([`baud_render::Renderer::whole_size`]). With no strip, the
+/// grid's are [`letterbox`]'s.
+fn letterbox_whole(
+    target: &Target,
+    whole: (Px, Px),
+    strip: Px,
+) -> (MTLViewport, [f32; 2], MTLViewport) {
+    let (vp, pad) = letterbox(target, whole);
+    let s = f64::from(strip.value());
+    let grid = MTLViewport {
+        originX: vp.originX + s,
+        width: (vp.width - s).max(0.0),
+        ..vp
+    };
+    let own = MTLViewport { width: s, ..vp };
+    (grid, [grid.originX as f32, pad[1]], own)
 }
 
 /// A straight colour as the render pass's premultiplied clear.
