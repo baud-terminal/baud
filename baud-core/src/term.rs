@@ -436,10 +436,12 @@ pub(crate) struct RowWatch {
     pub(crate) carried: Rows,
 }
 
-/// Whether anything of the watched lines stays after a move of rows.
+/// What a move of rows leaves of the watched lines: all of them, some of
+/// them, trimmed at the band's edge, or nothing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Stays {
-    Some,
+    Whole,
+    Trimmed,
     Nothing,
 }
 
@@ -501,16 +503,22 @@ impl RowWatch {
     ) -> Stays {
         let (a, b) = (self.now(from, top), self.now(to, top));
         if self.last < a || self.first > b {
-            return Stays::Some;
+            return Stays::Whole;
         }
+        let was = (self.first, self.last);
         (self.first, self.last) = (self.first.max(a), self.last.min(b));
+        let straddled = (self.first, self.last) != was;
         self.carry(k, way);
         match way {
             crate::ops::Scroll::Up if self.last < a => Stays::Nothing,
             crate::ops::Scroll::Down if self.first > b => Stays::Nothing,
             _ => {
+                let carried = (self.first, self.last);
                 (self.first, self.last) = (self.first.max(a), self.last.min(b));
-                Stays::Some
+                match straddled || (self.first, self.last) != carried {
+                    true => Stays::Trimmed,
+                    false => Stays::Whole,
+                }
             }
         }
     }
@@ -1204,10 +1212,11 @@ pub struct Cold {
     pub(crate) backarrow: BackarrowKey,
     pub(crate) delete: DeleteKey,
     /// The xterm resources a program sets with a private mode
-    /// (`baud_domain::Resource`): `?1010`, `?1011`, `?1041`, `?1045`,
-    /// `?1046`, `?2001`, `?2005` and `?2006`. One byte, read by `Term::feed`
-    /// once a read, by `BS` at the left margin, by the alternate-screen
-    /// switches and by the embedder, never by a glyph.
+    /// (`baud_domain::Resource`): `?1010`, `?1011`, `?1040`, `?1041`,
+    /// `?1045`, `?1046`, `?2001`, `?2005` and `?2006`. Two bytes, read by
+    /// `Term::feed` once a read, by `BS` at the left margin, by the
+    /// alternate-screen switches, by the watch on a selection's lines when
+    /// a scroll trims them, and by the embedder, never by a glyph.
     pub(crate) resources: baud_domain::Resources,
     /// The conformance level DECSCL selected (`baud_domain::ConformanceLevel`),
     /// Level 4 at power-up and after `RIS`. Read by each control's dispatch
@@ -1661,11 +1670,22 @@ impl Cold {
     ) {
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(from, to);
-        if self.watched == Watched::Rows
-            && self.row_watch.band(from, to, k, way, top) == Stays::Nothing
-        {
-            self.watched = Watched::Changed;
+        if self.watched == Watched::Rows {
+            let stays = self.row_watch.band(from, to, k, way, top);
+            if stays == Stays::Nothing || (stays == Stays::Trimmed && self.disowns_on_trim()) {
+                self.watched = Watched::Changed;
+            }
         }
+    }
+
+    /// **Whether a scroll that trims the watched lines reaches them**:
+    /// while `?1040` is reset, as xterm's reset disowns a selection where
+    /// its set truncates it (`[[source: xterm-scroll]]`,
+    /// `adjustHiliteOnFwdScroll` 451-456, `adjustHiliteOnBakScroll`
+    /// 553-559); `IL` and `DL` do not ask, as `InsertLine` and `DeleteLine`
+    /// read no keepSelection.
+    fn disowns_on_trim(&self) -> bool {
+        !self.resources.is_set(baud_domain::Resource::KeepSelection)
     }
 
     /// **`IL` of `k` rows at `at`, full width, in the band to `bot`**:
@@ -1715,12 +1735,16 @@ impl Cold {
         if self.watched != Watched::Rows {
             return;
         }
+        let disowns = self.disowns_on_trim();
         let w = &mut self.row_watch;
         let edge = w.now(bot, top);
         if w.first > edge {
             w.carry(k, crate::ops::Scroll::Down);
         } else if w.last > edge {
-            w.last = edge;
+            match disowns {
+                true => self.watched = Watched::Changed,
+                false => w.last = edge,
+            }
         }
     }
 
@@ -1733,10 +1757,12 @@ impl Cold {
         if self.watched != Watched::Rows {
             return;
         }
+        let disowns = self.disowns_on_trim();
         let w = &mut self.row_watch;
         let u = w.now(under, top);
         match u.index().checked_sub(1) {
-            Some(above) if w.first < u => w.last = w.last.min(Rows::of_count(above)),
+            Some(_) if w.last < u => {}
+            Some(above) if w.first < u && !disowns => w.last = Rows::of_count(above),
             _ => self.watched = Watched::Changed,
         }
     }
@@ -1789,14 +1815,15 @@ impl Cold {
     #[cold]
     #[inline(never)]
     pub(crate) fn watch_uncounted(&mut self, way: crate::ops::Scroll, top: LineIdx) {
+        let disowns = self.disowns_on_trim();
         let w = &mut self.row_watch;
         match way {
             crate::ops::Scroll::Up => {
                 w.ahead = Rows::of_count(w.ahead.index() + 1);
                 let row0 = w.now(Row::ZERO, top);
-                match w.last < row0 {
-                    true => self.watched = Watched::Changed,
-                    false => w.first = w.first.max(row0),
+                match (w.last < row0, w.first < row0 && disowns) {
+                    (true, _) | (_, true) => self.watched = Watched::Changed,
+                    _ => w.first = w.first.max(row0),
                 }
             }
             crate::ops::Scroll::Down => w.top = w.top.plus(Rows::of_count(1)),
@@ -4060,9 +4087,11 @@ impl<'b> Term<'b> {
 
     /// Whether a program has set one of the xterm resources
     /// (`baud_domain::Resource`): the embedder's to act on for `?1011` (a key
-    /// sends the window live), `?1041` (a selection is copied as it is
-    /// made), `?2001` (a click moves the shell's point), `?2005` and
-    /// `?2006` (how a paste is sent). `?1010`, `?1045` and `?1046` act here.
+    /// sends the window live), `?1040` (a selection's text outlives its
+    /// highlight), `?1041` (a selection is copied as it is made), `?2001` (a
+    /// click moves the shell's point), `?2005` and `?2006` (how a paste is
+    /// sent). `?1010`, `?1045` and `?1046` act here, and `?1040` here too,
+    /// where a scroll would trim a watched selection.
     pub fn resource(&self, r: baud_domain::Resource) -> bool {
         self.cold.resources.is_set(r)
     }

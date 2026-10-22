@@ -22,10 +22,10 @@
 //!
 //! | nibbles | field |
 //! |---|---|
-//! | 1 | the version, 1 |
+//! | 1 | the version, 2 |
 //! | 1 | the conformance level 1 to 4 (bits 0-1), eight-bit C1 (bit 2), ISO 8859-1 input (bit 3) |
 //! | 3 | the five ANSI modes [`TSR_ANSI_MODES`], two bits each |
-//! | 30 | the sixty private modes XTSAVE keeps, two bits each, by slot |
+//! | 31 | the sixty-one private modes XTSAVE keeps, two bits each, by slot, the last nibble's low two bits zero |
 //! | 28 | the rendition: 23 attribute bits in `Attrs::WIRE`'s order (6), the font (1), the foreground, background and underline colours (7 each) |
 //! | 12 | DECSTBM's top and bottom, DECSLRM's left and right, from 1 |
 //! | 1 | DECSCUSR's `Ps` |
@@ -54,16 +54,30 @@
 
 use crate::*;
 
-/// The version nibble: a report a later layout reads as foreign.
-pub const TSR_VERSION: u8 = 1;
+/// The version nibble: a report a later layout reads as foreign. 2 since
+/// the private modes took a sixty-first slot, `?1040`.
+pub const TSR_VERSION: u8 = 2;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.
 pub const TSR_DATA_MAX: usize = 256 - 2 - 3 - 2 - 2;
 
 /// The nibbles before the tab bitmap.
-pub const TSR_FIXED: usize =
-    1 + 1 + 3 + 30 + TSR_RENDITION + 12 + 1 + 1 + 1 + 3 + 1 + 18 + TSR_CURSOR + TSR_SAVED + 4;
+pub const TSR_FIXED: usize = 1
+    + 1
+    + 3
+    + TSR_PRIVATE_MODES.div_ceil(2)
+    + TSR_RENDITION
+    + 12
+    + 1
+    + 1
+    + 1
+    + 3
+    + 1
+    + 18
+    + TSR_CURSOR
+    + TSR_SAVED
+    + 4;
 
 /// The nibbles of a rendition: 23 attribute bits (6), the font (1), three
 /// colours (7 each).
@@ -454,7 +468,8 @@ impl TerminalState {
         let ansi = self.ansi.iter().fold(0, |v, m| (v << 2) | m.code());
         p.nibbles(ansi << 2, 3);
         for pair in self.private.chunks(2) {
-            p.nibbles((pair[0].code() << 2) | pair[1].code(), 1);
+            let low = pair.get(1).map_or(0, |m| m.code());
+            p.nibbles((pair[0].code() << 2) | low, 1);
         }
         p.rendition(self.rendition);
         for m in [self.top, self.bottom, self.left, self.right] {
@@ -609,7 +624,9 @@ impl TerminalRestore {
         for pair in private.chunks_mut(2) {
             if let Some(v) = g.nibbles(1) {
                 pair[0] = TsrMode::of(v >> 2);
-                pair[1] = TsrMode::of(v & 3);
+                if let Some(m) = pair.get_mut(1) {
+                    *m = TsrMode::of(v & 3);
+                }
             }
         }
         let rendition = g.rendition();

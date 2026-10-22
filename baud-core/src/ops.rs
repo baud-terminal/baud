@@ -3764,9 +3764,10 @@ impl Paint<'_, '_> {
                     .apply(Resource::AltScreenAllowed, change);
             }
             // The rest are read where they act: `?1010` by `Term::feed`,
-            // `?1045` by `BS` at the left margin and by the `CUB` arm, and
-            // `?1011`, `?1041`, `?2001`, `?2005` and `?2006` by the embedder
-            // through `Term::resource`.
+            // `?1045` by `BS` at the left margin and by the `CUB` arm,
+            // `?1040` by the watch on a selection's lines and by the
+            // embedder, and `?1011`, `?1041`, `?2001`, `?2005` and `?2006`
+            // by the embedder through `Term::resource`.
             PrivateMode::Resource(r) => self.cold.resources.apply(r, change),
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request

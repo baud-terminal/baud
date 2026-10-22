@@ -5,7 +5,7 @@
 //! one for both drivers and a test reaches them; moved here from `app.rs`
 //! when the Linux driver took a selection.
 
-use baud_core::{HistoryMark, Screen, SurfaceLine, Term};
+use baud_core::{HistoryMark, Resource, Screen, SurfaceLine, Term};
 use baud_domain::{Col, Cols, Row, RowRot, Rows};
 use baud_render::{AbsLine, Clip, Grain, Highlight, Point, Scrolled, Selection, Span};
 
@@ -128,6 +128,107 @@ pub(crate) fn watched_lines(
 /// lines the surface moved").
 pub(crate) fn stale_in_moved_rows(term: &Term<'_>) -> bool {
     term.watched_rows_changed()
+}
+
+/// **The text a selection held, kept past its highlight while `?1040` is
+/// set**, xterm's keepSelection: "keep the selection even after the
+/// selected area was touched by some output to the terminal"
+/// (`[[source: xterm-man]]`). xterm saves the text when the selection is
+/// made (`SaltTextAway`, `[[source: xterm-button]]`), and output that
+/// rewrites its cells takes the highlight away and leaves the text to
+/// paste (`ScrnDisownSelection`, `[[source: xterm-screen]]`); reset, the
+/// text goes too. Here the text is taken before a read, once each time
+/// the selection changes -- no output reaches the cells between a
+/// selection being made and the next read -- and a copy with no selection
+/// takes it once a read's output took the highlight away. The selection
+/// itself can change between reads, so a gesture that changes it tells
+/// the kept text too ([`KeptText::changed`]). Nothing is taken while
+/// `?1040` is reset.
+#[derive(Default)]
+pub(crate) struct KeptText {
+    taken: Taken,
+}
+
+/// What [`KeptText`] holds.
+#[derive(Default)]
+enum Taken {
+    #[default]
+    Nothing,
+    /// The text of the selection up now.
+    Of(Selection, String),
+    /// The text of a selection whose highlight a read's output took away.
+    Unhighlighted(String),
+}
+
+impl KeptText {
+    /// **Before a read**: the text of `sel`, numbered by `scrolled`, taken
+    /// when it is not the selection taken last; nothing while `?1040` is
+    /// reset. A selection gone with no read's output on it -- the user
+    /// clicked it away -- leaves nothing kept.
+    pub(crate) fn take(&mut self, sel: Option<&Selection>, term: &Term<'_>, scrolled: Scrolled) {
+        if !term.resource(Resource::KeepSelection) {
+            self.taken = Taken::Nothing;
+            return;
+        }
+        match (sel, &self.taken) {
+            (Some(s), Taken::Of(from, _)) if from == s => {}
+            (Some(s), _) => self.taken = Taken::Of(*s, s.text(term, scrolled)),
+            (None, Taken::Of(..)) => self.taken = Taken::Nothing,
+            (None, _) => {}
+        }
+    }
+
+    /// **A gesture changed the selection** -- made, moved, dismissed or
+    /// replaced -- with no read between: what was kept is not the newer
+    /// selection's, so it goes, and the next read takes the newer one's
+    /// text. On an idle screen no read comes, and a selection made and
+    /// clicked away there would otherwise leave an earlier one's text.
+    /// The Linux seat's; on macOS a gesture that changes the selection
+    /// pumps, and the pump takes the text.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn changed(&mut self) {
+        self.taken = Taken::Nothing;
+    }
+
+    /// **A read's output took the selection's highlight away**: while
+    /// `?1040` is set its text stays to copy, and reset it goes.
+    pub(crate) fn dropped(&mut self, term: &Term<'_>) {
+        let taken = core::mem::take(&mut self.taken);
+        if let (true, Taken::Of(_, text)) = (term.resource(Resource::KeepSelection), taken) {
+            self.taken = Taken::Unhighlighted(text);
+        }
+    }
+
+    /// The text a copy takes when there is no selection: what output took
+    /// the highlight away from, while `?1040` kept it.
+    pub(crate) fn text(&self) -> Option<&str> {
+        match &self.taken {
+            Taken::Unhighlighted(t) if !t.is_empty() => Some(t),
+            _ => None,
+        }
+    }
+}
+
+/// **Whether a read scrolled the selection off the top while `?1040` is
+/// reset**: the lines the primary retired took its first line above the
+/// screen while its last was on it, where xterm's reset disowns the
+/// selection and its set moves it into the saved lines
+/// (`[[source: xterm-scroll]]`, `adjustHiliteOnFwdScroll`, 451-456:
+/// `endH.row >= top_marg && startH.row - amount < top_marg`). `top_was`
+/// and `top_now` are the live screen's top line before the read and after
+/// it, numbered as the selection is. A region's scroll is the core's to
+/// judge (`Term::watched_rows_changed`).
+pub(crate) fn scrolled_off_the_top(
+    term: &Term<'_>,
+    sel: &Selection,
+    (top_was, top_now): (AbsLine, AbsLine),
+) -> bool {
+    let (start, end) = sel.ordered();
+    !term.resource(Resource::KeepSelection)
+        && term.screen() == Screen::Normal
+        && top_now > top_was
+        && end.line >= top_was
+        && start.line < top_now
 }
 
 /// Whether a read switched surfaces -- by the core's epoch, not by the

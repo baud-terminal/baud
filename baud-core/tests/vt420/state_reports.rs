@@ -301,8 +301,9 @@ fn a_report_that_does_not_check_restores_nothing() {
         let body = data(&report).to_vec();
         let mut bad = body.clone();
         bad[5] ^= 1;
+        // Version 1, the layout before `?1040` took the sixty-first slot.
         let mut foreign = body.clone();
-        foreign[0] = 0x42;
+        foreign[0] = 0x41;
         let n = foreign.len() - 2;
         let c = check(&foreign[..n]);
         foreign[n..].copy_from_slice(&c);
@@ -330,7 +331,7 @@ fn an_invalid_field_is_stepped_over() {
         let mut d = data(&report).to_vec();
         // The version, the level, the ANSI modes, the private modes, the
         // rendition and the margins come before the cursor style.
-        let at = 1 + 1 + 3 + 30 + 28 + 12;
+        let at = 1 + 1 + 3 + 31 + 28 + 12;
         assert_eq!(d[at], 0x45, "the style nibble is DECSCUSR 5");
         d[at] = 0x49;
         let n = d.len() - 2;

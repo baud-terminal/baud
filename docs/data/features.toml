@@ -147,11 +147,12 @@ shipped = ["F1-60", "F1-61"]
 id = "xterm-settings"
 area = "programs"
 name = "xterm's own settings"
-does = "Programs can switch xterm's own settings and ask which are on: jumping to the live screen on output or on a key, reverse wrap past the left margin, hiding the scrollbar, copying a selection to the clipboard, and the alternate-screen variants."
+does = "Programs can switch xterm's own settings and ask which are on: jumping to the live screen on output or on a key, reverse wrap past the left margin, hiding the scrollbar, copying a selection to the clipboard, keeping a selection's text to copy after a program writes over it, and the alternate-screen variants."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/xterm_resources.rs::each_mode_answers_what_baud_does_at_power_on", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores"]
-rows = ["vt:`?1010`", "vt:`?1041`", "vt:`?30`"]
+tests = ["baud-core/tests/xterm_resources.rs::each_mode_answers_what_baud_does_at_power_on", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores", "baud-app/src/seat.rs::output_over_a_selection_leaves_its_text_while_1040_is_set"]
+rows = ["vt:`?1010`", "vt:`?1041`", "vt:`?30`", "vt:`CSI ? 1040 h/l`"]
+shipped = ["F1-56"]
 
 [[feature]]
 id = "program-notifications"

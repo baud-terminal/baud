@@ -1,5 +1,5 @@
 //! The xterm private modes that name a resource (`[[source: ctlseqs]]`):
-//! the switches a program sets -- `?1010`, `?1011`, `?1041`, `?1045`,
+//! the switches a program sets -- `?1010`, `?1011`, `?1040`, `?1041`, `?1045`,
 //! `?1046`, `?2001`, `?2005`, `?2006` -- the read-only `?13` and `?14`, the
 //! permanent `?1014` and `?1044`, and `?2002` and `?2003`, not recognised.
 //! `DECRQM` answers each truthfully.
@@ -28,7 +28,7 @@ fn answer(mode: u16, value: u8) -> Vec<u8> {
 }
 
 /// **What each mode answers at power-on**: the switches their power-on
-/// values (`?1011` and `?1046` set, the rest reset), `?13` the configured
+/// values (`?1011`, `?1040` and `?1046` set, the rest reset), `?13` the configured
 /// blink, `?14` permanently reset (baud ORs `?12` with the style's blink
 /// and never XORs), `?1014` and `?1044` permanently set, `?2002` and
 /// `?2003` not recognised.
@@ -41,6 +41,7 @@ fn each_mode_answers_what_baud_does_at_power_on() {
             (1010, 2),
             (1011, 1),
             (1014, 3),
+            (1040, 1),
             (1041, 2),
             (1044, 3),
             (1045, 2),
@@ -88,6 +89,7 @@ fn each_switch_sets_resets_saves_and_restores() {
     let all = [
         (1010, ScrollOnOutput, false),
         (1011, ScrollOnKey, true),
+        (1040, KeepSelection, true),
         (1041, SelectToClipboard, false),
         (1045, ReverseWrapExtended, false),
         (1046, AltScreenAllowed, true),

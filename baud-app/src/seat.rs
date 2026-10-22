@@ -12,8 +12,8 @@
 
 use crate::gesture::{self, Kind, Owner, Pressed, Selected, Shift, To};
 use crate::keep::{
-    Before, Ring, followed, kept_across_resize, numbered, oldest, reset_in, snap_live,
-    stale_in_moved_rows, switched, tracked_highlight,
+    Before, KeptText, Ring, followed, kept_across_resize, numbered, oldest, reset_in,
+    scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{Erasure, Focus, HistoryMark, Looking, Screen, Term};
@@ -204,6 +204,9 @@ pub(crate) struct Seat {
     /// Sideways travel not yet a whole column.
     travel_across: Travel,
     selection: Option<Selection>,
+    /// The selection's text, kept past its highlight while `?1040` is set
+    /// (`keep::KeptText`).
+    kept: KeptText,
     scrolled: Scrolled,
     /// A Ctrl press the link gesture took, and the link its release opens
     /// (`link::gesture`); whether the window has the keyboard, which a press
@@ -228,6 +231,7 @@ impl Seat {
             travel: Travel::default(),
             travel_across: Travel::default(),
             selection: None,
+            kept: KeptText::default(),
             scrolled: Scrolled::START,
             armed: None,
             opening: None,
@@ -351,10 +355,22 @@ impl Seat {
         let pointer = !matches!(e, Input::Steps(_) | Input::Distance(_) | Input::Stopped);
         // A ReGIS cursor the pointer moved is a frame too.
         let drawn = term.images().generation();
-        match self.route(term, e, mods, g, sink, bar) {
+        let was = self.selection;
+        let owed = self.route(term, e, mods, g, sink, bar);
+        self.told(was);
+        match owed {
             Owed::Nothing if pointer && gesture::locator_redraws(term) => Owed::Frame,
             Owed::Nothing if term.images().generation() != drawn => Owed::Frame,
             owed => owed,
+        }
+    }
+
+    /// **The kept text hears of a selection changed outside a read**
+    /// (`keep::KeptText::changed`), so a newer selection, or its
+    /// dismissal, replaces what output left to copy.
+    fn told(&mut self, was: Option<Selection>) {
+        if self.selection != was {
+            self.kept.changed();
         }
     }
 
@@ -707,13 +723,18 @@ impl Seat {
     /// current match.
     #[cfg(target_os = "linux")]
     pub(crate) fn select(&mut self, selection: Option<Selection>) {
-        self.selection = selection;
+        let was = core::mem::replace(&mut self.selection, selection);
+        self.told(was);
     }
 
     /// The selection's text, as Ctrl+Shift+C and a finished drag copy it;
-    /// `None` without one or for one with no text.
+    /// without one, the text output took a selection's highlight away from
+    /// while `?1040` kept it (`keep::KeptText`); `None` for none or no text.
     pub(crate) fn selected_text(&self, term: &Term<'_>) -> Option<String> {
-        let text = self.selection?.text(term, self.scrolled);
+        let text = match self.selection {
+            Some(s) => s.text(term, self.scrolled),
+            None => self.kept.text()?.to_owned(),
+        };
         (!text.is_empty()).then_some(text)
     }
 
@@ -734,13 +755,17 @@ impl Seat {
     /// retired or took back (`keep::kept_across_resize`, note V, V3), as
     /// the macOS driver's resize does. `was` is read before the resize.
     pub(crate) fn resized(&mut self, term: &Term<'_>, was: (HistoryMark, Cols, Screen)) {
+        let sel = self.selection;
         (self.selection, self.scrolled) =
             kept_across_resize(term, was, self.selection.take(), self.scrolled);
+        self.told(sel);
     }
 
     /// The readings a read is judged by, with the core's watches armed on
-    /// the selection's lines (`keep::Before::watched`).
-    pub(crate) fn before_read(&self, term: &mut Term<'_>) -> Before {
+    /// the selection's lines (`keep::Before::watched`), and the selection's
+    /// text taken while `?1040` would keep it (`keep::KeptText::take`).
+    pub(crate) fn before_read(&mut self, term: &mut Term<'_>) -> Before {
+        self.kept.take(self.selection.as_ref(), term, self.scrolled);
         Before::watched(term, self.selection.as_ref(), self.scrolled)
     }
 
@@ -766,7 +791,9 @@ impl Seat {
         };
         if self.selection.is_some() && stale_in_moved_rows(term) {
             self.selection = None;
+            self.kept.dropped(term);
         }
+        let top_was = self.scrolled.top(Rows::ZERO);
         self.scrolled = match numbered(term, before, None) {
             Ring::Retired(n) => self.scrolled.advanced(n),
             Ring::Restored(n) => match self.scrolled.retreated(n) {
@@ -777,6 +804,13 @@ impl Seat {
                 }
             },
         };
+        let tops = (top_was, self.scrolled.top(Rows::ZERO));
+        if self
+            .selection
+            .is_some_and(|s| scrolled_off_the_top(term, &s, tops))
+        {
+            self.selection = None;
+        }
         followed(term, &mut self.selection, self.scrolled);
         if switched(term, before) || reset_in(term, before) {
             self.selection = None;
@@ -1250,6 +1284,241 @@ mod tests {
         feed(&mut t, b"\x1bc");
         seat.after_read(&t, before);
         assert_eq!(seat.highlight(&t), None, "a reset drops it");
+    }
+
+    /// A left drag over the first five cells of row 0, which hold `want`,
+    /// pressed and released at the two stamps.
+    fn drag(seat: &mut Seat, t: &mut Term<'_>, (press, release): (Ms, Ms), want: &str) {
+        put(seat, t, Input::Moved(1.0, 1.0), NONE);
+        put(seat, t, down(Pressed::Left, press), NONE);
+        put(seat, t, Input::Moved(41.0, 1.0), NONE);
+        put(seat, t, up(Pressed::Left, release), NONE);
+        assert_eq!(seat.selected_text(t).as_deref(), Some(want), "made");
+    }
+
+    /// One read through the seat, as the driver takes it.
+    fn read(seat: &mut Seat, t: &mut Term<'_>, bytes: &[u8]) {
+        let before = seat.before_read(t);
+        feed(t, bytes);
+        seat.after_read(t, before);
+    }
+
+    /// **While `?1040` is set, output over a selection takes its highlight
+    /// away and leaves its text to copy**, xterm's keepSelection, set at
+    /// power-on: "keep the selection even after the selected area was
+    /// touched by some output" (`[[source: xterm-man]]`). Ctrl+Shift+C then
+    /// copies "hello", which the screen no longer shows. Reset, the text goes
+    /// with the highlight, as it did before `?1040` was built.
+    #[test]
+    fn output_over_a_selection_leaves_its_text_while_1040_is_set() {
+        for (mode, kept) in [(&b""[..], Some("hello")), (b"\x1b[?1040l", None)] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, b"hello world");
+            feed(&mut t, mode);
+            let mut seat = Seat::new();
+            drag(
+                &mut seat,
+                &mut t,
+                (Ms::of_millis(100), Ms::of_millis(150)),
+                "hello",
+            );
+            read(&mut seat, &mut t, b"\x1b[1;1HXXXXX");
+            assert_eq!(seat.highlight(&t), None, "{mode:?}: the highlight goes");
+            assert_eq!(seat.selected_text(&t).as_deref(), kept, "{mode:?}");
+        }
+    }
+
+    /// **The kept text is the last selection's**: a selection made after
+    /// output took one away is what a copy takes, and once output takes
+    /// that one away too its text is kept in place of the first; so is a
+    /// selection made over another while reads with no output on it went
+    /// by. A selection the user clicks away, with no output over it, leaves
+    /// nothing to copy.
+    #[test]
+    fn the_kept_text_is_the_last_selections() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"hello world");
+        let mut seat = Seat::new();
+        drag(
+            &mut seat,
+            &mut t,
+            (Ms::of_millis(100), Ms::of_millis(150)),
+            "hello",
+        );
+        read(&mut seat, &mut t, b"\x1b[1;1HHELLO");
+        assert_eq!(seat.selected_text(&t).as_deref(), Some("hello"), "kept");
+        drag(
+            &mut seat,
+            &mut t,
+            (Ms::of_millis(1000), Ms::of_millis(1050)),
+            "HELLO",
+        );
+        read(&mut seat, &mut t, b"\x1b[1;1Hjelly");
+        assert_eq!(seat.highlight(&t), None);
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("HELLO"),
+            "the second"
+        );
+        // Made, a read that leaves it, then made again over "world" and
+        // written over: the second is kept.
+        drag(
+            &mut seat,
+            &mut t,
+            (Ms::of_millis(1500), Ms::of_millis(1550)),
+            "jelly",
+        );
+        read(&mut seat, &mut t, b"\x1b[3;1Hz");
+        put(&mut seat, &mut t, Input::Moved(61.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(1700)),
+            NONE,
+        );
+        put(&mut seat, &mut t, Input::Moved(101.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(1750)),
+            NONE,
+        );
+        assert_eq!(seat.selected_text(&t).as_deref(), Some("world"), "made");
+        read(&mut seat, &mut t, b"\x1b[1;7HWORLD");
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("world"),
+            "the third"
+        );
+        // Made again and clicked away: a press and release in place.
+        drag(
+            &mut seat,
+            &mut t,
+            (Ms::of_millis(5000), Ms::of_millis(5050)),
+            "jelly",
+        );
+        read(&mut seat, &mut t, b"\x1b[3;1Hz");
+        put(&mut seat, &mut t, Input::Moved(101.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(6000)),
+            NONE,
+        );
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(6050)),
+            NONE,
+        );
+        read(&mut seat, &mut t, b"\x1b[3;1Hz");
+        assert_eq!(seat.selected_text(&t), None, "clicked away: nothing kept");
+    }
+
+    /// **A selection made and clicked away between two reads replaces the
+    /// kept text**, as xterm's `SaltTextAway` saves the newer selection
+    /// when it is made (`[[source: xterm-button]]`): output takes "hello"
+    /// away, "world" is made and clicked away with no read between, and a
+    /// copy takes nothing rather than "hello". On an idle screen no read
+    /// comes, so the gesture tells the kept text itself; a move that
+    /// changes no selection leaves it.
+    #[test]
+    fn a_selection_dismissed_between_reads_replaces_the_kept_text() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"hello world");
+        let mut seat = Seat::new();
+        drag(
+            &mut seat,
+            &mut t,
+            (Ms::of_millis(100), Ms::of_millis(150)),
+            "hello",
+        );
+        read(&mut seat, &mut t, b"\x1b[1;1HHELLO");
+        put(&mut seat, &mut t, Input::Moved(61.0, 1.0), NONE);
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("hello"),
+            "kept: a move that selects nothing leaves it"
+        );
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(1000)),
+            NONE,
+        );
+        put(&mut seat, &mut t, Input::Moved(101.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(1050)),
+            NONE,
+        );
+        assert_eq!(seat.selected_text(&t).as_deref(), Some("world"), "made");
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(3000)),
+            NONE,
+        );
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(3050)),
+            NONE,
+        );
+        assert_eq!(seat.highlight(&t), None, "clicked away");
+        assert_eq!(seat.selected_text(&t), None, "not the earlier text");
+    }
+
+    /// **While `?1040` is reset, a scroll that takes the selection's first
+    /// line off the top drops it**, as xterm's reset disowns it
+    /// (`[[source: xterm-scroll]]`, `adjustHiliteOnFwdScroll`); set, it goes
+    /// into the history with its text. A selection on a lower row the
+    /// scroll leaves on the screen is kept either way.
+    #[test]
+    fn while_1040_is_reset_a_selection_scrolled_off_the_top_goes() {
+        for (mode, off) in [(&b""[..], Some("hello")), (b"\x1b[?1040l", None)] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, b"hello world\r\n2\r\n3\r\n4\r\n5\r\n6");
+            feed(&mut t, mode);
+            let mut seat = Seat::new();
+            drag(
+                &mut seat,
+                &mut t,
+                (Ms::of_millis(100), Ms::of_millis(150)),
+                "hello",
+            );
+            read(&mut seat, &mut t, b"\r\n7");
+            assert_eq!(seat.selected_text(&t).as_deref(), off, "{mode:?}");
+        }
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"1\r\nhello world\r\n3\r\n4\r\n5\r\n6\x1b[?1040l");
+        let mut seat = Seat::new();
+        put(&mut seat, &mut t, Input::Moved(1.0, 11.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(100)),
+            NONE,
+        );
+        put(&mut seat, &mut t, Input::Moved(41.0, 11.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(150)),
+            NONE,
+        );
+        read(&mut seat, &mut t, b"\r\n7");
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("hello"),
+            "the control: row 1, still on the screen"
+        );
     }
 
     /// **The middle button pastes SELECT on its release**, xterm's

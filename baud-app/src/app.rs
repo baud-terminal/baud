@@ -16,8 +16,8 @@ use crate::host::{
     startup_note,
 };
 use crate::keep::{
-    Before, Ring, followed, kept_across_resize, numbered, oldest, reset_in, snap_live,
-    stale_in_moved_rows, switched, tracked_highlight,
+    Before, KeptText, Ring, followed, kept_across_resize, numbered, oldest, reset_in,
+    scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
@@ -429,6 +429,9 @@ struct App {
     /// `docs/research/notes/k-selection.md` -- and the rotation's advance
     /// since launch that numbers those lines.
     selection: Option<Selection>,
+    /// The selection's text, kept past its highlight while `?1040` is set
+    /// (`keep::KeptText`).
+    kept: KeptText,
     scrolled: Scrolled,
     /// The find field while it is open (`find.rs`): its matches, kept
     /// across reads, and the current one, which is the selection.
@@ -1179,6 +1182,7 @@ impl App {
             sizing,
             pending: Pending::Dirty,
             selection: None,
+            kept: KeptText::default(),
             scrolled: Scrolled::START,
             finding: None,
             hover: crate::link::Hover::default(),
@@ -5826,6 +5830,44 @@ mod restart_tests {
             "the switch is `restart`'s to say"
         );
     }
+
+    /// **The pump keeps a selection's text as the Linux seat does**
+    /// (`keep::KeptText`, whose rules the seat's tests hold): taken before
+    /// the row watch is armed, kept where the watch drops the selection,
+    /// and the selection dropped off the primary's top while `?1040` is
+    /// reset, after the count moved and before the scroll carries it; and
+    /// Cmd-C copies the kept text when there is no selection. The pump is
+    /// AppKit-bound, so the source is held.
+    #[test]
+    fn the_pump_keeps_a_selections_text_as_the_seat_does() {
+        const SRC: &str = include_str!("app.rs");
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
+        let at = |needle: &str| {
+            assert_eq!(pump.matches(needle).count(), 1, "once: {needle}");
+            pump.find(needle).expect("found")
+        };
+        assert!(at("self.app.kept.take(") < at("let before = Before::watched("));
+        let stale = at("if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {");
+        let drop = &pump[stale..stale + pump[stale..].find("\n        }\n").expect("ends")];
+        assert!(
+            drop.contains("self.app.kept.dropped(&self.app.term);"),
+            "kept where the watch drops it: {drop}"
+        );
+        let renumbered =
+            at("self.app.scrolled = match numbered(&self.app.term, before, resized) {");
+        let off = at("scrolled_off_the_top(&self.app.term, &s, tops)");
+        let carried = at("followed(&self.app.term, &mut self.app.selection, self.app.scrolled);");
+        assert!(renumbered < off && off < carried);
+        const COPY: &str = concat!("    fn copy(", "&mut self) {");
+        let copy = SRC.split(COPY).nth(1).expect("copy");
+        let copy = &copy[..copy.find("\n    }\n").expect("copy ends")];
+        assert!(
+            copy.contains("None => match self.app.kept.text() {"),
+            "Cmd-C without a selection copies the kept text: {copy}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -7645,6 +7687,13 @@ impl Driver {
                 .latency
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
+        // The selection's text, taken while `?1040` would keep it past its
+        // highlight (`keep::KeptText`).
+        self.app.kept.take(
+            self.app.selection.as_ref(),
+            &self.app.term,
+            self.app.scrolled,
+        );
         let before = Before::watched(
             &mut self.app.term,
             self.app.selection.as_ref(),
@@ -7816,7 +7865,9 @@ impl Driver {
         // elsewhere or is gone. Every other move carries it (`followed`).
         if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {
             self.app.selection = None;
+            self.app.kept.dropped(&self.app.term);
         }
+        let top_was = self.app.scrolled.top(Rows::ZERO);
         self.app.scrolled = match numbered(&self.app.term, before, resized) {
             Ring::Retired(n) => self.app.scrolled.advanced(n),
             Ring::Restored(n) => match self.app.scrolled.retreated(n) {
@@ -7829,6 +7880,16 @@ impl Driver {
                 }
             },
         };
+        // While `?1040` is reset, a selection the screen's scroll took off
+        // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`).
+        let tops = (top_was, self.app.scrolled.top(Rows::ZERO));
+        if self
+            .app
+            .selection
+            .is_some_and(|s| scrolled_off_the_top(&self.app.term, &s, tops))
+        {
+            self.app.selection = None;
+        }
         followed(&self.app.term, &mut self.app.selection, self.app.scrolled);
         match moved {
             Ring::Retired(n) => {
@@ -10770,12 +10831,17 @@ impl Driver {
         self.app.present(&self.view, Show::Event);
     }
 
-    /// Cmd-C: the selection's text to the pasteboard, if there is one.
+    /// Cmd-C: the selection's text to the pasteboard, if there is one;
+    /// without one, the text output took a selection's highlight away from
+    /// while `?1040` kept it (`keep::KeptText`).
     fn copy(&mut self) {
-        let Some(sel) = self.app.selection else {
-            return;
+        let text = match self.app.selection {
+            Some(sel) => sel.text(&self.app.term, self.app.scrolled),
+            None => match self.app.kept.text() {
+                Some(t) => t.to_owned(),
+                None => return,
+            },
         };
-        let text = sel.text(&self.app.term, self.app.scrolled);
         if !text.is_empty() {
             clipboard::write_text(&text);
         }

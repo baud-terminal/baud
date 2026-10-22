@@ -342,9 +342,10 @@ summary = "Programs can choose whether the keypad types digits or sends its own 
 [[item]]
 id = "F1-56"
 area = "programs"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "The remaining xterm settings"
-summary = "Programs can switch xterm's own settings, among them jumping to new output or to a keypress, reverse wrap, hiding the scrollbar and copying a selection to the clipboard; keeping a selection after a program writes over it is left."
+summary = "Programs can switch xterm's own settings, among them jumping to new output or to a keypress, reverse wrap, hiding the scrollbar, copying a selection to the clipboard and keeping a selection's text after a program writes over it."
 
 [[item]]
 id = "F1-59"

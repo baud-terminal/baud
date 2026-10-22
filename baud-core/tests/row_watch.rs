@@ -1045,21 +1045,152 @@ fn a_column_change_reaches_every_row() {
     assert!(changes(DRAWN, b"\x1b[?40h\x1b[?3h", (4, 4)));
 }
 
-/// **`?1040`, xterm's keepSelection, is not recognised**: `DECSET` counts
-/// it as unsupported and `DECRQM` answers 0. What a selection does when a
-/// program writes on its rows is the one thing above, whatever was sent.
+/// **`?1040`, xterm's keepSelection, is set at power-on** -- "The default
+/// is \"true\"" (`[[source: xterm-man]]`; Jev, SET_AT_POWER_ON, 0.95 and
+/// 0.98) -- and `DECRQM` answers it as it stands: `1` set, `2` reset.
+/// `DECSET` and `DECRST` of it are not counted as unsupported. A write on
+/// the selection's rows reaches the watch either way: what the mode keeps
+/// is the embedder's saved text, not the selection's place.
 #[test]
-fn keep_selection_is_not_recognised() {
+fn keep_selection_is_set_at_power_on_and_answers_decrqm() {
     with_term(|t| {
-        let before = t.unsupported_param;
-        feed(t, b"\x1b[?1040h\x1b[?1040l");
-        assert_eq!(t.unsupported_param, before + 2, "DECSET and DECRST counted");
         t.clear_reply();
         feed(t, b"\x1b[?1040$p");
-        assert_eq!(t.reply(), b"\x1b[?1040;0$y");
+        assert_eq!(t.reply(), b"\x1b[?1040;1$y", "set at power-on");
+        let before = t.unsupported_param;
+        feed(t, b"\x1b[?1040l");
+        t.clear_reply();
+        feed(t, b"\x1b[?1040$p");
+        assert_eq!(t.reply(), b"\x1b[?1040;2$y", "reset");
+        feed(t, b"\x1b[?1040h");
+        assert_eq!(t.unsupported_param, before, "recognised");
+        assert!(t.resource(Resource::KeepSelection));
     });
-    let kept = [b"\x1b[?1040h".as_slice(), DRAWN].concat();
-    assert!(changes(&kept, b"\x1b[1;1Hhello", (0, 0)));
+    for mode in [b"\x1b[?1040h".as_slice(), b"\x1b[?1040l"] {
+        let prog = [mode, DRAWN].concat();
+        assert!(changes(&prog, b"\x1b[1;1Hhello", (0, 0)));
+    }
+}
+
+/// What a case's move leaves of the selection while `?1040` is reset.
+#[derive(Clone, Copy)]
+enum Kept {
+    Whole,
+    Dropped,
+}
+
+/// **While `?1040` is reset, a scroll that would trim the selection drops
+/// it**, as xterm's reset disowns it where its set truncates it
+/// (`[[source: xterm-scroll]]`, `adjustHiliteOnFwdScroll` and
+/// `adjustHiliteOnBakScroll`, 451-456 and 553-559): across a region's
+/// edge, pushed out of a region or under the screen, across a top region's
+/// bottom, and off the alternate screen's top. A selection the move carries
+/// whole is kept either way, and so is one it does not reach. `IL` and `DL`
+/// trim at the region's bottom in either mode: xterm's `InsertLine` and
+/// `DeleteLine` read no keepSelection and disown only where the cursor's
+/// row or a deleted row lies in the selection. Set, each is carried as the
+/// tests above pin.
+#[test]
+fn while_keep_selection_is_reset_a_trimming_scroll_drops_the_selection() {
+    type Case = (
+        &'static [u8],
+        Option<(Row, Row)>,
+        &'static [u8],
+        Option<Stand>,
+        Kept,
+    );
+    let cases: [Case; 10] = [
+        (
+            b"",
+            rows(0, 9),
+            b"\x1b[4;6r\x1b[6;1H\n",
+            on(3, 4, up(1)),
+            Kept::Dropped,
+        ),
+        (
+            b"",
+            rows(4, 5),
+            b"\x1b[4;6r\x1b[6;1H\n",
+            on(3, 4, up(1)),
+            Kept::Whole,
+        ),
+        (
+            b"",
+            rows(6, 6),
+            b"\x1b[4;6r\x1b[6;1H\n",
+            on(6, 6, STILL),
+            Kept::Whole,
+        ),
+        (
+            b"",
+            rows(3, 5),
+            b"\x1b[4;6r\x1b[4;1H\x1bM",
+            on(4, 5, down(1)),
+            Kept::Dropped,
+        ),
+        (
+            b"",
+            rows(5, 9),
+            b"\x1b[3;8r\x1b[5;1H\x1b[M",
+            on(4, 6, up(1)),
+            Kept::Whole,
+        ),
+        (
+            b"",
+            rows(7, 9),
+            b"\x1b[6;1H\x1b[L",
+            on(8, 9, down(1)),
+            Kept::Whole,
+        ),
+        (
+            b"",
+            rows(6, 7),
+            b"\x1b[6;1H\x1b[L",
+            on(7, 8, down(1)),
+            Kept::Whole,
+        ),
+        (
+            b"",
+            rows(3, 6),
+            b"\x1b[1;5r\x1b[5;1H\n",
+            on(2, 3, STILL),
+            Kept::Dropped,
+        ),
+        (
+            b"\x1b[?1049h",
+            rows(0, 2),
+            b"\x1b[1;6r\x1b[6;1H\n",
+            on(0, 1, STILL),
+            Kept::Dropped,
+        ),
+        (
+            b"history",
+            rows(5, 9),
+            b"\x1b[2T",
+            on(7, 9, STILL),
+            Kept::Dropped,
+        ),
+    ];
+    for (setup, sel, prog, set, reset) in cases {
+        for keep in [true, false] {
+            with_term(|t| {
+                if setup == b"history" {
+                    feed(t, &history());
+                } else {
+                    feed(t, setup);
+                }
+                if !keep {
+                    feed(t, b"\x1b[?1040l");
+                }
+                let want = match (keep, reset) {
+                    (false, Kept::Dropped) => None,
+                    _ => set,
+                };
+                let what = format!("{sel:?} under {prog:?}, keep {keep}");
+                assert_eq!(carried(t, sel, prog), want, "{what}");
+            });
+        }
+    }
 }
 
 // ---- the same answer whatever the reads ----------------------------------

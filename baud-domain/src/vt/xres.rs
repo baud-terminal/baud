@@ -162,6 +162,7 @@ impl XResource {
             b"titeInhibit" => Fixed(False),
             b"scrollTtyOutput" => Fixed(False),
             b"scrollKey" => Fixed(True),
+            b"keepSelection" => Fixed(True),
             b"selectToClipboard" => Fixed(False),
             b"printerFormFeed" => Fixed(False),
             b"printerExtent" => Fixed(False),

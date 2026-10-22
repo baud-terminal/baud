@@ -56,6 +56,13 @@ is at absolute line `scrolled - back + y`. So a selection:
   `Term::watched_lines`; Jev's decisions of 2026-10-20, where each of these
   dropped it before). A write or an erase on it, `IL` at a row in it, `DL`
   of a row in it, and a scroll under side margins still clear it.
+* **keeps its text past its highlight** while `?1040`, xterm's
+  keepSelection, is set, as it is at power-on (Jev, SET_AT_POWER_ON, 0.95
+  and 0.98; since 2026-10-22): the text is taken before a read, once each
+  time the selection changes, and output that clears the selection leaves
+  it for a copy until another selection is made (`keep::KeptText`). Reset,
+  the text goes with it, and every scroll above that would trim it drops
+  it instead, as xterm's reset disowns it.
 
 The alternative -- keying on physical rows and a generation -- is what the
 position-keyed marks table was, and CLAUDE.md records what that cost. An

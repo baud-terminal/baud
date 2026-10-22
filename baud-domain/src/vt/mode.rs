@@ -667,24 +667,36 @@ pub enum Resource {
     PasteQuoted,
     /// `?2006`, readline newline pasting: a paste keeps its newlines.
     PasteLiteralNewline,
+    /// `?1040`, keepSelection: "Keep selection even if not highlighted"
+    /// (`[[source: ctlseqs]]`). Output that rewrites a selection's cells
+    /// takes its highlight away and the embedder keeps the text it held,
+    /// as xterm keeps "the selection even after the selected area was
+    /// touched by some output" (`[[source: xterm-man]]`); reset, the text
+    /// goes with the highlight and a scroll that would trim the selection
+    /// drops it. Set at power-on, xterm's default (Jev, SET_AT_POWER_ON,
+    /// 0.95 and 0.98).
+    KeepSelection,
 }
 
 impl Resource {
-    const fn bit(self) -> u8 {
-        1 << (self as u8)
+    const fn bit(self) -> u16 {
+        1 << (self as u16)
     }
 }
 
-const _: () = assert!(core::mem::variant_count::<Resource>() <= 8);
+const _: () = assert!(core::mem::variant_count::<Resource>() <= 16);
 
 /// The [`Resource`] switches as a bitset.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Resources(u8);
+pub struct Resources(u16);
 
 impl Resources {
-    /// Power-on: `?1011` and `?1046` set, the rest reset.
-    pub const POWER_ON: Resources =
-        Resources(Resource::ScrollOnKey.bit() | Resource::AltScreenAllowed.bit());
+    /// Power-on: `?1011`, `?1040` and `?1046` set, the rest reset.
+    pub const POWER_ON: Resources = Resources(
+        Resource::ScrollOnKey.bit()
+            | Resource::KeepSelection.bit()
+            | Resource::AltScreenAllowed.bit(),
+    );
 
     pub fn is_set(self, r: Resource) -> bool {
         self.0 & r.bit() != 0
@@ -1056,11 +1068,11 @@ impl ModeSlot {
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 60] = [
+pub const SLOT_WIRE: [u16; 61] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43,
+    18, 19, 43, 1040,
 ];
 
 #[cfg(test)]
@@ -1196,6 +1208,7 @@ impl PrivateMode {
             PrivateMode::PrintFormFeed => 57,
             PrivateMode::PrintExtent => 58,
             PrivateMode::GraphicsExpandedPrint => 59,
+            PrivateMode::Resource(Resource::KeepSelection) => 60,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1281,6 +1294,7 @@ impl PrivateMode {
             1044 => PrivateMode::KeepClipboard,
             1010 => PrivateMode::Resource(Resource::ScrollOnOutput),
             1011 => PrivateMode::Resource(Resource::ScrollOnKey),
+            1040 => PrivateMode::Resource(Resource::KeepSelection),
             1041 => PrivateMode::Resource(Resource::SelectToClipboard),
             1045 => PrivateMode::Resource(Resource::ReverseWrapExtended),
             1046 => PrivateMode::Resource(Resource::AltScreenAllowed),
