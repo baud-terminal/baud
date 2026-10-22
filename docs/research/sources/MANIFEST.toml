@@ -31826,7 +31826,7 @@ group  = "Y"
 
 [sources.iterm2-8622e64-profile-defaults]
 key    = "iterm2-8622e64-profile-defaults"
-title  = "iTerm2 8622e64, iTermProfilePreferences.m -- the default Selection Color, calibrated (0.709, 0.835, 1.000), and Selected Text Color black (967-973), used by default (1071-1073)"
+title  = "iTerm2 8622e64, iTermProfilePreferences.m's fallback Selection Color (967-973), which its own comment at 966 says the factory profile always overrides"
 author = "George Nachman"
 year   = 2026
 venue  = "iTerm2"

@@ -89,25 +89,25 @@ bell = "sound"
 #
 # Left unset, the stack is the embedded JetBrains Mono, with baud's Hebrew in
 # its Regular and Bold, and its icon face, then the system's mono (Menlo;
-# DejaVu Sans Mono on Linux), its colour emoji, and its symbol and CJK
-# fonts, with the embedded Bold, Italic and Bold Italic for styled text. Set, it replaces that stack -- and the embedded faces
-# still follow it: the embedded Regular, so Hebrew none of the named faces
-# carries comes from it, then the icon face, so a Nerd Fonts icon does, rather
-# than either drawing as a missing-glyph box. The embedded Regular also takes
-# whatever else JetBrains Mono maps that your faces lack -- behind FiraCode,
-# 458 code points by cmap, among them 8 symbols (U+23FB-23FE, U+26A1,
-# U+276E-276F, U+2B58) that drew from the icon face before -- so those come
-# from it, not the icon face. Bold, italic and bold italic text draw from the
-# family of the first font in the list that is found: its Bold, Italic and
-# Bold Italic, found among the installed fonts (and, for a font given by
-# path, in its own folder), a variable
-# font at the weight asked for. That first font, if variable, is drawn at
-# the weight searched whether it is named by family or by path: its regular
-# text at 400 where its weight axis reaches it. A style the family has no face for draws
-# from the nearest face it has -- bold italic from its Bold when it has no
-# italic, bold from its regular face when it has no bold -- and is never
-# faked. A file path that does not start with / is read beside this file,
-# so "fonts/Mine.ttf" is the fonts directory next to it:
+# DejaVu Sans Mono on Linux), its colour emoji, and its symbol and CJK fonts,
+# with the embedded Bold, Italic and Bold Italic for styled text. Set, it
+# replaces that stack -- and the embedded faces still follow it: the embedded
+# Regular, so Hebrew none of the named faces carries comes from it, then the
+# icon face, so a Nerd Fonts icon does, rather than either drawing as a
+# missing-glyph box. The embedded Regular also takes whatever else JetBrains
+# Mono maps that your faces lack -- behind FiraCode, 458 code points by cmap,
+# among them 8 symbols (U+23FB-23FE, U+26A1, U+276E-276F, U+2B58) that drew
+# from the icon face before -- so those come from it, not the icon face. Bold,
+# italic and bold italic text draw from the family of the first font in the
+# list that is found: its Bold, Italic and Bold Italic, found among the
+# installed fonts (and, for a font given by path, in its own folder), a
+# variable font at the weight asked for. That first font, if variable, is
+# drawn at the weight searched whether it is named by family or by path: its
+# regular text at 400 where its weight axis reaches it. A style the family has
+# no face for draws from the nearest face it has -- bold italic from its Bold
+# when it has no italic, bold from its regular face when it has no bold -- and
+# is never faked. A file path that does not start with / is read beside this
+# file, so "fonts/Mine.ttf" is the fonts directory next to it:
 # fonts = [
 #   "Menlo",
 #   "Apple Color Emoji",

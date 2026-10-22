@@ -86,4 +86,6 @@ Devanagari@0.
   first ask's probabilities are pooled with the re-ask's, 0.485 to 0.483,
   so the lean depends on that pooling; and the split names (the built
   Regular and Bold are "Proto Hebrew Mono C", the stock italics "JetBrains
-  Mono") would make "JetBrains Mono" a family with only italic faces. Taken: E_OUT.
+  Mono") would make "JetBrains Mono" a family with only italic faces,
+  which the re-ask was shown. E_OUT is what is built, and the fork is an
+  open lean: the re-ask's own lean is E_IN_NAMES.
