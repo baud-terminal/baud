@@ -1379,6 +1379,9 @@ pub struct Renderer<'f, 'a> {
     /// ([`Term::highlight_colors`]): reverse video until an application sets
     /// `OSC 17` or `19`.
     hilite: Hilite,
+    /// The colours a reverse-video selection takes while the window is not
+    /// key, or none: [`Renderer::set_inactive_selection`].
+    inactive: Option<Hilite>,
     /// The scrollbar on this frame and the last -- the knob, the track when
     /// widened, and how much of both is seen -- and its solids: a row whose
     /// slice of the bar changed is dirty (`Bar::slice`).
@@ -1660,6 +1663,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             highlight: None,
             last_highlight: None,
             hilite: Hilite::REVERSE,
+            inactive: None,
             bar: None,
             last_bar: None,
             gutter: Px::of(0),
@@ -2551,10 +2555,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The colours a selection draws in on the last convert or resolve:
     /// `OSC 17`'s and `19`'s, as [`Term::highlight_colors`] gives them, each
-    /// the theme's ([`Theme::selection`]) where the program set none. What a
-    /// caller that draws the selection itself -- the cell path -- reads.
+    /// the theme's ([`Theme::selection`]) where the program set none, and
+    /// with neither, the pair [`Renderer::set_inactive_selection`] set while
+    /// the window is not key. What a caller that draws the selection itself
+    /// -- the cell path -- reads.
     pub fn hilite(&self) -> Hilite {
         self.hilite
+    }
+
+    /// **The selection's colours while the window is not key**, or `None`
+    /// while it is: the macOS app sets AppKit's unemphasized pair here, the
+    /// colours AppKit draws a selection in "when the associated
+    /// control/view/window is not key" (`[[source: sdk27-nscolor-h]]`
+    /// 232-235). Only reverse video takes it, the default: a selection
+    /// colour of its own, the program's or the theme's, is drawn as it is.
+    /// The next convert or resolve reads it, and a change repaints every
+    /// row as a change of `OSC 17` does.
+    pub fn set_inactive_selection(&mut self, pair: Option<Hilite>) {
+        self.inactive = pair;
+    }
+
+    /// What [`Renderer::set_inactive_selection`] last set.
+    pub fn inactive_selection(&self) -> Option<Hilite> {
+        self.inactive
     }
 
     /// The video the last convert or resolve drew in: `?5`'s, or under a
@@ -2629,6 +2652,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map(CellPaint::Colour)
                 .or(self.theme.selection_text),
         );
+        // Reverse video in a window that is not key is AppKit's
+        // unemphasized pair; a colour of its own stays (note AZ).
+        let hilite = match self.inactive {
+            Some(pair) if hilite == Hilite::REVERSE => pair,
+            _ => hilite,
+        };
         if hilite != self.hilite {
             self.hilite = hilite;
             self.known = Prev::Unknown;

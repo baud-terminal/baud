@@ -1286,6 +1286,15 @@ rows = ["vt:`OSC 17` / `OSC 19`", "vt:`OSC 117` / `OSC 119`"]
 shipped = ["SQ-v1.0-07"]
 
 [[feature]]
+id = "selection-inactive"
+area = "scroll"
+name = "A selection that dims in the background"
+does = "While another window has the keyboard, a selection in reverse video turns to macOS's own grey for an inactive window, light or dark as your appearance is, and comes back when you return; a selection colour you or a program chose stays as it is."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/inactive_selection.rs::a_reverse_video_selection_takes_the_unemphasized_pair_while_not_key", "baud-render/tests/inactive_selection.rs::a_selection_colour_of_its_own_is_unchanged_while_not_key", "baud-present-macos/src/selection.rs::the_unemphasized_pair_is_appkits_under_each_appearance", "baud-app/src/app.rs::the_inactive_selection_follows_the_key_state_and_the_appearance"]
+
+[[feature]]
 id = "reflow"
 area = "scroll"
 name = "Resizing rewraps"

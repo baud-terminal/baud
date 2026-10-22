@@ -2020,6 +2020,47 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "no theme colour is reverse video"
     );
+    // **A window that is not key**: reverse video takes AppKit's
+    // unemphasized pair, resolved under darkAqua, on both arms and in
+    // pixels of its own; a theme's selection colours stay as they are; and
+    // with the window key again it is reverse video.
+    let pair = baud_present_macos::selection::unemphasized(
+        &macos_liquid_glass::objc2_app_kit::NSAppearance::appearanceNamed(
+            &macos_liquid_glass::objc2_foundation::NSString::from_str("NSAppearanceNameDarkAqua"),
+        )
+        .expect("darkAqua"),
+    );
+    arms.renderer.set_inactive_selection(Some(pair));
+    let (inactive, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&inactive, &b),
+        0,
+        "the arms disagree in a window that is not key"
+    );
+    assert!(
+        differing(&inactive, &reverse) > 0,
+        "the unemphasized pair reached the pixels"
+    );
+    assert!(
+        inactive.contains(&0xFF_46_46_46),
+        "the pair's grey is drawn"
+    );
+    arms.renderer.set_theme(Theme {
+        selection: Some(CellPaint::Colour(Argb(0xFF_33_4E_5E))),
+        selection_text: Some(CellPaint::Colour(Argb(0xFF_FF_D7_5F))),
+        ..resting.clone()
+    });
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree under the theme's, not key"
+    );
+    assert_eq!(differing(&a, &themed), 0, "the theme's stay as they are");
+    arms.renderer.set_theme(resting.clone());
+    arms.renderer.set_inactive_selection(None);
+    let (a, _) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &reverse), 0, "key again: reverse video");
     // **xterm's special colours** (`OSC 5`, `OSC 6`): bold, underline and
     // reverse drawn in their own colours, under colorAttrMode over the
     // scene's own colours too, each attribute dropped where its colour took

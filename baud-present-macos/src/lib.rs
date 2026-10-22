@@ -35,6 +35,7 @@ pub mod link;
 pub mod metal;
 pub mod notify;
 pub mod print;
+pub mod selection;
 
 pub use journal::Landing;
 pub use metal::{

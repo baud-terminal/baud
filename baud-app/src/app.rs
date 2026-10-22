@@ -6540,6 +6540,51 @@ mod motion_tests {
         assert!(poll < feed, "the poll comes before the feed");
     }
 
+    /// **The selection follows the window's key state and its
+    /// appearance**: `set_focus` checks the unemphasized pair on every
+    /// poll, before the early return a window that never had the keyboard
+    /// would stop at, and `apply_style` resolves it again before a pinned
+    /// palette's early return. AppKit-bound, so the source is what can fail.
+    #[test]
+    fn the_inactive_selection_follows_the_key_state_and_the_appearance() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test does not match its own source first.
+        let body = |name: &str| {
+            SRC.split_once(&format!("fn {name}(&mut self"))
+                .map(|(_, rest)| rest.split_once("\n    }\n").map_or(rest, |(b, _)| b))
+                .unwrap_or_else(|| panic!("{name}"))
+        };
+        let focus = body("set_focus");
+        let checked = focus
+            .find(concat!("self.inactive_", "selection(f);"))
+            .expect("set_focus sets the pair");
+        let early = focus
+            .find("if self.app.focus == f {")
+            .expect("the control: set_focus returns early on no change");
+        assert!(checked < early, "checked before the early return");
+        let style = body("apply_style");
+        let resolved = style
+            .find(concat!("self.inactive_", "selection(self.app.focus);"))
+            .expect("apply_style resolves the pair again");
+        let pinned = style
+            .find("palette_switch(")
+            .expect("the control: the palette's early return");
+        assert!(
+            resolved < pinned,
+            "resolved before a pinned palette returns"
+        );
+        let set = body(concat!("inactive_", "selection"));
+        assert!(
+            set.contains("effectiveAppearance()"),
+            "under the window's appearance: {set}"
+        );
+        assert!(set.contains("Pending::Dirty"), "a frame is owed: {set}");
+        assert!(
+            set.contains("baud_core::Focus::Gained => None,"),
+            "none once the window is key: {set}"
+        );
+    }
+
     /// **The tick polls the motion preference**: `pump` is AppKit-bound, so
     /// the one thing that can fail on a removed call is its source.
     #[test]
@@ -9448,6 +9493,11 @@ impl Driver {
     /// Record a focus transition and report it if the application asked.
     /// Only a *change* reaches the core, so polling cannot repeat `CSI I`.
     fn set_focus(&mut self, f: baud_core::Focus) {
+        // Checked on every poll, not only on a change: a window that never
+        // had the keyboard starts `Lost` with no change to see.
+        if (f == baud_core::Focus::Lost) != self.app.renderer.inactive_selection().is_some() {
+            self.inactive_selection(f);
+        }
         if self.app.focus == f {
             return;
         }
@@ -9469,6 +9519,24 @@ impl Driver {
             // And the printer list, off this thread: a printer added in
             // System Settings is the core's at the next gain (`print.rs`).
             self.app.read_printers(crate::print::Ask::Now);
+        }
+    }
+
+    /// **The selection in a window that is not key**: AppKit's unemphasized
+    /// pair, resolved under the window's appearance
+    /// (`baud_present_macos::selection`), which reverse video takes while
+    /// another window has the keyboard; none once this one has it. A frame
+    /// is owed, as nothing else on screen changed.
+    fn inactive_selection(&mut self, f: baud_core::Focus) {
+        let pair = match f {
+            baud_core::Focus::Gained => None,
+            baud_core::Focus::Lost => Some(baud_present_macos::selection::unemphasized(
+                &self.window.ns_window().effectiveAppearance(),
+            )),
+        };
+        if pair != self.app.renderer.inactive_selection() {
+            self.app.renderer.set_inactive_selection(pair);
+            self.app.pending = Pending::Dirty;
         }
     }
 
@@ -10396,6 +10464,9 @@ impl Driver {
         let Some(appearance) = self.style.0.take() else {
             return;
         };
+        // The unemphasized pair is the appearance's, so it follows a flip
+        // while the window is not key.
+        self.inactive_selection(self.app.focus);
         // **The material before the early return, because the glass is the
         // window's and the palette is the terminal's.** A reader who pins
         // `theme = "dark"` has chosen a palette, not a window: the
