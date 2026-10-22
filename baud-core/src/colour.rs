@@ -33,6 +33,7 @@ use crate::paint::Paint;
 use crate::storage::{
     CURSOR_TEXT, CURSOR_TEXT_CONFIGURED, EMBEDDER_PALETTE, OSC_MAX, REPLY, SELECTION_PER_CELL,
 };
+use baud_domain::themefile::CursorText;
 use baud_domain::*;
 
 /// The named colours a record can change: the default foreground and
@@ -498,7 +499,15 @@ impl Paint<'_, '_> {
         }
         match self.slot(n) {
             Some(d) => self.cold.defaults[d.index()],
-            None => self.strs.palette[CURSOR_TEXT_CONFIGURED],
+            // A kitty theme's `cursor none` sets its text aside while the
+            // cursor shown has no colour: no defined value, so empty.
+            None => match (
+                self.cold.cursor_text_under,
+                self.cold.shown(DynamicColor::Cursor).as_rgb(),
+            ) {
+                (CursorText::UnderACursorColour, None) => ColorWord::DEFAULT,
+                _ => self.strs.palette[CURSOR_TEXT_CONFIGURED],
+            },
         }
     }
 

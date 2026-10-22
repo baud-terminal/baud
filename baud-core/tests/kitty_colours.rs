@@ -42,6 +42,8 @@ fn theme(palette: &[(u8, u8, u8); 256]) -> ThemeColors<'_> {
         selection_text: None,
         cursor: None,
         cursor_text: None,
+        cursor_text_under: baud_domain::themefile::CursorText::UnderEveryCursor,
+        unset_selection_text: baud_domain::themefile::SelectionText::Reverse,
     }
 }
 

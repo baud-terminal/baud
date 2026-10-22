@@ -1279,6 +1279,8 @@ fn theme_with(page: Option<Rgb>, text: Option<Rgb>) -> ThemeColors<'static> {
         selection_text: text.map(baud_domain::themefile::CellPaint::Colour),
         cursor: None,
         cursor_text: None,
+        cursor_text_under: baud_domain::themefile::CursorText::UnderEveryCursor,
+        unset_selection_text: baud_domain::themefile::SelectionText::Reverse,
     }
 }
 

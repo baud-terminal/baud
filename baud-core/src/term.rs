@@ -6,7 +6,7 @@ use crate::graph::Node;
 use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
 use crate::window::{PropertiesDropped, WindowOpsRefused, WindowRequestsDropped};
-use baud_domain::themefile::CellPaint;
+use baud_domain::themefile::{CellPaint, CursorText, SelectionText};
 use baud_domain::*;
 
 /// Which screen buffer is live.
@@ -976,6 +976,13 @@ pub struct Cold {
     /// Here rather than in `StrBuf` so no caller-provided buffer grows a field.
     pub(crate) defaults: [ColorWord; DynamicColor::COUNT],
     pub(crate) dynamic: [ColorWord; DynamicColor::COUNT],
+    /// What the theme's selection text answers while neither it nor a
+    /// program set one ([`ThemeColors::unset_selection_text`]), and under
+    /// which cursor its cursor text holds
+    /// ([`ThemeColors::cursor_text_under`]): configured, so no reset, `RIS`
+    /// or dropping of the overrides moves them.
+    pub(crate) unset_selection_text: SelectionText,
+    pub(crate) cursor_text_under: CursorText,
     /// Which control string is being accumulated, and how much of it.
     ///
     /// In `Cold` because a control string is not the write path: `str_kind` is
@@ -1482,6 +1489,14 @@ pub enum ProgramPaint {
     Automatic,
 }
 
+/// Whether a selection's page is one of its own or reverse video's
+/// ([`Cold::selection_page`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SelectionPage {
+    Own,
+    Reverse,
+}
+
 impl Cold {
     /// The state a key is encoded in: `Term::key`'s, and XTGETTCAP's, whose
     /// answer is what the key would send (`Paint::tcap_end`). One spelling,
@@ -1521,6 +1536,13 @@ impl Cold {
     /// **A colour a program made automatic** (`OSC 21`'s empty value) is
     /// what is drawn: a selection's reverse video, and no colour of the
     /// cursor's own, whatever the embedder configured.
+    ///
+    /// **A kitty theme's `selection_foreground none`**
+    /// ([`SelectionText::Unchanged`]) answers `OSC 19` with the text shown
+    /// while the selection's page in force is its own, "the foreground
+    /// color to be used unchanged", and with the page shown once it is
+    /// reverse video, as kitty's renderer draws it (`[[source:
+    /// kitty-1e1486e-shaders-c]]` 873-885).
     pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
         let slot = self.video().role(which).index();
         let w = self.dynamic[slot];
@@ -1534,8 +1556,32 @@ impl Cold {
                 configured
             }
             DynamicColor::HighlightBg => self.shown(DynamicColor::Foreground),
-            DynamicColor::HighlightFg => self.shown(DynamicColor::Background),
+            DynamicColor::HighlightFg => match (self.unset_selection_text, self.selection_page()) {
+                (SelectionText::Unchanged, SelectionPage::Own) => {
+                    self.shown(DynamicColor::Foreground)
+                }
+                _ => self.shown(DynamicColor::Background),
+            },
             _ => configured,
+        }
+    }
+
+    /// **Whether the selection's page in force is one of its own**: a
+    /// program's colour, else the configured one, and not a program's
+    /// automatic colour or none, reverse video. Only Cold's words are read:
+    /// a page in each cell's own colours ([`crate::storage::SELECTION_PER_CELL`])
+    /// reads as its own here, and only [`SelectionText::Unchanged`] asks,
+    /// which a kitty theme sets and whose page is never a cell's.
+    fn selection_page(&self) -> SelectionPage {
+        let slot = self.video().role(DynamicColor::HighlightBg).index();
+        let w = self.dynamic[slot];
+        match (
+            w.is_automatic(),
+            w.is_default(),
+            self.defaults[slot].is_default(),
+        ) {
+            (true, _, _) | (false, true, true) => SelectionPage::Reverse,
+            _ => SelectionPage::Own,
         }
     }
 
@@ -1764,6 +1810,8 @@ impl Cold {
             initial_pointer_mode: PointerMode::UnlessTracking,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
+            unset_selection_text: SelectionText::Reverse,
+            cursor_text_under: CursorText::UnderEveryCursor,
             handshake: Handshake::Idle,
             locator: crate::locator::Locator::default(),
             terminal: TerminalMode::Ansi,
@@ -1854,6 +1902,15 @@ pub struct ThemeColors<'a> {
     pub selection_text: Option<CellPaint<(u8, u8, u8)>>,
     pub cursor: Option<(u8, u8, u8)>,
     pub cursor_text: Option<(u8, u8, u8)>,
+    /// Under which cursor `cursor_text` holds: every one, or after a kitty
+    /// theme's `cursor none` only one with a colour, so `cursor_text=?`
+    /// answers empty while the cursor shown has none.
+    pub cursor_text_under: CursorText,
+    /// What `OSC 19 ; ?` answers while neither `selection_text` nor a
+    /// program set the text: reverse video's, the page, or a kitty theme's
+    /// `selection_foreground none`, the default text over a selection page
+    /// of its own.
+    pub unset_selection_text: SelectionText,
 }
 
 /// Whether [`Term::set_theme`] drops the application's
@@ -5658,6 +5715,8 @@ impl<'b> Term<'b> {
         self.reporting_scheme(|t| {
             t.write_defaults(theme.fg, theme.bg);
             t.write_selection(theme.selection, theme.selection_text);
+            t.cold.unset_selection_text = theme.unset_selection_text;
+            t.cold.cursor_text_under = theme.cursor_text_under;
             t.write_cursor(theme.cursor);
             t.store.strs.palette[crate::storage::CURSOR_TEXT_CONFIGURED] =
                 theme.cursor_text.map_or(ColorWord::DEFAULT, |(r, g, b)| {

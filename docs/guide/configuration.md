@@ -87,7 +87,12 @@ only the entries every program reads (`*color0`, `*.color0`) are used; an
 entry for one program, such as `URxvt*color0`, is skipped and named. A
 kitty theme's `oklch()` and `lab()` colours are drawn as kitty draws them,
 and one outside what the screen can show as kitty's theme preview shows
-it. baud tells which by what is in the
+it. A kitty theme's none and background mean what they mean in kitty:
+"cursor none" draws the cursor in the colours of the cell under it until
+a cursor colour is set over it, "cursor_text_color background" draws the
+text under the cursor in its cell's background, and "selection_foreground
+none" keeps each selected cell's own text colour over a selection colour
+and selects in reverse video without one. baud tells which by what is in the
 file, not by its name, and says what it read it as; a file whose name says
 another format is still read, and the name is mentioned. A foot file or
 iTerm2 preset holding both a dark and a light theme is refused, so save the

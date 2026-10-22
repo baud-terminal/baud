@@ -78,9 +78,10 @@ fn kitty_skips_what_kitty_refuses_and_a_later_line_wins() {
     );
 }
 
-/// `none` and `cursor_text_color background` leave the colour unset,
-/// which baud draws as kitty describes: the cell's own colours reversed.
-/// Entries past 15 land in `extended`.
+/// `none` leaves the cursor and the selection's page unset, which baud
+/// draws as kitty describes, the cell's own colours reversed, and the
+/// cursor's `none` sets cursor_text_color aside while the cursor has no
+/// colour. Entries past 15 land in `extended`.
 #[test]
 fn kitty_none_unsets_and_high_entries_are_extended() {
     let (s, _) = kitty_of(
@@ -88,9 +89,137 @@ fn kitty_none_unsets_and_high_entries_are_extended() {
          selection_background none\ncolor255 #010203\n",
     );
     let s = s.unwrap();
-    assert_eq!((s.cursor, s.cursor_text, s.selection), (None, None, None));
+    assert_eq!(
+        (s.cursor, s.cursor_text, s.selection),
+        (None, Some(CellPaint::Page), None)
+    );
+    assert_eq!(s.cursor_text_under, CursorText::UnderACursorColour);
     assert_eq!(s.extended[239], Some(c("#010203")));
     assert_eq!(s.format, Format::Kitty);
+}
+
+/// **kitty's special values, each kept as the file says it**, by
+/// kitty.conf's text (`[[source: kitty-options-definition]]` 353-379,
+/// 2641-2657): cursor_text_color background is "the background color of the
+/// cell underneath", the cell's page; under cursor none, whose "color will
+/// be the color of the text in the cell it is over and the text will be
+/// rendered with the background color of the cell", baud's swap, the text
+/// colour "is ignored" while the cursor has no colour, and is kept for a
+/// colour set over it; selection_foreground none is "the foreground color
+/// to be used unchanged", answered as the cell's text over a selection
+/// colour, and both none is "a 'reverse video' effect", baud's. What each
+/// resolves to is decided where it is drawn. Each from the file's last
+/// line, so either order.
+#[test]
+fn kitty_special_values_are_the_cells_own_colours() {
+    let paints = |text: &str| {
+        let (s, skipped) = kitty_of(text);
+        assert!(skipped.is_empty(), "{text:?}: {skipped:?}");
+        let s = s.unwrap();
+        (
+            (s.cursor, s.cursor_text, s.selection, s.selection_text),
+            (s.cursor_text_under, s.unset_selection_text),
+        )
+    };
+    let red = Some(CellPaint::Colour(c("#ff0000")));
+    let lemon = Some(CellPaint::Colour(c("#fffacd")));
+    let dark = Some(CellPaint::Colour(c("#111111")));
+    let plain = (CursorText::UnderEveryCursor, SelectionText::Reverse);
+    let set_aside = (CursorText::UnderACursorColour, SelectionText::Reverse);
+    let unchanged = (CursorText::UnderEveryCursor, SelectionText::Unchanged);
+    assert_eq!(
+        paints("cursor #ff0000\ncursor_text_color background\n"),
+        ((red, Some(CellPaint::Page), None, None), plain)
+    );
+    for (text, kept) in [
+        ("cursor none\ncursor_text_color #111111\n", dark),
+        ("cursor_text_color #111111\ncursor none\n", dark),
+        (
+            "cursor none\ncursor_text_color background\n",
+            Some(CellPaint::Page),
+        ),
+    ] {
+        assert_eq!(
+            paints(text),
+            ((None, kept, None, None), set_aside),
+            "{text:?}"
+        );
+    }
+    // A later colour for the cursor draws the text under any cursor.
+    assert_eq!(
+        paints("cursor none\ncursor_text_color #111111\ncursor #ff0000\n"),
+        ((red, dark, None, None), plain)
+    );
+    for text in [
+        "selection_background #fffacd\nselection_foreground none\n",
+        "selection_foreground none\nselection_background #fffacd\n",
+    ] {
+        assert_eq!(
+            paints(text),
+            ((None, None, lemon, None), unchanged),
+            "{text:?}"
+        );
+    }
+    for (text, page) in [
+        (
+            "selection_foreground none\nselection_background none\n",
+            None,
+        ),
+        (
+            "selection_background #fffacd\nselection_foreground none\nselection_background none\n",
+            None,
+        ),
+        ("selection_foreground none\n", None),
+    ] {
+        assert_eq!(
+            paints(text),
+            ((None, None, page, None), unchanged),
+            "{text:?}"
+        );
+    }
+    assert_eq!(
+        paints("selection_foreground none\nselection_foreground #000000\n"),
+        (
+            (None, None, None, Some(CellPaint::Colour(c("#000000")))),
+            plain
+        ),
+        "a later colour"
+    );
+}
+
+/// **`none` is a value only where kitty's parser takes it**: to_color_or_none
+/// for cursor, the selection's two and color16 to color255; to_color for
+/// foreground, background, color0 to color15 and cursor_text_color, which
+/// refuse it, so kitty skips the line and the colour before it stays
+/// (`[[source: kitty-options-definition]]` 371, 2470-2475, 2688, 2764-2765;
+/// `[[source: kitty-conf-utils-1e1486e]]` 54-62; cursor_text_color's
+/// background, `[[source: kitty-options-utils-1e1486e]]` 637-640).
+#[test]
+fn kitty_none_is_refused_where_kittys_parser_refuses_it() {
+    let (s, skipped) = kitty_of(
+        "foreground #010101\nforeground none\nbackground NONE\ncolor3 #030303\n\
+         color3 none\ncursor #ff0000\ncursor_text_color #111111\ncursor_text_color none\n\
+         color16 #161616\ncolor16 none\n",
+    );
+    let s = s.unwrap();
+    assert_eq!(s.text, Some(c("#010101")));
+    assert_eq!(s.page, None);
+    assert_eq!(s.ansi[3], Some(c("#030303")));
+    assert_eq!(s.cursor_text, Some(CellPaint::Colour(c("#111111"))));
+    assert_eq!(s.extended[0], None);
+    let lines: Vec<_> = skipped
+        .iter()
+        .map(|(l, k, w)| (l.0, k.as_str(), *w))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            (2, "foreground", Skipped::Refused),
+            (3, "background", Skipped::Refused),
+            (5, "color3", Skipped::Refused),
+            (8, "cursor_text_color", Skipped::Refused),
+        ]
+    );
 }
 
 /// kitty's own parse_color, from `scripts/kitty-colour-oracle.sh`: each

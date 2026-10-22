@@ -3,7 +3,7 @@
 //! unset stays the half's and is counted; 16-255 are never written; its
 //! selection colours become the half's.
 
-use baud_domain::themefile::{CellPaint, Format, Scheme};
+use baud_domain::themefile::{CellPaint, CursorText, Format, Scheme, SelectionText};
 use baud_domain::{Chan, Color};
 use baud_render::{Argb, Theme};
 
@@ -27,6 +27,8 @@ fn empty() -> Scheme {
         cursor_text: None,
         selection: None,
         selection_text: None,
+        cursor_text_under: CursorText::UnderEveryCursor,
+        unset_selection_text: SelectionText::Reverse,
         format: Format::Ghostty,
         declared: None,
     }

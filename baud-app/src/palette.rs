@@ -604,6 +604,16 @@ pub fn half_theme(
     theme.selection_text = halves.selection.text.over(theme.selection_text);
     theme.cursor = halves.cursor.fill.over(theme.cursor);
     theme.cursor_text = halves.cursor.text.over(theme.cursor_text);
+    // A text the config names is its own, not a kitty file's none: drawn
+    // under any cursor, and an unset selection text answers reverse
+    // video's. A page or a fill it names leaves the file's none to resolve
+    // against it where it is drawn.
+    if halves.cursor.text != crate::config::SelectionPick::Theme {
+        theme.cursor_text_under = baud_domain::themefile::CursorText::UnderEveryCursor;
+    }
+    if halves.selection.text != crate::config::SelectionPick::Theme {
+        theme.unset_selection_text = baud_domain::themefile::SelectionText::Reverse;
+    }
     theme.bg_alpha = baud_domain::Chan::from_unit(match half {
         Half::Dark => glass.dim_dark,
         Half::Light => glass.dim_light,
@@ -1273,6 +1283,67 @@ mod tests {
             drawn(&file(config), Half::Light),
             (mine_paint, None),
             "over both halves"
+        );
+    }
+
+    /// **The config's colours over a kitty theme's none leave it to resolve
+    /// where it is drawn**. `[palette] selection = "none"` over the file's
+    /// selection colour and selection_foreground none is reverse video, the
+    /// pair a window that is not key draws in, never the cell's text on a
+    /// page of the same text. `[palette] cursor` over cursor none keeps the
+    /// file's cursor_text_color, which kitty.conf ignores only while the
+    /// cursor is none and which a value placed after the theme's include
+    /// overrides (`[[source: kitty-options-definition]]` 353-379).
+    #[test]
+    fn the_configs_colours_over_a_kitty_none_resolve_where_drawn() {
+        use crate::config::{CursorColours, Selection, SelectionPick};
+        use baud_render::{Argb, Hilite};
+        let glass = crate::config::Glass::defaults();
+        let floor = baud_render::Floor::DEFAULT;
+        let file = themefile::kitty(
+            b"selection_background #334e5e\nselection_foreground none\n\
+              cursor_text_color #111111\ncursor none\n",
+            |_, _, _| {},
+        )
+        .unwrap();
+        let halves = |selection, cursor| Halves {
+            dark: Some(file),
+            light: None,
+            selection,
+            cursor,
+        };
+        let no_page = Selection {
+            page: SelectionPick::None,
+            text: SelectionPick::Theme,
+        };
+        let t = half_theme(
+            Half::Dark,
+            &glass,
+            floor,
+            &halves(no_page, CursorColours::default()),
+        );
+        let hilite = Hilite::of(t.selection, t.selection_text);
+        assert_eq!(hilite, Hilite::REVERSE, "reverse video");
+        let (page, text) = (Argb(0xFF_10_10_10), Argb(0xFF_D8_D8_D8));
+        assert_eq!(hilite.paint(page, text), (page, text), "the page as text");
+        let orange = Argb(0xFF_FF_88_00);
+        let fill = CursorColours {
+            fill: SelectionPick::Colour(orange),
+            text: SelectionPick::Theme,
+        };
+        let t = half_theme(
+            Half::Dark,
+            &glass,
+            floor,
+            &halves(Selection::default(), fill),
+        );
+        assert_eq!(
+            (t.cursor, t.cursor_text),
+            (
+                Some(CellPaint::Colour(orange)),
+                Some(CellPaint::Colour(Argb(0xFF_11_11_11)))
+            ),
+            "the config's cursor, the file's text"
         );
     }
 

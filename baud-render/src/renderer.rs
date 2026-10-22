@@ -2683,8 +2683,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map(CellPaint::Colour)
                 .or(self.theme.cursor),
         };
-        let block_paint =
-            BlockPaint::of(fill, paint(PaintRole::CursorText, self.theme.cursor_text));
+        // The theme's text under the fill in force, which a kitty theme's
+        // `cursor none` sets aside while the cursor has no colour.
+        let block_paint = BlockPaint::of(
+            fill,
+            paint(PaintRole::CursorText, self.theme.block_text(fill)),
+        );
         if block_paint != self.block_paint {
             self.block_paint = block_paint;
             self.known = Prev::Unknown;

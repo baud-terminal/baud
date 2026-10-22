@@ -494,6 +494,10 @@ pub fn tell_defaults(
             // The text under a block cursor, likewise: what kitty's
             // `OSC 21 ; cursor_text=?` answers while no program set one.
             cursor_text: theme.cursor_text.and_then(CellPaint::colour).map(rgb),
+            // A kitty file's none, which the core resolves against the
+            // colours in force when asked, as the renderer does when drawn.
+            cursor_text_under: theme.cursor_text_under,
+            unset_selection_text: theme.unset_selection_text,
         },
         overrides,
     );
@@ -1520,6 +1524,66 @@ mod tests {
             t.reply(),
             b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07",
             "the text shown"
+        );
+    }
+
+    /// **A kitty theme's special values answer as they are drawn**, against
+    /// the colours in force when asked. selection_foreground none over a
+    /// selection colour is each cell's own text, so `OSC 19 ; ?` answers the
+    /// default text and selection_foreground=? answers empty; a program's
+    /// empty selection_background makes the selection reverse video, whose
+    /// text `OSC 19` answers as the page. Under cursor none the file's
+    /// cursor_text_color is ignored, a colour with no defined value, which
+    /// "must be empty" (`[[source: kitty-6d5d0c4-color-stack]]`), and a
+    /// program's `OSC 12` colour brings it back (`[[source:
+    /// kitty-options-definition]]` 353-379, 2641-2657). Both are the
+    /// theme's, which `RIS` keeps.
+    #[test]
+    fn a_kitty_themes_none_answers_as_it_is_drawn() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let file = b"selection_background #334e5e\nselection_foreground none\n\
+                     cursor_text_color #111111\ncursor none\n";
+        let scheme = baud_domain::themefile::kitty(file, |_, _, _| {}).unwrap();
+        let mut theme = Theme::dark();
+        theme.take_scheme(&scheme);
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        let ask = |t: &mut Term<'_>, bytes: &[u8]| {
+            feed(t, bytes);
+            let r = t.reply().to_vec();
+            t.clear_reply();
+            r
+        };
+        assert_eq!(
+            ask(&mut t, b"\x1b]19;?\x07"),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
+        assert_eq!(
+            ask(
+                &mut t,
+                b"\x1b]21;selection_foreground=?;cursor_text=?;cursor=?\x1b\\",
+            ),
+            b"\x1b]21;selection_foreground=;cursor_text=;cursor=\x1b\\"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1bc\x1b]19;?\x07\x1b]21;cursor_text=?\x1b\\"),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07\x1b]21;cursor_text=\x1b\\",
+            "configured, so RIS keeps them"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1b]21;selection_background=\x07\x1b]19;?\x07"),
+            b"\x1b]19;rgb:1010/1010/1010\x07",
+            "reverse video's text"
+        );
+        assert_eq!(
+            ask(&mut t, b"\x1b]12;#ff8800\x07\x1b]21;cursor_text=?\x1b\\"),
+            b"\x1b]21;cursor_text=rgb:11/11/11\x1b\\",
+            "under a cursor colour, the file's text"
         );
     }
 

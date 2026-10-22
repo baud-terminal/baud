@@ -156,6 +156,34 @@ impl<C> CellPaint<C> {
     }
 }
 
+/// **Under which cursor the text under a block is drawn**: every cursor,
+/// or, after a kitty theme's `cursor none`, only a cursor with a colour of
+/// its own. kitty.conf's cursor_text_color "is ignored" while cursor is
+/// none, and a cursor colour set after it, the config's or a program's,
+/// which "takes precedence", brings it back (`[[source:
+/// kitty-options-definition]]` 353-379), as kitty's renderer has it
+/// (`[[source: kitty-1e1486e-shaders-c]]` 937-954).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorText {
+    #[default]
+    UnderEveryCursor,
+    UnderACursorColour,
+}
+
+/// **What a selection with no text colour of its own answers as its
+/// text**: reverse video's, the page, as xterm answers, or after a kitty
+/// theme's `selection_foreground none`, "the foreground color to be used
+/// unchanged" (`[[source: kitty-options-definition]]` 2641-2657): each
+/// cell's own text over a selection page of its own, and reverse video's
+/// where the selection has none (`[[source: kitty-1e1486e-shaders-c]]`
+/// 873-885). Either is drawn so; only `OSC 19 ; ?` tells them apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SelectionText {
+    #[default]
+    Reverse,
+    Unchanged,
+}
+
 /// Where a scheme file's value lands: one of the colours a scheme holds as
 /// a colour alone, or one of the four that may name a cell's.
 pub(crate) enum Target<'s> {
@@ -204,6 +232,11 @@ pub struct Scheme {
     pub cursor_text: Option<CellPaint<Color>>,
     pub selection: Option<CellPaint<Color>>,
     pub selection_text: Option<CellPaint<Color>>,
+    /// Under which cursor [`Scheme::cursor_text`] is drawn.
+    pub cursor_text_under: CursorText,
+    /// What the selection's text answers where [`Scheme::selection_text`]
+    /// is unset.
+    pub unset_selection_text: SelectionText,
     pub format: Format,
     /// What the file says it is -- tinted's `variant` -- which is checked
     /// against [`Scheme::polarity`] and never used in its place.
@@ -222,6 +255,8 @@ impl Scheme {
             cursor_text: None,
             selection: None,
             selection_text: None,
+            cursor_text_under: CursorText::UnderEveryCursor,
+            unset_selection_text: SelectionText::Reverse,
             format,
             declared: None,
         }
@@ -441,6 +476,8 @@ pub fn base16(text: &[u8]) -> Result<Scheme, SchemeError> {
         cursor_text: None,
         selection: None,
         selection_text: None,
+        cursor_text_under: CursorText::UnderEveryCursor,
+        unset_selection_text: SelectionText::Reverse,
         format,
         declared,
     })

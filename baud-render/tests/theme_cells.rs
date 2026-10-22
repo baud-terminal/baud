@@ -251,3 +251,78 @@ fn a_cursor_colour_change_alone_repaints_the_cursor() {
         assert_eq!(frame(&mut t, Damage::Incremental), want, "{bytes:?}");
     }
 }
+
+/// **A kitty theme's selection_foreground none is resolved against the
+/// page in force when the frame is drawn**, as kitty's renderer resolves
+/// it (`[[source: kitty-1e1486e-shaders-c]]` 873-885): each cell's own
+/// text over the file's selection colour, and once a program's empty
+/// selection_background takes that page away, reverse video, its text the
+/// cell's page.
+#[test]
+fn a_kitty_selection_none_resolves_against_the_page_drawn() {
+    let dark = Theme::dark();
+    let selection = || {
+        themed(kitty(
+            b"selection_background #334e5e\nselection_foreground none\n",
+            |_, _, _| {},
+        ))
+    };
+    let (block, blank, glyph) = painted(selection(), b"\x1b[?25l", true);
+    let page = Argb(0xFF_33_4E_5E);
+    assert_eq!(
+        (block, blank, glyph),
+        (page, page, RED.0),
+        "the cell's text"
+    );
+    let (block, blank, glyph) = painted(
+        selection(),
+        b"\x1b[?25l\x1b]21;selection_background=\x07",
+        true,
+    );
+    assert_eq!(
+        (block, blank, glyph),
+        (RED, opaque(dark.fg), opaque(dark.bg).0),
+        "reverse video, never the text on itself"
+    );
+}
+
+/// **Under a kitty theme's cursor none the file's cursor_text_color is
+/// ignored only while the cursor has no colour of its own**, as kitty's
+/// renderer has it (`[[source: kitty-1e1486e-shaders-c]]` 937-954): a
+/// program's `OSC 12` colour, which "takes precedence" (`[[source:
+/// kitty-options-definition]]` 353-379), brings the text back.
+#[test]
+fn a_kitty_cursor_none_sets_the_text_aside_only_without_a_colour() {
+    let dark = Theme::dark();
+    let cursor = || {
+        themed(kitty(
+            b"cursor_text_color #111111\ncursor none\n",
+            |_, _, _| {},
+        ))
+    };
+    let on_block = b"\x1b[2 q\x1b[1;1H";
+    let (block, _, glyph) = painted(cursor(), on_block, false);
+    assert_eq!((block, glyph), (RED, opaque(dark.bg).0), "the swap");
+    let mut program = on_block.to_vec();
+    program.extend_from_slice(b"\x1b]12;#ff8800\x07");
+    let (block, _, glyph) = painted(cursor(), &program, false);
+    assert_eq!(
+        (block, glyph),
+        (Argb(0xFF_FF_88_00), 0xFF_11_11_11),
+        "a cursor colour, the file's text"
+    );
+}
+
+/// **Another format's cursor text is drawn under any cursor**: an
+/// alacritty theme with a text colour and no cursor colour draws that
+/// text over the cell's colours swapped, which only kitty's cursor none
+/// sets aside.
+#[test]
+fn a_cursor_text_without_a_cursor_colour_is_drawn_outside_kitty() {
+    let theme = themed(alacritty(
+        b"[colors.cursor]\ntext = \"#102030\"\n",
+        |_, _, _| {},
+    ));
+    let (block, _, glyph) = painted(theme, b"\x1b[2 q\x1b[1;1H", false);
+    assert_eq!((block, glyph), (RED, 0xFF_10_20_30));
+}

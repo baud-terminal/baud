@@ -32128,3 +32128,32 @@ sha256 = "a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f"
 bytes  = 65249
 status = "external"
 group  = "C"
+
+# Read 2026-10-22 for kitty theme files' none and background (lane b151):
+# how kitty's renderer paints a selection and a cursor whose colour is
+# unset. Its cell.slang at this commit is kitty-cell's bytes.
+[sources.kitty-1e1486e-shaders-c]
+key    = "kitty-1e1486e-shaders-c"
+title  = "kitty 1e1486e, kitty/shaders.c -- cell_update_uniform_block: the selection's use_cell flags from highlight_fg/bg unset, and a cursor colour unset ignoring cursor_text_color"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 1e1486e (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders.c"
+file   = ""
+sha256 = "547a8bd1927de37993f89c6a44e28fb99c54958faa81902aa7b32cc09cea067e"
+bytes  = 164008
+status = "external"
+group  = "Y"
+
+[sources.kitty-1e1486e-background-slang]
+key    = "kitty-1e1486e-background-slang"
+title  = "kitty 1e1486e, kitty/shaders/background.slang -- a selected cell's page: the cell's text colour where selection_background is unset"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 1e1486e (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders/background.slang"
+file   = ""
+sha256 = "a7349107a8716541ef53f12127df99d8bc05f20ae1f7c77fb80499d955944ea6"
+bytes  = 13087
+status = "external"
+group  = "Y"

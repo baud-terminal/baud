@@ -1,6 +1,6 @@
 //! Renditions to pixels: the theme, the palette, and the attribute rules.
 
-use baud_domain::themefile::{CellPaint, Scheme};
+use baud_domain::themefile::{CellPaint, CursorText, Scheme, SelectionText};
 use baud_domain::{Attrs, Chan, Color, ColorWord, Count, DynamicColor, LINEAR, StyleWord};
 
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
@@ -809,6 +809,14 @@ pub struct Theme {
     /// ([`Renderer::block_paint`](crate::Renderer::block_paint)).
     pub cursor: Option<CellPaint<Argb>>,
     pub cursor_text: Option<CellPaint<Argb>>,
+    /// Under which cursor [`Theme::cursor_text`] is drawn: every one, or
+    /// after a kitty theme's `cursor none` only one with a colour
+    /// ([`Theme::block_text`]).
+    pub cursor_text_under: CursorText,
+    /// What the selection's text answers where [`Theme::selection_text`]
+    /// is unset: reverse video's, or a kitty theme's
+    /// `selection_foreground none`. Drawn the same either way.
+    pub unset_selection_text: SelectionText,
 }
 
 /// What the window's dim does to a background the application set.
@@ -886,6 +894,8 @@ impl Theme {
             selection_text: None,
             cursor: None,
             cursor_text: None,
+            cursor_text_under: CursorText::UnderEveryCursor,
+            unset_selection_text: SelectionText::Reverse,
         }
     }
 
@@ -917,6 +927,8 @@ impl Theme {
             selection_text: None,
             cursor: None,
             cursor_text: None,
+            cursor_text_under: CursorText::UnderEveryCursor,
+            unset_selection_text: SelectionText::Reverse,
         }
     }
 
@@ -958,7 +970,23 @@ impl Theme {
                 *slot = landed;
             }
         }
+        // What the file's none leaves to resolve where it is drawn.
+        self.cursor_text_under = scheme.cursor_text_under;
+        self.unset_selection_text = scheme.unset_selection_text;
         Count::of(unset)
+    }
+
+    /// **The text under a block cursor filled with `fill`**: the theme's,
+    /// except under a cursor of no colour of its own -- the cell's colours
+    /// swapped, `None` -- where a kitty theme's `cursor none` sets it aside
+    /// ([`CursorText::UnderACursorColour`]). `fill` is the one in force
+    /// when the frame is drawn, a program's or the config's included, so
+    /// a cursor colour set over the file's none brings the text back.
+    pub fn block_text(&self, fill: Option<CellPaint<Argb>>) -> Option<CellPaint<Argb>> {
+        match (self.cursor_text_under, fill) {
+            (CursorText::UnderACursorColour, None) => None,
+            _ => self.cursor_text,
+        }
     }
 
     /// Dark or light by the rule `CSI ? 996 n` answers with: the page's
