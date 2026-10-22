@@ -47,9 +47,9 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 - [ ] **Hebrew in every style** — Italic and bold italic Hebrew with its points, to match the regular and bold already built in. *In progress.*
 - [ ] **Hebrew points in fonts without positioning data** — Points on some Hebrew letters can land one cell to the right in fonts that do not position them. *In progress.*
-- [ ] **Choose fonts by name** — Name a font family and size instead of pointing at a font file. File paths keep working.
-- [ ] **Real bold and italic for your own fonts** — When you choose your own font, its bold and italic faces are used instead of the regular one.
 - [ ] **Right-to-left text** — Hebrew and Arabic lines laid out right to left, with the cursor and selection following.
+- [x] **Choose fonts by name** — Name a font family and size instead of pointing at a font file. File paths keep working. (2026-10-22)
+- [x] **Real bold and italic for your own fonts** — When you choose your own font, its bold and italic faces are used instead of the regular one. (2026-10-22)
 - [x] **Double-height and double-width lines** — Banner lines drawn twice as wide, or twice as wide and twice as tall over two lines, as vttest and DEC-era programs draw them. (2026-10-19)
 - [x] **Generated text tables are checked against their generators** — A tool that rebuilds the grapheme-cluster table had been writing one wrong byte since August; the shipped table was right. The tool is fixed and the test suite now fails if either generated table drifts from its source. (2026-10-16)
 - [x] **The character-grouping rules can no longer disagree with themselves** — The machine that decides where one on-screen character ends and the next begins kept its state in two forms that could drift apart. They are now two separate types, so neither can be built out of step with the other; the text path runs slightly fewer instructions as a result and draws exactly the same cells. (2026-10-16)
@@ -65,7 +65,6 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Keyboard, mouse and clipboard
 
-- [ ] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off; choosing the selection colour is left. *In progress.*
 - [ ] **Key releases and modifier keys on macOS** — Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them. *In progress.*
 - [ ] **Keyboard lock and local echo** — Two old modes: a program can lock the keyboard, or have typed text shown without waiting for it.
 - [ ] **Keypad and Backspace key modes** — Programs can choose what the keypad and the Backspace key send, as on DEC terminals.
@@ -73,6 +72,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Programs choose whether Shift selects** — A program that uses the mouse can say whether Shift-drag still selects text.
 - [ ] **See where a link goes before opening it** — Holding Cmd marks the linked text and shows its address.
 - [ ] **The remaining key-modifier modes** — The last of xterm's settings for how modified keys are sent.
+- [x] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off, and the selection takes the colours you or your theme choose. (2026-10-22)
 - [x] **Keypad arrows reach programs that ask for every key, on Linux** — With NumLock off, the keypad's arrows, Home, End, Page Up/Down, Insert, Delete and the centre key are sent as kitty's own keypad keys, or as the keys they stand for in older modes. A Mac keyboard has no NumLock, so on macOS the keypad still types digits. (2026-10-16)
 - [x] **Programs can copy to the macOS clipboard** — Programs can set your clipboard. Reads are still refused. It can be turned off in the config. Input method composition text is drawn at the cursor. (2026-10-11)
 - [x] **Every mouse reporting mode works, and a fast wheel scroll reaches the program whole** — The X10, UTF-8, urxvt and SGR pixel modes work. Slow wheel movement adds up, and a slow program no longer freezes the window. Whether scrolling works under a multiplexer is still waiting on your check. (2026-10-09)

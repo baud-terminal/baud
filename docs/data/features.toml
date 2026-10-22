@@ -514,6 +514,7 @@ does = "Name your own fonts by family, such as \"Fira Code\", and baud finds the
 status = "built"
 platform = "both"
 tests = ["baud-app/src/config.rs::a_name_resolves_to_its_face_and_a_miss_is_said", "baud-app/src/discover.rs::a_family_name_picks_its_regular_face", "baud-app/src/config.rs::a_configured_stack_keeps_the_embedded_font_behind_it", "baud-app/src/config.rs::font_fallback_reads_true_and_false_and_says_anything_else"]
+shipped = ["SQ-v1.0-06"]
 
 [[feature]]
 id = "own-fonts-styles"
@@ -523,6 +524,7 @@ does = "With your own font, bold, italic and bold-italic text is drawn from the 
 status = "built"
 platform = "both"
 tests = ["baud-app/src/config.rs::a_configured_family_brings_its_own_styles", "baud-app/src/config.rs::a_family_without_italics_draws_bold_italic_bold", "baud-app/src/host.rs::a_configured_fonts_styles_reach_the_renderer"]
+shipped = ["SQ-v1.0-12"]
 
 [[feature]]
 id = "variable-fonts"
@@ -1196,6 +1198,7 @@ status = "built"
 platform = "both"
 tests = ["baud-render/tests/highlight_colours.rs::a_theme_selection_colour_is_drawn_until_a_program_sets_its_own", "baud-app/src/palette.rs::the_configs_selection_wins_over_the_files_and_none_takes_it_away", "baud-app/src/config.rs::the_selection_keys_take_a_colour_or_none", "baud-core/tests/xterm/osc.rs::a_configured_selection_colour_answers_and_is_what_117_and_119_restore"]
 rows = ["vt:`OSC 17` / `OSC 19`", "vt:`OSC 117` / `OSC 119`"]
+shipped = ["SQ-v1.0-07"]
 
 [[feature]]
 id = "reflow"
@@ -1830,12 +1833,6 @@ name = "Right-to-left text"
 area = "text"
 does = "Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet."
 roadmap = ["SQ-v1.0-01"]
-
-[[missing]]
-name = "Copy on select"
-area = "input"
-does = "Selecting text does not copy it yet; Cmd-C does."
-roadmap = ["SQ-v1.0-07"]
 
 [[missing]]
 name = "More than one window"

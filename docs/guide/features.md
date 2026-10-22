@@ -266,7 +266,6 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Solid image backgrounds** — foot and wezterm fill the solid background a Sixel image asks for. [Roadmap](../roadmap.md#pictures)
 - **Linux** — the Linux version has run only headless, with no GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
 - **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
-- **Copy on select** — Selecting text does not copy it yet; Cmd-C does. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **More than one window** — baud opens one window; Cmd-N for another is not built yet. [Roadmap](../roadmap.md#window-colours-and-bell)
 
 ## How this page stays true

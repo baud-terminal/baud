@@ -136,16 +136,18 @@ summary = "When a program sets no title, the window shows the current folder and
 [[item]]
 id = "SQ-v1.0-06"
 area = "text"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "Choose fonts by name"
 summary = "Name a font family and size instead of pointing at a font file. File paths keep working."
 
 [[item]]
 id = "SQ-v1.0-07"
 area = "input"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "Copy on select"
-summary = "Selecting text copies it, on by default with a setting to turn it off; choosing the selection colour is left."
+summary = "Selecting text copies it, on by default with a setting to turn it off, and the selection takes the colours you or your theme choose."
 
 [[item]]
 id = "SQ-v1.0-08"
@@ -419,7 +421,8 @@ summary = "The screen slides between your shell and a full-screen program, as an
 [[item]]
 id = "SQ-v1.0-12"
 area = "text"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "Real bold and italic for your own fonts"
 summary = "When you choose your own font, its bold and italic faces are used instead of the regular one."
 
