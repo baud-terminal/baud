@@ -1,4 +1,4 @@
-# BA. Holding Cmd over a link: what other terminals show
+# BA. Holding Cmd over a link: prior art, the modifiers and every perturbation
 
 What a terminal shows of a link's address before it is opened, and where
 its own bars sit against a program's images. Read 2026-10-22 for lanes
@@ -14,12 +14,12 @@ invisible characters (`[[source: ghostty-urlhoverbanner]]`,
 `[[source: ghostty-untrustedurl]]`); kitty draws the target in a bar
 along the top, the bottom when the link is high, the host in punycode
 (`[[source: kitty-hyperlink-target]]`,
-`[[source: kitty-sanitize-url]]`);
-iTerm2 underlines on Command and puts an OSC 8 link's URL in the corner
-that covers it least (`[[source: iterm2-hover-url-view]]`); WezTerm
-underlines and shows no target (`[[source: wezterm-hover]]`);
-Terminal.app has no source to read. The OSC 8 spec asks terminals to
-"let the user know the URI upfront" (`[[source: osc8-spec]]`).
+`[[source: kitty-sanitize-url]]`); iTerm2 underlines on Command and puts
+an OSC 8 link's URL in the corner that covers it least (`[[source:
+iterm2-hover-url-view]]`); WezTerm underlines and shows no target
+(`[[source: wezterm-hover]]`); Terminal.app has no source to read. The
+OSC 8 spec asks terminals to "let the user know the URI upfront"
+(`[[source: osc8-spec]]`).
 
 Jev was asked twice in both orders with renders of each option
 (`baud-render`'s CPU path). E_BYTES, every byte outside printable ASCII
