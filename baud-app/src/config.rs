@@ -891,20 +891,31 @@ impl Config {
                         ));
                     }
                 }
-                FaceFrom::Family => match pick(&cat.family(&f.path), Want::REGULAR) {
-                    Some(p) => {
-                        if configured && styled.is_none() {
-                            styled = Some(styles_of(&cat.family(&f.path), &p));
+                FaceFrom::Family => {
+                    use crate::discover::Named;
+                    // The face a name picks, and the faces its other
+                    // styles are picked among: a family's, or for a face
+                    // named alone, its family's.
+                    let (regular, family) = match cat.lookup(&f.path) {
+                        Named::Face(k) => (pick(&[k], Want::REGULAR), cat.family_of(k)),
+                        Named::Family(fam) => (pick(&fam, Want::REGULAR), fam),
+                        Named::Nothing => (None, Vec::new()),
+                    };
+                    match regular {
+                        Some(p) => {
+                            if configured && styled.is_none() {
+                                styled = Some(styles_of(&family, &p));
+                            }
+                            found = Found::Some;
+                            kept.push(FaceSpec::picked(&p, f.role));
                         }
-                        found = Found::Some;
-                        kept.push(FaceSpec::picked(&p, f.role));
+                        None if configured => said.push(format!(
+                            "config: no installed font is named {:?}; the stack goes on without it",
+                            f.path
+                        )),
+                        None => {}
                     }
-                    None if configured => said.push(format!(
-                        "config: no installed font is the family {:?}; the stack goes on without it",
-                        f.path
-                    )),
-                    None => {}
-                },
+                }
             }
         }
         if configured && found == Found::None {
@@ -2436,6 +2447,196 @@ mod named {
             );
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **A name that is a face's PostScript name or full name finds that
+    /// face**, as kitty and WezTerm take one (Jev's lean, L_PS_FIRST:
+    /// PostScript name, then full name, then family), by CSS's caseless
+    /// match, and the face's family brings the other styles: JetBrains
+    /// Mono's Bold named either way is the regular face, its Italic and
+    /// Bold Italic the styled ones, and no Bold is added beside itself. A
+    /// full name equal to the face's family is passed over for the family,
+    /// so "JetBrains Mono" still picks the Regular.
+    #[test]
+    fn a_face_is_found_by_its_postscript_or_full_name() {
+        use baud_render::FaceStyle::{BoldItalic, Italic};
+        for name in ["JetBrainsMono-Bold", "jetbrains MONO bold"] {
+            let mut c = read(&format!("fonts = [\"{name}\"]\n"));
+            let said = c.resolve(&jetbrains());
+            assert!(said.is_empty(), "{name}: {said:?}");
+            assert!(
+                c.faces[0].path.ends_with("/JetBrainsMono-Bold.ttf"),
+                "{name}"
+            );
+            assert_eq!(
+                styles(&c),
+                [
+                    (Italic, "JetBrainsMono-Italic.ttf".into(), None),
+                    (BoldItalic, "JetBrainsMono-BoldItalic.ttf".into(), None),
+                ],
+                "{name}"
+            );
+        }
+        let mut c = read("fonts = [\"JetBrains Mono\"]\n");
+        assert!(c.resolve(&jetbrains()).is_empty());
+        assert!(c.faces[0].path.ends_with("/JetBrainsMono-Regular.ttf"));
+        let mut c = read("fonts = [\"JetBrains Mono Bold Italic\", \"JetBrainsMono-Italic\"]\n");
+        assert!(c.resolve(&jetbrains()).is_empty());
+        assert!(c.faces[0].path.ends_with("/JetBrainsMono-BoldItalic.ttf"));
+        assert!(c.faces[1].path.ends_with("/JetBrainsMono-Italic.ttf"));
+        // A family and a style run together is no name of the face.
+        let mut c = read("fonts = [\"JetBrainsMonoBold\"]\n");
+        assert_eq!(c.resolve(&jetbrains()).len(), 2);
+    }
+
+    /// JetBrains Mono's file `file` with its `name` table replaced by one
+    /// holding `names` (nameID, string) as Windows English (United States)
+    /// records, appended and pointed at, as `baud-font/tests/name.rs`
+    /// splices one; every other table is the file's own.
+    fn renamed(file: &str, names: &[(u16, &str)]) -> Vec<u8> {
+        let mut f = std::fs::read(format!("{ROOT}/baud-app/fonts/jetbrains-mono/{file}")).unwrap();
+        let n = u16::try_from(names.len()).unwrap();
+        let mut table = Vec::new();
+        let mut store = Vec::new();
+        for v in [0, n, 6 + 12 * n] {
+            table.extend_from_slice(&v.to_be_bytes());
+        }
+        for &(id, s) in names {
+            let s: Vec<u8> = s.encode_utf16().flat_map(u16::to_be_bytes).collect();
+            let len = u16::try_from(s.len()).unwrap();
+            let off = u16::try_from(store.len()).unwrap();
+            for v in [3, 1, 0x409, id, len, off] {
+                table.extend_from_slice(&v.to_be_bytes());
+            }
+            store.extend_from_slice(&s);
+        }
+        table.extend_from_slice(&store);
+        let tables = usize::from(u16::from_be_bytes([f[4], f[5]]));
+        let rec = (0..tables)
+            .map(|i| 12 + 16 * i)
+            .find(|&r| &f[r..r + 4] == b"name")
+            .expect("JetBrains Mono has a name table");
+        while !f.len().is_multiple_of(4) {
+            f.push(0);
+        }
+        let at = u32::try_from(f.len()).unwrap();
+        f.extend_from_slice(&table);
+        f[rec + 8..rec + 12].copy_from_slice(&at.to_be_bytes());
+        f[rec + 12..rec + 16].copy_from_slice(&u32::try_from(table.len()).unwrap().to_be_bytes());
+        f
+    }
+
+    /// **A weight-split family named by its legacy family name keeps the
+    /// styles that name answers to**: a static family's Light faces carry
+    /// nameID 1 "Split Mono Light" and the full name "Split Mono Light",
+    /// and nameID 16 "Split Mono", as Seravek's do. The full name is one
+    /// of the face's own family names, so it is passed over and CSS 5.2
+    /// picks each style among the faces "Split Mono Light" names: the
+    /// Light Italic for italic and bold italic, and no Bold from the wider
+    /// family. "Split Mono Light Italic" is a full name alone, and names
+    /// its face.
+    #[test]
+    fn a_family_named_by_its_legacy_name_keeps_its_own_styles() {
+        let dir = std::env::temp_dir().join(format!("baud-b145-split-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (out, from, n1, n2, n4, n6) in [
+            (
+                "SplitMono-Light.ttf",
+                "JetBrainsMono-Regular.ttf",
+                "Split Mono Light",
+                "Regular",
+                "Split Mono Light",
+                "SplitMono-Light",
+            ),
+            (
+                "SplitMono-LightItalic.ttf",
+                "JetBrainsMono-Italic.ttf",
+                "Split Mono Light",
+                "Italic",
+                "Split Mono Light Italic",
+                "SplitMono-LightItalic",
+            ),
+            (
+                "SplitMono-Bold.ttf",
+                "JetBrainsMono-Bold.ttf",
+                "Split Mono",
+                "Bold",
+                "Split Mono Bold",
+                "SplitMono-Bold",
+            ),
+            (
+                "SplitMono-BoldItalic.ttf",
+                "JetBrainsMono-BoldItalic.ttf",
+                "Split Mono",
+                "Bold Italic",
+                "Split Mono Bold Italic",
+                "SplitMono-BoldItalic",
+            ),
+        ] {
+            let names = [(1, n1), (2, n2), (4, n4), (6, n6), (16, "Split Mono")];
+            std::fs::write(dir.join(out), renamed(from, &names)).unwrap();
+        }
+        let cat = Catalogue::scan(std::slice::from_ref(&dir));
+        let mut c = read("fonts = [\"Split Mono Light\"]\n");
+        assert!(c.resolve(&cat).is_empty());
+        assert!(c.faces[0].path.ends_with("/SplitMono-Light.ttf"));
+        assert_eq!(
+            styles(&c),
+            [
+                (Italic, "SplitMono-LightItalic.ttf".into(), None),
+                (BoldItalic, "SplitMono-LightItalic.ttf".into(), None),
+            ]
+        );
+        let mut c = read("fonts = [\"Split Mono Light Italic\"]\n");
+        assert!(c.resolve(&cat).is_empty());
+        assert!(c.faces[0].path.ends_with("/SplitMono-LightItalic.ttf"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **The system's weight-split families named by a legacy family name**
+    /// (macOS only): "Seravek Light" draws italic and bold italic from
+    /// Seravek Light Italic and adds no Bold, and "Iowan Old Style Black"
+    /// draws both from Iowan Old Style Black Italic, as the family search
+    /// picks them. Each face is told by its full name, not its place in
+    /// the collection.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_systems_weight_split_families_keep_their_own_styles() {
+        let cat = Catalogue::system();
+        let full = |f: &FaceSpec| -> String {
+            let data = std::fs::read(&f.path).unwrap();
+            let d = baud_font::Described::of(&data, f.index).unwrap();
+            let mut out = [0u8; 256];
+            let name = d
+                .full_name()
+                .and_then(|n| n.utf8(&mut out).map(<[u8]>::to_vec));
+            String::from_utf8(name.unwrap_or_default()).unwrap()
+        };
+        for (name, styled) in [
+            ("Seravek Light", "Seravek Light Italic"),
+            ("Iowan Old Style Black", "Iowan Old Style Black Italic"),
+        ] {
+            let mut c = read(&format!("fonts = [\"{name}\"]\n"));
+            assert!(c.resolve(cat).is_empty(), "{name}");
+            assert_eq!(full(&c.faces[0]), name);
+            let got: Vec<_> = c
+                .faces
+                .iter()
+                .filter_map(|f| match f.role {
+                    baud_render::FaceRole::Style(s) => Some((s, full(f))),
+                    baud_render::FaceRole::Fallback => None,
+                })
+                .collect();
+            assert_eq!(
+                got,
+                [
+                    (Italic, styled.to_string()),
+                    (BoldItalic, styled.to_string())
+                ],
+                "{name}"
+            );
+        }
     }
 
     /// **A later variable font named by path is drawn at the weight

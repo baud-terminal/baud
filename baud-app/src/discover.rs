@@ -101,6 +101,10 @@ pub struct Known {
     /// nameID 16 else 1: what a face named by its path is a face of.
     family: Option<String>,
     names: Vec<String>,
+    /// Its full name (nameID 4, US English else the first) and PostScript
+    /// name (nameID 6), the names that pick it alone.
+    full: Option<String>,
+    postscript: Option<String>,
     width: Span,
     weight: Span,
     slopes: Vec<(Scale, Span)>,
@@ -122,11 +126,14 @@ impl Known {
         if names.is_empty() {
             return None;
         }
-        let family = d.family().and_then(|f| {
+        let text = |f: baud_font::Family<'_>| {
             let mut out = [0u8; 256];
             f.utf8(&mut out)
                 .map(|b| String::from_utf8_lossy(b).into_owned())
-        });
+        };
+        let family = d.family().and_then(text);
+        let full = d.full_name().and_then(text);
+        let postscript = d.postscript_name().and_then(text);
         let axis = |tag: &[u8; 4]| {
             d.axis(Tag::from_bytes(*tag)).map(|a| Axis {
                 tag: a.tag,
@@ -180,6 +187,8 @@ impl Known {
             index,
             family,
             names,
+            full,
+            postscript,
             width,
             weight,
             slopes,
@@ -190,10 +199,34 @@ impl Known {
     /// Whether `name` is one of its family names, by default caseless
     /// match (`[[source: css-fonts-3]]` 5.1).
     fn answers_to(&self, name: &str) -> bool {
-        self.names
-            .iter()
-            .any(|n| baud_domain::caseless_eq(n.chars(), name.chars()))
+        self.names.iter().any(|n| same(n, name))
     }
+
+    /// Whether `name` is its PostScript name.
+    fn postscript_is(&self, name: &str) -> bool {
+        self.postscript.as_deref().is_some_and(|p| same(p, name))
+    }
+
+    /// Whether `name` is its full name and that is none of its own family
+    /// names (nameID 16 or 1), which a name finds as the family: kitty
+    /// passes a full name over that way ("IBM Plex Mono has fullname of
+    /// regular face == family_name", `[[source: kitty-fonts-fontconfig-fa9f8da]]`).
+    /// nameID 1 counts too: a weight-split family's "Seravek Light" is
+    /// its Light face's full name and its nameID 1, and as a family it
+    /// names the Light faces only, where the face would bring Seravek's.
+    fn full_name_is(&self, name: &str) -> bool {
+        self.full
+            .as_deref()
+            .is_some_and(|f| same(f, name) && !self.answers_to(f))
+    }
+}
+
+/// Two names compared by default caseless match, no normalisation
+/// (`[[source: css-fonts-3]]` 5.1). CSS states it for family names; for a
+/// full or PostScript name, which `local()` matches with no case rule
+/// stated, it is a reading.
+fn same(a: &str, b: &str) -> bool {
+    baud_domain::caseless_eq(a.chars(), b.chars())
 }
 
 /// The style a cell asks its face for: upright or italic, regular or
@@ -466,8 +499,9 @@ impl Catalogue {
     /// The faces under `dirs`, walked to `max` levels below each.
     fn read(dirs: &[PathBuf], max: Depth) -> Catalogue {
         let mut files = Vec::new();
+        let mut seen = Seen::default();
         for d in dirs {
-            walk(d, Depth(0), max, &mut files);
+            walk(d, Depth(0), max, &mut seen, &mut files);
         }
         let threads = std::thread::available_parallelism()
             .map_or(1, std::num::NonZero::get)
@@ -510,6 +544,36 @@ impl Catalogue {
         self.faces.iter().filter(|k| k.answers_to(name)).collect()
     }
 
+    /// **What a `fonts` name names** (Jev's lean, L_PS_FIRST, kitty's
+    /// order, `[[source: kitty-fonts-core-text-fa9f8da]]`
+    /// `find_best_match`): the first face whose PostScript name it is,
+    /// else the first whose full name it is (but for a full name that is
+    /// one of the face's own family names), else the faces of the family
+    /// it is. A unique
+    /// name "specifies a single font, not an entire font family"
+    /// (`[[source: css-fonts-3]]` 4.3).
+    pub fn lookup(&self, name: &str) -> Named<'_> {
+        if let Some(k) = self.faces.iter().find(|k| k.postscript_is(name)) {
+            return Named::Face(k);
+        }
+        if let Some(k) = self.faces.iter().find(|k| k.full_name_is(name)) {
+            return Named::Face(k);
+        }
+        match self.family(name) {
+            f if f.is_empty() => Named::Nothing,
+            f => Named::Family(f),
+        }
+    }
+
+    /// **The faces of `k`'s family**: of its preferred family name
+    /// (nameID 16 else 1), so a face named alone brings its family's
+    /// other styles.
+    pub fn family_of(&self, k: &Known) -> Vec<&Known> {
+        k.family
+            .as_deref()
+            .map_or_else(Vec::new, |f| self.family(f))
+    }
+
     /// **The faces of the font a config names by path**: its file and the
     /// font files beside it in its own directory, not below it, read on
     /// their own -- a font named by path need not be in any font directory,
@@ -550,6 +614,15 @@ fn regular_in(faces: &[Known], index: FaceIndex) -> Option<Picked> {
     pick(&[k], Want::REGULAR)
 }
 
+/// What a `fonts` name found ([`Catalogue::lookup`]).
+pub enum Named<'c> {
+    /// One face, by its PostScript or full name.
+    Face(&'c Known),
+    /// A family's faces, by one of its family names.
+    Family(Vec<&'c Known>),
+    Nothing,
+}
+
 /// The faces of a font named by path's family ([`Catalogue::beside`]).
 pub struct Beside {
     faces: Vec<Known>,
@@ -579,9 +652,28 @@ fn is_font(p: &Path) -> bool {
     })
 }
 
+/// The directories a scan has read, by device and inode: a directory
+/// reached twice -- through a symbolic link, or named twice under two
+/// spellings -- is read the first time only, so a tie between its copies
+/// keeps the earlier directory's.
+#[derive(Default)]
+struct Seen(std::collections::HashSet<(u64, u64)>);
+
+impl Seen {
+    /// Whether `dir` is read now: it exists and has not been read before.
+    fn first(&mut self, dir: &Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(dir).is_ok_and(|m| self.0.insert((m.dev(), m.ino())))
+    }
+}
+
 /// The font files under `dir`, in name order, following symbolic links
-/// (Home Manager links its fonts), to `max` levels below.
-fn walk(dir: &Path, depth: Depth, max: Depth, out: &mut Vec<PathBuf>) {
+/// (Home Manager links its fonts), to `max` levels below, each directory
+/// once ([`Seen`]).
+fn walk(dir: &Path, depth: Depth, max: Depth, seen: &mut Seen, out: &mut Vec<PathBuf>) {
+    if !seen.first(dir) {
+        return;
+    }
     let Ok(rd) = std::fs::read_dir(dir) else {
         return;
     };
@@ -598,7 +690,9 @@ fn walk(dir: &Path, depth: Depth, max: Depth, out: &mut Vec<PathBuf>) {
             k => k,
         };
         match kind {
-            Some(k) if k.is_dir() && depth < max => walk(&p, Depth(depth.0 + 1), max, out),
+            Some(k) if k.is_dir() && depth < max => {
+                walk(&p, Depth(depth.0 + 1), max, seen, out);
+            }
             Some(k) if k.is_file() && is_font(&p) => out.push(p),
             _ => {}
         }
@@ -681,8 +775,10 @@ impl Drop for Mapped {
 }
 
 /// **The font directories, in the order a tie between two copies of one
-/// face is decided**: the user's own first, then the machine's, then the
-/// system's.
+/// face is decided**. On macOS the user's own first, then the machine's,
+/// then the system's. Elsewhere, the directories fontconfig's
+/// configuration names, in its order ([`crate::fontconf`]), and where no
+/// configuration is found, [`xdg_dirs`]'s list.
 pub fn system_dirs() -> Vec<PathBuf> {
     let home = std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
@@ -697,11 +793,15 @@ pub fn system_dirs() -> Vec<PathBuf> {
         }
         mac_dirs(home, assets)
     } else {
-        xdg_dirs(
-            home,
-            std::env::var_os("XDG_DATA_HOME"),
-            std::env::var_os("XDG_DATA_DIRS"),
-        )
+        // fontconfig's own list where its configuration is found (Jev's
+        // lean, C_CONF_ONLY); the fixed list where there is none.
+        crate::fontconf::dirs(&crate::fontconf::Env::from_process()).unwrap_or_else(|| {
+            xdg_dirs(
+                home,
+                std::env::var_os("XDG_DATA_HOME"),
+                std::env::var_os("XDG_DATA_DIRS"),
+            )
+        })
     }
 }
 
@@ -781,6 +881,8 @@ mod tests {
             index: FaceIndex::FIRST,
             family: Some("Test Family".into()),
             names: vec!["Test Family".into()],
+            full: None,
+            postscript: None,
             width: Span::at(100.0),
             weight,
             slopes,
@@ -945,6 +1047,29 @@ mod tests {
         );
     }
 
+    /// **A folder reached twice is read once**: through a symbolic link
+    /// beside it, or named twice in the list, JetBrains Mono's Regular is
+    /// one face, and the copy kept is the first walked.
+    #[test]
+    fn a_folder_reached_twice_is_read_once() {
+        let dir = std::env::temp_dir().join(format!("baud-b145-seen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("b-fonts")).unwrap();
+        std::fs::copy(
+            format!("{ROOT}/baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"),
+            dir.join("b-fonts/JetBrainsMono-Regular.ttf"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(dir.join("b-fonts"), dir.join("a-link")).unwrap();
+        let none = Catalogue::scan(&[]).faces.len();
+        let cat = Catalogue::scan(&[dir.clone(), dir.join("b-fonts")]);
+        assert_eq!(cat.faces.len() - none, 1, "one face");
+        let jb = cat.family("JetBrains Mono");
+        assert_eq!(jb.len(), 1);
+        assert!(jb[0].path.contains("/a-link/"), "{}", jb[0].path);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// **The directories, in order**: on macOS the user's, the machine's,
     /// the system's and the downloadable-font assets; elsewhere the XDG
     /// data directories, with the specification's defaults for a variable
@@ -1056,8 +1181,9 @@ mod tests {
         }
         let t = std::time::Instant::now();
         let mut files = Vec::new();
+        let mut seen = Seen::default();
         for d in &dirs {
-            walk(d, Depth(0), DEPTH_MAX, &mut files);
+            walk(d, Depth(0), DEPTH_MAX, &mut seen, &mut files);
         }
         let walked = t.elapsed();
         let n: usize = files.iter().map(|p| read_file(p).len()).sum();
@@ -1123,5 +1249,26 @@ mod tests {
             localized.path.ends_with("/Hiragino Sans GB.ttc"),
             "{localized:?}"
         );
+    }
+
+    /// **The system's faces by PostScript and full name** (macOS only):
+    /// Menlo's Bold by `Menlo-Bold`, its Bold Italic by "menlo bold
+    /// italic", each one face of the collection; "Apple Color Emoji" is
+    /// also that face's full name, which is its family's own, so it is
+    /// found as the family and picks what it picked before.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_system_faces_by_postscript_and_full_name() {
+        let cat = Catalogue::system();
+        let face = |name: &str| match cat.lookup(name) {
+            Named::Face(k) => Some((k.path.clone(), k.index)),
+            _ => None,
+        };
+        let menlo = "/System/Library/Fonts/Menlo.ttc".to_string();
+        assert_eq!(face("Menlo-Bold"), Some((menlo.clone(), FaceIndex::of(1))));
+        assert_eq!(face("menlo bold italic"), Some((menlo, FaceIndex::of(3))));
+        assert!(face("Apple Color Emoji").is_none(), "a family");
+        assert!(matches!(cat.lookup("Apple Color Emoji"), Named::Family(_)));
+        assert!(matches!(cat.lookup("No Such Face-Bold"), Named::Nothing));
     }
 }

@@ -56,6 +56,9 @@ mod config;
 // face a family and a style pick among them, for both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod discover;
+// fontconfig's configuration, the scan's directory list on Linux.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod fontconf;
 // The font compiled into the binary: the default stack's first face.
 mod embedded;
 // A pointer event to the child or the selection, the cell under it, its

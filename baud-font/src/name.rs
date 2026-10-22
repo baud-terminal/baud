@@ -24,7 +24,8 @@ enum Encoding {
     Ascii,
 }
 
-/// A face's family name, as its `name` table stores it.
+/// A face's family name, or another of its names (its full name, its
+/// PostScript name), as its `name` table stores it.
 #[derive(Clone, Copy)]
 pub struct Family<'a> {
     bytes: Bytes<'a>,
@@ -118,9 +119,44 @@ impl<'a> Face<'a> {
     }
 }
 
-/// One family record of a `name` table: its rank in the module's order,
-/// and the name.
-fn records(t: Bytes<'_>) -> impl Iterator<Item = (Rank, Family<'_>)> {
+/// One record of a `name` table in an encoding read here: its nameID, its
+/// platform and language, its place in the module's order of records, and
+/// the name.
+#[derive(Clone, Copy)]
+struct Entry<'a> {
+    id: NameId,
+    locale: Locale,
+    place: Place,
+    name: Family<'a>,
+}
+
+/// A record's nameID.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct NameId(u16);
+
+impl NameId {
+    const FAMILY: NameId = NameId(1);
+    const FULL: NameId = NameId(4);
+    const POSTSCRIPT: NameId = NameId(6);
+    const TYPOGRAPHIC_FAMILY: NameId = NameId(16);
+}
+
+/// Whether a record is in the language CSS's `local()` prefers: US
+/// English, Windows language 0x0409 or Macintosh language 0.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Locale {
+    UsEnglish,
+    Other,
+}
+
+/// A record's place in the module's order of platforms and languages,
+/// lower first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct Place(u8);
+
+/// Every record of `name` table `t` in an encoding read here, in the
+/// table's order.
+fn entries(t: Bytes<'_>) -> impl Iterator<Item = Entry<'_>> {
     let count = t
         .read::<u16>(Offset::of(2u32))
         .map_or(Count::ZERO, Count::of);
@@ -139,10 +175,9 @@ fn records(t: Bytes<'_>) -> impl Iterator<Item = (Rank, Family<'_>)> {
             let (Some(length), Some(offset)) = (field(8), field(10)) else {
                 return None;
             };
-            let id_rank = match id {
-                16 => 0,
-                1 => 1,
-                _ => continue,
+            let locale = match (platform, language) {
+                (3, 0x0409) | (1, 0) => Locale::UsEnglish,
+                _ => Locale::Other,
             };
             let (place, how) = match (platform, encoding, language) {
                 (3, 1 | 10, 0x0409) => (0, Encoding::Utf16Be),
@@ -157,16 +192,61 @@ fn records(t: Bytes<'_>) -> impl Iterator<Item = (Rank, Family<'_>)> {
             else {
                 continue;
             };
-            return Some((
-                Rank(id_rank * 4 + place),
-                Family {
+            return Some(Entry {
+                id: NameId(id),
+                locale,
+                place: Place(place),
+                name: Family {
                     bytes,
                     encoding: how,
                 },
-            ));
+            });
         }
         None
     })
+}
+
+/// One family record of a `name` table: its rank in the module's order,
+/// and the name.
+fn records(t: Bytes<'_>) -> impl Iterator<Item = (Rank, Family<'_>)> {
+    entries(t).filter_map(|e| {
+        let id_rank = match e.id {
+            NameId::TYPOGRAPHIC_FAMILY => 0,
+            NameId::FAMILY => 1,
+            _ => return None,
+        };
+        Some((Rank(id_rank * 4 + e.place.0), e.name))
+    })
+}
+
+/// **The full font name CSS's `local()` matches**, nameID 4
+/// (`[[source: css-fonts-3]]` 4.3): "the US English version is used
+/// (language ID = 0x409 for Windows and language ID = 0 for Macintosh) or
+/// the first localization when a US English full font name is not
+/// available"; matching any other is "non-conformant".
+pub(crate) fn full_name_in(t: Bytes<'_>) -> Option<Family<'_>> {
+    let mut first = None;
+    for e in entries(t).filter(|e| e.id == NameId::FULL) {
+        if e.locale == Locale::UsEnglish {
+            return Some(e.name);
+        }
+        first = first.or(Some(e.name));
+    }
+    first
+}
+
+/// **The PostScript name**, nameID 6: "a string which is used to invoke a
+/// PostScript language font that corresponds to this OpenType font"
+/// (`[[source: ms-opentype-name]]`), one string however many records
+/// carry it; of several, the module's order's first.
+pub(crate) fn postscript_in(t: Bytes<'_>) -> Option<Family<'_>> {
+    let mut best: Option<Entry<'_>> = None;
+    for e in entries(t).filter(|e| e.id == NameId::POSTSCRIPT) {
+        if best.as_ref().is_none_or(|b| e.place < b.place) {
+            best = Some(e);
+        }
+    }
+    best.map(|e| e.name)
 }
 
 /// The family the module's order prefers, of `name` table `t`.

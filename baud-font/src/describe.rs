@@ -8,6 +8,11 @@
 //! * **Family**: every nameID 16 and 1 record (`[[source: ms-opentype-name]]`),
 //!   since a name typed in a config may be any of them
 //!   ([`Described::answers_to`]).
+//! * **Unique names**: the full name (nameID 4, its US English record,
+//!   else the first) and the PostScript name (nameID 6), the two names
+//!   `[[source: css-fonts-3]]` 4.3's `local()` matches to name one face
+//!   rather than a family ([`Described::full_name`],
+//!   [`Described::postscript_name`]).
 //! * **Weight**: `OS/2.usWeightClass` (`[[source: ms-opentype-os2-2026-10-21]]`:
 //!   "Values from 1 to 1000 are valid ... 400 Normal (Regular) ... 700
 //!   Bold"), the scale CSS's `font-weight` uses and CSS's Appendix A names
@@ -30,7 +35,7 @@
 
 use crate::bytes::{Bytes, Offset};
 use crate::face::Directory;
-use crate::name::{families_in, family_in};
+use crate::name::{families_in, family_in, full_name_in, postscript_in};
 use crate::var::{Axis, Fixed, Fvar};
 use crate::{FaceIndex, Family, Tag};
 
@@ -116,6 +121,17 @@ impl<'a> Described<'a> {
     /// Every family record, nameIDs 16 and 1, every language.
     pub fn families(&self) -> impl Iterator<Item = Family<'a>> {
         self.dir.table(Tag::NAME).into_iter().flat_map(families_in)
+    }
+
+    /// The full name `local()` matches: nameID 4's US English record,
+    /// else its first.
+    pub fn full_name(&self) -> Option<Family<'a>> {
+        full_name_in(self.dir.table(Tag::NAME)?)
+    }
+
+    /// The PostScript name, nameID 6.
+    pub fn postscript_name(&self) -> Option<Family<'a>> {
+        postscript_in(self.dir.table(Tag::NAME)?)
     }
 
     /// Whether `name` is one of its family names, by default caseless

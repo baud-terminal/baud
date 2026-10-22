@@ -94,3 +94,39 @@ Devanagari@0.
   Left as they were, the stock italics alone would answer to "JetBrains
   Mono", and with none installed CSS 5.2 would draw regular text from the
   Italic. The icon face and STIX Two Math answer to their own names.
+- A name is looked up as a PostScript name (nameID 6), then a full name
+  (nameID 4, US English else the first record, passed over where it is
+  one of the face's own family names, nameID 16 or 1), then a family --
+  L_PS_FIRST, kitty's
+  order (`[[source: kitty-fonts-core-text-fa9f8da]]`,
+  `[[source: kitty-fonts-fontconfig-fa9f8da]]`); first ask 0.33/0.23,
+  split by order, re-ask 0.23/0.22, still split: the lean of the re-ask's
+  two orders, probabilities 0.92 against 0.78 for family first. On this
+  Mac 264 of 691 family names are also some face's full or PostScript
+  name, always a face of that family (fontTools). The pass-over takes
+  nameID 1 as well as 16: a weight-split family's "Seravek Light" is its
+  Light face's full name and nameID 1, and found as that face it drew
+  bold and italic from all of Seravek, where the family search keeps
+  them among the Light faces. With it, 689 of the 690 family names the
+  catalogue held at the base resolve to the same regular, bold, italic
+  and bold italic faces, at the same axis values, as the family search
+  gave; the other, "STIX Two Math", picks the embedded face, as the
+  embedded faces come first, and the 692 now held add the embedded
+  faces' two.
+  47 of the 692 are reached as a PostScript or full name (a one-off
+  sweep through baud's own resolve, not kept). Passing over only the
+  preferred family (nameID 16 else 1), 77 of the 690 resolved
+  differently. CSS gives these names to `local()` only
+  (`[[source: css-fonts-3]]` 4.3), which states no case rule; the
+  family's caseless match is applied to them as a reading.
+- On Linux, where a fontconfig configuration is found, its directories are
+  the scan's whole list, the fixed list only where none is -- C_CONF_ONLY,
+  0.12/0.46, then 0.80/0.84 after the practice (fc-list and the
+  fontconfig-based terminals see exactly that set): the lean. Two
+  departures from fontconfig stay open: a configuration that fails (a
+  malformed root file, or an `<include>` without `ignore_missing` that is
+  missing or malformed) fontconfig drops whole for its fallback
+  configuration (`[[source: fontconfig-fcinit-2-15-0]]`), where baud keeps
+  what it read before the failure; and with no `fonts.conf` found, that
+  fallback also reads the system's and the user's `conf.d` and the
+  user's `fonts.conf`, where baud takes its fixed list.

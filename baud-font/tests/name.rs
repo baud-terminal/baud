@@ -162,3 +162,74 @@ fn a_family_answers_to_every_record_caselessly() {
         assert!(!face.answers_to(name.as_bytes()), "{name:?}");
     }
 }
+
+/// Which of a face's unique names to read.
+#[derive(Clone, Copy)]
+enum Unique {
+    Full,
+    PostScript,
+}
+
+/// The `which` name of the face `name` describes.
+fn described(name: &[u8], which: Unique) -> Option<String> {
+    let data = spliced(name);
+    let d = baud_font::Described::of(&data, baud_font::FaceIndex::FIRST)?;
+    let got = match which {
+        Unique::Full => d.full_name(),
+        Unique::PostScript => d.postscript_name(),
+    };
+    let mut out = [0u8; 64];
+    got?.utf8(&mut out)
+        .map(|b| String::from_utf8(b.to_vec()).unwrap())
+}
+
+/// **The full name is the one `local()` matches**, `[[source: css-fonts-3]]`
+/// 4.3: "the US English version is used (language ID = 0x409 for Windows
+/// and language ID = 0 for Macintosh) or the first localization when a US
+/// English full font name is not available". A French record ahead of the
+/// English one loses to it, on either platform; alone, it is the name.
+/// The PostScript name is nameID 6, whatever the full name says.
+#[test]
+fn the_full_name_is_the_us_english_record_else_the_first() {
+    let full = |r: &[(u16, u16, u16, u16, &[u8])]| described(&table(r), Unique::Full);
+    let fr = utf16("Fonte Grasse");
+    let en = utf16("Font Bold");
+    assert_eq!(
+        full(&[(3, 1, 0x040c, 4, &fr), (3, 1, 0x0409, 4, &en)]).as_deref(),
+        Some("Font Bold")
+    );
+    assert_eq!(
+        full(&[(3, 1, 0x040c, 4, &fr), (1, 0, 0, 4, b"Mac Bold")]).as_deref(),
+        Some("Mac Bold")
+    );
+    assert_eq!(
+        full(&[(3, 1, 0x040c, 4, &fr)]).as_deref(),
+        Some("Fonte Grasse")
+    );
+    assert_eq!(
+        full(&[(3, 1, 0x0409, 1, &en)]),
+        None,
+        "a family is no full name"
+    );
+    let ps = described(
+        &table(&[
+            (3, 1, 0x0409, 4, &en),
+            (3, 1, 0x0409, 6, &utf16("Font-Bold")),
+        ]),
+        Unique::PostScript,
+    );
+    assert_eq!(ps.as_deref(), Some("Font-Bold"));
+    let jb = baud_font::Described::of(JETBRAINS, baud_font::FaceIndex::FIRST).unwrap();
+    let mut out = [0u8; 64];
+    let text = |f: Option<baud_font::Family<'_>>, out: &mut [u8; 64]| {
+        f.and_then(|f| f.utf8(out).map(|b| String::from_utf8(b.to_vec()).unwrap()))
+    };
+    assert_eq!(
+        text(jb.full_name(), &mut out).as_deref(),
+        Some("JetBrains Mono Regular")
+    );
+    assert_eq!(
+        text(jb.postscript_name(), &mut out).as_deref(),
+        Some("JetBrainsMono-Regular")
+    );
+}
