@@ -61,16 +61,22 @@
 //! `?1043` raises the window; the config's `bell` picks the sound, the
 //! visual bell or nothing. [`ring`] is that decision, a pure function of the
 //! config, the motion preference, the window and the two modes, and the
-//! macOS driver's shim makes the AppKit calls it names. [`Ringer`] reads
-//! the bells the terminal counted at each volume ([`Term::bells_rung`])
-//! after each read and rings once for the bells of one frame interval. A flash it decides is
+//! macOS driver's shim makes the AppKit calls it names. The Linux driver
+//! asks it too, its window focused while the keyboard is its: the sound is
+//! the compositor's system bell where it offers `xdg-system-bell-v1`, and
+//! nothing where it does not. There the two modes are not acted on yet:
+//! baud has neither pinned nor built `xdg-activation-v1`, the request foot
+//! uses to mark a window urgent (`[[source: foot-2705e36-wayland]]`
+//! 2630-2658), an open gap. [`Ringer`] reads the bells the terminal counted
+//! at each volume ([`Term::bells_rung`]) after each read and rings once for
+//! the bells of one frame interval. A flash it decides is
 //! started through [`Bell::ring`], so it is planned, committed and refused
 //! as a `?5` pair's is.
 
 use core::time::Duration;
 use std::time::Instant;
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 use baud_core::{BellIsUrgent, BellVolume, BellsRung, PopOnBell};
 use baud_core::{ReverseFlips, Term, UpdatesOpened};
 use baud_domain::HostTime;
@@ -251,7 +257,7 @@ struct Rung(u32);
 impl Rung {
     const FIRST: Rung = Rung(0);
 
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     fn next(self) -> Rung {
         Rung(self.0.wrapping_add(1))
     }
@@ -354,7 +360,7 @@ impl<T: Moment> Bell<T> {
     /// shows it, from when it is drawn, unless that frame finds `?5` changed
     /// -- the mode is what a frame draws, and a flash of it would draw the
     /// opposite. Several rings before a frame are one flash.
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub fn ring(&mut self) {
         self.rung = self.rung.next();
     }
@@ -374,11 +380,14 @@ impl<T: Moment> Bell<T> {
 /// The window as a `BEL` finds it. `Minimized` is unfocused too, and the
 /// one state a raise must leave alone: `[[source: xterm-man]]` on
 /// `popOnBell`, "If the window is iconified, this has no effect."
-#[cfg(any(target_os = "macos", test))]
+/// xdg-shell tells a Linux client nothing of a minimized window, so there
+/// a window is focused or not.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Window {
     Focused,
     Unfocused,
+    #[cfg_attr(all(target_os = "linux", not(test)), allow(dead_code))]
     Minimized,
 }
 
@@ -436,7 +445,7 @@ impl Window {
 /// (`[[source: apple-audioservicesplaysystemsound]]`). No documented API
 /// names the user's alert sound or plays it below the user's alert volume,
 /// so on macOS low and high sound alike, an open gap; off is silence.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sound {
     Silent,
@@ -444,7 +453,7 @@ pub enum Sound {
 }
 
 /// Whether the ring shows the visual bell ([`Bell::ring`]).
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Shown {
     Nothing,
@@ -460,7 +469,7 @@ pub enum Shown {
 /// requestUserAttention(_:) to an app that is already active has no effect"
 /// (`[[source: apple-nsapplication-requestuserattention]]`), so a window that
 /// is not key while baud is active asks and nothing bounces.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Attention {
     None,
@@ -474,7 +483,7 @@ pub enum Attention {
 /// to the front of its level, even if its application isn't active, without
 /// changing either the key window or the main window" (`[[source:
 /// apple-nswindow-orderfrontregardless]]`).
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Raise {
     Stay,
@@ -482,7 +491,7 @@ pub enum Raise {
 }
 
 /// What one ring does: each of the four, decided apart.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Ring {
     pub sound: Sound,
@@ -526,7 +535,7 @@ pub struct Ring {
 ///   inverts the screen and puts it back whenever a program writes a `BEL`.
 ///   Nothing takes its place, as nothing takes blinking text's: the user
 ///   picked no sound.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 pub fn ring(
     style: crate::config::BellStyle,
     motion: crate::config::SystemMotion,
@@ -565,14 +574,14 @@ pub fn ring(
 /// volume when the ringer last looked: the core counts each at the volume
 /// it rang at, so a read that changes the volume around a bell sounds it
 /// at its own.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Heard {
     bells: BellsRung,
     margin: BellsRung,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 impl Heard {
     fn of(term: &Term<'_>) -> Heard {
         Heard {
@@ -583,7 +592,7 @@ impl Heard {
 }
 
 /// Whether the bells a read brought ring, and how loud.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Rings {
     /// No new bell, or only bells inside the frame interval of the last ring.
@@ -616,13 +625,13 @@ pub enum Rings {
 /// xterm's 200 ms the open alternative. What Terminal.app does is not
 /// known: its source is not published, no documentation of its bell is
 /// cited here, and the rules forbid driving a GUI to find out.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 pub struct Ringer<T> {
     heard: Heard,
     last: Option<T>,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 impl<T: Moment> Ringer<T> {
     /// A ringer that has heard every bell the terminal has counted so far.
     pub fn new(term: &Term<'_>) -> Ringer<T> {
@@ -692,6 +701,53 @@ mod tests {
         let p = b.plan(t, now, update);
         b.commit(p);
         p.flash
+    }
+
+    /// **The Linux driver rings as [`ring`] decides, and only so**: its
+    /// body compared whole with the spaces taken out, so a sound outside
+    /// its condition, the flash on the sound's, the window state swapped
+    /// or the config's style or the motion preference not passed each
+    /// change the text; and the bells are heard after the read that
+    /// brought them. The window is focused while the keyboard is the
+    /// window's, and the sound is the compositor's system bell.
+    #[test]
+    fn the_linux_driver_rings_as_ring_decides() {
+        let src = include_str!("linux.rs");
+        let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let body = src
+            .split_once("fn ring_bell(&mut self, volume: baud_core::BellVolume) {")
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(b, _)| b)
+            .expect("the ring");
+        const RING: &str = r#"
+            use crate::bell::{Shown, Sound, Window};
+            let state = match self.focus {
+                Focus::Gained => Window::Focused,
+                Focus::Lost => Window::Unfocused,
+            };
+            let ring = crate::bell::ring(
+                self.bell_style, self.motion, state,
+                self.term.bell_is_urgent(), self.term.pop_on_bell(), volume,
+            );
+            if ring.sound == Sound::Beep {
+                let _ = self.window.ring_bell(&mut self.conn.sender());
+            }
+            if ring.shown == Shown::Flash {
+                self.bell.ring();
+                self.pending = Pending::Dirty;
+            }
+        "#;
+        assert_eq!(bare(body), bare(RING), "the ring is this, and only this");
+        let feed = src
+            .split_once("fn feed(&mut self, bytes: &[u8]) {")
+            .map(|(_, rest)| rest)
+            .expect("the feed");
+        let read = feed.find("crate::reads::paced(").expect("the read");
+        let heard = feed
+            .find("self.ringer.hear(&self.term, Instant::now(), interval)")
+            .expect("the bells heard");
+        let rung = feed.find("self.ring_bell(volume);").expect("and rung");
+        assert!(read < heard && heard < rung, "the read, then the ring");
     }
 
     #[test]

@@ -78,7 +78,7 @@
 //! the cursor through the macOS app's rule (`marked.rs`). Tested over a
 //! socket pair, never with an input method running.
 
-use crate::bell::{Bell, Update, UpdateClock};
+use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::config::Config;
 use crate::host::{
@@ -164,6 +164,10 @@ struct Driver {
     /// The visual bell no frame drew, ended on the `poll` timeout
     /// (`bell.rs`).
     bell: Bell<Instant>,
+    /// The bells each read brought, rung once a frame interval, and what
+    /// the config's `bell` says a ring does (`bell.rs`, `ring`).
+    ringer: crate::bell::Ringer<Instant>,
+    bell_style: crate::config::BellStyle,
     /// The cursor's blink, ended and restarted on the `poll` timeout
     /// (`caret.rs`) -- which also wakes for `[cursor] stop_blinking_after` --
     /// and whether the keyboard is ours -- the blink stops in a window
@@ -469,6 +473,8 @@ pub fn run() {
     let notes = crate::notify::Delivery::new(cfg.notifications, &term);
     let mut d = Driver {
         bell,
+        ringer: crate::bell::Ringer::new(&term),
+        bell_style: cfg.bell,
         // The config's interval, else 333 ms a phase, and no switch: `auto`
         // blinks here. Nothing on Linux reads the desktop's caret yet, so
         // the choice is not kept; the animation is the config's until the
@@ -964,6 +970,16 @@ impl Driver {
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
         self.deliver(posted);
+        // **The bells this read brought ring now**, drawn or not, once a
+        // frame interval (`Ringer`): the compositor's, else the macOS
+        // driver's starting one until the frame callbacks give one.
+        let interval = self
+            .window
+            .frame_interval()
+            .unwrap_or(std::time::Duration::from_micros(8333));
+        if let Rings::Ring(volume) = self.ringer.hear(&self.term, Instant::now(), interval) {
+            self.ring_bell(volume);
+        }
         if let Some(line) = self.clips.core_refusals(&self.term, self.clipboard.budget) {
             crate::warn!("{line}");
         }
@@ -1054,6 +1070,38 @@ impl Driver {
             self.term.print_run(),
         ) {
             self.window.set_title(&mut self.conn.sender(), &t);
+        }
+    }
+
+    /// **What a ring does here** (`bell.rs`, `ring`): the owner's rule as
+    /// the macOS driver's shim applies it, the window focused while the
+    /// keyboard is ours -- xdg-shell tells a client nothing of a minimized
+    /// window. The sound is the compositor's system bell, where it offers
+    /// `xdg-system-bell-v1`, and nothing without it; the flash is the
+    /// visual bell. `?1042`'s attention and `?1043`'s raise are not acted
+    /// on yet: baud has neither pinned nor built `xdg-activation-v1`, the
+    /// request foot uses to mark a window urgent (`[[source:
+    /// foot-2705e36-wayland]]` 2630-2658), an open gap.
+    fn ring_bell(&mut self, volume: baud_core::BellVolume) {
+        use crate::bell::{Shown, Sound, Window};
+        let state = match self.focus {
+            Focus::Gained => Window::Focused,
+            Focus::Lost => Window::Unfocused,
+        };
+        let ring = crate::bell::ring(
+            self.bell_style,
+            self.motion,
+            state,
+            self.term.bell_is_urgent(),
+            self.term.pop_on_bell(),
+            volume,
+        );
+        if ring.sound == Sound::Beep {
+            let _ = self.window.ring_bell(&mut self.conn.sender());
+        }
+        if ring.shown == Shown::Flash {
+            self.bell.ring();
+            self.pending = Pending::Dirty;
         }
     }
 

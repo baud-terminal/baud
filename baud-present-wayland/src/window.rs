@@ -87,6 +87,15 @@ pub enum Shaped {
     Unavailable,
 }
 
+/// Whether a bell reached the compositor ([`Window::ring_bell`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rung {
+    /// Sent through `xdg-system-bell-v1`.
+    Sent,
+    /// The compositor offers no system bell: nothing sounds.
+    NoBell,
+}
+
 /// Whether the compositor's surfaces take `set_buffer_scale`, which
 /// `wl_surface` has from version 3.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -212,8 +221,14 @@ struct Globals {
     cursor_shape: Option<ObjectId>,
     /// `wp_presentation`, where the compositor offers it (`timing.rs`).
     presentation: Option<ObjectId>,
+    /// the `xdg-system-bell-v1` global, where the compositor offers it.
+    system_bell: Option<ObjectId>,
     scaling: Scaling,
 }
+
+/// The longest gap between two frame callbacks read as a frame's length:
+/// a longer one is a pause in drawing, not a refresh.
+const CADENCE_MAX: Duration = Duration::from_millis(100);
 
 /// The data device manager's version, at most: 3 is foot's, and what the
 /// selection needs is in 1; 3 changes only a drag's rules.
@@ -277,6 +292,10 @@ pub struct Window {
     /// compositor said it showed (`timing.rs`).
     clock: Option<ClockId>,
     presented: Option<Presentation>,
+    /// The time the last frame callback carried, and the interval between
+    /// the last two that came within a tenth of a second of each other.
+    callback_time: Option<Duration>,
+    cadence: Option<Duration>,
     keymap: Option<Keymap>,
     mods: Mods,
     group: usize,
@@ -353,6 +372,8 @@ impl Window {
             callback: None,
             clock: None,
             presented: None,
+            callback_time: None,
+            cadence: None,
             keymap: None,
             mods: Mods::default(),
             group: 0,
@@ -1015,6 +1036,41 @@ impl Window {
             .map_or(now, |t| t.max(now))
     }
 
+    /// **How long a frame is**: the compositor's refresh, where its
+    /// presentation feedback says one, else the interval between the last
+    /// two frame callbacks that came within a tenth of a second of each
+    /// other -- their times are "in milliseconds, with an undefined base"
+    /// (`[[source: wayland]]`), so only a difference means anything -- as
+    /// the macOS app measures its display link's ticks; `None` before
+    /// either is known.
+    pub fn frame_interval(&self) -> Option<Duration> {
+        self.presented
+            .map(|p| p.refresh)
+            .filter(|r| !r.is_zero())
+            .or(self.cadence)
+    }
+
+    /// **Ring the system bell**, through `xdg-system-bell-v1` where the
+    /// compositor offers it: "How ringing the bell is implemented is up to
+    /// the compositor. It may be an audible sound, a visual feedback of
+    /// some kind, or any other thing including nothing", and the surface
+    /// named is the toplevel's (`[[source: xdg-system-bell-v1]]`).
+    /// Without it nothing sounds.
+    pub fn ring_bell(&mut self, s: &mut Sender<'_>) -> Rung {
+        let Some(bell) = self.globals.system_bell else {
+            return Rung::NoBell;
+        };
+        let surface = self
+            .surface
+            .map_or(Arg::Object(ObjectId::NULL), Arg::Object);
+        let _ = s.request(
+            bell,
+            Opcode(protocol::xdg_system_bell_v1::request::RING),
+            &[surface],
+        );
+        Rung::Sent
+    }
+
     /// The compositor's last presentation, if it offers feedback and has
     /// shown a frame.
     pub fn presented(&self) -> Option<Presentation> {
@@ -1178,6 +1234,10 @@ impl Handler for Window {
                     "wp_presentation" => {
                         self.globals.presentation =
                             Window::bind(s, self.registry, name, iface, version.min(2));
+                    }
+                    "xdg_system_bell_v1" => {
+                        self.globals.system_bell =
+                            Window::bind(s, self.registry, name, iface, version.min(1));
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
@@ -1572,13 +1632,21 @@ impl Handler for Window {
                     });
                 }
             }
-            ("wl_callback", "done", _) => {
+            ("wl_callback", "done", args) => {
                 if self.sync == Some(ev.object) {
                     self.sync = None;
                     self.create_surface(s);
                 }
                 if self.callback == Some(ev.object) {
                     self.callback = None;
+                    if let [Read::Uint(ms)] = args {
+                        let at = Duration::from_millis(u64::from(*ms));
+                        let gap = self.callback_time.and_then(|t| at.checked_sub(t));
+                        if let Some(g) = gap.filter(|g| !g.is_zero() && *g < CADENCE_MAX) {
+                            self.cadence = Some(g);
+                        }
+                        self.callback_time = Some(at);
+                    }
                     self.events.push_back(Event::Frame);
                 }
             }

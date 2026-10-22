@@ -203,13 +203,17 @@ fn the_wire_refuses_what_the_signature_forbids() {
     );
 }
 
-/// **The tables are the XMLs.** Fifty-six interfaces across the fourteen
+/// **The tables are the XMLs.** Fifty-seven interfaces across the fifteen
 /// pinned files, the opcodes the protocol documents, and the enums. The
-/// primary selection's four come last, so no earlier index moved.
+/// primary selection's four came last, and the system bell's one after
+/// them, so no earlier index moved.
 #[test]
 fn the_generated_tables_are_what_the_pinned_protocols_declare() {
-    assert_eq!(protocol::INTERFACES.len(), 56);
+    assert_eq!(protocol::INTERFACES.len(), 57);
     assert_eq!(protocol::zwp_primary_selection_device_manager_v1::INDEX, 52);
+    assert_eq!(protocol::xdg_system_bell_v1::INDEX, 56);
+    assert_eq!(protocol::xdg_system_bell_v1::request::RING, 1);
+    assert_eq!(protocol::xdg_system_bell_v1::VERSION, 1);
     assert_eq!(
         protocol::zwp_primary_selection_offer_v1::request::RECEIVE,
         0

@@ -1581,6 +1581,7 @@ files   = [
   "wp-viewporter.xml",
   "wp-xdg-decoration-unstable-v1.xml",
   "wp-xdg-shell.xml",
+  "xdg-system-bell-v1.xml",
 ]
 
 [upstream.windows-terminal]

@@ -866,6 +866,11 @@ fn frames_wait_for_the_callback_and_are_timed_by_the_presentation() {
     assert_eq!(w.next_event(), Some(Event::Frame));
     let p = w.presented().expect("presented");
     assert_eq!(p.refresh, Duration::from_nanos(u64::from(refresh)));
+    assert_eq!(
+        w.frame_interval(),
+        Some(p.refresh),
+        "the refresh is a frame"
+    );
     // The refresh lands a period after it was shown, read before the
     // clock was: a stall past a period only makes it later. Darwin's
     // CLOCK_MONOTONIC reads whole microseconds, and the test's read and
@@ -895,6 +900,113 @@ fn frames_wait_for_the_callback_and_are_timed_by_the_presentation() {
     server.send(feedback, "wp_presentation_feedback", "discarded", &[]);
     pump(&mut conn, &mut w);
     assert_eq!(w.presented(), Some(p));
+}
+
+/// A session through its first configure with `extra` globals offered
+/// after the three it needs: the window, the server, and the ids the
+/// extras were bound as, in order.
+fn session_with(extra: &[(&str, u32)]) -> (Connection, Server, Window, Vec<ObjectId>) {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    let globals = [("wl_compositor", 6u32), ("wl_shm", 2), ("xdg_wm_base", 6)];
+    for (name, (iface, version)) in (1u32..).zip(globals.iter().chain(extra)) {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(*version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut bound, mut xdg, mut top) = (Vec::new(), None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, _, id)])
+                if extra.iter().any(|(e, _)| e == i) =>
+            {
+                bound.push(*id)
+            }
+            ("xdg_wm_base", "get_xdg_surface", [Val::New(id), _]) => xdg = Some(*id),
+            ("xdg_surface", "get_toplevel", [Val::New(id)]) => top = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    configure(&mut server, top.unwrap(), xdg.unwrap(), 64, 32, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    (conn, server, w, bound)
+}
+
+/// **The system bell rings where the compositor offers it**:
+/// the `xdg-system-bell-v1` global is bound at version 1 and a ring names the
+/// window's surface; without it a ring sends nothing and says so.
+#[test]
+fn the_system_bell_rings_where_the_compositor_offers_it() {
+    let (mut conn, mut server, mut w, bound) = session_with(&[("xdg_system_bell_v1", 1)]);
+    let bell = bound[0];
+    assert_eq!(w.ring_bell(&mut conn.sender()), Rung::Sent);
+    conn.flush().unwrap();
+    let r = server.expect("xdg_system_bell_v1", "ring");
+    assert_eq!(r.sender, bell);
+    assert!(
+        matches!(r.args[0], Val::Obj(o) if o != ObjectId::NULL),
+        "the window's surface"
+    );
+
+    let (mut conn, mut server, mut w, _) = session_with(&[]);
+    assert_eq!(w.ring_bell(&mut conn.sender()), Rung::NoBell);
+    // The control: the next request is the title, not a ring.
+    w.set_title(&mut conn.sender(), "after");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+}
+
+/// **A frame's length is the gap between frame callbacks** where no
+/// presentation feedback says a refresh: none before two callbacks, the
+/// gap once two come 16 ms apart, and a gap past a tenth of a second --
+/// a pause in drawing -- leaves it.
+#[test]
+fn a_frames_length_is_the_gap_between_frame_callbacks() {
+    let (mut conn, mut server, mut w, _) = session_with(&[]);
+    let frame = vec![0u32; 64 * 32];
+    let next = |server: &mut Server, conn: &mut Connection, w: &mut Window, ms: u32| {
+        assert_eq!(
+            w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+            Presented::Yes
+        );
+        conn.flush().unwrap();
+        let (attached, _, cb) = frame_requests(server);
+        server.send(attached.unwrap(), "wl_buffer", "release", &[]);
+        server.send(cb, "wl_callback", "done", &[Arg::Uint(ms)]);
+        pump(conn, w);
+        while w.next_event().is_some() {}
+    };
+    assert_eq!(w.frame_interval(), None);
+    next(&mut server, &mut conn, &mut w, 1000);
+    assert_eq!(w.frame_interval(), None, "one callback is no gap");
+    next(&mut server, &mut conn, &mut w, 1016);
+    let ms = std::time::Duration::from_millis;
+    assert_eq!(w.frame_interval(), Some(ms(16)));
+    next(&mut server, &mut conn, &mut w, 1500);
+    assert_eq!(w.frame_interval(), Some(ms(16)), "a pause is not a frame");
+    next(&mut server, &mut conn, &mut w, 1508);
+    assert_eq!(w.frame_interval(), Some(ms(8)));
 }
 
 /// A session as far as a keyboard with the `us` keymap: the globals bound,

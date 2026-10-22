@@ -64,7 +64,8 @@ emoji = "font"
 # window is not focused nothing sounds, and whatever this says, a program
 # that set mode 1042 makes the Dock icon bounce and one that set mode 1043
 # raises the window, unless it is minimized. Bells within one frame ring
-# once. macOS only: the Linux driver rings nothing yet.
+# once. On Linux "sound" is the desktop's system bell, where it offers one
+# (xdg-system-bell-v1), and modes 1042 and 1043 do nothing.
 bell = "sound"
 
 

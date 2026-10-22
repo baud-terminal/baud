@@ -180,7 +180,7 @@ A see-through window that follows your Mac's appearance.
 - **A fade for full-screen programs** — An optional fade when a full-screen program opens or exits, off by default. *macOS.* <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **The bell, your way** — The Mac's alert sound, a short flash or nothing; a burst rings once, and a bell in a background window never makes a sound. *macOS.* <sub>[proof](../../baud-app/src/bell.rs)</sub>
 - **A bell can ask for attention** — A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard. *macOS.* <sub>[proof](../../baud-core/tests/xterm/bell_modes.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **The bell on Linux** — A bell on Linux is counted. *Linux, headless so far.* **Partly:** it rings nothing yet. <sub>[reference](../vt-coverage.md#c0-controls)</sub>
+- **The bell on Linux** — A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once. *Linux, headless so far.* <sub>[proof](../../baud-present-wayland/tests/handshake.rs) · [reference](../vt-coverage.md#c0-controls)</sub>
 
 ## The cursor
 
@@ -217,7 +217,7 @@ Image viewers and file-manager previews show real pictures.
 Where baud runs, and the one settings file.
 
 - **macOS app** — Needs macOS 26 or later, draws on the GPU with Metal and falls back to the CPU; on an older Mac it says what it needs and quits instead of crashing. *macOS.* <sub>[proof](../../baud-app/tests/macos_floor.rs)</sub>
-- **Linux** — The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles. *Linux, headless so far.* **Partly:** it has run only on a headless compositor: no bell yet, font sizes are in pixels, and GPU drawing has not started. <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
+- **Linux** — The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, copy and paste, and window titles. *Linux, headless so far.* **Partly:** it has run only on a headless compositor: font sizes are in pixels, and GPU drawing has not started. <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
 - **Your shell, set up right** — baud starts your login shell, in your home folder when opened from the Dock and with your language setting, or one command with `BAUD_CMD`. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **A clean environment** — Programs see baud with full colour, and nothing of the terminal you started it from. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **One optional settings file** — Keep only what you change in one file; baud never reads a stray file from the folder it started in. <sub>[proof](../../baud-app/src/config.rs)</sub>
