@@ -32097,3 +32097,16 @@ sha256 = "fc351c377038f01bdaa1b86f674890ebd8afe9d81a21fd7dbaf949054ebb4c05"
 bytes  = 7753
 status = "external"
 group  = "C"
+
+[sources.ghostty-f54340a-color]
+key    = "ghostty-f54340a-color"
+title  = "ghostty f54340a, src/terminal/color.zig -- RGB.fromIntensity, an rgbi: intensity scaled linearly to a device value and truncated"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at f54340a (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/src/terminal/color.zig"
+file   = ""
+sha256 = "c31107471eeffa00c37e786be96f3f5fc31af1f9b97d1123f592d2b9cb713e71"
+bytes  = 55512
+status = "external"
+group  = "C"
