@@ -71,6 +71,10 @@ mod effects;
 // Find in the scrollback: the keys, the field and the selection it makes.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod find;
+// The foreground program and its folder, read from the kernel for the
+// window's title (`title.rs`).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod fg;
 // What a program's `OSC 50` does to the font: the faces a name reaches and
 // the size a step lands on, for both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux"))]

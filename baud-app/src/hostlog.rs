@@ -179,14 +179,21 @@ pub struct Pid(pub u32);
 
 /// This host's name, or `localhost` when the system gives none.
 fn host() -> String {
+    machine_name().unwrap_or_else(|| "localhost".to_string())
+}
+
+/// This machine's name as `gethostname` gives it -- the name a shell
+/// sends in its `OSC 7` (zsh's `$HOST`, bash's `$HOSTNAME`) -- or `None`
+/// when the system gives none.
+pub(crate) fn machine_name() -> Option<String> {
     let mut buf = [0u8; 256];
     // SAFETY: the buffer is `buf.len()` bytes and outlives the call.
     let r =
         unsafe { crate::sys::gethostname(buf.as_mut_ptr().cast(), crate::sys::NameLen(buf.len())) };
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
     match (r, &buf[..end]) {
-        (0, name) if !name.is_empty() => String::from_utf8_lossy(name).into_owned(),
-        _ => "localhost".to_string(),
+        (0, name) if !name.is_empty() => Some(String::from_utf8_lossy(name).into_owned()),
+        _ => None,
     }
 }
 

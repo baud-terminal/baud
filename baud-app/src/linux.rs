@@ -168,6 +168,11 @@ struct Driver {
     /// The title the toplevel was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than every read.
     titles: crate::title::Shown,
+    /// The folder and program a title is derived from when a program set
+    /// none (`title.rs`), checked where a frame is presented when a read
+    /// or a key owes it, and the home directory a folder is spelled from.
+    derive: crate::title::Derive,
+    home: Option<Vec<u8>>,
     /// The image budget the core was provisioned with, so a refusal's log
     /// line names the limit it hit (`host::describe_refusals`).
     images: baud_domain::ImageBudget,
@@ -481,6 +486,9 @@ pub fn run() {
         damage: Damage::Full,
         updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
+        derive: crate::title::Derive::new(),
+        home: std::env::var_os("HOME")
+            .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
         images: cfg.images,
         decode: DecodeProgress::Idle,
         performed: crate::winops::Performed::new(),
@@ -702,6 +710,8 @@ pub fn run() {
                     if queued {
                         let act = d.hiding.key(&d.term);
                         d.hide_pointer(act);
+                        // A key can start a job that prints nothing.
+                        d.derive.owe();
                     }
                     // A key shows the cursor, restarts its blink, and is
                     // input to its stop.
@@ -971,10 +981,32 @@ impl Driver {
         }
         // Output shows the cursor and restarts its blink (`caret.rs`).
         self.caret.restart(Instant::now());
+        // The read owes the derived title a check, made at the next frame.
+        self.derive.owe();
+        self.send_title();
+    }
+
+    /// The window's title, sent when it changed (`title::Shown`): the
+    /// program's, else the folder and program (`title::Derive::title`),
+    /// else "baud". A report naming another host, refused, is logged once
+    /// (`Derive::refusal`).
+    fn send_title(&mut self) {
+        let refused = self.derive.refused;
+        let fallback = self
+            .derive
+            .title(
+                self.term.working_directory(),
+                std::slice::from_ref(&self.host),
+                self.home.as_deref(),
+            )
+            .unwrap_or_else(|| "baud".to_string());
+        if self.derive.refused != refused {
+            crate::info!("{}", self.derive.refusal());
+        }
         if let Some(t) = self.titles.next(
             self.term.title(),
             self.term.title_encoding(),
-            "baud",
+            &fallback,
             self.term.print_run(),
         ) {
             self.window.set_title(&mut self.conn.sender(), &t);
@@ -1661,6 +1693,14 @@ impl Driver {
         if self.pending == Pending::Clean || self.window.in_flight() || self.window.size().is_none()
         {
             return;
+        }
+        // **The derived title's check, once a frame and only when owed**
+        // (`title::Derive`): the compositor's frame events pace it, as the
+        // display link paces macOS's. Linux has no unprivileged fork
+        // event, so a job that prints nothing is seen by the key that
+        // started it and the reads around it.
+        if self.derive.check(&self.pty.reads()) == crate::title::Changed::Yes {
+            self.send_title();
         }
         // Each update is timed from its own opening (`UpdateClock`).
         let update = self.updates.observe(&self.term, Instant::now());

@@ -1306,6 +1306,13 @@ impl Pty {
         tell(self.master, &mut self.told, text_area(size, cell_w, cell_h));
     }
 
+    /// What the derived title reads of the foreground (`fg.rs`).
+    pub fn reads(&self) -> crate::fg::Live {
+        crate::fg::Live {
+            master: self.master,
+        }
+    }
+
     /// Keeps `IUTF8` with the core's input encoding ([`LineDiscipline`]).
     /// Called after every feed and before any key is encoded, so a key
     /// `Term::key` sends as ISO 8859-1 reaches a line discipline with the
@@ -3067,6 +3074,85 @@ mod tests {
             "the control: with no locale zsh prints <0099>: {:?}",
             String::from_utf8_lossy(&without)
         );
+    }
+
+    /// **The foreground is read off the master: the program and its
+    /// folder**, from another session, as the app reads its own child
+    /// (`fg.rs`). The child `cd`s into a fresh folder, says it is ready
+    /// and waits for a line: the group is its own, `sh` by argv[0], in
+    /// that folder -- canonical, as the kernel answers it. On macOS a
+    /// line lets it exec `sleep`: the exec is a kqueue event (`fg::Watch`),
+    /// waited on with a bound and never a sleep, after which the same
+    /// group reads `sleep`, and a [`crate::title::Derive`] that heard the
+    /// event reads the new name where one that did not keeps the old.
+    #[test]
+    fn the_foreground_reads_name_the_program_and_its_folder() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let made = std::env::temp_dir().join(format!("baud-fg-{}", std::process::id()));
+        std::fs::create_dir_all(&made).expect("a folder");
+        let dir = made.canonicalize().expect("canonical");
+        let cmd = format!(
+            "cd '{}' && /bin/stty -echo && echo ready && read x && exec /bin/sleep 30",
+            dir.display()
+        );
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(cmd),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        read_until(master, "ready\r\n");
+        let g = crate::fg::group(master).expect("the child's group");
+        assert_eq!(crate::fg::name(g).as_deref(), Some("sh"));
+        assert_eq!(crate::fg::dir(g).as_deref(), Some(dir.as_path()));
+        let reads = crate::fg::Live { master };
+        let (mut heard, mut deaf) = (crate::title::Derive::new(), crate::title::Derive::new());
+        heard.check(&reads);
+        deaf.check(&reads);
+        let home = Some(&b"/nowhere"[..]);
+        let folder = crate::title::folder_text(
+            std::os::unix::ffi::OsStrExt::as_bytes(dir.as_os_str()),
+            home,
+        );
+        assert_eq!(
+            heard.title(None, &[], home),
+            Some(format!("{folder} \u{2014} sh"))
+        );
+        #[cfg(target_os = "macos")]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let w = crate::fg::Watch::start(move || {
+                let _ = tx.send(());
+            })
+            .expect("a kqueue");
+            w.add(g);
+            send(master, b"\n");
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the exec is an event");
+            assert_eq!(w.take(), crate::fg::Moved::Moved);
+            assert_eq!(crate::fg::group(master), Some(g), "the same group");
+            assert_eq!(crate::fg::name(g).as_deref(), Some("sleep"));
+            heard.moved();
+            deaf.owe();
+            assert_eq!(heard.check(&reads), crate::title::Changed::Yes);
+            assert_eq!(
+                heard.title(None, &[], home),
+                Some(format!("{folder} \u{2014} sleep"))
+            );
+            deaf.check(&reads);
+            assert_eq!(
+                deaf.title(None, &[], home),
+                Some(format!("{folder} \u{2014} sh")),
+                "the control: no event, no new name"
+            );
+        }
+        // SAFETY: `master` is the descriptor forkpty returned and nothing
+        // else owns it; closing it hangs the child up.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        let _ = std::fs::remove_dir(&made);
     }
 
     /// Blocking reads of `master` until what arrived ends with `want`, and

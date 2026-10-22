@@ -16487,6 +16487,32 @@ bytes  = 7575
 status = "external"
 group  = "E"
 
+[sources.xnu-kern-sysctl]
+key    = "xnu-kern-sysctl"
+title  = "XNU xnu-12377.121.6, bsd/kern/kern_sysctl.c -- sysctl_procargsx: KERN_PROCARGS2 puts argc first, then the executable path and its padding, then argv; a short buffer gets the area's end"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_sysctl.c"
+file   = ""
+sha256 = "e9afd60d06752d2eaa7fada1316f293c342c3666f54d3c7e94d82d5ab55c851a"
+bytes  = 237186
+status = "external"
+group  = "E"
+
+[sources.linux-man-proc-pid-cmdline]
+key    = "linux-man-proc-pid-cmdline"
+title  = "proc_pid_cmdline(5) -- 'a set of strings separated by null bytes'"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_cmdline.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "a9f3b83b1b0442319d0a8a5be23787c8024bc485dd54a062da9c37d57733f111"
+bytes  = 1557
+status = "external"
+group  = "E"
+
 [sources.macos-sdk-nswindow-h]
 key    = "macos-sdk-nswindow-h"
 title  = "NSWindow.h -- subtitle 'Secondary text that may be displayed adjacent to or below the primary title'; representedURL and the document icon; NSWindowTitleHidden"

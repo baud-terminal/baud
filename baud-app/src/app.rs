@@ -2974,6 +2974,16 @@ struct Driver {
     /// The title the window was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than on every read.
     titles: crate::title::Shown,
+    /// The folder and program a title is derived from when a program set
+    /// none, read once a tick when a read, a key or a process event owes
+    /// it (`title.rs`), and the process events (`fg::Watch`).
+    derive: crate::title::Derive,
+    watch: Option<crate::fg::Watch>,
+    /// This machine's names, one of which an `OSC 7` must name to be
+    /// local (`machine_names`), and the home directory a folder is spelled
+    /// from (`title.rs`).
+    hosts: Vec<String>,
+    home: Option<Vec<u8>>,
     /// The pointer the window last showed for a program's `OSC 22`
     /// (`pointer.rs`), unknown while the pointer is outside it.
     pointer_shown: crate::pointer::Shown,
@@ -7127,6 +7137,8 @@ impl Driver {
         let typed = predicts(e.code, self.app.term.keypad());
         match self.app.send(e) {
             Sent::Bytes => {
+                // A key can start a job that prints nothing (`title.rs`).
+                self.derive.owe();
                 let act = self.hiding.key(&self.app.term);
                 hide_pointer(act);
                 self.app.latency.written(host_now);
@@ -7340,7 +7352,12 @@ impl Driver {
     /// on a wake only if a frame's worth of time has passed since the last
     /// commit, so a flood draws once a vsync and a keystroke draws now.
     fn pump(&mut self, trigger: Trigger) {
+        // A process the title watches forked, exec'd or exited.
+        if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
+            self.derive.moved();
+        }
         if let Trigger::Tick = trigger {
+            self.title_check();
             self.poll_focus();
             self.poll_motion();
             self.poll_display();
@@ -7519,15 +7536,10 @@ impl Driver {
             }
             self.judge();
             // A program's title: only a read can set one, so this is the
-            // one place it can have changed.
-            if let Some(t) = self.titles.next(
-                self.app.term.title(),
-                self.app.term.title_encoding(),
-                "baud",
-                self.app.term.print_run(),
-            ) {
-                self.window.set_title(&t);
-            }
+            // one place it can have changed. The read owes the derived
+            // title a check too, made on the next tick (`title_check`).
+            self.derive.owe();
+            self.send_title();
             // A program's pointer shape, shown at once while the pointer is
             // over the window; outside it, the next move in shows it.
             if self.pointer_shown != crate::pointer::Shown::Unknown {
@@ -8513,6 +8525,14 @@ pub fn run() {
     })
     .expect("pty");
     startup_mark("pty");
+    // The process events the derived title is checked on (`fg::Watch`),
+    // waking the main thread as the pty's reader does.
+    let wake_watch = Arc::clone(&late);
+    let watch = crate::fg::Watch::start(move || {
+        if let Some(w) = wake_watch.get() {
+            w.wake();
+        }
+    });
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     startup_mark("nsapp");
@@ -8724,6 +8744,11 @@ pub fn run() {
         glass: glass.clone(),
         window: window.clone(),
         titles: crate::title::Shown::new(),
+        derive: crate::title::Derive::new(),
+        watch,
+        hosts: machine_names(),
+        home: std::env::var_os("HOME")
+            .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
         pointer_shown: crate::pointer::Shown::Unknown,
         hiding,
         icon: icon_iv,
@@ -9218,6 +9243,59 @@ impl Driver {
         }
     }
 
+    /// The title when a program set none: the folder and program
+    /// (`title::Derive::title`), else "baud". A report naming another
+    /// host, refused, is logged once (`Derive::refusal`).
+    fn derived_title(&mut self) -> String {
+        let refused = self.derive.refused;
+        let title = self.derive.title(
+            self.app.term.working_directory(),
+            &self.hosts,
+            self.home.as_deref(),
+        );
+        if self.derive.refused != refused {
+            crate::info!("{}", self.derive.refusal());
+        }
+        title.unwrap_or_else(|| "baud".to_string())
+    }
+
+    /// The window's title, sent when it changed (`title::Shown`).
+    fn send_title(&mut self) {
+        let fallback = self.derived_title();
+        if let Some(t) = self.titles.next(
+            self.app.term.title(),
+            self.app.term.title_encoding(),
+            &fallback,
+            self.app.term.print_run(),
+        ) {
+            self.window.set_title(&t);
+        }
+    }
+
+    /// **The derived title's check, once a tick and only when owed**
+    /// (`title::Derive`). After a process event the last group's children
+    /// are watched before the group is read, so a job that takes the
+    /// terminal and execs after the read still says so (`fg::Watch`);
+    /// the group read is watched after it.
+    fn title_check(&mut self) {
+        if self.derive.owed() == crate::title::Owed::No {
+            return;
+        }
+        if let (Some(w), Some(g), true) = (
+            &self.watch,
+            self.derive.group(),
+            self.derive.moved_since_check(),
+        ) {
+            w.add_children(g);
+        }
+        if self.derive.check(&self.app.pty.reads()) == crate::title::Changed::Yes {
+            if let (Some(w), Some(g)) = (&self.watch, self.derive.group()) {
+                w.add(g);
+            }
+            self.send_title();
+        }
+    }
+
     /// **The waiting print job onto the print panel**, once the panel
     /// before it has gone: at most one at a time, shown as a sheet once the
     /// callback this runs in has returned (`print_later`), and gone when the
@@ -9234,11 +9312,13 @@ impl Driver {
         let Some(job) = self.app.prints.next(self.app.term.printer()) else {
             return;
         };
+        let fallback = self.derived_title();
         let window = crate::title::window_title(
             self.app.term.title(),
             self.app.term.title_encoding(),
-            "baud",
+            &fallback,
         );
+        let panel = &self.app.panel;
         panel.store(PANEL_SCHEDULED, Relaxed);
         print_later(self.window.ns_window(), window, job, panel.clone());
     }
@@ -12237,6 +12317,56 @@ impl PrinterList {
             LIST_EMPTY => Some(crate::print::Printers::None),
             _ => None,
         }
+    }
+}
+
+/// **This machine's names, either of which an `OSC 7` may name.**
+///
+/// The name `gethostname` gives, which is what shells send (zsh's `$HOST`,
+/// bash's `$HOSTNAME`, fish's `$hostname`), and `NSProcessInfo`'s
+/// `hostName`, which on macOS is a different name, `<name>.local`.
+/// RFC 8089 § 3's "resolves to the machine" holds of both
+/// (`[[source: rfc8089]]`).
+fn machine_names() -> Vec<String> {
+    let mut names: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
+    let process = baud_present_macos::link::host_name();
+    if !process.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(&process)) {
+        names.push(process);
+    }
+    names
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::machine_names;
+    use baud_core::{FileHost, WorkingDirectory};
+
+    /// **An `OSC 7` naming the machine as a shell names it is local**: the
+    /// name `/bin/hostname` prints, which is `gethostname`'s and zsh's
+    /// `$HOST`, gives the shell's path and so the title the shell's
+    /// folder. On macOS `NSProcessInfo`'s name is `<name>.local`, and
+    /// comparing with it alone refused every local report as remote.
+    #[test]
+    fn an_osc_7_naming_the_hostname_is_this_machine() {
+        let out = std::process::Command::new("/bin/hostname")
+            .output()
+            .expect("hostname runs");
+        let name = String::from_utf8(out.stdout).expect("a UTF-8 name");
+        let name = name.trim();
+        assert!(!name.is_empty(), "the machine has a name");
+        let hosts = machine_names();
+        let d = WorkingDirectory {
+            host: FileHost::Named(name.as_bytes()),
+            path: b"/tmp",
+        };
+        assert_eq!(
+            crate::title::local(d, &hosts),
+            Some(&b"/tmp"[..]),
+            "the shell's {name:?} against {hosts:?}"
+        );
+        let mut derive = crate::title::Derive::new();
+        assert_eq!(derive.title(Some(d), &hosts, None).as_deref(), Some("/tmp"));
+        assert_eq!(derive.refused, crate::title::Refused(0));
     }
 }
 

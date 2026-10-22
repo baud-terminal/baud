@@ -1,10 +1,27 @@
 # AK. The window title: what a program sets, what baud derives, and where it shows
 
 **Status: research, 2026-10-09; revised three times the same day after
-read-only reviews. Jev not yet asked; no renders yet.** The owner,
+read-only reviews. Jev asked, with renders, on 2026-10-21 (below).** The owner,
 2026-10-08, verbatim: "title , we need standard options like current dir,
 current process i believe, so research here". In-repo lines are at ccb8aaa;
 the cited files are unchanged at 37cbf67.
+
+**Decided and built, 2026-10-21.** Re-asked with renders, both orders
+(Jev decisions 1207-1210, and 1215-1216 for the three forks this note
+never asked, re-asked after more research): question 2 T2, a lean
+(0.61/0.72); question 4 R1, a lean (0.76/0.61); question 8 I1, decided
+(0.92/0.92); folder, then program, decided (0.95/0.98); the program by
+argv[0], a lean (0.58/0.69); the folder with home as `~` and past three
+folders the last three, as kitty's and ghostty's integrations spell it,
+a lean (0.25/0.37). Question 1 is the owner's (TODO.md) and the
+proxy icon waits on it. Built: `OSC 7` in the core, the derived title in
+both apps, checked as 6.5 settles (`docs/record.md`, "A shell can say
+which folder it is in: OSC 7" and "The window's title names the folder
+and the program"). Not re-asked this round, and nothing built for them:
+question 5 (Q-A, keep refusing `CSI 21 t`, today's behaviour), question
+7a (orders split, G 0.30 against B 0.34; today's B kept) and 7b (L, a
+lean at 0.76/0.86, today's). Question 6 stays decided, H0 at
+0.97/0.95; a later ask leaned H1 at 0.35/0.43, below the bar.
 
 Where the evidence lives: every source is a key in
 `docs/research/sources/MANIFEST.toml` (groups C, E, J and AK); the probes and

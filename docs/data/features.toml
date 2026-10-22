@@ -1301,6 +1301,17 @@ behind = "every other terminal draws the window title in its title bar."
 roadmap = ["SQ-v1.0-05"]
 
 [[feature]]
+id = "window-title-folder"
+area = "window"
+name = "The folder and the program in the title"
+does = "When a program sets no title, the window's title is the folder you are in and the program running there, such as ~/src/baud — vim. A folder a shell reports is shown only when it is on this machine."
+status = "partial"
+gap = "the macOS window does not draw the title in its title bar, and nobody has run it on Linux yet."
+platform = "both"
+tests = ["baud-app/src/title.rs::a_local_osc_7_names_the_folder_and_a_remote_one_does_not", "baud-app/src/pty.rs::the_foreground_reads_name_the_program_and_its_folder", "baud-core/tests/working_directory.rs::apples_report_keeps_its_host_and_decodes_its_path"]
+rows = ["vt:`OSC 7 ; Pt`"]
+
+[[feature]]
 id = "title-restore"
 area = "window"
 name = "Your title back after vim"

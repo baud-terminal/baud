@@ -704,6 +704,139 @@ unsafe extern "C" {
     -> c_int;
 }
 
+// **What the window's title is derived from when a program sets none**
+// (`fg.rs`, note AK section 2): the pty's foreground process group, its
+// program's argv[0] and its directory. `TIOCGPGRP` is asked on the
+// master, which both kernels answer although POSIX's `tcgetpgrp` requires
+// the controlling terminal: XNU's pty driver answers it "on the controller"
+// before that check (`[[source: xnu-tty-dev]]` 1023-1031), and Linux
+// lets a master pty through (`[[source: linux-tty-jobctrl]]` 470-475).
+
+/// A process id, `pid_t`: thirty-two bits signed on both systems, which
+/// the probe pins.
+pub type Pid = c_int;
+
+/// Read the terminal's foreground process group into an `int`.
+#[cfg(target_os = "macos")]
+pub const TIOCGPGRP: c_ulong = 0x4004_7477;
+#[cfg(not(target_os = "macos"))]
+pub const TIOCGPGRP: c_ulong = 0x540f;
+
+/// `proc_pidinfo`'s flavor for `struct proc_vnodepathinfo`, whose first
+/// member, `pvi_cdir`, is the current directory's `vnode_info_path`
+/// (`[[source: macos-sdk-sys-proc-info-h]]`). The struct is taken as bytes:
+/// only the directory's path is read, at the offset the probe pins, and
+/// `MAXPATHLEN` bytes long.
+#[cfg(target_os = "macos")]
+pub const PROC_PIDVNODEPATHINFO: c_int = 9;
+#[cfg(target_os = "macos")]
+pub const VNODEPATHINFO_SIZE: usize = 2352;
+#[cfg(target_os = "macos")]
+pub const VNODEPATHINFO_CDIR_PATH: usize = 152;
+#[cfg(target_os = "macos")]
+pub const MAXPATHLEN: usize = 1024;
+
+/// `proc_pidpath`'s buffer, `PROC_PIDPATHINFO_MAXSIZE` (four `MAXPATHLEN`).
+#[cfg(target_os = "macos")]
+pub const PROC_PIDPATHINFO_MAXSIZE: usize = 4096;
+
+/// `sysctl`'s names for a process's arguments with its `argc` first:
+/// `{CTL_KERN, KERN_PROCARGS2, pid}`.
+#[cfg(target_os = "macos")]
+pub const CTL_KERN: c_int = 1;
+#[cfg(target_os = "macos")]
+pub const KERN_PROCARGS2: c_int = 49;
+
+/// A `uint64_t` argument to `proc_pidinfo`: a tid or a descriptor for
+/// some flavors, zero for this one.
+#[cfg(target_os = "macos")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct ProcArg(pub u64);
+
+/// A buffer's size as `proc_pidpath` takes it, a `uint32_t`.
+#[cfg(target_os = "macos")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct PathSize(pub u32);
+
+/// One `kevent` record, `struct kevent`: `uintptr_t ident; int16_t
+/// filter; uint16_t flags; uint32_t fflags; intptr_t data; void *udata`
+/// (`[[source: macos-sdk-sys-event-h]]`), in the C types that name them on
+/// this LP64 system; the probe holds every offset.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Kevent {
+    pub ident: c_ulong,
+    pub filter: i16,
+    pub flags: core::ffi::c_ushort,
+    pub fflags: c_uint,
+    pub data: core::ffi::c_long,
+    pub udata: *mut c_void,
+}
+
+/// `kevent`'s filter for a process, and the three events watched:
+/// "NOTE_EXIT The process has exited", "NOTE_FORK The process created a
+/// child process via fork(2) or similar call", "NOTE_EXEC The process
+/// executed a new process via execve(2) or similar call" (`[[source:
+/// macos-man-kqueue]]` 353-371).
+#[cfg(target_os = "macos")]
+pub const EVFILT_PROC: i16 = -5;
+#[cfg(target_os = "macos")]
+pub const EV_ADD: core::ffi::c_ushort = 0x1;
+#[cfg(target_os = "macos")]
+pub const EV_CLEAR: core::ffi::c_ushort = 0x20;
+#[cfg(target_os = "macos")]
+pub const NOTE_EXIT: c_uint = 0x8000_0000;
+#[cfg(target_os = "macos")]
+pub const NOTE_FORK: c_uint = 0x4000_0000;
+#[cfg(target_os = "macos")]
+pub const NOTE_EXEC: c_uint = 0x2000_0000;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// "private interfaces to obtain process information. These
+    /// interfaces are subject to change in future releases"
+    /// (`[[source: macos-sdk-libproc-h]]` 41-44): the only interfaces
+    /// macOS has for another process's directory and path.
+    pub fn proc_pidinfo(
+        pid: Pid,
+        flavor: c_int,
+        arg: ProcArg,
+        buffer: *mut c_void,
+        size: c_int,
+    ) -> c_int;
+    pub fn proc_pidpath(pid: Pid, buffer: *mut c_void, size: PathSize) -> c_int;
+    pub fn proc_listchildpids(ppid: Pid, buffer: *mut c_void, size: c_int) -> c_int;
+    pub fn sysctl(
+        name: *mut c_int,
+        namelen: c_uint,
+        oldp: *mut c_void,
+        oldlenp: *mut MapLen,
+        newp: *mut c_void,
+        newlen: MapLen,
+    ) -> c_int;
+    pub fn kqueue() -> Fd;
+    pub fn kevent(
+        kq: Fd,
+        changelist: *const Kevent,
+        nchanges: c_int,
+        eventlist: *mut Kevent,
+        nevents: c_int,
+        timeout: *const Timespec,
+    ) -> c_int;
+}
+
+/// `struct timespec`, `kevent`'s timeout: seconds and nanoseconds.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Timespec {
+    pub tv_sec: TimeT,
+    pub tv_nsec: core::ffi::c_long,
+}
+
 /// **The declarations above, checked against the platform's own headers.**
 ///
 /// A fixture generated once on one machine could not do this: `TIOCSWINSZ`
@@ -740,6 +873,10 @@ mod tests {
 #include <langinfo.h>
 #include <locale.h>
 #include <xlocale.h>
+#include <libproc.h>
+#include <sys/event.h>
+#include <sys/proc_info.h>
+#include <sys/sysctl.h>
 #else
 #include <locale.h>
 #endif
@@ -808,6 +945,9 @@ int main(void) {
     printf("TCSANOW=%lld\n", (long long)TCSANOW);
     printf("MAP_FIXED=%lld\n", (long long)MAP_FIXED);
     printf("getpagesize=%lld\n", (long long)getpagesize());
+    printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
+    printf("pid_t.size=%zu\n", sizeof(pid_t));
+    printf("pid_t.signed=%d\n", (pid_t)-1 < 0);
     {
         const int stty[] = {VEOF, VEOL, VERASE, VINTR, VKILL, VQUIT, VSTART, VSTOP, VSUSP,
 #ifdef VDISCARD
@@ -864,6 +1004,29 @@ int main(void) {
            offsetof(struct mach_task_basic_info, resident_size));
     printf("mach_task_basic_info.policy=%zu\n", offsetof(struct mach_task_basic_info, policy));
     printf("mach_port_t.size=%zu\n", sizeof(mach_port_t));
+    printf("PROC_PIDVNODEPATHINFO=%lld\n", (long long)PROC_PIDVNODEPATHINFO);
+    printf("proc_vnodepathinfo.size=%zu\n", sizeof(struct proc_vnodepathinfo));
+    printf("proc_vnodepathinfo.cdir_path=%zu\n",
+           offsetof(struct proc_vnodepathinfo, pvi_cdir.vip_path));
+    printf("MAXPATHLEN=%lld\n", (long long)MAXPATHLEN);
+    printf("PROC_PIDPATHINFO_MAXSIZE=%lld\n", (long long)PROC_PIDPATHINFO_MAXSIZE);
+    printf("CTL_KERN=%lld\n", (long long)CTL_KERN);
+    printf("KERN_PROCARGS2=%lld\n", (long long)KERN_PROCARGS2);
+    printf("kevent.size=%zu\n", sizeof(struct kevent));
+    printf("kevent.ident=%zu\n", offsetof(struct kevent, ident));
+    printf("kevent.filter=%zu\n", offsetof(struct kevent, filter));
+    printf("kevent.flags=%zu\n", offsetof(struct kevent, flags));
+    printf("kevent.fflags=%zu\n", offsetof(struct kevent, fflags));
+    printf("kevent.data=%zu\n", offsetof(struct kevent, data));
+    printf("kevent.udata=%zu\n", offsetof(struct kevent, udata));
+    printf("timespec.size=%zu\n", sizeof(struct timespec));
+    printf("timespec.nsec=%zu\n", offsetof(struct timespec, tv_nsec));
+    printf("EVFILT_PROC=%lld\n", (long long)EVFILT_PROC);
+    printf("EV_ADD=%lld\n", (long long)EV_ADD);
+    printf("EV_CLEAR=%lld\n", (long long)EV_CLEAR);
+    printf("NOTE_EXIT=%lld\n", (long long)NOTE_EXIT);
+    printf("NOTE_FORK=%lld\n", (long long)NOTE_FORK);
+    printf("NOTE_EXEC=%lld\n", (long long)NOTE_EXEC);
 #else
     printf("locale_t.size=%zu\n", sizeof(locale_t));
     printf("LC_ALL_MASK=%lld\n", (long long)LC_ALL_MASK);
@@ -877,7 +1040,7 @@ int main(void) {
 
     /// The lines the probe prints on every platform, before its
     /// `#ifdef`s: the floor its output is held to.
-    const PRINTED_EVERYWHERE: usize = 57;
+    const PRINTED_EVERYWHERE: usize = 60;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -965,6 +1128,8 @@ int main(void) {
         assert_eq!(h["tm.isdst"], offset_of!(Tm, tm_isdst) as i128);
         assert_eq!(h["tm.gmtoff"], offset_of!(Tm, tm_gmtoff) as i128);
         assert_eq!(h["tm.zone"], offset_of!(Tm, tm_zone) as i128);
+        assert_eq!(h["pid_t.size"], size_of::<Pid>() as i128);
+        assert_eq!(h["pid_t.signed"], 1, "pid_t is signed");
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
@@ -990,6 +1155,20 @@ int main(void) {
                 offset_of!(MachTaskBasicInfo, policy) as i128
             );
             assert_eq!(h["mach_port_t.size"], size_of::<MachPort>() as i128);
+            assert_eq!(h["proc_vnodepathinfo.size"], VNODEPATHINFO_SIZE as i128);
+            assert_eq!(
+                h["proc_vnodepathinfo.cdir_path"],
+                VNODEPATHINFO_CDIR_PATH as i128
+            );
+            assert_eq!(h["kevent.size"], size_of::<Kevent>() as i128);
+            assert_eq!(h["kevent.ident"], offset_of!(Kevent, ident) as i128);
+            assert_eq!(h["kevent.filter"], offset_of!(Kevent, filter) as i128);
+            assert_eq!(h["kevent.flags"], offset_of!(Kevent, flags) as i128);
+            assert_eq!(h["kevent.fflags"], offset_of!(Kevent, fflags) as i128);
+            assert_eq!(h["kevent.data"], offset_of!(Kevent, data) as i128);
+            assert_eq!(h["kevent.udata"], offset_of!(Kevent, udata) as i128);
+            assert_eq!(h["timespec.size"], size_of::<Timespec>() as i128);
+            assert_eq!(h["timespec.nsec"], offset_of!(Timespec, tv_nsec) as i128);
         }
     }
 
@@ -1033,6 +1212,7 @@ int main(void) {
         // **The page size is the system's**: what `getpagesize` answers here
         // is what the headers' program answers.
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
+        assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));
@@ -1058,6 +1238,23 @@ int main(void) {
             assert_eq!(h["RTLD_NOLOAD"], i128::from(RTLD_NOLOAD));
             assert_eq!(h["PSHMNAMLEN"], SHM_NAME_MAX as i128);
             assert_eq!(h["O_SEARCH"], i128::from(O_SEARCH));
+            assert_eq!(
+                h["PROC_PIDVNODEPATHINFO"],
+                i128::from(PROC_PIDVNODEPATHINFO)
+            );
+            assert_eq!(h["MAXPATHLEN"], MAXPATHLEN as i128);
+            assert_eq!(
+                h["PROC_PIDPATHINFO_MAXSIZE"],
+                PROC_PIDPATHINFO_MAXSIZE as i128
+            );
+            assert_eq!(h["CTL_KERN"], i128::from(CTL_KERN));
+            assert_eq!(h["KERN_PROCARGS2"], i128::from(KERN_PROCARGS2));
+            assert_eq!(h["EVFILT_PROC"], i128::from(EVFILT_PROC));
+            assert_eq!(h["EV_ADD"], i128::from(EV_ADD));
+            assert_eq!(h["EV_CLEAR"], i128::from(EV_CLEAR));
+            assert_eq!(h["NOTE_EXIT"], i128::from(NOTE_EXIT));
+            assert_eq!(h["NOTE_FORK"], i128::from(NOTE_FORK));
+            assert_eq!(h["NOTE_EXEC"], i128::from(NOTE_EXEC));
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);
