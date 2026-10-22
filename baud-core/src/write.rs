@@ -264,6 +264,29 @@ impl Csi {
         }
     }
 
+    /// The general fold, `fold_sgr`'s loop, folding only the attributes
+    /// whose first parameter `keep` admits: the rest are stepped over whole,
+    /// a colour's sub-parameters with it.
+    pub(crate) fn fold_sgr_where(&self, raw: &mut StyleWord, mut keep: impl FnMut(u16) -> bool) {
+        let n = self.count().index();
+        let mut i = ParamIdx::FIRST;
+        while i.raw_index() < n {
+            let v = self.p[i.raw_index()].map_or(0, |x| x.value());
+            match SgrAttr::parse(Params::with_subs(
+                &self.p[i.raw_index()..n],
+                self.sub.drop_first(i),
+            )) {
+                Some((attr, used)) => {
+                    if keep(v) {
+                        attr.fold_into(raw);
+                    }
+                    i = i.advance(used.at_least_one_count());
+                }
+                None => break,
+            }
+        }
+    }
+
     /// Every parameter this sequence carried. **Not just the first**:
     /// `CSI ? 1 ; 3 ; 4 ; 6 l` sets four modes, and rxvt's own reset string is
     /// exactly that.
@@ -926,7 +949,7 @@ pub(crate) fn act(
                 }
                 None => raw.seven_bit(),
             };
-            esc_final(p, csi, b, enc);
+            esc_final(p, csi, b, enc, node);
             ReadLen::ONE
         }
         // **Into `Escape`, only from a string's `ESC`**, which cancels it:
@@ -1878,6 +1901,20 @@ impl Paint<'_, '_> {
             _ => self.cold.replies = self.cold.replies.with_c1(c),
         }
     }
+
+    /// Whether SCS designates `set` into `slot` at the level in force, and
+    /// counted when it does not: the set by SCS's own table
+    /// (`Charset::introduced`) and the slot by note 1, "In Level 1 operation
+    /// character sets can only be designated into G0 and G1" (`[[source:
+    /// dec-std-070]]` p. 5-118).
+    pub(crate) fn designable(&mut self, slot: GSlot, set: Charset) -> bool {
+        let at = self.cold.level;
+        let ok = slot.designable(at) && set.introduced().admits(at);
+        if !ok {
+            self.unsupported_total += 1;
+        }
+        ok
+    }
 }
 
 /// **`#[cold]` and out of line.** It runs once a sequence where the loop above
@@ -1930,7 +1967,21 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
     }
     #[cfg(feature = "probe-double-parse")]
     core::hint::black_box(csi.op(f, lrm));
-    match csi.op(f, lrm) {
+    let op = csi.op(f, lrm);
+    // **A function the level in force does not define is not executed**, and
+    // counted: `[[source: dec-std-070]]` DECSCL note 1, "the normal rule that
+    // Level 2 functions only work in Level 2 operation". One load from the
+    // level table (`baud_domain::LEVELS`), below Level 4 alone: Level 4
+    // executes every control sequence the table has
+    // (`level_four_executes_every_control_sequence_function`). A mode, a
+    // status report and an SGR parameter are each their own function and
+    // answer below.
+    if p.cold.level != ConformanceLevel::Four && !introduced_by(op.function()).admits(p.cold.level)
+    {
+        p.unsupported_total += 1;
+        return;
+    }
+    match op {
         DomCsi::CursorPosition { row, col } => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + row.to_row(p.rows).index());
@@ -2049,7 +2100,11 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             }
         }
         DomCsi::SoftReset => p.soft_reset(),
-        DomCsi::SetConformanceLevel => p.select_conformance_level(csi),
+        DomCsi::SetConformanceLevel => {
+            let was = p.cold.strips();
+            p.select_conformance_level(csi);
+            p.restrip_from(was, node);
+        }
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
@@ -2228,7 +2283,13 @@ fn primary_device_attributes(p: &mut Paint<'_, '_>) {
 /// call a byte.
 #[cold]
 #[inline(never)]
-fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEncoding) {
+fn esc_final(
+    p: &mut Paint<'_, '_>,
+    csi: &Csi,
+    b: StreamByte,
+    enc: &mut InputEncoding,
+    node: &mut Node,
+) {
     // **The final as the graph read it, and 7-bit.** Under ISO 8859-1 a GR
     // final is its 7-bit final (`graph::one`, `[[source: williams]]` 462);
     // the `EscFinal` arm, the one caller a GR final reaches, clears its
@@ -2252,6 +2313,9 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                         Some(i2) => Charset::from_multi(i2, b),
                         None => Charset::from_final(b),
                     };
+                    if !p.designable(slot, set) {
+                        return;
+                    }
                     if set == Charset::Other {
                         p.charset_unsupported += 1;
                     }
@@ -2274,11 +2338,14 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                     };
                     let set = match set {
                         Some(s) => Charset::Iso96(s),
-                        None => {
-                            p.charset_unsupported += 1;
-                            Charset::Other
-                        }
+                        None => Charset::Other,
                     };
+                    if !p.designable(slot, set) {
+                        return;
+                    }
+                    if set == Charset::Other {
+                        p.charset_unsupported += 1;
+                    }
                     p.cold.g[slot.index()] = set;
                     p.cold.desig[slot.index()] = Designation::of_96(b);
                     p.reinvoke();
@@ -2306,8 +2373,16 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // It changes only what baud *writes*. What it reads is settled by
             // the encoding, because a `9B` can be a control only where it
             // cannot be a UTF-8 continuation byte.
-            b' ' if b.raw_byte() == b'F' => p.select_c1(C1Transmit::SevenBit),
-            b' ' if b.raw_byte() == b'G' => p.select_c1(C1Transmit::EightBit),
+            b' ' if matches!(b.raw_byte(), b'F' | b'G') => {
+                let (f, c) = match b.raw_byte() {
+                    b'F' => (Function::S7c1t, C1Transmit::SevenBit),
+                    _ => (Function::S8c1t, C1Transmit::EightBit),
+                };
+                match f.introduced().admits(p.cold.level) {
+                    true => p.select_c1(c),
+                    false => p.unsupported_total += 1,
+                }
+            }
             // **`ESC SP L`, `M` and `N` announce an ISO 4873 level, and at
             // Level 3 and above they designate and invoke** (`[[source:
             // dec-std-070]]` 070-3 §3.8.1, pp. 3-68 to 3-70): L and M put
@@ -2317,10 +2392,12 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // that they are counted (Jev's lean, ACT_AT_3_PLUS, 0.91/0.88).
             // xterm sets an ANSI level and designates nothing, a departure
             // from the text not followed.
-            b' ' if matches!(b.raw_byte(), b'L' | b'M' | b'N') => match p.cold.level {
-                ConformanceLevel::One | ConformanceLevel::Two => p.unsupported_total += 1,
-                _ => p.announce(b),
-            },
+            b' ' if matches!(b.raw_byte(), b'L' | b'M' | b'N') => {
+                match Function::Announce.introduced().admits(p.cold.level) {
+                    true => p.announce(b),
+                    false => p.unsupported_total += 1,
+                }
+            }
             // **`ESC % @` and `ESC % G`, and this arm was the whole gap.**
             // Both tables are built at compile time and `Edge::of` selects
             // between them, so the Latin-1 half of the graph has existed and
@@ -2341,8 +2418,10 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                         return;
                     }
                 };
+                let was = p.cold.strips();
                 p.cold.encoding = want;
                 *enc = want;
+                p.restrip_from(was, node);
             }
             // **Any other intermediate and final, counted rather than
             // dropped**: this wildcard did nothing at all once, and a form
@@ -2351,7 +2430,16 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         }
         return;
     }
-    match Esc::parse(b) {
+    let esc = Esc::parse(b);
+    // A function the level in force does not define is not executed, and
+    // counted, as `csi_final` treats a control sequence: DECID above Level 2
+    // (its note b), the GR locking shifts at Level 1, DECBI and DECFI below
+    // Level 4.
+    if !introduced_by(esc.function()).admits(p.cold.level) {
+        p.unsupported_total += 1;
+        return;
+    }
+    match esc {
         Esc::SaveCursor => p.cold.saved = Some(p.save()),
         // `DECRC` with nothing saved has its own list (`Paint::restore_unsaved`);
         // `SCORC` keeps `restore`'s, which does nothing then.
@@ -2374,7 +2462,11 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         }
         Esc::TabSet => p.tab_set(),
         Esc::LineTabSet => p.cold.line_stops.set(p.cy),
-        Esc::Reset => p.hard_reset(),
+        Esc::Reset => {
+            let was = p.cold.strips();
+            p.hard_reset();
+            p.restrip_from(was, node);
+        }
         // **DECKPAM and DECKPNM, recorded and exposed.** They decide what the
         // keypad sends, so the terminal's whole part is to know which mode is
         // live and let the embedder ask -- the same argument
@@ -2402,10 +2494,7 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // Level 3 or above", and the algorithm answers only at Level 1 or
         // Level 2, "Ignored above Level 2" (Jev, NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). xterm answers at
         // every level, a departure from the text not followed.
-        Esc::Identify => match p.cold.level {
-            ConformanceLevel::One | ConformanceLevel::Two => primary_device_attributes(p),
-            ConformanceLevel::Three | ConformanceLevel::Four => p.unsupported_total += 1,
-        },
+        Esc::Identify => primary_device_attributes(p),
         Esc::StartGuardedArea => p.start_guarded_area(),
         Esc::EndGuardedArea => p.end_guarded_area(),
 
@@ -2416,9 +2505,8 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         Esc::SingleShift2 => p.cold.single = GSlot::G2,
         Esc::SingleShift3 => p.cold.single = GSlot::G3,
         // **The locking shifts into GL go through `reinvoke`**, as SO and SI
-        // do (`[[source: ecma35]]` 8.3.1); ungated, Jev's lean UNGATED
-        // (0.52/0.56, then 0.64/0.62): `[[source: dec-std-070]]` §3.6.1.1
-        // requires LS2 and LS3 at Level 1.
+        // do (`[[source: ecma35]]` 8.3.1); from Level 2, their fields'
+        // "Levels: 2, 3" (`baud_domain::LEVELS`).
         Esc::LockingShift2 => {
             p.cold.gl = GSlot::G2;
             p.reinvoke();
@@ -2680,8 +2768,13 @@ fn fast_csi(
     // sequence (`tests/sgr_repeat.rs`). It went when e105e7d moved the
     // commit out of `Act::CsiStart` and into this function, below the hit;
     // that commit found the same gap in `fast_esc` and closed it there.
+    // Not at Level 1, whose SGR folds fewer attributes than an entry holds.
     #[cfg(feature = "sgr-table")]
-    if s[off].raw_byte() == b'm' && off + 1 >= SGR_MIN_BYTES && sgr_from_table(p, &s[..=off]) {
+    if s[off].raw_byte() == b'm'
+        && off + 1 >= SGR_MIN_BYTES
+        && p.cold.level != ConformanceLevel::One
+        && sgr_from_table(p, &s[..=off])
+    {
         *node = Node::AfterControl;
         #[cfg(feature = "diag")]
         {
@@ -2903,7 +2996,7 @@ fn fast_esc(
                     // byte was parsed as an escape continuation -- charset
                     // designation and both CJK recordings went red at once.
                     *node = Node::AfterControl;
-                    esc_final(p, csi, b2, enc);
+                    esc_final(p, csi, b2, enc, node);
                     Some(ReadLen::from_index(3))
                 }
                 _ => None,
@@ -2916,7 +3009,7 @@ fn fast_esc(
         // (`Node::SingleShift`), so the protocol has one definition of them.
         0x30..=0x4d | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
             *node = Node::AfterControl;
-            esc_final(p, csi, b1, enc);
+            esc_final(p, csi, b1, enc, node);
             Some(ReadLen::from_index(2))
         }
         _ => None,

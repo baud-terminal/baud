@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Transcribe every `Levels:` field of DEC STD 070 into a table.
+
+`[[source: dec-std-070]]` is pinned `external`: 74 MB, a scan with an OCR
+text layer, never committed. This reads the text `pdftotext -layout` makes
+of the pinned copy (its sha256 in docs/research/sources/MANIFEST.toml) and
+writes one row a field: the PDF page, the function's mnemonic and the field
+as printed. `baud-domain/tests/conformance_levels.rs` reads the output,
+`baud-domain/tests/std070_levels.tsv`, against `baud_domain::LEVELS`.
+
+The OCR misreads digits and titles ("lX" for 1X, "DEClO" for DECID, "21<"
+for 2x), so the mnemonic comes from the page through `MNEMONIC`, a map
+written against the page images, and the field is normalised by `clean`.
+A positive control runs first: three fields read on their page images,
+CUU's, SGR's and DECID's, must come out as printed, or the extraction is
+broken and nothing it misses means anything.
+
+Usage:
+    pdftotext -layout std070.pdf std070.txt
+    python3 scripts/extract-std070-levels.py std070.txt > baud-domain/tests/std070_levels.tsv
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+
+FIELD = re.compile(r"^\s*[Ll1I][eo][vy][eo][l1I]s?\s*[:;.]\s*(.*)$")
+
+# The function each field belongs to, by PDF page, as the page image names
+# it. A page with two functions on one field carries both.
+MNEMONIC = {
+    173: "ACS", 176: "S7C1T", 177: "S8C1T", 178: "LS0", 179: "LS1",
+    180: "LS2", 181: "LS3", 182: "LS1R", 183: "LS2R", 184: "LS3R",
+    185: "SS2", 186: "SS3", 221: "DA", 226: "DECSCL", 228: "DA2",
+    230: "DA3", 232: "DECID", 233: "DECSR", 235: "DECSTR", 239: "DSR",
+    276: "DECTCEM", 280: "DECSTBM", 282: "DECSLRM", 284: "DECLRMM",
+    286: "DECOM", 287: "DECSCLM", 289: "IND", 291: "RI", 292: "DECFI",
+    294: "DECBI", 296: "CUU", 298: "CUD", 300: "CUF", 302: "CUB",
+    304: "CUP", 306: "HVP", 308: "CPR", 310: "DECXCPR", 312: "LNM",
+    313: "CR", 314: "LF", 316: "VT", 317: "FF", 318: "BS", 319: "NEL",
+    321: "TBC", 322: "HT", 324: "HTS", 326: "DECCOLM", 328: "DECSCPP",
+    330: "DECSLPP", 332: "NP", 334: "PP", 336: "PPA", 337: "PPR",
+    338: "PPB", 340: "DECHCCM", 341: "DECVCCM", 342: "DECPCCM",
+    343: "DECRQDE", 344: "DECSNLS", 346: "SU", 347: "SD", 349: "DECSCNM",
+    351: "DECSWL", 352: "DECDWL", 354: "DECDHL", 358: "SGR",
+    364: "DECCTR", 368: "DECSTGLT", 369: "BEL", 372: "SCS",
+    378: "DECAUPSS", 380: "DECRQUPSS", 381: "DECNRCM", 387: "SUB",
+    390: "SRM", 393: "IRM", 394: "IRGC", 397: "ICH", 399: "DCH",
+    401: "IL", 403: "DL", 405: "DECIC", 406: "DECDC", 407: "ECH",
+    409: "EL", 411: "ED", 414: "DECSEL", 417: "DECSED", 421: "DECSCA",
+    424: "DECCRA", 425: "DECFRA", 426: "DECERA", 427: "DECSERA",
+    428: "DECCARA", 430: "DECRARA", 432: "DECSACE", 434: "DECRQCRA",
+    435: "DSR (checksum)", 437: "DECDMAC", 439: "DECINVM", 440: "DECMSR",
+    442: "DECSC", 444: "DECRC", 448: "DECRQM", 450: "DECRPM",
+    451: "DECRQSS", 452: "DECRPSS", 453: "DECRQPSR", 454: "DECPSR",
+    455: "DECCIR", 459: "DECTABSR", 460: "DECRSPS", 461: "DECRQTSR",
+    462: "DECTSR", 463: "DECRSTS", 526: "KAM", 528: "DECARM",
+    539: "DECNRCM (keyboard)", 544: "DECKBUM", 549: "DECCKM",
+    553: "DECKPAM", 554: "DECKPNM", 555: "DECNKM", 711: "DSR (printer)",
+    713: "MC", 716: "DECPFF", 717: "DECPEX", 974: "DSR (UDK)",
+    976: "DECUDK", 1020: "DECELR", 1021: "DECLRP", 1023: "DECRQLP",
+    1024: "DECSLE", 1025: "DECEFR", 1028: "DECLKD", 1030: "DSR (locator)",
+    1047: "DECSASD", 1048: "DECSSDT",
+}
+
+# Read on the page images: the field exactly as printed.
+CONTROLS = {296: "1-4", 358: "1-4", 232: "1, 2"}
+
+
+def clean(field: str) -> str:
+    """The field as printed: OCR's l, I and 1 read as the digit, 2/X case."""
+    f = field.strip().rstrip(",").strip()
+    f = re.sub(r"\b[lI](?=[xX]\b|[xX],|,|\s*$)", "1", f)
+    f = f.replace("21<", "2x").replace("1.2", "1, 2").replace("1•3", "1-3")
+    f = re.sub(r"\s+", " ", f).replace(" ,", ",")
+    f = re.sub(r"(\d)\s*,\s*", r"\1, ", f)
+    f = re.sub(r"(\d)([xX])\s*,", r"\1\2,", f)
+    f = f.replace("a-bit", "8-bit")
+    return f
+
+
+def rows(text: str):
+    page = 1
+    for line in text.split("\n"):
+        page += line.count("\f")
+        m = FIELD.match(line.replace("\f", ""))
+        if m and page in MNEMONIC:
+            yield page, MNEMONIC[page], clean(m.group(1))
+
+
+def main() -> int:
+    text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+    out = list(rows(text))
+    got = {p: f for p, _, f in out}
+    for page, want in CONTROLS.items():
+        if got.get(page) != want:
+            print(f"control failed: PDF {page} read {got.get(page)!r}, printed {want!r}", file=sys.stderr)
+            return 1
+    missing = sorted(set(MNEMONIC) - set(got))
+    if missing:
+        print(f"no field found on pages {missing}", file=sys.stderr)
+        return 1
+    print("# DEC STD 070 Levels fields: PDF page, mnemonic, field as printed.")
+    print("# Generated by scripts/extract-std070-levels.py from the pinned copy.")
+    for page, mnemonic, field in out:
+        print(f"{page}\t{mnemonic}\t{field}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

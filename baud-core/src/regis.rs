@@ -154,7 +154,21 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn dcs_start(&mut self, b: StreamByte, csi: &Csi) -> crate::osc::StrKind {
-        match (b.raw_byte(), csi.intermediate().map(StreamByte::raw_byte)) {
+        let key = (b.raw_byte(), csi.intermediate().map(StreamByte::raw_byte));
+        // **DECRSTS and DECRSPS are Level 2's** (Terminal State
+        // Interrogation, "Levels: 2x (TSI), 3-4", `[[source: dec-std-070]]`
+        // pp. 5-205 and 5-208): below it the body is consumed and dropped,
+        // and the string counted.
+        let f = match key {
+            (b'p', Some(b'$')) => Some(Function::Decrsts),
+            (b't', Some(b'$')) => Some(Function::Decrsps),
+            _ => None,
+        };
+        if !introduced_by(f).admits(self.cold.level) {
+            self.unsupported_total += 1;
+            return crate::osc::StrKind::Other;
+        }
+        match key {
             (b'p', Some(b'$')) => self.restore_state_start(csi),
             (b'p', _) => self.regis_start(csi),
             (b'w', _) => self.locator_keys_start(csi),

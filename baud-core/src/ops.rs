@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::{Paint, Pen};
-use crate::term::{AltStyle, Saved, Screen, SurfaceLine};
+use crate::term::{AltStyle, Saved, Screen, Strip, SurfaceLine};
 use baud_domain::*;
 
 /// Which way a full-screen scroll moved the window over the ring: up one,
@@ -2334,7 +2334,34 @@ impl Paint<'_, '_> {
         // answer is a pure function of the value. `get` declines the colour
         // introducers and anything the grammar does not recognise, which fall
         // through to the general path rather than silently applying nothing.
+        // **Level 1 has no colour and no "off" forms**, out of line: one
+        // compare a sequence, never a byte (`Paint::apply_sgr_level_one`).
+        if self.cold.level == ConformanceLevel::One {
+            return self.apply_sgr_level_one(csi);
+        }
         csi.fold_sgr(&mut self.style_raw);
+        self.style = self.intern_style(self.style_raw);
+    }
+
+    /// SGR at Level 1: each attribute the level defines folded, the rest
+    /// skipped and counted (`baud_domain::sgr_introduced`), so `CSI 1 ; 31 m`
+    /// sets bold and leaves the colour. `[[source: dec-std-070]]` SGR note 1:
+    /// "All other parameter values shall be ignored unless they are part of a
+    /// well defined extension to the architecture"; colour is §5.6.3's, "at
+    /// Level 2 or higher".
+    #[cold]
+    #[inline(never)]
+    fn apply_sgr_level_one(&mut self, csi: &crate::write::Csi) {
+        let at = self.cold.level;
+        let mut skipped = 0usize;
+        csi.fold_sgr_where(&mut self.style_raw, |v| {
+            let ok = sgr_introduced(v).admits(at);
+            if !ok {
+                skipped += 1;
+            }
+            ok
+        });
+        self.unsupported_param += skipped;
         self.style = self.intern_style(self.style_raw);
     }
 
@@ -3376,6 +3403,12 @@ impl Paint<'_, '_> {
         node: &mut crate::graph::Node,
         at: BytePos,
     ) {
+        // **A mode the level in force does not define is not set**, and
+        // counted, as any other parameter it does not act on.
+        if !introduced_by(m.function()).admits(self.cold.level) {
+            self.unsupported_param += 1;
+            return;
+        }
         let on = change == ModeChange::Set;
         match m {
             PrivateMode::Origin => {
@@ -3983,6 +4016,10 @@ impl Paint<'_, '_> {
     }
 
     fn apply_ansi_mode(&mut self, change: ModeChange, mode: AnsiMode) {
+        if !introduced_by(mode.function()).admits(self.cold.level) {
+            self.unsupported_param += 1;
+            return;
+        }
         let on = change == ModeChange::Set;
         match mode {
             AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
@@ -4406,6 +4443,18 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **A change of the eighth-bit strip holds the rest of the read**, for
+    /// `Term::feed` to strip as the state now says and parse at once: a
+    /// strip `Term::feed` makes once a read would otherwise reach the bytes
+    /// after DECSCL, `ESC <`, `RIS` or `ESC % @` in the same read with the
+    /// state before them. `was` is [`Cold::strips`] before the control.
+    pub(crate) fn restrip_from(&mut self, was: Strip, node: &mut crate::graph::Node) {
+        if self.cold.strips() != was {
+            self.hold_read(node);
+            self.cold.restrip = crate::term::Restrip::Held;
+        }
+    }
+
     /// `ESC SP L`, `M` or `N` at Level 3 or 4 (`[[source: dec-std-070]]`
     /// 070-3 §3.8.1): ASCII into G0 and G0 into GL, and for L and M ISO
     /// Latin-1 Supplemental into G1 and G1 into GR.
@@ -4612,7 +4661,12 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn mode_state(&self, marker: Marker, mode: Param) -> ModeState {
         if marker != Marker::Private {
-            return match AnsiMode::from_wire(Some(mode)) {
+            let m = AnsiMode::from_wire(Some(mode));
+            // A mode the level in force does not define is not recognised.
+            if !introduced_by(m.function()).admits(self.cold.level) {
+                return ModeState::NotRecognized;
+            }
+            return match m {
                 AnsiMode::LineFeedNewLine => bit_state(self.cold.modes, ModeBit::LineFeedNewLine),
                 AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
                 AnsiMode::Erasure => bit_state(self.cold.modes, ModeBit::EraseGuarded),
@@ -4629,6 +4683,11 @@ impl Paint<'_, '_> {
     /// saves and XTRESTORE compares, so a value saved is the value an
     /// application asking would have been told.
     pub(crate) fn private_state(&self, m: PrivateMode) -> ModeState {
+        // **A mode the level in force does not define is not recognised**, so
+        // DECRQM, XTSAVE and DECTSR read it as `set_private_mode` treats it.
+        if !introduced_by(m.function()).admits(self.cold.level) {
+            return ModeState::NotRecognized;
+        }
         match m {
             PrivateMode::Origin => bit_state(self.cold.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.cold.modes, ModeBit::AutoWrap),

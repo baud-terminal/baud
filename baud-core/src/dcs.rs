@@ -297,6 +297,21 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn report_status(&mut self, t: StatusTarget) {
+        // **At Level 1 DECRQSS is not recognised**: no answer, and counted.
+        // It is "Levels: 2x (TSI), 3-4" (`[[source: dec-std-070]]` p.
+        // 5-196), and the VT420 ignores DECRQSS and DECRPSS in Level 1
+        // (`[[source: vt420-rm]]` Table 4-1). Every string alike, `" p` with
+        // them, which answered invalid there (Jev, INVALID, 0.90/0.94, asked
+        // against `61"p`, silence not offered); asked with the VT420's table
+        // Jev split, INVALID at confidence 0.16 then SILENT at 0.25
+        // (probabilities 0.44 and 0.50), and the field's reading is taken,
+        // the rule that a departure from DEC STD 070 needs 0.9 in both
+        // orders. xterm answers the strings at its level 1, a departure
+        // not followed.
+        if !Function::Decrqss.introduced().admits(self.cold.level) {
+            self.unsupported_total += 1;
+            return;
+        }
         // The introducer and terminator follow `S7C1T`/`S8C1T` like every
         // `CSI` answer. They were written literally once, so `S8C1T` moved
         // every `CSI` reply to the eight-bit form and left DECRQSS announcing
@@ -326,25 +341,20 @@ impl Paint<'_, '_> {
             // capture with the replies core2 gave.
             StatusTarget::Unknown => s.push(b"0$r"),
             // **DECSCL**: `6n;0"p` or `6n;1"p`, the level and whether C1 goes
-            // eight-bit, xterm's `do_dcs` shape (`[[source: xterm-misc]]`).
-            // At Level 1 it is invalid: DECRQSS is not a Level 1 function,
-            // and xterm answers none below its level 2 (Jev, INVALID,
-            // 0.90/0.94).
-            StatusTarget::ConformanceLevel => match self.cold.level {
-                ConformanceLevel::One => s.push(b"0$r"),
-                level => {
-                    s.push(b"1$r");
-                    s.push(match level.param() {
-                        62 => b"62",
-                        63 => b"63",
-                        _ => b"64",
-                    });
-                    s.push(match self.cold.replies.c1() {
-                        C1Transmit::EightBit => b";0\"p",
-                        C1Transmit::SevenBit => b";1\"p",
-                    });
-                }
-            },
+            // eight-bit, xterm's `do_dcs` shape (`[[source: xterm-misc]]`);
+            // never at Level 1, above.
+            StatusTarget::ConformanceLevel => {
+                s.push(b"1$r");
+                s.push(match self.cold.level.param() {
+                    62 => b"62",
+                    63 => b"63",
+                    _ => b"64",
+                });
+                s.push(match self.cold.replies.c1() {
+                    C1Transmit::EightBit => b";0\"p",
+                    C1Transmit::SevenBit => b";1\"p",
+                });
+            }
             StatusTarget::Sgr => {
                 s.push(b"1$r");
                 s.sgr(self.style_raw);

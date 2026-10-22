@@ -9,11 +9,11 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Programs just work
 
 - [ ] **Answer programs that ask what the terminal can do** — Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is; the truecolor answer neovim asks for over ssh is left. *In progress.*
-- [ ] **Choose a terminal generation** — Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; at the VT100 level the later terminals' features and keys still stay on. *In progress.*
 - [ ] **More from shell prompt marks** — Clicking in the command line you are typing moves the shell's cursor there, and on a Mac Command-Up and Command-Down jump between prompts; each command's exit status is kept but not shown yet. *In progress.*
 - [ ] **More messages from programs, and colour names** — Colours can be given by name, such as red or lime green, and programs can name the window and its icon, set the pointer's shape and ask for the font; most of iTerm2's own messages are recognised but not acted on yet, beyond its request for attention. *In progress.*
 - [ ] **The remaining xterm settings** — Programs can switch xterm's own settings, among them jumping to new output or to a keypress, reverse wrap, hiding the scrollbar and copying a selection to the clipboard; keeping a selection after a program writes over it is left. *In progress.*
 - [x] **A hidden cursor moves with scrolling output** — A cursor a program hid and placed stays on its text while output scrolls. (2026-10-22)
+- [x] **Choose a terminal generation** — Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; baud then does only what that level defines, keys included, and its identity reply stays VT102. (2026-10-22)
 - [x] **Programs set colours the kitty way** — Programs written for kitty can read and set the terminal's colours with kitty's own colour message, beside the xterm messages baud already answers. (2026-10-22)
 - [x] **Save and restore the whole terminal state** — Programs can read back the cursor's place, the tab stops, the colour table and the whole terminal state in one report, and put any of them back later. (2026-10-22)
 - [x] **Folder, notification and progress messages from programs** — Programs can tell baud the folder they are in, post a desktop notification or show a progress bar. (2026-10-21)

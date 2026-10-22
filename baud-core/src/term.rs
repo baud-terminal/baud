@@ -850,6 +850,37 @@ const _: () = assert!(
     "widen LineStops past MAX_ROWS"
 );
 
+/// Whether received bytes lose their eighth bit before any processing:
+/// Level 1 under ISO 8859-1. `[[source: dec-std-070]]` 070-3 §3.7.5.1 (p.
+/// 3-67): "The high order bit of all 8-bit characters received will be
+/// stripped by the terminal before any processing occurs". Under UTF-8 a
+/// byte is a code unit, not a character of that code, and is decoded at
+/// every level (Jev, LATIN1_ONLY, 0.98/0.95).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Strip {
+    Eight,
+    Seven,
+}
+
+impl Cold {
+    /// Whether received bytes are stripped now.
+    pub(crate) fn strips(&self) -> Strip {
+        match (self.level, self.encoding) {
+            (baud_domain::ConformanceLevel::One, InputEncoding::Latin1) => Strip::Seven,
+            _ => Strip::Eight,
+        }
+    }
+}
+
+/// Whether the rest of a read waits on the eighth-bit strip.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Restrip {
+    Clear,
+    /// A control changed whether received bytes are stripped, and held the
+    /// rest of the read (`Paint::restrip_from`).
+    Held,
+}
+
 /// The state a control sequence changes that the write loop does not read.
 #[derive(Clone, Copy)]
 pub struct Cold {
@@ -1179,9 +1210,14 @@ pub struct Cold {
     /// switches and by the embedder, never by a glyph.
     pub(crate) resources: baud_domain::Resources,
     /// The conformance level DECSCL selected (`baud_domain::ConformanceLevel`),
-    /// Level 4 at power-up and after `RIS`. Read by `S8C1T`, the announcers
-    /// and DECRQSS, never by a glyph.
+    /// Level 4 at power-up and after `RIS`. Read by each control's dispatch
+    /// against the level table (`baud_domain::LEVELS`), by `apply_sgr` once a
+    /// sequence, by the keyboard and by `Term::feed` once a read, never by a
+    /// glyph.
     pub(crate) level: baud_domain::ConformanceLevel,
+    /// Whether a change of the eighth-bit strip held the rest of the read,
+    /// for `Term::feed` to strip as the new state says and parse.
+    pub(crate) restrip: Restrip,
     pub(crate) num_lock: NumLockKeypad,
     /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
     /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
@@ -1516,6 +1552,7 @@ impl Cold {
             backarrow: self.backarrow,
             delete: self.delete,
             num_lock: self.num_lock,
+            level: self.level,
         }
     }
 
@@ -1845,6 +1882,7 @@ impl Cold {
             delete: DeleteKey::Remove,
             resources: baud_domain::Resources::POWER_ON,
             level: baud_domain::ConformanceLevel::Four,
+            restrip: Restrip::Clear,
             num_lock: NumLockKeypad::Overrides,
             protect: CellFlags::NONE,
             guard_open: None,

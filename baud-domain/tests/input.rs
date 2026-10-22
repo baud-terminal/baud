@@ -219,6 +219,7 @@ fn the_base_encoder_sends_a_repeat_as_a_press_and_no_release() {
         backarrow: BackarrowKey::default(),
         delete: DeleteKey::default(),
         num_lock: NumLockKeypad::default(),
+        level: ConformanceLevel::Four,
     };
     let bytes = |e: KeyEvent| encode_key(e, s).map(|k| k.as_bytes().to_vec());
     for code in [

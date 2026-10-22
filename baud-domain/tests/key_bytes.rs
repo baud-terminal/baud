@@ -212,6 +212,7 @@ fn all_flags() -> KeyState {
         backarrow: BackarrowKey::default(),
         delete: DeleteKey::default(),
         num_lock: NumLockKeypad::default(),
+        level: ConformanceLevel::Four,
     }
 }
 
@@ -360,6 +361,7 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
                                         backarrow,
                                         delete,
                                         num_lock,
+                                        level: ConformanceLevel::Four,
                                     });
                                 }
                             }

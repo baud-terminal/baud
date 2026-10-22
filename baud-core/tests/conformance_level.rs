@@ -52,8 +52,8 @@ fn decscl_selects_the_level_and_the_c1_transmission() {
 }
 
 /// **Level 1 is seven-bit only**: DECSCL 61 sends seven-bit whatever `Pc`
-/// says, `S8C1T` is counted and changes nothing, and DECRQSS `" p` is
-/// invalid there, DECRQSS being no Level 1 function.
+/// says, `S8C1T` is counted and changes nothing, and DECRQSS `" p` gets no
+/// answer there, DECRQSS being no Level 1 function.
 #[test]
 fn level_one_is_seven_bit_only() {
     support::with_term(&WS, |t| {
@@ -63,7 +63,7 @@ fn level_one_is_seven_bit_only() {
         support::feed(t, b"\x1b G");
         assert_eq!(t.unsupported, counted + 1, "S8C1T counted at Level 1");
         assert_eq!(reply_to(t, b"\x1b[5n"), b"\x1b[0n");
-        assert_eq!(reply_to(t, RQSS), b"\x1bP0$r\x1b\\");
+        assert_eq!(reply_to(t, RQSS), b"");
         support::feed(t, b"\x1b[62\"p\x1b G");
         assert_eq!(reply_to(t, b"\x1b[5n"), b"\x9b0n", "S8C1T at Level 2");
     });
@@ -124,18 +124,14 @@ fn a_full_reset_returns_to_level_four_seven_bit() {
 /// power-up and from Level 2 and eight-bit: `[[source: dec-std-070]]`
 /// 070-0A EXIT VT52 EMULATION MODE (p. A-15), "causing the terminal to
 /// return to Level 1 operation", and "Level 1 operation is 7-bits only"
-/// (070-3 §3.6.4.1). So `ESC Z` answers, DECRQSS `" p` is invalid and
+/// (070-3 §3.6.4.1). So `ESC Z` answers, DECRQSS `" p` gets no answer and
 /// `S8C1T` is counted.
 #[test]
 fn leaving_vt52_returns_to_level_one_seven_bit() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[?2l\x1b<");
         assert_eq!(reply_to(t, b"\x1bZ"), b"\x1b[?6c", "DECID at Level 1");
-        assert_eq!(
-            reply_to(t, RQSS),
-            b"\x1bP0$r\x1b\\",
-            "no DECRQSS at Level 1"
-        );
+        assert_eq!(reply_to(t, RQSS), b"", "no DECRQSS at Level 1");
         let counted = t.unsupported;
         support::feed(t, b"\x1b G");
         assert_eq!(t.unsupported, counted + 1, "S8C1T counted at Level 1");
@@ -144,7 +140,7 @@ fn leaving_vt52_returns_to_level_one_seven_bit() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[62;0\"p\x1b[?2l\x1b<");
         assert_eq!(reply_to(t, b"\x1b[5n"), b"\x1b[0n", "seven-bit");
-        assert_eq!(reply_to(t, RQSS), b"\x1bP0$r\x1b\\", "Level 1, not 2");
+        assert_eq!(reply_to(t, RQSS), b"", "Level 1, not 2");
     });
 }
 
@@ -195,4 +191,316 @@ fn the_announcers_designate_at_level_three_and_above() {
         assert_eq!(t.unsupported, counted + 3);
         assert_ne!(first(t), Some('q'), "G0 kept its line drawing");
     });
+}
+
+/// Feed `bytes` in reads of `n`, as a pty would split them.
+fn feed_in(t: &mut Term<'_>, bytes: &[u8], n: usize) {
+    for chunk in bytes.chunks(n) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+}
+
+/// Run `bytes` at every read size from one byte to the whole, and hand each
+/// terminal to `check` with the size.
+fn every_read_size(bytes: &[u8], check: impl Fn(&mut Term<'_>, usize)) {
+    for n in 1..=bytes.len() {
+        support::with_term(&WS, |t| {
+            feed_in(t, bytes, n);
+            check(t, n);
+        });
+    }
+}
+
+fn text(t: &Term<'_>, row: usize) -> String {
+    t.row(Row::from_index(row))
+        .expect("row")
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|c| char::from_u32(c.value()))
+                .unwrap_or(' ')
+        })
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+/// **At Level 1 a Level 2 function is not executed, and is counted**:
+/// `[[source: dec-std-070]]` DECSCL note 1, "the normal rule that Level 2
+/// functions only work in Level 2 operation". ICH and ECH are "Levels:
+/// 2-4", DECTCEM "2-4", DECSTR "2, 3, 4"; at Level 2 each acts.
+#[test]
+fn level_one_does_not_execute_a_level_two_function() {
+    // `abc`, home, ICH 1, forward, ECH 1, DECTCEM reset, LS2.
+    let ops = b"abc\r\x1b[@\x1b[C\x1b[X\x1b[?25l\x1bn";
+    every_read_size(&[&b"\x1b[61\"p"[..], ops].concat(), |t, n| {
+        assert_eq!(
+            text(t, 0),
+            "abc",
+            "read size {n}: nothing inserted or erased"
+        );
+        assert!(t.cursor_visible(), "read size {n}: DECTCEM ignored");
+        assert_eq!(t.unsupported, 3, "read size {n}: ICH, ECH and LS2");
+        assert_eq!(t.unsupported_param, 1, "read size {n}: ?25");
+    });
+    every_read_size(&[&b"\x1b[62;1\"p"[..], ops].concat(), |t, n| {
+        assert_eq!(text(t, 0), "  bc", "read size {n}: the control, Level 2");
+        assert!(!t.cursor_visible(), "read size {n}");
+        assert_eq!((t.unsupported, t.unsupported_param), (0, 0));
+    });
+    // DECSTR is Level 2's too.
+    every_read_size(b"\x1b[?25l\x1b[61\"p\x1b[?25l\x1b[!p", |t, n| {
+        assert_eq!(t.unsupported, 1, "read size {n}: DECSTR counted");
+    });
+}
+
+/// **Each level adds its own**: SU and SD are Level 3's ("3x, 4x
+/// (Windowing)"), DECIC and DECCRA Level 4's ("4x", "Level: 4").
+#[test]
+fn levels_two_three_and_four_add_their_functions() {
+    let su = b"a\r\n\x1b[S";
+    every_read_size(&[&b"\x1b[62;1\"p"[..], su].concat(), |t, n| {
+        assert_eq!(text(t, 0), "a", "read size {n}: no SU at Level 2");
+        assert_eq!(t.unsupported, 1);
+    });
+    every_read_size(&[&b"\x1b[63;1\"p"[..], su].concat(), |t, n| {
+        assert_eq!(text(t, 0), "", "read size {n}: SU at Level 3");
+    });
+    let ic = b"ab\r\x1b['}";
+    every_read_size(&[&b"\x1b[63;1\"p"[..], ic].concat(), |t, n| {
+        assert_eq!(text(t, 0), "ab", "read size {n}: no DECIC at Level 3");
+        assert_eq!(t.unsupported, 1);
+    });
+    every_read_size(&[&b"\x1b[64;1\"p"[..], ic].concat(), |t, n| {
+        assert_eq!(text(t, 0), " ab", "read size {n}: DECIC at Level 4");
+    });
+}
+
+/// **A control no DEC level defines acts at every level** (Jev,
+/// EVERY_LEVEL): CHA, REP and the alternate screen at Level 1.
+#[test]
+fn an_extension_acts_at_level_one() {
+    every_read_size(b"\x1b[61\"pab\x1b[5Gc\x1b[2b", |t, n| {
+        assert_eq!(text(t, 0), "ab  ccc", "read size {n}");
+        assert_eq!(t.unsupported, 0);
+    });
+}
+
+/// **SGR at Level 1 folds bold and drops colour**: `CSI 1 ; 31 m` sets
+/// bold and leaves the foreground, the 31 counted; `CSI 22 m` is Level 2's
+/// and leaves bold on. At Level 2 both act.
+#[test]
+fn level_one_sgr_keeps_bold_and_drops_colour() {
+    let first = |t: &Term<'_>| t.style_of(t.row(Row::ZERO).expect("row")[0]);
+    every_read_size(b"\x1b[61\"p\x1b[1;31mA\x1b[22mB", |t, n| {
+        let a = first(t);
+        assert!(a.attrs().has(Attrs::BOLD), "read size {n}");
+        assert_eq!(a.fg(), ColorWord::DEFAULT, "read size {n}: no colour");
+        let b = t.style_of(t.row(Row::ZERO).expect("row")[1]);
+        assert!(b.attrs().has(Attrs::BOLD), "read size {n}: 22 ignored");
+        assert_eq!(t.unsupported_param, 2, "read size {n}: 31 and 22");
+    });
+    every_read_size(b"\x1b[62;1\"p\x1b[1;31mA", |t, n| {
+        assert_ne!(
+            first(t).fg(),
+            ColorWord::DEFAULT,
+            "read size {n}: colour at Level 2"
+        );
+    });
+}
+
+/// **A repeated SGR is Level 1's too.** Under `sgr-table` a plain SGR of
+/// eight bytes or more that a read held whole is answered from a table on
+/// its second sighting, past the dispatch that drops colour at Level 1, so
+/// the table must not answer there. Under default features this holds the
+/// parse every SGR takes.
+#[test]
+fn level_one_drops_colour_from_a_repeated_sgr() {
+    let sgr = b"\x1b[01;031;004m";
+    let mut bytes = Vec::new();
+    for b in [&sgr[..], b"X", sgr, b"Y\x1b[61\"p", sgr, b"A"] {
+        bytes.extend_from_slice(b);
+    }
+    every_read_size(&bytes, |t, n| {
+        let a = t.style_of(t.row(Row::ZERO).expect("row")[2]);
+        assert!(a.attrs().has(Attrs::BOLD), "read size {n}: bold");
+        assert_eq!(a.fg(), ColorWord::DEFAULT, "read size {n}: no colour");
+    });
+}
+
+/// **SCS at Level 1**: ASCII, line drawing and the NRC sets into G0 and G1
+/// only, and no DEC Supplemental (`[[source: dec-std-070]]` SCS note 1 and
+/// its table; the VT420's Level 1, "Only the ASCII, national replacement
+/// (NRC), and DEC Special Graphic character sets are available").
+#[test]
+fn level_one_designates_into_g0_and_g1_only() {
+    every_read_size(b"\x1b[61\"p\x1b*0\x1b(<\x1b(K\x1b)0\x0eq", |t, n| {
+        assert_eq!(t.unsupported, 2, "read size {n}: G2 and DEC Supplemental");
+        assert_eq!(text(t, 0), "\u{2500}", "read size {n}: G1 line drawing");
+    });
+}
+
+/// The reply to `bytes` after `pre`, both fed in reads of `n`.
+fn reply_at(pre: &[u8], bytes: &[u8], n: usize) -> Vec<u8> {
+    support::with_term(&WS, |t| {
+        feed_in(t, pre, n);
+        t.clear_reply();
+        feed_in(t, bytes, n);
+        t.reply().to_vec()
+    })
+}
+
+/// **Level 1 has no Terminal State Interrogation**: DECRQSS, every string,
+/// and DECRQM answer nothing, "Levels: 2x (TSI), 3-4", as the VT420 ignores
+/// them (`[[source: vt420-rm]]` Table 4-1); at Level 2 both answer, and a
+/// Level 4 mode is not recognised.
+#[test]
+fn level_one_has_no_terminal_state_interrogation() {
+    let one = b"\x1b[61\"p";
+    let two = b"\x1b[62;1\"p";
+    for n in 1..=12 {
+        assert_eq!(reply_at(one, b"\x1bP$qm\x1b\\", n), b"", "read size {n}");
+        assert_eq!(reply_at(one, b"\x1bP$qr\x1b\\", n), b"", "read size {n}");
+        assert_eq!(reply_at(one, b"\x1b[?6$p", n), b"", "read size {n}");
+        assert_eq!(reply_at(two, b"\x1bP$qm\x1b\\", n), b"\x1bP1$r0m\x1b\\");
+        assert_eq!(reply_at(two, b"\x1b[?69$p", n), b"\x1b[?69;0$y", "DECLRMM");
+        assert_eq!(reply_at(two, b"\x1b[?6$p", n), b"\x1b[?6;2$y");
+    }
+    support::with_term(&WS, |t| {
+        support::feed(t, one);
+        let counted = t.unsupported;
+        support::feed(t, b"\x1bP$qm\x1b\\");
+        assert_eq!(t.unsupported, counted + 1, "the DECRQSS counted");
+    });
+}
+
+/// **Level 1 under ISO 8859-1 strips the eighth bit before any
+/// processing** (`[[source: dec-std-070]]` 070-3 §3.7.5.1), from the byte
+/// after the DECSCL that selects it, in the same read or the next; DECSCL
+/// 62 ends it for the bytes after it. Under UTF-8 nothing is stripped.
+#[test]
+fn level_one_strips_the_eighth_bit_under_latin1() {
+    every_read_size(b"\x1b%@\xc1\x1b[61\"p\xc1\x1b[62;1\"p\xc1", |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}A\u{c1}", "read size {n}");
+    });
+    // `ESC % @` at Level 1 and `ESC <` under ISO 8859-1 start it too.
+    every_read_size(b"\x1b[61\"p\xc1\x1b%@\xc1", |t, n| {
+        assert_eq!(text(t, 0), "\u{fffd}A", "read size {n}: ESC % @");
+    });
+    every_read_size(b"\x1b%@\x1b[?2l\xc1\x1b<\xc1", |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}A", "read size {n}: ESC <");
+    });
+    every_read_size("\x1b[61\"p\u{c1}".as_bytes(), |t, n| {
+        assert_eq!(text(t, 0), "\u{c1}", "read size {n}: UTF-8 decoded");
+    });
+    // An eight-bit CSI arrives as ESC: `9B 5 n` is `ESC 5 n`, no DSR.
+    for n in 1..=8 {
+        let pre = b"\x1b%@\x1b[61\"p";
+        assert_eq!(reply_at(pre, b"\x9b5n", n), b"", "read size {n}");
+        assert_eq!(reply_at(pre, b"\x9b[5n", n), b"\x1b[0n", "read size {n}");
+        assert_eq!(reply_at(b"\x1b%@", b"\x9b5n", n), b"\x1b[0n", "Level 4");
+    }
+}
+
+/// **The Level 1 keyboard** (`[[source: dec-std-070]]` 070-6 §6.2.4): the
+/// editing keys, Home, End, F5 to F10 and F14 to F20 send nothing; F11, F12
+/// and F13 send ESC, BS and LF; F1 is still PF1. Under ISO 8859-1 a key
+/// that would send an 8-bit code sends nothing.
+#[test]
+fn the_level_one_keyboard() {
+    let press = |pre: &[u8], code: KeyCode| {
+        support::with_term(&WS, |t| {
+            support::feed(t, pre);
+            t.clear_reply();
+            let sent = t.key(KeyEvent::press(code, Modifiers::NONE));
+            (sent, t.reply().to_vec())
+        })
+    };
+    let f = |n: u8| KeyCode::Function(FnKey::new(n).expect("a function key"));
+    let one = b"\x1b[61\"p";
+    for k in [
+        KeyCode::Insert,
+        KeyCode::Delete,
+        KeyCode::PageUp,
+        KeyCode::PageDown,
+        KeyCode::Home,
+        KeyCode::End,
+        f(5),
+        f(6),
+        f(10),
+        f(14),
+        f(20),
+    ] {
+        assert_eq!(press(one, k), (false, vec![]), "{k:?} at Level 1");
+        assert!(press(b"", k).0, "{k:?} at Level 4");
+    }
+    assert_eq!(press(one, f(11)), (true, b"\x1b".to_vec()));
+    assert_eq!(press(one, f(12)), (true, b"\x08".to_vec()));
+    assert_eq!(press(one, f(13)), (true, b"\n".to_vec()));
+    assert_eq!(press(one, f(1)), (true, b"\x1bOP".to_vec()));
+    assert_eq!(press(one, KeyCode::Up), (true, b"\x1b[A".to_vec()));
+    let e = KeyCode::Char(Codepoint::from_char('\u{e9}'));
+    assert_eq!(press(b"\x1b%@\x1b[61\"p", e), (false, vec![]), "Latin-1");
+    assert_eq!(press(b"\x1b%@", e), (true, vec![0xe9]), "Latin-1, Level 4");
+    assert_eq!(press(one, e), (true, "\u{e9}".as_bytes().to_vec()), "UTF-8");
+    // modifyFunctionKeys -1 makes a modified key a higher-numbered one, and
+    // Level 1 rules the key it becomes: Shift-F1 is F11, ESC; Shift-F4 is
+    // F14, inoperative.
+    let remap_at = |pre: &[u8], mods: Modifiers, n: u8| {
+        support::with_term(&WS, |t| {
+            support::feed(t, pre);
+            support::feed(t, b"\x1b[>2n");
+            t.clear_reply();
+            let sent = t.key(KeyEvent::press(f(n), mods));
+            (sent, t.reply().to_vec())
+        })
+    };
+    let remap = |mods, n| remap_at(one, mods, n);
+    assert_eq!(
+        remap(Modifiers::SHIFT, 1),
+        (true, b"\x1b".to_vec()),
+        "Shift-F1"
+    );
+    assert_eq!(
+        remap(Modifiers::SHIFT, 2),
+        (true, b"\x08".to_vec()),
+        "Shift-F2"
+    );
+    assert_eq!(remap(Modifiers::SHIFT, 4), (false, vec![]), "Shift-F4");
+    assert_eq!(remap(Modifiers::SHIFT, 10), (false, vec![]), "Shift-F10");
+    // Past F20 xterm's made-up `CSI 42 ~` and on is no Level 1 key (Jev).
+    assert_eq!(remap(Modifiers::CTRL, 1), (false, vec![]), "Ctrl-F1");
+    assert_eq!(
+        remap(Modifiers::CTRL.with(Modifiers::SHIFT), 2),
+        (false, vec![])
+    );
+    assert_eq!(remap(Modifiers::SHIFT, 11), (false, vec![]), "Shift-F11");
+    assert_eq!(remap(Modifiers::CTRL, 12), (false, vec![]), "Ctrl-F12");
+    // Unmodified, F11 is still ESC with the resource at -1.
+    assert_eq!(remap(Modifiers::NONE, 11), (true, b"\x1b".to_vec()), "F11");
+    // The controls: at Level 4 the same presses send the remapped keys.
+    let four = |mods, n| remap_at(b"", mods, n);
+    assert_eq!(four(Modifiers::SHIFT, 1), (true, b"\x1b[23~".to_vec()));
+    assert_eq!(four(Modifiers::SHIFT, 4), (true, b"\x1b[26~".to_vec()));
+    assert_eq!(four(Modifiers::CTRL, 1), (true, b"\x1b[42~".to_vec()));
+    // Under DECKPAM a keypad navigation key is the key it duplicates, and
+    // Level 1 rules it: no editing keypad, no Home or End.
+    let kp = KeyCode::Keypad;
+    for k in [
+        KeypadKey::PageUp,
+        KeypadKey::PageDown,
+        KeypadKey::Insert,
+        KeypadKey::Delete,
+        KeypadKey::Home,
+        KeypadKey::End,
+    ] {
+        assert_eq!(press(b"\x1b[61\"p\x1b=", kp(k)), (false, vec![]), "{k:?}");
+    }
+    assert_eq!(
+        press(b"\x1b=", kp(KeypadKey::PageUp)),
+        (true, b"\x1b[5~".to_vec())
+    );
+    assert!(press(b"\x1b[61\"p\x1b=", kp(KeypadKey::Up)).0, "Up");
 }

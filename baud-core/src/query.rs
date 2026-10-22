@@ -35,6 +35,15 @@ impl Paint<'_, '_> {
             }
             return;
         };
+        // **Each private report is its own function**, and one the level in
+        // force does not define is not answered and is counted, as
+        // `csi_final` counts a control (`DecStatus::function`).
+        if let QueryCall::DecStatus(k) = call {
+            if !k.function().introduced().admits(self.cold.level) {
+                self.unsupported_total += 1;
+                return;
+            }
+        }
         match call {
             QueryCall::DecStatus(DecStatus::Printer) if self.strs.print.hold == PrinterHold::On => {
                 self.hold_printer_status(node)

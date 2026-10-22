@@ -103,12 +103,12 @@ fn the_sgr_reply_round_trips() {
 #[test]
 fn an_unknown_setting_gets_the_invalid_reply() {
     assert_eq!(replies(b"\x1bP$qzz\x1b\\"), b"\x1bP0$r\x1b\\");
-    // DECSCL answers since it is built: invalid at Level 1 only
-    // (`conformance_level.rs`).
+    // DECSCL answers since it is built, and at Level 1 DECRQSS answers
+    // nothing at all, being Level 2's (`baud-core/tests/conformance_level.rs`).
     assert_eq!(
         replies(b"\x1b[61\"p\x1bP$q\"p\x1b\\"),
-        b"\x1bP0$r\x1b\\",
-        "DECSCL at Level 1"
+        b"",
+        "DECRQSS at Level 1"
     );
 }
 

@@ -5,7 +5,8 @@
 //! `[[source: vt510-deccir]]`, `[[source: vt510-dectabsr]]`, `[[source:
 //! vt510-decrsps]]`. Answered whatever level DA claims, as DECRQSS and the
 //! rectangle operations are (Jev's lean UNGATED, 0.52/0.56 then 0.64/0.62,
-//! with the owner's standing rule quoted).
+//! with the owner's standing rule quoted); at the levels DECSCL selects,
+//! from Level 2, "Levels: 2x (TSI), 3-4" (`baud_domain::LEVELS`).
 
 use crate::osc::StrKind;
 use crate::paint::Paint;

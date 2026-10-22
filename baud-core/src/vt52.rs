@@ -73,10 +73,12 @@ impl Paint<'_, '_> {
             // §3.6.4.1). xterm returns to its level 1 and keeps an `S8C1T`,
             // a departure not followed.
             Vt52::ExitVt52 => {
+                let was = self.cold.strips();
                 self.cold.terminal = TerminalMode::Ansi;
                 self.cold.level = ConformanceLevel::One;
                 self.cold.replies = self.cold.replies.with_c1(C1Transmit::SevenBit);
                 *node = crate::graph::Node::AfterControl;
+                self.restrip_from(was, node);
             }
             Vt52::KeypadApplication => self.cold.keypad = KeypadMode::Application,
             Vt52::KeypadNumeric => self.cold.keypad = KeypadMode::Numeric,

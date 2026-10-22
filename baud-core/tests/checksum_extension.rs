@@ -143,12 +143,13 @@ fn both_resets_restore_the_default() {
 }
 
 /// **Below Level 4 it is ignored and counted**, xterm's `vtXX_level >= 4`
-/// (Jev's lean, GATE); the request is still answered, in the default sum.
+/// (Jev's lean, GATE), and so is the request: DECRQCRA is "Level: 4"
+/// (`[[source: dec-std-070]]` p. 5-179), so at Level 3 it gets no answer.
 #[test]
 fn below_level_4_it_is_ignored_and_counted() {
     let (s, dropped) = sum_with("\x1b[63;1\"p\x1b[1#yA", 1, |_| {});
-    assert_eq!(s, Some(neg(0x41)));
-    assert_eq!(dropped, 1);
+    assert_eq!(s, None, "no DECRQCRA at Level 3");
+    assert_eq!(dropped, 2, "XTCHECKSUM and DECRQCRA");
     assert_eq!(
         sum("\x1b[64;1\"p\x1b[1#yA", 1),
         0x41,

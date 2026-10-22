@@ -607,7 +607,7 @@ pub enum PrivateMode {
 /// DEC STD 070's `host_state_init` ("conformance level = LEVEL 4") and the
 /// VT510's factory default, and what baud implements. The primary DA
 /// answer does not follow it: it is the terminal's identity.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub enum ConformanceLevel {
     One,
     Two,

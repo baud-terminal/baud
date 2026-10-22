@@ -545,6 +545,9 @@ pub struct KeyState {
     pub delete: DeleteKey,
     /// `?1035`.
     pub num_lock: NumLockKeypad,
+    /// The conformance level DECSCL selected: at Level 1 the keyboard is
+    /// [`level_one_key`]'s.
+    pub level: ConformanceLevel,
 }
 
 impl KeyState {
@@ -752,7 +755,16 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
         TerminalMode::Vt52 => vt52(&mut o, code, e.mods, text, s),
         TerminalMode::Ansi => ansi(&mut o, code, e.mods, text, s),
     };
-    match ok && o.fit == Fit::Whole {
+    // **Level 1 transmits only 7-bit codes** (`[[source: dec-std-070]]`
+    // 070-6 §6.2.4 a, p. 6-19): "Keys which would normally produce an 8-bit
+    // code with the 8th bit set shall be inoperative". Under ISO 8859-1,
+    // where a byte is a character of that code; under UTF-8 a key sends its
+    // UTF-8 at every level (Jev's lean, LATIN1_ONLY, 0.83/0.77 then
+    // 0.72/0.73), as received UTF-8 is decoded at every level.
+    let eight = s.level == ConformanceLevel::One
+        && s.encoding == InputEncoding::Latin1
+        && o.as_bytes().iter().any(|b| *b >= 0x80);
+    match ok && !eight && o.fit == Fit::Whole {
         true => Some(o),
         false => None,
     }
@@ -1067,9 +1079,61 @@ fn ansi(
     text: Option<Codepoint>,
     s: KeyState,
 ) -> bool {
+    if let Some(sent) = level_one_key(o, code, mods, s) {
+        return sent;
+    }
     // **A resource at 4 takes its keys before anything else**, as xterm's
     // `Input` checks `mfkExtended` first (`[[source: xterm-input-c]]`).
     extended(o, code, mods, s) || ansi_key(o, code, mods, text, s)
+}
+
+/// **The keys Level 1 decides**, or `None` for a key it leaves as at every
+/// level: `[[source: dec-std-070]]` 070-6 §6.2.4 (p. 6-19), "The Editing
+/// Keypad keys with generic names E1, E2, E3, E4, E5, and E6 are
+/// inoperative", F6 to F10 and F14 to F20 inoperative, and "F11 shall
+/// transmit the ESC code (1/11)", F12 BS and F13 LF; and §6.2.1 b, "Shall
+/// neither implement additional keys nor make operative keys that are not
+/// part of Level 1 Operation". So Insert, Delete, Page Up, Page Down, Home
+/// and End send nothing, and F5, which a VT100 lacks and an LK201 keeps
+/// local (Jev's lean, EDITING_HOME_END_F5, 0.79/0.79 then 0.28/0.56);
+/// "inoperative means that the key shall not transmit anything". F1 to F4
+/// stay PF1 to PF4, and the arrows and the keypad their VT100 forms.
+///
+/// A function key that modifyFunctionKeys -1 remaps under Shift or
+/// Control is left to [`remapped_function_key`], which rules the key it
+/// becomes: Shift-F11 is F21, past F20.
+fn level_one_key(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> Option<bool> {
+    if s.level != ConformanceLevel::One {
+        return None;
+    }
+    let remapped = s.keys.modify(KeyResource::Function) == ModifyValue::DISABLED
+        && (mods.has(Modifiers::SHIFT) || mods.has(Modifiers::CTRL));
+    match code {
+        KeyCode::Function(_) if remapped => None,
+        KeyCode::Insert
+        | KeyCode::Delete
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Home
+        | KeyCode::End => Some(false),
+        KeyCode::Function(f) => match f.number() {
+            5..=10 | 14..=20 => Some(false),
+            11 => {
+                o.push(0x1b);
+                Some(true)
+            }
+            12 => {
+                o.push(0x08);
+                Some(true)
+            }
+            13 => {
+                o.push(0x0a);
+                Some(true)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The ANSI keyboard once no resource at 4 has taken the key. **A keypad
@@ -1085,6 +1149,10 @@ fn ansi_key(
     text: Option<Codepoint>,
     s: KeyState,
 ) -> bool {
+    // A keypad navigation key reaches here as the key it duplicates.
+    if let Some(sent) = level_one_key(o, code, mods, s) {
+        return sent;
+    }
     match code {
         // The arrows plus Home and End: `[[source: ctlseqs]]` line 2485 puts
         // the latter in the arrows' table and calls them cursor keys, so
@@ -1116,7 +1184,9 @@ fn ansi_key(
                 None => return false,
             }
         }
-        KeyCode::Function(f) => function_key(o, f, mods, s, s.keys.modify(KeyResource::Function)),
+        KeyCode::Function(f) => {
+            return function_key(o, f, mods, s, s.keys.modify(KeyResource::Function));
+        }
         KeyCode::Keypad(k) => return keypad_key(o, k, mods, text, s),
         // The PUA keys have no legacy form; the base layer sends nothing.
         KeyCode::Pua(_) => return false,
@@ -1294,8 +1364,7 @@ fn keypad_key(
     // modifyFunctionKeys does not reach them: xterm's PF keys are keypad
     // keys (`IsPFKey`), sent with the modifier second as baud sends F1-F4.
     if let Some(f) = k.pf() {
-        function_key(o, f, mods, s, ModifyValue::PARAM);
-        return true;
+        return function_key(o, f, mods, s, ModifyValue::PARAM);
     }
     // A navigation key: under DECKPAM the row of 2498 it shares with its
     // digit ("4 (LeftArrow)"), and otherwise the key it duplicates, which
@@ -1319,7 +1388,15 @@ fn keypad_key(
                 },
             ),
             (KeypadMode::Numeric, Some(code)) => ansi_key(o, code, mods, None, s),
-            _ => keypad_navigation(o, row, mods, s),
+            // Under DECKPAM too the key is the one it duplicates at Level 1:
+            // PageUp's row, `CSI 5 ~`, is the editing keypad's E5.
+            _ => match k
+                .duplicates()
+                .and_then(|code| level_one_key(o, code, mods, s))
+            {
+                Some(sent) => sent,
+                None => keypad_navigation(o, row, mods, s),
+            },
         };
     }
     if mode == KeypadMode::Numeric {
@@ -1567,7 +1644,16 @@ fn text_key(
 /// twice"; xterm's `Input` does the reverse at -1, `mfkNone`, Shift adding
 /// ctrl_fkeys and Control twice it (`[[source: xterm-input-c]]`). baud
 /// follows the code, so Shift-F1 is F11.
-fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState, level: ModifyValue) {
+///
+/// Returns whether anything was sent: a key remapped onto one Level 1
+/// makes inoperative sends nothing.
+fn function_key(
+    o: &mut KeyBytes,
+    f: FnKey,
+    mods: Modifiers,
+    s: KeyState,
+    level: ModifyValue,
+) -> bool {
     let (shift, ctrl) = (mods.has(Modifiers::SHIFT), mods.has(Modifiers::CTRL));
     if level == ModifyValue::DISABLED && (shift || ctrl) {
         let n = f.number() + if shift { 10 } else { 0 } + if ctrl { 20 } else { 0 };
@@ -1582,12 +1668,16 @@ fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState, level:
     // DECCKM governs.
     if let Some(final_byte) = f.ss3_final() {
         cursor_shaped(o, Introducer::Ss3, final_byte, mods, s, level);
-        return;
+        return true;
     }
     // The gaps in the `~` parameters -- 16 and 22 skipped, then 27 and 30 --
     // live on `FnKey::tilde_param`, with the tables they came from.
-    if let Some(p) = f.tilde_param() {
-        tilde_key(o, p, mods, s, level);
+    match f.tilde_param() {
+        Some(p) => {
+            tilde_key(o, p, mods, s, level);
+            true
+        }
+        None => false,
     }
 }
 
@@ -1597,16 +1687,29 @@ fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState, level:
 /// any real terminal" (`[[source: xterm-input-c]]`; decided by Jev,
 /// XTERM_42_REMAP_ONLY, 0.97/0.94 on the second ask). F31-F40 are
 /// Control-Shift-F1 to F10.
-fn remapped_function_key(o: &mut KeyBytes, n: u8, s: KeyState) {
+///
+/// **At Level 1 the key it becomes takes Level 1's rule**: Shift-F1 is F11
+/// and sends ESC, Shift-F4 is F14 and sends nothing (`[[source:
+/// dec-std-070]]` 070-6 §6.2.4), and a key past F20 sends nothing, §6.2.1
+/// b's "Shall neither implement additional keys" (Jev, INOPERATIVE,
+/// 0.94/0.94).
+fn remapped_function_key(o: &mut KeyBytes, n: u8, s: KeyState) -> bool {
     match FnKey::new(n) {
-        Some(f) => function_key(o, f, Modifiers::NONE, s, ModifyValue::PARAM),
-        None => tilde_key(
-            o,
-            Param(42 + u16::from(n) - 21),
-            Modifiers::NONE,
-            s,
-            ModifyValue::PARAM,
-        ),
+        Some(f) => match level_one_key(o, KeyCode::Function(f), Modifiers::NONE, s) {
+            Some(sent) => sent,
+            None => function_key(o, f, Modifiers::NONE, s, ModifyValue::PARAM),
+        },
+        None if s.level == ConformanceLevel::One => false,
+        None => {
+            tilde_key(
+                o,
+                Param(42 + u16::from(n) - 21),
+                Modifiers::NONE,
+                s,
+                ModifyValue::PARAM,
+            );
+            true
+        }
     }
 }
 

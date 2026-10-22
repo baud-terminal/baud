@@ -97,6 +97,7 @@ fn state() -> KeyState {
         backarrow: BackarrowKey::Delete,
         delete: DeleteKey::Remove,
         num_lock: NumLockKeypad::Overrides,
+        level: ConformanceLevel::Four,
     }
 }
 

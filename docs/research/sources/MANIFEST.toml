@@ -463,6 +463,14 @@ group  = "C"
 # SSU and grid 6 or 9; 070-8 § 8.8.1.4.4 S(H) (p. 8-127, PDF 874), the P offset default
 # [0,0]; 070-9 § 7.1-7.3, the macro parameter's grid table, background select
 # "no action" on hardcopy devices, the grid in SSU units defaulting to decipoints.
+# Read 2026-10-22 for the conformance levels (lane b153), the copy whose sha256 matches:
+# every Levels field, by scripts/extract-std070-levels.py over the text layer [text],
+# DECID's (PDF 232) and DECSSDT's (PDF 1048) on the page image [img]; 070-4 DA, Table 1
+# and the implicit extensions (PDF 221-224) and DECSCL's notes (PDF 226) [text]; 070-5
+# SGR and its algorithm (pp. 5-103 to 5-105) and § 5.6.3 Color Text (p. 5-106), SCS and
+# its character-set table (pp. 5-117 to 5-122) [text]; 070-3 § 3.7.5.1 (p. 3-67) [text];
+# 070-6 § 6.2.1-6.2.6 (pp. 6-16 to 6-21) [text]; 070-0A ENTER VT52 EMULATION MODE
+# (p. A-14) and its change history A.9.1 [text].
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

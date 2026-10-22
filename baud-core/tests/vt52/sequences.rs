@@ -173,11 +173,18 @@ fn ris_is_not_reachable_from_vt52() {
 #[test]
 fn decrqm_reports_decanm() {
     assert_eq!(run(b"\x1b[?2$p").2, b"\x1b[?2;1$y", "ANSI: set");
-    // Queried after returning, because a VT52 has no CSI to ask with.
+    // Queried after returning, because a VT52 has no CSI to ask with, and
+    // at Level 2: `ESC <` returns to Level 1, where DECRQM ("Levels: 2x
+    // (TSI), 3-4") is not recognised.
     assert_eq!(
-        run(b"\x1b[?2l\x1b<\x1b[?2$p").2,
+        run(b"\x1b[?2l\x1b<\x1b[62;1\"p\x1b[?2$p").2,
         b"\x1b[?2;1$y",
         "back in ANSI after ESC <"
+    );
+    assert_eq!(
+        run(b"\x1b[?2l\x1b<\x1b[?2$p").2,
+        b"",
+        "no DECRQM at Level 1"
     );
 }
 

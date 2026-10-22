@@ -6,8 +6,8 @@
 //! xterm-input-c]]`, the `num_lock` override in `Input`).
 
 use baud_domain::{
-    BackarrowKey, C1Transmit, DeleteKey, InputEncoding, KeyResources, KeyState, KeypadMode,
-    KittyFlags, Modes, NumLockKeypad, TerminalMode, encode_key,
+    BackarrowKey, C1Transmit, ConformanceLevel, DeleteKey, InputEncoding, KeyResources, KeyState,
+    KeypadMode, KittyFlags, Modes, NumLockKeypad, TerminalMode, encode_key,
 };
 use baud_present_wayland::keys;
 use baud_xkb::{Keymap, Mods, State};
@@ -25,6 +25,7 @@ fn application(num_lock: NumLockKeypad) -> KeyState {
         backarrow: BackarrowKey::default(),
         delete: DeleteKey::default(),
         num_lock,
+        level: ConformanceLevel::Four,
     }
 }
 

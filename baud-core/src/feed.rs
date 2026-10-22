@@ -33,6 +33,81 @@ impl Term<'_> {
     /// length lost before it arrived.
     #[inline(always)]
     pub fn feed(&mut self, base: BytePos, n: ReadLen) {
+        // **Level 1 under ISO 8859-1 strips the eighth bit** "before any
+        // processing occurs" (`Cold::strips`), and a control in a read can
+        // start or end the strip (`Paint::restrip_from`): both out of line,
+        // so the read is parsed here as it always was, one compare before it
+        // and one after.
+        if self.cold.strips() == crate::term::Strip::Seven {
+            return self.feed_stripping(base, n);
+        }
+        self.feed_read(base, n);
+        if self.cold.restrip == crate::term::Restrip::Held {
+            self.feed_restripped();
+        }
+    }
+
+    /// The rest a change of the strip held, parsed as the strip now says.
+    #[cold]
+    #[inline(never)]
+    fn feed_restripped(&mut self) {
+        self.cold.restrip = crate::term::Restrip::Clear;
+        if let Some(r) = self.cold.width.held.take() {
+            self.feed_stripping(r.at, r.len);
+        }
+    }
+
+    /// A read parsed while a strip is in force or may change: a byte at a
+    /// time while it strips, each stripped as it is reached, and whole once
+    /// it does not; a change held the rest, which goes on here, and an
+    /// embedder's hold hands the rest of the read to the embedder.
+    #[cold]
+    #[inline(never)]
+    fn feed_stripping(&mut self, base: BytePos, n: ReadLen) {
+        let (mut at, mut left) = (base, n);
+        loop {
+            let step = match (self.cold.strips(), left.index()) {
+                (crate::term::Strip::Seven, 1..) => {
+                    self.store.arena[at.index()] &= 0x7f;
+                    ReadLen::ONE
+                }
+                _ => left,
+            };
+            self.feed_read_outlined(at, step);
+            at = at.advance_read(step);
+            left = left.less(step);
+            let held = self.cold.width.held.take();
+            match (self.cold.restrip, held) {
+                (crate::term::Restrip::Held, Some(r)) => {
+                    self.cold.restrip = crate::term::Restrip::Clear;
+                    at = r.at;
+                    left = r.len.plus(left);
+                }
+                (crate::term::Restrip::Held, None) => {
+                    self.cold.restrip = crate::term::Restrip::Clear;
+                }
+                (crate::term::Restrip::Clear, Some(r)) => {
+                    self.cold.width.held = Some(crate::term::Rest {
+                        at: r.at,
+                        len: r.len.plus(left),
+                    });
+                    return;
+                }
+                (crate::term::Restrip::Clear, None) => {}
+            }
+            if left.index() == 0 {
+                return;
+            }
+        }
+    }
+
+    #[inline(never)]
+    fn feed_read_outlined(&mut self, base: BytePos, n: ReadLen) {
+        self.feed_read(base, n);
+    }
+
+    #[inline(always)]
+    fn feed_read(&mut self, base: BytePos, n: ReadLen) {
         self.bytes_in += n.index();
         // Where this read starts, for a hide looking back past it
         // (`placed.rs`).

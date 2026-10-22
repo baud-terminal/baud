@@ -349,9 +349,10 @@ summary = "Programs can switch xterm's own settings, among them jumping to new o
 [[item]]
 id = "F1-59"
 area = "programs"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "Choose a terminal generation"
-summary = "Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; at the VT100 level the later terminals' features and keys still stay on."
+summary = "Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; baud then does only what that level defines, keys included, and its identity reply stays VT102."
 
 [[item]]
 id = "F1-60"

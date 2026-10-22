@@ -1629,7 +1629,9 @@ impl ParamCount {
 ///
 /// So the level lives here, where it can be queried and tested against
 /// `docs/vt-coverage.md`'s tiers, without reshaping the code around a
-/// historical fact.
+/// historical fact. **This is the tier, not the conformance level**: which
+/// DECSCL level executes an operation is [`LEVELS`], from DEC STD 070's
+/// own fields, where ICH, a Tier 1 row, is Level 2's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub enum Level {
     /// VT100 and ECMA-48: the set every terminal must have.

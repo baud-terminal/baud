@@ -301,7 +301,9 @@ impl Paint<'_, '_> {
         // `ESC % @` and `ESC % G` set only the encoding, which the parse
         // loop's live copy takes up from here when the string ends.
         if let Some(e) = r.encoding {
+            let was = self.cold.strips();
             self.cold.encoding = e;
+            self.restrip_from(was, node);
         }
         let now = self.terminal_state();
         for ((want, have), w) in r.ansi.iter().zip(now.ansi).zip(TSR_ANSI_MODES) {

@@ -58,8 +58,8 @@ impl Paint<'_, '_> {
     /// ask): with the setting off it changes no reply. **Ignored and counted
     /// below Level 4**, as xterm's `vtXX_level >= 4` (`CASE_XTERM_CHECKSUM`,
     /// `[[source: xterm-reset]]`'s file; Jev's lean, GATE, 0.10/0.04 after a
-    /// second ask, UNGATED 0.24/0.34 on the first); DECRQCRA itself is not
-    /// gated here.
+    /// second ask, UNGATED 0.24/0.34 on the first); DECRQCRA, Level 4's,
+    /// is not executed below it either (`baud_domain::LEVELS`).
     fn select_checksum(&mut self, ext: ChecksumExtension) {
         match self.cold.level {
             ConformanceLevel::Four => self.cold.checksum_ext = ext,
