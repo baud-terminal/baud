@@ -328,6 +328,7 @@ fn main() {
     let mut sixel = Box::new(SixelStream::NEW);
     let mut regis = Box::new(baud_domain::Regis::NEW);
     let mut kitty = Box::new(baud_domain::KittyStream::NEW);
+    let mut colours = Box::new(baud_core::KittyColours::NEW);
     let mut kitty_scratch: Vec<u8> = Vec::new();
     let mut t = Term::new(
         Storage::new(
@@ -359,6 +360,7 @@ fn main() {
                 &mut sixel,
                 &mut regis,
                 &mut kitty,
+                &mut colours,
                 &mut kitty_scratch,
                 &mut titles,
                 &mut cwd,

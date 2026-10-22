@@ -493,7 +493,7 @@ fn radians(d: f64) -> f64 {
 /// plus or minus followed by a string of digits". libX11 reads it with
 /// `sscanf("%lf")`, which also takes leading blanks, `inf`, `nan` and hex
 /// floats; baud takes the grammar and nothing else.
-fn number(s: &[u8]) -> Option<f64> {
+pub(crate) fn number(s: &[u8]) -> Option<f64> {
     let digits = |i: &mut usize| {
         let at = *i;
         while s.get(*i).is_some_and(u8::is_ascii_digit) {
@@ -928,6 +928,16 @@ fn xyz_to_rgbi(ctx: &Ctx, c: Xyz) -> Option<[f64; 3]> {
             xyz_to_rgbi_raw(ctx, hvc_to_xyz(ctx, max)?).ok()
         }
     }
+}
+
+/// `rgbi:` as kitty's colour control reads it: three values in the
+/// manual's grammar, each "clipped to be within the range" 0 to 1
+/// (`[[source: kitty-6d5d0c4-color-stack]]`, "Color value encoding"),
+/// where [`resolve`] refuses one outside it, then the device value Xcms
+/// gives the intensities.
+pub(crate) fn rgbi_clipped(fields: &[u8]) -> Option<[u16; 3]> {
+    let [a, b, c] = triple(fields)?;
+    Some((SRGB.encode)([a, b, c].map(|v| v.clamp(0.0, 1.0))))
 }
 
 /// A numeric spec, its space and the bytes after the colon, as the 16-bit

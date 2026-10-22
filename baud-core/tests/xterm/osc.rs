@@ -1275,9 +1275,10 @@ fn theme_with(page: Option<Rgb>, text: Option<Rgb>) -> ThemeColors<'static> {
         fg: (0xe0, 0xe0, 0xe0),
         bg: (0x11, 0x11, 0x11),
         palette: &TABLE,
-        selection: page,
-        selection_text: text,
+        selection: page.map(baud_domain::themefile::CellPaint::Colour),
+        selection_text: text.map(baud_domain::themefile::CellPaint::Colour),
         cursor: None,
+        cursor_text: None,
     }
 }
 

@@ -431,8 +431,17 @@ pub struct ColorWord(pub(crate) u32);
 impl ColorWord {
     const TAG_INDEXED: u32 = 0x0100_0000;
     const TAG_RGB: u32 = 0x0200_0000;
+    const TAG_AUTOMATIC: u32 = 0x0400_0000;
     /// Zero, so a zeroed `Storage` starts with default colours.
     pub const DEFAULT: ColorWord = ColorWord(0);
+    /// **The terminal's own automatic colour, which a program asked for**:
+    /// kitty's empty value, "the terminal should use a dynamic color for
+    /// example reverse video for selections" (`[[source:
+    /// kitty-6d5d0c4-color-stack]]`). Held only where a cursor's or a
+    /// selection's colour is kept, and set only by `OSC 21`; it is neither a
+    /// palette index nor RGB, so [`ColorWord::as_rgb`] reads `None`, and
+    /// unlike [`ColorWord::DEFAULT`] it wins over a configured colour.
+    pub const AUTOMATIC: ColorWord = ColorWord(Self::TAG_AUTOMATIC);
     pub fn indexed(n: Chan) -> ColorWord {
         ColorWord(Self::TAG_INDEXED | n.get() as u32)
     }
@@ -446,6 +455,10 @@ impl ColorWord {
     }
     pub fn is_default(self) -> bool {
         self.0 == 0
+    }
+    /// Whether this is [`ColorWord::AUTOMATIC`].
+    pub fn is_automatic(self) -> bool {
+        self.0 == Self::TAG_AUTOMATIC
     }
     /// The palette index, when this word holds one.
     pub fn as_index(self) -> Option<u8> {

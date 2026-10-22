@@ -254,7 +254,8 @@ summary = "Programs can set the selection's colours, give colours by name, colou
 [[item]]
 id = "F1-23-kitty"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "Programs set colours the kitty way"
 summary = "Programs written for kitty can read and set the terminal's colours with kitty's own colour message, beside the xterm messages baud already answers."
 

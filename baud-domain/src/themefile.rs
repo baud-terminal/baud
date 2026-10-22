@@ -37,6 +37,13 @@ mod terminals;
 mod xresources;
 
 pub use alacritty::{alacritty, alacritty_yaml};
+
+/// A colour name in kitty's table (`[[source: kitty-color-names-1e1486e]]`),
+/// case ignored: what kitty's colour control reads a name by too.
+pub(crate) fn kitty_colour_name(name: &[u8]) -> Option<[u8; 3]> {
+    use colour_names::{POOL, SEEDS, SLOTS};
+    crate::colour_name::find(&SEEDS, &SLOTS, POOL, name)
+}
 pub use iterm::{iterm, windows_terminal};
 pub use terminals::{Skipped, foot, kitty, plain_list};
 pub use xresources::{Cpp, DEPTH as XRM_DEPTH, XresourcesError, xresources};

@@ -27,6 +27,7 @@ fn theme(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> ThemeColors<'static> {
         selection: None,
         selection_text: None,
         cursor: None,
+        cursor_text: None,
     }
 }
 

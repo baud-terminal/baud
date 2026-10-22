@@ -450,6 +450,11 @@ pub struct StrBuf<'b> {
     /// it is the protocol's state, and a terminal with no arena still reads
     /// a command and refuses it.
     pub(crate) kitty: &'b mut KittyStream,
+    /// kitty's colour control in flight (`crate::colour`): the reply its
+    /// queries build and the colours its records change, written through
+    /// at the terminator. Behind a reference for the reason `sixel` is, and
+    /// always provisioned: it is the protocol's state.
+    pub(crate) colours: &'b mut crate::colour::KittyColours,
     /// Where a kitty PNG waits whole for its decode, its scanlines after it:
     /// [`ImageBudget::scratch`] bytes. Empty by default, the arena's opt-in,
     /// so every PNG is refused for its size until [`Owned::with_images`].
@@ -562,7 +567,7 @@ pub struct StrBuf<'b> {
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the thirteen, in the one order that is correct.
+    /// Lend the fourteen, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
@@ -583,6 +588,7 @@ impl<'b> StrBuf<'b> {
         sixel: &'b mut SixelStream,
         regis: &'b mut Regis,
         kitty: &'b mut KittyStream,
+        colours: &'b mut crate::colour::KittyColours,
         kitty_scratch: &'b mut [u8],
         titles: &'b mut [u8],
         cwd: &'b mut [u8],
@@ -602,6 +608,7 @@ impl<'b> StrBuf<'b> {
             regis_second: crate::regis::Second::NONE,
             regis_wait: None,
             kitty,
+            colours,
             kitty_scratch,
             titles,
             title_stack: crate::window::TitleStack::EMPTY,
@@ -687,6 +694,7 @@ pub struct Owned {
     sixel: alloc::boxed::Box<SixelStream>,
     regis: alloc::boxed::Box<Regis>,
     kitty: alloc::boxed::Box<KittyStream>,
+    colours: alloc::boxed::Box<crate::colour::KittyColours>,
     kitty_scratch: alloc::vec::Vec<u8>,
     clip: alloc::vec::Vec<u8>,
     prompts: alloc::vec::Vec<PromptEntry>,
@@ -784,6 +792,7 @@ impl Owned {
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
             regis: alloc::boxed::Box::new(Regis::NEW),
             kitty: alloc::boxed::Box::new(KittyStream::NEW),
+            colours: alloc::boxed::Box::new(crate::colour::KittyColours::NEW),
             kitty_scratch: vec::Vec::new(),
             // The `OSC 52` areas default absent, provisioned by
             // [`Owned::with_clipboard`].
@@ -935,6 +944,7 @@ impl Owned {
                 regis_second: crate::regis::Second::NONE,
                 regis_wait: None,
                 kitty: &mut self.kitty,
+                colours: &mut self.colours,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
                 title_stack: crate::window::TitleStack::EMPTY,
@@ -1020,6 +1030,7 @@ impl Owned {
                 regis_second: crate::regis::Second::NONE,
                 regis_wait: None,
                 kitty: &mut self.kitty,
+                colours: &mut self.colours,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
                 title_stack: crate::window::TitleStack::EMPTY,
@@ -1154,21 +1165,48 @@ pub const TITLE_STACK: usize = TITLE_SLOTS * 2 * OSC_MAX;
 /// overrides, the second 256 the embedder's own table
 /// ([`crate::Term::set_default_palette`]), which an `OSC 4 ; c ; ?` for an
 /// entry nothing overrode is answered from, the next five xterm's special
-/// colours as `OSC 5` sets them ([`crate::Term::special_color`]), and after
-/// them XTPUSHCOLORS's ten palettes, [`COLOR_SLOT`] entries each
-/// (`crate::stack`): 3,177 in all, 12,708 bytes.
+/// colours as `OSC 5` sets them ([`crate::Term::special_color`]), the
+/// text under the cursor as a program set it with `OSC 21` and as the
+/// embedder configured it, whether the selection's configured page and
+/// text are each cell's own, and after them XTPUSHCOLORS's ten palettes,
+/// [`COLOR_SLOT`] entries each (`crate::stack`): 3,191 in all, 12,764
+/// bytes.
 pub const PALETTE_LEN: usize = COLOR_STACK_PALETTE + SGR_STACK_DEPTH * COLOR_SLOT;
 
-/// Where the special colours end and the colour stack begins.
-pub(crate) const COLOR_STACK_PALETTE: usize = SPECIAL_PALETTE + SpecialColor::ALL.len();
+/// Where the special colours end.
+pub(crate) const SPECIAL_END: usize = SPECIAL_PALETTE + SpecialColor::ALL.len();
+
+/// The text under a block cursor as a program set it, kitty's
+/// `cursor_text` (`crate::colour`): `DEFAULT` for none, `AUTOMATIC` for
+/// the cell's own page. No rendition resolves through it.
+pub(crate) const CURSOR_TEXT: usize = SPECIAL_END;
+
+/// The text under a block cursor as the embedder configured it
+/// ([`crate::ThemeColors::cursor_text`]), `DEFAULT` for none: what an
+/// `OSC 21 ; cursor_text=?` answers while no program set one.
+pub(crate) const CURSOR_TEXT_CONFIGURED: usize = SPECIAL_END + 1;
+
+/// Whether the selection's configured page, and at the next slot its
+/// text, is each cell's own colour ([`crate::ThemeColors::selection`]):
+/// `AUTOMATIC` when it is, `DEFAULT` when it is one colour or none. Such a
+/// selection has no one colour, so `OSC 21 ; selection_background=?`
+/// answers empty, "the value must be empty" (`[[source:
+/// kitty-6d5d0c4-color-stack]]`), while `OSC 17 ; ?`, which has no empty
+/// answer, answers the theme's colour in the cell's place. Configured, so
+/// neither the colour stack nor a dropping of the overrides touches it.
+pub(crate) const SELECTION_PER_CELL: usize = SPECIAL_END + 2;
+
+/// Where the colour stack begins.
+pub(crate) const COLOR_STACK_PALETTE: usize = SPECIAL_END + 4;
 
 /// One palette on the colour stack: what a pop restores, the 256 `OSC 4`
-/// overrides, the five special colours and the five dynamic ones -- the
-/// "dynamic- and ANSI-palette colors" of `[[source: ctlseqs]]`, as xterm's
-/// `ColorSlot` holds its `MAXCOLORS` and its dynamic colours
-/// (`[[source: xterm-misc]]`).
+/// overrides, the five special colours, the five dynamic ones and the
+/// text under the cursor -- the "dynamic- and ANSI-palette colors" of
+/// `[[source: ctlseqs]]`, as xterm's `ColorSlot` holds its `MAXCOLORS` and
+/// its dynamic colours (`[[source: xterm-misc]]`), and the one dynamic
+/// colour kitty's `OSC 21` adds.
 pub(crate) const COLOR_SLOT: usize =
-    EMBEDDER_PALETTE + SpecialColor::ALL.len() + DynamicColor::COUNT;
+    EMBEDDER_PALETTE + SpecialColor::ALL.len() + DynamicColor::COUNT + 1;
 
 /// Where the embedder's half of the palette slice starts.
 pub(crate) const EMBEDDER_PALETTE: usize = 256;

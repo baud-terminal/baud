@@ -6,6 +6,7 @@ use crate::graph::Node;
 use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
 use crate::window::{PropertiesDropped, WindowOpsRefused, WindowRequestsDropped};
+use baud_domain::themefile::CellPaint;
 use baud_domain::*;
 
 /// Which screen buffer is live.
@@ -1451,6 +1452,35 @@ pub struct SelectionColors {
     pub fg: Option<(u8, u8, u8)>,
 }
 
+/// One of the colours a renderer draws the cursor and a selection in, as
+/// [`Term::program_paint`] reads what a program asked of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PaintRole {
+    /// The block's fill, a bar's or an underline's colour.
+    Cursor,
+    /// The text under a block cursor.
+    CursorText,
+    /// The page under selected text.
+    SelectionBackground,
+    /// Selected text.
+    SelectionForeground,
+}
+
+/// What a program asked one [`PaintRole`] to be drawn in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProgramPaint {
+    /// Nothing: the embedder's own colour is drawn.
+    Unset,
+    /// A colour of its own (`OSC 12`, `17`, `19` or `21`).
+    Colour((u8, u8, u8)),
+    /// **The terminal's automatic colour**, whatever the embedder
+    /// configured: kitty's empty value (`OSC 21 ; cursor=`), "the terminal
+    /// should use a dynamic color for example reverse video for
+    /// selections" -- reverse video for a selection, the cell's colours
+    /// swapped for a cursor.
+    Automatic,
+}
+
 impl Cold {
     /// The state a key is encoded in: `Term::key`'s, and XTGETTCAP's, whose
     /// answer is what the key would send (`Paint::tcap_end`). One spelling,
@@ -1486,11 +1516,18 @@ impl Cold {
     /// is its page (`OSC 17`) and the page shown its text (`OSC 19`), as a
     /// default xterm answers, its `highlightColor` defaulting to the
     /// resource its text foreground does (Jev, 0.90 both orders).
+    ///
+    /// **A colour a program made automatic** (`OSC 21`'s empty value) is
+    /// what is drawn: a selection's reverse video, and no colour of the
+    /// cursor's own, whatever the embedder configured.
     pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
         let slot = self.video().role(which).index();
         let w = self.dynamic[slot];
         let configured = self.defaults[slot];
         match which {
+            DynamicColor::HighlightBg if w.is_automatic() => self.shown(DynamicColor::Foreground),
+            DynamicColor::HighlightFg if w.is_automatic() => self.shown(DynamicColor::Background),
+            _ if w.is_automatic() => ColorWord::DEFAULT,
             _ if !w.is_default() => w,
             DynamicColor::HighlightBg | DynamicColor::HighlightFg if !configured.is_default() => {
                 configured
@@ -1798,17 +1835,24 @@ impl Cold {
 /// application overrode them), the 256-entry table (what `OSC 4 ; c ; ?`
 /// answers), the selection's configured page and text (what `OSC 17`/`19
 /// ; ?` answer and `OSC 117`/`119` reset to), `None` where the theme
-/// configures none and the selection is reverse video, and the cursor's
+/// configures none and the selection is reverse video, and
+/// [`CellPaint::Text`] or [`CellPaint::Page`] where it takes each cell's
+/// own text or page -- which `OSC 17`/`19`, having no empty answer,
+/// answer with the default text or page, and `OSC 21`, whose text says a
+/// colour with no defined value "must be empty", answers empty -- and the cursor's
 /// configured colour (drawn while no program has set `OSC 12`, what `OSC 12
 /// ; ?` then answers and what `OSC 112` resets to), `None` where the cursor
-/// takes the text under it.
+/// takes the text under it, and the text under a block cursor (what an
+/// `OSC 21 ; cursor_text=?` answers while no program set one), `None` where
+/// it is no one colour.
 pub struct ThemeColors<'a> {
     pub fg: (u8, u8, u8),
     pub bg: (u8, u8, u8),
     pub palette: &'a [(u8, u8, u8); 256],
-    pub selection: Option<(u8, u8, u8)>,
-    pub selection_text: Option<(u8, u8, u8)>,
+    pub selection: Option<CellPaint<(u8, u8, u8)>>,
+    pub selection_text: Option<CellPaint<(u8, u8, u8)>>,
     pub cursor: Option<(u8, u8, u8)>,
+    pub cursor_text: Option<(u8, u8, u8)>,
 }
 
 /// Whether [`Term::set_theme`] drops the application's
@@ -5458,9 +5502,30 @@ impl<'b> Term<'b> {
     /// colour under a `None`, as it does its theme's under an unset `OSC 10`,
     /// and reverse video where it configures none.
     pub fn highlight_colors(&self) -> SelectionColors {
+        // An automatic colour has no RGB, so it reads `None` here; what a
+        // renderer draws for it is [`Term::program_paint`]'s.
         SelectionColors {
             bg: self.dynamic_color(DynamicColor::HighlightBg),
             fg: self.dynamic_color(DynamicColor::HighlightFg),
+        }
+    }
+
+    /// What a program asked `role` to be drawn in: a colour, the
+    /// terminal's automatic colour, or nothing, when the embedder's own is
+    /// drawn. The cursor's colour itself is [`Term::cursor_color_in`]'s,
+    /// the configured one and `?5` included; this says when a program made
+    /// it automatic, and is the one reader of the text under the cursor.
+    pub fn program_paint(&self, role: PaintRole) -> ProgramPaint {
+        let w = match role {
+            PaintRole::Cursor => self.cold.dynamic[DynamicColor::Cursor.index()],
+            PaintRole::CursorText => self.store.strs.palette[crate::storage::CURSOR_TEXT],
+            PaintRole::SelectionBackground => self.cold.dynamic[DynamicColor::HighlightBg.index()],
+            PaintRole::SelectionForeground => self.cold.dynamic[DynamicColor::HighlightFg.index()],
+        };
+        match (w.is_automatic(), w.as_rgb()) {
+            (true, _) => ProgramPaint::Automatic,
+            (false, Some(c)) => ProgramPaint::Colour(c),
+            (false, None) => ProgramPaint::Unset,
         }
     }
 
@@ -5524,16 +5589,34 @@ impl<'b> Term<'b> {
     }
 
     /// The selection's configured colours, `DEFAULT` for one the theme does
-    /// not configure. Read only by the `OSC 17`/`19` query: the embedder
-    /// draws the selection from its own copy, as it does the defaults.
-    fn write_selection(&mut self, bg: Option<(u8, u8, u8)>, fg: Option<(u8, u8, u8)>) {
-        let word = |c: Option<(u8, u8, u8)>| {
-            c.map_or(ColorWord::DEFAULT, |(r, g, b)| {
-                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-            })
+    /// not configure, and a cell's own text or page as the default text or
+    /// page, what `OSC 17`/`19 ; ?` answer for it, with the mark that it is
+    /// each cell's own ([`crate::storage::SELECTION_PER_CELL`]), which
+    /// `OSC 21` answers empty. Read only by the queries: the embedder draws
+    /// the selection from its own copy, as it does the defaults. Called
+    /// after [`Term::write_defaults`], whose colours it reads.
+    fn write_selection(
+        &mut self,
+        bg: Option<CellPaint<(u8, u8, u8)>>,
+        fg: Option<CellPaint<(u8, u8, u8)>>,
+    ) {
+        let text = self.cold.defaults[DynamicColor::Foreground.index()];
+        let page = self.cold.defaults[DynamicColor::Background.index()];
+        let word = |c: Option<CellPaint<(u8, u8, u8)>>| match c {
+            None => (ColorWord::DEFAULT, ColorWord::DEFAULT),
+            Some(CellPaint::Colour((r, g, b))) => (
+                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+                ColorWord::DEFAULT,
+            ),
+            Some(CellPaint::Text) => (text, ColorWord::AUTOMATIC),
+            Some(CellPaint::Page) => (page, ColorWord::AUTOMATIC),
         };
-        self.cold.defaults[DynamicColor::HighlightBg.index()] = word(bg);
-        self.cold.defaults[DynamicColor::HighlightFg.index()] = word(fg);
+        let (bg, bg_cell) = word(bg);
+        let (fg, fg_cell) = word(fg);
+        self.cold.defaults[DynamicColor::HighlightBg.index()] = bg;
+        self.cold.defaults[DynamicColor::HighlightFg.index()] = fg;
+        self.store.strs.palette[crate::storage::SELECTION_PER_CELL] = bg_cell;
+        self.store.strs.palette[crate::storage::SELECTION_PER_CELL + 1] = fg_cell;
     }
 
     /// Run an embedder change and send **at most one** `CSI ? 997 ; 1|2 n`:
@@ -5569,10 +5652,15 @@ impl<'b> Term<'b> {
             t.write_defaults(theme.fg, theme.bg);
             t.write_selection(theme.selection, theme.selection_text);
             t.write_cursor(theme.cursor);
+            t.store.strs.palette[crate::storage::CURSOR_TEXT_CONFIGURED] =
+                theme.cursor_text.map_or(ColorWord::DEFAULT, |(r, g, b)| {
+                    ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+                });
             t.set_default_palette(theme.palette);
             if overrides == Overrides::Drop {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);
                 crate::osc::clear_dynamic(&mut t.cold, &mut t.store.style_log);
+                t.store.strs.palette[crate::storage::CURSOR_TEXT] = ColorWord::DEFAULT;
                 crate::osc::clear_specials(t.store.strs.palette, &mut t.store.style_log);
             }
         });

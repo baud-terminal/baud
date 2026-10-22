@@ -26,7 +26,7 @@ use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
-use baud_core::Term;
+use baud_core::{PaintRole, ProgramPaint, Term};
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
@@ -783,6 +783,7 @@ struct SizedKey {
     video: Video,
     hilite: Hilite,
     cursor_color: Option<(u8, u8, u8)>,
+    cursor_paint: BlockPaint,
     styles: StyleStamp,
     clusters: ClusterEpoch,
     pictured: Vec<crate::Pictured>,
@@ -2643,14 +2644,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let rgb = |c: Option<(u8, u8, u8)>| {
             c.map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)))
         };
-        let colors = term.highlight_colors();
+        // A program's automatic colour (kitty's `OSC 21` empty value)
+        // is the terminal's own -- reverse video, the cell's colours --
+        // over the theme's.
+        let paint = |role, theme: Option<CellPaint<Argb>>| match term.program_paint(role) {
+            ProgramPaint::Colour(c) => rgb(Some(c)).map(CellPaint::Colour),
+            ProgramPaint::Automatic => None,
+            ProgramPaint::Unset => theme,
+        };
         let hilite = Hilite::of(
-            rgb(colors.bg)
-                .map(CellPaint::Colour)
-                .or(self.theme.selection),
-            rgb(colors.fg)
-                .map(CellPaint::Colour)
-                .or(self.theme.selection_text),
+            paint(PaintRole::SelectionBackground, self.theme.selection),
+            paint(PaintRole::SelectionForeground, self.theme.selection_text),
         );
         // Reverse video in a window that is not key is AppKit's
         // unemphasized pair; a colour of its own stays (note AZ).
@@ -2665,15 +2669,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // **The cursor's colours**: the core's (a program's `OSC 12`, else
         // the configured colour it was told), else the theme's, which may
         // name the cell's own; and the theme's text under a block, which a
-        // program's colour leaves as it is, as kitty, alacritty, ghostty and
-        // foot leave theirs (Jev, 0.94 and 0.96). A change comes with a
-        // theme, which repaints everything, or with `OSC 12`, as before.
-        self.block_paint = BlockPaint::of(
-            rgb(term.cursor_color_in(self.video))
+        // program's cursor colour leaves as it is, as kitty, alacritty,
+        // ghostty and foot leave theirs (Jev, 0.94 and 0.96), and kitty's
+        // `OSC 21 ; cursor_text` sets. A program's automatic colour, `OSC
+        // 21`'s empty value, is the cell's colours swapped, over the
+        // theme's. **A change repaints every row**, as the selection's
+        // does: the cursor's cell compares as unchanged when only its
+        // colours moved. Rare, so the whole frame; the sized rows' key reads
+        // it too.
+        let fill = match term.program_paint(PaintRole::Cursor) {
+            ProgramPaint::Automatic => None,
+            _ => rgb(term.cursor_color_in(self.video))
                 .map(CellPaint::Colour)
                 .or(self.theme.cursor),
-            self.theme.cursor_text,
-        );
+        };
+        let block_paint =
+            BlockPaint::of(fill, paint(PaintRole::CursorText, self.theme.cursor_text));
+        if block_paint != self.block_paint {
+            self.block_paint = block_paint;
+            self.known = Prev::Unknown;
+        }
     }
 
     /// What a block cursor is drawn in on the last convert or resolve: the
@@ -3544,6 +3559,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 video: self.video,
                 hilite: self.hilite(),
                 cursor_color: term.cursor_color_in(self.video),
+                cursor_paint: self.block_paint,
                 styles: self.styles_stamp,
                 clusters: term.cluster_epoch(),
                 pictured: self.pictures.row(r).to_vec(),

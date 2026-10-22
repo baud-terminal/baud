@@ -52,6 +52,7 @@
 extern crate alloc;
 
 mod clip;
+mod colour;
 mod cwd;
 mod dcs;
 mod feed;
@@ -219,6 +220,9 @@ pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowReques
 pub use baud_domain::CacheGeometry;
 /// Scrollback: the lines behind the screen's window onto the ring.
 pub use baud_domain::{Back, Depth, Scrollback, Wrap};
+/// kitty's colour control in flight, which a caller lending its own storage
+/// provisions with [`StrBuf::new`].
+pub use colour::KittyColours;
 /// The longest single reply the core writes, a DECRQSS rendition string, for
 /// a caller sizing what it drains into.
 pub use dcs::DECRQSS_MAX;
@@ -235,7 +239,7 @@ pub use storage::{
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
     ColumnRefusals, Erasure, HistoryErasures, HistoryMark, HistoryWipes, Looking, Moved, Overrides,
-    RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch,
-    SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors, TitleReportsRefused, UpdatesOpened,
-    WatchedLines, WidthRequests, WrapPending, Written, Zone,
+    PaintRole, ProgramPaint, RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen,
+    ScreenEpoch, SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors, TitleReportsRefused,
+    UpdatesOpened, WatchedLines, WidthRequests, WrapPending, Written, Zone,
 };

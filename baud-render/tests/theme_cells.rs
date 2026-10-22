@@ -158,3 +158,96 @@ fn ghosttys_cell_colours_select_in_each_cells_colours_exchanged() {
     assert_eq!(blank, opaque(dark.fg));
     assert_eq!(glyph, opaque(dark.bg).0, "the cell's page is its text");
 }
+
+/// **kitty's `OSC 21` colours are drawn over the theme's**: cursor_text
+/// draws the glyph under a block, an empty cursor value is the cell's
+/// colours swapped, and an empty selection_background is reverse video,
+/// each over a theme file that configures its own; a bare key gives the
+/// theme back (`[[source: kitty-6d5d0c4-color-stack]]`).
+#[test]
+fn kittys_osc_21_colours_are_drawn_over_the_theme() {
+    let theme = || {
+        themed(kitty(
+            b"cursor #ff8800\ncursor_text_color #102030\nselection_background #2f5f9f\n",
+            |_, _, _| {},
+        ))
+    };
+    let dark = Theme::dark();
+    let on_block = b"\x1b[2 q\x1b[1;1H";
+    let mut program = on_block.to_vec();
+    program.extend_from_slice(b"\x1b]21;cursor_text=#405060\x07");
+    let (block, _, glyph) = painted(theme(), &program, false);
+    assert_eq!(
+        (block, glyph),
+        (Argb(0xFF_FF_88_00), 0xFF_40_50_60),
+        "a program's text"
+    );
+    program.extend_from_slice(b"\x1b]21;cursor=;cursor_text=\x07");
+    let (block, _, glyph) = painted(theme(), &program, false);
+    assert_eq!(
+        (block, glyph),
+        (RED, opaque(dark.bg).0),
+        "automatic: the swap"
+    );
+    program.extend_from_slice(b"\x1b]21;cursor;cursor_text\x07");
+    let (block, _, glyph) = painted(theme(), &program, false);
+    assert_eq!(
+        (block, glyph),
+        (Argb(0xFF_FF_88_00), 0xFF_10_20_30),
+        "the theme's again"
+    );
+    let (block, blank, _) = painted(theme(), b"\x1b[?25l\x1b]21;selection_background=\x07", true);
+    assert_eq!((block, blank), (RED, opaque(dark.fg)), "reverse video");
+}
+
+/// **A program's cursor colours repaint the cursor's cell on an
+/// incremental frame**: nothing else on the screen changes, so only the
+/// renderer's own reading of the colours can say the cell is stale.
+#[test]
+fn a_cursor_colour_change_alone_repaints_the_cursor() {
+    let theme = themed(kitty(
+        b"cursor #ff8800\ncursor_text_color #102030\n",
+        |_, _, _| {},
+    ));
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(6),
+        Rows::of_index(2),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[38;2;205;0;0m\xe2\x96\x88\x1b[0m \x1b[2 q\x1b[1;1H",
+    );
+    let (w, h) = r.pixel_size();
+    let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+    let m = r.metrics();
+    let at = usize::try_from((m.cell_h.value() / 2) * w.value() + m.cell_w.value() / 2).unwrap();
+    let mut frame = |t: &mut Term<'_>, damage: Damage| {
+        let mut target = Target::new(&mut px, w, w, h).unwrap();
+        r.render(t, &mut target, damage);
+        (r.background()[0], px[at])
+    };
+    assert_eq!(
+        frame(&mut t, Damage::Full),
+        (Argb(0xFF_FF_88_00), 0xFF_10_20_30)
+    );
+    for (bytes, want) in [
+        (
+            &b"\x1b]21;cursor_text=#405060\x07"[..],
+            (Argb(0xFF_FF_88_00), 0xFF_40_50_60),
+        ),
+        (b"\x1b]12;#00ff00\x07", (Argb(0xFF_00_FF_00), 0xFF_40_50_60)),
+        (b"\x1b]21;cursor=\x07", (RED, 0xFF_40_50_60)),
+    ] {
+        feed(&mut t, bytes);
+        assert_eq!(frame(&mut t, Damage::Incremental), want, "{bytes:?}");
+    }
+}

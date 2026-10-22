@@ -100,6 +100,14 @@ pub enum Osc<'a> {
     KittyNotifyMalformed,
     /// `OSC 1337 ; Pt`: iTerm2's subcommands, [`Osc1337`].
     Iterm(Osc1337),
+    /// `OSC 21 ; key=value ; ...`: kitty's colour control, the records
+    /// after the `21;`, each a [`KittyRecord`] (`[[source:
+    /// kitty-6d5d0c4-color-stack]]`). Not DECSWT, the VT520's title under
+    /// the same number, which xterm drops below a VT520 (note AK, 1.4).
+    /// The core streams the records past `OSC_MAX`; a body arrives here
+    /// whole only when it is `21` alone, which asks nothing, or when a test
+    /// or an embedder without the core hands it.
+    ColorControl(&'a [u8]),
     /// Recognised as an OSC and not acted on.
     Unsupported,
 }
@@ -1160,7 +1168,7 @@ fn strip<'a>(s: &'a [u8], p: &[u8]) -> Option<&'a [u8]> {
 
 /// The eight bits a 24-bit TrueColor visual keeps of a sixteen-bit value:
 /// its high byte.
-fn high(v: u16) -> Chan {
+pub(super) fn high(v: u16) -> Chan {
     Chan::from_u8(v.to_be_bytes()[0])
 }
 
@@ -1178,7 +1186,7 @@ fn hex(s: &[u8]) -> Option<(u32, u32)> {
 
 /// `#` and three runs of equal width: each run is the high bits of its
 /// channel, the rest zero.
-fn sharp(digits: &[u8]) -> Option<[u16; 3]> {
+pub(super) fn sharp(digits: &[u8]) -> Option<[u16; 3]> {
     let w = digits.len() / 3;
     if !matches!(digits.len(), 3 | 6 | 9 | 12) {
         return None;
@@ -1193,7 +1201,7 @@ fn sharp(digits: &[u8]) -> Option<[u16; 3]> {
 
 /// `R/G/B` after `rgb:`, one to four digits each, scaled to sixteen bits as
 /// Xcms scales them: `v * 0xffff / (2^bits - 1)`, truncated.
-fn device(fields: &[u8]) -> Option<[u16; 3]> {
+pub(super) fn device(fields: &[u8]) -> Option<[u16; 3]> {
     let mut it = Split::new(fields, b'/');
     let mut out = [0u16; 3];
     for c in &mut out {
@@ -1563,6 +1571,7 @@ impl<'a> Osc<'a> {
                 _ => Osc::KittyNotifyMalformed,
             },
             b"1337" => Osc::Iterm(Osc1337::parse(rest)),
+            b"21" => Osc::ColorControl(rest),
             b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
                 true => AllowQuery::Malformed,
                 false => AllowQuery::Allowed,

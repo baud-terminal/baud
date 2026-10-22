@@ -459,13 +459,11 @@ pub fn tell_defaults(
     overrides: baud_core::Overrides,
 ) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
-    // A selection colour that names the cell's own text or page answers the
-    // default cell's: the text or the page the theme draws.
-    let shown = |p: CellPaint<baud_render::Argb>| match p {
-        CellPaint::Colour(c) => rgb(c),
-        CellPaint::Text => rgb(theme.fg),
-        CellPaint::Page => rgb(theme.bg),
-    };
+    // A selection colour that names the cell's own text or page goes as
+    // that: `OSC 17`/`19` answer the default cell's, the text or the page
+    // the theme draws, and kitty's `OSC 21`, which has an empty answer for
+    // a colour that is no one colour, answers empty.
+    let shown = |p: CellPaint<baud_render::Argb>| p.map(rgb);
     // One call: the defaults, the table and the selection's colours, so an
     // `OSC 4 ; c ; ?` for an entry nothing overrode, or an `OSC 17 ; ?` with
     // no program colour, is answered with the colour drawn, and a `?2031`
@@ -484,6 +482,9 @@ pub fn tell_defaults(
             // The cursor's colour, when it is one; a cell's own is drawn by
             // the renderer and answers nothing, as no colour did before.
             cursor: theme.cursor.and_then(CellPaint::colour).map(rgb),
+            // The text under a block cursor, likewise: what kitty's
+            // `OSC 21 ; cursor_text=?` answers while no program set one.
+            cursor_text: theme.cursor_text.and_then(CellPaint::colour).map(rgb),
         },
         overrides,
     );
@@ -1461,6 +1462,47 @@ mod tests {
         assert_eq!(
             t.reply(),
             b"\x1b]17;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
+    }
+
+    /// **A selection that takes each cell's own colours has no one colour
+    /// for `OSC 21` to answer**, so selection_foreground=? answers empty,
+    /// "the value must be empty" (`[[source: kitty-6d5d0c4-color-stack]]`),
+    /// while `OSC 19 ; ?`, which has no empty answer, still answers the text
+    /// the theme draws; a selection page that is one colour answers it.
+    #[test]
+    fn a_selection_in_each_cells_colours_answers_osc_21_empty() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let page = baud_render::Argb::rgb(
+            Chan::from_u8(0x33),
+            Chan::from_u8(0x4e),
+            Chan::from_u8(0x5e),
+        );
+        let theme = Theme {
+            selection: Some(baud_domain::themefile::CellPaint::Colour(page)),
+            selection_text: Some(baud_domain::themefile::CellPaint::Text),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(
+            &mut t,
+            b"\x1b]21;selection_foreground=?;selection_background=?\x1b\\",
+        );
+        assert_eq!(
+            t.reply(),
+            b"\x1b]21;selection_foreground=;selection_background=rgb:33/4e/5e\x1b\\"
+        );
+        t.clear_reply();
+        feed(&mut t, b"\x1b]19;?\x07");
+        assert_eq!(
+            t.reply(),
+            b"\x1b]19;rgb:d8d8/d8d8/d8d8\x07",
             "the text shown"
         );
     }

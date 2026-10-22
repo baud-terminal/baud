@@ -2131,6 +2131,29 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "the arms disagree under OSC 12 over {what}"
         );
         feed(&mut t, b"\x1b]112\x07");
+        // kitty's `OSC 21`: a program's text under the block, and the
+        // automatic colours over the theme's, on both arms.
+        for program in [
+            &b"\x1b]21;cursor_text=#c00000\x07"[..],
+            b"\x1b]21;cursor=;cursor_text=;selection_background=;selection_foreground=\x07",
+        ] {
+            let (before, _) = arms.draw(&mut t);
+            feed(&mut t, program);
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree under OSC 21 over {what}: {program:?}"
+            );
+            assert!(
+                differing(&a, &before) > 0,
+                "OSC 21 reached the pixels over {what}: {program:?}"
+            );
+        }
+        feed(
+            &mut t,
+            b"\x1b]21;cursor;cursor_text;selection_background;selection_foreground\x07",
+        );
     }
     arms.renderer.set_theme(Theme {
         selection: Some(CellPaint::Text),

@@ -1551,12 +1551,12 @@ tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "bau
 id = "program-colours"
 area = "window"
 name = "Programs can set and ask colours"
-does = "Programs can set and reset the palette, the default colours and the colours bold, underlined and other styled text is drawn in, by value or by X11 name such as red or lime green, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
+does = "Programs can set and reset the palette, the default colours and the colours bold, underlined and other styled text is drawn in, by value or by X11 name such as red or lime green, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour. Programs written for kitty do the same with kitty's own colour message."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override", "baud-core/tests/xterm/osc.rs::xterms_own_colour_names_resolve", "baud-core/tests/xterm/osc.rs::osc_5_sets_and_answers_the_special_colours"]
+tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override", "baud-core/tests/xterm/osc.rs::xterms_own_colour_names_resolve", "baud-core/tests/xterm/osc.rs::osc_5_sets_and_answers_the_special_colours", "baud-core/tests/kitty_colours.rs::a_query_answers_in_kittys_shape"]
 rows = ["vt:`OSC 4`", "vt:`OSC 10` / `OSC 11`", "vt:`CSI ? 996 n`", "vt:`?5`", "vt:`OSC 5`, `OSC 105`, `OSC 6` / `OSC 106`"]
-shipped = ["2026-10-14-reverse-video-swaps-every-cell-s", "F1-23"]
+shipped = ["2026-10-14-reverse-video-swaps-every-cell-s", "F1-23", "F1-23-kitty"]
 
 [[feature]]
 id = "colour-stack"

@@ -329,6 +329,10 @@ as a VT102"), and xterm ignores DECSWT below 520 (1.3). A terminal that took
 payloads as titles. kitty's use departs from ctlseqs. TODO.md's guess of
 "OSC 21" as a title source is answered: it is DECSWT, and not for baud.
 
+Since 2026-10-22 baud reads `OSC 21` as kitty's colour control, as kitty
+and ghostty do, and DECSWT stays out by xterm's VT520 gate
+(`docs/vt-coverage.md`, the `OSC 21 ; key=value` and DECSWT rows).
+
 ### 1.5 OSC 7: there is no standard
 
 - **Apple's Terminal is told the directory with it**, by its own shell

@@ -32069,3 +32069,31 @@ sha256 = "07f9d1a58941e64bfad65784cc3fcdaa9c52e7b97e055ad5425d54ebdfd008af"
 bytes  = 21135
 status = "external"
 group  = "J"
+
+# Read 2026-10-22 for kitty's OSC 21 colour control (lane b148): kitty's own
+# test of color_control's replies, and ghostty's reading of the same number.
+[sources.kitty-6d5d0c4-tests-screen]
+key    = "kitty-6d5d0c4-tests-screen"
+title  = "kitty 6d5d0c4, kitty_tests/screen.py -- test_color_profile: OSC 21 queries answer 'unknown=?', 'selection_background=' once set dynamic, 'transparent_background_color9=?'"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty_tests/screen.py"
+file   = ""
+sha256 = "ab31d061bc03981ef5ae38ac409ac806ff439dc7e94129717024640e79e34b56"
+bytes  = 80836
+status = "external"
+group  = "C"
+
+[sources.ghostty-f54340a-osc-kitty-color]
+key    = "ghostty-f54340a-osc-kitty-color"
+title  = "ghostty f54340a, src/terminal/osc/parsers/kitty_color.zig -- 'Parse OSC 21, the Kitty Color Protocol': the number always kitty's, an empty value a reset, an unknown key skipped"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at f54340a (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/f54340ad77814fe319d136e5e915d6a48de8dd23/src/terminal/osc/parsers/kitty_color.zig"
+file   = ""
+sha256 = "fc351c377038f01bdaa1b86f674890ebd8afe9d81a21fd7dbaf949054ebb4c05"
+bytes  = 7753
+status = "external"
+group  = "C"

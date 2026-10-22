@@ -11,7 +11,9 @@ use baud_domain::{
     StackOp, StyleWord, restore_rendition,
 };
 
-use crate::storage::{COLOR_SLOT, COLOR_STACK_PALETTE, EMBEDDER_PALETTE, SPECIAL_PALETTE};
+use crate::storage::{
+    COLOR_SLOT, COLOR_STACK_PALETTE, CURSOR_TEXT, EMBEDDER_PALETTE, SPECIAL_END, SPECIAL_PALETTE,
+};
 
 use crate::paint::Paint;
 use crate::write::Csi;
@@ -69,12 +71,10 @@ impl Paint<'_, '_> {
         let base = COLOR_STACK_PALETTE + at * COLOR_SLOT;
         let p = &mut *self.strs.palette;
         p.copy_within(..EMBEDDER_PALETTE, base);
-        p.copy_within(
-            SPECIAL_PALETTE..COLOR_STACK_PALETTE,
-            base + EMBEDDER_PALETTE,
-        );
+        p.copy_within(SPECIAL_PALETTE..SPECIAL_END, base + EMBEDDER_PALETTE);
         let dynamic = base + EMBEDDER_PALETTE + SpecialColor::ALL.len();
         p[dynamic..dynamic + DynamicColor::COUNT].copy_from_slice(&self.cold.dynamic);
+        p[dynamic + DynamicColor::COUNT] = p[CURSOR_TEXT];
         self.strs.colors.filled = self.strs.colors.filled.with(Entry(at));
         self.strs.colors.used = Entry(next);
     }
@@ -116,6 +116,7 @@ impl Paint<'_, '_> {
         for (&which, &w) in DYNAMIC.iter().zip(dynamic) {
             self.set_dynamic(which, w);
         }
+        self.strs.palette[CURSOR_TEXT] = saved[COLOR_SLOT - 1];
         self.strs.colors.used = Entry(next);
     }
 

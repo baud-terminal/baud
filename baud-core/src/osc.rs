@@ -220,7 +220,9 @@ impl Paint<'_, '_> {
                 folded if folded == b => b,
                 folded => self.osc_gr(b, folded),
             },
-            StrKind::Clipboard | StrKind::Notice => self.cold.str_enc.gr_as_gl(b),
+            StrKind::Clipboard | StrKind::Notice | StrKind::ColorControl => {
+                self.cold.str_enc.gr_as_gl(b)
+            }
             _ => b,
         };
         // An `OSC 52` body past its `52;`: decoded into the clipboard areas,
@@ -231,6 +233,10 @@ impl Paint<'_, '_> {
         // A kitty `OSC 99` payload, past the metadata `pending` keeps.
         if self.cold.str_kind == StrKind::Notice {
             return self.notice_put(b);
+        }
+        // A kitty `OSC 21` past its `21;`, read a record at a time.
+        if self.cold.str_kind == StrKind::ColorControl {
+            return self.colour_put(b);
         }
         self.keep_pending(b);
     }
@@ -353,6 +359,12 @@ impl Paint<'_, '_> {
             if n == 2 && self.cold.str_kind == StrKind::Osc && self.strs.pending[..3] == *b"52;" {
                 self.clip_start();
             }
+            // **`21;` routes the rest to kitty's colour control**, read a
+            // record at a time, so a sequence of any length is honoured
+            // (`colour.rs`).
+            if n == 2 && self.cold.str_kind == StrKind::Osc && self.strs.pending[..3] == *b"21;" {
+                self.colour_start();
+            }
             // **`99;` and then its metadata's `;` route the payload to the
             // notifications' chunk**, which holds the 4096 bytes kitty lets
             // a chunk carry (`notice.rs`).
@@ -457,6 +469,7 @@ impl Paint<'_, '_> {
             StrKind::Sixel => self.sixel_end(),
             StrKind::Clipboard => self.clip_end(),
             StrKind::Notice => self.notice_end(),
+            StrKind::ColorControl => self.colour_end(),
             StrKind::Decrqss => {
                 let n = self.cold.str_len.index();
                 let target = StatusTarget::parse(&self.strs.pending[..n]);
@@ -850,6 +863,7 @@ impl Paint<'_, '_> {
             Osc::Notify777(o) => self.osc777(o),
             Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload),
             Osc::Iterm(o) => self.osc1337(o),
+            Osc::ColorControl(rest) => self.colour_whole(rest),
             Osc::KittyNotifyMalformed | Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -1193,8 +1207,7 @@ pub(crate) fn clear_palette(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
 /// embedder's `Overrides::Drop`, as xterm's reset of all `MAXCOLORS` takes
 /// them with the palette (`[[source: xterm-misc]]` 3070-3080).
 pub(crate) fn clear_specials(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
-    let special =
-        &mut palette[crate::storage::SPECIAL_PALETTE..crate::storage::COLOR_STACK_PALETTE];
+    let special = &mut palette[crate::storage::SPECIAL_PALETTE..crate::storage::SPECIAL_END];
     if special.iter().any(|w| !w.is_default()) {
         special.fill(ColorWord::DEFAULT);
         log.colors_moved();
@@ -1306,6 +1319,10 @@ pub(crate) enum StrKind {
     /// as its `/` arrives (`Paint::restore_color_put`), so no length limits
     /// it.
     RestoreColors,
+    /// An `OSC 21` past its `21;`: kitty's colour control, each record read
+    /// at its `;` (`colour.rs`). Reached through the body's own bytes, as
+    /// `Clipboard` is.
+    ColorControl,
 }
 
 impl StrKind {
