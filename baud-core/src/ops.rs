@@ -547,7 +547,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Up, self.book.top);
             }
-            if self.images.any_placed() || self.cold.guard_open.is_some() {
+            if self.images.any_placed() || self.anchored() {
                 self.alt_images_moved(Scroll::Up);
             }
             return;
@@ -625,6 +625,9 @@ impl Paint<'_, '_> {
                     None => {
                         self.images.shift(ImageScreen::Alternate, Rows::of_count(1));
                         self.guard_shift(ImageScreen::Alternate);
+                        self.cold
+                            .placement
+                            .shift(ImageScreen::Alternate, Rows::of_count(1));
                     }
                 }
                 self.book.alt_top
@@ -633,6 +636,65 @@ impl Paint<'_, '_> {
         let top = self.book.alt_top;
         self.images
             .expire(ImageScreen::Alternate, top, top.plus(rows), Some(blanked));
+        self.cold
+            .placement
+            .scrolled(ImageScreen::Alternate, (top, top.plus(rows)), Some(blanked));
+    }
+
+    /// **What the scrolls test before they move a line anchor**: an open
+    /// SPA's start or a placed cursor (`placed.rs`), each a line of its
+    /// screen's numbering. On the alternate screen the numbering is kept
+    /// only while one of them or an image is there.
+    #[inline(always)]
+    pub(crate) fn anchored(&self) -> bool {
+        self.cold.guard_open.is_some() || self.cold.placement.is_placed()
+    }
+
+    /// **A placed cursor after rows `[from, to]` of the live screen moved
+    /// `k` `way`**, the full width: a region's scroll by copy, `IL`, `DL`, a
+    /// top region's rows put back (`Placement::band_moved`). Out of line;
+    /// the callers test that one is placed.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn placement_band_moved(&mut self, from: Row, to: Row, k: Rows, way: BandMove) {
+        let within = (Col::ZERO, Col::at_index(self.cols.index()));
+        self.placement_moved_in(from, to, within, k, way);
+    }
+
+    /// The same, for a placement between the columns `within`.
+    fn placement_moved_in(
+        &mut self,
+        from: Row,
+        to: Row,
+        within: (Col, Col),
+        k: Rows,
+        way: BandMove,
+    ) {
+        let (screen, top) = self.image_top();
+        let lo = top.plus(Rows::of_count(from.index()));
+        let hi = top.plus(Rows::of_count(to.index() + 1));
+        self.cold
+            .placement
+            .band_moved(screen, (lo, hi), within, k, way);
+    }
+
+    /// **A placed cursor after the primary's window moved back**, a row by
+    /// a scroll down or over a shell's block (`prompt.rs`): a placement on
+    /// a row it let go of at the bottom left the screen, and one past what
+    /// the history keeps is gone with its line. `blanked` is the row a
+    /// scroll down takes back at the top, the newest line of the history
+    /// brought back without its text. A line the history keeps is still a
+    /// line: it can come back with its text over a shell's block. Out of
+    /// line, on the scroll down, which `cat` never takes.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn primary_placement_moved(&mut self, blanked: Option<LineIdx>) {
+        let b = &self.book;
+        let lo = b.top.minus(b.hist).unwrap_or(LineIdx::FIRST);
+        let hi = b.top.plus(self.rows);
+        self.cold
+            .placement
+            .scrolled(ImageScreen::Primary, (lo, hi), blanked);
     }
 
     /// An open SPA's start, on `screen`, after the window moved back over a
@@ -745,6 +807,11 @@ impl Paint<'_, '_> {
             let k = n.at_least_one().min(bot.index() + 1 - at.index());
             self.guard_band_moved(at, bot, Rows::of_count(k), way);
         }
+        // And so does a placed cursor.
+        if self.cold.placement.is_placed() {
+            let k = n.at_least_one().min(bot.index() + 1 - at.index());
+            self.placement_moved_in(at, bot, (left, right), Rows::of_count(k), way);
+        }
         self.row_changed_to(self.cy);
     }
 
@@ -797,7 +864,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Down, self.book.top);
             }
-            if self.images.any_placed() || self.cold.guard_open.is_some() {
+            if self.images.any_placed() || self.anchored() {
                 self.alt_images_moved(Scroll::Down);
             }
             return;
@@ -823,7 +890,13 @@ impl Paint<'_, '_> {
                 if self.cold.guard_open.is_some() {
                     self.guard_shift(ImageScreen::Primary);
                 }
+                self.cold
+                    .placement
+                    .shift(ImageScreen::Primary, Rows::of_count(1));
             }
+        }
+        if self.cold.placement.is_placed() {
+            self.primary_placement_moved(Some(self.book.top));
         }
         // A window over the history this took back to is on the live screen
         // from this row on (`Book::window_taken_back`).
@@ -984,6 +1057,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
+        if self.cold.placement.is_placed() {
+            self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
+        }
         // **The whole region, not `k` rows.** `delete_lines_in` moves every
         // row inside the region and blanks `k`; counting only the blanks
         // undercounted the copying path by the height of the region, which is
@@ -1064,6 +1140,14 @@ impl Paint<'_, '_> {
             }
             if self.cold.guard_open.is_some() {
                 self.guard_put_back(bot, Row::from_index(last));
+            }
+            if self.cold.placement.is_placed() {
+                self.placement_band_moved(
+                    bot,
+                    Row::from_index(last),
+                    Rows::of_count(1),
+                    BandMove::Down,
+                );
             }
         }
         self.cells = self.cells.plus(moved);
@@ -1342,6 +1426,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
+        if self.cold.placement.is_placed() {
+            self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
@@ -1424,6 +1511,9 @@ impl Paint<'_, '_> {
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
+        if self.cold.placement.is_placed() {
+            self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
     }
@@ -1463,6 +1553,9 @@ impl Paint<'_, '_> {
         }
         if self.cold.guard_open.is_some() {
             self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
+        }
+        if self.cold.placement.is_placed() {
+            self.placement_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
@@ -3454,10 +3547,10 @@ impl Paint<'_, '_> {
                 match on {
                     true => self.cold.placement.forget(),
                     false => {
-                        let cursor = (self.cy, self.cx.col());
+                        let line = self.image_anchor();
                         self.cold
                             .placement
-                            .hidden(self.arena, at, cursor, self.cols)
+                            .hidden(self.arena, at, line, self.cx.col(), self.cols)
                     }
                 }
             }

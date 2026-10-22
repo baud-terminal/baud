@@ -1192,8 +1192,9 @@ pub struct Cold {
     pub(crate) kitty_alt: KittyStack,
     /// Where a program put the cursor before it hid it (`placed.rs`):
     /// decided on every `?25l` by looking back at the bytes before it, with
-    /// the stream's last 31 bytes before the read kept for that, and read by
-    /// [`Term::placed_cursor`] for an embedder's cursor trail.
+    /// the stream's last 31 bytes before the read kept for that, kept as a
+    /// line of its screen's numbering so scrolls move it with its text, and
+    /// read by [`Term::placed_cursor`] for an embedder's cursor trail.
     pub(crate) placement: crate::placed::Placement,
     /// **The first erasure of the history since an embedder armed the
     /// watch** ([`Term::watch_erasures`], [`Term::first_erasure`]). A count
@@ -4020,9 +4021,15 @@ impl<'b> Term<'b> {
     /// **It is the position the move put the cursor at**, which a `CUP` may
     /// put right of a `DECSLRM` right margin -- where [`Term::cursor`], whose
     /// clamp is for the pending-wrap column, reports the margin. A program
-    /// that draws its own cursor draws it where the move put it.
+    /// that draws its own cursor draws it where the move put it. **Output
+    /// that scrolls moves it with its text**, and while that text is off the
+    /// screen there is none.
     pub fn placed_cursor(&self) -> Option<(Row, Col)> {
-        let placed = self.cold.placement.placed();
+        let (screen, top) = match self.cold.screen {
+            Screen::Normal => (ImageScreen::Primary, self.store.book.top),
+            Screen::Alternate => (ImageScreen::Alternate, self.store.book.alt_top),
+        };
+        let placed = self.cold.placement.placed(screen, top, self.rows);
         debug_assert!(
             placed.is_none() || !self.cursor_visible(),
             "a placement outlived the cursor being shown"

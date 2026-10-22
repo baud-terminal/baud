@@ -376,6 +376,9 @@ impl Paint<'_, '_> {
             // A window over the history the block's rows came back over is
             // on the live screen from here (`Book::window_taken_back`).
             self.book.window_taken_back();
+            if self.cold.placement.is_placed() {
+                self.primary_placement_moved(None);
+            }
             if self.images.any_placed() {
                 self.expire_primary_images(None);
             }

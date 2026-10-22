@@ -65,11 +65,33 @@
 //! front of it would put the move's final byte where a 7-bit hide's is -- a
 //! `CUP` with a marker, an intermediate or a colon, and any byte between the
 //! move and the hide, an `SGR` included. Relative moves, `ESC Y` under VT52 and
-//! a `DECRC` are not moves here. **A scroll does not move it**: a placement
-//! names a screen position, and output that scrolls under a hidden cursor
-//! leaves it naming the row the text scrolled onto until the next hide.
+//! a `DECRC` are not moves here.
+//!
+//! **Output that scrolls moves it with its text**, as it moves an image: a
+//! placement is a line of its screen's numbering and a column, the anchor an
+//! image and an open SPA's start take (`Paint::image_anchor`). A full-screen
+//! scroll moves the window over the lines and the placement stays on its
+//! line; a region, `IL` and `DL` move the lines in their band and the
+//! placement with them, and side margins move only a placement between
+//! them. **A placement whose text leaves the screen is gone**: deleted with
+//! a band, scrolled off the alternate screen, which keeps no lines, or onto
+//! the row a scroll down blanks. On the primary a line scrolled into the
+//! history is off the screen and names no position; the only way back is a
+//! scroll down, which brings the row back blank, and that forgets it.
+//! Helix's next frame places the cursor again either way.
 
-use baud_domain::{BytePos, Col, Cols, ReadLen, Row, StreamByte};
+use baud_domain::{
+    BandMove, BytePos, Col, Cols, ImageScreen, LineIdx, ReadLen, Row, Rows, StreamByte,
+};
+
+/// Where a placing hide found the cursor: a line of its screen's numbering
+/// and a column, so a scroll that moves the text moves it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Placed {
+    pub(crate) screen: ImageScreen,
+    pub(crate) line: LineIdx,
+    pub(crate) col: Col,
+}
 
 /// How far a hide looks back, its own bytes included: the window ends at the
 /// hide's `l`, which is always in the read, so the tail keeps one fewer.
@@ -89,7 +111,7 @@ const HIDE_BACK: [StreamByte; 6] = [
 #[derive(Clone, Copy)]
 pub(crate) struct Placement {
     /// Where the cursor was when a placing hide found it.
-    placed: Option<(Row, Col)>,
+    placed: Option<Placed>,
     /// The stream's last bytes before the read being parsed, as many as a
     /// look-back can reach: `NUL` before the first, which none matches.
     tail: [StreamByte; TAIL - 1],
@@ -161,13 +183,83 @@ impl Placement {
         b(k) == Some(StreamByte::from_stream(b'[')) && b(k + 1) == Some(StreamByte::ESC)
     }
 
-    /// A `?25l` whose final byte is at `at` found the cursor at `cursor` on a
-    /// screen `cols` wide: placed there if its bytes are a placing hide and
-    /// the cursor is on the grid, and not placed otherwise. A cursor past the
-    /// last column is in pending wrap, which no `CUP` leaves.
-    pub(crate) fn hidden(&mut self, arena: &[u8], at: BytePos, cursor: (Row, Col), cols: Cols) {
-        let on_grid = cursor.1.index() < cols.index();
-        self.placed = (on_grid && self.placing(arena, at)).then_some(cursor);
+    /// A `?25l` whose final byte is at `at` found the cursor on line `line`
+    /// of `screen`'s numbering, at `col` on a screen `cols` wide: placed there
+    /// if its bytes are a placing hide and the cursor is on the grid, and not
+    /// placed otherwise. A cursor past the last column is in pending wrap,
+    /// which no `CUP` leaves.
+    pub(crate) fn hidden(
+        &mut self,
+        arena: &[u8],
+        at: BytePos,
+        (screen, line): (ImageScreen, LineIdx),
+        col: Col,
+        cols: Cols,
+    ) {
+        let on_grid = col.index() < cols.index();
+        self.placed = (on_grid && self.placing(arena, at)).then_some(Placed { screen, line, col });
+    }
+
+    /// Whether a placement is held: the one test the scrolls pay.
+    #[inline(always)]
+    pub(crate) fn is_placed(&self) -> bool {
+        self.placed.is_some()
+    }
+
+    /// **The lines `[lo, hi)` of `screen` moved `k` `way`**: a region's
+    /// scroll by copy, `IL`, `DL`, a top region's rows put back. A placement
+    /// in the band moves with its line, and one the move pushed out of the
+    /// band was deleted with it and goes -- `ImageStore::scroll_band`'s
+    /// rule. Side margins pass the column range a placement must be in.
+    pub(crate) fn band_moved(
+        &mut self,
+        screen: ImageScreen,
+        (lo, hi): (LineIdx, LineIdx),
+        within: (Col, Col),
+        k: Rows,
+        way: BandMove,
+    ) {
+        let Some(p) = self.placed.as_mut() else {
+            return;
+        };
+        if p.screen != screen || p.line < lo || p.line >= hi || p.col < within.0 || p.col > within.1
+        {
+            return;
+        }
+        let moved = match way {
+            BandMove::Up => p.line.minus(k).filter(|l| *l >= lo),
+            BandMove::Down => Some(p.line.plus(k)).filter(|l| *l < hi),
+        };
+        match moved {
+            Some(l) => p.line = l,
+            None => self.placed = None,
+        }
+    }
+
+    /// `screen`'s lines all moved down `k` under a window that could not
+    /// move back over them, at line zero (`ImageStore::shift`).
+    pub(crate) fn shift(&mut self, screen: ImageScreen, k: Rows) {
+        if let Some(p) = self.placed.as_mut().filter(|p| p.screen == screen) {
+            p.line = p.line.plus(k);
+        }
+    }
+
+    /// `screen`'s window moved, and `[lo, hi)` are the lines its text is
+    /// still in -- the window, and on the primary the history behind it --
+    /// with the row on `blanked`, if any, brought in blank: a placement on a
+    /// line outside them, or blanked, is forgotten.
+    pub(crate) fn scrolled(
+        &mut self,
+        screen: ImageScreen,
+        (lo, hi): (LineIdx, LineIdx),
+        blanked: Option<LineIdx>,
+    ) {
+        let gone = self.placed.is_some_and(|p| {
+            p.screen == screen && (Some(p.line) == blanked || p.line < lo || p.line >= hi)
+        });
+        if gone {
+            self.placed = None;
+        }
     }
 
     /// A show, a screen switch, a reset or a change of geometry. The tail is
@@ -176,8 +268,17 @@ impl Placement {
         self.placed = None;
     }
 
-    pub(crate) fn placed(self) -> Option<(Row, Col)> {
-        self.placed
+    /// The placement, as a row of a window starting at line `top` of
+    /// `screen`, `rows` tall: none while its line is off it.
+    pub(crate) fn placed(
+        &self,
+        screen: ImageScreen,
+        top: LineIdx,
+        rows: Rows,
+    ) -> Option<(Row, Col)> {
+        let p = self.placed.filter(|p| p.screen == screen)?;
+        let r = p.line.since(top).filter(|r| r.index() < rows.index())?;
+        Some((Row::from_index(r.index()), p.col))
     }
 }
 
@@ -195,15 +296,21 @@ mod tests {
         let arena = b"\x1b[3;7H\x1b[?25l";
         let at = BytePos::from_index(arena.len() - 1);
         let cols = Cols::of_index(200);
+        let (screen, rows) = (ImageScreen::Primary, Rows::of_count(50));
+        let line = |r| (screen, LineIdx::FIRST.plus(Rows::of_count(r)));
         let mut p = Placement::NONE;
         p.begin(BytePos::ZERO);
-        p.hidden(arena, at, (Row::from_index(2), Col::at_index(6)), cols);
+        p.hidden(arena, at, line(2), Col::at_index(6), cols);
         assert_eq!(
-            p.placed(),
+            p.placed(screen, LineIdx::FIRST, rows),
             Some((Row::from_index(2), Col::at_index(6))),
             "the control"
         );
-        p.hidden(arena, at, (Row::from_index(0), Col::at_index(200)), cols);
-        assert_eq!(p.placed(), None, "pending wrap, one past the last column");
+        p.hidden(arena, at, line(0), Col::at_index(200), cols);
+        assert_eq!(
+            p.placed(screen, LineIdx::FIRST, rows),
+            None,
+            "pending wrap, one past the last column"
+        );
     }
 }

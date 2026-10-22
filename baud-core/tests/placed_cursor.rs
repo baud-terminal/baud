@@ -13,7 +13,9 @@
 //! the cursor hidden, until the next hide decides again. A shown cursor, a
 //! screen switch, either reset and a change of geometry forget it. **Every
 //! hide decides**, not only a hide of a shown cursor: helix hides a hidden
-//! cursor once a frame. The rule is `placed.rs`'s.
+//! cursor once a frame. **Output that scrolls carries it with its text**,
+//! as it carries an image, and a placement whose text leaves the screen is
+//! gone. The rule is `placed.rs`'s.
 //!
 //! The corpus test is the gate the owner set: no recording in
 //! `tests/recordings/` gains a trail. Its teeth are the corpus's twenty hides
@@ -23,7 +25,8 @@
 //! the count.
 //!
 //! The tests that feed through `each_read_size` do so at read sizes 1, 3, 7
-//! and whole.
+//! and whole, and those through `every_read_size` at every size from one
+//! byte to the whole.
 mod support;
 use baud_core::{Owned, READ_CHUNK, Resized, Term};
 use baud_domain::{Col, Row, WinSize};
@@ -534,4 +537,173 @@ fn no_recording_gains_a_trail() {
         [(drawing, start), (start, ge), (ge, colon)],
         "after, at a whole read: the start-up, ge, then the `:`"
     );
+}
+
+/// Feed `bytes` at every read size from one byte to the whole, and hand each
+/// terminal and its read size to `f`: a scroll is the same scroll however
+/// the reads cut its bytes, and so is where it leaves a placement.
+fn every_read_size(bytes: &[u8], f: impl Fn(&Term<'_>, usize)) {
+    for chunk in 1..=bytes.len() {
+        let mut owned = Owned::new(&support::CORPUS);
+        let mut t = Term::new(owned.storage(), &support::CORPUS);
+        for piece in bytes.chunks(chunk) {
+            support::feed(&mut t, piece);
+        }
+        f(&t, chunk);
+    }
+}
+
+/// An `X` written at row `r`, column `c` (one-based), and the cursor moved
+/// back onto it and hidden: a placement on the `X`.
+fn placed_on_x(r: usize, c: usize) -> String {
+    format!("\x1b[{r};{c}HX\x1b[{r};{c}H\x1b[?25l")
+}
+
+/// The character under the placement, if it is on the screen.
+fn under_placement(t: &Term<'_>) -> Option<char> {
+    let (r, c) = t.placed_cursor()?;
+    let cell = t.viewport().row(r)[c.index()];
+    let x = baud_domain::Content::codepoint(baud_domain::Codepoint::from_char('X'));
+    Some(if cell.content == x { 'X' } else { '?' })
+}
+
+/// **Output that scrolls under a placed cursor carries it with its text**,
+/// as it carries an image: a line feed at the bottom, `SU`, `SD` and `RI` at
+/// the top, on either screen, at every read size. The `X` under it is the
+/// check that it rode with its text and not some other distance.
+#[test]
+fn a_placed_cursor_rides_output_that_scrolls_the_screen() {
+    for screen in ["", "\x1b[?1049h"] {
+        let place = format!("{screen}{}", placed_on_x(10, 5));
+        each_read_size(place.as_bytes(), |t| {
+            assert_eq!(t.placed_cursor(), at(9, 4), "{screen:?}: the control");
+        });
+        for (scroll, want) in [
+            ("\x1b[50;1H\n\n\n", at(6, 4)),
+            ("\x1b[3S", at(6, 4)),
+            ("\x1b[2T", at(11, 4)),
+            ("\x1b[1;1H\x1bM", at(10, 4)),
+            ("\x1b[50;1H\x1bD\x1bE", at(7, 4)),
+        ] {
+            let bytes = format!("{place}{scroll}");
+            every_read_size(bytes.as_bytes(), |t, n| {
+                assert_eq!(t.placed_cursor(), want, "{screen:?} {scroll:?} at {n}");
+                assert_eq!(
+                    under_placement(t),
+                    Some('X'),
+                    "{screen:?} {scroll:?} at {n}"
+                );
+            });
+        }
+    }
+}
+
+/// **A placement whose text scrolls off the screen is gone**, and stays
+/// gone when the scroll comes back: the rows a scroll brings in are blank,
+/// on the primary as well, where the line is in the history and the row the
+/// window takes back over it is blanked.
+#[test]
+fn a_placement_scrolled_off_the_screen_is_forgotten() {
+    for screen in ["", "\x1b[?1049h"] {
+        let top = format!("{screen}{}", placed_on_x(2, 5));
+        let bottom = format!("{screen}{}", placed_on_x(49, 5));
+        for (bytes, what) in [
+            (format!("{top}\x1b[50;1H\n\n\n"), "off the top"),
+            (format!("{top}\x1b[3S\x1b[3T"), "off the top and back"),
+            (format!("{bottom}\x1b[2T"), "off the bottom"),
+            (format!("{bottom}\x1b[2T\x1b[2S"), "off the bottom and back"),
+        ] {
+            every_read_size(bytes.as_bytes(), |t, n| {
+                assert_eq!(t.placed_cursor(), None, "{screen:?} {what} at {n}");
+            });
+        }
+        // The control: one row short of leaving, it is still on its text.
+        let bytes = format!("{top}\x1b[1S");
+        every_read_size(bytes.as_bytes(), |t, n| {
+            assert_eq!(t.placed_cursor(), at(0, 4), "{screen:?} at {n}");
+            assert_eq!(under_placement(t), Some('X'));
+        });
+    }
+}
+
+/// **A region moves the placements inside it and only those**: a status
+/// line's `DECSTBM 1 ; 49`, which scrolls by rotation and puts the row under
+/// it back, a region in the middle that scrolls by copy, `IL` and `DL`, and
+/// side margins, where only a placement between them moves. One on the
+/// region's edge that the scroll deletes is forgotten with its text.
+#[test]
+fn a_region_moves_the_placements_inside_it() {
+    for screen in ["", "\x1b[?1049h"] {
+        let cases: [(String, Option<(Row, Col)>); 9] = [
+            (
+                format!("{}\x1b[1;49r\x1b[49;1H\n\n", placed_on_x(10, 5)),
+                at(7, 4),
+            ),
+            (
+                format!("{}\x1b[1;49r\x1b[49;1H\n\n", placed_on_x(50, 5)),
+                at(49, 4),
+            ),
+            (format!("{}\x1b[5;20r\x1b[2S", placed_on_x(10, 5)), at(7, 4)),
+            (
+                format!("{}\x1b[5;20r\x1b[2S", placed_on_x(30, 5)),
+                at(29, 4),
+            ),
+            (format!("{}\x1b[5;20r\x1b[2S", placed_on_x(5, 5)), None),
+            (format!("{}\x1b[5;1H\x1b[2L", placed_on_x(10, 5)), at(11, 4)),
+            (format!("{}\x1b[5;1H\x1b[2M", placed_on_x(10, 5)), at(7, 4)),
+            (
+                format!("{}\x1b[?69h\x1b[10;50s\x1b[2S", placed_on_x(10, 20)),
+                at(7, 19),
+            ),
+            (
+                format!("{}\x1b[?69h\x1b[10;50s\x1b[2S", placed_on_x(10, 60)),
+                at(9, 59),
+            ),
+        ];
+        for (body, want) in cases {
+            let bytes = format!("{screen}{body}");
+            every_read_size(bytes.as_bytes(), |t, n| {
+                assert_eq!(t.placed_cursor(), want, "{screen:?} {body:?} at {n}");
+                if want.is_some() {
+                    assert_eq!(under_placement(t), Some('X'), "{screen:?} {body:?}");
+                }
+            });
+        }
+    }
+}
+
+/// **A placement on a row a shell's redraw gives up is gone**: the window
+/// moves back over the block's rows behind it and lets go of as many blank
+/// rows at the bottom (`replace_prompt_block`), and a scroll that takes
+/// them in again brings them back blank. The control: the same stream
+/// without the redraw keeps the placement on its row.
+#[test]
+fn a_placement_on_a_row_a_redraw_gives_up_is_gone() {
+    let mut body = String::from("\x1b]133;A\x07");
+    for _ in 0..52 {
+        body += "l\r\n";
+    }
+    // The shell clears below, the program places the cursor on a blank row.
+    body += "\x1b[45;1H\x1b[J\x1b[49;1H\x1b[?25l";
+    every_read_size(body.as_bytes(), |t, n| {
+        assert_eq!(t.placed_cursor(), at(48, 0), "the control at {n}");
+    });
+    let redrawn = format!("{body}\x1b]133;A\x07\x1b[50;1H\n\n\n");
+    let kept = format!("{body}\x1b[50;1H\n\n\n");
+    for chunk in [1, 7, redrawn.len()] {
+        let run = |bytes: &str| {
+            let mut owned = Owned::new(&support::CORPUS);
+            let mut t = Term::new(owned.storage(), &support::CORPUS);
+            for piece in bytes.as_bytes().chunks(chunk) {
+                support::feed(&mut t, piece);
+            }
+            t.placed_cursor()
+        };
+        assert_eq!(
+            run(&redrawn),
+            None,
+            "given up and taken in blank, at {chunk}"
+        );
+        assert_eq!(run(&kept), at(45, 0), "the control at {chunk}");
+    }
 }

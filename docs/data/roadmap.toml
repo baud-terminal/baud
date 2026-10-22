@@ -218,7 +218,8 @@ summary = "Zooming keeps the glyphs it has already drawn instead of drawing ever
 [[item]]
 id = "F1-16"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "A hidden cursor moves with scrolling output"
 summary = "A cursor a program hid and placed stays on its text while output scrolls."
 
