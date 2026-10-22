@@ -306,6 +306,7 @@ fn main() {
     let mut title = vec![0u8; OSC_MAX];
     let mut icon = vec![0u8; OSC_MAX];
     let mut titles = vec![0u8; baud_core::TITLE_STACK];
+    let mut cwd = vec![0u8; baud_core::OSC_MAX];
     let mut palette = vec![ColorWord::DEFAULT; baud_core::PALETTE_LEN];
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
@@ -360,6 +361,7 @@ fn main() {
                 &mut kitty,
                 &mut kitty_scratch,
                 &mut titles,
+                &mut cwd,
             ),
             ImageStore::new(
                 &mut img_pixels,

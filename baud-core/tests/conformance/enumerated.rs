@@ -68,6 +68,8 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
     // OSC 46's `Pt` names a file, OSC 50's asks which font: `?`.
     ("OSC 46 ; Pt", b"\x1b]46;a.log\x1b\\"),
     ("OSC 50 ; Pt", b"\x1b]50;?\x1b\\"),
+    // OSC 7's `Pt` is a `file:` URI; `1` is off its grammar, refused.
+    ("OSC 7 ; Pt", b"\x1b]7;file:///tmp\x1b\\"),
     // MC's `Ps` 0, print the page: `1` is ECMA-48's transfer from an
     // auxiliary device, refused.
     ("CSI Ps i", b"\x1b[0i"),

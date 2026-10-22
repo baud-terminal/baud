@@ -81,6 +81,9 @@ pub enum Osc<'a> {
     SetProperty(XProperty<'a>),
     /// `OSC 50 ; Pt`: "Set Font to Pt", or its query, [`FontRequest`].
     Font(FontRequest<'a>),
+    /// `OSC 7 ; Pt`: the shell's working directory as a `file:` URI,
+    /// [`DirectoryReport`].
+    WorkingDirectory(DirectoryReport<'a>),
     /// Recognised as an OSC and not acted on.
     Unsupported,
 }
@@ -1533,6 +1536,7 @@ impl<'a> Osc<'a> {
                 None => PointerRequest::Unknown,
             }),
             b"50" => Osc::Font(FontRequest::parse(rest)),
+            b"7" => Osc::WorkingDirectory(DirectoryReport::parse(rest)),
             b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
                 true => AllowQuery::Malformed,
                 false => AllowQuery::Allowed,

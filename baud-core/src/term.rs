@@ -1,5 +1,6 @@
 //! The terminal's state, and the one borrow the parser holds.
 
+use crate::cwd::{DirectoriesRefused, WorkingDirectory};
 use crate::font::{FontChange, FontsRefused};
 use crate::graph::Node;
 use crate::osc::StrKind;
@@ -3671,6 +3672,24 @@ impl<'b> Term<'b> {
     /// off.
     pub fn window_ops_refused(&self) -> WindowOpsRefused {
         self.store.strs.window_asks.refused
+    }
+
+    /// **The directory the shell said it is in**, by its last `OSC 7`
+    /// (`[[source: rfc8089]]`'s `file:` URI): the host it named and the
+    /// path, percent-decoded. `None` before any report, and after one the
+    /// core could not read, which is counted in
+    /// [`Term::directories_refused`]. A host other than [`FileHost::Local`]
+    /// is the embedder's to compare with its own machine's name before it
+    /// treats the path as one here (RFC 8089 § 3 and § 5).
+    pub fn working_directory(&self) -> Option<WorkingDirectory<'_>> {
+        self.store.strs.cwd_at.read(self.store.strs.cwd)
+    }
+
+    /// The `OSC 7` reports refused: off RFC 8089's grammar, of another
+    /// scheme (`kitty-shell-cwd`), decoding to a NUL, or cut at `OSC_MAX`.
+    /// Each counts as unsupported too.
+    pub fn directories_refused(&self) -> DirectoriesRefused {
+        self.store.strs.cwd_at.refused
     }
 
     /// The `OSC 3` properties dropped because no window here has them:

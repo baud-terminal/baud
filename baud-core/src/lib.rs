@@ -52,6 +52,7 @@
 extern crate alloc;
 
 mod clip;
+mod cwd;
 mod dcs;
 mod feed;
 mod font;
@@ -92,6 +93,7 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+pub use baud_domain::FileHost;
 /// Focus reporting's vocabulary, for the same reason: an embedder that cannot
 /// name a [`Focus`] cannot call [`Term::focus`].
 pub use baud_domain::Focus;
@@ -188,6 +190,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 pub use baud_domain::{RegisHold, RegisInput, RegisTicks};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
+pub use cwd::{DirectoriesRefused, WorkingDirectory};
 pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;

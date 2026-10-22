@@ -486,6 +486,13 @@ pub struct StrBuf<'b> {
     /// (`Term::window_requests`). Here for the reason `window` is: only an
     /// XTWINOPS operation reaches it.
     pub(crate) window_asks: crate::window::WindowAsks,
+    /// The directory the shell's last `OSC 7` named, a host name's bytes
+    /// and then the path's, [`OSC_MAX`] in all (`crate::cwd`): here for the
+    /// reason `clip_area` is, since only an `OSC 7` reaches it.
+    pub(crate) cwd: &'b mut [u8],
+    /// What `cwd` holds, and the reports refused (`Term::working_directory`,
+    /// `Term::directories_refused`).
+    pub(crate) cwd_at: crate::cwd::Cwd,
     /// The `OSC 3` properties dropped (`Term::properties_dropped`): here
     /// for the reason `window_asks` is.
     pub(crate) properties_dropped: crate::window::PropertiesDropped,
@@ -536,7 +543,7 @@ pub struct StrBuf<'b> {
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the twelve, in the one order that is correct.
+    /// Lend the thirteen, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
@@ -559,6 +566,7 @@ impl<'b> StrBuf<'b> {
         kitty: &'b mut KittyStream,
         kitty_scratch: &'b mut [u8],
         titles: &'b mut [u8],
+        cwd: &'b mut [u8],
     ) -> StrBuf<'b> {
         StrBuf {
             pending,
@@ -587,6 +595,8 @@ impl<'b> StrBuf<'b> {
             colors: crate::stack::ColorStack::EMPTY,
             window_asks: crate::window::WindowAsks::NONE,
             properties_dropped: crate::window::PropertiesDropped::FIRST,
+            cwd,
+            cwd_at: crate::cwd::Cwd::NONE,
             log: crate::logging::Logger::NONE,
             fonts: crate::font::FontAsks::NONE,
             tcap: crate::dcs::Tcap::UNTOLD,
@@ -638,6 +648,7 @@ pub struct Owned {
     pending: alloc::vec::Vec<u8>,
     title: alloc::vec::Vec<u8>,
     icon: alloc::vec::Vec<u8>,
+    cwd: alloc::vec::Vec<u8>,
     titles: alloc::vec::Vec<u8>,
     palette: alloc::vec::Vec<ColorWord>,
     links: alloc::vec::Vec<u8>,
@@ -727,6 +738,7 @@ impl Owned {
             pending: vec![0u8; OSC_MAX],
             title: vec![0u8; OSC_MAX],
             icon: vec![0u8; OSC_MAX],
+            cwd: vec![0u8; OSC_MAX],
             titles: vec![0u8; TITLE_STACK],
             palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
@@ -895,6 +907,8 @@ impl Owned {
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
+                cwd: &mut self.cwd,
+                cwd_at: crate::cwd::Cwd::NONE,
                 log: crate::logging::Logger::NONE,
                 fonts: crate::font::FontAsks::NONE,
                 tcap: crate::dcs::Tcap::UNTOLD,
@@ -971,6 +985,8 @@ impl Owned {
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
+                cwd: &mut self.cwd,
+                cwd_at: crate::cwd::Cwd::NONE,
                 log: crate::logging::Logger::NONE,
                 fonts: crate::font::FontAsks::NONE,
                 tcap: crate::dcs::Tcap::UNTOLD,
@@ -1319,6 +1335,7 @@ impl<'b> Storage<'b> {
         );
         assert!(strs.title.len() >= OSC_MAX, "title is shorter than OSC_MAX");
         assert!(strs.icon.len() >= OSC_MAX, "icon is shorter than OSC_MAX");
+        assert!(strs.cwd.len() >= OSC_MAX, "cwd is shorter than OSC_MAX");
         assert!(
             strs.titles.len() >= TITLE_STACK,
             "titles is shorter than TITLE_STACK"

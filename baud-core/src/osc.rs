@@ -815,6 +815,13 @@ impl Paint<'_, '_> {
                 },
             ),
             Osc::Font(req) => self.font_request(req, term),
+            Osc::WorkingDirectory(report) => self.report_directory(
+                report,
+                match n >= OSC_MAX {
+                    true => crate::logging::Body::Cut,
+                    false => crate::logging::Body::Whole,
+                },
+            ),
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
