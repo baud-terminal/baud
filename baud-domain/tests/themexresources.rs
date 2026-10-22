@@ -55,7 +55,7 @@ fn a_tinted_file_reads_what_cpp_p_dcolor_gives() {
     assert_eq!(s.format, Format::Xresources);
     assert_eq!(s.page, Some(c("#262427")));
     assert_eq!(s.text, Some(c("#fcfcfc")));
-    assert_eq!(s.cursor, Some(c("#fcfcfc")));
+    assert_eq!(s.cursor, Some(CellPaint::Colour(c("#fcfcfc"))));
     assert_eq!(s.ansi[1], Some(c("#ff7272")));
     assert_eq!(s.ansi[15], Some(c("#fcfcfc")));
     assert_eq!(s.extended[5], Some(c("#eae9eb")));
@@ -306,7 +306,7 @@ fn every_colour_resource_lands_where_it_names() {
     let s = s.unwrap();
     assert_eq!(s.extended[0], Some(c("#101010")));
     assert_eq!(s.extended[239], Some(c("#ffffff")));
-    assert_eq!(s.cursor, Some(c("#010101")));
-    assert_eq!(s.selection, Some(c("#020202")));
-    assert_eq!(s.selection_text, Some(c("#030303")));
+    assert_eq!(s.cursor, Some(CellPaint::Colour(c("#010101"))));
+    assert_eq!(s.selection, Some(CellPaint::Colour(c("#020202"))));
+    assert_eq!(s.selection_text, Some(CellPaint::Colour(c("#030303"))));
 }

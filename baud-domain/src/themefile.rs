@@ -114,6 +114,70 @@ pub enum Format {
     Empty,
 }
 
+/// **A colour a scheme gives the cursor or the selection**: a colour, or the
+/// colour of the cell it lands on. alacritty's `CellForeground` and
+/// `CellBackground` "references the affected cell" (`[[source:
+/// alacritty-0c405d5-man-5]]` 327-334, 398-405); ghostty's
+/// `cell-foreground` and `cell-background` match "the cell foreground
+/// color" and "the cell background color" (`[[source:
+/// ghostty-config-8f0dd37]]` 707-716, 845-859, 905-911).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CellPaint<C> {
+    Colour(C),
+    /// The text colour of the cell it lands on.
+    Text,
+    /// The page of the cell it lands on.
+    Page,
+}
+
+impl<C> CellPaint<C> {
+    /// The same paint, its colour mapped.
+    pub fn map<D>(self, f: impl FnOnce(C) -> D) -> CellPaint<D> {
+        match self {
+            CellPaint::Colour(c) => CellPaint::Colour(f(c)),
+            CellPaint::Text => CellPaint::Text,
+            CellPaint::Page => CellPaint::Page,
+        }
+    }
+
+    /// The colour, when it is one rather than a cell's.
+    pub fn colour(self) -> Option<C> {
+        match self {
+            CellPaint::Colour(c) => Some(c),
+            CellPaint::Text | CellPaint::Page => None,
+        }
+    }
+}
+
+/// Where a scheme file's value lands: one of the colours a scheme holds as
+/// a colour alone, or one of the four that may name a cell's.
+pub(crate) enum Target<'s> {
+    Colour(&'s mut Option<Color>),
+    Paint(&'s mut Option<CellPaint<Color>>),
+}
+
+impl Target<'_> {
+    /// Sets a colour, or unsets.
+    pub(crate) fn set(self, c: Option<Color>) {
+        match self {
+            Target::Colour(s) => *s = c,
+            Target::Paint(s) => *s = c.map(CellPaint::Colour),
+        }
+    }
+
+    /// Sets a cell's colour where the slot takes one, and says whether it
+    /// did.
+    pub(crate) fn set_cell(self, p: CellPaint<Color>) -> bool {
+        match self {
+            Target::Colour(_) => false,
+            Target::Paint(s) => {
+                *s = Some(p);
+                true
+            }
+        }
+    }
+}
+
 /// A colour scheme, landed on the sixteen ANSI slots.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Scheme {
@@ -127,10 +191,12 @@ pub struct Scheme {
     /// `palette = N=` for N past 15. Parsed here; whether they are written
     /// is the config layer's.
     pub extended: [Option<Color>; 240],
-    pub cursor: Option<Color>,
-    pub cursor_text: Option<Color>,
-    pub selection: Option<Color>,
-    pub selection_text: Option<Color>,
+    /// The cursor, the text under a block cursor, the selection's page and
+    /// its text: each a colour or a cell's ([`CellPaint`]).
+    pub cursor: Option<CellPaint<Color>>,
+    pub cursor_text: Option<CellPaint<Color>>,
+    pub selection: Option<CellPaint<Color>>,
+    pub selection_text: Option<CellPaint<Color>>,
     pub format: Format,
     /// What the file says it is -- tinted's `variant` -- which is checked
     /// against [`Scheme::polarity`] and never used in its place.
@@ -400,6 +466,10 @@ fn yaml_value(v: &[u8]) -> Option<&[u8]> {
 /// data; `key = value`, each side trimmed of spaces and tabs and one pair of
 /// quotes off the value (1468-1482). The seven colour keys are read; every
 /// other key is handed to `ignored` with its line, for the caller to report.
+/// The cursor's and the selection's four take `cell-foreground` and
+/// `cell-background` too, since ghostty 1.2.0 (`[[source:
+/// ghostty-config-8f0dd37]]` 707-716, 845-859, 905-911, and `TerminalColor`'s parse,
+/// 5770-5780): the cell's text colour and its page ([`CellPaint`]).
 ///
 /// Lines apply in order, as ghostty applies them: a key set twice takes its
 /// last value, and an empty value unsets -- one entry, or with `palette =`
@@ -427,12 +497,12 @@ pub fn ghostty(text: &[u8], mut ignored: impl FnMut(Line, &[u8])) -> Result<Sche
             None => (body, None),
         };
         let slot = match key {
-            b"background" => &mut s.page,
-            b"foreground" => &mut s.text,
-            b"cursor-color" => &mut s.cursor,
-            b"cursor-text" => &mut s.cursor_text,
-            b"selection-background" => &mut s.selection,
-            b"selection-foreground" => &mut s.selection_text,
+            b"background" => Target::Colour(&mut s.page),
+            b"foreground" => Target::Colour(&mut s.text),
+            b"cursor-color" => Target::Paint(&mut s.cursor),
+            b"cursor-text" => Target::Paint(&mut s.cursor_text),
+            b"selection-background" => Target::Paint(&mut s.selection),
+            b"selection-foreground" => Target::Paint(&mut s.selection_text),
             b"palette" => {
                 let value = value.ok_or_else(|| err(SchemeErrorKind::Syntax))?;
                 if value.is_empty() {
@@ -459,11 +529,18 @@ pub fn ghostty(text: &[u8], mut ignored: impl FnMut(Line, &[u8])) -> Result<Sche
             }
         };
         let value = value.ok_or_else(|| err(SchemeErrorKind::Syntax))?;
-        *slot = if value.is_empty() {
-            None
-        } else {
-            Some(colour(value).map_err(err)?)
+        let cell = match value {
+            b"cell-foreground" => Some(CellPaint::Text),
+            b"cell-background" => Some(CellPaint::Page),
+            _ => None,
         };
+        match cell {
+            Some(p) if matches!(slot, Target::Paint(_)) => {
+                slot.set_cell(p);
+            }
+            _ if value.is_empty() => slot.set(None),
+            _ => slot.set(Some(colour(value).map_err(err)?)),
+        }
     }
     Ok(s)
 }

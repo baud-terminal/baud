@@ -4,6 +4,7 @@
 //! because the renderer borrows them for the life of the process.
 
 use crate::config::Config;
+use baud_domain::themefile::CellPaint;
 use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, ImageRefusals, WinSize};
 use baud_font::bytes::Index;
 use baud_font::{Face, Px, StrikeRefusal, StrikeState};
@@ -458,6 +459,13 @@ pub fn tell_defaults(
     overrides: baud_core::Overrides,
 ) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
+    // A selection colour that names the cell's own text or page answers the
+    // default cell's: the text or the page the theme draws.
+    let shown = |p: CellPaint<baud_render::Argb>| match p {
+        CellPaint::Colour(c) => rgb(c),
+        CellPaint::Text => rgb(theme.fg),
+        CellPaint::Page => rgb(theme.bg),
+    };
     // One call: the defaults, the table and the selection's colours, so an
     // `OSC 4 ; c ; ?` for an entry nothing overrode, or an `OSC 17 ; ?` with
     // no program colour, is answered with the colour drawn, and a `?2031`
@@ -471,8 +479,11 @@ pub fn tell_defaults(
             fg: rgb(theme.fg),
             bg: rgb(theme.bg),
             palette: &palette,
-            selection: theme.selection.map(rgb),
-            selection_text: theme.selection_text.map(rgb),
+            selection: theme.selection.map(shown),
+            selection_text: theme.selection_text.map(shown),
+            // The cursor's colour, when it is one; a cell's own is drawn by
+            // the renderer and answers nothing, as no colour did before.
+            cursor: theme.cursor.and_then(CellPaint::colour).map(rgb),
         },
         overrides,
     );
@@ -1438,7 +1449,7 @@ mod tests {
             Chan::from_u8(0x5e),
         );
         let theme = Theme {
-            selection: Some(page),
+            selection: Some(baud_domain::themefile::CellPaint::Colour(page)),
             ..Theme::dark()
         };
         super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
@@ -1452,6 +1463,40 @@ mod tests {
             b"\x1b]17;rgb:d8d8/d8d8/d8d8\x07",
             "the text shown"
         );
+    }
+
+    /// **The theme's cursor colour is what `OSC 12 ; ?` answers and what
+    /// `OSC 112` returns to**, pushed with the rest of the theme; a cursor
+    /// that takes the cell's own colours answers nothing, as before.
+    #[test]
+    fn osc_12_answers_the_themes_cursor() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let theme = Theme {
+            cursor: Some(baud_domain::themefile::CellPaint::Colour(
+                baud_render::Argb::rgb(
+                    Chan::from_u8(0xff),
+                    Chan::from_u8(0x88),
+                    Chan::from_u8(0x00),
+                ),
+            )),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]12;#000080\x07\x1b]112\x07\x1b]12;?\x07");
+        assert_eq!(t.reply(), b"\x1b]12;rgb:ffff/8888/0000\x07");
+        t.clear_reply();
+        let cell = Theme {
+            cursor: Some(baud_domain::themefile::CellPaint::Page),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &cell, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]12;?\x07");
+        assert_eq!(t.reply(), b"", "a cell's own colour is no colour to answer");
     }
 
     /// **An OS flip under `auto` drops the application's colours and reports

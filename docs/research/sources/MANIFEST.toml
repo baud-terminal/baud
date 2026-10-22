@@ -31716,7 +31716,7 @@ sha256 = "fba3f7596175a246ffa8fdab6213b6678d7e07ab551de3878cdd561f53a8881c"
 bytes  = 431388
 status = "external"
 group  = "J"
-# Read 2026-10-22 (lane b144), the copy whose sha256 matches: selection-foreground and selection-background (707-716) and cursor-text (905-911) take cell-foreground and cell-background since 1.2.0; selection-invert-fg-bg sets cell-background over cell-foreground (5080-5089).
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: selection-foreground and selection-background (707-716), cursor-color (845-859) and cursor-text (905-911) take cell-foreground and cell-background since 1.2.0; selection-invert-fg-bg sets cell-background over cell-foreground (5080-5089).
 
 [sources.ghostty-sharedgridset-8f0dd37]
 key    = "ghostty-sharedgridset-8f0dd37"

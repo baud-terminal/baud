@@ -1,6 +1,6 @@
 //! Renditions to pixels: the theme, the palette, and the attribute rules.
 
-use baud_domain::themefile::Scheme;
+use baud_domain::themefile::{CellPaint, Scheme};
 use baud_domain::{Attrs, Chan, Color, ColorWord, Count, DynamicColor, LINEAR, StyleWord};
 
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
@@ -797,9 +797,18 @@ pub struct Theme {
     /// owner's V13 call; Jev, 1.00 both orders, with renders beside
     /// Terminal.app's and iTerm2's). A page alone draws each selected
     /// cell's own text on it. A program's `OSC 17`/`19` wins over each
-    /// while it is set ([`Renderer::hilite`](crate::Renderer::hilite)).
-    pub selection: Option<Argb>,
-    pub selection_text: Option<Argb>,
+    /// while it is set ([`Renderer::hilite`](crate::Renderer::hilite)). A
+    /// theme file may name the cell's own text or page instead of a colour
+    /// ([`CellPaint`]).
+    pub selection: Option<CellPaint<Argb>>,
+    pub selection_text: Option<CellPaint<Argb>>,
+    /// **The cursor's colours**: its fill, and the text under a block,
+    /// each a colour, the cell's own text or page, or `None` for the cell's
+    /// colours swapped. A program's `OSC 12` wins over the fill while set,
+    /// and leaves the text colour as it is
+    /// ([`Renderer::block_paint`](crate::Renderer::block_paint)).
+    pub cursor: Option<CellPaint<Argb>>,
+    pub cursor_text: Option<CellPaint<Argb>>,
 }
 
 /// What the window's dim does to a background the application set.
@@ -875,6 +884,8 @@ impl Theme {
             palette: dark_palette(),
             selection: None,
             selection_text: None,
+            cursor: None,
+            cursor_text: None,
         }
     }
 
@@ -904,6 +915,8 @@ impl Theme {
             palette: light_palette(),
             selection: None,
             selection_text: None,
+            cursor: None,
+            cursor_text: None,
         }
     }
 
@@ -925,15 +938,24 @@ impl Theme {
                 None => unset += 1,
             }
         }
-        // The selection's colours are not counted: a theme that leaves
-        // them unset leaves reverse video, which is no colour of baud's.
-        let selected = [
+        // The selection's and the cursor's colours are not counted: a theme
+        // that leaves them unset leaves the cell's colours swapped, which is
+        // no colour of baud's.
+        let painted = [
             (&mut self.selection, &scheme.selection),
             (&mut self.selection_text, &scheme.selection_text),
+            (&mut self.cursor, &scheme.cursor),
+            (&mut self.cursor_text, &scheme.cursor_text),
         ];
-        for (slot, c) in selected {
-            if let Some(a) = (*c).and_then(argb_of) {
-                *slot = Some(a);
+        for (slot, p) in painted {
+            let landed = match *p {
+                Some(CellPaint::Colour(c)) => argb_of(c).map(CellPaint::Colour),
+                Some(CellPaint::Text) => Some(CellPaint::Text),
+                Some(CellPaint::Page) => Some(CellPaint::Page),
+                None => None,
+            };
+            if landed.is_some() {
+                *slot = landed;
             }
         }
         Count::of(unset)

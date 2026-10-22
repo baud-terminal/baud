@@ -12,6 +12,7 @@
 mod support;
 
 use baud_core::{Owned, Term};
+use baud_domain::themefile::CellPaint;
 use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{Argb, Blend, Damage, Highlight, PxSize, Region, Renderer, Stack, Target, Theme};
@@ -106,9 +107,9 @@ fn a_selection_is_drawn_in_the_highlight_colours_each_when_set() {
 /// values" (`[[source: ctlseqs]]`). Both unset is still reverse video.
 #[test]
 fn a_theme_selection_colour_is_drawn_until_a_program_sets_its_own() {
-    let themed = |page, text| Theme {
-        selection: page,
-        selection_text: text,
+    let themed = |page: Option<Argb>, text: Option<Argb>| Theme {
+        selection: page.map(CellPaint::Colour),
+        selection_text: text.map(CellPaint::Colour),
         ..Theme::dark()
     };
     // The page alone: each cell's own text on it.

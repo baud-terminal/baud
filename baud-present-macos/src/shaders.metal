@@ -1108,7 +1108,9 @@ struct CU {
     // the line that just scrolled off, still in the ring one row up. Both
     // zero when settled, so the non-slide draw is unchanged.
     uint pan; uint slide_rows;
-    // `OSC 12` cursor colour, packed 0xFFRRGGBB, or 0 for none.
+    // The cursor colour -- a program's `OSC 12`, else the configured one,
+    // else a theme's -- packed 0xFFRRGGBB, or `PAINT_PAGE` for the cell's
+    // page, or 0 for none: the cell's text. `paint()` reads it.
     uint cursor_color;
     // The blink shapes this frame hides -- `SHAPE_BLINK` in `SGR 5`'s off
     // phase, `SHAPE_RAPID_BLINK` in `SGR 6`'s: the frame's, not a slot's, so
@@ -1120,10 +1122,23 @@ struct CU {
     // side binds that many: `CellUniforms`, which checks it.
     uint cursor_alpha;
     // The selection's colours, `OSC 17`'s page and `OSC 19`'s text, packed
-    // 0xFFRRGGBB, or 0 for none -- reverse video -- each with the contrast
-    // curve row a glyph in it takes. 136 bytes with these.
+    // 0xFFRRGGBB, or `PAINT_TEXT`/`PAINT_PAGE` for the cell's own, or 0 for
+    // none -- both none is reverse video -- each with the contrast curve row
+    // a glyph in a colour takes.
     uint sel_bg; uint sel_fg; uint sel_bg_curve; uint sel_fg_curve;
+    // The text under a block cursor: packed 0xFFRRGGBB, or `PAINT_TEXT` for
+    // the cell's own text, or 0 for none -- the cell's page -- and the curve
+    // row a glyph in a colour takes. 144 bytes with these.
+    uint cursor_text; uint cursor_text_curve;
 };
+
+// A paint word: 0 none, the cell's text or page by name, else an opaque
+// colour, which is never either (`Hilite::of`, `BlockPaint::of`).
+#define PAINT_TEXT 1u
+#define PAINT_PAGE 2u
+static uint paint(uint w, uint none, uint text, uint page) {
+    return w == 0u ? none : w == PAINT_TEXT ? text : w == PAINT_PAGE ? page : w;
+}
 struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; uint glass; uint gcurves;
                uint line; uint lcurves; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -1868,16 +1883,6 @@ static uint scaled(uint w, uint level) {
     return (w & 0x00ffffffu) | (a << 24);
 }
 
-// Whether the cell's glyph is drawn in its background's colour: the
-// selection's swap and the block cursor's each exchange the two, and
-// `OSC 12` replaces only the background, so it is the swaps' parity. A
-// fading block counts from half way. Must match `Swaps::ink`.
-static bool swapped(constant CU& u, uint content, uint col, uint row) {
-    bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y
-                 && u.cursor_alpha >= 128u;
-    return selected(u, content, col, row) != block;
-}
-
 // Whether the cell's page is drawn solid under the dim: its rendition's
 // `[glass] app_backgrounds = "opaque"`, baked into the slot as bit 128
 // (`Shapes::OPAQUE_BG`), or a picture drawn in text (`MASK_PICTURE`, bit 2
@@ -1897,27 +1902,49 @@ static bool is_line(uint content) {
     return content >= LINE_FIRST && content <= LINE_LAST;
 }
 
-// The contrast curve row a cell's glyph takes, while it is drawn
-// unswapped: a line's (`lcurves`), else the glass text's (`gcurves`) over
-// a page left dimmed; else the solid text's, each by the swaps' parity.
-// Must match `Resolved::drawn` and `Curves::row`.
-static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
-                        uint content, uint col, int lrow) {
-    bool swap = swapped(u, content, col, uint(lrow));
+// The contrast curve row a cell's glyph takes under `block`, while it is
+// drawn unswapped: a line's (`lcurves`), else the glass text's (`gcurves`)
+// over a page left dimmed; else the solid text's, each by the swaps'
+// parity -- the selection's swap and the block cursor's each exchange the
+// two colours, and a cursor colour replaces only the background. Must match
+// `Resolved::drawn`, `Curves::row` and `Swaps::ink`.
+static uint curve_under(constant CU& u, Style s, device const uchar* overlay,
+                        uint content, uint col, int lrow, bool block) {
     bool sel = selected(u, content, col, uint(lrow));
+    bool swap = sel != block;
     // Under a highlight colour the glyph is in the selection's text, or,
-    // swapped again by a block, its page: a highlight colour's row where
-    // one is set, else the cell's own text's. `Resolved::hilite_curve`.
+    // swapped again by a block, its page: a colour's row where one is set,
+    // else the cell's own text's or page's. `Resolved::hilite_curve`.
     if (sel && (u.sel_bg | u.sel_fg) != 0u) {
-        uint word = swap ? u.sel_fg : u.sel_bg;
+        uint page = u.sel_bg != 0u ? u.sel_bg : PAINT_TEXT;
+        uint text = u.sel_fg != 0u ? u.sel_fg
+                  : (page == PAINT_TEXT ? PAINT_PAGE : PAINT_TEXT);
+        uint word = swap ? text : page;
         uint row = swap ? u.sel_fg_curve : u.sel_bg_curve;
-        return word != 0u ? row : (s.curves & 0xffffu);
+        return word == PAINT_TEXT ? (s.curves & 0xffffu)
+             : word == PAINT_PAGE ? (s.curves >> 16) : row;
     }
     bool own = !swap && !sel;
     uint curves = own && is_line(content) ? s.lcurves
                 : own && !solid(u, s.shapes, overlay, col, lrow) ? s.gcurves
                 : s.curves;
     return swap ? (curves >> 16) : (curves & 0xffffu);
+}
+
+// The curve row of a cell's glyph: a fading block counts from half way,
+// and a block's text colour is its own. `Resolved::hilite_curve`.
+static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
+                        uint content, uint col, int lrow) {
+    bool block = u.cursor_kind == 1u && col == u.cursor.x && uint(lrow) == u.cursor.y
+                 && u.cursor_alpha >= 128u;
+    // A block's text colour: a colour's own row, or the cell's solid text
+    // as the selection leaves it, the curve the cell takes with no block.
+    if (block && u.cursor_text == PAINT_TEXT) {
+        if (!selected(u, content, col, uint(lrow))) return s.curves & 0xffffu;
+        return curve_under(u, s, overlay, content, col, lrow, false);
+    }
+    if (block && u.cursor_text != 0u) return u.cursor_text_curve;
+    return curve_under(u, s, overlay, content, col, lrow, block);
 }
 
 // The cell's colours after the selection's swap and then the block
@@ -1953,20 +1980,25 @@ static void colors(constant CU& u, device const Style* styles,
     uint ink = s.fg;
     if (selected(u, cell.x, col, row)) {
         // `Hilite::paint`: the page `OSC 17`'s where set, else the text; the
-        // text `OSC 19`'s where set, else the cell's own on a set page, else
-        // the page -- reverse video when neither is set.
-        uint page = u.sel_bg != 0u ? u.sel_bg : (ink | 0xff000000u);
-        fgw = u.sel_fg != 0u ? u.sel_fg
-            : (u.sel_bg != 0u ? (ink | 0xff000000u) : (bgw | 0xff000000u));
+        // text `OSC 19`'s where set, else the cell's own on a page that is
+        // not the cell's text, else the page -- reverse video when neither
+        // is set. Either may name the cell's own text or page.
+        uint text0 = ink | 0xff000000u, page0 = bgw | 0xff000000u;
+        uint page = paint(u.sel_bg, text0, text0, page0);
+        uint none = (u.sel_bg == 0u || u.sel_bg == PAINT_TEXT) ? page0 : text0;
+        fgw = paint(u.sel_fg, none, text0, page0);
         bgw = page; ink = fgw;
         curw = fgw;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
         uint f0 = fgw, b0 = bgw;
-        fgw = bgw | 0xff000000u; bgw = ink | 0xff000000u;
-        // `OSC 12`: the block fills with the application's cursor colour
-        // instead of the swapped foreground; the glyph stays `fgw`.
-        if (u.cursor_color != 0u) bgw = u.cursor_color;
+        uint text0 = ink | 0xff000000u, page0 = bgw | 0xff000000u;
+        fgw = page0; bgw = text0;
+        // The cursor colour fills the block instead of the swapped text,
+        // and the cursor text colour is the glyph's, each a colour or the
+        // cell's own: `BlockPaint`.
+        bgw = paint(u.cursor_color, text0, text0, page0);
+        fgw = paint(u.cursor_text, page0, text0, page0);
         // A block part way through a fade: each colour `cursor_alpha` of the
         // way from the cell without it, `Resolved::drawn`'s mix.
         if (u.cursor_alpha < 255u) {
@@ -2165,9 +2197,10 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             at = float2(float(col * u.cell.x), rowy);
             wh = float2(thick, u.cell.y);
         }
-        // `OSC 12`: the bar or underline cursor draws in the cursor colour,
-        // at the fade's opacity (`Argb::scaled`).
-        colw = scaled((u.cursor_color != 0u) ? u.cursor_color : curw, u.cursor_alpha);
+        // The bar or underline cursor draws in the cursor colour, a colour
+        // or the cell's page, else the text, at the fade's opacity
+        // (`Argb::scaled`, `Renderer::shape_colour`).
+        colw = scaled(paint(u.cursor_color, curw, curw, bgw | 0xff000000u), u.cursor_alpha);
     } else if (which < FIXED_SLOTS) {
         // The overline, the frame, the double overline's second line, the
         // stress mark and an encircled run, in the text's colour as the

@@ -3,7 +3,7 @@
 //! unset stays the half's and is counted; 16-255 are never written; its
 //! selection colours become the half's.
 
-use baud_domain::themefile::{Format, Scheme};
+use baud_domain::themefile::{CellPaint, Format, Scheme};
 use baud_domain::{Chan, Color};
 use baud_render::{Argb, Theme};
 
@@ -98,20 +98,45 @@ fn the_built_in_halves_read_as_their_names() {
 #[test]
 fn a_schemes_selection_colours_are_taken_and_unset_ones_are_not_counted() {
     let mut s = empty();
-    s.selection = Some(rgb(0x334e5e));
+    s.selection = Some(CellPaint::Colour(rgb(0x334e5e)));
     let mut t = Theme::dark();
     let unset = t.take_scheme(&s);
     assert_eq!(unset.get_raw(), 18, "the sixteen, the page and the text");
     assert_eq!(
         (t.selection, t.selection_text),
-        (Some(argb(0x334e5e)), None)
+        (Some(CellPaint::Colour(argb(0x334e5e))), None)
     );
-    s.selection_text = Some(rgb(0xffffff));
+    s.selection_text = Some(CellPaint::Colour(rgb(0xffffff)));
     t.take_scheme(&s);
-    assert_eq!(t.selection_text, Some(argb(0xffffff)));
+    assert_eq!(t.selection_text, Some(CellPaint::Colour(argb(0xffffff))));
     assert_eq!(
         (Theme::dark().selection, Theme::light().selection_text),
         (None, None),
         "the built-in halves are reverse video"
+    );
+}
+
+/// **A theme file's cursor colours are the half's cursor**, a colour or
+/// the cell's own as the file names it, uncounted when unset; the built-in
+/// halves swap the cell's colours.
+#[test]
+fn a_schemes_cursor_colours_are_taken_and_unset_ones_are_not_counted() {
+    let mut s = empty();
+    s.cursor = Some(CellPaint::Colour(rgb(0xff8800)));
+    s.cursor_text = Some(CellPaint::Text);
+    let mut t = Theme::dark();
+    let unset = t.take_scheme(&s);
+    assert_eq!(unset.get_raw(), 18, "the sixteen, the page and the text");
+    assert_eq!(
+        (t.cursor, t.cursor_text),
+        (
+            Some(CellPaint::Colour(argb(0xff8800))),
+            Some(CellPaint::Text)
+        )
+    );
+    assert_eq!(
+        (Theme::dark().cursor, Theme::light().cursor_text),
+        (None, None),
+        "the built-in halves swap the cell's colours"
     );
 }

@@ -54,7 +54,7 @@ fn alacritty_reads_its_colour_forms() {
 
 /// The ways TOML spells one table: a header, dotted keys, an inline
 /// table; `cursor` and `selection` take `text` and `cursor`/`background`,
-/// and a cell-relative name leaves the colour baud's own, said.
+/// and a cell-relative name the affected cell's colour.
 #[test]
 fn toml_spellings_land_on_the_same_slots() {
     let (s, skipped) = toml(
@@ -66,10 +66,16 @@ fn toml_spellings_land_on_the_same_slots() {
     assert_eq!((s.page, s.text), (Some(c("#161719")), Some(c("#c5c8c7"))));
     assert_eq!(
         (s.cursor_text, s.cursor),
-        (Some(c("#1d1f22")), Some(c("#aeafad")))
+        (
+            Some(CellPaint::Colour(c("#1d1f22"))),
+            Some(CellPaint::Colour(c("#aeafad")))
+        )
     );
-    assert_eq!((s.selection_text, s.selection), (None, Some(c("#373b41"))));
-    assert_eq!(skipped, [(5, "text".into(), Skipped::CellRelative)]);
+    assert_eq!(
+        (s.selection_text, s.selection),
+        (Some(CellPaint::Text), Some(CellPaint::Colour(c("#373b41"))))
+    );
+    assert_eq!(skipped, []);
 }
 
 /// `indexed_colors`, as an array across lines and as an array of tables;
@@ -140,14 +146,16 @@ fn the_yaml_config_reads_its_colours() {
     );
     let s = s.unwrap();
     assert_eq!((s.page, s.text), (Some(c("#161719")), Some(c("#c5c8c7"))));
-    assert_eq!((s.cursor_text, s.cursor), (None, Some(c("#aeafad"))));
+    assert_eq!(
+        (s.cursor_text, s.cursor),
+        (Some(CellPaint::Page), Some(CellPaint::Colour(c("#aeafad"))))
+    );
     assert_eq!((s.ansi[0], s.ansi[1]), (None, Some(c("#cc6666"))));
     assert_eq!(s.extended[1], Some(c("#110000")));
     assert_eq!(
         skipped,
         [
             (1, "font".into(), Skipped::NotAColour),
-            (7, "text".into(), Skipped::CellRelative),
             (9, "black".into(), Skipped::Refused),
         ]
     );

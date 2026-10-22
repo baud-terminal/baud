@@ -27,6 +27,7 @@ use crate::renderer::{BlinkPhases, PairRole, Renderer, Single};
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
+use baud_domain::themefile::CellPaint;
 use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, PackedCell, Row, Viewport};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
@@ -93,7 +94,7 @@ impl Swaps {
     pub fn ink(self) -> Ink {
         let selected = self.selected == Selected::Yes;
         // A fading block counts as a swap from half way: the glyph's colour
-        // is then nearer the swapped side, and the shader's `swapped()`
+        // is then nearer the swapped side, and the shader's `glyph_curve`
         // takes the same half.
         let block = matches!(self.block, BlockCursor::Yes(_)) && self.cursor.get() >= 128;
         if selected != block {
@@ -1040,11 +1041,19 @@ impl Resolved {
         } else {
             fg
         };
-        if let BlockCursor::Yes(fill) = s.block {
+        if let BlockCursor::Yes(paint) = s.block {
             let off = (fg, bg);
-            (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
-            if let Some(c) = fill {
-                bg = c;
+            // The cell as the block finds it: its text and its page.
+            let cell = (ink.with_alpha(opaque), bg.with_alpha(opaque));
+            (fg, bg) = (cell.1, cell.0);
+            // A cursor colour -- a program's `OSC 12`, the config's, a theme
+            // file's -- fills the block, and a cursor text colour is the
+            // glyph's, each a colour or the cell's own.
+            if let Some(c) = paint.fill {
+                bg = paint_of(c, cell);
+            }
+            if let Some(t) = paint.text {
+                fg = paint_of(t.map(|(c, _)| c), cell);
             }
             // A block part way through a fade: each colour `cursor` of the
             // way from the cell without it to the cell with it, which over
@@ -1079,15 +1088,62 @@ impl Resolved {
     /// selection's text, or, swapped again by a block cursor, its page, and
     /// each is a highlight colour's row where one is set and the cell's own
     /// text's otherwise. The cell shader's `glyph_curve` spells the same.
+    ///
+    /// **Inlined**: called once a cell, and out of line it cost the frame
+    /// bench about 1% of its instructions (`frame vim 5 full`, 4,177 M and
+    /// 4,183 M in two runs against 4,139 M inlined, before the cold path
+    /// below moved out of it).
+    #[inline(always)]
     fn hilite_curve(self, s: Swaps) -> Option<CurveRow> {
+        if let BlockCursor::Yes(BlockPaint { text: Some(t), .. }) = s.block {
+            if s.cursor.get() >= 128 {
+                if let Some(row) = block_text_curve(self.curves, t, s.selected, s.hilite) {
+                    return Some(row);
+                }
+            }
+        }
         if s.selected == Selected::No || s.hilite == Hilite::REVERSE {
             return None;
         }
-        let side = match s.ink() {
-            Ink::Swapped => s.hilite.fg,
-            Ink::Own => s.hilite.bg,
-        };
-        Some(side.map_or(self.curves.row(Ink::Own), |(_, row)| row))
+        Some(row_of(
+            self.curves,
+            match s.ink() {
+                Ink::Swapped => s.hilite.text(),
+                Ink::Own => s.hilite.page(),
+            },
+        ))
+    }
+}
+
+/// The curve row of a block's glyph in a text colour of its own: a colour's
+/// own row, or the cell's solid text as the selection leaves it; `None` for
+/// the cell's page, the swap's, the default. Out of line, and handed the
+/// solid curves alone, so a cell's loop keeps its rendition in registers:
+/// one cell a frame takes it, and only with a theme's cursor text.
+#[cold]
+#[inline(never)]
+fn block_text_curve(
+    curves: Curves,
+    t: CellPaint<(Argb, CurveRow)>,
+    selected: Selected,
+    hilite: Hilite,
+) -> Option<CurveRow> {
+    match t {
+        CellPaint::Colour((_, row)) => Some(row),
+        CellPaint::Text if selected == Selected::No => Some(curves.row(Ink::Own)),
+        CellPaint::Text if hilite == Hilite::REVERSE => Some(curves.row(Ink::Swapped)),
+        CellPaint::Text => Some(row_of(curves, hilite.text())),
+        CellPaint::Page => None,
+    }
+}
+
+/// The curve row a selected glyph in `p` takes: a colour's own, or the
+/// cell's solid text's or page's.
+fn row_of(curves: Curves, p: CellPaint<(Argb, CurveRow)>) -> CurveRow {
+    match p {
+        CellPaint::Colour((_, row)) => row,
+        CellPaint::Text => curves.row(Ink::Own),
+        CellPaint::Page => curves.row(Ink::Swapped),
     }
 }
 
@@ -1132,56 +1188,111 @@ pub enum Selected {
     Yes,
 }
 
-/// Whether a block cursor sits on a cell, and the colour it fills with when
-/// the application set one with `OSC 12`.
+/// Whether a block cursor sits on a cell, and what it is drawn in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BlockCursor {
     No,
-    Yes(Option<Argb>),
+    Yes(BlockPaint),
+}
+
+/// **What a block cursor is drawn in**: the fill -- a program's `OSC 12`,
+/// else the configured colour, else a theme file's, which may name the
+/// cell's own -- and the text under it, each `None` for the cell's colours
+/// swapped, the default. The text carries the contrast curve row a glyph
+/// in its colour takes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct BlockPaint {
+    pub fill: Option<CellPaint<Argb>>,
+    pub text: Option<CellPaint<(Argb, CurveRow)>>,
+}
+
+impl BlockPaint {
+    /// The cell's two colours swapped: no colour of the cursor's own.
+    pub const SWAP: BlockPaint = BlockPaint {
+        fill: None,
+        text: None,
+    };
+
+    /// A fill and a text colour, each made opaque, the text with its curve
+    /// row.
+    pub fn of(fill: Option<CellPaint<Argb>>, text: Option<CellPaint<Argb>>) -> BlockPaint {
+        BlockPaint {
+            fill: fill.map(|p| p.map(|c| c.with_alpha(Chan::from_u8(0xFF)))),
+            text: text.map(|p| p.map(with_curve)),
+        }
+    }
+}
+
+/// A colour made opaque, with the curve row it takes as text.
+fn with_curve(c: Argb) -> (Argb, CurveRow) {
+    let c = c.with_alpha(Chan::from_u8(0xFF));
+    (c, CurveRow::of(c.r().get(), c.g().get(), c.b().get()))
+}
+
+/// A paint on a cell whose text and page are `cell`: a colour, or one of
+/// the two.
+fn paint_of(p: CellPaint<Argb>, cell: (Argb, Argb)) -> Argb {
+    match p {
+        CellPaint::Colour(c) => c,
+        CellPaint::Text => cell.0,
+        CellPaint::Page => cell.1,
+    }
 }
 
 /// The colours a selection is drawn in: `OSC 17`'s page and `OSC 19`'s text,
-/// each opaque and with the contrast curve row a glyph in it takes, or none
-/// of either. [`Hilite::REVERSE`], neither, is reverse video, the default.
+/// each a colour, opaque and with the contrast curve row a glyph in it
+/// takes, or the cell's own text or page (a theme file's `CellForeground`
+/// and `CellBackground`), or none of either. [`Hilite::REVERSE`], neither,
+/// is reverse video, the default.
 ///
 /// [`Resolved::drawn`] takes the page from `bg` where it is set and the
-/// cell's text otherwise, and the text from `fg` where it is set, else the
-/// cell's own text on a set page, else the cell's page: so `bg` alone draws
-/// each cell's text on the highlight, and `fg` alone the highlight text on
-/// the reversed page. The cell shader's `colors()` spells the same.
+/// cell's text otherwise ([`Hilite::page`]), and the text from `fg` where
+/// it is set, else the cell's own text on a page that is not the cell's
+/// text, else the cell's page ([`Hilite::text`]): so a colour in `bg` alone
+/// draws each cell's text on the highlight, and `fg` alone the highlight
+/// text on the reversed page. The cell shader's `colors()` spells the same.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Hilite {
-    pub bg: Option<(Argb, CurveRow)>,
-    pub fg: Option<(Argb, CurveRow)>,
+    pub bg: Option<CellPaint<(Argb, CurveRow)>>,
+    pub fg: Option<CellPaint<(Argb, CurveRow)>>,
 }
 
 impl Hilite {
     pub const REVERSE: Hilite = Hilite { bg: None, fg: None };
 
-    /// The pair from two colours, each made opaque, with the curve row its
-    /// colour takes as text.
-    pub fn of(bg: Option<Argb>, fg: Option<Argb>) -> Hilite {
-        let with = |c: Argb| {
-            let c = c.with_alpha(Chan::from_u8(0xFF));
-            (c, CurveRow::of(c.r().get(), c.g().get(), c.b().get()))
-        };
+    /// The pair from two paints, each colour made opaque, with the curve
+    /// row its colour takes as text.
+    pub fn of(bg: Option<CellPaint<Argb>>, fg: Option<CellPaint<Argb>>) -> Hilite {
         Hilite {
-            bg: bg.map(with),
-            fg: fg.map(with),
+            bg: bg.map(|p| p.map(with_curve)),
+            fg: fg.map(|p| p.map(with_curve)),
         }
+    }
+
+    /// The page as a paint: `bg`, else the cell's text.
+    pub fn page(self) -> CellPaint<(Argb, CurveRow)> {
+        self.bg.unwrap_or(CellPaint::Text)
+    }
+
+    /// The text as a paint: `fg`, else the cell's page where the page is
+    /// the cell's text -- reverse video -- and the cell's text where it is
+    /// not.
+    pub fn text(self) -> CellPaint<(Argb, CurveRow)> {
+        self.fg.unwrap_or(match self.page() {
+            CellPaint::Text => CellPaint::Page,
+            CellPaint::Colour(_) | CellPaint::Page => CellPaint::Text,
+        })
     }
 
     /// The page and text a selected cell is drawn in, from the cell's page
     /// and text as the selection finds them.
     pub fn paint(self, page: Argb, text: Argb) -> (Argb, Argb) {
         let opaque = Chan::from_u8(0xFF);
-        let bg = self.bg.map_or(text.with_alpha(opaque), |(c, _)| c);
-        let fg = match (self.fg, self.bg) {
-            (Some((c, _)), _) => c,
-            (None, Some(_)) => text.with_alpha(opaque),
-            (None, None) => page.with_alpha(opaque),
-        };
-        (fg, bg)
+        let cell = (text.with_alpha(opaque), page.with_alpha(opaque));
+        (
+            paint_of(self.text().map(|(c, _)| c), cell),
+            paint_of(self.page().map(|(c, _)| c), cell),
+        )
     }
 }
 

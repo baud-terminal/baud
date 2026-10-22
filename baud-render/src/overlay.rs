@@ -19,7 +19,7 @@
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
 use crate::cellmap::{
-    BlockCursor, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps, Text,
+    BlockCursor, BlockPaint, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps, Text,
 };
 use crate::color::Argb;
 use crate::instance::{Instance, Screen};
@@ -268,6 +268,9 @@ struct Paint<'p> {
     pictures: Option<&'p Pictures>,
     /// The colours the selection draws in ([`Renderer::hilite`]).
     hilite: Hilite,
+    /// What the block cursor is drawn in ([`Renderer::block_paint`]): a
+    /// record's glyph takes its text colour.
+    block_paint: BlockPaint,
 }
 
 /// The opacity a record under `block` is drawn with: its style's, or all
@@ -552,6 +555,7 @@ impl Overlay {
             cursor: opacity_of(r, block),
             pictures: Some(pictures),
             hilite: r.hilite(),
+            block_paint: r.block_paint(),
         };
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
@@ -844,6 +848,7 @@ impl Overlay {
                 cursor: opacity_of(r, block),
                 pictures: Some(pictures),
                 hilite: r.hilite(),
+                block_paint: r.block_paint(),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -1045,6 +1050,7 @@ impl Overlay {
                 cursor: opacity_of(r, block),
                 pictures: None,
                 hilite: r.hilite(),
+                block_paint: r.block_paint(),
             },
             &geom,
         );
@@ -1238,7 +1244,7 @@ impl Overlay {
             },
             hilite: paint.hilite,
             block: if under_cursor {
-                BlockCursor::Yes(None)
+                BlockCursor::Yes(paint.block_paint)
             } else {
                 BlockCursor::No
             },
@@ -1645,6 +1651,7 @@ pub(crate) fn composition_records(
         pan,
     };
     let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let block_paint = r.block_paint();
     let base = hinted_base(term, styles, under);
     let y = c.row.index();
     let m = geom.m;
@@ -1667,7 +1674,7 @@ pub(crate) fn composition_records(
                 selected: look.selected,
                 hilite,
                 block: if under_cursor {
-                    BlockCursor::Yes(None)
+                    BlockCursor::Yes(block_paint)
                 } else {
                     BlockCursor::No
                 },
@@ -1693,6 +1700,7 @@ pub(crate) fn composition_records(
             cursor,
             pictures: None,
             hilite,
+            block_paint,
         };
         let mut over = Vec::new();
         Overlay::emit(
@@ -1865,6 +1873,7 @@ fn sized_composition(
     };
     let top = box_top(size, band);
     let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let block_paint = r.block_paint();
     let base = hinted_base(term, styles, under);
     let fit = |inst: Instance, out: &mut Vec<Instance>, over: &mut Vec<Instance>| match st.y() {
         1 => {
@@ -1887,7 +1896,7 @@ fn sized_composition(
                 selected: look.selected,
                 hilite,
                 block: if under_cursor {
-                    BlockCursor::Yes(None)
+                    BlockCursor::Yes(block_paint)
                 } else {
                     BlockCursor::No
                 },

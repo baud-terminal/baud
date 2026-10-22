@@ -373,6 +373,7 @@ pub fn run() {
         &crate::palette::Dirs::from_env(cfg.source.as_deref()),
     );
     halves.selection = cfg.selection;
+    halves.cursor = cfg.cursor;
     for s in said {
         crate::warn!("{s}");
     }

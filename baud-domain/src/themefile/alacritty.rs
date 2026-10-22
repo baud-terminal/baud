@@ -13,15 +13,17 @@
 //! (`[[source: alacritty-display-color-0c405d5]]` 276-299): a string of
 //! `#` and six hex digits or `0x` and six, read by `u32::from_str_radix`,
 //! which takes a leading `+`; or the struct form `{ r, g, b }` (223-269).
-//! `CellForeground` and `CellBackground` name the cell's own colours, which
-//! a scheme cannot hold; one leaves the colour baud's own and is said.
+//! `CellForeground` and `CellBackground` name the cell's own colours, "which
+//! references the affected cell" (297-475 above, 327-334 and 398-405): the
+//! cursor's and the selection's take them as [`CellPaint::Text`] and
+//! [`CellPaint::Page`].
 //!
 //! alacritty reports a field it cannot read and keeps its default, so a bad
 //! value here is skipped and said, and the rest read; a file that is not
 //! TOML (or YAML) at all is refused, as alacritty refuses it.
 
 use super::terminals::Skipped;
-use super::{Format, Line, Scheme, SchemeError, SchemeErrorKind, rgb};
+use super::{CellPaint, Format, Line, Scheme, SchemeError, SchemeErrorKind, Target, rgb};
 use crate::Color;
 
 /// A key path, at most six deep: `colors.indexed_colors.color` and the
@@ -93,17 +95,17 @@ fn rgb_from_str(s: &[u8]) -> Option<Color> {
 /// A colour, or a cell-relative name, or neither.
 enum Cell {
     Colour(Color),
-    Relative,
+    Relative(CellPaint<Color>),
     Bad,
 }
 
 fn cell_rgb(v: Value<'_>, cell_relative: CellNames) -> Cell {
     match v {
         Value::Str(s, Escapes::None) => {
-            if cell_relative == CellNames::Allowed
-                && matches!(s, b"CellForeground" | b"CellBackground")
-            {
-                return Cell::Relative;
+            match (cell_relative, s) {
+                (CellNames::Allowed, b"CellForeground") => return Cell::Relative(CellPaint::Text),
+                (CellNames::Allowed, b"CellBackground") => return Cell::Relative(CellPaint::Page),
+                _ => {}
             }
             rgb_from_str(s).map_or(Cell::Bad, Cell::Colour)
         }
@@ -172,20 +174,25 @@ impl<'a, F: FnMut(Line, &[u8], Skipped)> Builder<'a, F> {
             return;
         };
         let slot = match rest {
-            [b"primary", b"background"] => (&mut self.s.page, CellNames::Refused),
-            [b"primary", b"foreground"] => (&mut self.s.text, CellNames::Refused),
+            [b"primary", b"background"] => (Target::Colour(&mut self.s.page), CellNames::Refused),
+            [b"primary", b"foreground"] => (Target::Colour(&mut self.s.text), CellNames::Refused),
             [b"normal" | b"bright", name] if NAMES.contains(name) => {
                 let i = NAMES.iter().position(|n| n == name).unwrap_or(0);
                 let i = if rest[0] == b"bright" { i + 8 } else { i };
-                (&mut self.s.ansi[i], CellNames::Refused)
+                (Target::Colour(&mut self.s.ansi[i]), CellNames::Refused)
             }
-            [b"cursor", b"text" | b"foreground"] => (&mut self.s.cursor_text, CellNames::Allowed),
-            [b"cursor", b"cursor" | b"background"] => (&mut self.s.cursor, CellNames::Allowed),
-            [b"selection", b"text" | b"foreground"] => {
-                (&mut self.s.selection_text, CellNames::Allowed)
+            [b"cursor", b"text" | b"foreground"] => {
+                (Target::Paint(&mut self.s.cursor_text), CellNames::Allowed)
             }
+            [b"cursor", b"cursor" | b"background"] => {
+                (Target::Paint(&mut self.s.cursor), CellNames::Allowed)
+            }
+            [b"selection", b"text" | b"foreground"] => (
+                Target::Paint(&mut self.s.selection_text),
+                CellNames::Allowed,
+            ),
             [b"selection", b"cursor" | b"background"] => {
-                (&mut self.s.selection, CellNames::Allowed)
+                (Target::Paint(&mut self.s.selection), CellNames::Allowed)
             }
             [b"indexed_colors", field] if path.elem != 0 => {
                 if self.pending.0 == 0 {
@@ -216,10 +223,9 @@ impl<'a, F: FnMut(Line, &[u8], Skipped)> Builder<'a, F> {
         };
         let (slot, names) = slot;
         match cell_rgb(v, names) {
-            Cell::Colour(c) => *slot = Some(c),
-            Cell::Relative => {
-                *slot = None;
-                (self.ignored)(line, key, Skipped::CellRelative);
+            Cell::Colour(c) => slot.set(Some(c)),
+            Cell::Relative(p) => {
+                slot.set_cell(p);
             }
             Cell::Bad => (self.ignored)(line, key, Skipped::Refused),
         }

@@ -7,8 +7,8 @@ use crate::cache::{
 };
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{
-    BlockCursor, CellSpan, Curves, Ground, Hilite, Line, Resolved, Selected, Shapes, Swaps, Text,
-    takes_stress_mark,
+    BlockCursor, BlockPaint, CellSpan, Curves, Ground, Hilite, Line, Resolved, Selected, Shapes,
+    Swaps, Text, takes_stress_mark,
 };
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
@@ -28,6 +28,7 @@ use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
+use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
     ImageDraw, ImageGen, ImageId, ImagePx, ImageStore, KittyId, LineRendition, PackedCell, Row,
@@ -1410,6 +1411,11 @@ pub struct Renderer<'f, 'a> {
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
     cursor_fill: Argb,
+    /// What a block cursor is drawn in, and a bar or underline's fill: the
+    /// cursor colour -- a program's `OSC 12`, else the configured one the
+    /// core holds -- else the theme's, which may name the cell's own, and
+    /// the theme's text under the block ([`Renderer::block_paint`]).
+    block_paint: BlockPaint,
     /// **The most alpha a repeat pass's records carry** (note AL, option
     /// O2): the least [`flash::under_threshold`] of the cursor's colour over
     /// the backgrounds of the cells they cover, set by
@@ -1668,6 +1674,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_find: None,
             find_inst: Vec::new(),
             cursor_fill: Argb::default(),
+            block_paint: BlockPaint::SWAP,
             flash_cap: Chan::from_u8(0),
             flash_held: flash::Held::Full,
             flash_caps: std::collections::HashMap::new(),
@@ -2222,9 +2229,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         };
-        let cursor_color = term
-            .cursor_color_in(self.video)
-            .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
         for &(id, inked, selected, cursored) in &ids {
             let word = term
                 .styles()
@@ -2252,7 +2256,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 selected,
                 hilite: self.hilite,
                 block: match cursored {
-                    Cursored::Block => BlockCursor::Yes(cursor_color),
+                    Cursored::Block => BlockCursor::Yes(self.block_paint),
                     _ => BlockCursor::No,
                 },
                 blink: self.blink,
@@ -2265,7 +2269,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
             if cursored == Cursored::Shape {
-                ground(cursor_color.unwrap_or(d.cursor_fg), d.bg, &mut triples);
+                ground(self.shape_colour(d.bg, d.cursor_fg), d.bg, &mut triples);
             }
         }
         // **Bounded a frame, and sound while it is**: the repeat draws
@@ -2554,8 +2558,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The video the last convert or resolve drew in: `?5`'s, or under a
-    /// flash the other one. What a caller that draws the cursor itself -- the
-    /// cell path -- reads the `OSC 12` colour in ([`Term::cursor_color_in`]).
+    /// flash the other one. The cursor's colours a caller that draws the
+    /// cursor itself -- the cell path -- reads are
+    /// [`Renderer::block_paint`], resolved in this video.
     pub fn video(&self) -> Video {
         self.video
     }
@@ -2617,12 +2622,46 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let colors = term.highlight_colors();
         let hilite = Hilite::of(
-            rgb(colors.bg).or(self.theme.selection),
-            rgb(colors.fg).or(self.theme.selection_text),
+            rgb(colors.bg)
+                .map(CellPaint::Colour)
+                .or(self.theme.selection),
+            rgb(colors.fg)
+                .map(CellPaint::Colour)
+                .or(self.theme.selection_text),
         );
         if hilite != self.hilite {
             self.hilite = hilite;
             self.known = Prev::Unknown;
+        }
+        // **The cursor's colours**: the core's (a program's `OSC 12`, else
+        // the configured colour it was told), else the theme's, which may
+        // name the cell's own; and the theme's text under a block, which a
+        // program's colour leaves as it is, as kitty, alacritty, ghostty and
+        // foot leave theirs (Jev, 0.94 and 0.96). A change comes with a
+        // theme, which repaints everything, or with `OSC 12`, as before.
+        self.block_paint = BlockPaint::of(
+            rgb(term.cursor_color_in(self.video))
+                .map(CellPaint::Colour)
+                .or(self.theme.cursor),
+            self.theme.cursor_text,
+        );
+    }
+
+    /// What a block cursor is drawn in on the last convert or resolve: the
+    /// fill and the text under it ([`BlockPaint`]). What a caller that draws
+    /// the cursor itself -- the cell path -- reads.
+    pub fn block_paint(&self) -> BlockPaint {
+        self.block_paint
+    }
+
+    /// The colour a bar or underline cursor takes over a cell whose page is
+    /// `page` and whose text, without the line rule, is `text`: the cursor's
+    /// fill, a colour or the cell's own, else the text.
+    fn shape_colour(&self, page: Argb, text: Argb) -> Argb {
+        match self.block_paint.fill {
+            Some(CellPaint::Colour(c)) => c,
+            Some(CellPaint::Page) => page.with_alpha(Chan::from_u8(0xFF)),
+            Some(CellPaint::Text) | None => text,
         }
     }
 
@@ -3386,7 +3425,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some((r, cc, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock))
                 if r == row && cc == col =>
             {
-                BlockCursor::Yes(None)
+                BlockCursor::Yes(BlockPaint::SWAP)
             }
             _ => BlockCursor::No,
         };
@@ -4791,14 +4830,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut shapes: Vec<Instance> = Vec::new();
         let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
-        // `OSC 12` cursor colour, if the application set one. Read once for the
-        // row -- it is terminal-global -- and used where the cursor draws: the
-        // block cursor fills with it (rather than the reverse-video swap) and
-        // the bar or underline cursor's shape takes it. As this frame's video
-        // shows it, which under a flash is the colour a flip would leave.
-        let cursor_color = term
-            .cursor_color_in(self.video)
-            .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
+        // The cursor's colours, read once a frame (`refresh_screen`) and used
+        // where the cursor draws: the block fills with the cursor colour,
+        // rather than the swap, and takes the text colour under it; the bar
+        // or underline takes the colour. As this frame's video shows it,
+        // which under a flash is the colour a flip would leave.
+        let block_paint = self.block_paint;
         let mut blinks = Blinking::UNSEEN;
         for (c, cell) in row.iter().enumerate().take(chars) {
             let col = Col::at_index(c);
@@ -4822,7 +4859,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == col);
             let block = match here {
                 Some((_, _, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)) => {
-                    BlockCursor::Yes(cursor_color)
+                    BlockCursor::Yes(block_paint)
                 }
                 _ => BlockCursor::No,
             };
@@ -4927,10 +4964,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if !hidden && res.shapes.any(Shapes::EDGES) {
                 self.edges(term, r, col, &row, res, d, &mut shapes, &mut rings);
             }
-            // The bar or underline cursor draws in the application's cursor
-            // colour (`OSC 12`) if it set one, else the cell's foreground.
-            let cur = cursor_color.unwrap_or(d.cursor_fg);
-            let cur = here.map_or(cur, |(_, _, s)| cur.scaled(self.cursor_opacity(s)));
             if let Some((
                 _,
                 _,
@@ -4940,6 +4973,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 | CursorStyle::SteadyBar),
             )) = here
             {
+                // The bar or underline cursor draws in the cursor colour if
+                // one is set, else the cell's foreground, at its opacity.
+                let cur = self
+                    .shape_colour(d.bg, d.cursor_fg)
+                    .scaled(self.cursor_opacity(style));
                 // Already on the line's geometry (`Renderer::cursor_px`).
                 let (left, y, w, h) = self.cursor_px(r, col, style);
                 cursor_shapes.push(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));

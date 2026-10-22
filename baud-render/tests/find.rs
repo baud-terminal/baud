@@ -349,7 +349,7 @@ fn the_field_takes_the_themes_selection_colour() {
             px[usize::try_from(w.value()).unwrap() + 1]
         };
         let themed = Theme {
-            selection: Some(page),
+            selection: Some(baud_domain::themefile::CellPaint::Colour(page)),
             ..Theme::dark()
         };
         assert_eq!(corner(themed, t), page.0, "the theme's page");

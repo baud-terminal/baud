@@ -14,6 +14,7 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
+use baud_domain::themefile::CellPaint;
 use baud_domain::{
     BytePos, Chan, Col, Cols, Depth, ImageAlpha, ImageBudget, ImagePx, PackedCell, Pixel, ReadLen,
     Row, RowRot, Rows, WinSize,
@@ -299,7 +300,6 @@ impl Arms<'_, '_> {
             rotation: view.rotation(),
             ring: t.ring(),
             cursor,
-            cursor_color: t.cursor_color_in(self.renderer.video()),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -394,7 +394,6 @@ impl Arms<'_, '_> {
             rotation: RowRot::NONE,
             ring: Rows::of_index(ring),
             cursor,
-            cursor_color: t.cursor_color_in(self.renderer.video()),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -1981,8 +1980,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // theme's back, and the theme without them is reverse video again.
     let resting = arms.renderer.theme().clone();
     arms.renderer.set_theme(Theme {
-        selection: Some(Argb(0xFF_33_4E_5E)),
-        selection_text: Some(Argb(0xFF_FF_D7_5F)),
+        selection: Some(CellPaint::Colour(Argb(0xFF_33_4E_5E))),
+        selection_text: Some(CellPaint::Colour(Argb(0xFF_FF_D7_5F))),
         ..resting.clone()
     });
     let (themed, b) = arms.draw(&mut t);
@@ -2014,7 +2013,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the arms disagree after OSC 117 under the theme's"
     );
     assert_eq!(differing(&a, &themed), 0, "OSC 117 put the theme's back");
-    arms.renderer.set_theme(resting);
+    arms.renderer.set_theme(resting.clone());
     let (a, _) = arms.draw(&mut t);
     assert_eq!(
         differing(&a, &reverse),
@@ -2027,6 +2026,88 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // it -- the face, the underline, the exchange -- in the one resolved
     // slot both arms read; and `OSC 106` and `105` put the scene back.
     let plain_again = a;
+    // **A theme file's cell-relative selection and its cursor colours**
+    // (alacritty's `CellForeground`/`CellBackground`, ghostty's
+    // `cell-foreground`/`cell-background`): over the same rows, with the
+    // block inside them and then outside, the two arms agree on each, each
+    // reaches the pixels, and a theme's cursor text stays under a program's
+    // `OSC 12`. The cell's colours exchanged by name are reverse video.
+    let orange = Argb(0xFF_FF_88_00);
+    let navy = Argb(0xFF_10_20_60);
+    let looks = [
+        (
+            Theme {
+                selection: Some(CellPaint::Colour(Argb(0xFF_33_4E_5E))),
+                selection_text: Some(CellPaint::Page),
+                ..resting.clone()
+            },
+            "a page with the cell's page as its text",
+        ),
+        (
+            Theme {
+                selection: Some(CellPaint::Page),
+                selection_text: Some(CellPaint::Text),
+                ..resting.clone()
+            },
+            "the cell's own colours as the selection's",
+        ),
+        (
+            Theme {
+                cursor: Some(CellPaint::Colour(orange)),
+                cursor_text: Some(CellPaint::Colour(navy)),
+                ..resting.clone()
+            },
+            "a theme's cursor fill and text",
+        ),
+        (
+            Theme {
+                cursor: Some(CellPaint::Page),
+                cursor_text: Some(CellPaint::Text),
+                ..resting.clone()
+            },
+            "the cell's own colours as the cursor's",
+        ),
+    ];
+    for (look, what) in looks {
+        arms.renderer.set_theme(look);
+        for (at, place) in [(&b"\x1b[2;3H"[..], "inside"), (b"\x1b[8;5H", "outside")] {
+            feed(&mut t, at);
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree under {what}, the block {place} the selection"
+            );
+            if place == "inside" {
+                assert!(differing(&a, &reverse) > 0, "{what} reached the pixels");
+            }
+        }
+        feed(&mut t, b"\x1b[2;3H\x1b]12;#00c000\x07");
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree under OSC 12 over {what}"
+        );
+        feed(&mut t, b"\x1b]112\x07");
+    }
+    arms.renderer.set_theme(Theme {
+        selection: Some(CellPaint::Text),
+        selection_text: Some(CellPaint::Page),
+        ..resting.clone()
+    });
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree under the exchange by name"
+    );
+    assert_eq!(
+        differing(&a, &reverse),
+        0,
+        "the cell's colours exchanged by name are reverse video"
+    );
+    arms.renderer.set_theme(resting.clone());
     feed(
         &mut t,
         b"\x1b]5;0;#ff5f00;1;#5fff00;3;#af00ff\x07\x1b]6;0;1;1;1;3;1;5;1\x07",

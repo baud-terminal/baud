@@ -208,12 +208,21 @@ ambiguous_width = "narrow"
 # says. A colour is written as "#rrggbb", "rgb:rr/gg/bb" or an X11 name such
 # as "steelblue". A program can still set its own (OSC 17 and 19), and its
 # reset (OSC 117 and 119) returns to these.
+#
+# `cursor` and `cursor_text`: the cursor's colour and the colour of the text
+# under a block cursor, the same way: a colour set here wins over the theme
+# file's, and left out with none in the theme file, or "none", a block cursor
+# is its cell's text and background exchanged. A program can set its own
+# cursor colour (OSC 12), and its reset (OSC 112) returns to this one; the
+# text colour stays.
 [palette]
 floor = 1.2
 # light = "~/.config/baud/themes/day.yaml"
 # dark = "night"
 # selection = "#3f638b"
 # selection_text = "none"
+# cursor = "#ff8800"
+# cursor_text = "#102030"
 
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns

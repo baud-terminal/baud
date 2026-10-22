@@ -674,7 +674,7 @@ impl Paint<'_, '_> {
                         DynamicSpec::Unheld => self.unsupported_total += 1,
                     }
                 }
-                let cursor = self.cold.dynamic[DynamicColor::Cursor.index()];
+                let cursor = self.cold.shown(DynamicColor::Cursor);
                 if let Some(w) = new_text {
                     if !cursor_set && !cursor.is_default() && cursor == text {
                         self.set_dynamic(DynamicColor::Cursor, w);

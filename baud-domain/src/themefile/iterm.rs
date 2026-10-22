@@ -4,7 +4,7 @@
 
 use super::gamut::{Fit, Space, to_srgb};
 use super::terminals::Skipped;
-use super::{Format, HexError, Line, Scheme, SchemeError, SchemeErrorKind, rgb};
+use super::{Format, HexError, Line, Scheme, SchemeError, SchemeErrorKind, Target, rgb};
 use crate::Color;
 
 /// The line a byte offset is on.
@@ -159,14 +159,14 @@ impl<'a> Xml<'a> {
 
 /// A preset key iTerm2 reads as one of a [`Scheme`]'s colours
 /// (`[[source: iterm2cs-gen-py]]` 387-416, iTerm2's own key names).
-fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<&'s mut Option<Color>> {
+fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<Target<'s>> {
     Some(match key {
-        b"Background Color" => &mut s.page,
-        b"Foreground Color" => &mut s.text,
-        b"Cursor Color" => &mut s.cursor,
-        b"Cursor Text Color" => &mut s.cursor_text,
-        b"Selection Color" => &mut s.selection,
-        b"Selected Text Color" => &mut s.selection_text,
+        b"Background Color" => Target::Colour(&mut s.page),
+        b"Foreground Color" => Target::Colour(&mut s.text),
+        b"Cursor Color" => Target::Paint(&mut s.cursor),
+        b"Cursor Text Color" => Target::Paint(&mut s.cursor_text),
+        b"Selection Color" => Target::Paint(&mut s.selection),
+        b"Selected Text Color" => Target::Paint(&mut s.selection_text),
         _ => {
             let n = key.strip_prefix(b"Ansi ")?.strip_suffix(b" Color")?;
             let i = match *n {
@@ -174,7 +174,7 @@ fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<&'s mut Option<Color>
                 [b'1', d @ b'0'..=b'5'] => 10 + d - b'0',
                 _ => return None,
             };
-            &mut s.ansi[usize::from(i)]
+            Target::Colour(&mut s.ansi[usize::from(i)])
         }
     })
 }
@@ -285,7 +285,7 @@ pub fn iterm(
             }
         }
         if entries < 3 {
-            *slot = Some(rgb(0, 0, 0));
+            slot.set(Some(rgb(0, 0, 0)));
             continue;
         }
         let [Some(r), Some(g), Some(b)] = parts else {
@@ -293,7 +293,7 @@ pub fn iterm(
             continue;
         };
         let ([r, g, b], fit) = to_srgb(space, [r, g, b]);
-        *slot = Some(rgb(r, g, b));
+        slot.set(Some(rgb(r, g, b)));
         if fit == Fit::Clipped {
             ignored(line, key, Skipped::Clipped);
         }
@@ -513,10 +513,10 @@ pub fn windows_terminal(
                 name = matches!(v, Json::Str(_));
                 return;
             }
-            b"foreground" => &mut s.text,
-            b"background" => &mut s.page,
-            b"cursorColor" => &mut s.cursor,
-            b"selectionBackground" => &mut s.selection,
+            b"foreground" => Target::Colour(&mut s.text),
+            b"background" => Target::Colour(&mut s.page),
+            b"cursorColor" => Target::Paint(&mut s.cursor),
+            b"selectionBackground" => Target::Paint(&mut s.selection),
             _ => {
                 if let Some(i) = TABLE.iter().position(|(n, _)| *n == k) {
                     match colour(v) {
@@ -532,7 +532,7 @@ pub fn windows_terminal(
             }
         };
         match colour(v) {
-            Some(c) => *slot = Some(c),
+            Some(c) => slot.set(Some(c)),
             None => {
                 bad.get_or_insert(vat);
             }

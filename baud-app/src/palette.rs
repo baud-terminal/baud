@@ -58,6 +58,8 @@ pub struct Halves {
     pub light: Option<Scheme>,
     /// The config's selection colours, laid over either half's file.
     pub selection: crate::config::Selection,
+    /// The config's cursor colours, laid over either half's file.
+    pub cursor: crate::config::CursorColours,
 }
 
 impl Halves {
@@ -95,6 +97,7 @@ pub fn load_halves(light: Option<&str>, dark: Option<&str>, dirs: &Dirs) -> (Hal
         dark: dark.and_then(|s| load(s, Half::Dark, dirs, &mut said)),
         light: light.and_then(|s| load(s, Half::Light, dirs, &mut said)),
         selection: crate::config::Selection::default(),
+        cursor: crate::config::CursorColours::default(),
     };
     (halves, said)
 }
@@ -505,11 +508,6 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
             "{key} is one of {terminal}'s own colours, which a theme here has no place for; ignored"
         ),
         Skipped::Clipped => format!("{key} is outside sRGB and is clipped, as macOS clips it"),
-        Skipped::CellRelative => {
-            format!(
-                "{key} names the cell's own colour, which a theme here cannot hold; baud's stays"
-            )
-        }
         Skipped::Program => {
             let program = key
                 .split(['.', '*'])
@@ -604,6 +602,8 @@ pub fn half_theme(
     }
     theme.selection = halves.selection.page.over(theme.selection);
     theme.selection_text = halves.selection.text.over(theme.selection_text);
+    theme.cursor = halves.cursor.fill.over(theme.cursor);
+    theme.cursor_text = halves.cursor.text.over(theme.cursor_text);
     theme.bg_alpha = baud_domain::Chan::from_unit(match half {
         Half::Dark => glass.dim_dark,
         Half::Light => glass.dim_light,
@@ -658,6 +658,7 @@ fn reason(kind: SchemeErrorKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use baud_domain::themefile::CellPaint;
 
     fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/themes")
@@ -1064,10 +1065,11 @@ mod tests {
         s.ansi = ansi.map(|h| Some(rgb(h)));
         s.page = Some(rgb("#161719"));
         s.text = Some(rgb("#c5c8c7"));
-        s.cursor = Some(rgb("#aeafad"));
-        s.cursor_text = Some(rgb("#1d1f22"));
-        s.selection = Some(rgb("#373b41"));
-        s.selection_text = Some(rgb("#c5c8c8"));
+        let paint = |h| Some(CellPaint::Colour(rgb(h)));
+        s.cursor = paint("#aeafad");
+        s.cursor_text = paint("#1d1f22");
+        s.selection = paint("#373b41");
+        s.selection_text = paint("#c5c8c8");
         s
     }
 
@@ -1199,6 +1201,7 @@ mod tests {
             dark: None,
             light: Some(day),
             selection: crate::config::Selection::default(),
+            cursor: crate::config::CursorColours::default(),
         };
         let light = half_theme(Half::Light, &glass, floor, &halves);
         let mut want = Theme::light();
@@ -1238,6 +1241,7 @@ mod tests {
             dark: night,
             light: None,
             selection,
+            cursor: crate::config::CursorColours::default(),
         };
         let drawn = |h: &Halves, half| {
             let t = half_theme(half, &glass, floor, h);
@@ -1245,8 +1249,8 @@ mod tests {
         };
         // fixture_night's selection and selected text.
         let from_file = (
-            Some(baud_render::Argb(0xFF_37_3B_41)),
-            Some(baud_render::Argb(0xFF_C5_C8_C8)),
+            Some(CellPaint::Colour(baud_render::Argb(0xFF_37_3B_41))),
+            Some(CellPaint::Colour(baud_render::Argb(0xFF_C5_C8_C8))),
         );
         assert_eq!(drawn(&file(Selection::default()), Half::Dark), from_file);
         assert_eq!(
@@ -1263,11 +1267,59 @@ mod tests {
             page: SelectionPick::Colour(mine),
             text: SelectionPick::None,
         };
-        assert_eq!(drawn(&file(config), Half::Dark), (Some(mine), None));
+        let mine_paint = Some(CellPaint::Colour(mine));
+        assert_eq!(drawn(&file(config), Half::Dark), (mine_paint, None));
         assert_eq!(
             drawn(&file(config), Half::Light),
-            (Some(mine), None),
+            (mine_paint, None),
             "over both halves"
+        );
+    }
+
+    /// **The config's cursor colours win over a theme file's, and a file's
+    /// over the cell's colours swapped**, as the selection's do; `"none"`
+    /// takes a file's away. The file is iTerm2's, which names both.
+    #[test]
+    fn the_configs_cursor_wins_over_the_files_and_none_takes_it_away() {
+        use crate::config::{CursorColours, SelectionPick};
+        let glass = crate::config::Glass::defaults();
+        let floor = baud_render::Floor::DEFAULT;
+        let (night, _) = dark_of("iterm-cur", "night.itermcolors");
+        let file = |cursor| Halves {
+            dark: night,
+            light: None,
+            selection: crate::config::Selection::default(),
+            cursor,
+        };
+        let drawn = |h: &Halves, half| {
+            let t = half_theme(half, &glass, floor, h);
+            (t.cursor, t.cursor_text)
+        };
+        let from_file = (
+            Some(CellPaint::Colour(baud_render::Argb(0xFF_AE_AF_AD))),
+            Some(CellPaint::Colour(baud_render::Argb(0xFF_1D_1F_22))),
+        );
+        assert_eq!(
+            drawn(&file(CursorColours::default()), Half::Dark),
+            from_file
+        );
+        assert_eq!(
+            drawn(&file(CursorColours::default()), Half::Light),
+            (None, None),
+            "a half with no file swaps the cell's colours"
+        );
+        let mine = baud_render::Argb::rgb(
+            baud_domain::Chan::from_u8(9),
+            baud_domain::Chan::from_u8(8),
+            baud_domain::Chan::from_u8(7),
+        );
+        let config = CursorColours {
+            fill: SelectionPick::Colour(mine),
+            text: SelectionPick::None,
+        };
+        assert_eq!(
+            drawn(&file(config), Half::Dark),
+            (Some(CellPaint::Colour(mine)), None)
         );
     }
 
@@ -1323,7 +1375,7 @@ mod tests {
         let s = halves.dark.unwrap_or_else(|| panic!("{said}"));
         assert_eq!(s.page, Some(rgb("#161719")), "{said}");
         assert_eq!(s.text, Some(rgb("#c5c8c7")), "{said}");
-        assert_eq!(s.cursor, Some(rgb("#aeafad")), "{said}");
+        assert_eq!(s.cursor, Some(CellPaint::Colour(rgb("#aeafad"))), "{said}");
     }
 
     /// **An empty or comments-only file loads empty**, setting nothing and

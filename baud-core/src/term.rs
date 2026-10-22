@@ -1796,15 +1796,19 @@ impl Cold {
 /// The embedder's colours, handed over whole by [`Term::set_theme`]: the
 /// default foreground and background (what `OSC 10`/`11 ; ?` answer when no
 /// application overrode them), the 256-entry table (what `OSC 4 ; c ; ?`
-/// answers) and the selection's configured page and text (what `OSC 17`/`19
+/// answers), the selection's configured page and text (what `OSC 17`/`19
 /// ; ?` answer and `OSC 117`/`119` reset to), `None` where the theme
-/// configures none and the selection is reverse video.
+/// configures none and the selection is reverse video, and the cursor's
+/// configured colour (drawn while no program has set `OSC 12`, what `OSC 12
+/// ; ?` then answers and what `OSC 112` resets to), `None` where the cursor
+/// takes the text under it.
 pub struct ThemeColors<'a> {
     pub fg: (u8, u8, u8),
     pub bg: (u8, u8, u8),
     pub palette: &'a [(u8, u8, u8); 256],
     pub selection: Option<(u8, u8, u8)>,
     pub selection_text: Option<(u8, u8, u8)>,
+    pub cursor: Option<(u8, u8, u8)>,
 }
 
 /// Whether [`Term::set_theme`] drops the application's
@@ -5460,14 +5464,17 @@ impl<'b> Term<'b> {
         }
     }
 
-    /// The `OSC 12` cursor colour as a frame drawn in `video` shows it: the
-    /// stored one when `video` is the screen's own, and when it is the other
+    /// The cursor colour as a frame drawn in `video` shows it -- a program's
+    /// `OSC 12`, else the embedder's configured one ([`ThemeColors::cursor`],
+    /// as xterm draws its `cursorColor` resource until a program sets
+    /// another) -- the stored one when `video` is the screen's own, and when
+    /// it is the other
     /// -- a flash ([`Term::reverse_flips`]) shows the video `?5` did not
     /// stay in -- the colour the flip into it would have left
     /// ([`Video::cursor_across`]), so a cursor equal to the text does not
     /// vanish into the page for the length of a visual bell.
     pub fn cursor_color_in(&self, video: Video) -> Option<(u8, u8, u8)> {
-        let own = self.cold.dynamic[DynamicColor::Cursor.index()];
+        let own = self.cold.shown(DynamicColor::Cursor);
         let word = if video == self.cold.video() {
             own
         } else {
@@ -5494,15 +5501,26 @@ impl<'b> Term<'b> {
         self.reporting_scheme(|t| t.write_defaults(fg, bg));
     }
 
-    /// Indices 0 and 1 only: the cursor default (index 2) has no theme source
-    /// and stays `DEFAULT`, so `OSC 12 ; ?` on a fresh terminal answers
-    /// nothing until an application sets one. Reports nothing.
+    /// Indices 0 and 1 only: the cursor's configured colour comes with the
+    /// whole theme ([`Term::set_theme`]). Reports nothing.
     fn write_defaults(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
         let word = |(r, g, b): (u8, u8, u8)| {
             ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
         };
         self.cold.defaults[DynamicColor::Foreground.index()] = word(fg);
         self.cold.defaults[DynamicColor::Background.index()] = word(bg);
+    }
+
+    /// The cursor's configured colour, `DEFAULT` for none: what the cursor
+    /// is drawn in while no program has set `OSC 12`, what `OSC 12 ; ?`
+    /// answers then, and what `OSC 112` returns to, the resource xterm's
+    /// `ResetColorsRequest` allocates again (`[[source: xterm-misc]]`
+    /// 3718-3750).
+    fn write_cursor(&mut self, c: Option<(u8, u8, u8)>) {
+        self.cold.defaults[DynamicColor::Cursor.index()] = c
+            .map_or(ColorWord::DEFAULT, |(r, g, b)| {
+                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+            });
     }
 
     /// The selection's configured colours, `DEFAULT` for one the theme does
@@ -5550,6 +5568,7 @@ impl<'b> Term<'b> {
         self.reporting_scheme(|t| {
             t.write_defaults(theme.fg, theme.bg);
             t.write_selection(theme.selection, theme.selection_text);
+            t.write_cursor(theme.cursor);
             t.set_default_palette(theme.palette);
             if overrides == Overrides::Drop {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);

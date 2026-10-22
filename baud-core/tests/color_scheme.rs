@@ -26,6 +26,7 @@ fn theme(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> ThemeColors<'static> {
         palette: &TABLE,
         selection: None,
         selection_text: None,
+        cursor: None,
     }
 }
 

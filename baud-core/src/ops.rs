@@ -3254,12 +3254,18 @@ impl Paint<'_, '_> {
         let was = self.cold.modes.is_set(ModeBit::ReverseVideo);
         let on = change == ModeChange::Set;
         if was != on {
-            let at = DynamicColor::Cursor.index();
-            self.cold.dynamic[at] = Video::cursor_across(
-                self.cold.dynamic[at],
+            // The colour shown, a configured one included: xterm's rule acts
+            // on its cursor colour whatever set it. Written only when it
+            // moves, so a configured colour that does not stays configured.
+            let shown = self.cold.shown(DynamicColor::Cursor);
+            let across = Video::cursor_across(
+                shown,
                 self.cold.shown(DynamicColor::Foreground),
                 self.cold.shown(DynamicColor::Background),
             );
+            if across != shown {
+                self.cold.dynamic[DynamicColor::Cursor.index()] = across;
+            }
         }
         self.cold.modes.apply(ModeBit::ReverseVideo, on);
         if was != on {

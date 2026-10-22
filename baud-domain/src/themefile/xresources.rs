@@ -64,7 +64,7 @@
 //! `cpp -P -DCOLOR` output of it, 1503 of 1503.
 
 use super::terminals::Skipped;
-use super::{Format, Line, Scheme, SchemeError, SchemeErrorKind, rgb};
+use super::{Format, Line, Scheme, SchemeError, SchemeErrorKind, Target, rgb};
 use crate::{Color, XColor};
 use core::marker::PhantomData;
 
@@ -509,13 +509,13 @@ fn name(tag: &[u8]) -> Name<'_> {
 
 /// Where a resource lands in a [`Scheme`]; `None` for one that is not a
 /// colour baud reads.
-fn slot<'s>(s: &'s mut Scheme, r: &[u8]) -> Option<&'s mut Option<Color>> {
+fn slot<'s>(s: &'s mut Scheme, r: &[u8]) -> Option<Target<'s>> {
     match r {
-        b"foreground" => Some(&mut s.text),
-        b"background" => Some(&mut s.page),
-        b"cursorColor" => Some(&mut s.cursor),
-        b"highlightColor" => Some(&mut s.selection),
-        b"highlightTextColor" => Some(&mut s.selection_text),
+        b"foreground" => Some(Target::Colour(&mut s.text)),
+        b"background" => Some(Target::Colour(&mut s.page)),
+        b"cursorColor" => Some(Target::Paint(&mut s.cursor)),
+        b"highlightColor" => Some(Target::Paint(&mut s.selection)),
+        b"highlightTextColor" => Some(Target::Paint(&mut s.selection_text)),
         _ => {
             let d = r.strip_prefix(b"color")?;
             if d.is_empty()
@@ -527,10 +527,10 @@ fn slot<'s>(s: &'s mut Scheme, r: &[u8]) -> Option<&'s mut Option<Color>> {
             }
             let n = d.iter().fold(0u32, |n, &c| n * 10 + u32::from(c - b'0'));
             let n = u8::try_from(n).ok()?;
-            Some(match n.checked_sub(16) {
+            Some(Target::Colour(match n.checked_sub(16) {
                 None => &mut s.ansi[usize::from(n)],
                 Some(high) => &mut s.extended[usize::from(high)],
-            })
+            }))
         }
     }
 }
@@ -784,7 +784,7 @@ where
             return Ok(());
         };
         match (fit, x_colour(value)) {
-            (Fit::Whole, Some(c)) => *slot = Some(c),
+            (Fit::Whole, Some(c)) => slot.set(Some(c)),
             _ => (self.ignored)(at, line, tag, Skipped::Refused),
         }
         Ok(())

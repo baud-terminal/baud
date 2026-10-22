@@ -52,6 +52,8 @@
 use crate::journal::Landing;
 use crate::slots;
 use baud_core::Term;
+use baud_domain::contrast::CurveRow;
+use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Col, Cols, CursorStyle, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
 };
@@ -283,7 +285,7 @@ impl Uni {
     }
 }
 
-/// The cell path's uniforms as the shader's `CU` reads them, 34 words, 136
+/// The cell path's uniforms as the shader's `CU` reads them, 36 words, 144
 /// bytes, `repr(C)`. Each field says what it counts; `sel_on` to
 /// `sel_to_row` are the selection, a flag and its two inclusive corners,
 /// and `sel_bg` to `sel_fg_curve` its colours.
@@ -320,8 +322,10 @@ struct CellUniforms {
     /// draw to the plain one.
     pan: Px,
     slide_rows: Uni,
-    /// `OSC 12` cursor colour packed `0xFFRRGGBB`, or 0 for none. Read after
-    /// the block-cursor swap and by the bar or underline shape pass.
+    /// The cursor colour -- a program's `OSC 12`, else the configured one,
+    /// else a theme's -- packed `0xFFRRGGBB`, or [`PAINT_PAGE`] for the
+    /// cell's page, or 0 for none, the cell's text ([`paint_word`]). Read
+    /// after the block-cursor swap and by the bar or underline shape pass.
     cursor_color: Uni,
     /// The blink shapes this frame hides, `BlinkPhases::hidden`:
     /// `Shapes::BLINK` in `SGR 5`'s off phase and `Shapes::RAPID_BLINK` in
@@ -343,9 +347,37 @@ struct CellUniforms {
     sel_fg: Uni,
     sel_bg_curve: Uni,
     sel_fg_curve: Uni,
+    /// The text under a block cursor: packed `0xFFRRGGBB`, or
+    /// [`PAINT_TEXT`] for the cell's own text, or 0 for none, the cell's
+    /// page; and the curve row a glyph in a colour takes. Two words, so the
+    /// struct stays a multiple of eight bytes.
+    cursor_text: Uni,
+    cursor_text_curve: Uni,
 }
 
-const _: () = assert!(core::mem::size_of::<CellUniforms>() == 136);
+const _: () = assert!(core::mem::size_of::<CellUniforms>() == 144);
+
+/// The shader's word for the cell's own text, and for its page: never an
+/// opaque colour, whose alpha byte is `0xFF`.
+const PAINT_TEXT: u32 = 1;
+const PAINT_PAGE: u32 = 2;
+
+/// A paint as the shader's word: `none` for the paint the shader takes when
+/// the word is 0, else the cell's own by name or the colour, opaque.
+fn paint_word<T: Copy>(
+    p: Option<CellPaint<T>>,
+    none: Option<CellPaint<()>>,
+    colour: impl Fn(T) -> Argb,
+) -> Uni {
+    let unit = p.map(|p| p.map(|_| ()));
+    Uni(match p {
+        _ if unit == none => 0,
+        None => 0,
+        Some(CellPaint::Text) => PAINT_TEXT,
+        Some(CellPaint::Page) => PAINT_PAGE,
+        Some(CellPaint::Colour(c)) => colour(c).0,
+    })
+}
 
 // **The bytes bound are the shader's struct**: `CU` rounds up to its 8-byte
 // alignment, so a word count that is odd binds four bytes short of it.
@@ -372,10 +404,6 @@ pub struct CellInput<'a> {
     /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
     pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
-    /// The application's `OSC 12` cursor colour, if set: the block cursor
-    /// fills with it and the bar or underline cursor takes it, matching
-    /// `Renderer::convert_row`. `None` is the reverse-video default.
-    pub cursor_color: Option<(u8, u8, u8)>,
     /// The selection on this view, or none: a selected cell's colours swap
     /// before the cursor's own swap, the rule every path applies.
     pub highlight: Option<Highlight>,
@@ -1782,6 +1810,11 @@ impl Gpu {
                 (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
             });
         let hilite = renderer.hilite();
+        let block = renderer.block_paint();
+        let curve_of = |p: Option<CellPaint<(Argb, CurveRow)>>| match p {
+            Some(CellPaint::Colour((_, row))) => u32::from(row.get()),
+            _ => 0,
+        };
         let uniforms = CellUniforms {
             viewport_w: frame_px.0,
             viewport_h: frame_px.1,
@@ -1815,19 +1848,25 @@ impl Gpu {
             sel_to_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.0.index()))),
             pan: input.slide.unwrap_or(Px::of(0)),
             slide_rows: Uni::of(Elems(slide_rows)),
-            cursor_color: Uni(input
-                .cursor_color
-                .map_or(0, |(r, g, b)| u32::from_be_bytes([0xFF, r, g, b]))),
+            // What the block is drawn in, as `Renderer::convert_row` reads
+            // it: the fill none where it is the cell's text, the text none
+            // where it is the cell's page.
+            cursor_color: paint_word(block.fill, Some(CellPaint::Text), |c| c),
+            cursor_text: paint_word(block.text, Some(CellPaint::Page), |(c, _)| c),
+            cursor_text_curve: Uni(match block.text {
+                Some(CellPaint::Colour((_, row))) => u32::from(row.get()),
+                _ => 0,
+            }),
             cursor_alpha: Uni(u32::from(
                 input
                     .cursor
                     .map_or(0xFF, |(_, _, style)| renderer.cursor_opacity(style).get()),
             )),
             blink_hidden: Uni(renderer.blink().hidden().0),
-            sel_bg: Uni(hilite.bg.map_or(0, |(c, _)| c.0)),
-            sel_fg: Uni(hilite.fg.map_or(0, |(c, _)| c.0)),
-            sel_bg_curve: Uni(hilite.bg.map_or(0, |(_, row)| u32::from(row.get()))),
-            sel_fg_curve: Uni(hilite.fg.map_or(0, |(_, row)| u32::from(row.get()))),
+            sel_bg: paint_word(hilite.bg, None, |(c, _)| c),
+            sel_fg: paint_word(hilite.fg, None, |(c, _)| c),
+            sel_bg_curve: Uni(curve_of(hilite.bg)),
+            sel_fg_curve: Uni(curve_of(hilite.fg)),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target, clear, viewport)?;

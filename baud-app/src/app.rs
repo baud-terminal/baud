@@ -811,6 +811,7 @@ impl Boot {
             &crate::palette::Dirs::from_env(cfg.source.as_deref()),
         );
         halves.selection = cfg.selection;
+        halves.cursor = cfg.cursor;
         for s in said {
             crate::warn!("{s}");
         }
@@ -1974,7 +1975,6 @@ impl App {
                     // One more row when sliding: the appended leaving row.
                     ring: Rows::of_index(vrows + lined + usize::from(sliding)),
                     cursor,
-                    cursor_color: self.term.cursor_color_in(self.renderer.video()),
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,

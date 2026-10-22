@@ -1641,6 +1641,16 @@ tests = ["baud-core/tests/xterm/osc.rs::osc_12_sets_and_reads_the_cursor_colour"
 rows = ["vt:`?25`", "vt:`OSC 12` / `OSC 112`"]
 
 [[feature]]
+id = "cursor-theme-colour"
+area = "cursor"
+name = "Your cursor colour"
+does = "The cursor takes the colour you set in the config or your theme file names, and the text under a block cursor its text colour, each a colour or the cell's own; a program can set its own cursor colour and put yours back, and your text colour stays."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/theme_cells.rs::a_theme_files_cursor_colours_are_drawn_and_osc_12_takes_the_fill", "baud-render/tests/theme_cells.rs::a_cell_relative_cursor_takes_the_cells_own_colours", "baud-app/src/palette.rs::the_configs_cursor_wins_over_the_files_and_none_takes_it_away", "baud-app/src/config.rs::the_cursor_keys_take_a_colour_or_none", "baud-core/tests/xterm/osc.rs::a_configured_cursor_colour_is_drawn_answered_and_what_112_restores"]
+rows = ["vt:`OSC 12` / `OSC 112`"]
+
+[[feature]]
 id = "cursor-blink"
 area = "cursor"
 name = "Your blink"

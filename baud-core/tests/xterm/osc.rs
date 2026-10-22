@@ -1277,6 +1277,14 @@ fn theme_with(page: Option<Rgb>, text: Option<Rgb>) -> ThemeColors<'static> {
         palette: &TABLE,
         selection: page,
         selection_text: text,
+        cursor: None,
+    }
+}
+
+fn theme_with_cursor(cursor: Option<Rgb>) -> ThemeColors<'static> {
+    ThemeColors {
+        cursor,
+        ..theme_with(None, None)
     }
 }
 
@@ -1371,6 +1379,76 @@ fn ris_and_a_theme_flip_keep_the_configured_selection() {
         &b"\x1b]17;rgb:0707/0808/0909\x07\x1b]19;rgb:1111/1111/1111\x07"[..]
     );
     assert_eq!(t.highlight_colors(), colors(None, None));
+}
+
+/// **A configured cursor colour is drawn, answered and restored**: while
+/// no program has set `OSC 12` the cursor is drawn in the theme's colour,
+/// `OSC 12 ; ?` answers it, and `OSC 112` returns to it -- xterm reports
+/// the colour in use, at start its `cursorColor` resource, and its
+/// `ResetColorsRequest` allocates `Tcolors[ndx].resource` again
+/// (`[[source: xterm-misc]]` 3568-3595, 3718-3750). With none configured,
+/// the query answers nothing, as before. `RIS` keeps it, and a light/dark
+/// flip that drops the program's colour draws the theme's new one.
+#[test]
+fn a_configured_cursor_colour_is_drawn_answered_and_what_112_restores() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    t.set_theme(
+        &theme_with_cursor(Some((0x52, 0x8b, 0xff))),
+        Overrides::Keep,
+    );
+    assert_eq!(t.cursor_color_in(Video::Normal), Some((0x52, 0x8b, 0xff)));
+    support::feed(&mut t, b"\x1b]12;?\x07");
+    assert_eq!(drain(&mut t), &b"\x1b]12;rgb:5252/8b8b/ffff\x07"[..]);
+    support::feed(&mut t, b"\x1b]12;#ff0000\x07\x1b]12;?\x07");
+    assert_eq!(drain(&mut t), &b"\x1b]12;rgb:ffff/0000/0000\x07"[..]);
+    assert_eq!(
+        t.cursor_color_in(Video::Normal),
+        Some((0xff, 0, 0)),
+        "a program's wins"
+    );
+    support::feed(&mut t, b"\x1b]112\x07\x1b]12;?\x07");
+    assert_eq!(drain(&mut t), &b"\x1b]12;rgb:5252/8b8b/ffff\x07"[..]);
+    assert_eq!(t.cursor_color_in(Video::Normal), Some((0x52, 0x8b, 0xff)));
+    support::feed(&mut t, b"\x1b]12;#00ff00\x07\x1bc");
+    assert_eq!(
+        t.cursor_color_in(Video::Normal),
+        Some((0, 0xff, 0)),
+        "RIS keeps a program's"
+    );
+    t.set_theme(&theme_with_cursor(Some((1, 2, 3))), Overrides::Drop);
+    assert_eq!(t.cursor_color_in(Video::Normal), Some((1, 2, 3)));
+    t.set_theme(&theme_with_cursor(None), Overrides::Keep);
+    assert_eq!(t.cursor_color_in(Video::Normal), None);
+    support::feed(&mut t, b"\x1b]12;?\x07");
+    assert_eq!(drain(&mut t), &b""[..], "none configured, none answered");
+}
+
+/// **A configured cursor colour equal to the text moves as a program's
+/// does**: across a change of `?5` to the page shown (xterm's
+/// `ReverseVideo`, `[[source: xterm-scroll]]` util.c 3293-3295), and with a
+/// new `OSC 10` colour (`ChangeColors`, util.c 3062-3070), since xterm's
+/// rules act on its cursor colour whatever set it. One unequal to the text
+/// stays where it is configured.
+#[test]
+fn a_configured_cursor_colour_equal_to_the_text_moves_as_a_programs_does() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    t.set_theme(
+        &theme_with_cursor(Some((0xe0, 0xe0, 0xe0))),
+        Overrides::Keep,
+    );
+    support::feed(&mut t, b"\x1b[?5h");
+    assert_eq!(t.cursor_color_in(Video::Reverse), Some((0x11, 0x11, 0x11)));
+    support::feed(&mut t, b"\x1b[?5l");
+    assert_eq!(t.cursor_color_in(Video::Normal), Some((0xe0, 0xe0, 0xe0)));
+    support::feed(&mut t, b"\x1b]112\x07\x1b]10;#abcdef\x07");
+    assert_eq!(t.cursor_color_in(Video::Normal), Some((0xab, 0xcd, 0xef)));
+    t.set_theme(&theme_with_cursor(Some((1, 2, 3))), Overrides::Drop);
+    support::feed(&mut t, b"\x1b[?5h\x1b]10;#abcdef\x07");
+    assert_eq!(t.cursor_color_in(Video::Reverse), Some((1, 2, 3)));
 }
 
 /// The same bytes at every read size produce the same colours and the same

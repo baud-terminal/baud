@@ -468,7 +468,6 @@ fn main() {
                 rotation: RowRot::NONE,
                 ring: Rows::of_index(rows),
                 cursor,
-                cursor_color: self.term.dynamic_color(DynamicColor::Cursor),
                 highlight: None,
                 overlay: &self.overlay,
                 records: &self.records,

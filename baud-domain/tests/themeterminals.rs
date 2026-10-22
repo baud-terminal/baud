@@ -242,7 +242,10 @@ fn foot_cursor_palette_numbers_and_other_sections() {
     let s = s.unwrap();
     assert_eq!(
         (s.cursor_text, s.cursor),
-        (Some(c("#111111")), Some(c("#222222")))
+        (
+            Some(CellPaint::Colour(c("#111111"))),
+            Some(CellPaint::Colour(c("#222222")))
+        )
     );
     assert_eq!(s.ansi[8], Some(c("#0a0a0a")));
     assert_eq!(s.extended[0], Some(c("#101010")));

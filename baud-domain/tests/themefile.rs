@@ -297,10 +297,11 @@ fn ghostty_reads_its_seven_keys_and_every_index_form() {
     // A `#` in a value is data, not a comment.
     assert_eq!(s.page, Some(c(0x102030)));
     assert_eq!(s.text, Some(c(0xe0e0e1)), "the quotes come off");
-    assert_eq!(s.cursor, Some(c(0xfff000)));
-    assert_eq!(s.cursor_text, Some(c(0x000fff)));
-    assert_eq!(s.selection, Some(c(0x333333)));
-    assert_eq!(s.selection_text, Some(c(0xcccccc)));
+    let paint = |v| Some(CellPaint::Colour(c(v)));
+    assert_eq!(s.cursor, paint(0xfff000));
+    assert_eq!(s.cursor_text, paint(0x000fff));
+    assert_eq!(s.selection, paint(0x333333));
+    assert_eq!(s.selection_text, paint(0xcccccc));
     assert_eq!(s.declared, None, "a ghostty file declares no variant");
     assert_eq!(s.polarity(), Some(ColorScheme::Dark));
     assert_eq!(
@@ -314,6 +315,30 @@ fn ghostty_reads_its_seven_keys_and_every_index_form() {
 
 /// A file that sets only some entries leaves the rest unset; the config
 /// layer fills them from baud's own.
+/// **ghostty 1.2's cell names read as the cell's own colours**: the
+/// cursor's and the selection's four take `cell-foreground` and
+/// `cell-background` (`[[source: ghostty-config-8f0dd37]]` 707-716,
+/// 845-859, 905-911), where the file was refused whole as no colour;
+/// the page and the text take no cell name, so there it is still refused.
+#[test]
+fn ghostty_cell_names_name_the_cells_colours() {
+    let (s, _) = read_ghostty(
+        "selection-foreground = cell-background\nselection-background = cell-foreground\n\
+         cursor-color = cell-foreground\ncursor-text = #102030\n",
+    );
+    let s = s.expect("reads");
+    assert_eq!(
+        (s.selection_text, s.selection),
+        (Some(CellPaint::Page), Some(CellPaint::Text))
+    );
+    assert_eq!(
+        (s.cursor, s.cursor_text),
+        (Some(CellPaint::Text), Some(CellPaint::Colour(c(0x102030))))
+    );
+    let (page, _) = read_ghostty("background = cell-background\n");
+    assert!(page.is_err(), "{page:?}");
+}
+
 #[test]
 fn a_partial_ghostty_file_leaves_the_rest_unset() {
     let (s, _) = read_ghostty("palette = 1=#a00001\nbackground = #ffffff\n");
@@ -411,16 +436,10 @@ fn every_bundled_ghostty_theme_reads_whole() {
         let s = s.unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
         assert!(s.ansi.iter().all(Option::is_some), "{}", path.display());
         assert!(
-            [
-                s.page,
-                s.text,
-                s.cursor,
-                s.cursor_text,
-                s.selection,
-                s.selection_text
-            ]
-            .iter()
-            .all(Option::is_some),
+            [s.page, s.text].iter().all(Option::is_some)
+                && [s.cursor, s.cursor_text, s.selection, s.selection_text]
+                    .iter()
+                    .all(Option::is_some),
             "{}",
             path.display()
         );

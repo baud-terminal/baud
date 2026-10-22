@@ -10,11 +10,12 @@ mod support;
 
 use baud_core::{Owned, Term};
 use baud_domain::contrast::{self, CurveRow};
+use baud_domain::themefile::CellPaint;
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Hilite, Ink, Instance, Kind, Line,
-    Pictured, PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
+    Argb, Blend, BlinkPhases, BlockCursor, BlockPaint, Curves, Damage, Hilite, Ink, Instance, Kind,
+    Line, Pictured, PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
 };
 use support::font;
 
@@ -228,20 +229,42 @@ fn the_ink_is_the_drawn_foregrounds_row() {
     // **And under each highlight pair**, `OSC 17`'s page and `19`'s text
     // alone and together: the glyph is in one of them or in the cell's own
     // text, and takes that colour's row.
-    let page = Some(Argb(0xFF_20_40_80));
-    let text = Some(Argb(0xFF_F0_E0_10));
+    // A theme file's cell-relative colours too, for the selection and for
+    // the block's fill and text.
+    let page = Some(CellPaint::Colour(Argb(0xFF_20_40_80)));
+    let text = Some(CellPaint::Colour(Argb(0xFF_F0_E0_10)));
+    let (cell_text, cell_page) = (Some(CellPaint::Text), Some(CellPaint::Page));
     for hilite in [
         Hilite::REVERSE,
         Hilite::of(page, None),
         Hilite::of(None, text),
         Hilite::of(page, text),
+        Hilite::of(cell_page, None),
+        Hilite::of(cell_text, cell_page),
+        Hilite::of(page, cell_page),
+        Hilite::of(cell_page, cell_text),
     ] {
         for selected in [Selected::No, Selected::Yes] {
             for block in [
                 BlockCursor::No,
-                BlockCursor::Yes(None),
-                BlockCursor::Yes(Some(Argb(0xFF_FF_00_00))),
+                BlockCursor::Yes(BlockPaint::SWAP),
+                BlockCursor::Yes(BlockPaint::of(
+                    Some(CellPaint::Colour(Argb(0xFF_FF_00_00))),
+                    None,
+                )),
+                BlockCursor::Yes(BlockPaint::of(cell_page, None)),
+                BlockCursor::Yes(BlockPaint::of(None, text)),
+                BlockCursor::Yes(BlockPaint::of(None, cell_text)),
+                BlockCursor::Yes(BlockPaint::of(cell_page, cell_page)),
             ] {
+                // A text colour of the block's own is not the swap's side.
+                let texted = matches!(
+                    block,
+                    BlockCursor::Yes(BlockPaint {
+                        text: Some(CellPaint::Colour(_) | CellPaint::Text),
+                        ..
+                    })
+                );
                 for (pictured, line) in [Pictured::No, Pictured::Yes]
                     .into_iter()
                     .flat_map(|p| [(p, Line::No), (p, Line::Yes)])
@@ -256,7 +279,7 @@ fn the_ink_is_the_drawn_foregrounds_row() {
                         cursor: Chan::from_u8(0xFF),
                     };
                     let drawn = slot.drawn(s);
-                    let paired = selected == Selected::Yes && hilite != Hilite::REVERSE;
+                    let paired = (selected == Selected::Yes && hilite != Hilite::REVERSE) || texted;
                     if line == Line::No && !paired {
                         assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
                     }
@@ -288,5 +311,5 @@ fn the_ink_is_the_drawn_foregrounds_row() {
             }
         }
     }
-    assert_eq!(swapped, 12, "the odd swaps: selected or block, not both");
+    assert_eq!(swapped, 28, "the odd swaps: selected or block, not both");
 }
