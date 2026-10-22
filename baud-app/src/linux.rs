@@ -1077,12 +1077,15 @@ impl Driver {
     /// keyboard is ours -- xdg-shell tells a client nothing of a minimized
     /// window. The sound is the compositor's system bell, where it offers
     /// `xdg-system-bell-v1`, and nothing without it; the flash is the
-    /// visual bell. `?1042`'s attention and `?1043`'s raise are not acted
-    /// on yet: baud has neither pinned nor built `xdg-activation-v1`, the
-    /// request foot uses to mark a window urgent
-    /// (`[[source: foot-2705e36-wayland]]` 2630-2658), an open gap.
+    /// visual bell. `?1042`'s attention and `?1043`'s raise are one
+    /// request, `xdg-activation-v1`'s `activate` with a token the window
+    /// asks for, as foot marks a window urgent
+    /// (`[[source: foot-2705e36-wayland]]` 2630-2658): no Wayland request
+    /// tells the two apart, and the compositor decides whether the window
+    /// is marked for attention or brought forward
+    /// (`[[source: xdg-activation-v1]]`; Jev, 0.97 and 0.98).
     fn ring_bell(&mut self, volume: baud_core::BellVolume) {
-        use crate::bell::{Shown, Sound, Window};
+        use crate::bell::{Attention, Raise, Shown, Sound, Window};
         let state = match self.focus {
             Focus::Gained => Window::Focused,
             Focus::Lost => Window::Unfocused,
@@ -1101,6 +1104,9 @@ impl Driver {
         if ring.shown == Shown::Flash {
             self.bell.ring();
             self.pending = Pending::Dirty;
+        }
+        if ring.attention == Attention::Request || ring.raise == Raise::Front {
+            let _ = self.window.activate(&mut self.conn.sender());
         }
     }
 
@@ -1436,7 +1442,7 @@ impl Driver {
                 self.term.notice_dropped(token);
                 crate::warn!("notification not shown: the notification server answered {e}");
             }
-            Heard::Invoked(id, key) => {
+            Heard::Invoked(id, key, activation) => {
                 if let Some(token) = self.notes.shown.token(&id) {
                     // "default" is a click on the notification itself, a
                     // number its button, from 1.
@@ -1445,6 +1451,15 @@ impl Driver {
                         .ok()
                         .and_then(|n| n.checked_sub(1))
                         .and_then(baud_core::NoticeButton::of_index);
+                    // A click on the body of one that asked focus
+                    // activates the window with the token the server
+                    // sent for it, where it sent one: the compositor
+                    // decides (`notify.rs`, `support`).
+                    if let (None, true, Some(t)) =
+                        (button, self.term.notice_focuses(token), activation)
+                    {
+                        let _ = self.window.activate_with(&mut self.conn.sender(), &t);
+                    }
                     crate::reads::input(
                         &mut self.term,
                         |t| t.notice_activated(token, button),

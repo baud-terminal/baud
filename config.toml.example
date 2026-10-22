@@ -66,7 +66,9 @@ emoji = "font"
 # that set mode 1042 makes the Dock icon bounce and one that set mode 1043
 # raises the window, unless it is minimized. Bells within one frame ring
 # once. On Linux "sound" is the desktop's system bell, where it offers one
-# (xdg-system-bell-v1), and modes 1042 and 1043 do nothing.
+# (xdg-system-bell-v1), and modes 1042 and 1043 both ask the desktop to
+# bring the window to you (xdg-activation-v1): it decides whether the
+# window comes forward or is marked as wanting attention.
 bell = "sound"
 
 

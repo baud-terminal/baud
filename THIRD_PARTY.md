@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 299 | 27 | redistributable, and its notice is satisfied |
+| kept | 300 | 27 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 847 | 38 | |
+| total | 848 | 38 | |
 
 ## Licence texts in LICENSES/
 
@@ -1793,7 +1793,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** in the file
-- **Files:** 16
+- **Files:** 17
 
 | file | copied from |
 |---|---|
@@ -1812,6 +1812,7 @@ notice is, and the URL each file was copied from.
 | [wp-viewporter.xml](docs/research/sources/wp-viewporter.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/viewporter/viewporter.xml |
 | [wp-xdg-decoration-unstable-v1.xml](docs/research/sources/wp-xdg-decoration-unstable-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml |
 | [wp-xdg-shell.xml](docs/research/sources/wp-xdg-shell.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/xdg-shell/xdg-shell.xml |
+| [xdg-activation-v1.xml](docs/research/sources/xdg-activation-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/xdg-activation/xdg-activation-v1.xml |
 | [xdg-system-bell-v1.xml](docs/research/sources/xdg-system-bell-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/xdg-system-bell/xdg-system-bell-v1.xml |
 
 ### wayland-rs, wayland-backend

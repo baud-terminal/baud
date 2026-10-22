@@ -33,4 +33,6 @@ pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use shm::{Pool, Px};
 pub use timing::{ClockId, Presentation, Stamp};
-pub use window::{ConfigureBounds, Event, Presented, Resize, Rung, Shaped, Shown, Toggle, Window};
+pub use window::{
+    Activated, ConfigureBounds, Event, Presented, Resize, Rung, Shaped, Shown, Toggle, Window,
+};

@@ -977,6 +977,87 @@ fn the_system_bell_rings_where_the_compositor_offers_it() {
     server.expect("xdg_toplevel", "set_title");
 }
 
+/// **The window is activated through `xdg-activation-v1`**: a token asked
+/// for with the window's surface and committed, `activate` on the surface
+/// with the token its `done` brings and the token's object destroyed; a
+/// second ask while the first token is out sends nothing; a token another
+/// client gave is passed to `activate` as it is; and without the global
+/// nothing is sent.
+#[test]
+fn the_window_is_activated_with_a_token_it_asks_for_or_is_given() {
+    let (mut conn, mut server, mut w, bound) = session_with(&[("xdg_activation_v1", 1)]);
+    let activation = bound[0];
+    let ask = |server: &mut Server| {
+        let r = server.expect("xdg_activation_v1", "get_activation_token");
+        assert_eq!(r.sender, activation);
+        let Val::New(token) = r.args[0] else {
+            panic!("{:?}", r.args)
+        };
+        let r = server.expect("xdg_activation_token_v1", "set_surface");
+        assert_eq!(r.sender, token);
+        let Val::Obj(surface) = r.args[0] else {
+            panic!("{:?}", r.args)
+        };
+        assert_ne!(surface, ObjectId::NULL, "the window's surface");
+        let r = server.expect("xdg_activation_token_v1", "commit");
+        assert_eq!(r.sender, token);
+        (token, surface)
+    };
+    assert_eq!(w.activate(&mut conn.sender()), Activated::Asked);
+    conn.flush().unwrap();
+    let (token, surface) = ask(&mut server);
+    // One token in flight: the second ask sends nothing -- the next request
+    // is the title.
+    assert_eq!(w.activate(&mut conn.sender()), Activated::Pending);
+    w.set_title(&mut conn.sender(), "between");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+    server.send(
+        token,
+        "xdg_activation_token_v1",
+        "done",
+        &[Arg::Str(Some("tok-1"))],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("xdg_activation_v1", "activate");
+    assert_eq!(r.sender, activation);
+    assert!(
+        matches!(&r.args[..], [Val::Str(Some(t)), Val::Obj(o)] if t == "tok-1" && *o == surface),
+        "{:?}",
+        r.args
+    );
+    let r = server.expect("xdg_activation_token_v1", "destroy");
+    assert_eq!(r.sender, token);
+    // The token came, so the next ask asks again.
+    assert_eq!(w.activate(&mut conn.sender()), Activated::Asked);
+    conn.flush().unwrap();
+    let (second, _) = ask(&mut server);
+    assert_ne!(second, token, "a fresh token object");
+    // A token another client gave goes straight to `activate`.
+    assert_eq!(
+        w.activate_with(&mut conn.sender(), "from-the-server"),
+        Activated::Sent
+    );
+    conn.flush().unwrap();
+    let r = server.expect("xdg_activation_v1", "activate");
+    assert!(
+        matches!(&r.args[..], [Val::Str(Some(t)), Val::Obj(o)] if t == "from-the-server" && *o == surface),
+        "{:?}",
+        r.args
+    );
+
+    let (mut conn, mut server, mut w, _) = session_with(&[]);
+    assert_eq!(w.activate(&mut conn.sender()), Activated::Unavailable);
+    assert_eq!(
+        w.activate_with(&mut conn.sender(), "from-the-server"),
+        Activated::Unavailable
+    );
+    // The control: the next request is the title, not a token.
+    w.set_title(&mut conn.sender(), "after");
+    conn.flush().unwrap();
+    server.expect("xdg_toplevel", "set_title");
+}
+
 /// **A frame's length is the gap between frame callbacks** where no
 /// presentation feedback says a refresh: none before two callbacks, the
 /// gap once two come 16 ms apart, and a gap past a tenth of a second --

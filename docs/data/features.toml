@@ -1501,21 +1501,20 @@ shipped = ["2026-10-14-the-bell-now-rings-on-macos"]
 id = "bell-attention"
 area = "window"
 name = "A bell can ask for attention"
-does = "A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard."
+does = "A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard; on Linux either asks the desktop to bring the window to you, and the desktop decides whether it comes forward or is marked as wanting attention."
 status = "built"
-platform = "macos"
-tests = ["baud-core/tests/xterm/bell_modes.rs::the_bell_modes_land_the_same_at_every_read_split"]
+platform = "both"
+tests = ["baud-core/tests/xterm/bell_modes.rs::the_bell_modes_land_the_same_at_every_read_split", "baud-present-wayland/tests/handshake.rs::the_window_is_activated_with_a_token_it_asks_for_or_is_given"]
 rows = ["vt:`CSI ? 1042 h/l`", "vt:`CSI ? 1043 h/l`"]
 
 [[feature]]
 id = "linux-bell"
 area = "window"
 name = "The bell on Linux"
-does = "A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once."
-status = "partial"
-gap = "A bell in a window you are not looking at does not mark it for attention yet on Linux."
+does = "A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once. In the background, a program that asked for it gets the window brought to your attention."
+status = "built"
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::the_system_bell_rings_where_the_compositor_offers_it", "baud-app/src/bell.rs::the_linux_driver_rings_as_ring_decides"]
+tests = ["baud-present-wayland/tests/handshake.rs::the_system_bell_rings_where_the_compositor_offers_it", "baud-app/src/bell.rs::the_linux_driver_rings_as_ring_decides", "baud-present-wayland/tests/handshake.rs::the_window_is_activated_with_a_token_it_asks_for_or_is_given"]
 rows = ["vt:`0x07` BEL"]
 
 # --- The cursor -------------------------------------------------------------

@@ -31,7 +31,11 @@
 //!   notification server", its reply the server's id; `CloseNotification`;
 //!   `GetCapabilities` asked once, for `actions` and `body-markup`; and the
 //!   `ActionInvoked` and `NotificationClosed` signals, matched with
-//!   `AddMatch` (`[[source: freedesktop-notification-spec]]`).
+//!   `AddMatch`, and `ActivationToken`, which "can be emitted before a
+//!   `ActionInvoked` signal" and "carries an activation token that can be
+//!   used to activate a toplevel" (`[[source:
+//!   freedesktop-notification-spec]]`): kept for the click it comes
+//!   before, and handed over with it.
 //! * **Progress**: `com.canonical.Unity.LauncherEntry`'s `Update`
 //!   signal, `progress` and `progress-visible`, and `urgent` for an
 //!   attention request, the interface docks read for a launcher
@@ -139,8 +143,9 @@ pub(crate) enum Heard {
     Notified(baud_core::NoticeToken, NotifyId),
     /// It was not: the error's name.
     NotNotified(baud_core::NoticeToken, String),
-    /// A click on a notification, or on one of its actions: the key.
-    Invoked(NotifyId, String),
+    /// A click on a notification, or on one of its actions: the key, and
+    /// the activation token the server sent for it just before, if any.
+    Invoked(NotifyId, String, Option<String>),
     /// A notification closed, for any reason.
     NotifyClosed(NotifyId),
     /// The handshake failed or the bus went away; nothing more will come.
@@ -811,8 +816,16 @@ fn id_in_reply(m: &Message<'_>) -> Option<NotifyId> {
     Reader::new(m.body, m.order).word().map(NotifyId)
 }
 
-/// `ActionInvoked(u, s)` and `NotificationClosed(u, u)` from the server.
-fn heard_from_server(m: &Message<'_>) -> Option<Heard> {
+/// What one of the server's signals says.
+enum FromServer {
+    Heard(Heard),
+    /// `ActivationToken(u, s)`: kept for the click on that notification.
+    Token(NotifyId, String),
+}
+
+/// `ActionInvoked(u, s)`, `ActivationToken(u, s)` and
+/// `NotificationClosed(u, u)` from the server.
+fn heard_from_server(m: &Message<'_>) -> Option<FromServer> {
     if m.interface != Some(NOTIFICATIONS) || m.path != Some(NOTIFICATIONS_PATH) {
         return None;
     }
@@ -820,9 +833,19 @@ fn heard_from_server(m: &Message<'_>) -> Option<Heard> {
     match (m.member, m.signature) {
         (Some("ActionInvoked"), "us") => {
             let id = NotifyId(r.word()?);
-            Some(Heard::Invoked(id, r.string()?.to_string()))
+            Some(FromServer::Heard(Heard::Invoked(
+                id,
+                r.string()?.to_string(),
+                None,
+            )))
         }
-        (Some("NotificationClosed"), "uu") => Some(Heard::NotifyClosed(NotifyId(r.word()?))),
+        (Some("ActivationToken"), "us") => {
+            let id = NotifyId(r.word()?);
+            Some(FromServer::Token(id, r.string()?.to_string()))
+        }
+        (Some("NotificationClosed"), "uu") => {
+            Some(FromServer::Heard(Heard::NotifyClosed(NotifyId(r.word()?))))
+        }
         _ => None,
     }
 }
@@ -857,6 +880,10 @@ pub(crate) struct Session {
     inb: Vec<u8>,
     serial: Serial,
     waiting: Vec<Waiting>,
+    /// The last `ActivationToken` the notification server sent, for the
+    /// notification it named: handed over with that notification's next
+    /// click, and dropped by a click or a close of it.
+    token: Option<(NotifyId, String)>,
 }
 
 impl Session {
@@ -886,6 +913,7 @@ impl Session {
             // it.
             serial: Serial(Word(2)),
             waiting: Vec::new(),
+            token: None,
         };
         s.ask_appearance();
         s.ask_notifications();
@@ -936,8 +964,8 @@ impl Session {
         self.waiting.push(Waiting::ReadAll(serial));
     }
 
-    /// `AddMatch` for the notification server's two signals, then
-    /// `GetCapabilities`.
+    /// `AddMatch` for the notification server's signals (`ActionInvoked`,
+    /// `ActivationToken`, `NotificationClosed`), then `GetCapabilities`.
     fn ask_notifications(&mut self) {
         let mut rule = Writer::default();
         rule.string(&format!(
@@ -1144,14 +1172,41 @@ impl Session {
         heard
     }
 
+    /// The token kept for notification `id`, taken; a token kept for
+    /// another stays.
+    fn token_for(&mut self, id: NotifyId) -> Option<String> {
+        match self.token.take() {
+            Some((kept, token)) if kept == id => Some(token),
+            other => {
+                self.token = other;
+                None
+            }
+        }
+    }
+
     /// What one message means, if it is one this waits for or a change of
     /// the appearance: a `ReadAll` reply can say three things.
     fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
         if m.kind == SIGNAL {
-            return heard_in_signal(m)
-                .or_else(|| heard_from_server(m))
-                .into_iter()
-                .collect();
+            if let Some(h) = heard_in_signal(m) {
+                return vec![h];
+            }
+            return match heard_from_server(m) {
+                Some(FromServer::Token(id, token)) => {
+                    self.token = Some((id, token));
+                    Vec::new()
+                }
+                Some(FromServer::Heard(Heard::Invoked(id, key, _))) => {
+                    let token = self.token_for(id);
+                    vec![Heard::Invoked(id, key, token)]
+                }
+                Some(FromServer::Heard(h @ Heard::NotifyClosed(id))) => {
+                    let _ = self.token_for(id);
+                    vec![h]
+                }
+                Some(FromServer::Heard(h)) => vec![h],
+                None => Vec::new(),
+            };
         }
         let Some(reply) = m.reply_serial else {
             return Vec::new();
@@ -1383,7 +1438,7 @@ fn uid() -> Option<Uid> {
 /// freedesktop-notification-spec]]`): the program's application name or
 /// baud's; its first icon name as the theme names it; the text, escaped
 /// where the server reads markup; a `default` action where a click is
-/// reported, and its buttons numbered from 1; the urgency, the sound, the
+/// reported or asked to focus the window, and its buttons numbered from 1; the urgency, the sound, the
 /// type as `category` and the image, decoded (`Delivery::image_data`), as
 /// `image-data`; and its expiry.
 pub(crate) fn notification(
@@ -1399,7 +1454,7 @@ pub(crate) fn notification(
         Caps::Absent => s.to_string(),
     };
     let mut actions = Vec::new();
-    if p.activation.reports() {
+    if p.activation.reports() || p.activation.focuses() {
         actions.push(("default".to_string(), "Open".to_string()));
     }
     for (i, b) in p.buttons.iter().enumerate() {
@@ -1907,7 +1962,7 @@ mod tests {
         );
         assert_eq!(
             s.received(&reply_bytes("action_invoked")),
-            [Heard::Invoked(NotifyId(Word(42)), "1".into())]
+            [Heard::Invoked(NotifyId(Word(42)), "1".into(), None)]
         );
         assert_eq!(
             s.received(&reply_bytes("notification_closed")),
@@ -2017,5 +2072,130 @@ mod tests {
         let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::NONE, None);
         assert_eq!(plain.body, "a < b & c");
         assert_eq!(plain.replaces, Some(NotifyId(Word(9))));
+    }
+
+    /// **A click on the body is offered where the program asked for it**:
+    /// kitty's default `a=focus`, `a=report`, both, and neither. A
+    /// notification asking neither carries no `default` action.
+    #[test]
+    fn the_default_action_is_offered_for_focus_or_report() {
+        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let caps = ServerCaps {
+            actions: Caps::Listed,
+            markup: Caps::Absent,
+        };
+        let offered = |a: &str| {
+            let mut owned =
+                baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
+            let mut t = baud_core::Term::new(owned.storage(), &ws);
+            t.set_notice_support(crate::notify::support(
+                crate::notify::Setting::On,
+                crate::notify::Platform::Linux(caps),
+            ));
+            let b = format!("\x1b]99;i=n{a};Done\x1b\\");
+            t.write_at(BytePos::ZERO, b.as_bytes());
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            let p = t
+                .notices()
+                .map(|n| Posted::of(&n, &mut Icons::default()))
+                .next()
+                .expect("posted");
+            notification(&p, None, caps, None)
+                .actions
+                .iter()
+                .any(|(k, _)| k == "default")
+        };
+        assert!(offered(""), "kitty's default, focus");
+        assert!(offered(":a=report"));
+        assert!(offered(":a=-focus,report"));
+        assert!(!offered(":a=-focus"), "neither");
+    }
+
+    /// **An activation token is handed over with the click it came
+    /// before**: `ActivationToken` for a notification, then its
+    /// `ActionInvoked`, carries the token; a token for another
+    /// notification is not handed to this one's click and stays for its
+    /// own; a click takes it and a close drops it, so a later click
+    /// carries none. The signals are marshalled here, by the marshaller
+    /// that reproduces dbus-next's `ActionInvoked` byte for byte (the
+    /// control below).
+    #[test]
+    fn an_activation_token_comes_with_its_notifications_click() {
+        let signal = |member: &str, id: u32, s: &str, serial: u32| {
+            let mut b = Writer::default();
+            b.word(Word(id));
+            b.string(s);
+            marshal_signal(
+                &Call {
+                    destination: "",
+                    path: NOTIFICATIONS_PATH,
+                    interface: NOTIFICATIONS,
+                    member,
+                    signature: "us",
+                    body: b.buf,
+                },
+                Serial(Word(serial)),
+            )
+        };
+        assert_eq!(
+            signal("ActionInvoked", 42, "1", 13),
+            reply_bytes("action_invoked"),
+            "the control: dbus-next's bytes"
+        );
+        let closed = |id: u32| {
+            let mut b = Writer::default();
+            b.word(Word(id));
+            b.word(Word(2));
+            marshal_signal(
+                &Call {
+                    destination: "",
+                    path: NOTIFICATIONS_PATH,
+                    interface: NOTIFICATIONS,
+                    member: "NotificationClosed",
+                    signature: "uu",
+                    body: b.buf,
+                },
+                Serial(Word(20)),
+            )
+        };
+        let id = |n| NotifyId(Word(n));
+        let mut s = ready();
+        assert_eq!(s.received(&signal("ActivationToken", 42, "tok-42", 14)), []);
+        assert_eq!(
+            s.received(&signal("ActionInvoked", 42, "default", 15)),
+            [Heard::Invoked(
+                id(42),
+                "default".into(),
+                Some("tok-42".into())
+            )]
+        );
+        assert_eq!(
+            s.received(&signal("ActionInvoked", 42, "default", 16)),
+            [Heard::Invoked(id(42), "default".into(), None)],
+            "a click takes the token"
+        );
+        assert_eq!(s.received(&signal("ActivationToken", 7, "tok-7", 17)), []);
+        assert_eq!(
+            s.received(&signal("ActionInvoked", 42, "default", 18)),
+            [Heard::Invoked(id(42), "default".into(), None)],
+            "another notification's token"
+        );
+        assert_eq!(
+            s.received(&signal("ActionInvoked", 7, "1", 19)),
+            [Heard::Invoked(id(7), "1".into(), Some("tok-7".into()))],
+            "kept for its own"
+        );
+        assert_eq!(s.received(&signal("ActivationToken", 7, "tok-7b", 21)), []);
+        assert_eq!(s.received(&closed(7)), [Heard::NotifyClosed(id(7))]);
+        assert_eq!(
+            s.received(&signal("ActionInvoked", 7, "default", 22)),
+            [Heard::Invoked(id(7), "default".into(), None)],
+            "a close drops it"
+        );
     }
 }

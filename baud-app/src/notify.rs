@@ -344,10 +344,14 @@ pub enum Caps {
 }
 
 /// **What the core is told**: `None` while the setting is off, else what
-/// the platform delivers. On Linux a click cannot focus the window --
-/// that needs the compositor's activation, which the driver does not have
-/// -- so only `report` is claimed, and it and the buttons only where the
-/// server lists actions.
+/// the platform delivers. On Linux a click on a notification that asked
+/// `focus` activates the window with the token the server's
+/// `ActivationToken` gives (`bus.rs`), where it sends one -- "Clients
+/// should not assume the server will generate this signal" (`[[source:
+/// freedesktop-notification-spec]]`) -- and the compositor decides what
+/// that does (`[[source: xdg-activation-v1]]`). Neither can be known when
+/// a program asks, so only `report` is claimed (Jev's lean, 0.88 and
+/// 0.76, then 0.49 and 0.31), and it and the buttons only where the server lists actions.
 pub fn support(setting: Setting, platform: Platform) -> Option<NoticeSupport> {
     if setting == Setting::Off {
         return None;
@@ -1016,6 +1020,38 @@ mod tests {
         assert_eq!(icons.get(b"k1"), None, "forgotten past the cache's size");
     }
 
+    /// **The Linux driver activates the window on a click that asked
+    /// focus, with the server's token, and only so**: the arm's activation
+    /// compared whole with the spaces taken out, so a button's click, a
+    /// notification that did not ask focus, or a token made up where none
+    /// came each change the text; and it comes before the click is
+    /// reported.
+    #[test]
+    fn the_linux_driver_activates_on_a_click_that_asked_focus() {
+        let src = include_str!("linux.rs");
+        let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let arm = src
+            .split_once("Heard::Invoked(id, key, activation) => {")
+            .and_then(|(_, rest)| rest.split_once("Heard::NotifyClosed(id) =>"))
+            .map(|(b, _)| bare(b))
+            .expect("the click's arm");
+        const ACTIVATE: &str = r#"
+            if let (None, true, Some(t)) =
+                (button, self.term.notice_focuses(token), activation)
+            {
+                let _ = self.window.activate_with(&mut self.conn.sender(), &t);
+            }
+        "#;
+        let at = arm
+            .find(&bare(ACTIVATE))
+            .expect("the activation, as written");
+        let reported = arm
+            .find("t.notice_activated(token,button)")
+            .expect("the report");
+        assert!(at < reported, "activated, then reported");
+        assert_eq!(arm.matches("activate_with(").count(), 1, "one activation");
+    }
+
     /// The query's claims follow the platform and the setting.
     #[test]
     fn support_claims_what_the_platform_delivers() {
@@ -1038,7 +1074,7 @@ mod tests {
         let clicks = support(Setting::On, Platform::Linux(listed)).expect("on");
         assert!(
             clicks.actions.reports() && !clicks.actions.focuses(),
-            "a click cannot focus the window on Linux"
+            "focus is not claimed on Linux: no token is promised"
         );
         assert_eq!(clicks.buttons, ButtonSupport::Shown);
         // What kitty's query is answered, either way.

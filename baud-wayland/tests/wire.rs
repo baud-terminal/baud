@@ -203,17 +203,35 @@ fn the_wire_refuses_what_the_signature_forbids() {
     );
 }
 
-/// **The tables are the XMLs.** Fifty-seven interfaces across the fifteen
+/// **The tables are the XMLs.** Fifty-nine interfaces across the sixteen
 /// pinned files, the opcodes the protocol documents, and the enums. The
-/// primary selection's four came last, and the system bell's one after
-/// them, so no earlier index moved.
+/// primary selection's four came last, the system bell's one after them
+/// and activation's two after that, so no earlier index moved.
 #[test]
 fn the_generated_tables_are_what_the_pinned_protocols_declare() {
-    assert_eq!(protocol::INTERFACES.len(), 57);
+    assert_eq!(protocol::INTERFACES.len(), 59);
     assert_eq!(protocol::zwp_primary_selection_device_manager_v1::INDEX, 52);
     assert_eq!(protocol::xdg_system_bell_v1::INDEX, 56);
     assert_eq!(protocol::xdg_system_bell_v1::request::RING, 1);
     assert_eq!(protocol::xdg_system_bell_v1::VERSION, 1);
+    assert_eq!(protocol::xdg_activation_v1::INDEX, 57);
+    assert_eq!(protocol::xdg_activation_token_v1::INDEX, 58);
+    assert_eq!(
+        protocol::xdg_activation_v1::request::GET_ACTIVATION_TOKEN,
+        1
+    );
+    assert_eq!(protocol::xdg_activation_v1::request::ACTIVATE, 2);
+    assert_eq!(
+        protocol::xdg_activation_v1::REQUESTS[2].args,
+        &[
+            ArgKind::Str { nullable: false },
+            ArgKind::Object { nullable: false }
+        ]
+    );
+    assert_eq!(protocol::xdg_activation_token_v1::request::SET_SURFACE, 2);
+    assert_eq!(protocol::xdg_activation_token_v1::request::COMMIT, 3);
+    assert_eq!(protocol::xdg_activation_token_v1::request::DESTROY, 4);
+    assert_eq!(protocol::xdg_activation_token_v1::event::DONE, 0);
     assert_eq!(
         protocol::zwp_primary_selection_offer_v1::request::RECEIVE,
         0

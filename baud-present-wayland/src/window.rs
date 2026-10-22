@@ -87,6 +87,23 @@ pub enum Shaped {
     Unavailable,
 }
 
+/// Whether an activation reached the compositor ([`Window::activate`],
+/// [`Window::activate_with`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Activated {
+    /// A token asked for: `activate` follows its `done`.
+    Asked,
+    /// A token asked for earlier has not come yet, and its `activate` is
+    /// this one's: one token in flight, as foot keeps it, so a burst of
+    /// bells does not flood the socket.
+    Pending,
+    /// `activate` sent with a token another client gave.
+    Sent,
+    /// The compositor offers no `xdg-activation-v1`, or the window has no
+    /// surface yet: nothing sent.
+    Unavailable,
+}
+
 /// Whether a bell reached the compositor ([`Window::ring_bell`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rung {
@@ -223,6 +240,8 @@ struct Globals {
     presentation: Option<ObjectId>,
     /// the `xdg-system-bell-v1` global, where the compositor offers it.
     system_bell: Option<ObjectId>,
+    /// the `xdg-activation-v1` global, where the compositor offers it.
+    activation: Option<ObjectId>,
     scaling: Scaling,
 }
 
@@ -317,6 +336,8 @@ pub struct Window {
     /// event of its own and names the last one, as foot names its last
     /// keyboard serial (`[[source: foot-2705e36-osc]]`).
     serial: Option<u32>,
+    /// The activation token asked for and not yet come ([`Window::activate`]).
+    token: Option<ObjectId>,
     clip: Clip,
     events: VecDeque<Event>,
 }
@@ -387,6 +408,7 @@ impl Window {
             composing: Compose::default(),
             ime: TextInput::default(),
             serial: None,
+            token: None,
             clip: Clip::default(),
             events: VecDeque::new(),
         })
@@ -1071,6 +1093,61 @@ impl Window {
         Rung::Sent
     }
 
+    /// **Ask the compositor to activate the window**, through
+    /// `xdg-activation-v1`: a token asked for with the window's surface as
+    /// the one requesting it and no serial, and `activate` on the surface
+    /// once the token's `done` brings it -- foot's urgency on a bell
+    /// (`[[source: foot-2705e36-wayland]]` 2630-2658, 2830-2860). "It's up
+    /// to the compositor to display this information as desired, for
+    /// example by placing the surface above the rest", and a token asked
+    /// for by a client without the keyboard "may be ineffective ... for
+    /// focus stealing prevention" (`[[source: xdg-activation-v1]]`): the
+    /// compositor brings the window forward or marks it for attention, as
+    /// it decides. One token in flight at a time.
+    pub fn activate(&mut self, s: &mut Sender<'_>) -> Activated {
+        let (Some(activation), Some(surface)) = (self.globals.activation, self.surface) else {
+            return Activated::Unavailable;
+        };
+        if self.token.is_some() {
+            return Activated::Pending;
+        }
+        let token = s.new_id(Interface::named("xdg_activation_token_v1").expect("pinned"));
+        let _ = s.request(
+            activation,
+            Opcode(protocol::xdg_activation_v1::request::GET_ACTIVATION_TOKEN),
+            &[Arg::NewId(token)],
+        );
+        let _ = s.request(
+            token,
+            Opcode(protocol::xdg_activation_token_v1::request::SET_SURFACE),
+            &[Arg::Object(surface)],
+        );
+        let _ = s.request(
+            token,
+            Opcode(protocol::xdg_activation_token_v1::request::COMMIT),
+            &[],
+        );
+        self.token = Some(token);
+        Activated::Asked
+    }
+
+    /// **Activate the window with a token another client gave**: the one a
+    /// notification server's `ActivationToken` signal carries, "an
+    /// activation token that can be used to activate a toplevel"
+    /// (`[[source: freedesktop-notification-spec]]`), passed to
+    /// `activate` on the window's surface (`[[source: xdg-activation-v1]]`).
+    pub fn activate_with(&mut self, s: &mut Sender<'_>, token: &str) -> Activated {
+        let (Some(activation), Some(surface)) = (self.globals.activation, self.surface) else {
+            return Activated::Unavailable;
+        };
+        let _ = s.request(
+            activation,
+            Opcode(protocol::xdg_activation_v1::request::ACTIVATE),
+            &[Arg::Str(Some(token)), Arg::Object(surface)],
+        );
+        Activated::Sent
+    }
+
     /// The compositor's last presentation, if it offers feedback and has
     /// shown a frame.
     pub fn presented(&self) -> Option<Presentation> {
@@ -1237,6 +1314,10 @@ impl Handler for Window {
                     }
                     "xdg_system_bell_v1" => {
                         self.globals.system_bell =
+                            Window::bind(s, self.registry, name, iface, version.min(1));
+                    }
+                    "xdg_activation_v1" => {
+                        self.globals.activation =
                             Window::bind(s, self.registry, name, iface, version.min(1));
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
@@ -1631,6 +1712,25 @@ impl Handler for Window {
                         refresh: Duration::from_nanos(u64::from(*refresh)),
                     });
                 }
+            }
+            // The token asked for: `activate` with it, and the token's
+            // object let go -- "The received token stays valid".
+            ("xdg_activation_token_v1", "done", [Read::Str(Some(token))])
+                if self.token == Some(ev.object) =>
+            {
+                self.token = None;
+                if let (Some(activation), Some(surface)) = (self.globals.activation, self.surface) {
+                    let _ = s.request(
+                        activation,
+                        Opcode(protocol::xdg_activation_v1::request::ACTIVATE),
+                        &[Arg::Str(Some(token)), Arg::Object(surface)],
+                    );
+                }
+                let _ = s.request(
+                    ev.object,
+                    Opcode(protocol::xdg_activation_token_v1::request::DESTROY),
+                    &[],
+                );
             }
             ("wl_callback", "done", args) => {
                 if self.sync == Some(ev.object) {

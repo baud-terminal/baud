@@ -64,10 +64,12 @@
 //! macOS driver's shim makes the AppKit calls it names. The Linux driver
 //! asks it too, its window focused while the keyboard is its: the sound is
 //! the compositor's system bell where it offers `xdg-system-bell-v1`, and
-//! nothing where it does not. There the two modes are not acted on yet:
-//! baud has neither pinned nor built `xdg-activation-v1`, the request foot
-//! uses to mark a window urgent (`[[source: foot-2705e36-wayland]]`
-//! 2630-2658), an open gap. [`Ringer`] reads the bells the terminal counted
+//! nothing where it does not. There the two modes are one request,
+//! `xdg-activation-v1`'s `activate` with a token the window asks for, as
+//! foot marks a window urgent (`[[source: foot-2705e36-wayland]]`
+//! 2630-2658): Wayland has no request that tells urgency from a raise, and
+//! the compositor decides what it shows (`[[source: xdg-activation-v1]]`).
+//! [`Ringer`] reads the bells the terminal counted
 //! at each volume ([`Term::bells_rung`]) after each read and rings once for
 //! the bells of one frame interval. A flash it decides is
 //! started through [`Bell::ring`], so it is planned, committed and refused
@@ -705,11 +707,13 @@ mod tests {
 
     /// **The Linux driver rings as [`ring`] decides, and only so**: its
     /// body compared whole with the spaces taken out, so a sound outside
-    /// its condition, the flash on the sound's, the window state swapped
-    /// or the config's style or the motion preference not passed each
-    /// change the text; and the bells are heard after the read that
-    /// brought them. The window is focused while the keyboard is the
-    /// window's, and the sound is the compositor's system bell.
+    /// its condition, the flash on the sound's, the window state swapped,
+    /// the config's style or the motion preference not passed, or an
+    /// activation on neither mode's condition each change the text; and
+    /// the bells are heard after the read that brought them. The window is
+    /// focused while the keyboard is the window's, the sound is the
+    /// compositor's system bell, and `?1042`'s attention and `?1043`'s
+    /// raise are one activation asked of the compositor.
     #[test]
     fn the_linux_driver_rings_as_ring_decides() {
         let src = include_str!("linux.rs");
@@ -720,7 +724,7 @@ mod tests {
             .map(|(b, _)| b)
             .expect("the ring");
         const RING: &str = r#"
-            use crate::bell::{Shown, Sound, Window};
+            use crate::bell::{Attention, Raise, Shown, Sound, Window};
             let state = match self.focus {
                 Focus::Gained => Window::Focused,
                 Focus::Lost => Window::Unfocused,
@@ -735,6 +739,9 @@ mod tests {
             if ring.shown == Shown::Flash {
                 self.bell.ring();
                 self.pending = Pending::Dirty;
+            }
+            if ring.attention == Attention::Request || ring.raise == Raise::Front {
+                let _ = self.window.activate(&mut self.conn.sender());
             }
         "#;
         assert_eq!(bare(body), bare(RING), "the ring is this, and only this");

@@ -5259,6 +5259,21 @@ group  = "J"
 # Committed under docs/research/sources/ -- a protocol file, MIT, re-hashed on
 # commit. Fetched 2026-10-21 (lane b140).
 
+[sources.xdg-activation-v1]
+key    = "xdg-activation-v1"
+title  = "xdg-activation-v1 -- a token asked for a surface, and activate: the compositor decides how to show it"
+author = "Aleix Pol Gonzalez, Carlos Garnacho"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/xdg-activation/xdg-activation-v1.xml"
+file   = "xdg-activation-v1.xml"
+sha256 = "d8418be2d5738d50aff788bef1c7574f33f26659aa045447ff2ef9b78c58fe01"
+bytes  = 9016
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a protocol file, MIT, re-hashed on
+# commit. Fetched 2026-10-21 (lane b143).
+
 [sources.wayland-protocol-book]
 key    = "wayland-protocol-book"
 title  = "The Wayland Protocol -- wire format chapter"

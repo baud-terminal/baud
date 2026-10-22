@@ -1,12 +1,12 @@
 //! **The interface tables, generated from the pinned protocol XMLs at build
-//! time.** `docs/research/sources/wayland.xml` and the `wp-*.xml` and
-//! `xdg-system-bell-v1.xml` beside it are the sources the manifest pins
-//! by hash; nothing here is transcribed by hand. The XML this reads is
-//! the restricted shape `wayland-scanner` reads -- `interface`,
-//! `request`, `event`, `arg`, `enum`, `entry`, `description` -- so the
-//! reader is a few dozen lines rather than a dependency, and a file that
-//! does not parse fails the build rather than producing a table with a
-//! hole in it.
+//! time.** `docs/research/sources/wayland.xml` and the `wp-*.xml`,
+//! `xdg-system-bell-v1.xml` and `xdg-activation-v1.xml` beside it are the
+//! sources the manifest pins by hash; nothing here is transcribed by
+//! hand. The XML this reads is the restricted shape `wayland-scanner`
+//! reads -- `interface`, `request`, `event`, `arg`, `enum`, `entry`,
+//! `description` -- so the reader is a few dozen lines rather than a
+//! dependency, and a file that does not parse fails the build rather than
+//! producing a table with a hole in it.
 
 use std::env;
 use std::fmt::Write as _;
@@ -31,6 +31,7 @@ const FILES: &[&str] = &[
     "wp-text-input-unstable-v3.xml",
     "wp-primary-selection-unstable-v1.xml",
     "xdg-system-bell-v1.xml",
+    "xdg-activation-v1.xml",
 ];
 
 #[derive(Debug)]
