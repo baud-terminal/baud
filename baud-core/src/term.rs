@@ -5264,6 +5264,119 @@ impl<'b> Term<'b> {
         self.store.strs.clip.refusals()
     }
 
+    /// **The notifications programs published since the last
+    /// [`Term::clear_notices`]**, in order: `OSC 9`, `OSC 777 ; notify` and
+    /// kitty's `OSC 99`, and kitty's closes. Each carries what the program
+    /// asked -- when to show it, its urgency, its buttons, what a click does
+    /// -- and the embedder decides whether to show it (`notice.rs`). An
+    /// embedder that shows one says so with [`Term::notice_shown`], and one
+    /// it does not with [`Term::notice_dropped`].
+    pub fn notices(&self) -> impl Iterator<Item = Notice<'_>> + '_ {
+        self.store.strs.notices.notices(self.store.strs.notice_area)
+    }
+
+    /// Empty the notifications after taking them.
+    pub fn clear_notices(&mut self) {
+        self.store.strs.notices.clear();
+    }
+
+    /// The notifications refused, split by why.
+    pub fn notice_refusals(&self) -> NoticeRefusals {
+        self.store.strs.notices.refusals
+    }
+
+    /// **What the embedder delivers**, for kitty's query to answer: the
+    /// actions, occasions, urgencies, sounds and expiry its platform has.
+    /// `None` -- the power-on state, and what an embedder sets while the
+    /// user has notifications off -- refuses every notification and leaves
+    /// the query unanswered, as a terminal without them: an answer is the
+    /// claim (`[[source: kitty-desktop-notifications]]`, "Querying for
+    /// support").
+    pub fn set_notice_support(&mut self, s: Option<NoticeSupport>) {
+        self.store.strs.notices.set_support(s);
+    }
+
+    /// Whether a click on `token` should focus the window: `a`'s `focus`,
+    /// the default.
+    pub fn notice_focuses(&self, token: NoticeToken) -> bool {
+        self.store.strs.notices.focuses(token)
+    }
+
+    /// **The user clicked the notification**, or one of its buttons: the
+    /// program told, if it asked (`a=report`). Says whether a report went.
+    pub fn notice_activated(&mut self, token: NoticeToken, button: Option<NoticeButton>) -> bool {
+        let strs = &self.store.strs;
+        match strs.notices.activated(strs.notice_area, token, button) {
+            Some(r) => put_reply(
+                self.store.reply,
+                &mut self.reply_len,
+                &mut self.reply_overflows,
+                r.parts(),
+            ),
+            None => false,
+        }
+    }
+
+    /// **The notification closed**, as the platform says: forgotten, and
+    /// the program told if it asked (`c=1`).
+    pub fn notice_closed(&mut self, token: NoticeToken) -> bool {
+        let strs = &mut self.store.strs;
+        match strs.notices.closed(strs.notice_area, token) {
+            Some(r) => put_reply(
+                self.store.reply,
+                &mut self.reply_len,
+                &mut self.reply_overflows,
+                r.parts(),
+            ),
+            None => false,
+        }
+    }
+
+    /// **The notification was shown.** Where the platform does not say
+    /// when one closes, a program that asked is told so now (`p=close ;
+    /// untracked`).
+    pub fn notice_shown(&mut self, token: NoticeToken) -> bool {
+        let strs = &self.store.strs;
+        match strs.notices.shown(strs.notice_area, token) {
+            Some(r) => put_reply(
+                self.store.reply,
+                &mut self.reply_len,
+                &mut self.reply_overflows,
+                r.parts(),
+            ),
+            None => false,
+        }
+    }
+
+    /// **The embedder did not show it** -- the window focused, the rate
+    /// bound, the platform's refusal: forgotten, and nothing said.
+    pub fn notice_dropped(&mut self, token: NoticeToken) {
+        self.store.strs.notices.dropped(token);
+    }
+
+    /// The progress a program set with `OSC 9 ; 4`: ConEmu's states, kept
+    /// until a program changes it or `RIS`.
+    pub fn progress(&self) -> Progress {
+        self.store.strs.progress
+    }
+
+    /// How many progress reports have come: read after a read, and moved,
+    /// [`Term::progress`] holds the latest.
+    pub fn progress_reports(&self) -> crate::notice::ReportCount {
+        self.store.strs.progress_reports
+    }
+
+    /// The last `OSC 1337 ; RequestAttention`: bounce the Dock icon until
+    /// the app is active, once, or stop.
+    pub fn attention(&self) -> Option<Attention> {
+        self.store.strs.attention
+    }
+
+    /// How many `RequestAttention`s have come.
+    pub fn attention_requests(&self) -> crate::notice::ReportCount {
+        self.store.strs.attention_requests
+    }
+
     /// The icon name. `OSC 1` sets this, and `OSC 0` sets both.
     pub fn icon_name(&self) -> &[u8] {
         &self.store.strs.icon[..self.icon_len.index()]
@@ -5626,4 +5739,23 @@ impl Term<'_> {
     pub fn local_echo(&self) -> bool {
         !self.cold.modes.is_set(ModeBit::SendReceive)
     }
+}
+
+/// A reply of `parts` into the reply buffer, whole or not at all: a
+/// truncated reply is a wrong answer, so one that does not fit is dropped
+/// and counted, as [`Term::queue`] drops one.
+fn put_reply(reply: &mut [u8], len: &mut ByteLen, overflows: &mut usize, parts: &[&[u8]]) -> bool {
+    let at = len.index();
+    let n: usize = parts.iter().map(|p| p.len()).sum();
+    if at + n > reply.len() {
+        *overflows += 1;
+        return false;
+    }
+    let mut w = at;
+    for p in parts {
+        reply[w..w + p.len()].copy_from_slice(p);
+        w += p.len();
+    }
+    *len = ByteLen::from_index(w);
+    true
 }

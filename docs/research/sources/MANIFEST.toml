@@ -52,6 +52,7 @@
 #   AT  a standard material behind the window body: NSVisualEffectView, the material catalogs, TextEdit
 #   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs; no note)
 #   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs; no note)
+#   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -31045,3 +31046,447 @@ sha256 = "97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb"
 bytes  = 187364
 status = "external"
 group  = "H"
+
+[sources.kitty-desktop-notifications]
+key    = "kitty-desktop-notifications"
+title  = "Desktop notifications -- the OSC 99 protocol: chunks, ids, the query, actions, close events, icons, sounds"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty v0.49.2 documentation (docs/desktop-notifications.rst)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/desktop-notifications.rst"
+file   = "kitty-desktop-notifications.rst"
+sha256 = "57188360fc9466f4e2324457ca38f7d25de5383eeedd6b982bbea8af9fc60b51"
+bytes  = 26196
+status = "retrieved"
+group  = "AX"
+# Read whole, 2026-10-21 (lane b139). The governing text for OSC 99; its keys table and
+# the query table are what baud-domain/src/vt/notify.rs implements key by key.
+
+[sources.kitty-notifications-py]
+key    = "kitty-notifications-py"
+title  = "kitty v0.49.2, kitty/notifications.py -- parse_metadata, merge_metadata, set_payload, query_response, sanitize_id, limit_size"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty v0.49.2 source"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/notifications.py"
+file   = "kitty-notifications.py"
+sha256 = "1cd750e60dbf8e77e70edc62e06c75780091324d26de6e86f2547c8d02b971a0"
+bytes  = 47959
+status = "retrieved"
+group  = "AX"
+# Practice, read for what the text leaves open: one pending command per window, merged
+# while the id matches; 1024-character text limits, 8 buttons; untracked closes sent at
+# once; the query answer composed from what the platform integration supports.
+
+[sources.kitty-progress-py]
+key    = "kitty-progress-py"
+title  = "kitty v0.49.2, kitty/progress.py -- OSC 9;4 states and the 60 s / 5 s clear timeouts"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty v0.49.2 source"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/progress.py"
+file   = "kitty-progress.py"
+sha256 = "710926826f7be5e21bc83bba286a81e8366e0819059342bbdcac6b701b146275"
+bytes  = 1622
+status = "retrieved"
+group  = "AX"
+# The timeouts are kitty practice and no text; baud has none (Jev, 0.98 both orders).
+
+[sources.kitten-notify-go]
+key    = "kitten-notify-go"
+title  = "kitty v0.49.2, kittens/notify/main.go -- f=, t= and n= written with base64.StdEncoding, padded"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty v0.49.2 source"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kittens/notify/main.go"
+file   = ""
+sha256 = "7fbc0eb93e8b3a9f2e0fcefd8a2066c8568585a167727b77bf30875e5ae7c517"
+bytes  = 8416
+status = "external"
+group  = "AX"
+# Lines 29, 48, 60, 66: kitty's own client pads the base64 values the
+# metadata grammar's character set leaves `=` out of.
+
+[sources.kitty-window-py-0492]
+key    = "kitty-window-py-0492"
+title  = "kitty v0.49.2, kitty/window.py -- desktop_notify: OSC 9 bodies beginning 4; are progress, OSC 777 must begin notify;"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty v0.49.2 source"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/window.py"
+file   = ""
+sha256 = "b372875bd2816f9bd0bd9f5cf95d9257480e8479861f1fb5251b010f662009ed"
+bytes  = 117217
+status = "external"
+group  = "AX"
+# Read at desktop_notify (lines 1365-1395); not committed, its size is the rest of kitty.
+
+[sources.ghostty-osc9]
+key    = "ghostty-osc9"
+title  = "ghostty v1.3.1, src/terminal/osc/parsers/osc9.zig -- every ConEmu form first, the rest a notification"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty v1.3.1 source"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/osc9.zig"
+file   = "ghostty-osc9.zig"
+sha256 = "8a72b5294ad8870e8dc219fd0cd62b95ddf9c4ac1f3c322fc9d91dd5b317a758"
+bytes  = 34984
+status = "retrieved"
+group  = "AX"
+# ghostty posts a body matching no ConEmu form -- bare 9;4 and 9;4;9 included -- as a
+# notification; baud clears on bare 9;4 (iTerm2) and drops 9;4;9 (Windows Terminal).
+
+[sources.ghostty-osc-rxvt-extension]
+key    = "ghostty-osc-rxvt-extension"
+title  = "ghostty v1.3.1, src/terminal/osc/parsers/rxvt_extension.zig -- OSC 777 notify, the second ; required"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty v1.3.1 source"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/rxvt_extension.zig"
+file   = "ghostty-osc-rxvt-extension.zig"
+sha256 = "abf679647bad5cfcd3101b7fd50a9f81831988b27d0682460bf2337170fc12fb"
+bytes  = 1767
+status = "retrieved"
+group  = "AX"
+# Refuses a title with no body, which VTE's text allows.
+
+[sources.iterm2-escape-codes]
+key    = "iterm2-escape-codes"
+title  = "iTerm2 3.7 Proprietary Escape Codes -- OSC 9 notification, OSC 9;4 progress, OSC 1337 subcommands"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/_includes/3.7/documentation-escape-codes.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-escape-codes.md"
+file   = ""
+sha256 = "7ee11f94b5dcd4e41a8df9a035a9612c92be831ccdd50948d4220fd872e8f0f3"
+bytes  = 23605
+status = "external"
+group  = "AX"
+# The unversioned include is the same bytes. 3.7 changed state 4 from 3.6's "warning,
+# pr required" to ConEmu's "paused ... when omitted, the current percentage is kept".
+
+[sources.iterm2-images]
+key    = "iterm2-images"
+title  = "iTerm2 3.7 Inline Images Protocol -- OSC 1337 File, MultipartFile, FilePart, FileEnd"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/_includes/3.7/documentation-images.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-images.md"
+file   = ""
+sha256 = "3b619ce2ce4d7798950f3c826b01c5676ecdee57bc89c5a5130863c1337d0290"
+bytes  = 5228
+status = "external"
+group  = "AX"
+# Read for the subcommand names only; the protocol is unbuilt.
+
+[sources.iterm2-badges]
+key    = "iterm2-badges"
+title  = "iTerm2 3.7 Badges -- OSC 1337 SetBadgeFormat"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/_includes/3.7/documentation-badges.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-badges.md"
+file   = ""
+sha256 = "fb56da7ab7a7f02e8e3b11d068cf2091a6b6d60a71f4ad005f33f3a86582129d"
+bytes  = 1550
+status = "external"
+group  = "AX"
+# Read for the subcommand name only.
+
+[sources.iterm2-feature-reporting]
+key    = "iterm2-feature-reporting"
+title  = "Terminal Feature Reporting -- TERM_FEATURES and OSC 1337 ; Capabilities, the NOTIFICATIONS and PROGRESS features"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/feature-reporting/index.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/feature-reporting/index.md"
+file   = ""
+sha256 = "e359dbc6dadb49160a1c7d829e4f7ac9b480f9ebc7f73b3a98b3964a2b98f896"
+bytes  = 47344
+status = "external"
+group  = "AX"
+# NOTIFICATIONS: "{text} will be displayed to the user outside the normal UI". Capabilities
+# is unbuilt: its answer claims every feature in the table at once.
+
+[sources.conemu-ansi-escape-codes]
+key    = "conemu-ansi-escape-codes"
+title  = "ConEmu, ANSI X3.64 and Xterm-256 Support -- ConEmu specific OSC (ESC ] 9 ; 1 to 9 ; 12)"
+author = "Maximus5 and the ConEmu contributors"
+year   = 2026
+venue  = "ConEmu.github.io, _includes/AnsiEscapeCodes.md @ 64d7db1"
+url    = "https://raw.githubusercontent.com/ConEmu/ConEmu.github.io/64d7db1668b95924835c33ecc41e88a03da4861e/_includes/AnsiEscapeCodes.md"
+file   = ""
+sha256 = "c4cd13b215f696648f3f90ee4749bca11e480c0a8eb308ddb4835972e6677555"
+bytes  = 33936
+status = "external"
+group  = "AX"
+# The origin of OSC 9;4. The en/AnsiEscapeCodes.md page is a wrapper that includes this.
+
+[sources.wt-progress-bar]
+key    = "wt-progress-bar"
+title  = "Tutorial: Set the progress bar in the Windows Terminal -- OSC 9;4 states 0-4"
+author = "Microsoft (zadjii-msft)"
+year   = 2026
+venue  = "MicrosoftDocs/terminal, TerminalDocs/tutorials/progress-bar-sequences.md @ c341a63"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/terminal/c341a6362f9f0346a17ecc5e1e74d2cd9372c8f9/TerminalDocs/tutorials/progress-bar-sequences.md"
+file   = ""
+sha256 = "96542b1a99ce28bda8229c41a90d65a5337af25dc1e8850166ebf51fbdf16ecf"
+bytes  = 3306
+status = "external"
+group  = "AX"
+# Calls state 4 "Warning".
+
+[sources.wt-adapt-dispatch]
+key    = "wt-adapt-dispatch"
+title  = "Windows Terminal v1.26.2734.0, src/terminal/adapter/adaptDispatch.cpp -- DoConEmuAction"
+author = "Microsoft and the Windows Terminal contributors"
+year   = 2026
+venue  = "microsoft/terminal @ 7ef420c"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7ef420cb8a27363fe218d1b5b07764b2c25acc7c/src/terminal/adapter/adaptDispatch.cpp"
+file   = ""
+sha256 = "e63105e048e82248c17a995c418291dfa2675d87c2cea11cf14269fff73d2fbf"
+bytes  = 194092
+status = "external"
+group  = "AX"
+# OSC 9 is ConEmu only: 9;4 (state > 4 dropped, progress clamped to 100), 9;9, 9;12.
+
+[sources.vte-notify-patch]
+key    = "vte-notify-patch"
+title  = "Fedora vte291, vte291-cntnr-precmd-preexec-scroll.patch -- 'Add sequences and signals for desktop notification': OSC 777 ; notify ; SUMMARY [; BODY]"
+author = "Debarshi Ray"
+year   = 2026
+venue  = "src.fedoraproject.org/rpms/vte291 @ effdc88 (f39)"
+url    = "https://src.fedoraproject.org/rpms/vte291/raw/effdc88925f27e048c767ea2ca951ef453d4c4b2/f/vte291-cntnr-precmd-preexec-scroll.patch"
+file   = ""
+sha256 = "4e0dc098681f78241178f8aa33b6a59adf78bb13686540f0664285e080301b5b"
+bytes  = 47509
+status = "external"
+group  = "AX"
+# The text that defines the notify form ("Based on Enlightenment's Terminology", whose
+# phab.enlightenment.org/T1765 no longer serves). Its vte.sh sends "Command completed;%s"
+# with the command line as the body. Later Fedora branches no longer carry the patch.
+
+[sources.urxvt-pm]
+key    = "urxvt-pm"
+title  = "rxvt-unicode 9.31, src/urxvt.pm -- on_osc_seq_perl: ESC ] 777 ; prefix ; string ST"
+author = "Marc Lehmann and the rxvt-unicode contributors"
+year   = 2026
+venue  = "dist.schmorp.de/rxvt-unicode/rxvt-unicode-9.31.tar.bz2 (sha256 aaa13fcbc149fe0f3f391f933279580f74a96fd312d6ed06b8ff03c2d46672e8)"
+url    = "http://dist.schmorp.de/rxvt-unicode/rxvt-unicode-9.31.tar.bz2"
+file   = ""
+sha256 = "d5bcca658fcf702b0f56331ba3ac21a1df5377c07fef360fbf0e74308e66f5ac"
+bytes  = 70246
+status = "external"
+group  = "AX"
+# The sha256 is the extracted file's. The tarball's src/perl/ ships no notify extension.
+
+[sources.rxvt-7-pod]
+key    = "rxvt-7-pod"
+title  = "rxvt-unicode 9.31, doc/rxvt.7.pod -- Ps = 777, 'Call the perl extension with the given string'"
+author = "Marc Lehmann and the rxvt-unicode contributors"
+year   = 2026
+venue  = "dist.schmorp.de/rxvt-unicode/rxvt-unicode-9.31.tar.bz2"
+url    = "http://dist.schmorp.de/rxvt-unicode/rxvt-unicode-9.31.tar.bz2"
+file   = ""
+sha256 = "29b2a50c8d7f61bdb49ff9fff50f44973a007f115ac0f44f6f95500642640d9b"
+bytes  = 86833
+status = "external"
+group  = "AX"
+# The sha256 is the extracted file's; line 2132.
+
+[sources.freedesktop-notification-spec]
+key    = "freedesktop-notification-spec"
+title  = "Desktop Notifications Specification -- Notify, CloseNotification, GetCapabilities, NotificationClosed, ActionInvoked, the hints and the urgency levels"
+author = "the freedesktop.org contributors"
+year   = 2026
+venue  = "xdg/xdg-specs, notification/notification-spec.xml @ f1ff18c"
+url    = "https://gitlab.freedesktop.org/xdg/xdg-specs/-/raw/f1ff18caaf8a047e3fa690a9454af304c4e714f1/notification/notification-spec.xml"
+file   = ""
+sha256 = "16ae4115530a777d919fcc5346695abe1a5e4f7f2a65b1d02c658752a6920187"
+bytes  = 46707
+status = "external"
+group  = "AX"
+# What the Linux driver sends over the session bus (baud-app/src/bus.rs).
+
+[sources.libunity-launcher-entry]
+key    = "libunity-launcher-entry"
+title  = "libunity, src/unity-launcher.vala -- com.canonical.Unity.LauncherEntry: Update(app_uri, {progress, progress-visible, urgent, count})"
+author = "Canonical Ltd. (Mikkel Kamstrup Erlandsen)"
+year   = 2026
+venue  = "git.launchpad.net/ubuntu/+source/libunity @ d45a5f5"
+url    = "https://git.launchpad.net/ubuntu/+source/libunity/plain/src/unity-launcher.vala?id=d45a5f5e66a1acc2eb02541f9a09b064ca3fb1bc"
+file   = ""
+sha256 = "cb6437626b890c5b3a32e9d5b4ee201a1be629f27505f202f085906d58356631"
+bytes  = 16135
+status = "external"
+group  = "AX"
+# The interface docks read for a launcher's progress; its wiki page no longer serves. The
+# signal comes from /com/canonical/unity/launcherentry/<hash> with an application:// URI.
+
+[sources.apple-unusernotificationcenter]
+key    = "apple-unusernotificationcenter"
+title  = "UNUserNotificationCenter -- 'The central object for managing notification-related activities for your app or app extension'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unusernotificationcenter.json"
+file   = ""
+sha256 = "90d975ee6e80fcc0d691c98e9added1f47dc2e64d6c7dd188ce4081cddf0f6ac"
+bytes  = 57070
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-asking-permission-notifications]
+key    = "apple-asking-permission-notifications"
+title  = "Asking permission to use notifications -- explicit and provisional authorization"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/asking-permission-to-use-notifications.json"
+file   = ""
+sha256 = "2cd2a04b07f4bd8a554e387c5f7fdbc547d23e4911d9f18fbe6dd71a8c2abd83"
+bytes  = 27654
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-request-authorization]
+key    = "apple-request-authorization"
+title  = "requestAuthorization(options:completionHandler:) -- 'The first time your app calls the method, the system prompts the person'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unusernotificationcenter/requestauthorization(options:completionhandler:).json"
+file   = ""
+sha256 = "003825a33e2e31221f38cd1f6845f79e0c88fb44fa5a1bac83cf6d17981cbedd"
+bytes  = 27624
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-unusernotificationcenter-current]
+key    = "apple-unusernotificationcenter-current"
+title  = "current() -- 'Returns your app's notification center'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unusernotificationcenter/current().json"
+file   = ""
+sha256 = "51496165ce47f17de8250f5c6450e2061e2b8e1f760b04cb40d3a5d4dc9051b8"
+bytes  = 13840
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-scheduling-local-notification]
+key    = "apple-scheduling-local-notification"
+title  = "Scheduling a notification locally from your app"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/scheduling-a-notification-locally-from-your-app.json"
+file   = ""
+sha256 = "9cf834091e4876a8149b9c0c957103404813d49cad9942602b5793e0c946552b"
+bytes  = 26545
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-unerror-code]
+key    = "apple-unerror-code"
+title  = "UNError.Code -- the notification errors"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unerror/code.json"
+file   = ""
+sha256 = "b7b61a3655f1220359936f2bea4c7c6fe99f7aebb8b70da4a828f588fcd7b231"
+bytes  = 29688
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-authorization-status]
+key    = "apple-authorization-status"
+title  = "UNNotificationSettings authorizationStatus -- 'notDetermined if your app has never requested authorization'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/usernotifications/unnotificationsettings/authorizationstatus.json"
+file   = ""
+sha256 = "81f5d5f52b20eedaa2a893fe126390d24096a98f624d6fb8a501687812a691d0"
+bytes  = 21853
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-nsdocktile]
+key    = "apple-nsdocktile"
+title  = "NSDockTile -- 'Draw the tile content yourself ... you must provide a custom content view'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsdocktile.json"
+file   = ""
+sha256 = "a6a69768319152c6f0223ca5334bb66c47577178e82a9119938671883da8fa46"
+bytes  = 24909
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.apple-request-user-attention]
+key    = "apple-request-user-attention"
+title  = "NSApplication requestUserAttention(_:) -- 'Activating the app cancels the user attention request'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattention(_:).json"
+file   = ""
+sha256 = "15d09e764be44f26184a18452ce3067162e871a917a357c5baefdc2059e059c1"
+bytes  = 17891
+status = "external"
+group  = "AX"
+# Read 2026-10-21; not committed, a vendor page.
+
+[sources.macos-sdk-unusernotificationcenter-h]
+key    = "macos-sdk-unusernotificationcenter-h"
+title  = "UNUserNotificationCenter.h -- currentNotificationCenter, requestAuthorizationWithOptions, addNotificationRequest, removeDeliveredNotificationsWithIdentifiers, the delegate"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (Xcode 27.0)"
+url    = "$SDKROOT/System/Library/Frameworks/UserNotifications.framework/Headers/UNUserNotificationCenter.h"
+file   = ""
+sha256 = "7e79a7672061ab07511f71aa9cd5b7883dc83107cfabfb100d32d758bae3d281"
+bytes  = 8450
+status = "external"
+group  = "AX"
+# Read 2026-10-21. No header says what an unbundled process's notification center is.
+
+[sources.macos-sdk-unnotificationcontent-h]
+key    = "macos-sdk-unnotificationcontent-h"
+title  = "UNNotificationContent.h -- title, body, sound, threadIdentifier, interruptionLevel, attachments"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (Xcode 27.0)"
+url    = "$SDKROOT/System/Library/Frameworks/UserNotifications.framework/Headers/UNNotificationContent.h"
+file   = ""
+sha256 = "4f3677196ee96c8f5c3e747bf3795fc191cb799d54f4216575b9d0e0db0d213b"
+bytes  = 10344
+status = "external"
+group  = "AX"
+# Read 2026-10-21. No header says what an unbundled process's notification center is.
+
+[sources.macos-sdk-nsdocktile-h]
+key    = "macos-sdk-nsdocktile-h"
+title  = "NSDockTile.h -- contentView, display, badgeLabel"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (Xcode 27.0)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSDockTile.h"
+file   = ""
+sha256 = "fadadb19b683c0d4de489b8e85777410b47ef662c636b3d189e090548c05d64a"
+bytes  = 2984
+status = "external"
+group  = "AX"
+# Read 2026-10-21. No header says what an unbundled process's notification center is.

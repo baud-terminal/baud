@@ -218,13 +218,17 @@ impl Paint<'_, '_> {
                 folded if folded == b => b,
                 folded => self.osc_gr(b, folded),
             },
-            StrKind::Clipboard => self.cold.str_enc.gr_as_gl(b),
+            StrKind::Clipboard | StrKind::Notice => self.cold.str_enc.gr_as_gl(b),
             _ => b,
         };
         // An `OSC 52` body past its `52;`: decoded into the clipboard areas,
         // not kept in `pending`, whose 512 bytes hold under 400 of text.
         if self.cold.str_kind == StrKind::Clipboard {
             return self.clip_put(b);
+        }
+        // A kitty `OSC 99` payload, past the metadata `pending` keeps.
+        if self.cold.str_kind == StrKind::Notice {
+            return self.notice_put(b);
         }
         self.keep_pending(b);
     }
@@ -347,6 +351,16 @@ impl Paint<'_, '_> {
             if n == 2 && self.cold.str_kind == StrKind::Osc && self.strs.pending[..3] == *b"52;" {
                 self.clip_start();
             }
+            // **`99;` and then its metadata's `;` route the payload to the
+            // notifications' chunk**, which holds the 4096 bytes kitty lets
+            // a chunk carry (`notice.rs`).
+            if b.raw_byte() == b';'
+                && n >= 3
+                && self.cold.str_kind == StrKind::Osc
+                && self.strs.pending[..3] == *b"99;"
+            {
+                self.notice_start();
+            }
         } else {
             self.string_truncations += 1;
         }
@@ -437,6 +451,7 @@ impl Paint<'_, '_> {
             StrKind::Osc => self.dispatch_osc(term),
             StrKind::Sixel => self.sixel_end(),
             StrKind::Clipboard => self.clip_end(),
+            StrKind::Notice => self.notice_end(),
             StrKind::Decrqss => {
                 let n = self.cold.str_len.index();
                 let target = StatusTarget::parse(&self.strs.pending[..n]);
@@ -822,7 +837,11 @@ impl Paint<'_, '_> {
                     false => crate::logging::Body::Whole,
                 },
             ),
-            Osc::Unsupported => {
+            Osc::Notify9(o) => self.osc9(o),
+            Osc::Notify777(o) => self.osc777(o),
+            Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload),
+            Osc::Iterm(o) => self.osc1337(o),
+            Osc::KittyNotifyMalformed | Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
             }
@@ -1249,6 +1268,10 @@ pub(crate) enum StrKind {
     /// A `Tcap` body cut at `OSC_MAX`: the name the cut fell in is not the
     /// name that was sent, so it is refused (`Paint::tcap_end`).
     TcapCut,
+    /// An `OSC 99` past its metadata: the payload goes to the
+    /// notifications' chunk, decoded as it arrives (`notice.rs`). Reached
+    /// through the body's own bytes, as `Clipboard` is.
+    Notice,
 }
 
 impl StrKind {

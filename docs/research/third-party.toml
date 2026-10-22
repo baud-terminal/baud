@@ -791,11 +791,14 @@ notice  = "LICENSES/GPL-3.0-only.txt"
 status  = "copyleft"
 files   = [
   "kitty-cursor-trail.c",
+  "kitty-desktop-notifications.rst",
   "kitty-docs-conf.html",
   "kitty-docs-performance.rst",
   "kitty-graphics-protocol.html",
   "kitty-keyboard-protocol.html",
+  "kitty-notifications.py",
   "kitty-options-definition.py",
+  "kitty-progress.py",
   "kitty-rowcolumn-diacritics.txt",
   "kitty-text-cache.c",
   "kitty-trail.slang",
@@ -968,6 +971,8 @@ files   = [
   "ghostty-d9840f3-generic.zig",
   "ghostty-d9840f3-graphics_storage.zig",
   "ghostty-d9840f3-shaders.metal",
+  "ghostty-osc-rxvt-extension.zig",
+  "ghostty-osc9.zig",
 ]
 
 [upstream.harfbuzz]

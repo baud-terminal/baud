@@ -88,6 +88,15 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
     ("OSC 0/1/2", b"\x1b]0;t\x1b\\"),
     ("OSC 8", b"\x1b]8;;https://e.x\x1b\\"),
     ("OSC 133", b"\x1b]133;A\x1b\\"),
+    // Progress at half, a kitty notification with no keys, and an
+    // attention request: `st`, `metadata` and `Pv` name no value of
+    // their own.
+    ("OSC 9 ; 4 ; st ; pr", b"\x1b]9;4;1;50\x1b\\"),
+    ("OSC 99 ; metadata ; payload", b"\x1b]99;;hi\x1b\\"),
+    (
+        "OSC 1337 ; RequestAttention=Pv",
+        b"\x1b]1337;RequestAttention=once\x1b\\",
+    ),
 ];
 
 /// **A placeholder the table writes for a parameter** -- `Ps`, `Pn`,

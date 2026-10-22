@@ -64,6 +64,7 @@ mod kitty;
 mod locator;
 mod logging;
 mod margin;
+mod notice;
 mod ops;
 mod osc;
 mod paint;
@@ -108,6 +109,15 @@ pub use baud_domain::Resource;
 pub use baud_domain::TermName;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
+/// Notifications and progress from programs (`OSC 9`, `777`, `99`,
+/// `9 ; 4`, `1337 ; RequestAttention`), what an embedder delivers and
+/// tells the core.
+pub use baud_domain::{
+    Activation, Attention, ButtonSupport, CloseEvents, CloseReport, Expiry, ExpirySupport,
+    IconSupport, Notice, NoticeAction, NoticeBudget, NoticeButton, NoticeFrom, NoticeRefusals,
+    NoticeSupport, NoticeToken, Occasion, Occasions, Percent, Progress, ProgressState, Sounds,
+    Urgencies, Urgency,
+};
 /// The status line's vocabulary: what [`Term::status_type`] and
 /// [`Term::active_display`] answer, and the row an embedder lends it
 /// ([`Storage::with_status_line`]).
@@ -195,6 +205,7 @@ pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
 pub use logging::LogsRefused;
+pub use notice::ReportCount;
 pub use search::{Found, SearchLines, Spot};
 pub use status::StatusBuf;
 pub use term::StatusLine;

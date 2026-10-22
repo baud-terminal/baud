@@ -21,11 +21,11 @@ and decides nothing.
 | no-grant | 307 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
-| copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
+| copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 296 | 27 | redistributable, and its notice is satisfied |
+| kept | 298 | 27 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 841 | 38 | |
+| total | 846 | 38 | |
 
 ## Licence texts in LICENSES/
 
@@ -869,16 +869,19 @@ notice is, and the URL each file was copied from.
 - **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call
 - **Licence:** GPL-3.0-only
 - **Notice:** [LICENSES/GPL-3.0-only.txt](LICENSES/GPL-3.0-only.txt)
-- **Files:** 10
+- **Files:** 13
 
 | file | copied from |
 |---|---|
 | [kitty-cursor-trail.c](docs/research/sources/kitty-cursor-trail.c) | https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cursor_trail.c |
+| [kitty-desktop-notifications.rst](docs/research/sources/kitty-desktop-notifications.rst) | https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/desktop-notifications.rst |
 | [kitty-docs-conf.html](docs/research/sources/kitty-docs-conf.html) | https://sw.kovidgoyal.net/kitty/conf/ |
 | [kitty-docs-performance.rst](docs/research/sources/kitty-docs-performance.rst) | https://raw.githubusercontent.com/kovidgoyal/kitty/f5ae245f65a7c30f7cf1a2b17ab4eae1d60181d1/docs/performance.rst |
 | [kitty-graphics-protocol.html](docs/research/sources/kitty-graphics-protocol.html) | https://sw.kovidgoyal.net/kitty/graphics-protocol/ |
 | [kitty-keyboard-protocol.html](docs/research/sources/kitty-keyboard-protocol.html) | https://sw.kovidgoyal.net/kitty/keyboard-protocol/ |
+| [kitty-notifications.py](docs/research/sources/kitty-notifications.py) | https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/notifications.py |
 | [kitty-options-definition.py](docs/research/sources/kitty-options-definition.py) | https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/options/definition.py |
+| [kitty-progress.py](docs/research/sources/kitty-progress.py) | https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/progress.py |
 | [kitty-rowcolumn-diacritics.txt](docs/research/sources/kitty-rowcolumn-diacritics.txt) | https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt |
 | [kitty-text-cache.c](docs/research/sources/kitty-text-cache.c) | https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/text-cache.c |
 | [kitty-trail.slang](docs/research/sources/kitty-trail.slang) | https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders/trail.slang |
@@ -1176,7 +1179,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** [LICENSES/ghostty-MIT.txt](LICENSES/ghostty-MIT.txt)
-- **Files:** 12
+- **Files:** 14
 
 | file | copied from |
 |---|---|
@@ -1192,6 +1195,8 @@ notice is, and the URL each file was copied from.
 | [ghostty-d9840f3-generic.zig](docs/research/sources/ghostty-d9840f3-generic.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/generic.zig |
 | [ghostty-d9840f3-graphics_storage.zig](docs/research/sources/ghostty-d9840f3-graphics_storage.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/kitty/graphics_storage.zig |
 | [ghostty-d9840f3-shaders.metal](docs/research/sources/ghostty-d9840f3-shaders.metal) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal |
+| [ghostty-osc-rxvt-extension.zig](docs/research/sources/ghostty-osc-rxvt-extension.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/rxvt_extension.zig |
+| [ghostty-osc9.zig](docs/research/sources/ghostty-osc9.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/osc9.zig |
 
 ### hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340
 

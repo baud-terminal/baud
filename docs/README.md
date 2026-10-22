@@ -96,6 +96,7 @@ its filename's prefix, and several notes share one.
 | [au-floor-hue.md](research/notes/au-floor-hue.md) | AU. How the contrast floor keeps a lifted colour's hue | open |
 | [av-counted-and-dropped.md](research/notes/av-counted-and-dropped.md) | AV. Everything baud reads and then drops: the walk | open |
 | [aw-scope-calls.md](research/notes/aw-scope-calls.md) | AW. The scope calls: printing, the locator, the status line, the keyboard lights, bell volume, the VT525 colours, ReGIS and Tektronix | open |
+| [ax-program-notifications.md](research/notes/ax-program-notifications.md) | AX. Notifications and progress from programs | open |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
@@ -166,6 +167,7 @@ their entries' titles:
 | AS | the glass's legibility: Apple's materials, contrast, Reduce Transparency and Increase Contrast, and Terminal's own profiles |
 | AT | a standard material behind the window body: Apple's NSVisualEffectView materials, the shipped material catalogs, Apple's own text apps, and the modelled renders |
 | AW | the scope calls: printing on macOS, and the alert sound at a volume |
+| AX | notifications and progress from programs: `OSC 9`, `777`, `99`, `9;4` and `1337`, and where each platform shows them |
 | BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` and the record's section cite them) |
 | BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` and the record's section cite them) |
 

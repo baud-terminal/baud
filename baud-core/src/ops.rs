@@ -3990,6 +3990,15 @@ impl Paint<'_, '_> {
         };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
+        // **The progress a program set goes with it**: `RIS` returns to the
+        // initial state (`[[source: ecma48]]` § 8.3.105), which shows no
+        // bar, and a kitty notification half-assembled is dropped. The ones
+        // already shown stay shown: they are the desktop's now.
+        if self.strs.progress != Progress::HIDDEN {
+            self.strs.progress = Progress::HIDDEN;
+            self.strs.progress_reports = self.strs.progress_reports.next();
+        }
+        self.strs.notices.reset();
         // **Both screens' saved cursors go**: `soft_reset` empties the shown
         // screen's slot, as `DECSTR` does, and `RIS` returns to the initial
         // state (`[[source: ecma48]]` § 8.3.105), in which nothing is saved

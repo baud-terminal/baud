@@ -540,6 +540,21 @@ pub struct StrBuf<'b> {
     /// The status line's type, which display DECSASD selected, and the
     /// state of the display not live (`status.rs`).
     pub(crate) status: crate::status::Status,
+    /// **The notifications' area** (`notice.rs`): the chunk being received,
+    /// the notification being assembled, what a read published and the
+    /// ids alive, [`NoticeBudget::bytes`] long. Empty through
+    /// [`StrBuf::new`] and by default in [`Owned`], whose
+    /// [`Owned::with_notices`] provisions it; with none every notification
+    /// is refused and counted.
+    pub(crate) notice_area: &'b mut [u8],
+    /// The bookkeeping beside it. Here for the reason `window_asks` is.
+    pub(crate) notices: NoticeDesk,
+    /// The progress `OSC 9 ; 4` set, and how many reports have come.
+    pub(crate) progress: Progress,
+    pub(crate) progress_reports: crate::notice::ReportCount,
+    /// The last `OSC 1337 ; RequestAttention`, and how many have come.
+    pub(crate) attention: Option<Attention>,
+    pub(crate) attention_requests: crate::notice::ReportCount,
 }
 
 impl<'b> StrBuf<'b> {
@@ -611,6 +626,12 @@ impl<'b> StrBuf<'b> {
                 Cols::of_index(1),
                 crate::status::Room::Declined,
             ),
+            notice_area: &mut [],
+            notices: NoticeDesk::NEW,
+            progress: Progress::HIDDEN,
+            progress_reports: crate::notice::ReportCount::FIRST,
+            attention: None,
+            attention_requests: crate::notice::ReportCount::FIRST,
         }
     }
 }
@@ -665,6 +686,7 @@ pub struct Owned {
     clip: alloc::vec::Vec<u8>,
     prompts: alloc::vec::Vec<PromptEntry>,
     print: alloc::vec::Vec<u8>,
+    notices: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
@@ -766,6 +788,9 @@ impl Owned {
             // The print area defaults absent, provisioned by
             // [`Owned::with_printer`].
             print: vec::Vec::new(),
+            // The notifications' area defaults absent, provisioned by
+            // [`Owned::with_notices`].
+            notices: vec::Vec::new(),
         }
     }
 
@@ -823,6 +848,16 @@ impl Owned {
     /// sizes one, and one without never tells the core a printer is there.
     pub fn with_printer(mut self, budget: PrintBudget) -> Owned {
         self.print = alloc::vec![0u8; budget.bytes()];
+        self
+    }
+
+    /// Provision the notifications' area: `budget`'s icon and the fixed
+    /// rest ([`NoticeBudget::bytes`]). [`Owned::new`] provisions none, the
+    /// [`Owned::with_clipboard`] shape: an embedder that delivers
+    /// notifications sizes one, and a terminal without one refuses every
+    /// notification and counts it.
+    pub fn with_notices(mut self, budget: NoticeBudget) -> Owned {
+        self.notices = alloc::vec![0u8; budget.bytes()];
         self
     }
 
@@ -923,6 +958,12 @@ impl Owned {
                     Cols::of_index(1),
                     crate::status::Room::Declined,
                 ),
+                notice_area: &mut self.notices,
+                notices: NoticeDesk::NEW,
+                progress: Progress::HIDDEN,
+                progress_reports: crate::notice::ReportCount::FIRST,
+                attention: None,
+                attention_requests: crate::notice::ReportCount::FIRST,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -1001,6 +1042,12 @@ impl Owned {
                     Cols::of_index(1),
                     crate::status::Room::Declined,
                 ),
+                notice_area: &mut self.notices,
+                notices: NoticeDesk::NEW,
+                progress: Progress::HIDDEN,
+                progress_reports: crate::notice::ReportCount::FIRST,
+                attention: None,
+                attention_requests: crate::notice::ReportCount::FIRST,
             },
             ImageStore::new(
                 &mut self.img_pixels,

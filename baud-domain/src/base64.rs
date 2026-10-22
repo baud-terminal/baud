@@ -305,6 +305,13 @@ impl Base64 {
         }
     }
 
+    /// Whether the data has ended at its pads (`xx==`, `xxx=`): what follows
+    /// is new data, which a caller that concatenates padded pieces -- a kitty
+    /// `OSC 99` payload chunked before it was encoded -- starts afresh.
+    pub fn has_ended(&self) -> bool {
+        self.phase == Phase::Ended
+    }
+
     /// The held sextets of a short final quantum as `count` octets, the
     /// quantum emptied. Shifted up to a whole 24 bits first, so the octets
     /// are the top of the word; the low bits two or three sextets leave are

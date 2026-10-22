@@ -84,6 +84,22 @@ pub enum Osc<'a> {
     /// `OSC 7 ; Pt`: the shell's working directory as a `file:` URI,
     /// [`DirectoryReport`].
     WorkingDirectory(DirectoryReport<'a>),
+    /// `OSC 9 ; Pt`: iTerm2's notification, or one of ConEmu's forms,
+    /// progress among them: [`Osc9`].
+    Notify9(Osc9<'a>),
+    /// `OSC 777 ; Pt`: rxvt-unicode's perl extensions, `notify` the one
+    /// read: [`Osc777`].
+    Notify777(Osc777<'a>),
+    /// `OSC 99 ; metadata ; payload`: kitty's notifications, whose payload
+    /// the core streams past `OSC_MAX` and reads at the terminator
+    /// ([`NoticeDesk`]); here only when it arrives whole, as a test or an
+    /// embedder without the core hands it.
+    KittyNotify { meta: &'a [u8], payload: &'a [u8] },
+    /// `OSC 99` with no second `;`: "The two semi-colons *must* always be
+    /// present even when no metadata is present."
+    KittyNotifyMalformed,
+    /// `OSC 1337 ; Pt`: iTerm2's subcommands, [`Osc1337`].
+    Iterm(Osc1337),
     /// Recognised as an OSC and not acted on.
     Unsupported,
 }
@@ -1537,6 +1553,16 @@ impl<'a> Osc<'a> {
             }),
             b"50" => Osc::Font(FontRequest::parse(rest)),
             b"7" => Osc::WorkingDirectory(DirectoryReport::parse(rest)),
+            b"9" => Osc::Notify9(Osc9::parse(rest)),
+            b"777" => Osc::Notify777(Osc777::parse(rest)),
+            b"99" => match rest.iter().position(|&b| b == b';') {
+                Some(i) if payload.len() > ps.len() => Osc::KittyNotify {
+                    meta: &rest[..i],
+                    payload: &rest[i + 1..],
+                },
+                _ => Osc::KittyNotifyMalformed,
+            },
+            b"1337" => Osc::Iterm(Osc1337::parse(rest)),
             b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
                 true => AllowQuery::Malformed,
                 false => AllowQuery::Allowed,
