@@ -402,10 +402,11 @@ pub fn set_font_changes(term: &mut baud_core::Term<'_>, c: baud_domain::FontChan
     term.set_font_changes(c);
 }
 
-/// Tell the core the family the chain is led by and whether `points` is
-/// `configured`, the config's size, so `OSC 50 ; ?` answers what is drawn:
-/// at start-up and after every change of face or size, a program's or the
-/// View menu's.
+/// Tell the core the name `OSC 50 ; ?` answers -- the one a program set
+/// for the face that leads, else that face's family (`Fonts::answer`) --
+/// and whether `points` is `configured`, the config's size, so the query
+/// answers what is drawn: at start-up and after every change of face or
+/// size, a program's or the View menu's.
 pub fn tell_font(
     term: &mut baud_core::Term<'_>,
     fonts: &crate::fonts::Fonts,
@@ -413,7 +414,7 @@ pub fn tell_font(
     configured: f32,
 ) {
     term.set_font(
-        fonts.family().as_bytes(),
+        fonts.answer().as_bytes(),
         crate::fonts::size_of(points, configured),
     );
 }
@@ -422,16 +423,24 @@ pub fn tell_font(
 /// loaded and the size bounds (`fonts.rs`): the plan, or `None` when it
 /// changes nothing -- a family baud has not loaded or a step past the
 /// bounds -- which is counted in `Term::fonts_refused` with the core's own
-/// refusals and said at info. One function for both drivers.
+/// refusals and said at info. A name for the face that already leads
+/// restacks nothing, so the core is told it here, at `drawn`, the size
+/// drawn now. One function for both drivers.
 pub fn plan_font(
     term: &mut baud_core::Term<'_>,
-    fonts: &crate::fonts::Fonts,
+    fonts: &mut crate::fonts::Fonts,
     change: &baud_core::FontChange,
     points: f32,
+    drawn: f32,
     configured: f32,
 ) -> Option<crate::fonts::Plan> {
     match fonts.plan(change, points, configured) {
-        Ok(plan) => Some(plan),
+        Ok(plan) => {
+            if plan.face.is_some_and(|f| fonts.leads(f)) {
+                tell_font(term, fonts, drawn, configured);
+            }
+            Some(plan)
+        }
         Err(why) => {
             term.refuse_font_request();
             crate::info!("OSC 50: {change:?} changes nothing: {why:?}");
@@ -1325,8 +1334,14 @@ mod tests {
                     "                t.clear_font_requests();"
                 ),
                 concat!(
-                    "crate::host::plan_font(",
-                    "&mut app.term, &app.fonts, c, at, app.font_base)"
+                    "crate::host::plan_font(\n",
+                    "                &mut app.term,\n",
+                    "                &mut app.fonts,\n",
+                    "                c,\n",
+                    "                at,\n",
+                    "                app.font_size,\n",
+                    "                app.font_base,\n",
+                    "            );"
                 ),
             ),
             (
@@ -1341,7 +1356,7 @@ mod tests {
                 concat!(
                     "let (at, base) = (self.font_size, self.font_base);\n",
                     "            let plan = crate::host::plan_font(",
-                    "&mut self.term, &self.fonts, &c, at, base);"
+                    "&mut self.term, &mut self.fonts, &c, at, at, base);"
                 ),
             ),
         ] {
@@ -1364,7 +1379,7 @@ mod tests {
         super::resolved(&mut cfg);
         let data = super::map_faces(&cfg);
         let faces = super::parse_faces(&cfg, &data);
-        let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces);
         let mut s = Owned::new(&ws);
         let mut t = Term::new(s.storage(), &ws);
         super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
@@ -1380,7 +1395,8 @@ mod tests {
             t.clear_font_requests();
             assert_eq!(asked.len(), 1, "{pt:?}");
             let before = t.fonts_refused();
-            let plan = super::plan_font(&mut t, &fonts, &asked[0], cfg.font_size, cfg.font_size);
+            let (at, base) = (cfg.font_size, cfg.font_size);
+            let plan = super::plan_font(&mut t, &mut fonts, &asked[0], at, at, base);
             assert_eq!(plan.is_some(), plans, "{pt:?}");
             assert_eq!(t.fonts_refused() == before, plans, "{pt:?}");
         }

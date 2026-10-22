@@ -4,20 +4,33 @@
 //! platform, and both drivers perform through it.
 //!
 //! **A name resolves to a face baud has loaded** (Jev's lean, OWN_FACES,
-//! 0.79/0.85 after a re-ask): a family name (`name` table, nameID 16 or 1,
-//! any language, `[[source: ms-opentype-name]]`) of a face in the fallback
-//! chain -- the embedded Regular, Symbols Nerd Font Mono and STIX Two Math,
-//! and the faces a config names -- by the default caseless match CSS Fonts
-//! gives a family name (`[[source: css-fonts-3]]` 5.1), as the config's
-//! own names are matched (`discover.rs`). The embedded
-//! Regular's table names it "Proto Hebrew Mono C", the built font's name
-//! while its family name is open (`fonts/built/FONTLOG.txt`), and a query
-//! answers that. That face leads
-//! the chain, the rest follow in the config's order, and the styled faces
-//! of its family come with it; the embedded faces stay behind it as they
-//! stay behind a configured stack. A family baud has not loaded leaves the
-//! font as it was: a program's name is not looked up among the installed
-//! fonts, only a config's is.
+//! 0.79/0.85 after a re-ask), through the lookup a config's `fonts` names
+//! take (`Catalogue::lookup_at`, kitty's order): a face's PostScript name
+//! (nameID 6), else its full name (nameID 4) where that is none of its own
+//! family names, else a family name (nameID 16 or 1, any language,
+//! `[[source: ms-opentype-name]]`) of a face in the fallback chain -- the
+//! embedded Regular, Symbols Nerd Font Mono and STIX Two Math, and the
+//! faces a config names -- each by the default caseless match CSS Fonts
+//! gives a family name (`[[source: css-fonts-3]]` 5.1). A face found by its
+//! PostScript or full name may be a styled one, the embedded Bold among
+//! them; it leads the chain as the regular face, as a config's face named
+//! alone does. The embedded Regular's table names it "Proto Hebrew Mono
+//! C", the built font's name while its family name is open
+//! (`fonts/built/FONTLOG.txt`). The face named leads the chain, the rest
+//! follow in the config's order, and the other styled faces of its family
+//! come with it; the embedded faces stay behind it as they stay behind a
+//! configured stack. A name baud has not loaded leaves the font as it
+//! was: a program's name is not looked up among the installed fonts, only
+//! a config's is.
+//!
+//! **The query answers the name a program set** (Jev, Q_AS_SET,
+//! 0.94/0.94 after reading mintty): the last name baud took, as the program
+//! sent it, as xterm answers the face name `setFaceName` stored
+//! (`[[source: xterm-misc]]` 3798-3846, `getFaceName` in its
+//! `fontutils.c`) and mintty the name `win_change_font` stored
+//! (`[[source: mintty-wintext-0aea388]]` 1120-1154), so the
+//! answer sent back finds the same face: each face's last name while it
+//! leads, and the family of a face no program has named.
 //!
 //! **A size step is a point of the View menu's Bigger and Smaller**,
 //! bounded as they are (Jev's lean, SIZE_STEPS, 0.22/0.18): `#+n` and `#-n`
@@ -26,6 +39,7 @@
 //! no entry.
 
 use crate::config::Config;
+use crate::discover::{Catalogue, NamedAt};
 use baud_core::{FontChange, FontSize, SizeStep};
 use baud_font::var::Variation;
 use baud_font::{Face, FaceIndex};
@@ -51,9 +65,6 @@ impl Slot {
 /// The faces a program can name, and the stacks built for them.
 pub struct Fonts {
     data: Vec<&'static [u8]>,
-    /// The config's faces as the app starts with them, each answering to
-    /// its own family names.
-    named: &'static [Face<'static>],
     /// Each face's index in its file, its role, and the axis values a
     /// variable one is drawn at, so a stack made again draws it as the
     /// config's did.
@@ -61,6 +72,12 @@ pub struct Fonts {
     families: Vec<Option<String>>,
     built: Vec<Option<Built>>,
     current: Slot,
+    /// The faces as the config's lookup reads them, and each one's slot.
+    lookup: Catalogue,
+    slots: Vec<usize>,
+    /// Each face's last name a program's change was taken with, as it
+    /// sent it: what a query answers while that face leads.
+    asked: Vec<Option<String>>,
 }
 
 /// A stack's faces, in its order, and each one's role.
@@ -106,6 +123,8 @@ impl Fonts {
             .iter()
             .map(|f| (f.index, f.role, f.variations.clone()))
             .collect();
+        let loaded: Vec<_> = data.iter().zip(&specs).map(|(d, s)| (*d, s.0)).collect();
+        let (lookup, slots) = Catalogue::of_loaded(&loaded);
         let mut built = vec![None; specs.len()];
         if let Some(first) = built.first_mut() {
             *first = Some(Built {
@@ -113,13 +132,16 @@ impl Fonts {
                 roles: specs.iter().map(|s| s.1).collect(),
             });
         }
+        let asked = vec![None; specs.len()];
         Fonts {
             data,
-            named: faces,
             specs,
             families,
             built,
             current: Slot(0),
+            lookup,
+            slots,
+            asked,
         }
     }
 
@@ -132,20 +154,42 @@ impl Fonts {
             .unwrap_or("")
     }
 
-    /// The face of the chain that is `name`'s family, the first in the
-    /// config's order.
+    /// What a query answers: the name a program last set while the face
+    /// it named leads, else the family ([`Fonts::family`]).
+    pub fn answer(&self) -> &str {
+        match self.asked.get(self.current.0) {
+            Some(Some(name)) => name,
+            _ => self.family(),
+        }
+    }
+
+    /// **The face `name` names**, by the config's lookup: the first face
+    /// whose PostScript name or full name it is, styled or not, else the
+    /// first face of the chain that is of its family, in the config's
+    /// order.
     pub fn resolve(&self, name: &[u8]) -> Option<Slot> {
-        self.specs
-            .iter()
-            .zip(self.named)
-            .position(|((_, role, _), face)| *role == FaceRole::Fallback && face.answers_to(name))
-            .map(Slot)
+        let name = core::str::from_utf8(name).ok()?;
+        match self.lookup.lookup_at(name) {
+            NamedAt::Face(i) => Some(Slot(self.slots[i])),
+            NamedAt::Family(f) => f
+                .into_iter()
+                .map(|i| self.slots[i])
+                .find(|&i| self.specs[i].1 == FaceRole::Fallback)
+                .map(Slot),
+            NamedAt::Nothing => None,
+        }
     }
 
     /// What `change` does at `points`, with `configured` the config's size;
-    /// refused whole when its family is none baud has or its step leaves the
-    /// bounds.
-    pub fn plan(&self, change: &FontChange, points: f32, configured: f32) -> Result<Plan, Refused> {
+    /// refused whole when its name is none baud has or its step leaves the
+    /// bounds. A change taken with a name keeps it for the query, which
+    /// answers it once that face leads.
+    pub fn plan(
+        &mut self,
+        change: &FontChange,
+        points: f32,
+        configured: f32,
+    ) -> Result<Plan, Refused> {
         let face = match change.name() {
             Some(n) => Some(self.resolve(n).ok_or(Refused::Unknown)?),
             None => None,
@@ -161,6 +205,9 @@ impl Fonts {
                 to
             }
         };
+        if let (Some(slot), Some(name)) = (face, change.name()) {
+            self.asked[slot.0] = Some(String::from_utf8_lossy(name).into_owned());
+        }
         Ok(Plan { face, points })
     }
 
@@ -169,8 +216,10 @@ impl Fonts {
         self.current == slot
     }
 
-    /// **The stack `slot` leads**: it first, the rest of the chain in the
-    /// config's order, and the styled faces of its family. Parsed from
+    /// **The stack `slot` leads**: it first, as the regular face, the rest
+    /// of the chain in the config's order, and the other styled faces of
+    /// its family, so a styled face named alone has no style beside
+    /// itself. Parsed from
     /// bytes already in memory and kept, so a face is parsed once per
     /// stack it leads and a program asking again and again makes nothing
     /// new. `None` if a face does not parse again, which it did once.
@@ -183,9 +232,10 @@ impl Fonts {
         for (i, (_, role, _)) in self.specs.iter().enumerate() {
             let same = family.is_some() && self.families[i] == family;
             match role {
-                FaceRole::Fallback if i != slot.0 => order.push(i),
+                _ if i == slot.0 => {}
+                FaceRole::Fallback => order.push(i),
                 FaceRole::Style(_) if same => order.push(i),
-                _ => {}
+                FaceRole::Style(_) => {}
             }
         }
         let faces = order
@@ -198,7 +248,14 @@ impl Fonts {
             .collect::<Option<Vec<_>>>()?;
         let built = Built {
             faces: Box::leak(faces.into_boxed_slice()),
-            roles: order.iter().map(|&i| self.specs[i].1).collect(),
+            roles: order
+                .iter()
+                .enumerate()
+                .map(|(n, &i)| match n {
+                    0 => FaceRole::Fallback,
+                    _ => self.specs[i].1,
+                })
+                .collect(),
         };
         self.built[slot.0] = Some(built.clone());
         Some(built)
@@ -314,6 +371,138 @@ mod tests {
         assert_eq!(f.resolve(b"JetBrains Mono"), None, "a styled face's");
     }
 
+    /// **A program names a face by its PostScript name or its full name**,
+    /// as a config's `fonts` does (`Catalogue::lookup_at`), in any case:
+    /// each embedded face's nameID 6 and US English nameID 4 find it, read
+    /// from the faces themselves. Symbols Nerd Font Mono's full name is its
+    /// family name, so it finds the face as the family. A styled face
+    /// named alone, the embedded Bold, is found though no family name
+    /// reaches it, and leads its stack as the regular face, with its
+    /// family's Italic and Bold Italic and no Bold beside itself.
+    #[test]
+    fn a_program_names_a_face_by_its_postscript_or_full_name() {
+        let mut f = fonts("");
+        let names = |data: &[u8]| {
+            let d = baud_font::Described::of(data, FaceIndex::FIRST).expect("a face");
+            let text = |n: Option<baud_font::Family<'_>>| {
+                let mut out = [0u8; 256];
+                String::from_utf8(
+                    n.and_then(|n| n.utf8(&mut out).map(<[u8]>::to_vec))
+                        .unwrap(),
+                )
+                .unwrap()
+            };
+            (text(d.postscript_name()), text(d.full_name()))
+        };
+        use crate::embedded::{BOLD, REGULAR, STIX, SYMBOLS};
+        for (e, family) in [
+            (REGULAR, "Proto Hebrew Mono C"),
+            (STIX, "STIX Two Math"),
+            (SYMBOLS, "Symbols Nerd Font Mono"),
+        ] {
+            let want = f.resolve(family.as_bytes()).expect("loaded");
+            let (ps, full) = names(e.bytes);
+            assert_eq!(f.resolve(ps.as_bytes()), Some(want), "{ps}");
+            assert_eq!(f.resolve(ps.to_lowercase().as_bytes()), Some(want), "{ps}");
+            assert_eq!(
+                f.resolve(full.to_uppercase().as_bytes()),
+                Some(want),
+                "{full}"
+            );
+        }
+        let (ps, full) = names(BOLD.bytes);
+        let bold = f.resolve(ps.as_bytes()).expect("the embedded Bold");
+        assert_eq!(f.resolve(full.as_bytes()), Some(bold), "{full}");
+        let regular = f.resolve(b"Proto Hebrew Mono C").unwrap();
+        assert!(bold != regular && !f.leads(bold));
+        let b = f.stack(bold).expect("its stack");
+        assert_eq!(b.roles[0], FaceRole::Fallback, "it leads as the regular");
+        let mut out = [0u8; 64];
+        let first = b.faces[0].family().unwrap();
+        assert_eq!(first.utf8(&mut out), Some(&b"Proto Hebrew Mono C"[..]));
+        use baud_render::FaceStyle::{Bold, BoldItalic, Italic};
+        let styles: Vec<_> = b
+            .roles
+            .iter()
+            .filter_map(|r| match r {
+                FaceRole::Style(s) => Some(*s),
+                FaceRole::Fallback => None,
+            })
+            .collect();
+        assert_eq!(styles, [Italic, BoldItalic], "no {Bold:?} beside itself");
+        assert!(baud_render::Stack::with_roles(b.faces, &b.roles).is_some());
+        assert_eq!(f.resolve(b"ProtoHebrewMonoCBold"), None, "no name of it");
+    }
+
+    /// **The query answers the name a program set, as it sent it**, while
+    /// the face it named leads (Jev, Q_AS_SET), as xterm's `getFaceName`
+    /// and mintty's `win_get_font` answer the stored string, so the answer
+    /// sent back finds the same face; the family before any, a size step
+    /// keeping the name, a refused name changing nothing, and each face's
+    /// own name while it leads. A name for the face in force is told the
+    /// core at once, as nothing restacks (`host::plan_font`).
+    #[test]
+    fn the_query_answers_the_name_a_program_set() {
+        let mut f = fonts("");
+        with_term(|t| {
+            crate::host::tell_font(t, &f, 13.0, 13.0);
+            let query = |t: &mut baud_core::Term<'_>| {
+                t.clear_reply();
+                let q = b"\x1b]50;?\x07";
+                t.write_at(baud_core::BytePos::ZERO, q);
+                t.feed(
+                    baud_core::BytePos::ZERO,
+                    baud_core::ReadLen::from_index(q.len()),
+                );
+                String::from_utf8(t.reply().to_vec()).unwrap()
+            };
+            assert_eq!(query(t), "\x1b]50;Proto Hebrew Mono C\x07");
+            let c = change(t, b"protohebrewmonoc-regular");
+            let plan = crate::host::plan_font(t, &mut f, &c, 13.0, 13.0, 13.0);
+            assert!(plan.is_some_and(|p| p.face.is_some_and(|s| f.leads(s))));
+            assert_eq!(query(t), "\x1b]50;protohebrewmonoc-regular\x07");
+            let c = change(t, b"stixtwomath-regular");
+            let stix = f.plan(&c, 13.0, 13.0).unwrap().face.unwrap();
+            assert_eq!(f.answer(), "protohebrewmonoc-regular", "not yet led");
+            f.set(stix);
+            assert_eq!(f.answer(), "stixtwomath-regular");
+            assert_eq!(f.resolve(f.answer().as_bytes()), Some(stix), "sent back");
+            let c = change(t, b"#+1");
+            assert!(f.plan(&c, 13.0, 13.0).is_ok());
+            let c = change(t, b"Nowhere-Mono");
+            assert!(f.plan(&c, 13.0, 13.0).is_err());
+            assert_eq!(f.answer(), "stixtwomath-regular", "kept");
+            let c = change(t, b"Symbols Nerd Font Mono");
+            let nerd = f.plan(&c, 13.0, 13.0).unwrap().face.unwrap();
+            f.set(nerd);
+            assert_eq!(f.answer(), "Symbols Nerd Font Mono");
+            f.set(stix);
+            assert_eq!(f.answer(), "stixtwomath-regular", "its own name again");
+            let regular = f.resolve(b"Proto Hebrew Mono C").unwrap();
+            f.set(regular);
+            assert_eq!(f.answer(), "protohebrewmonoc-regular");
+        });
+    }
+
+    /// **With changes off, a PostScript name changes nothing and the query
+    /// is answered**, as a family name: the core queues no change.
+    #[test]
+    fn with_changes_off_a_postscript_name_changes_nothing() {
+        let f = fonts("");
+        with_term(|t| {
+            t.set_font_changes(baud_domain::FontChanges::Off);
+            crate::host::tell_font(t, &f, 13.0, 13.0);
+            let b = b"\x1b]50;ProtoHebrewMonoC-Bold\x07\x1b]50;?\x07";
+            t.write_at(baud_core::BytePos::ZERO, b);
+            t.feed(
+                baud_core::BytePos::ZERO,
+                baud_core::ReadLen::from_index(b.len()),
+            );
+            assert!(t.font_requests().is_empty());
+            assert_eq!(t.reply(), b"\x1b]50;Proto Hebrew Mono C\x07");
+        });
+    }
+
     /// **A stack led by another face keeps the rest of the chain behind it,
     /// and only its own family's styles**; asked again, it is the same
     /// faces, made once.
@@ -412,7 +601,7 @@ mod tests {
     /// the bounds refuse all of it; entry 0 is the configured size.
     #[test]
     fn a_change_is_planned_whole() {
-        let f = fonts("");
+        let mut f = fonts("");
         with_term(|t| {
             let stix = f.resolve(b"STIX Two Math");
             let c = change(t, b"#+2 STIX Two Math");

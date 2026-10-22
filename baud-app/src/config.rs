@@ -257,7 +257,8 @@ pub struct Config {
     /// choose any mode with XTSMPOINTER.
     pub pointer_mode: baud_domain::PointerMode,
     /// `[font] changes`: whether a program's `OSC 50` may change the font
-    /// -- a family baud has loaded, or a step of the size -- `"on"` by
+    /// -- a face baud has loaded, by family, full or PostScript name, or a
+    /// step of the size -- `"on"` by
     /// default, or `"off"`, which refuses every change; a program can ask
     /// which font is in use either way (the owner's call of 2026-10-20,
     /// option D).

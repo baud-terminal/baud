@@ -1026,7 +1026,7 @@ impl Driver {
         }
         for c in fonts_asked {
             let (at, base) = (self.font_size, self.font_base);
-            let plan = crate::host::plan_font(&mut self.term, &self.fonts, &c, at, base);
+            let plan = crate::host::plan_font(&mut self.term, &mut self.fonts, &c, at, at, base);
             if let Some(plan) = plan {
                 self.refont(plan.face, plan.points);
             }

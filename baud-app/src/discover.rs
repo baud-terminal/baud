@@ -553,16 +553,46 @@ impl Catalogue {
     /// name "specifies a single font, not an entire font family"
     /// (`[[source: css-fonts-3]]` 4.3).
     pub fn lookup(&self, name: &str) -> Named<'_> {
-        if let Some(k) = self.faces.iter().find(|k| k.postscript_is(name)) {
-            return Named::Face(k);
+        match self.lookup_at(name) {
+            NamedAt::Face(i) => Named::Face(&self.faces[i]),
+            NamedAt::Family(f) => Named::Family(f.into_iter().map(|i| &self.faces[i]).collect()),
+            NamedAt::Nothing => Named::Nothing,
         }
-        if let Some(k) = self.faces.iter().find(|k| k.full_name_is(name)) {
-            return Named::Face(k);
+    }
+
+    /// [`Catalogue::lookup`] by each face's place in the catalogue, for a
+    /// caller that keeps its own record of each face: a program's
+    /// `OSC 50`, which names a face among those loaded (`fonts.rs`).
+    pub fn lookup_at(&self, name: &str) -> NamedAt {
+        if let Some(i) = self.faces.iter().position(|k| k.postscript_is(name)) {
+            return NamedAt::Face(i);
         }
-        match self.family(name) {
-            f if f.is_empty() => Named::Nothing,
-            f => Named::Family(f),
+        if let Some(i) = self.faces.iter().position(|k| k.full_name_is(name)) {
+            return NamedAt::Face(i);
         }
+        let f: Vec<usize> = (0..self.faces.len())
+            .filter(|&i| self.faces[i].answers_to(name))
+            .collect();
+        match f.is_empty() {
+            true => NamedAt::Nothing,
+            false => NamedAt::Family(f),
+        }
+    }
+
+    /// **The faces already in memory, in their order**, each `(bytes,
+    /// index)`, as the config's lookup reads them, and each kept face's
+    /// place in `faces`: a face whose `name` table names no family is left
+    /// out, as a scan leaves it out.
+    pub fn of_loaded(faces: &[(&'static [u8], FaceIndex)]) -> (Catalogue, Vec<usize>) {
+        let mut kept = Vec::new();
+        let mut at = Vec::new();
+        for (i, &(data, index)) in faces.iter().enumerate() {
+            if let Some(k) = Known::read("loaded", Origin::Embedded(data), data, index) {
+                kept.push(k);
+                at.push(i);
+            }
+        }
+        (Catalogue { faces: kept }, at)
     }
 
     /// **The faces of `k`'s family**: of its preferred family name
@@ -620,6 +650,14 @@ pub enum Named<'c> {
     Face(&'c Known),
     /// A family's faces, by one of its family names.
     Family(Vec<&'c Known>),
+    Nothing,
+}
+
+/// What a name found ([`Catalogue::lookup_at`]), by place in the
+/// catalogue.
+pub enum NamedAt {
+    Face(usize),
+    Family(Vec<usize>),
     Nothing,
 }
 

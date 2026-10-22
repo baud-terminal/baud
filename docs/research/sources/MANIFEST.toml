@@ -13255,6 +13255,8 @@ status = "external"
 group  = "J"
 # Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
 # against a fetch of the url, not committed -- a source file at a pinned commit.
+# Read again 2026-10-22 for OSC 50's query: win_get_font (1120-1140) answers the
+# name win_change_font (1143-1154) stored, '?' for a font not found.
 
 [sources.mintty-termout-0aea388]
 key    = "mintty-termout-0aea388"
