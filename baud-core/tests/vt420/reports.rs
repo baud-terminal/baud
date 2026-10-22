@@ -289,9 +289,77 @@ fn decrqss_answers_the_key_modifier_strings() {
 /// none of.
 #[test]
 fn decrqss_answers_invalid_for_what_baud_does_not_act_on() {
-    for pt in [">5m", ">m", ">8f", ">4", "t", "){", "*|", ",|", ",}", ">4t"] {
+    for pt in [">5m", ">m", ">8f", ">4", "){", "*|", ",|", ",}", ">4t"] {
         let ask = [b"\x1bP$q".as_slice(), pt.as_bytes(), b"\x1b\\"].concat();
         assert_eq!(show(&answer(&ask)), show(b"\x1bP0$r\x1b\\"), "{pt}");
+    }
+}
+
+/// DECSLPP, `t`, answers the lines per page as the control that sets it
+/// (`[[source: dec-std-070]]` p. 5-197): the screen's rows, and 24 on a
+/// shorter screen, since "if (parv[0] <= 24) lines_per_page = 24" (p. 5-76)
+/// and a `CSI Ps t` below 24 is an XTWINOPS (`[[source: ctlseqs]]`), not a
+/// DECSLPP (Jev, FLOOR, 0.96/0.94).
+#[test]
+fn decrqss_answers_decslpp_as_the_lines_per_page() {
+    assert_eq!(show(&answer(b"\x1bP$qt\x1b\\")), show(b"\x1bP1$r24t\x1b\\"));
+    let tall = WinSize {
+        ws_row: 30,
+        ws_col: 20,
+    };
+    let got = support::render(&tall, b"\x1bP$qt\x1b\\", |t| t.reply().to_vec());
+    assert_eq!(show(&got), show(b"\x1bP1$r30t\x1b\\"));
+    let widest = WinSize {
+        ws_row: 640,
+        ws_col: 20,
+    };
+    let got = support::render(&widest, b"\x1bP$qt\x1b\\", |t| t.reply().to_vec());
+    assert_eq!(show(&got), show(b"\x1bP1$r640t\x1b\\"));
+}
+
+/// **Every setting DECRQSS answers invalid is one baud does not act on**:
+/// the control that would set it is counted as unsupported. Each DEC list
+/// is swept -- `[[source: ctlseqs]]`'s, STD 070's (p. 5-196) and the
+/// VT520's DECRPSS list (`[[source: vt520-rm]]` pp. 5-102 to 5-103) -- so
+/// a setting that lands and leaves its DECRQSS answer behind fails here,
+/// as DECSLPP's did.
+#[test]
+fn every_setting_decrqss_refuses_is_one_baud_counts() {
+    let pairs: [(&str, &[u8]); 24] = [
+        ("){", b"\x1b[1){"),
+        ("*|", b"\x1b[24*|"),
+        (",|", b"\x1b[1;1;2,|"),
+        (",}", b"\x1b[1;1;2,}"),
+        ("-q", b"\x1b[1-q"),
+        (",z", b"\x1b[1,z"),
+        ("-r", b"\x1b[1-r"),
+        ("-p", b"\x1b[1-p"),
+        ("*u", b"\x1b[1*u"),
+        ("*r", b"\x1b[1*r"),
+        ("(p", b"\x1b[1(p"),
+        ("$q", b"\x1b[1$q"),
+        ("*s", b"\x1b[1*s"),
+        ("$s", b"\x1b[1$s"),
+        ("*p", b"\x1b[1*p"),
+        ("p", b"\x1b[1p"),
+        (",{", b"\x1b[1,{"),
+        (",x", b"\x1b[1,x"),
+        (" r", b"\x1b[1 r"),
+        (" v", b"\x1b[1 v"),
+        ("+w", b"\x1b[1+w"),
+        (" p", b"\x1b[1 p"),
+        ("\"u", b"\x1b[1\"u"),
+        (" ~", b"\x1b[1 ~"),
+    ];
+    for (pt, set) in pairs {
+        let ask = [b"\x1bP$q".as_slice(), pt.as_bytes(), b"\x1b\\"].concat();
+        assert_eq!(show(&answer(&ask)), show(b"\x1bP0$r\x1b\\"), "{pt}");
+        let counted = support::with_term(&WS, |t| {
+            let before = t.unsupported;
+            support::feed(t, set);
+            t.unsupported - before
+        });
+        assert_eq!(counted, 1, "{pt}: {}", show(set));
     }
 }
 

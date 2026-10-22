@@ -82,6 +82,7 @@ pub const DECRQSS_MAX: usize = {
         b"255 q".len(),
         b"255\"q".len(),
         b"132$|".len(),
+        b"65535t".len(),
         b">4;2m".len(),
         b">0;2t".len(),
     ];
@@ -342,6 +343,23 @@ impl Paint<'_, '_> {
                 PageWidth::Eighty => b"1$r80$|",
                 PageWidth::OneThirtyTwo => b"1$r132$|",
             }),
+            // **DECSLPP answers the lines the screen is, and 24 below 24**:
+            // STD 070's DECSLPP algorithm makes any `Pn` up to 24 a page of
+            // 24 (p. 5-76), so a shorter screen's page sent back is
+            // `24 t`; and `CSI Ps t` below 24 is an XTWINOPS (`[[source:
+            // ctlseqs]]`), so the screen's own count there would be a
+            // wrong-shaped answer (Jev, FLOOR, 0.96/0.94). xterm floors at
+            // 24 too, from its last row's index, one short (`[[source:
+            // xterm-misc]]`); the count here is the screen's.
+            StatusTarget::LinesPerPage => {
+                let last = Row::from_index(self.rows.index().saturating_sub(1)).one_based();
+                s.push(b"1$r");
+                match last.get() < 24 {
+                    true => s.push(b"24"),
+                    false => s.num(last),
+                }
+                s.push(b"t");
+            }
             // **DECSACE**, listed by `[[source: vt420-rm]]` Table 12-4 and
             // the VT510's DECRQSS ("Select Attribute Change Extent DECSACE
             // *x"): the extent DECCARA and DECRARA use, `0` for the stream,

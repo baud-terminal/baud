@@ -50,6 +50,9 @@ pub enum StatusTarget {
     Protection,
     /// `$ |` — DECSCPP, the columns per page.
     ColumnsPerPage,
+    /// `t` -- DECSLPP, the lines per page: "Set Lines Per Page DECSLPP t"
+    /// in `[[source: dec-std-070]]`'s list (p. 5-196) and ctlseqs'.
+    LinesPerPage,
     /// `* x` — DECSACE, the attribute change extent: "Select attribute change
     /// extent DECSACE *x" in `[[source: vt420-rm]]` Table 12-4 and in the
     /// VT510's DECRQSS list.
@@ -88,6 +91,7 @@ impl StatusTarget {
             b" u" => StatusTarget::MarginBellVolume,
             b"\"q" => StatusTarget::Protection,
             b"$|" => StatusTarget::ColumnsPerPage,
+            b"t" => StatusTarget::LinesPerPage,
             b"*x" => StatusTarget::AttrExtent,
             b"\"p" => StatusTarget::ConformanceLevel,
             b"$~" => StatusTarget::StatusType,
