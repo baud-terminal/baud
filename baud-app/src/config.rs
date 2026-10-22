@@ -73,6 +73,13 @@ fn on_off(key: &str, value: &str, said: &mut Vec<String>) -> bool {
     }
 }
 
+/// `[screen] notifications`' two values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Notifications {
+    On,
+    Off,
+}
+
 /// `[screen] printing`'s two values.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Printing {
@@ -179,6 +186,13 @@ pub struct Config {
     /// "no printer" and every print request is ignored and counted. Nothing
     /// prints without the user pressing Print in the panel either way.
     pub printing: Printing,
+    /// `[screen] notifications`: whether a program can post a desktop
+    /// notification (`OSC 9`, `OSC 777 ; notify`, kitty's `OSC 99`),
+    /// `"on"` by default, or `"off"`, under which the core is told nothing
+    /// is delivered: every notification is refused and counted, and
+    /// kitty's query goes unanswered (`notify.rs`). A program's progress
+    /// bar shows either way.
+    pub notifications: Notifications,
     /// `[screen] print_colour`, `print_rgb`, `print_background` and
     /// `print_rotated`: how a program's printed picture (a ReGIS hard copy)
     /// is sent, the choices DEC STD 070 leaves to the user (070-7 § 7.8.2):
@@ -697,6 +711,7 @@ impl Config {
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
+            notifications: Notifications::On,
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
@@ -1029,6 +1044,19 @@ impl Config {
                                  using on"
                             ));
                             Printing::On
+                        }
+                    };
+                }
+                ("screen", "notifications") => {
+                    self.notifications = match value.trim().trim_matches('"') {
+                        "on" => Notifications::On,
+                        "off" => Notifications::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] notifications {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            Notifications::On
                         }
                     };
                 }
@@ -2309,6 +2337,27 @@ mod reader {
         assert!(said[0].contains("print_colour"), "{said:?}");
     }
 
+    /// **A program's notification is delivered unless `[screen]
+    /// notifications = "off"`**, and a value that is neither is said and
+    /// read as on.
+    #[test]
+    fn notifications_are_on_unless_turned_off() {
+        assert_eq!(Config::defaults().notifications, Notifications::On);
+        assert_eq!(read("").notifications, Notifications::On);
+        assert_eq!(
+            read("[screen]\nnotifications = \"off\"\n").notifications,
+            Notifications::Off
+        );
+        assert_eq!(
+            read("[screen]\nnotifications = off\n").notifications,
+            Notifications::Off
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nnotifications = \"answer\"\n");
+        assert_eq!(c.notifications, Notifications::On);
+        assert!(said[0].contains("notifications"), "{said:?}");
+    }
+
     /// **A program's print opens the panel unless `[screen] printing =
     /// "off"`**, quoted or bare; any other value keeps the default and says
     /// so, and the key is the `[screen]` section's.
@@ -3167,6 +3216,11 @@ shadow     = "never"
         assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
         assert_eq!(c.logging, baud_domain::Logging::On);
         assert_eq!(c.printing, Printing::On);
+        assert!(
+            text.contains("\nnotifications = \"on\"\n"),
+            "the [screen] notifications"
+        );
+        assert_eq!(c.notifications, Notifications::On);
         assert!(
             text.contains("\n[window]\noperations = \"on\"\n"),
             "the [window] operations"

@@ -70,11 +70,15 @@ off, not answer, keep it simple"):
   decided.
 - **`OSC 1337`**: `RequestAttention` built with notifications, every
   other subcommand its own row: 0.97 and 0.92, decided.
-- **`OSC 99`'s value characters**: the text's set, with `=`, which the
+- **`OSC 99`'s value characters**: the text's set with `=`, which the
   text's own base64 values need and kitty's own client sends (`[[source:
-  kitten-notify-go]]`), and the `?` of the text's own `p=?`; a value with
-  any other byte makes the command malformed: lean 0.30 and 0.48, over
-  the set exactly and over no check.
+  kitten-notify-go]]`): lean 0.30 and 0.48, over the set exactly and over
+  no check. The `?` of the text's own `p=?` is admitted too, which was not
+  put to Jev: the text writes it. A value with any other byte makes the
+  command malformed.
+- **macOS's `p=alive`**: Notification Center's delivered list, asked every
+  few seconds while any is shown, over only baud's own removals: lean 0.82
+  and 0.90, after a re-ask with kitty's own client in the context.
 
 ## 4. The platforms
 
@@ -117,3 +121,45 @@ libunity-launcher-entry]]`), matched to an installed desktop file by its
 `application://` URI. baud's Wayland app id is `org.baud.terminal` and no
 desktop file ships, so a dock has nothing to match the signal to until
 one does.
+
+## 5. What baud does
+
+- **macOS** (`baud-present-macos/src/notify.rs`, `baud-app/src/notify.rs`):
+  the center is opened only when the main bundle has an identifier; run
+  from `cargo run`, programs' notifications are refused and the log says
+  why. Permission is asked at the first notification, and what arrives
+  before the answer waits for it. A post's identifier is its token's, so a
+  kitty update by id replaces it; buttons are a category's actions
+  `button-1` and on; `u=0` is passive and the rest active; `s=silent` has
+  no sound; an image is attached from a file of its own. Closes are not
+  told, so a program that asks is answered `untracked`, and `p=alive`
+  follows `getDeliveredNotificationsWithCompletionHandler`, asked every
+  two seconds while any is shown; one closed by `p=close`, by its `w`, or
+  posted while permission was refused is forgotten at once. `w` is a
+  removal scheduled on the main queue. A refusal of permission tells the
+  core nothing is delivered. Progress is a bar drawn on the Dock tile's
+  own view under the icon; `RequestAttention` is
+  `requestUserAttention`, critical for `yes`, informational for `once`.
+  **Open**: a program that asked is told `p=close ; untracked` when the
+  post is made, before permission is known; if permission is then
+  refused, it was told of a notification that never showed. And the
+  delivered-list ask has no deadline: if
+  `getDeliveredNotificationsWithCompletionHandler` never answers, no
+  further ask is made and `p=alive` keeps naming what it last knew.
+- **Linux** (`baud-app/src/bus.rs`, `baud-app/src/linux.rs`): `Notify`
+  with `replaces_id` for an update, a `default` action where a click is
+  reported and the buttons numbered from 1, `urgency`, `sound-name` or
+  `suppress-sound`, `category`, and a PNG of at most 1024 pixels a side
+  as `image-data`; JPEG and GIF data, which the text also names, are
+  refused and counted until a decoder exists (Jev, 0.95 and 0.97), as is
+  a larger PNG, and the log says so once; the body
+  escaped where the server lists `body-markup`; an icon name with a `/`
+  or a `:` is not sent, since `app_icon` also takes a file URI;
+  `GetCapabilities` decides whether `report` and `buttons` are claimed, and until it
+  answers -- or when it fails, or the bus goes -- the core is told nothing
+  is delivered. `w` is `expire_timeout` and a
+  `CloseNotification` at the deadline. Progress and `RequestAttention` are
+  the launcher's `progress` and `urgent`.
+- **Neither** posts while the setting is off, nor more than four at once
+  and then one a second; what the bound drops is logged once a burst, a
+  burst ending when the bucket has filled again.

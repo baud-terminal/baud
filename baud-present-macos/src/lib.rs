@@ -33,6 +33,7 @@ pub mod clipboard;
 pub mod journal;
 pub mod link;
 pub mod metal;
+pub mod notify;
 pub mod print;
 
 pub use journal::Landing;

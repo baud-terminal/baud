@@ -133,6 +133,18 @@ tests = ["baud-core/tests/color_scheme.rs::other_private_dsrs_stay_unsupported"]
 rows = ["vt:`CSI $ p`", "vt:`CSI n`"]
 
 [[feature]]
+id = "program-notifications"
+area = "programs"
+name = "Notifications and progress bars from programs"
+does = "A build or a long command can post a desktop notification when it finishes, with a title, a body and buttons, shown while baud's window is in the background or whenever the program asks; and it can show a progress bar, in the Dock on macOS. A flood of them is held to four at once and then one a second, and `[screen] notifications = \"off\"` turns them off."
+status = "partial"
+gap = "on Linux a program's icon shows only as a PNG, not yet as a JPEG or GIF; iTerm2's attention fireworks are not drawn; and on macOS a program that asks hears a notification went out before you have allowed them."
+platform = "both"
+tests = ["baud-core/tests/notifications.rs::kittys_examples_post_what_they_say", "baud-core/tests/notifications.rs::the_query_answers_what_the_embedder_delivers", "baud-app/src/notify.rs::the_macos_driver_makes_the_calls_the_plan_says", "baud-app/src/bus.rs::notifications_marshal_as_dbus_next_marshals_them"]
+rows = ["vt:`OSC 9 ; Pt`", "vt:`OSC 9 ; 4 ; st ; pr`", "vt:`OSC 777 ; notify ; title ; body`", "vt:`OSC 99 ; metadata ; payload`", "vt:`OSC 1337 ; RequestAttention=Pv`"]
+chips = ["kitty desktop notifications"]
+
+[[feature]]
 id = "damaged-codes"
 area = "programs"
 name = "A damaged escape code can't clear your screen"
@@ -1823,6 +1835,11 @@ row = "vt:`CSI ? 2026 h/l`"
 name = "modifyOtherKeys"
 origin = "xterm"
 row = "vt:`CSI > 4 ; 2 m`"
+
+[[protocol]]
+name = "kitty desktop notifications"
+origin = "kitty"
+row = "vt:`OSC 99 ; metadata ; payload`"
 
 [[protocol]]
 name = "kitty keyboard protocol"

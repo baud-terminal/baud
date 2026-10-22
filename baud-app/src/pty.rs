@@ -2672,9 +2672,9 @@ mod tests {
                 .expect("a statement after the feed");
             assert_eq!(next, follow);
         };
-        // Each callback ends draining the window requests, and the log is
-        // the feed's last argument.
-        let end = "t.clear_window_requests();\n            },\n";
+        // Each callback ends taking the notifications, and the log is the
+        // feed's last argument.
+        let end = "t.clear_notices();\n            },\n";
         next_after(
             include_str!("app.rs"),
             &format!("{end}            hostlog,\n        );\n"),

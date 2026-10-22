@@ -106,6 +106,10 @@ mod link;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;
+// What both drivers decide about a program's notification before the
+// platform shows it: its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod notify;
 // The Linux driver's `xdg-open` for a link: its tests run on every
 // platform.
 #[cfg(any(target_os = "linux", test))]

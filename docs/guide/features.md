@@ -18,6 +18,7 @@ what only the Linux version does. **Partly** says what part is missing, and
 Shells, editors and full-screen programs get the terminal they expect, and a broken one can't upset it.
 
 - **No wrong answers** — A question baud cannot answer truthfully gets no reply rather than a wrong one, and a setting baud does not have is reported as unknown, never as off. <sub>[proof](../../baud-core/tests/color_scheme.rs) · [reference](../vt-coverage.md#tier-2--vt220--vt420)</sub>
+- **Notifications and progress bars from programs** — A build or a long command can post a desktop notification when it finishes, with a title, a body and buttons, shown while baud's window is in the background or whenever the program asks; and it can show a progress bar, in the Dock on macOS. A flood of them is held to four at once and then one a second, and `[screen] notifications = "off"` turns them off. **Partly:** on Linux a program's icon shows only as a PNG, not yet as a JPEG or GIF; iTerm2's attention fireworks are not drawn; and on macOS a program that asks hears a notification went out before you have allowed them. <sub>[kitty desktop notifications](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/notifications.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **A damaged escape code can't clear your screen** — A broken or cut-off control sequence is thrown away instead of being half-obeyed, and hidden data in the stream is never printed. <sub>[proof](../../baud-core/tests/esc_abandons.rs) · [reference](../vt-coverage.md#tier-0--the-parser-state-machine)</sub>
 - **No flooding memory** — A giant title, link or other string a program sends is cut to size, so it can't fill memory. <sub>[proof](../../baud-core/tests/xterm/osc.rs)</sub>
 - **Compatible with what programs expect** — baud answers to the VT100, VT220, VT420 and xterm feature sets, checked against the original manuals, and works under every common terminal type from xterm-256color to vt100. <sub>[proof](../../baud-core/tests/conformance/input_caps.rs)</sub>
@@ -239,6 +240,7 @@ one. Every control sequence has its own row in the
 |---|---|---|
 | synchronised output | the terminal working group | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
 | modifyOtherKeys | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| kitty desktop notifications | kitty | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
 | kitty keyboard protocol | kitty | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
 | SGR mouse | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
 | bracketed paste | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |

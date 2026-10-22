@@ -237,6 +237,13 @@ struct Driver {
     /// machine's name for a `file://host/` link.
     opener: crate::opener::Opener,
     host: String,
+    /// The notifications programs post, delivered over the session bus
+    /// (`notify.rs`), and what the notification server said it supports.
+    notes: crate::notify::Delivery<Instant, crate::bus::NotifyId>,
+    caps: crate::notify::ServerCaps,
+    /// What the launcher was last told: a program's progress and its
+    /// request for attention.
+    launcher: crate::bus::Launcher,
 }
 
 /// **The scrollbar's share of a pointer event** (`bar.rs`), after DEC's
@@ -321,7 +328,8 @@ pub fn run() {
     let owned: &'static mut Owned = Box::leak(Box::new(
         Owned::with_geometry(&MAX_GRID, &geom)
             .with_images(cfg.images)
-            .with_clipboard(cfg.clipboard.budget),
+            .with_clipboard(cfg.clipboard.budget)
+            .with_notices(crate::notify::BUDGET),
     ));
     let mut term = Term::new(owned.storage(), &FIRST);
     // The kitty file mediums, read with the text's checks
@@ -449,6 +457,11 @@ pub fn run() {
     let widths = crate::width::Widths::new(&term);
     let clips = crate::clip::Clips::for_wayland(&term);
     let hiding = crate::hide::Hiding::new(&term);
+    // **A program's notifications go to the session bus's notification
+    // server** (`notify.rs`, `bus.rs`): the core is told none is delivered
+    // until the server answers `GetCapabilities`, so with no bus or no
+    // server kitty's query goes unanswered.
+    let notes = crate::notify::Delivery::new(cfg.notifications, &term);
     let mut d = Driver {
         bell,
         // The config's interval, else 333 ms a phase, and no switch: `auto`
@@ -517,6 +530,9 @@ pub fn run() {
         blink_animation: cfg.blink_animation,
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
+        notes,
+        caps: crate::notify::ServerCaps::NONE,
+        launcher: crate::bus::Launcher::IDLE,
     };
     if let crate::access::MotionSource::Fixed(m) = motion_source {
         d.set_motion(m);
@@ -577,10 +593,19 @@ pub fn run() {
             .timed
             .deadline(now)
             .map(|t| t.saturating_duration_since(now));
-        let timeout = [sync, repeat, flash, caret, decode, paste, delay, effects]
-            .into_iter()
-            .flatten()
-            .min();
+        // A notification's `w`, closed at its deadline whatever the server
+        // does with `expire_timeout`.
+        let expiry = d
+            .notes
+            .shown
+            .next_due()
+            .map(|t| t.saturating_duration_since(now));
+        let timeout = [
+            sync, repeat, flash, caret, decode, paste, delay, effects, expiry,
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         // The clipboard's pipes, each waited on for what it owes, and the
         // session bus, for what it sends and the room to send it.
         let mut transfers: Vec<_> = d
@@ -646,6 +671,7 @@ pub fn run() {
         // What the session bus sent, never waiting, and the openers a link
         // started that have ended.
         d.pump_bus();
+        d.expire_notices();
         d.opener.reap();
         // After a timeout as much as after readiness: a repeat is due on
         // the clock, not on an event, and so is a flash's end. The
@@ -886,6 +912,10 @@ impl Driver {
         // The watches on the selection's lines, armed before the read
         // (`keep::Before::watched`).
         let before = self.seat.before_read(&mut self.term);
+        // A program's notifications, taken read by read: the core keeps
+        // eight a read (`notify.rs`).
+        let icons = &mut self.notes.icons;
+        let mut posted = Vec::new();
         crate::reads::paced(
             &mut self.term,
             pace,
@@ -914,12 +944,15 @@ impl Driver {
                 t.clear_font_requests();
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
+                posted.extend(t.notices().map(|n| crate::notify::Posted::of(&n, icons)));
+                t.clear_notices();
             },
             &mut self.hostlog,
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        self.deliver(posted);
         if let Some(line) = self.clips.core_refusals(&self.term, self.clipboard.budget) {
             crate::warn!("{line}");
         }
@@ -1195,6 +1228,88 @@ impl Driver {
         }
     }
 
+    /// **A program's notifications, delivered** (`notify.rs`): each shown,
+    /// closed or dropped as `notify::plan` says, and the launcher told of
+    /// a change of progress or attention.
+    fn deliver(&mut self, posted: Vec<crate::notify::Posted>) {
+        use crate::notify::{Focus as F, Plan, Visible};
+        let now = Instant::now();
+        let focus = match self.focus {
+            Focus::Gained => F::Focused,
+            Focus::Lost => F::Unfocused,
+        };
+        for p in posted {
+            match crate::notify::plan(
+                &p,
+                self.notes.setting,
+                focus,
+                Visible::Unknown,
+                &mut self.notes.bucket,
+                now,
+            ) {
+                Plan::Show => match self.bus.as_mut() {
+                    Some(bus) => {
+                        let replaces = match p.action {
+                            baud_core::NoticeAction::Replace => self.notes.shown.id(p.token),
+                            _ => None,
+                        };
+                        let image = self.notes.image_data(&p);
+                        let n = crate::bus::notification(&p, replaces, self.caps, image);
+                        bus.notify(&n, p.token);
+                        self.notes.waiting.push((p.token, p.expiry));
+                    }
+                    None => self.term.notice_dropped(p.token),
+                },
+                Plan::Close => {
+                    if let (Some(id), Some(bus)) = (self.notes.shown.id(p.token), self.bus.as_mut())
+                    {
+                        bus.close_notification(id);
+                    }
+                }
+                Plan::Drop(_) => self.term.notice_dropped(p.token),
+            }
+        }
+        // Once a read at most, as on macOS, and once a burst.
+        if let Some(line) = self.notes.rate_line() {
+            crate::warn!("{line}");
+        }
+        if let Some(line) = self.notes.image_line() {
+            crate::warn!("{line}");
+        }
+        let progress = self.notes.progress(&self.term);
+        let attention = self.notes.attention(&self.term);
+        if progress.is_none() && attention.is_none() {
+            return;
+        }
+        let mut l = self.launcher;
+        if let Some(p) = progress {
+            l.progress = crate::notify::launcher_progress(p);
+        }
+        if let Some(a) = attention {
+            l.urgent = match a {
+                baud_core::Attention::Yes | baud_core::Attention::Once => crate::bus::Truth::True,
+                baud_core::Attention::No => crate::bus::Truth::False,
+            };
+        }
+        if l != self.launcher {
+            self.launcher = l;
+            if let Some(bus) = self.bus.as_mut() {
+                bus.launcher(l);
+            }
+        }
+    }
+
+    /// The notifications whose `w` has passed, closed: "guaranteed to be
+    /// closed once the expiry time has passed".
+    fn expire_notices(&mut self) {
+        let due = self.notes.shown.due(Instant::now());
+        if let Some(bus) = self.bus.as_mut() {
+            for (_, id) in due {
+                bus.close_notification(id);
+            }
+        }
+    }
+
     /// **What the session bus sent** (`bus.rs`): the desktop's colour
     /// scheme, read or changed, a reveal's answer, or the bus gone.
     fn pump_bus(&mut self) {
@@ -1236,6 +1351,59 @@ impl Driver {
                     self.pending = Pending::Dirty;
                 }
             }
+            Heard::NoServer(e) => {
+                crate::info!(
+                    "notifications: no notification server on the session bus ({e}); programs' notifications are not shown"
+                );
+                self.term.set_notice_support(None);
+            }
+            Heard::Caps(caps) => {
+                self.caps = caps;
+                self.term.set_notice_support(crate::notify::support(
+                    self.notes.setting,
+                    crate::notify::Platform::Linux(caps),
+                ));
+            }
+            Heard::Notified(token, id) => {
+                let expiry = self.notes.answered(token);
+                self.notes.shown.shown(token, id, expiry, Instant::now());
+                crate::reads::input(
+                    &mut self.term,
+                    |t| t.notice_shown(token),
+                    |b| self.outbox.push(b),
+                );
+            }
+            Heard::NotNotified(token, e) => {
+                self.notes.answered(token);
+                self.term.notice_dropped(token);
+                crate::warn!("notification not shown: the notification server answered {e}");
+            }
+            Heard::Invoked(id, key) => {
+                if let Some(token) = self.notes.shown.token(&id) {
+                    // "default" is a click on the notification itself, a
+                    // number its button, from 1.
+                    let button = key
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|n| n.checked_sub(1))
+                        .and_then(baud_core::NoticeButton::of_index);
+                    crate::reads::input(
+                        &mut self.term,
+                        |t| t.notice_activated(token, button),
+                        |b| self.outbox.push(b),
+                    );
+                }
+            }
+            Heard::NotifyClosed(id) => {
+                if let Some(token) = self.notes.shown.token(&id) {
+                    self.notes.shown.gone(token);
+                    crate::reads::input(
+                        &mut self.term,
+                        |t| t.notice_closed(token),
+                        |b| self.outbox.push(b),
+                    );
+                }
+            }
             Heard::Revealed => crate::info!("link revealed by the file manager"),
             Heard::NotRevealed(e) => {
                 crate::warn!("link not revealed: the file manager answered {e}")
@@ -1243,6 +1411,8 @@ impl Driver {
             Heard::Closed(e) => {
                 crate::warn!("{e}");
                 self.bus = None;
+                // Nothing can show a notification now.
+                self.term.set_notice_support(None);
             }
         }
     }

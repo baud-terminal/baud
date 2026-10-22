@@ -56,7 +56,7 @@ use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSImage, NSImageView,
     NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
-    NSWindowButton, NSWindowStyleMask,
+    NSWindowButton, NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -610,6 +610,16 @@ struct App {
     /// `[screen] printing`, read once at launch and passed with each
     /// read of the printer list (`print.rs`).
     printing: crate::config::Printing,
+    /// The notifications programs post (`notify.rs`), the center that
+    /// shows them -- `None` outside the app's bundle -- and the Dock's
+    /// attention request a program's `RequestAttention=yes` or `once` made.
+    notes: crate::notify::Delivery<Instant, String>,
+    center: Option<baud_present_macos::notify::Center>,
+    attention: Option<baud_present_macos::notify::AttentionId>,
+    /// When Notification Center's list was last asked for, and whether an
+    /// answer is owed.
+    delivered_asked: Option<Instant>,
+    delivered_last: Option<Instant>,
     /// When the printer list is read again, and the thread that reads it
     /// (`print.rs`, `PrinterList`).
     watch: crate::print::Watch,
@@ -683,6 +693,9 @@ struct Boot {
     /// Whether a program's print opens the print panel, from `[screen]
     /// printing`.
     printing: crate::config::Printing,
+    /// Whether a program's notification is delivered, from `[screen]
+    /// notifications`.
+    notifications: crate::config::Notifications,
     /// How a printed picture is sent, from `[screen] print_colour`,
     /// `print_rgb`, `print_background` and `print_rotated`.
     graphics_print: baud_domain::GraphicsPrint,
@@ -853,6 +866,7 @@ impl Boot {
             window_ops: cfg.window_ops,
             logging: cfg.logging,
             printing: cfg.printing,
+            notifications: cfg.notifications,
             graphics_print: cfg.graphics_print,
             pointer_mode: cfg.pointer_mode,
             ambiguous_width: cfg.ambiguous_width,
@@ -902,6 +916,7 @@ impl App {
             window_ops,
             logging,
             printing,
+            notifications,
             graphics_print,
             pointer_mode,
             ambiguous_width,
@@ -930,7 +945,8 @@ impl App {
                 Owned::with_geometry(&MAX_GRID, &geom)
                     .with_images(images)
                     .with_clipboard(clipboard.budget)
-                    .with_printer(crate::print::budget(printing)),
+                    .with_printer(crate::print::budget(printing))
+                    .with_notices(crate::notify::BUDGET),
             ));
             Term::new(owned.storage(), ws)
         };
@@ -944,7 +960,8 @@ impl App {
                     Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT)
                         .with_images(images)
                         .with_clipboard(clipboard.budget)
-                        .with_printer(crate::print::budget(printing)),
+                        .with_printer(crate::print::budget(printing))
+                        .with_notices(crate::notify::BUDGET),
                 ));
                 match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
@@ -1107,6 +1124,24 @@ impl App {
             term.set_page_release(release);
         }
         let widths = crate::width::Widths::new(&term);
+        // **A program's notifications go to the notification center**,
+        // from the app's bundle only (`baud_present_macos::notify`), and
+        // the core is told they are delivered only when they can be.
+        let center = match MainThreadMarker::new().map(baud_present_macos::notify::Center::open) {
+            Some(Ok(c)) => Some(c),
+            Some(Err(baud_present_macos::notify::Unavailable::NoBundle)) => {
+                crate::info!(
+                    "notifications: baud runs outside its app bundle, so programs' notifications are not shown"
+                );
+                None
+            }
+            _ => None,
+        };
+        term.set_notice_support(match center {
+            Some(_) => crate::notify::support(notifications, crate::notify::Platform::MacOs),
+            None => None,
+        });
+        let notes = crate::notify::Delivery::new(notifications, &term);
         App {
             bell,
             bell_style,
@@ -1204,6 +1239,11 @@ impl App {
             widths,
             pace: crate::reads::Pace::new(),
             printing,
+            notes,
+            center,
+            attention: None,
+            delivered_asked: None,
+            delivered_last: None,
             watch: crate::print::Watch::new(),
             printer_list: PrinterList::new(waker),
             prints: crate::print::Prints::new(),
@@ -6606,6 +6646,8 @@ mod motion_tests {
                     asked.extend_from_slice(t.window_requests());
                     t.clear_"#,
             r#"window_requests();
+                    posted.extend(t.notices().map(|n| crate::notify::Posted::of(&n, icons)));
+                    t.clear_notices();
                 },
                 hostlog,
             );
@@ -7361,6 +7403,7 @@ impl Driver {
         }
         if let Trigger::Tick = trigger {
             self.title_check();
+            self.notice_turn();
             self.poll_focus();
             self.poll_motion();
             self.poll_display();
@@ -7443,6 +7486,10 @@ impl Driver {
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
         let mut resized = None;
+        // A program's notifications, taken read by read: the core keeps
+        // eight a read (`notify.rs`).
+        let icons = &mut self.app.notes.icons;
+        let mut posted = Vec::new();
         // A program's window operations, drained after each read as its
         // answers are, so the core's bounded queue never fills across a
         // batch, and performed after the bell (`window_requests`).
@@ -7480,6 +7527,8 @@ impl Driver {
                 }
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
+                posted.extend(t.notices().map(|n| crate::notify::Posted::of(&n, icons)));
+                t.clear_notices();
             },
             hostlog,
         );
@@ -7510,6 +7559,10 @@ impl Driver {
         {
             self.ring_bell(volume);
         }
+        // A program's notifications, progress and attention request, shown
+        // or not as `notify::plan` says (`notify.rs`), after the bell, as
+        // a bell is, for a minimized window draws nothing.
+        self.deliver_notices(posted);
         // The status line's frame first, so a program's resize in the same
         // read is measured on the window it leaves (`mac_status_frame`).
         let left = self.status_line();
@@ -9041,6 +9094,157 @@ impl Driver {
         } else {
             baud_core::Focus::Lost
         });
+    }
+
+    /// **A read's notices delivered** (`notify.rs`): `Delivery::mac`
+    /// decides, the window's key state and occlusion its focus and
+    /// visibility, and this makes the calls it names -- the center's post
+    /// and removal, an expiry scheduled on the main queue, the Dock tile's
+    /// bar and `NSApplication`'s attention request.
+    fn deliver_notices(&mut self, posted: Vec<crate::notify::Posted>) {
+        use crate::notify::{AttentionCall, Focus as F, MacCall, Visible};
+        let window = self.view.window();
+        let state = match &window {
+            Some(w) => (
+                if w.isKeyWindow() {
+                    F::Focused
+                } else {
+                    F::Unfocused
+                },
+                if w.occlusionState().contains(NSWindowOcclusionState::Visible) {
+                    Visible::Seen
+                } else {
+                    Visible::Covered
+                },
+            ),
+            None => (F::Unfocused, Visible::Covered),
+        };
+        let prefix = format!("baud-{}", std::process::id());
+        let outbox = &mut self.app.outbox;
+        let calls = self.app.notes.mac(
+            &mut self.app.term,
+            posted,
+            state,
+            Instant::now(),
+            &prefix,
+            |b| outbox.push(b),
+        );
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        for call in calls {
+            match call {
+                MacCall::Post(p) => {
+                    if let Some(c) = &self.app.center {
+                        c.post(mac_post(p));
+                    }
+                }
+                MacCall::Remove(id) => {
+                    if let Some(c) = &self.app.center {
+                        c.remove(&id);
+                    }
+                }
+                MacCall::Expire(id, after) => {
+                    if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
+                        let _ = dispatch2::DispatchQueue::main()
+                            .after(when, move || baud_present_macos::notify::remove_by_id(&id));
+                    }
+                }
+                MacCall::Bar(bar) => baud_present_macos::notify::show_bar(mtm, bar.map(dock_bar)),
+                MacCall::Attention(a) => {
+                    use baud_present_macos::notify::Ask;
+                    if let Some(id) = self.app.attention.take() {
+                        baud_present_macos::notify::cancel_attention(mtm, id);
+                    }
+                    self.app.attention = match a {
+                        AttentionCall::Critical => {
+                            Some(baud_present_macos::notify::attention(mtm, Ask::UntilActive))
+                        }
+                        AttentionCall::Informational => {
+                            Some(baud_present_macos::notify::attention(mtm, Ask::Once))
+                        }
+                        AttentionCall::Cancel => None,
+                    };
+                }
+            }
+        }
+        if let Some(line) = self.app.notes.rate_line() {
+            crate::warn!("{line}");
+        }
+    }
+
+    /// **What the notification center said since the last tick**: the
+    /// posts that waited for permission sent or dropped, said once, and
+    /// the clicks -- reported to the program where it asked, and the
+    /// window brought forward where `a` says focus.
+    fn notice_turn(&mut self) {
+        use baud_present_macos::notify::{DEFAULT_ACTION, Permission};
+        let Some(c) = &self.app.center else {
+            return;
+        };
+        let turn = c.turn();
+        match turn.answer {
+            Some(Permission::Granted) => crate::info!("notifications: allowed"),
+            // **Not allowed: the core is told none is delivered**, so
+            // kitty's query goes unanswered, and the posts that waited are
+            // forgotten as not shown.
+            Some(Permission::Denied) => {
+                crate::info!(
+                    "notifications: not allowed; System Settings > Notifications turns them on"
+                );
+                self.app.term.set_notice_support(None);
+            }
+            _ => {}
+        }
+        self.app
+            .notes
+            .mac_refused(&mut self.app.term, &turn.refused);
+        // A `w` that has passed, and every few seconds the list
+        // Notification Center holds, so `p=alive` names what is still
+        // there: nothing on macOS says one closed.
+        let now = Instant::now();
+        self.app.notes.mac_expired(&mut self.app.term, now);
+        if let Some(present) = c.delivered() {
+            if let Some(asked) = self.app.delivered_asked.take() {
+                self.app
+                    .notes
+                    .mac_absent(&mut self.app.term, &present, asked);
+            }
+        }
+        let due = self.app.delivered_asked.is_none()
+            && self.app.notes.shown.any()
+            && c.allowed() == Permission::Granted
+            && self
+                .app
+                .delivered_last
+                .is_none_or(|t| now.duration_since(t) >= DELIVERED_EVERY);
+        if due {
+            self.app.delivered_asked = Some(now);
+            self.app.delivered_last = Some(now);
+            c.ask_delivered();
+        }
+        for click in c.clicks() {
+            let Some(token) = self.app.notes.shown.token(&click.id) else {
+                continue;
+            };
+            let Some(button) = crate::notify::clicked(&click.action, DEFAULT_ACTION) else {
+                continue;
+            };
+            if button.is_none() && self.app.term.notice_focuses(token) {
+                if let Some(mtm) = MainThreadMarker::new() {
+                    NSApplication::sharedApplication(mtm).activate();
+                }
+                if let Some(w) = self.view.window() {
+                    w.makeKeyAndOrderFront(None);
+                }
+            }
+            let outbox = &mut self.app.outbox;
+            crate::reads::input(
+                &mut self.app.term,
+                |t| t.notice_activated(token, button),
+                |b| outbox.push(b),
+            );
+        }
     }
 
     /// **The bell's AppKit shim**: the window as AppKit has it now -- key
@@ -10623,6 +10827,51 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
     out
 }
 
+/// How often Notification Center's list is asked for while any program's
+/// notification is shown: a dismissal is out of `p=alive` at most this
+/// late.
+const DELIVERED_EVERY: Duration = Duration::from_secs(2);
+
+/// A post as the center takes it.
+fn mac_post(p: crate::notify::MacPost) -> baud_present_macos::notify::Post {
+    use baud_present_macos::notify::{Level, Post, PostSound};
+    // The image to a file of its own the center moves into its store.
+    let image = p.image.and_then(|(bytes, ext)| {
+        let dir = std::env::temp_dir().join(format!("baud-notify-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        let path = dir.join(format!("{}.{ext}", p.id));
+        std::fs::write(&path, bytes).ok()?;
+        Some(path)
+    });
+    Post {
+        id: p.id,
+        title: p.title,
+        body: p.body,
+        sound: match p.silent {
+            crate::notify::Silence::Sound => PostSound::Default,
+            crate::notify::Silence::Silent => PostSound::Silent,
+        },
+        level: match p.passive {
+            crate::notify::Passive::Passive => Level::Passive,
+            crate::notify::Passive::Active => Level::Active,
+        },
+        buttons: p.buttons,
+        image,
+    }
+}
+
+/// The Dock tile's bar as the tile draws it.
+fn dock_bar(b: crate::notify::DockBar) -> baud_present_macos::notify::Bar {
+    use baud_present_macos::notify::{Bar, Tone};
+    Bar {
+        fraction: b.fraction,
+        tone: match b.tone {
+            crate::notify::DockTone::Normal => Tone::Normal,
+            crate::notify::DockTone::Error => Tone::Error,
+            crate::notify::DockTone::Paused => Tone::Paused,
+        },
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

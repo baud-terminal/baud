@@ -398,6 +398,7 @@ impl Activation {
     pub const NONE: Activation = Activation(0);
     pub const FOCUS: Activation = Activation(1);
     pub const REPORT: Activation = Activation(2);
+    pub const FOCUS_AND_REPORT: Activation = Activation(3);
 
     pub fn focuses(self) -> bool {
         self.0 & Activation::FOCUS.0 != 0
@@ -469,10 +470,10 @@ pub enum PayloadEncoding {
 /// kitty-notifications-py]]`). **The set takes `=` and `?` as well**,
 /// each a value the text itself writes: its `f`, `n`, `s` and `t` values
 /// are base64, which pads with `=`, and kitty's own client sends them
-/// padded (`[[source: kitten-notify-go]]`); its query is `p=?`. The set as
-/// written would refuse kitty's own tool and the text's own query (Jev's
-/// lean, 0.30 and 0.48, over holding to the set exactly and over no
-/// check). "a key
+/// padded (`[[source: kitten-notify-go]]`) -- Jev's lean, 0.30 and 0.48,
+/// over holding to the set exactly and over no check -- and its query is
+/// `p=?`. The set as written would refuse kitty's own tool and the text's
+/// own query. "a key
 /// in the metadata it does not understand ... *must* be ignored", and so
 /// is a known key's value this does not understand, the text's "best
 /// guess".

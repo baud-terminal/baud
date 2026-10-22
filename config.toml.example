@@ -283,6 +283,14 @@ trail_scroll = "ride"
 # tells every program there is no printer. Linux has no print panel yet,
 # so programs there are always told there is no printer.
 #
+# notifications: whether a program can post a desktop notification -- a
+# build or a long command saying it finished (OSC 9, OSC 777 and kitty's
+# OSC 99). "on" by default: one shows while baud's window is not focused,
+# or whenever the program asks for that, at most four at once and then one
+# a second. On macOS the first asks your permission. "off" posts none, and
+# a program asking whether baud shows notifications hears nothing back. A
+# program's progress bar, in the Dock on macOS, shows either way.
+#
 # print_colour, print_rgb, print_background, print_rotated: how a picture a
 # program prints (a ReGIS hard copy) is sent to the printer, each "off" by
 # default as on DEC's VT340. print_colour "on" prints its colours, "off"
@@ -295,6 +303,7 @@ transition = false
 checksum = "on"
 logging = "on"
 printing = "on"
+notifications = "on"
 print_colour = "off"
 print_rgb = "off"
 print_background = "off"

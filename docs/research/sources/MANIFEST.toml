@@ -31490,3 +31490,18 @@ bytes  = 2984
 status = "external"
 group  = "AX"
 # Read 2026-10-21. No header says what an unbundled process's notification center is.
+
+[sources.freedesktop-icon-naming-spec]
+key    = "freedesktop-icon-naming-spec"
+title  = "Icon Naming Specification 0.8 -- dialog-error, dialog-warning, dialog-information, dialog-question, help-browser, system-file-manager, accessories-text-editor"
+author = "the freedesktop.org contributors"
+year   = 2026
+venue  = "specifications.freedesktop.org"
+url    = "https://specifications.freedesktop.org/icon-naming/0.8/"
+file   = ""
+sha256 = "a109a28636cdc137e8279d44918cbd1862df19647ec72adf69201806c389b369"
+bytes  = 58083
+status = "external"
+group  = "AX"
+# Read for the names kitty's universal icon names map to on Linux; it has
+# none for a system monitor.

@@ -26,6 +26,16 @@
 //!   and for each "Unknown values should be treated as 0". A portal
 //!   without the last two -- they are not in every version -- reads as no
 //!   preference for them.
+//! * **Notifications** (`notify.rs`): `Notify` on
+//!   `org.freedesktop.Notifications`, "Sends a notification to the
+//!   notification server", its reply the server's id; `CloseNotification`;
+//!   `GetCapabilities` asked once, for `actions` and `body-markup`; and the
+//!   `ActionInvoked` and `NotificationClosed` signals, matched with
+//!   `AddMatch` (`[[source: freedesktop-notification-spec]]`).
+//! * **Progress**: `com.canonical.Unity.LauncherEntry`'s `Update`
+//!   signal, `progress` and `progress-visible`, and `urgent` for an
+//!   attention request, the interface docks read for a launcher
+//!   (`[[source: libunity-launcher-entry]]`).
 //! * **A reveal**: `ShowItems` of one `file:` URI on
 //!   `org.freedesktop.FileManager1`, which "is supposed to select the passed
 //!   items within their respective parent folders" (`[[source:
@@ -121,8 +131,95 @@ pub(crate) enum Heard {
     Revealed,
     /// It did not: the error's name.
     NotRevealed(String),
+    /// The notification server's capabilities: there is one.
+    Caps(crate::notify::ServerCaps),
+    /// `GetCapabilities` failed: no notification server, the error's name.
+    NoServer(String),
+    /// A notification shown, as the server's id.
+    Notified(baud_core::NoticeToken, NotifyId),
+    /// It was not: the error's name.
+    NotNotified(baud_core::NoticeToken, String),
+    /// A click on a notification, or on one of its actions: the key.
+    Invoked(NotifyId, String),
+    /// A notification closed, for any reason.
+    NotifyClosed(NotifyId),
     /// The handshake failed or the bus went away; nothing more will come.
     Closed(String),
+}
+
+/// A notification's id, as the server gave it: "The returned ID is always
+/// greater than zero".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct NotifyId(Word);
+
+/// A byte on the wire, a `y`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Octet(pub(crate) u8);
+
+/// A `b`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Truth {
+    False,
+    True,
+}
+
+/// An RGBA image, as `image-data`'s `(iiibiiay)` carries it: "width,
+/// height, rowstride, has alpha, bits per sample, channels and image
+/// data".
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct Image {
+    pub(crate) size: baud_domain::png::Size,
+    pub(crate) rgba: Vec<u8>,
+}
+
+/// A hint's value: the types the standard hints take.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Hint {
+    Byte(Octet),
+    Bool(Truth),
+    Str(String),
+    Image(Image),
+}
+
+/// One `Notify`: its arguments, in the order the method takes them.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct Notification {
+    pub(crate) app_name: String,
+    pub(crate) replaces: Option<NotifyId>,
+    pub(crate) app_icon: String,
+    pub(crate) summary: String,
+    pub(crate) body: String,
+    /// Key and label pairs, "Each even element ... the identifier ... Each
+    /// odd element ... the localized string".
+    pub(crate) actions: Vec<(String, String)>,
+    pub(crate) hints: Vec<(&'static str, Hint)>,
+    /// "If -1, the notification's expiration time is dependent on the
+    /// notification server's settings ... If 0, never expire."
+    pub(crate) expire: Expire,
+}
+
+/// `expire_timeout`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Expire {
+    Server,
+    Never,
+    After(core::time::Duration),
+}
+
+/// What a launcher shows: its progress, and whether it asks for attention.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Launcher {
+    /// "progress" from 0 to 1, shown only while `Some`.
+    pub(crate) progress: Option<f64>,
+    pub(crate) urgent: Truth,
+}
+
+impl Launcher {
+    /// No bar, no request: what a launcher shows before a program says.
+    pub(crate) const IDLE: Launcher = Launcher {
+        progress: None,
+        urgent: Truth::False,
+    };
 }
 
 /// A message's type, the header's second byte.
@@ -184,6 +281,14 @@ const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const SETTINGS: &str = "org.freedesktop.portal.Settings";
 const APPEARANCE: &str = "org.freedesktop.appearance";
+const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
+const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
+const LAUNCHER_ENTRY: &str = "com.canonical.Unity.LauncherEntry";
+/// The object a launcher's signal comes from, `launcherentry/` and a name
+/// of the sender's choosing (libunity hashes the URI), and the URI docks
+/// match to an installed desktop file: the Wayland app id's.
+const LAUNCHER_PATH: &str = "/com/canonical/unity/launcherentry/baud";
+const LAUNCHER_URI: &str = "application://org.baud.terminal.desktop";
 const FILE_MANAGER: &str = "org.freedesktop.FileManager1";
 const FILE_MANAGER_PATH: &str = "/org/freedesktop/FileManager1";
 
@@ -222,6 +327,73 @@ impl Writer {
         self.buf.push(0);
     }
 
+    /// A `y`.
+    fn octet(&mut self, v: Octet) {
+        self.buf.push(v.0);
+    }
+
+    /// A `b`, a word of 0 or 1.
+    fn truth(&mut self, t: Truth) {
+        self.word(Word(match t {
+            Truth::False => 0,
+            Truth::True => 1,
+        }));
+    }
+
+    /// A `d`, eight-aligned.
+    fn double(&mut self, v: f64) {
+        self.align(Align::EIGHT);
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+
+    /// An array: its length word, the padding to its elements' boundary,
+    /// the elements, and the length -- of the elements alone -- written.
+    fn array(&mut self, elem: Align, f: impl FnOnce(&mut Writer)) {
+        self.word(Word(0));
+        let at = self.buf.len() - 4;
+        self.align(elem);
+        let start = self.buf.len();
+        f(self);
+        let len = u32::try_from(self.buf.len() - start).unwrap_or(u32::MAX);
+        self.buf[at..at + 4].copy_from_slice(&len.to_le_bytes());
+    }
+
+    /// A dictionary of variants, `a{sv}`.
+    fn hints(&mut self, items: &[(&str, Hint)]) {
+        self.array(Align::EIGHT, |w| {
+            for (k, v) in items {
+                w.align(Align::EIGHT);
+                w.string(k);
+                match v {
+                    Hint::Byte(b) => {
+                        w.signature("y");
+                        w.octet(*b);
+                    }
+                    Hint::Bool(t) => {
+                        w.signature("b");
+                        w.truth(*t);
+                    }
+                    Hint::Str(s) => {
+                        w.signature("s");
+                        w.string(s);
+                    }
+                    Hint::Image(img) => {
+                        w.signature("(iiibiiay)");
+                        w.align(Align::EIGHT);
+                        let (width, height) = (img.size.width, img.size.height);
+                        w.word(Word(width));
+                        w.word(Word(height));
+                        w.word(Word(width.saturating_mul(4)));
+                        w.truth(Truth::True);
+                        w.word(Word(8));
+                        w.word(Word(4));
+                        w.array(Align::ONE, |w| w.buf.extend_from_slice(&img.rgba));
+                    }
+                }
+            }
+        });
+    }
+
     /// An array of strings, `as`.
     fn strings(&mut self, items: &[&str]) {
         self.word(Word(0));
@@ -251,8 +423,18 @@ struct Call<'a> {
 /// member, destination, signature -- and the body after the header's
 /// padding to eight.
 fn marshal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
+    header_and_body(METHOD_CALL, call, serial)
+}
+
+/// A signal's bytes: a call's, with no destination, "the message is a
+/// broadcast signal" (`[[source: dbus-spec]]`).
+fn marshal_signal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
+    header_and_body(SIGNAL, call, serial)
+}
+
+fn header_and_body(kind: Kind, call: &Call<'_>, serial: Serial) -> Vec<u8> {
     let mut w = Writer::default();
-    w.buf.extend_from_slice(&[b'l', METHOD_CALL.0, 0, 1]);
+    w.buf.extend_from_slice(&[b'l', kind.0, 0, 1]);
     w.word(Word(u32::try_from(call.body.len()).unwrap_or(u32::MAX)));
     w.word(serial.0);
     w.word(Word(0));
@@ -269,7 +451,9 @@ fn marshal(call: &Call<'_>, serial: Serial) -> Vec<u8> {
     field(&mut w, FIELD_PATH, "o", call.path);
     field(&mut w, FIELD_INTERFACE, "s", call.interface);
     field(&mut w, FIELD_MEMBER, "s", call.member);
-    field(&mut w, FIELD_DESTINATION, "s", call.destination);
+    if !call.destination.is_empty() {
+        field(&mut w, FIELD_DESTINATION, "s", call.destination);
+    }
     if !call.signature.is_empty() {
         field(&mut w, FIELD_SIGNATURE, "g", call.signature);
     }
@@ -593,6 +777,56 @@ fn heard_in_signal(m: &Message<'_>) -> Option<Heard> {
     }
 }
 
+/// `GetCapabilities`' `as`, as the two this reads.
+fn caps_in_reply(m: &Message<'_>) -> crate::notify::ServerCaps {
+    use crate::notify::{Caps, ServerCaps};
+    let mut caps = ServerCaps {
+        actions: Caps::Absent,
+        markup: Caps::Absent,
+    };
+    if m.signature != "as" {
+        return caps;
+    }
+    let mut r = Reader::new(m.body, m.order);
+    let Some(n) = r.len() else {
+        return caps;
+    };
+    let end = Len(r.at.0.saturating_add(n.0));
+    while r.at < end {
+        match r.string() {
+            Some("actions") => caps.actions = Caps::Listed,
+            Some("body-markup") => caps.markup = Caps::Listed,
+            Some(_) => {}
+            None => break,
+        }
+    }
+    caps
+}
+
+/// `Notify`'s `u`.
+fn id_in_reply(m: &Message<'_>) -> Option<NotifyId> {
+    if m.signature != "u" {
+        return None;
+    }
+    Reader::new(m.body, m.order).word().map(NotifyId)
+}
+
+/// `ActionInvoked(u, s)` and `NotificationClosed(u, u)` from the server.
+fn heard_from_server(m: &Message<'_>) -> Option<Heard> {
+    if m.interface != Some(NOTIFICATIONS) || m.path != Some(NOTIFICATIONS_PATH) {
+        return None;
+    }
+    let mut r = Reader::new(m.body, m.order);
+    match (m.member, m.signature) {
+        (Some("ActionInvoked"), "us") => {
+            let id = NotifyId(r.word()?);
+            Some(Heard::Invoked(id, r.string()?.to_string()))
+        }
+        (Some("NotificationClosed"), "uu") => Some(Heard::NotifyClosed(NotifyId(r.word()?))),
+        _ => None,
+    }
+}
+
 /// Where the handshake is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Auth {
@@ -609,6 +843,8 @@ enum Auth {
 enum Waiting {
     ReadAll(Serial),
     ShowItems(Serial),
+    Caps(Serial),
+    Notify(Serial, baud_core::NoticeToken),
 }
 
 /// **The protocol over bytes**: what to send, and what the bytes that came
@@ -652,6 +888,7 @@ impl Session {
             waiting: Vec::new(),
         };
         s.ask_appearance();
+        s.ask_notifications();
         s
     }
 
@@ -697,6 +934,122 @@ impl Session {
             body: names.buf,
         });
         self.waiting.push(Waiting::ReadAll(serial));
+    }
+
+    /// `AddMatch` for the notification server's two signals, then
+    /// `GetCapabilities`.
+    fn ask_notifications(&mut self) {
+        let mut rule = Writer::default();
+        rule.string(&format!(
+            "type='signal',interface='{NOTIFICATIONS}',path='{NOTIFICATIONS_PATH}'"
+        ));
+        self.call(&Call {
+            destination: "org.freedesktop.DBus",
+            path: "/org/freedesktop/DBus",
+            interface: "org.freedesktop.DBus",
+            member: "AddMatch",
+            signature: "s",
+            body: rule.buf,
+        });
+        let serial = self.call(&Call {
+            destination: NOTIFICATIONS,
+            path: NOTIFICATIONS_PATH,
+            interface: NOTIFICATIONS,
+            member: "GetCapabilities",
+            signature: "",
+            body: Vec::new(),
+        });
+        self.waiting.push(Waiting::Caps(serial));
+    }
+
+    /// **Show a notification**: `Notify`, its reply the server's id for
+    /// `token`.
+    pub(crate) fn notify(&mut self, n: &Notification, token: baud_core::NoticeToken) {
+        let mut b = Writer::default();
+        b.string(&n.app_name);
+        b.word(n.replaces.map_or(Word(0), |r| r.0));
+        b.string(&n.app_icon);
+        b.string(&n.summary);
+        b.string(&n.body);
+        let actions: Vec<&str> = n
+            .actions
+            .iter()
+            .flat_map(|(k, l)| [k.as_str(), l.as_str()])
+            .collect();
+        b.strings(&actions);
+        b.hints(&n.hints);
+        b.word(Word(match n.expire {
+            Expire::Server => u32::MAX,
+            Expire::Never => 0,
+            Expire::After(d) => u32::try_from(d.as_millis())
+                .unwrap_or(i32::MAX.unsigned_abs())
+                .min(i32::MAX.unsigned_abs()),
+        }));
+        let serial = self.call(&Call {
+            destination: NOTIFICATIONS,
+            path: NOTIFICATIONS_PATH,
+            interface: NOTIFICATIONS,
+            member: "Notify",
+            signature: "susssasa{sv}i",
+            body: b.buf,
+        });
+        self.waiting.push(Waiting::Notify(serial, token));
+    }
+
+    /// **Close one**: `CloseNotification`, whose `NotificationClosed`
+    /// follows.
+    pub(crate) fn close_notification(&mut self, id: NotifyId) {
+        let mut b = Writer::default();
+        b.word(id.0);
+        self.call(&Call {
+            destination: NOTIFICATIONS,
+            path: NOTIFICATIONS_PATH,
+            interface: NOTIFICATIONS,
+            member: "CloseNotification",
+            signature: "u",
+            body: b.buf,
+        });
+    }
+
+    /// **The launcher's progress and urgency**, as libunity's
+    /// `LauncherEntry` sends them: `Update(app_uri, properties)`.
+    pub(crate) fn launcher(&mut self, l: Launcher) {
+        let mut b = Writer::default();
+        b.string(LAUNCHER_URI);
+        b.array(Align::EIGHT, |w| {
+            w.align(Align::EIGHT);
+            w.string("progress");
+            w.signature("d");
+            w.double(l.progress.unwrap_or(0.0));
+            w.align(Align::EIGHT);
+            w.string("progress-visible");
+            w.signature("b");
+            w.truth(match l.progress {
+                Some(_) => Truth::True,
+                None => Truth::False,
+            });
+            w.align(Align::EIGHT);
+            w.string("urgent");
+            w.signature("b");
+            w.truth(l.urgent);
+        });
+        let serial = self.next_serial();
+        let bytes = marshal_signal(
+            &Call {
+                destination: "",
+                path: LAUNCHER_PATH,
+                interface: LAUNCHER_ENTRY,
+                member: "Update",
+                signature: "sa{sv}",
+                body: b.buf,
+            },
+            serial,
+        );
+        match self.auth {
+            Auth::Done => self.out.extend_from_slice(&bytes),
+            Auth::Sent => self.queued.push(bytes),
+            Auth::Failed => {}
+        }
     }
 
     /// **Ask the file manager to show `uri` selected in its folder.**
@@ -795,13 +1148,19 @@ impl Session {
     /// the appearance: a `ReadAll` reply can say three things.
     fn heard(&mut self, m: &Message<'_>) -> Vec<Heard> {
         if m.kind == SIGNAL {
-            return heard_in_signal(m).into_iter().collect();
+            return heard_in_signal(m)
+                .or_else(|| heard_from_server(m))
+                .into_iter()
+                .collect();
         }
         let Some(reply) = m.reply_serial else {
             return Vec::new();
         };
         let Some(i) = self.waiting.iter().position(|w| match w {
-            Waiting::ReadAll(s) | Waiting::ShowItems(s) => *s == reply,
+            Waiting::ReadAll(s)
+            | Waiting::ShowItems(s)
+            | Waiting::Caps(s)
+            | Waiting::Notify(s, _) => *s == reply,
         }) else {
             return Vec::new();
         };
@@ -812,6 +1171,13 @@ impl Session {
             (Waiting::ReadAll(_), _, Some(e)) => vec![Heard::NoScheme(e)],
             (Waiting::ShowItems(_), METHOD_RETURN, _) => vec![Heard::Revealed],
             (Waiting::ShowItems(_), _, Some(e)) => vec![Heard::NotRevealed(e)],
+            (Waiting::Caps(_), METHOD_RETURN, _) => vec![Heard::Caps(caps_in_reply(m))],
+            (Waiting::Caps(_), _, Some(e)) => vec![Heard::NoServer(e)],
+            (Waiting::Notify(_, token), METHOD_RETURN, _) => match id_in_reply(m) {
+                Some(id) => vec![Heard::Notified(token, id)],
+                None => vec![Heard::NotNotified(token, "a reply with no id".into())],
+            },
+            (Waiting::Notify(_, token), _, Some(e)) => vec![Heard::NotNotified(token, e)],
             _ => Vec::new(),
         }
     }
@@ -931,6 +1297,24 @@ impl Bus {
         let _ = self.flush();
     }
 
+    /// Show a notification.
+    pub(crate) fn notify(&mut self, n: &Notification, token: baud_core::NoticeToken) {
+        self.session.notify(n, token);
+        let _ = self.flush();
+    }
+
+    /// Close one.
+    pub(crate) fn close_notification(&mut self, id: NotifyId) {
+        self.session.close_notification(id);
+        let _ = self.flush();
+    }
+
+    /// The launcher's progress and urgency.
+    pub(crate) fn launcher(&mut self, l: Launcher) {
+        self.session.launcher(l);
+        let _ = self.flush();
+    }
+
     fn flush(&mut self) -> io::Result<()> {
         while !self.session.outgoing().is_empty() {
             match self.stream.write(self.session.outgoing()) {
@@ -993,6 +1377,74 @@ impl Bus {
 fn uid() -> Option<Uid> {
     use std::os::unix::fs::MetadataExt;
     std::fs::metadata("/proc/self").ok().map(|m| Uid(m.uid()))
+}
+
+/// **One notification as `Notify` takes it** (`[[source:
+/// freedesktop-notification-spec]]`): the program's application name or
+/// baud's; its first icon name as the theme names it; the text, escaped
+/// where the server reads markup; a `default` action where a click is
+/// reported, and its buttons numbered from 1; the urgency, the sound, the
+/// type as `category` and the image, decoded (`Delivery::image_data`), as
+/// `image-data`; and its expiry.
+pub(crate) fn notification(
+    p: &crate::notify::Posted,
+    replaces: Option<NotifyId>,
+    caps: crate::notify::ServerCaps,
+    image: Option<(baud_domain::png::Size, Vec<u8>)>,
+) -> Notification {
+    use crate::notify::{Caps, Sound};
+    use {Expire, Hint, Image, Octet, Truth};
+    let text = |s: &str| match caps.markup {
+        Caps::Listed => crate::notify::escape_markup(s),
+        Caps::Absent => s.to_string(),
+    };
+    let mut actions = Vec::new();
+    if p.activation.reports() {
+        actions.push(("default".to_string(), "Open".to_string()));
+    }
+    for (i, b) in p.buttons.iter().enumerate() {
+        actions.push(((i + 1).to_string(), b.clone()));
+    }
+    let mut hints: Vec<(&'static str, Hint)> = vec![(
+        "urgency",
+        Hint::Byte(Octet(match p.urgency {
+            baud_core::Urgency::Low => 0,
+            baud_core::Urgency::Normal => 1,
+            baud_core::Urgency::Critical => 2,
+        })),
+    )];
+    match &p.sound {
+        Sound::System => {}
+        Sound::Silent => hints.push(("suppress-sound", Hint::Bool(Truth::True))),
+        Sound::Named(n) => hints.push(("sound-name", Hint::Str(n.clone()))),
+    }
+    if !p.kind.is_empty() {
+        hints.push(("category", Hint::Str(p.kind.clone())));
+    }
+    if let Some((size, rgba)) = image {
+        hints.push(("image-data", Hint::Image(Image { size, rgba })));
+    }
+    Notification {
+        app_name: match p.app.is_empty() {
+            true => "baud".to_string(),
+            false => p.app.clone(),
+        },
+        replaces,
+        app_icon: p
+            .icon_names
+            .first()
+            .map(|n| crate::notify::icon_name(n).to_string())
+            .unwrap_or_default(),
+        summary: p.title.clone(),
+        body: text(&p.body),
+        actions,
+        hints,
+        expire: match p.expiry {
+            baud_core::Expiry::System => Expire::Server,
+            baud_core::Expiry::Never => Expire::Never,
+            baud_core::Expiry::After(d) => Expire::After(d),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -1064,8 +1516,21 @@ mod tests {
         let after = &out[7 + hex(HELLO).len()..];
         let add = message_len(after).unwrap().unwrap();
         assert_eq!(&after[..add.0], reply_bytes("add_match_call").as_slice());
-        let read_all = &after[add.0..];
-        assert_eq!(read_all, hex(READ_ALL.trim()).as_slice());
+        let rest = &after[add.0..];
+        let read_all = message_len(rest).unwrap().unwrap();
+        assert_eq!(&rest[..read_all.0], hex(READ_ALL.trim()).as_slice());
+        // Then the notification server's signals matched and its
+        // capabilities asked.
+        let rest = &rest[read_all.0..];
+        let add = message_len(rest).unwrap().unwrap();
+        assert_eq!(
+            &rest[..add.0],
+            reply_bytes("notify_add_match_call").as_slice()
+        );
+        assert_eq!(
+            &rest[add.0..],
+            reply_bytes("get_capabilities_call").as_slice()
+        );
 
         let mut anon = Session::new(None);
         assert_eq!(anon.outgoing(), b"\0AUTH EXTERNAL\r\n");
@@ -1288,5 +1753,269 @@ mod tests {
         drop(theirs);
         assert!(matches!(bus.pump().as_slice(), [Heard::Closed(_)]));
         assert_eq!(bus.pump(), [], "said once");
+    }
+
+    /// The notice a program's `OSC 99 ; i=a ; x` publishes, for its token.
+    fn token() -> baud_core::NoticeToken {
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut owned =
+            baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        t.set_notice_support(crate::notify::support(
+            crate::notify::Setting::On,
+            crate::notify::Platform::MacOs,
+        ));
+        let b = b"\x1b]99;i=a;x\x1b\\";
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        let tok = t.notices().next().expect("published").token;
+        tok
+    }
+
+    /// **`Notify`, `CloseNotification` and the launcher's `Update` are
+    /// dbus-next's bytes** (`[[source: freedesktop-notification-spec]]`,
+    /// `[[source: libunity-launcher-entry]]`): every hint type the driver
+    /// sends -- a byte, a boolean, a string and an image's `(iiibiiay)` --
+    /// actions in pairs, `replaces_id`, `expire_timeout` in milliseconds
+    /// and -1 for the server's. Perturbation: leave a dict entry's padding
+    /// out -- the first call differs.
+    #[test]
+    fn notifications_marshal_as_dbus_next_marshals_them() {
+        let mut s = ready();
+        let tok = token();
+        s.notify(
+            &Notification {
+                app_name: "baud".into(),
+                replaces: None,
+                app_icon: "dialog-error".into(),
+                summary: "Build".into(),
+                body: "make; make install".into(),
+                actions: vec![
+                    ("default".into(), "Open".into()),
+                    ("1".into(), "Yes".into()),
+                ],
+                hints: vec![
+                    ("urgency", Hint::Byte(Octet(2))),
+                    ("suppress-sound", Hint::Bool(Truth::True)),
+                    ("sound-name", Hint::Str("bell".into())),
+                    (
+                        "image-data",
+                        Hint::Image(Image {
+                            size: baud_domain::png::Size {
+                                width: 2,
+                                height: 1,
+                            },
+                            rgba: vec![255, 0, 0, 255, 0, 255, 0, 128],
+                        }),
+                    ),
+                ],
+                expire: Expire::After(core::time::Duration::from_millis(5000)),
+            },
+            tok,
+        );
+        assert_eq!(s.outgoing(), reply_bytes("notify_call").as_slice());
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        s.notify(
+            &Notification {
+                app_name: String::new(),
+                replaces: Some(NotifyId(Word(42))),
+                app_icon: String::new(),
+                summary: "Again".into(),
+                body: String::new(),
+                actions: Vec::new(),
+                hints: Vec::new(),
+                expire: Expire::Server,
+            },
+            tok,
+        );
+        assert_eq!(s.outgoing(), reply_bytes("notify_replace_call").as_slice());
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        s.close_notification(NotifyId(Word(42)));
+        assert_eq!(
+            s.outgoing(),
+            reply_bytes("close_notification_call").as_slice()
+        );
+        let n = s.outgoing().len();
+        s.sent(Len(n));
+        s.launcher(Launcher {
+            progress: Some(0.5),
+            urgent: Truth::False,
+        });
+        assert_eq!(s.outgoing(), reply_bytes("launcher_update").as_slice());
+    }
+
+    /// **What the server says back**: its capabilities, a notification's
+    /// id or an error, a click with its key, a close. Fixtures are
+    /// dbus-next's bytes. Perturbation: read `ActionInvoked`'s key before
+    /// its id -- the click is unheard.
+    #[test]
+    fn the_servers_answers_are_heard() {
+        use crate::notify::{Caps, ServerCaps};
+        let mut s = ready();
+        assert_eq!(
+            s.received(&reply_bytes("capabilities_reply")),
+            [Heard::Caps(ServerCaps {
+                actions: Caps::Listed,
+                markup: Caps::Listed,
+            })]
+        );
+        let mut s = ready();
+        assert_eq!(
+            s.received(&reply_bytes("capabilities_bare")),
+            [Heard::Caps(ServerCaps {
+                actions: Caps::Absent,
+                markup: Caps::Absent,
+            })]
+        );
+        let tok = token();
+        let quiet = Notification {
+            app_name: String::new(),
+            replaces: None,
+            app_icon: String::new(),
+            summary: "x".into(),
+            body: String::new(),
+            actions: Vec::new(),
+            hints: Vec::new(),
+            expire: Expire::Never,
+        };
+        s.notify(&quiet, tok);
+        assert_eq!(
+            s.received(&reply_bytes("notify_reply")),
+            [Heard::Notified(tok, NotifyId(Word(42)))]
+        );
+        let mut none = ready();
+        assert_eq!(
+            none.received(&reply_bytes("capabilities_error")),
+            [Heard::NoServer(
+                "org.freedesktop.DBus.Error.ServiceUnknown".into()
+            )]
+        );
+        let mut s = ready();
+        s.notify(&quiet, tok);
+        assert_eq!(
+            s.received(&reply_bytes("notify_error")),
+            [Heard::NotNotified(
+                tok,
+                "org.freedesktop.DBus.Error.ServiceUnknown".into()
+            )]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("action_invoked")),
+            [Heard::Invoked(NotifyId(Word(42)), "1".into())]
+        );
+        assert_eq!(
+            s.received(&reply_bytes("notification_closed")),
+            [Heard::NotifyClosed(NotifyId(Word(42)))]
+        );
+    }
+
+    /// **A notification, a close and a launcher update go out at once**
+    /// over a socket, behind nothing.
+    #[test]
+    fn notifications_go_out_without_waiting() {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let mut bus = Bus::over(ours, Some(Uid(1000))).unwrap();
+        assert_eq!(bus.pump(), []);
+        let mut sink = vec![0u8; 4096];
+        let _ = theirs.read(&mut sink).unwrap();
+        theirs.write_all(b"OK 0123\r\n").unwrap();
+        assert_eq!(bus.pump(), []);
+        let _ = theirs.read(&mut sink).unwrap();
+        bus.close_notification(NotifyId(Word(42)));
+        let n = theirs.read(&mut sink).unwrap();
+        assert_eq!(
+            &sink[..n],
+            reply_bytes("close_notification_first").as_slice()
+        );
+        bus.launcher(Launcher {
+            progress: None,
+            urgent: Truth::True,
+        });
+        let n = theirs.read(&mut sink).unwrap();
+        assert!(n > 0 && !bus.wants_write());
+        let tok = token();
+        bus.notify(
+            &Notification {
+                app_name: String::new(),
+                replaces: None,
+                app_icon: String::new(),
+                summary: "x".into(),
+                body: String::new(),
+                actions: Vec::new(),
+                hints: Vec::new(),
+                expire: Expire::Never,
+            },
+            tok,
+        );
+        assert!(theirs.read(&mut sink).unwrap() > 0);
+    }
+
+    /// **A program's notification as `Notify` takes it**: the type as the
+    /// category, the urgency, `s=silent` as `suppress-sound`, a reported
+    /// click as `default` with the buttons numbered from 1, the first icon
+    /// name as the theme names it, the body escaped for a server that
+    /// reads markup and not for one that does not, the expiry. Perturbation:
+    /// escape for every server -- the plain body differs.
+    #[test]
+    fn a_posted_notification_is_notifys_arguments() {
+        use crate::notify::{Caps, Icons, Posted, ServerCaps};
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut owned =
+            baud_core::Owned::new(&ws).with_notices(baud_core::NoticeBudget::with_icon(1024));
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        let caps = ServerCaps {
+            actions: Caps::Listed,
+            markup: Caps::Listed,
+        };
+        t.set_notice_support(crate::notify::support(
+            crate::notify::Setting::On,
+            crate::notify::Platform::Linux(caps),
+        ));
+        let b = "\x1b]99;i=n:d=0:a=report:u=2:s=c2lsZW50:n=d2Fybg==:t=YnVpbGQ=:w=2500;Done\x1b\\\x1b]99;i=n:d=0:p=body;a < b & c\x1b\\\x1b]99;i=n:p=buttons;Retry\u{2028}Log\x1b\\".as_bytes();
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        let p = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .next()
+            .expect("posted");
+        let n = notification(&p, None, caps, None);
+        assert_eq!(n.summary, "Done");
+        assert_eq!(n.body, "a &lt; b &amp; c");
+        assert_eq!(n.app_icon, "dialog-warning");
+        assert_eq!(n.app_name, "baud");
+        assert_eq!(
+            n.actions,
+            [
+                ("default".into(), "Open".into()),
+                ("1".into(), "Retry".into()),
+                ("2".into(), "Log".into())
+            ]
+        );
+        assert_eq!(
+            n.hints,
+            [
+                ("urgency", Hint::Byte(Octet(2))),
+                ("suppress-sound", Hint::Bool(Truth::True)),
+                ("category", Hint::Str("build".into())),
+            ]
+        );
+        assert_eq!(
+            n.expire,
+            Expire::After(core::time::Duration::from_millis(2500))
+        );
+        let plain = notification(&p, Some(NotifyId(Word(9))), ServerCaps::NONE, None);
+        assert_eq!(plain.body, "a < b & c");
+        assert_eq!(plain.replaces, Some(NotifyId(Word(9))));
     }
 }
