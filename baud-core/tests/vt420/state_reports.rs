@@ -676,3 +676,159 @@ fn the_saved_cursor_is_restored() {
         assert_eq!(show(&reply(t, b"\x1b[?1048$p")), "\\x1b[?1048;2$y");
     });
 }
+
+/// The index of DECCIR's `Sflag` nibble in a DECTSR's data, found rather
+/// than counted: two reports that differ only in a pending wrap, Sflag's
+/// bit 4, differ in that one nibble and nowhere else.
+fn sflag_at() -> usize {
+    let at = |program: &[u8]| {
+        support::with_corpus(|t| {
+            support::feed(t, program);
+            t.clear_reply();
+            data(&reply(t, b"\x1b[1$u")).to_vec()
+        })
+    };
+    let (plain, pending) = (at(b"\x1b[1;200H"), at(b"\x1b[1;200Hx"));
+    let n = plain.len() - 2;
+    let differ: Vec<usize> = (0..n).filter(|&i| plain[i] != pending[i]).collect();
+    assert_eq!(differ.len(), 1, "one nibble apart: {differ:?}");
+    assert_eq!(pending[differ[0]] ^ plain[differ[0]], 8, "bit 4");
+    differ[0]
+}
+
+/// What a held DECRSTS leaves: the width each held rest was fed at, the
+/// width after, and the first two cells at the cursor the report placed.
+#[derive(PartialEq, Eq, Debug)]
+struct Landed {
+    holds: Vec<Cols>,
+    cols: Cols,
+    cells: [char; 2],
+}
+
+/// `program` fed in reads cut at `cuts` to an 80-column terminal with
+/// room for 132, under `hold`; honoured, each held rest is fed once the
+/// grid has the width asked for, and a rest that holds again more than
+/// four times fails rather than looping.
+fn landed(hold: WidthHold, program: &[u8], cuts: &[usize]) -> Landed {
+    let narrow = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    let room = WinSize {
+        ws_row: 24,
+        ws_col: 132,
+    };
+    let mut s = Owned::new(&room);
+    let mut t = Term::new(s.storage(), &narrow);
+    t.set_width_hold(hold);
+    let mut holds = Vec::new();
+    let mut from = 0;
+    for &to in cuts.iter().chain(core::iter::once(&program.len())) {
+        let chunk = &program[from..to];
+        from = to;
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+        while let Some(rest) = t.take_held() {
+            assert!(holds.len() < 4, "a held rest held again: {cuts:?}");
+            let ws = WinSize {
+                ws_row: 24,
+                ws_col: t.requested_width().expect("a held read asked").ws_col(),
+            };
+            assert_eq!(t.resize(&ws), Resized::Ok, "the room is provisioned");
+            holds.push(t.geometry().0);
+            t.feed(rest.at, rest.len);
+        }
+    }
+    let row = t.row(Row::from_index(2)).expect("row 3");
+    let ch = |x: usize| {
+        row[x]
+            .content
+            .as_codepoint()
+            .and_then(|c| char::from_u32(c.value()))
+            .unwrap_or(' ')
+    };
+    Landed {
+        holds,
+        cols: t.geometry().0,
+        cells: [ch(4), ch(5)],
+    }
+}
+
+/// **A DECRSTS that asks for a page width and restores a pending single
+/// shift holds the read, and the shift waits for the held rest.** A
+/// report taken on a 132-column page, with line drawing in G2 or G3 and
+/// the cursor at row 3, column 5, is restored on an 80-column one with
+/// `SS2` or `SS3` pending in its DECCIR flags (Sflag bits 2 and 3, "SS2
+/// pending (1 if SS2 received)", `[[source: dec-std-070]]` p. 5-201).
+/// baud's own report
+/// never carries one, as a DECRQTSR is itself a control; a host may send a
+/// report baud did not make, since the checksum is the sender's. DECRSTS
+/// (p. 5-208) restores "the state encoded in the data" and gives no order;
+/// SS2 (070-3 p. 3-80) "causes the next character in the received data
+/// stream ... to be rendered according to the current contents of the G2
+/// set", and the next character is the held rest's first, which lands at
+/// the 132 columns DECSCPP asked for. Without the shift the same restore
+/// holds as well, the control; unheld the shift still applies at 80.
+#[test]
+fn a_restore_that_asks_a_width_holds_with_a_single_shift_pending() {
+    let wide = WinSize {
+        ws_row: 24,
+        ws_col: 132,
+    };
+    // A report with line drawing designated by `desig`, and the same with
+    // Sflag's `bit` set and the checksum made again.
+    let report = |desig: &[u8], bit: u8| {
+        let report = support::with_term(&wide, |t| {
+            support::feed(t, desig);
+            support::feed(t, b"\x1b[3;5H");
+            t.clear_reply();
+            reply(t, b"\x1b[1$u")
+        });
+        let mut d = data(&report).to_vec();
+        let n = d.len() - 2;
+        d[sflag_at()] |= bit;
+        let c = check(&d[..n]);
+        d[n..].copy_from_slice(&c);
+        d
+    };
+    let wrap = |d: &[u8]| [b"\x1bP1$p".as_slice(), d, b"\x1b\\qq"].concat();
+    let at_132 = vec![Cols::of_index(132)];
+    let line = '\u{2500}';
+    for (d, cells) in [
+        (report(b"\x1b*0", 0), ['q', 'q']),
+        (report(b"\x1b*0", 2), [line, 'q']),
+        (report(b"\x1b+0", 4), [line, 'q']),
+    ] {
+        let program = wrap(&d);
+        assert_eq!(
+            landed(WidthHold::Off, &program, &[]),
+            Landed {
+                holds: Vec::new(),
+                cols: Cols::of_index(80),
+                cells,
+            },
+            "the control, unheld"
+        );
+        let want = Landed {
+            holds: at_132.clone(),
+            cols: Cols::of_index(132),
+            cells,
+        };
+        assert_eq!(landed(WidthHold::On, &program, &[]), want, "whole");
+        for size in 1..=program.len() {
+            let cuts: Vec<usize> = (size..program.len()).step_by(size).collect();
+            assert_eq!(
+                landed(WidthHold::On, &program, &cuts),
+                want,
+                "read size {size}"
+            );
+        }
+        for cut in 1..program.len() {
+            assert_eq!(
+                landed(WidthHold::On, &program, &[cut]),
+                want,
+                "split at {cut}"
+            );
+        }
+    }
+}

@@ -861,7 +861,11 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         // A DECRSPS that restored a pending single shift leaves the parser
-        // where the shift is pending (`Node::SingleShift`).
+        // where the shift is pending (`Node::SingleShift`): the next
+        // character is G2's or G3's (`[[source: dec-std-070]]` 070-3 p.
+        // 3-80). **A DECRSTS that also asked for a page width holds the
+        // read**, and the shift is where the held rest goes on from, so the
+        // character it takes lands at the width asked for.
         Act::StrEnd => {
             // A ReGIS macrograph a delay stopped plays on before its string
             // ends, and the terminator is held if it stops again.
@@ -876,7 +880,10 @@ pub(crate) fn act(
             }
             p.str_end(StreamByte::from_stream(p.arena[from.index()]));
             if p.cold.restored_shift.take().is_some() {
-                *node = Node::SingleShift;
+                match *node {
+                    Node::Held => p.cold.width.resume = Node::SingleShift,
+                    _ => *node = Node::SingleShift,
+                }
             }
             ReadLen::ONE
         }
