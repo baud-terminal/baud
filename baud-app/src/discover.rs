@@ -521,7 +521,7 @@ impl Catalogue {
         let own = read_file(p);
         let named = own.iter().find(|k| k.index == index);
         let family = named.and_then(|k| k.family.clone());
-        let regular = named.and_then(|k| pick(&[k], Want::REGULAR));
+        let regular = regular_in(&own, index);
         let faces = match &family {
             Some(f) => near
                 .faces
@@ -534,6 +534,20 @@ impl Catalogue {
         };
         Beside { faces, regular }
     }
+}
+
+/// **Face `index` of the file at `path` at the axis values CSS 5.2's search
+/// gives the regular style**: for a variable face, `wght` 400 where its
+/// axis reaches it, as the face named by its family is drawn; `None` when
+/// the file has no such face. Reads that one file and nothing beside it.
+pub fn regular_of(path: &str, index: FaceIndex) -> Option<Picked> {
+    regular_in(&read_file(Path::new(path)), index)
+}
+
+/// Face `index` of `faces`, one file's, picked for the regular style.
+fn regular_in(faces: &[Known], index: FaceIndex) -> Option<Picked> {
+    let k = faces.iter().find(|k| k.index == index)?;
+    pick(&[k], Want::REGULAR)
 }
 
 /// The faces of a font named by path's family ([`Catalogue::beside`]).

@@ -803,7 +803,7 @@ impl Config {
                 crate::warn!("{said}");
             }
             if let Some(dir) = path.parent() {
-                c.faces_beside(dir);
+                c.faces_beside(dir, absolute_dir(std::env::var_os("HOME")).as_deref());
             }
             c.source = Some(path);
         }
@@ -877,6 +877,10 @@ impl Config {
                                 variations: f.variations.clone(),
                             };
                             styled = Some(styles_of(&beside.faces(), &regular));
+                        } else if let Some(p) = crate::discover::regular_of(&f.path, f.index) {
+                            // A later font, or one of the defaults: drawn at
+                            // the regular style's axis values all the same.
+                            f.variations = p.variations;
                         }
                         found = Found::Some;
                         kept.push(f);
@@ -920,16 +924,30 @@ impl Config {
     /// **A relative font path names a file beside the config**, in `dir`,
     /// the directory the config file is in -- the owner's call of
     /// 2026-10-13 -- and not under the directory baud was started in, which
-    /// from the Dock is `/`. An absolute path and a compiled-in face are
+    /// from the Dock is `/`. **One that starts `~/` names a file in `home`**,
+    /// the home folder, as a theme path does ([`crate::palette::candidates`])
+    /// and as ghostty expands one (`[[source: ghostty-d9840f3-path-zig]]`:
+    /// "We explicitly look for \"~/\" because we don't support alternate
+    /// users such as \"~alice/\""), so `~user/` is relative like any other
+    /// name; with no home folder it is kept as written, and the launch
+    /// says it is not a file. An absolute path and a compiled-in face are
     /// kept. The `@N` of a collection was split off when the value was
     /// read, so only the path is joined. A path that `dir` would make
     /// unreadable as UTF-8 is kept as written.
-    fn faces_beside(&mut self, dir: &std::path::Path) {
+    fn faces_beside(&mut self, dir: &std::path::Path, home: Option<&std::path::Path>) {
         for f in &mut self.faces {
-            if f.from == FaceFrom::File && std::path::Path::new(&f.path).is_relative() {
-                if let Some(joined) = dir.join(&f.path).to_str() {
-                    f.path = joined.to_string();
-                }
+            if f.from != FaceFrom::File || !std::path::Path::new(&f.path).is_relative() {
+                continue;
+            }
+            let joined = match f.path.strip_prefix("~/") {
+                Some(rest) => match home {
+                    Some(h) => h.join(rest),
+                    None => continue,
+                },
+                None => dir.join(&f.path),
+            };
+            if let Some(joined) = joined.to_str() {
+                f.path = joined.to_string();
             }
         }
     }
@@ -2125,7 +2143,7 @@ mod named {
     #[test]
     fn a_family_name_is_not_read_beside_the_config() {
         let mut c = read("fonts = [\"Menlo\", \"fonts/Mine.ttf\"]\n");
-        c.faces_beside(std::path::Path::new("/cfg"));
+        c.faces_beside(std::path::Path::new("/cfg"), None);
         assert_eq!(c.faces[0].path, "Menlo");
         assert_eq!(c.faces[1].path, "/cfg/fonts/Mine.ttf");
     }
@@ -2417,6 +2435,38 @@ mod named {
                 ]
             );
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// **A later variable font named by path is drawn at the weight
+    /// searched, as the first is**: FiraCode-VF.ttf behind JetBrains Mono
+    /// draws at `wght` 400, not at its `fvar` default of 300, and brings
+    /// no styled faces -- only the first font found does.
+    #[test]
+    fn a_later_variable_font_named_by_path_is_drawn_at_the_weight_searched() {
+        let wght = baud_font::Tag::from_bytes(*b"wght");
+        let dir = std::env::temp_dir().join(format!("baud-b145-firavf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vf = dir.join("FiraCode-VF.ttf");
+        std::fs::copy(format!("{ROOT}/baud-font/tests/fonts/FiraCode-VF.ttf"), &vf).unwrap();
+        let jb = format!("{ROOT}/baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf");
+        let mut c = read(&format!("fonts = [\"{jb}\", \"{}\"]\n", vf.display()));
+        assert!(c.resolve(&Catalogue::scan(&[])).is_empty());
+        assert!(c.faces[1].path.ends_with("FiraCode-VF.ttf"));
+        let at: Vec<f32> = c.faces[1]
+            .variations
+            .iter()
+            .filter(|v| v.tag == wght)
+            .map(|v| v.value.to_f32())
+            .collect();
+        assert_eq!(at, [400.0], "{:?}", c.faces[1].variations);
+        assert!(c.faces[0].variations.is_empty(), "a static face");
+        assert!(
+            styles(&c).iter().all(|s| s.1.starts_with("JetBrainsMono-")),
+            "{:?}",
+            styles(&c)
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -4333,6 +4383,49 @@ mod lookup {
         );
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(launch);
+    }
+
+    /// **`~/` at the start of a font path is the home folder**, from
+    /// `HOME`, as a theme path's is and as ghostty expands it: only `~/`,
+    /// so `~user/` is a relative path like any other and is read beside
+    /// the config. With `HOME` empty there is no home folder, and the path
+    /// is kept as written for the launch to say it is not a file.
+    #[test]
+    fn a_font_path_under_home_expands_its_tilde() {
+        let dir = scratch("tilde");
+        let home = scratch("tilde-home");
+        let named = dir.join("config.toml");
+        write(
+            &named,
+            "fonts = [\"~/fonts/m.ttf@2\", \"~user/x.ttf\"]\nfont_fallback = false\n",
+        );
+        let faces = |got: &[String]| -> Vec<String> {
+            got.iter()
+                .filter(|l| l.starts_with("FACE["))
+                .cloned()
+                .collect()
+        };
+        let got = load_in(&dir, &home, &[("BAUD_CONFIG", named.as_os_str())]);
+        assert_eq!(
+            faces(&got),
+            [
+                format!("FACE[{}@FaceIndex(2)]", home.join("fonts/m.ttf").display()),
+                format!("FACE[{}@FaceIndex(0)]", dir.join("~user/x.ttf").display()),
+            ],
+            "{got:?}"
+        );
+        let got = load_in(
+            &dir,
+            &home,
+            &[("BAUD_CONFIG", named.as_os_str()), ("HOME", OsStr::new(""))],
+        );
+        assert_eq!(
+            faces(&got)[0],
+            "FACE[~/fonts/m.ttf@FaceIndex(2)]",
+            "{got:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(home);
     }
 }
 

@@ -31922,3 +31922,32 @@ bytes  = 34651
 status = "external"
 group  = "AZ"
 # Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
+
+# Read 2026-10-22 (lane b145): how a terminal expands `~` in a path from
+# its config. ghostty expands only a leading `~/`, from HOME, else the
+# system's record of the user's home.
+[sources.ghostty-d9840f3-path-zig]
+key    = "ghostty-d9840f3-path-zig"
+title  = "ghostty d9840f3, config/path.zig -- a config path's leading '~/' expanded to the home directory: 'We explicitly look for \"~/\" because we don't support alternate users such as \"~alice/\"'; a relative path made absolute against its base"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/path.zig"
+file   = ""
+sha256 = "7b3138d29a4855745149c82c821885f256c31643fb31d78d69374e872b27a691"
+bytes  = 18189
+status = "external"
+group  = "J"
+
+[sources.ghostty-d9840f3-homedir-zig]
+key    = "ghostty-d9840f3-homedir-zig"
+title  = "ghostty d9840f3, os/homedir.zig -- the home directory: HOME first, then on macOS NSFileManager's homeDirectoryForCurrentUser, elsewhere the passwd entry; expandHome replaces only a leading '~/'"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/os/homedir.zig"
+file   = ""
+sha256 = "aa52fd016b51023ea430e92ce2b87eb7c39866e8b9b1e6283ebff65f9216819d"
+bytes  = 6824
+status = "external"
+group  = "J"
