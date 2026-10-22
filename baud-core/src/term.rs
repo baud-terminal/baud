@@ -941,10 +941,13 @@ pub struct Cold {
     /// pairs**, indexed by [`DynamicColor::index`] (foreground, background,
     /// cursor, highlight background and foreground). `defaults` is what the
     /// embedder's theme says the foreground and background are, pushed in
-    /// through [`Term::set_default_colors`]; the cursor and the selection
-    /// have no embedder default because the renderer draws them
-    /// reverse-video until an application sets one. `dynamic` is an
-    /// application's override from `OSC 10`/`11`/`12`, `DEFAULT` meaning none.
+    /// through [`Term::set_default_colors`] or [`Term::set_theme`], and the
+    /// selection's colours a theme configures, through [`Term::set_theme`],
+    /// `DEFAULT` where it configures none and the selection is reverse
+    /// video; the cursor has no embedder default because the renderer draws
+    /// it reverse-video until an application sets one. `dynamic` is an
+    /// application's override from `OSC 10`/`11`/`12`/`17`/`19`, `DEFAULT`
+    /// meaning none.
     /// A query answers the override if there is one, else the default if the
     /// embedder supplied one, else nothing -- the same rule `OSC 4` answers by,
     /// whose embedder table sits in `StrBuf`'s palette slice; naming a colour
@@ -1413,9 +1416,10 @@ pub(crate) enum Guards {
     Marked,
 }
 
-/// The colours a selection is drawn in, [`Term::highlight_colors`]: the
-/// page, `OSC 17`'s, and the text, `OSC 19`'s, each `None` where no
-/// application set it.
+/// The selection's colours an application set, [`Term::highlight_colors`]:
+/// the page, `OSC 17`'s, and the text, `OSC 19`'s, each `None` where no
+/// application set it -- and then the embedder's configured colour is
+/// drawn, or reverse video where it configures none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SelectionColors {
     pub bg: Option<(u8, u8, u8)>,
@@ -1450,19 +1454,25 @@ impl Cold {
     /// is the other one ([`Video::role`]; note V, V17). The one spelling of
     /// it, so `CSI ? 996 n` and the `OSC 11` query cannot disagree.
     ///
-    /// **A selection colour nobody set answers what a selection is drawn
-    /// in**, reverse video: the text shown is its page (`OSC 17`) and the
-    /// page shown its text (`OSC 19`), as a default xterm answers, its
-    /// `highlightColor` defaulting to the resource its text foreground does
-    /// (Jev, 0.90 both orders).
+    /// **A selection colour no application set answers what a selection is
+    /// drawn in**: the embedder's configured colour, the resource value
+    /// xterm's `ResetColorsRequest` puts back (`[[source: xterm-misc]]`
+    /// 3718-3750), and with none configured reverse video: the text shown
+    /// is its page (`OSC 17`) and the page shown its text (`OSC 19`), as a
+    /// default xterm answers, its `highlightColor` defaulting to the
+    /// resource its text foreground does (Jev, 0.90 both orders).
     pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
         let slot = self.video().role(which).index();
         let w = self.dynamic[slot];
+        let configured = self.defaults[slot];
         match which {
             _ if !w.is_default() => w,
+            DynamicColor::HighlightBg | DynamicColor::HighlightFg if !configured.is_default() => {
+                configured
+            }
             DynamicColor::HighlightBg => self.shown(DynamicColor::Foreground),
             DynamicColor::HighlightFg => self.shown(DynamicColor::Background),
-            _ => self.defaults[slot],
+            _ => configured,
         }
     }
 
@@ -1759,16 +1769,20 @@ impl Cold {
 
 /// The embedder's colours, handed over whole by [`Term::set_theme`]: the
 /// default foreground and background (what `OSC 10`/`11 ; ?` answer when no
-/// application overrode them) and the 256-entry table (what `OSC 4 ; c ; ?`
-/// answers).
+/// application overrode them), the 256-entry table (what `OSC 4 ; c ; ?`
+/// answers) and the selection's configured page and text (what `OSC 17`/`19
+/// ; ?` answer and `OSC 117`/`119` reset to), `None` where the theme
+/// configures none and the selection is reverse video.
 pub struct ThemeColors<'a> {
     pub fg: (u8, u8, u8),
     pub bg: (u8, u8, u8),
     pub palette: &'a [(u8, u8, u8); 256],
+    pub selection: Option<(u8, u8, u8)>,
+    pub selection_text: Option<(u8, u8, u8)>,
 }
 
-/// Whether [`Term::set_theme`] drops the application's `OSC 4`/`10`/`11`/`12`
-/// overrides with it. `Drop` is an OS light/dark flip under `theme = "auto"`;
+/// Whether [`Term::set_theme`] drops the application's
+/// `OSC 4`/`10`/`11`/`12`/`17`/`19` overrides with it. `Drop` is an OS light/dark flip under `theme = "auto"`;
 /// `Keep` is everything else, launch included.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overrides {
@@ -5400,8 +5414,10 @@ impl<'b> Term<'b> {
         self.cold.dynamic[which.index()].as_rgb()
     }
 
-    /// The colours a selection is drawn in: `OSC 17`'s and `OSC 19`'s where
-    /// an application set them, `None` for reverse video.
+    /// The selection's colours an application set: `OSC 17`'s and `OSC
+    /// 19`'s, `None` where it set none. The embedder draws its own configured
+    /// colour under a `None`, as it does its theme's under an unset `OSC 10`,
+    /// and reverse video where it configures none.
     pub fn highlight_colors(&self) -> SelectionColors {
         SelectionColors {
             bg: self.dynamic_color(DynamicColor::HighlightBg),
@@ -5454,6 +5470,19 @@ impl<'b> Term<'b> {
         self.cold.defaults[DynamicColor::Background.index()] = word(bg);
     }
 
+    /// The selection's configured colours, `DEFAULT` for one the theme does
+    /// not configure. Read only by the `OSC 17`/`19` query: the embedder
+    /// draws the selection from its own copy, as it does the defaults.
+    fn write_selection(&mut self, bg: Option<(u8, u8, u8)>, fg: Option<(u8, u8, u8)>) {
+        let word = |c: Option<(u8, u8, u8)>| {
+            c.map_or(ColorWord::DEFAULT, |(r, g, b)| {
+                ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+            })
+        };
+        self.cold.defaults[DynamicColor::HighlightBg.index()] = word(bg);
+        self.cold.defaults[DynamicColor::HighlightFg.index()] = word(fg);
+    }
+
     /// Run an embedder change and send **at most one** `CSI ? 997 ; 1|2 n`:
     /// the class of what `OSC 10`/`11` answer is taken before and after the
     /// whole change, and a report is queued only when `?2031` is set and the
@@ -5477,13 +5506,15 @@ impl<'b> Term<'b> {
     }
 
     /// The embedder's whole colour change in one call: the default foreground
-    /// and background, the 256-entry table, and whether the application's
-    /// `OSC 4`/`10`/`11`/`12` overrides are dropped with it -- which is what an
+    /// and background, the 256-entry table, the selection's configured
+    /// colours, and whether the application's `OSC 4`/`10`/`11`/`12`/`17`/`19`
+    /// overrides are dropped with it -- which is what an
     /// OS light/dark flip does under `theme = "auto"` (note Y, decision 5).
     /// **One call, one report at most**; see [`Term::reporting_scheme`].
     pub fn set_theme(&mut self, theme: &ThemeColors<'_>, overrides: Overrides) {
         self.reporting_scheme(|t| {
             t.write_defaults(theme.fg, theme.bg);
+            t.write_selection(theme.selection, theme.selection_text);
             t.set_default_palette(theme.palette);
             if overrides == Overrides::Drop {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);

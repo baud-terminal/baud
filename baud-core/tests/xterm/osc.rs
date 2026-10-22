@@ -1267,6 +1267,112 @@ fn a_highlight_query_answers_the_colour_the_selection_is_drawn_in() {
     assert!(reply.is_empty(), "a core never told its colours is silent");
 }
 
+const TABLE: [Rgb; 256] = [(0, 0, 0); 256];
+
+/// A theme whose selection is `page` and `text`.
+fn theme_with(page: Option<Rgb>, text: Option<Rgb>) -> ThemeColors<'static> {
+    ThemeColors {
+        fg: (0xe0, 0xe0, 0xe0),
+        bg: (0x11, 0x11, 0x11),
+        palette: &TABLE,
+        selection: page,
+        selection_text: text,
+    }
+}
+
+fn drain(t: &mut Term<'_>) -> Vec<u8> {
+    let r = t.reply().to_vec();
+    t.clear_reply();
+    r
+}
+
+/// **A theme's selection colours are what a query answers and what a reset
+/// puts back.** `[[source: ctlseqs]]`: the reset controls use "their
+/// default (resource) values", `highlightColor` and `highlightTextColor`,
+/// and xterm's `ResetColorsRequest` allocates `Tcolors[ndx].resource`
+/// again (`[[source: xterm-misc]]` 3718-3750). An application's colour
+/// wins while it is set; the theme's is not an application's, so
+/// `Term::highlight_colors` stays `None` under it.
+#[test]
+fn a_configured_selection_colour_answers_and_is_what_117_and_119_restore() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let page = (0x3f, 0x63, 0x8b);
+    t.set_theme(
+        &theme_with(Some(page), Some((0xff, 0xff, 0xff))),
+        Overrides::Keep,
+    );
+    support::feed(&mut t, b"\x1b]17;?\x07\x1b]19;?\x07");
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:3f3f/6363/8b8b\x07\x1b]19;rgb:ffff/ffff/ffff\x07"[..]
+    );
+    assert_eq!(
+        t.highlight_colors(),
+        colors(None, None),
+        "no application set one"
+    );
+    support::feed(
+        &mut t,
+        b"\x1b]17;#2f5f9f\x07\x1b]19;gold\x07\x1b]17;?;;?\x07",
+    );
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:2f2f/5f5f/9f9f\x07\x1b]19;rgb:ffff/d7d7/0000\x07"[..],
+        "the application's colours win"
+    );
+    support::feed(
+        &mut t,
+        b"\x1b]117\x07\x1b]119\x07\x1b]17;?\x07\x1b]19;?\x07",
+    );
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:3f3f/6363/8b8b\x07\x1b]19;rgb:ffff/ffff/ffff\x07"[..],
+        "a reset restores the theme's, not reverse video"
+    );
+    assert_eq!(t.highlight_colors(), colors(None, None));
+    // A theme with a page and no text: 19 answers as before, the page
+    // shown, which a reverse-video selection's text is.
+    t.set_theme(&theme_with(Some(page), None), Overrides::Keep);
+    support::feed(&mut t, b"\x1b]17;?\x07\x1b]19;?\x07");
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:3f3f/6363/8b8b\x07\x1b]19;rgb:1111/1111/1111\x07"[..]
+    );
+    // And a theme with none puts reverse video back.
+    t.set_theme(&theme_with(None, None), Overrides::Keep);
+    support::feed(&mut t, b"\x1b]17;?\x07");
+    assert_eq!(drain(&mut t), &b"\x1b]17;rgb:e0e0/e0e0/e0e0\x07"[..]);
+}
+
+/// **`RIS` keeps the selection's colours, the application's and the
+/// theme's**, as xterm's `ReallyReset` leaves every dynamic colour
+/// (`[[source: xterm-reset]]`); a light/dark flip that drops the
+/// application's colours keeps the theme's new one.
+#[test]
+fn ris_and_a_theme_flip_keep_the_configured_selection() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    t.set_theme(&theme_with(Some((1, 2, 3)), None), Overrides::Keep);
+    support::feed(
+        &mut t,
+        b"\x1b]19;#405060\x07\x1bc\x1b]17;?\x07\x1b]19;?\x07",
+    );
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:0101/0202/0303\x07\x1b]19;rgb:4040/5050/6060\x07"[..]
+    );
+    t.set_theme(&theme_with(Some((7, 8, 9)), None), Overrides::Drop);
+    support::feed(&mut t, b"\x1b]17;?\x07\x1b]19;?\x07");
+    assert_eq!(
+        drain(&mut t),
+        &b"\x1b]17;rgb:0707/0808/0909\x07\x1b]19;rgb:1111/1111/1111\x07"[..]
+    );
+    assert_eq!(t.highlight_colors(), colors(None, None));
+}
+
 /// The same bytes at every read size produce the same colours and the same
 /// reply: an `OSC` spans reads, and the value must not depend on where they
 /// fell. The core's own chunk-invariance sweep does not reach this, because

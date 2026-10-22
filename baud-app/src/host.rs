@@ -470,6 +470,8 @@ pub fn tell_defaults(
             fg: rgb(theme.fg),
             bg: rgb(theme.bg),
             palette: &palette,
+            selection: None,
+            selection_text: None,
         },
         overrides,
     );
