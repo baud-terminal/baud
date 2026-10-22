@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 307 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 308 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 300 | 27 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 848 | 38 | |
+| total | 849 | 38 | |
 
 ## Licence texts in LICENSES/
 
@@ -405,7 +405,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 136
+- **Files:** 137
 
 | file | copied from |
 |---|---|
@@ -484,6 +484,7 @@ notice is, and the URL each file was copied from.
 | [apple-nsbeep.json](docs/research/sources/apple-nsbeep.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json |
 | [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
 | [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
+| [apple-nspasteboard-name-find.json](docs/research/sources/apple-nspasteboard-name-find.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/name-swift.struct/find.json |
 | [apple-nsprinter-printernames.json](docs/research/sources/apple-nsprinter-printernames.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter/printernames.json |
 | [apple-nsprinter.json](docs/research/sources/apple-nsprinter.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprinter.json |
 | [apple-nsprintoperation-run.json](docs/research/sources/apple-nsprintoperation-run.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/run().json |

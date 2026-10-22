@@ -454,6 +454,7 @@ files   = [
   "apple-nsbeep.json",
   "apple-nsevent-timestamp.json",
   "apple-nsevent.json",
+  "apple-nspasteboard-name-find.json",
   "apple-nsprinter-printernames.json",
   "apple-nsprinter.json",
   "apple-nsprintoperation-run.json",

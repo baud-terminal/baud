@@ -127,6 +127,19 @@ pub fn cursor_cell(term: &Term<'_>, w: Px, h: Px) -> [Px; 4] {
     [at(c.index(), w), at(r.index(), h), w, h]
 }
 
+/// **The find field's caret cell**, as [`cursor_cell`] gives the cursor's:
+/// where the candidate window opens while the field takes the keys.
+pub fn field_cell(field: &baud_render::Field, w: Px, h: Px) -> [Px; 4] {
+    let at = |i: usize, size: Px| {
+        Px::of(
+            u32::try_from(i)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(size.value()),
+        )
+    };
+    [at(field.caret.index(), w), at(field.row.index(), h), w, h]
+}
+
 /// **Where the Linux input method's candidate window is asked to open**,
 /// as `[x, y, width, height]` in pixels from the grid's top-left corner:
 /// "an area around the cursor" (`[[source: wp-text-input-unstable-v3]]`),
@@ -317,7 +330,9 @@ mod tests {
 
     /// **Both drivers draw through this**: the macOS driver's frame and
     /// its `marked_text`, and the Linux driver's frame and its preedit
-    /// event, so a composition looks the same on both.
+    /// event, so a composition looks the same on both -- and the Linux
+    /// driver hands the input method's hints to the find field too, so a
+    /// composition there is drawn in them as at the cursor.
     #[test]
     fn both_drivers_draw_the_composition_through_this_rule() {
         let app = include_str!("app.rs");
@@ -347,6 +362,14 @@ mod tests {
         assert!(
             linux.contains("set_text_cursor("),
             "linux.rs sends the cursor"
+        );
+        let field = linux
+            .split_once("f.look_typing(")
+            .and_then(|(_, rest)| rest.split_once("self.composing_caret"))
+            .map(|(args, _)| args);
+        assert!(
+            field.is_some_and(|a| a.contains("&self.composing_hints")),
+            "linux.rs draws the field's composition in its hints: {field:?}"
         );
     }
 }

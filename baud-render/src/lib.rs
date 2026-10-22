@@ -73,7 +73,7 @@ pub use color::{
     light_palette, xterm_palette,
 };
 pub use composite::{Blend, Blit, Page, Target, Texels};
-pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position};
+pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};

@@ -1900,6 +1900,8 @@ impl Paint<'_, '_> {
     /// **A selection on a saved line goes**, as one on a row a selective
     /// erase wipes does: the lines are tested against the watch on a
     /// selection's lines while the primary is up, whose history they are.
+    /// The wipe is counted for an embedder that keeps what it read of the
+    /// history ([`crate::Term::history_wipes`]).
     pub(crate) fn selective_erase_saved_lines(&mut self) {
         if self.on_status() {
             self.on_main(|p| p.selective_erase_saved_lines());
@@ -1908,6 +1910,7 @@ impl Paint<'_, '_> {
         let hist = self.book.hist;
         let n = self.on_primary(|v| v.selective_wipe_behind(hist));
         self.cells = self.cells.plus(n);
+        self.cold.history_wipes = self.cold.history_wipes.next();
         if self.cold.screen == Screen::Normal && hist.index() > 0 {
             let (from, to) = (
                 SurfaceLine::Above(hist),

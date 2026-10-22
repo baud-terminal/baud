@@ -30852,6 +30852,21 @@ bytes  = 66400
 status = "retrieved"
 group  = "AK"
 
+[sources.apple-nspasteboard-name-find]
+key    = "apple-nspasteboard-name-find"
+title  = "AppKit, NSPasteboard.Name.find -- 'The pasteboard that holds information about the current state of the active application's find panel' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nspasteboard/name-swift.struct/find.json"
+file   = "apple-nspasteboard-name-find.json"
+sha256 = "3140a8f4149a4153091557d0f361df3c12ac5f741149a28c6e067e3979f67f4c"
+bytes  = 14296
+status = "retrieved"
+group  = "AK"
+# Fetched 2026-10-21 (lane b143): where Command-G with the find field closed
+# takes its string. Its value, "Apple CFPasteboard find", read from the SDK.
+
 [sources.apple-hig-the-menu-bar]
 key    = "apple-hig-the-menu-bar"
 title  = "Human Interface Guidelines, The menu bar -- the Edit menu's Find submenu: Find, Find and Replace, Find Next, Find Previous, Use Selection for Find, Jump to Selection (documentation JSON)"
@@ -30951,7 +30966,7 @@ group  = "Y"
 
 [sources.iterm2-finddriver-654bb13]
 key    = "iterm2-finddriver-654bb13"
-title  = "iTerm2 654bb13, iTermFindDriver.m -- smart case the default mode when none is saved; Enter searches next and Shift-Enter previous"
+title  = "iTerm2 654bb13, iTermFindDriver.m -- smart case the default mode when none is saved; Enter searches next and Shift-Enter previous; a typed query copied into NSPasteboardNameFind (480-496), and Find Next with no field open searching its string (589-594, 649-668)"
 author = "George Nachman and the iTerm2 contributors"
 year   = 2026
 venue  = "iTerm2 terminal emulator (GPL-2.0)"

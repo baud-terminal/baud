@@ -2218,6 +2218,37 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&find_a, &plain) > 0,
         "the find reached the pixels"
     );
+    // **An input method composing in the field**, the query selected: the
+    // composition after it in its hints, an underlined prediction on the
+    // first and none on the second, the query in the grid's colours, the
+    // caret at the composition's cursor -- both arms alike, and a change
+    // to the field's pixels.
+    let kana: Vec<_> = "かな"
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    arms.find = Some(baud_render::FindLook {
+        marks: find.marks(&t, arms.back),
+        field: find.field_typing(
+            t.geometry().0,
+            baud_render::Typing {
+                query: baud_render::Query::Selected,
+                composing: &kana,
+                hints: &[baud_render::Hints::WHOLE.with(baud_render::Hints::PREDICTION)],
+                caret: baud_render::Caret::At(1),
+            },
+        ),
+    });
+    let (typing_a, typing_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&typing_a, &typing_b),
+        0,
+        "the arms disagree over the composition in the field"
+    );
+    assert!(
+        differing(&typing_a, &find_a) > 0,
+        "the composition reached the field's pixels"
+    );
     arms.find = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the

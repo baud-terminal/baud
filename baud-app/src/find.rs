@@ -18,10 +18,24 @@
 //! **The current match is the selection**, as a macOS find selects what it
 //! found, so Command-C (or Ctrl+Shift+C) copies it; every other match is
 //! washed in yellow (`Renderer::set_find`).
+//!
+//! **The last search is the find pasteboard's** on macOS, "The pasteboard
+//! that holds information about the current state of the active
+//! application's find panel" (`[[source: apple-nspasteboard-name-find]]`):
+//! the query goes there as it changes, and Command-F, Command-G or
+//! Shift-Command-G with the field closed reopen it on that string,
+//! selected so a key typed replaces it, and step from the match current
+//! when it closed (`Finding::reopen`), as iTerm2's Find Next with no
+//! field open searches it (`[[source: iterm2-finddriver-654bb13]]`
+//! 589-594, 649-668; Jev, 0.90 and 0.90). **An input method composes in
+//! the field** while it is open, at its caret ([`Finding::look_typing`]),
+//! and its candidate window opens there.
 
 use baud_core::{Found, Term};
 use baud_domain::{Codepoint, KeyCode, Modifiers, Rows};
-use baud_render::{Find, FindLook, Grain, Point, Scrolled, Selection, Span};
+use baud_render::{
+    Caret, Field, Find, FindLook, Grain, Hints, Point, Query, Scrolled, Selection, Span, Typing,
+};
 
 /// What a chord does to the find field.
 #[cfg(any(target_os = "macos", test))]
@@ -89,10 +103,21 @@ pub(crate) fn field_key(code: KeyCode, mods: Modifiers, text: Option<Codepoint>)
     }
 }
 
-/// **The open field**: the find, and nothing else -- closing it drops it.
+/// **The open field**: the find, and whether its query is selected --
+/// closing it drops both, and leaves [`Left`].
 #[derive(Clone, Debug)]
 pub(crate) struct Finding {
     find: Find,
+    query: Query,
+}
+
+/// **What a closed field leaves**: its query and the match current when
+/// it closed, which a field reopened on the same query starts from.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Debug)]
+pub(crate) struct Left {
+    query: Vec<Codepoint>,
+    current: Option<Found>,
 }
 
 impl Finding {
@@ -100,7 +125,49 @@ impl Finding {
     pub(crate) fn open(term: &Term<'_>, query: Vec<Codepoint>) -> Finding {
         let mut find = Find::new();
         find.set_query(term, query, term.window_back());
-        Finding { find }
+        Finding {
+            find,
+            query: Query::Typed,
+        }
+    }
+
+    /// **The field reopened on `query`**, the find pasteboard's string --
+    /// "The pasteboard that holds information about the current state of
+    /// the active application's find panel" (`[[source:
+    /// apple-nspasteboard-name-find]]`) -- selected, so the next key typed
+    /// replaces it; and `chord` stepped from the match current when it
+    /// closed, where `left` closed on the same query and the match is
+    /// still there. Otherwise the search is a new one, and its current
+    /// match the newest the reader can have seen, as a typed query's is,
+    /// unstepped.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn reopen(
+        term: &Term<'_>,
+        query: Vec<Codepoint>,
+        left: Option<&Left>,
+        chord: Chord,
+    ) -> Finding {
+        let mut f = Finding::open(term, query);
+        if !f.find.query().is_empty() {
+            f.query = Query::Selected;
+        }
+        let resumed = left
+            .filter(|l| l.query == f.find.query())
+            .and_then(|l| l.current)
+            .is_some_and(|m| f.find.select(m));
+        if resumed {
+            f.chord(chord);
+        }
+        f
+    }
+
+    /// What the field leaves when it closes.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn left(&self) -> Left {
+        Left {
+            query: self.find.query().to_vec(),
+            current: self.find.current(),
+        }
     }
 
     pub(crate) fn find(&self) -> &Find {
@@ -110,11 +177,16 @@ impl Finding {
     /// **A key in the field**: the query edited and read again, or the
     /// current match stepped; `Closed` when it closed.
     pub(crate) fn key(&mut self, term: &Term<'_>, key: FieldKey) -> Open {
-        let mut query = self.find.query().to_vec();
+        let mut query = self.edited();
         match key {
             FieldKey::Close => return Open::Closed,
             FieldKey::Next => self.find.next(),
             FieldKey::Previous => self.find.previous(),
+            // A selected query is deleted whole.
+            FieldKey::Delete if self.query == Query::Selected => {
+                self.query = Query::Typed;
+                self.find.set_query(term, Vec::new(), term.window_back());
+            }
             FieldKey::Delete => {
                 // Back over the marks, then the character they follow.
                 while query.last().is_some_and(|&c| zero_width(c)) {
@@ -124,6 +196,7 @@ impl Finding {
                 self.find.set_query(term, query, term.window_back());
             }
             FieldKey::Type(c) => {
+                self.query = Query::Typed;
                 query.push(c);
                 self.find.set_query(term, query, term.window_back());
             }
@@ -132,9 +205,19 @@ impl Finding {
         Open::Open
     }
 
-    /// Characters a driver's input method committed, added to the query.
+    /// The query a key typed adds to: none while it is selected.
+    fn edited(&self) -> Vec<Codepoint> {
+        match self.query {
+            Query::Selected => Vec::new(),
+            Query::Typed => self.find.query().to_vec(),
+        }
+    }
+
+    /// Characters a driver's input method committed, or a paste, added to
+    /// the query -- in place of it while it is selected.
     pub(crate) fn typed(&mut self, term: &Term<'_>, text: &[Codepoint]) {
-        let mut query = self.find.query().to_vec();
+        let mut query = self.edited();
+        self.query = Query::Typed;
         query.extend_from_slice(text);
         self.find.set_query(term, query, term.window_back());
     }
@@ -186,11 +269,48 @@ impl Finding {
     }
 
     /// What the frame draws of it, on the window `back` lines up.
+    #[cfg(test)]
     pub(crate) fn look(&self, term: &Term<'_>, back: Rows) -> FindLook {
+        self.look_typing(term, back, &[], &[], Caret::End)
+    }
+
+    /// **What the frame draws of it with an input method composing**:
+    /// `composing` drawn in the field after the query, in its `hints`
+    /// (`marked::hints`) over the field's colours, with its cursor at
+    /// `caret` (`Find::field_typing`), and nothing of it at the terminal's
+    /// cursor -- the keys are the field's while it is open.
+    pub(crate) fn look_typing(
+        &self,
+        term: &Term<'_>,
+        back: Rows,
+        composing: &[Codepoint],
+        hints: &[Hints],
+        caret: Caret,
+    ) -> FindLook {
         FindLook {
             marks: self.find.marks(term, back),
-            field: self.find.field(term.geometry().0),
+            field: self.field(term, composing, hints, caret),
         }
+    }
+
+    /// **The field alone**: where a driver asks the input method's
+    /// candidate window to open, at its caret.
+    pub(crate) fn field(
+        &self,
+        term: &Term<'_>,
+        composing: &[Codepoint],
+        hints: &[Hints],
+        caret: Caret,
+    ) -> Field {
+        self.find.field_typing(
+            term.geometry().0,
+            Typing {
+                query: self.query,
+                composing,
+                hints,
+                caret,
+            },
+        )
     }
 }
 
@@ -450,6 +570,111 @@ mod tests {
             feed(t, b"\x1b[1;1H\x1b[2K");
             feed(t, b"\x1b[3;1Hneedle again");
             assert_eq!(f.refresh(t), Moved::Yes);
+        });
+    }
+
+    /// **Command-G after Escape finds the last query again**, from the
+    /// match that was current when the field closed, as a Find Next with
+    /// no field open searches the find pasteboard's string (`[[source:
+    /// iterm2-finddriver-654bb13]]` 589-594, 649-668): reopened on it,
+    /// Command-G steps on to the next older match, and Shift-Command-G
+    /// back. The reopened query is selected, so a key typed replaces it.
+    /// A different string -- another application's -- starts from the
+    /// newest match, as a fresh query does.
+    #[test]
+    fn command_g_after_escape_steps_on_from_where_the_field_closed() {
+        with_term(|t| {
+            feed(t, b"m1\r\nm2\r\nm3\r\nm4");
+            let line = |f: &Finding| f.find().current().unwrap().first.line.value();
+            let mut f = Finding::open(t, Vec::new());
+            typed(&mut f, t, "m");
+            let lines: Vec<u64> = f
+                .find()
+                .matches()
+                .iter()
+                .map(|m| m.first.line.value())
+                .collect();
+            assert_eq!(lines.len(), 4);
+            f.chord(Chord::Next);
+            assert_eq!(line(&f), lines[2]);
+            let left = f.left();
+            assert_eq!(f.key(t, FieldKey::Close), Open::Closed);
+            let m = vec![Codepoint::from_char('m')];
+            let mut again = Finding::reopen(t, m.clone(), Some(&left), Chord::Next);
+            assert_eq!(line(&again), lines[1], "on from where it closed");
+            let back = Finding::reopen(t, m.clone(), Some(&left), Chord::Previous);
+            assert_eq!(line(&back), lines[3], "and back");
+            let same = Finding::reopen(t, m.clone(), Some(&left), Chord::Open);
+            assert_eq!(line(&same), lines[2], "Command-F: where it closed");
+            // A new search -- another string, nothing left, or the match it
+            // closed on gone -- starts on the newest, unstepped.
+            let upper = vec![Codepoint::from_char('M')];
+            for chord in [Chord::Next, Chord::Previous] {
+                let other = Finding::reopen(t, upper.clone(), Some(&left), chord);
+                assert_eq!(line(&other), lines[3], "another string, {chord:?}");
+                let fresh = Finding::reopen(t, m.clone(), None, chord);
+                assert_eq!(line(&fresh), lines[3], "nothing left, {chord:?}");
+            }
+            typed(&mut again, t, "x");
+            assert_eq!(
+                again.find().query(),
+                &[Codepoint::from_char('x')],
+                "replaced"
+            );
+            typed(&mut again, t, "y");
+            assert_eq!(again.find().query().len(), 2, "then added to");
+            let mut cleared = Finding::reopen(t, m, Some(&left), Chord::Open);
+            assert_eq!(cleared.key(t, FieldKey::Delete), Open::Open);
+            assert!(cleared.find().query().is_empty(), "Delete clears it");
+        });
+    }
+
+    /// **An input method composes in the open field**: its text after the
+    /// query, underlined in the field's colours, the field's caret at the
+    /// input method's cursor, and nothing of it at the terminal's cursor
+    /// (`marked::composition` is not asked while the field is open). Its
+    /// hints, `text-input-v3`'s `preedit_hint`s, are drawn in the field as
+    /// at the cursor (`Composition`), over the field's selection colours:
+    /// a hint the input method gives replaces the underline, and a
+    /// codepoint past the hints it gives has none.
+    #[test]
+    fn a_composition_is_drawn_in_the_field_at_its_caret() {
+        use baud_render::Caret;
+        with_term(|t| {
+            feed(t, b"ab");
+            let mut f = Finding::open(t, Vec::new());
+            typed(&mut f, t, "ab");
+            let kana: Vec<Codepoint> = "かな".chars().map(Codepoint::from_char).collect();
+            let plain = f.look(t, Rows::ZERO).field;
+            let field = f.look_typing(t, Rows::ZERO, &kana, &[], Caret::At(1)).field;
+            let text: String = field
+                .text
+                .iter()
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect();
+            assert!(text.starts_with(" Find abかな"), "{text:?}");
+            let under = Hints::SELECTION.with(Hints::WHOLE);
+            let at = " Find ab".chars().count();
+            assert_eq!(field.hints[at..at + 2], [under, under]);
+            assert_eq!(field.hints[at - 1], Hints::SELECTION, "the query is not");
+            assert_eq!(
+                field.caret.index(),
+                plain.caret.index() + 2,
+                "after か, two columns past the query"
+            );
+            let end = f.look_typing(t, Rows::ZERO, &kana, &[], Caret::End).field;
+            assert_eq!(end.caret.index(), plain.caret.index() + 4);
+            // A prediction on か and nothing on な: italic where it says,
+            // plain past it, both in the field's colours.
+            let hinted = [Hints::PREDICTION];
+            let field = f
+                .look_typing(t, Rows::ZERO, &kana, &hinted, Caret::End)
+                .field;
+            assert_eq!(
+                field.hints[at..at + 2],
+                [Hints::SELECTION.with(Hints::PREDICTION), Hints::SELECTION],
+                "the input method's hints reach the field"
+            );
         });
     }
 }

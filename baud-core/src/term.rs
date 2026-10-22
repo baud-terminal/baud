@@ -558,7 +558,8 @@ pub(crate) enum Watched {
 
 /// Which erasure of the primary's history the terminal is at: it moves on
 /// every `CSI 3 J` and every `RIS`, the two operations that empty the saved
-/// lines, and on nothing else -- not `CSI ? 3 J`, whose lines stay. A window
+/// lines, and on nothing else -- not `CSI ? 3 J`, whose lines stay
+/// ([`HistoryWipes`] counts it). A window
 /// over the history read at both ends of a read cannot see one: the erase
 /// scrolls nothing, so [`Term::history_moved_since`] reads no movement, and
 /// output after it in the same read refills the history to a count that
@@ -572,6 +573,24 @@ impl HistoryErasures {
 
     pub(crate) fn next(self) -> HistoryErasures {
         HistoryErasures(self.0.wrapping_add(1))
+    }
+}
+
+/// Which selective erase of the primary's saved lines the terminal is at:
+/// it moves on every `CSI ? 3 J`, from either screen, and on nothing else.
+/// The lines stay lines of the history, so [`HistoryErasures`] does not
+/// move and a window over them stays; but the characters DECSCA left
+/// erasable on them are spaces now, and an embedder that keeps something
+/// read from the history -- a find's matches -- asks this, and reads the
+/// history again where it moved.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HistoryWipes(u32);
+
+impl HistoryWipes {
+    pub(crate) const FIRST: HistoryWipes = HistoryWipes(0);
+
+    pub(crate) fn next(self) -> HistoryWipes {
+        HistoryWipes(self.0.wrapping_add(1))
     }
 }
 
@@ -1099,6 +1118,8 @@ pub struct Cold {
     /// Moves on every erasure of the primary's history:
     /// [`Term::history_erasures`].
     pub(crate) history_erasures: HistoryErasures,
+    /// Moves on every `CSI ? 3 J`: [`Term::history_wipes`].
+    pub(crate) history_wipes: HistoryWipes,
     /// Moves on every move of rows that advances no ring: [`Term::row_moves`].
     pub(crate) row_moves: RowMoves,
     /// The lines of a selection an embedder armed a watch on, and whether a
@@ -1333,9 +1354,13 @@ pub struct Cold {
 // DECSMBV, `?44`, the resets, a keystroke, a read that rang a `BEL` and a
 // margin bell's ring, and read by the write path only behind its hook
 // compare, which the armed line turns on (`margin.rs`).
+// The count of selective erases of the saved lines took it to 936: a `u32`
+// beside `history_erasures` that found no padding, bumped by `CSI ? 3 J` --
+// an arm of the dispatch -- and read by the embedder after a read, never by
+// a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 928);
+const _: () = assert!(core::mem::size_of::<Cold>() == 936);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1744,6 +1769,7 @@ impl Cold {
             bot: Row::from_index(rows.index() - 1),
             region_scrolls: RegionScrolls::FIRST,
             history_erasures: HistoryErasures::FIRST,
+            history_wipes: HistoryWipes::FIRST,
             row_moves: RowMoves::FIRST,
             row_watch: RowWatch::IDLE,
             watched: Watched::Nothing,
@@ -4348,6 +4374,15 @@ impl<'b> Term<'b> {
     /// on, and belongs on the live screen.
     pub fn history_erasures(&self) -> HistoryErasures {
         self.cold.history_erasures
+    }
+
+    /// Which selective erase of the saved lines this is: it moves on every
+    /// `CSI ? 3 J`, from either screen, and on nothing else. A read whose
+    /// two ends carry one reading wiped no saved line; across one that
+    /// moved it, a character read from the history may be a space now.
+    /// See [`HistoryWipes`].
+    pub fn history_wipes(&self) -> HistoryWipes {
+        self.cold.history_wipes
     }
 
     /// Arm the watch on the history's erasures at the current reading: the

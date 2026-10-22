@@ -217,6 +217,33 @@ fn the_region_count_moves_only_when_a_region_advances_the_ring() {
     });
 }
 
+/// **The wipe count moves on every `CSI ? 3 J`, and on nothing else**: from
+/// either screen, with a history or without one, and not on `CSI 3 J`, `ED
+/// 2`, a scroll or `RIS`, whose own counts say what they did. The lines it
+/// wipes stay lines of the history, so the erasure count does not move.
+#[test]
+fn the_wipe_count_moves_on_each_selective_erase_of_the_saved_lines() {
+    support::with_corpus(|t| {
+        let start = t.history_wipes();
+        support::feed(t, b"\x1b[?3J");
+        let once = t.history_wipes();
+        assert_ne!(once, start, "with no history, still a wipe");
+        let lines: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
+        support::feed(t, &lines);
+        support::feed(t, b"\x1b[2J\x1b[1;3r\x1b[3;1H\n\x1b[r\x1b[3J\x1bc");
+        assert_eq!(t.history_wipes(), once, "none of these is a wipe");
+        support::feed(t, &lines);
+        let erased = t.history_erasures();
+        support::feed(t, b"\x1b[?3J");
+        let twice = t.history_wipes();
+        assert_ne!(twice, once);
+        assert_eq!(t.history_erasures(), erased, "the lines stay");
+        assert!(!t.scrollback().is_empty(), "and are still there");
+        support::feed(t, b"\x1b[?1049h\x1b[?3J\x1b[?1049l");
+        assert_ne!(t.history_wipes(), twice, "from the alternate screen");
+    });
+}
+
 /// **The row count moves on every move of rows that advances no ring, and
 /// on nothing that does.** A region in the middle, or a short top region
 /// under side margins or on the alternate screen, scrolls by copying its

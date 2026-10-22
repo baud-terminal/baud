@@ -65,6 +65,10 @@ fn the_list_kept_across_reads_is_the_list_read_afresh() {
             b"\x1b[2Jneedle after\r\n",
             // The alternate screen, and back.
             b"\x1b[?1049hneedle alt\x1b[?1049l",
+            // A guarded match scrolled into the history, then the saved
+            // lines selectively erased: the guarded one stays.
+            b"\x1b[1\"qneedle guarded\x1b[0\"q\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n",
+            b"\x1b[?3J",
             // The history erased.
             b"\x1b[3Jneedle last\r\n",
         ];

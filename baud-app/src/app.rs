@@ -433,6 +433,11 @@ struct App {
     /// The find field while it is open (`find.rs`): its matches, kept
     /// across reads, and the current one, which is the selection.
     finding: Option<crate::find::Finding>,
+    /// What the field left when it last closed, which Command-G reopens it
+    /// on when the find pasteboard still holds its query; and the query
+    /// last written to the find pasteboard.
+    find_left: Option<crate::find::Left>,
+    find_written: Vec<Codepoint>,
     /// When the scrollbar's thumb is seen, off the display link: revealed
     /// by a scroll, held, faded, widened while hovered (`reveal`).
     reveal: Reveal,
@@ -1169,6 +1174,8 @@ impl App {
             selection: None,
             scrolled: Scrolled::START,
             finding: None,
+            find_left: None,
+            find_written: Vec::new(),
             reveal: Reveal::HIDDEN,
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
@@ -1380,11 +1387,19 @@ impl App {
             }
         };
         self.renderer.set_highlight(highlight);
-        // The find field and every match's mark, on the window drawn.
-        let look = self
-            .finding
-            .as_ref()
-            .map(|f| f.look(&self.term, self.term.window_back()));
+        // The find field and every match's mark, on the window drawn, and
+        // the input manager's composition in the field while it is open.
+        // AppKit hands no hints, and its selected range does not reach
+        // here (`marked.rs`), so the cursor is after the composition.
+        let look = self.finding.as_ref().map(|f| {
+            f.look_typing(
+                &self.term,
+                self.term.window_back(),
+                &self.composing,
+                &[],
+                baud_render::Caret::End,
+            )
+        });
         self.renderer.set_find(&self.term, look);
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
@@ -1517,11 +1532,19 @@ impl App {
         self.renderer.set_screen_fade(veil);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
-        // through its overlay below.
+        // through its overlay below -- but in the find field while it is
+        // open, which takes the keys.
         // AppKit's selected range does not reach here (`marked.rs`), so
         // the cursor is after the composition.
-        let composition =
-            crate::marked::composition(&self.term, &self.composing, &[], baud_render::Caret::End);
+        let composition = match self.finding {
+            Some(_) => None,
+            None => crate::marked::composition(
+                &self.term,
+                &self.composing,
+                &[],
+                baud_render::Caret::End,
+            ),
+        };
         self.renderer.set_composition(composition.clone());
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
@@ -7727,8 +7750,9 @@ impl Driver {
         }
         // The find's matches after the read: the lines it retired dropped,
         // the lines it wrote read again, and the current match selected
-        // again when it moved.
-        if !drained.chunks.is_empty() {
+        // again when it moved -- after reads a ReGIS delay held too, fed
+        // on a tick with no chunk of their own.
+        if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
             if let Some(f) = self.app.finding.as_mut() {
                 if f.refresh(&self.app.term) == crate::find::Moved::Yes {
                     self.app.selection = f.find().current().and_then(|m| {
@@ -8386,7 +8410,20 @@ impl Responder for Driver {
 
     fn cursor_rect(&self) -> Rect {
         let m = self.app.renderer.metrics();
-        let cell = crate::marked::cursor_cell(&self.app.term, m.cell_w, m.cell_h);
+        // The find field's caret while it is open, which takes the keys.
+        let cell = match &self.app.finding {
+            Some(f) => crate::marked::field_cell(
+                &f.field(
+                    &self.app.term,
+                    &self.app.composing,
+                    &[],
+                    baud_render::Caret::End,
+                ),
+                m.cell_w,
+                m.cell_h,
+            ),
+            None => crate::marked::cursor_cell(&self.app.term, m.cell_w, m.cell_h),
+        };
         let [x, y, w, h] = cell.map(|p| f64::from(p.value()) / self.app.scale);
         Rect { x, y, w, h }
     }
@@ -10397,10 +10434,11 @@ impl Driver {
         self.app.present(&self.view, Show::Event);
     }
 
-    /// **A find chord**: Command-F opens the field, on an empty query or
-    /// the one it holds; Command-E opens it on the selection's text;
-    /// Command-G and Shift-Command-G step the current match, opening the
-    /// field first when it is closed.
+    /// **A find chord**: Command-F opens the field, on the query it holds
+    /// or, closed, on the find pasteboard's string, selected; Command-E
+    /// opens it on the selection's text; Command-G and Shift-Command-G
+    /// step the current match, reopening the field first when it is
+    /// closed, from the match it closed on.
     fn find_chord(&mut self, chord: crate::find::Chord) {
         use crate::find::{Chord, Finding};
         let selected = match chord {
@@ -10416,7 +10454,19 @@ impl Driver {
                 self.app.finding = Some(Finding::open(&self.app.term, query));
             }
             (Some(f), None) => f.chord(chord),
-            (None, None) => self.app.finding = Some(Finding::open(&self.app.term, Vec::new())),
+            // Closed: reopened on the find pasteboard's string, the last
+            // search here or in another application, and stepped from the
+            // match it closed on (`Finding::reopen`).
+            (None, None) => {
+                let query = crate::marked::codepoints(&clipboard::read_find().unwrap_or_default());
+                self.app.find_written = query.clone();
+                self.app.finding = Some(Finding::reopen(
+                    &self.app.term,
+                    query,
+                    self.app.find_left.as_ref(),
+                    chord,
+                ));
+            }
         }
         self.find_show();
     }
@@ -10428,6 +10478,7 @@ impl Driver {
             return;
         };
         if f.key(&self.app.term, key) == crate::find::Open::Closed {
+            self.app.find_left = Some(f.left());
             self.app.finding = None;
             self.app.pending = Pending::Dirty;
             self.app.present(&self.view, Show::Event);
@@ -10442,6 +10493,18 @@ impl Driver {
         let Some(f) = self.app.finding.as_ref() else {
             return;
         };
+        // The query to the find pasteboard as it changes, as a find
+        // field's search string goes there (`[[source:
+        // iterm2-finddriver-654bb13]]` 480-496); an empty one is no search.
+        let query = f.find().query();
+        if !query.is_empty() && query != self.app.find_written.as_slice() {
+            let text: String = query
+                .iter()
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect();
+            let _ = clipboard::write_find(&text);
+            self.app.find_written = query.to_vec();
+        }
         let back = self.app.term.window_back();
         let selection = f.show(&mut self.app.term, self.app.scrolled);
         if selection.is_some() {
@@ -12876,5 +12939,29 @@ mod deferred_tests {
             refont_step(Deferred::Nothing, now, Some(stix), 13.0, 13.0, leads),
             Refont::Now(Some(f)) if f == stix
         ));
+    }
+
+    /// **The find is brought up to date after every read fed**, its own
+    /// chunks or the reads a ReGIS delay held, which a tick feeds with no
+    /// chunk: the refresh is gated on what the frame's own gate is, so a
+    /// read that owes a frame owes the find too.
+    #[test]
+    fn the_find_refreshes_after_every_read_fed() {
+        let src = include_str!("app.rs");
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .expect("the pump")
+            .1;
+        let fed = "if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {";
+        let at = pump
+            .find("if let Some(f) = self.app.finding.as_mut() {")
+            .expect("the find's refresh");
+        let gate = pump[..at].rfind("if ").expect("its gate");
+        assert_eq!(pump[gate..at].trim(), fed, "the find's gate");
+        let dirty = pump
+            .find("self.app.pending = Pending::Dirty;")
+            .expect("the frame's");
+        let frame = pump[..dirty].rfind("if ").expect("its gate");
+        assert_eq!(pump[frame..dirty].trim(), fed, "the frame's gate");
     }
 }

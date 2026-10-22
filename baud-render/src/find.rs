@@ -8,12 +8,11 @@
 //! and after that only where a read can have changed it: from the first
 //! line of the one at the older of the screen's two tops to the bottom,
 //! with the matches on lines that retired dropped. Nothing older is read
-//! again: a line of the history changes only by an erasure, which reads it
-//! all again -- with a switch of screen, a reset or a new size, whose reflow
-//! renumbers the lines -- or by `CSI ? 3 J`, a selective erase of the saved
-//! lines, which no reading of the core counts, so a match it wiped stays
-//! listed until the query changes (the record, "Find in the scrollback, in
-//! both apps"). Nothing here runs per frame.
+//! again: a line of the history changes only by an erasure or by `CSI ? 3
+//! J`, a selective erase of the saved lines, each counted by the core
+//! (`Term::history_erasures`, `Term::history_wipes`), and either reads it
+//! all again -- as a switch of screen, a reset or a new size, whose reflow
+//! renumbers the lines, does. Nothing here runs per frame.
 //!
 //! **The newest match is current first**, and Find Next goes to the next
 //! older one, up the history, wrapping from the oldest to the newest; Find
@@ -24,8 +23,8 @@
 //! scrollback").
 
 use baud_core::{
-    Found, HistoryErasures, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines, SurfaceLine,
-    Term,
+    Found, HistoryErasures, HistoryWipes, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines,
+    SurfaceLine, Term,
 };
 use baud_domain::{AmbiguousWidth, Classified, Codepoint, Col, Cols, LineIdx, Row, Rows, Width};
 
@@ -46,6 +45,11 @@ pub struct Field {
     pub row: Row,
     pub col: Col,
     pub text: Vec<Codepoint>,
+    /// The hints on each of `text`'s codepoints: the selection's colours,
+    /// the query in the grid's own while it is selected ([`Query`]), and
+    /// an input method's composition in its hints over them, underlined
+    /// where it carries none.
+    pub hints: Vec<Hints>,
     pub caret: Col,
 }
 
@@ -58,12 +62,36 @@ impl Field {
             col: self.col,
             text: self.text.clone(),
             ambiguous: AmbiguousWidth::Narrow,
-            hints: vec![Hints::SELECTION; self.text.len()],
+            hints: self.hints.clone(),
             // The field draws its own caret, a bar at `caret`
             // (`Renderer::set_find`); the terminal's cursor is not moved.
             caret: Caret::Hidden,
         }
     }
+}
+
+/// Whether the field's query is selected: shown in the grid's own colours,
+/// and replaced by what is typed next, as a find field reopened on the
+/// last search shows it; or typed, and added to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Query {
+    #[default]
+    Typed,
+    Selected,
+}
+
+/// **What is being typed into the field**: the query's state, and an input
+/// method's composition with its hints and its cursor in it -- drawn after
+/// the query, each codepoint in its hints over the field's selection
+/// colours, underlined where none are given, and the field's caret at its
+/// cursor, as the terminal draws one at its own cursor (`Composition`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Typing<'a> {
+    pub query: Query,
+    pub composing: &'a [Codepoint],
+    /// The hints on each of `composing`'s codepoints, or none at all.
+    pub hints: &'a [Hints],
+    pub caret: Caret,
 }
 
 /// **What the find overlay draws on the next frame**: every match's part
@@ -94,6 +122,7 @@ fn chars(s: &str) -> impl Iterator<Item = Codepoint> + '_ {
 struct Basis {
     epoch: ScreenEpoch,
     erasures: HistoryErasures,
+    wipes: HistoryWipes,
     resets: Resets,
     geometry: (Cols, Rows),
 }
@@ -103,6 +132,7 @@ impl Basis {
         Basis {
             epoch: term.screen_epoch(),
             erasures: term.history_erasures(),
+            wipes: term.history_wipes(),
             resets: term.resets(),
             geometry: term.geometry(),
         }
@@ -260,6 +290,21 @@ impl Find {
         self.current = self.current.map(|i| (i + 1) % n);
     }
 
+    /// **Make `m` the current match**, if it is one of the matches: what a
+    /// field reopened on the query it closed on starts from. `false`, and
+    /// the current match left as it was, when it is not.
+    pub fn select(&mut self, m: Found) -> bool {
+        // The matches are in order of their first cell.
+        let i = self.found.partition_point(|f| f.first < m.first);
+        match self.found.get(i).filter(|f| **f == m).map(|_| i) {
+            Some(i) => {
+                self.current = Some(i);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// **How far back the window must be to show the current match**:
     /// `back` itself when the match is in the window already, else the
     /// window with the match's first line in its middle, as near as the
@@ -291,6 +336,14 @@ impl Find {
     /// many, `none` when the query finds nothing, `too long` when it is
     /// longer than a needle holds.
     pub fn field(&self, cols: Cols) -> Field {
+        self.field_typing(cols, Typing::default())
+    }
+
+    /// **The field with what is being typed into it** ([`Typing`]): the
+    /// query, then the composition, as much of their end as fits, and the
+    /// caret at the composition's cursor -- after it where the input method
+    /// says nothing, hides it, or selects a range.
+    pub fn field_typing(&self, cols: Cols, typing: Typing<'_>) -> Field {
         let width = cols.index().min(FIELD_COLS.max(cols.index() / 3));
         let status: String = match (self.refused, self.position()) {
             (Some(NeedleRefused::Empty), _) => String::new(),
@@ -300,33 +353,74 @@ impl Find {
         };
         let fixed = 1 + LABEL.len() + 1 + status.len() + 1;
         let room = width.saturating_sub(fixed);
-        // The query's tail that fits, whole characters, marks with them.
-        let mut shown: Vec<Codepoint> = Vec::new();
+        let query = match typing.query {
+            Query::Typed => Hints::SELECTION,
+            Query::Selected => Hints::NONE,
+        };
+        // The composition's hints over the field's colours, as it is drawn
+        // at the cursor: `whole` on every codepoint when it carries none,
+        // and none past the last it carries.
+        let rest = match typing.hints.is_empty() {
+            true => Hints::WHOLE,
+            false => Hints::NONE,
+        };
+        let composed = typing
+            .hints
+            .iter()
+            .copied()
+            .chain(core::iter::repeat(rest))
+            .map(|h| Hints::SELECTION.with(h));
+        let typed: Vec<(Codepoint, Hints)> = self
+            .query
+            .iter()
+            .map(|&c| (c, query))
+            .chain(typing.composing.iter().copied().zip(composed))
+            .collect();
+        // The caret before this many of `typed`.
+        let at = self.query.len()
+            + match typing.caret {
+                Caret::At(n) => n.min(typing.composing.len()),
+                Caret::End | Caret::Range(..) | Caret::Hidden => typing.composing.len(),
+            };
+        // The tail that fits, whole characters, marks with them.
+        let mut first = typed.len();
         let mut used = 0;
-        for &cp in self.query.iter().rev() {
+        while let Some(&(cp, _)) = first.checked_sub(1).and_then(|i| typed.get(i)) {
             let w = columns(cp).index();
             if used + w > room {
                 break;
             }
             used += w;
-            shown.push(cp);
+            first -= 1;
         }
-        shown.reverse();
-        while shown.first().is_some_and(|&c| columns(c).index() == 0) {
-            shown.remove(0);
+        while typed
+            .get(first)
+            .is_some_and(|&(c, _)| columns(c).index() == 0)
+        {
+            first += 1;
         }
+        let shown = &typed[first..];
+        let before: usize = shown
+            .iter()
+            .take(at.saturating_sub(first))
+            .map(|&(c, _)| columns(c).index())
+            .sum();
         let pad = width.saturating_sub(1 + LABEL.len() + used + status.len() + 1);
         let mut text: Vec<Codepoint> = chars(" ").chain(chars(LABEL)).collect();
-        text.extend_from_slice(&shown);
+        text.extend(shown.iter().map(|&(c, _)| c));
+        let mut hints = vec![Hints::SELECTION; text.len() - shown.len()];
+        hints.extend(shown.iter().map(|&(_, h)| h));
         text.extend(core::iter::repeat_n(Codepoint::from_char(' '), pad));
         text.extend(chars(&status));
         text.push(Codepoint::from_char(' '));
+        hints.resize(text.len(), Hints::SELECTION);
         let col = cols.index().saturating_sub(width);
         Field {
             row: Row::from_index(0),
             col: Col::at_index(col),
-            caret: Col::at_index(col + 1 + LABEL.len() + used),
+            caret: Col::at_index(col + 1 + LABEL.len() + before),
             text,
+            hints,
         }
     }
 

@@ -1122,10 +1122,10 @@ tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.
 id = "find"
 area = "scroll"
 name = "Find in the scrollback"
-does = "Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does."
+does = "Command-F (Ctrl+Shift+F on Linux) opens a find field: every match in the history and on the screen is marked as you type, the newest is selected so a copy takes it, and Command-G or Enter steps to older ones, the window following. On macOS the field opens on your last search, made in baud or any other app, selected so that typing replaces it, and after you close it Command-G finds that search again, on from where you left it, and Command-F reopens on it. A word you compose with an input method is composed in the field. Upper and lower case match, and a letter typed with a separate accent mark matches the same letter written as one character, as the Mac's own find does."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/search.rs::canonical_equivalents_match_each_other", "baud-core/tests/search.rs::a_wrapped_line_matches_across_the_wrap_and_a_newline_does_not", "baud-render/tests/find.rs::the_list_kept_across_reads_is_the_list_read_afresh", "baud-render/tests/find.rs::every_mark_and_the_field_are_drawn_and_leave_nothing_when_they_go", "baud-app/src/find.rs::typing_selects_the_newest_match_and_copying_takes_it"]
+tests = ["baud-core/tests/search.rs::canonical_equivalents_match_each_other", "baud-core/tests/search.rs::a_wrapped_line_matches_across_the_wrap_and_a_newline_does_not", "baud-render/tests/find.rs::the_list_kept_across_reads_is_the_list_read_afresh", "baud-render/tests/find.rs::every_mark_and_the_field_are_drawn_and_leave_nothing_when_they_go", "baud-app/src/find.rs::typing_selects_the_newest_match_and_copying_takes_it", "baud-app/src/find.rs::command_g_after_escape_steps_on_from_where_the_field_closed", "baud-app/src/find.rs::a_composition_is_drawn_in_the_field_at_its_caret"]
 shipped = ["SQ-v1.0-08"]
 
 [[feature]]

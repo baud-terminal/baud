@@ -1965,25 +1965,38 @@ impl Driver {
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
         self.renderer.set_highlight(self.seat.highlight(&self.term));
-        // The find field and every match's mark, on the window drawn.
-        let look = self
-            .finding
-            .as_ref()
-            .map(|f| f.look(&self.term, self.term.window_back()));
+        // The find field and every match's mark, on the window drawn, and
+        // the input method's composition in the field while it is open.
+        let look = self.finding.as_ref().map(|f| {
+            f.look_typing(
+                &self.term,
+                self.term.window_back(),
+                &self.composing,
+                &self.composing_hints,
+                self.composing_caret,
+            )
+        });
+        let field = look.as_ref().map(|l| l.field.clone());
         self.renderer.set_find(&self.term, look);
         // The input method's composition at the live cursor, and where
         // its candidate window opens -- at the input method's own cursor
         // in it, as drawn -- sent when it moved; while it hides its
-        // cursor, the last stands.
-        let composition = crate::marked::composition(
-            &self.term,
-            &self.composing,
-            &self.composing_hints,
-            self.composing_caret,
-        );
+        // cursor, the last stands. While the find field is open both are
+        // the field's: the composition in it, the window at its caret.
         let m = self.renderer.metrics();
-        let rect =
-            crate::marked::candidate_rect(&self.term, composition.as_ref(), m.cell_w, m.cell_h);
+        let (composition, rect) = match &field {
+            Some(f) => (None, Some(crate::marked::field_cell(f, m.cell_w, m.cell_h))),
+            None => {
+                let c = crate::marked::composition(
+                    &self.term,
+                    &self.composing,
+                    &self.composing_hints,
+                    self.composing_caret,
+                );
+                let r = crate::marked::candidate_rect(&self.term, c.as_ref(), m.cell_w, m.cell_h);
+                (c, r)
+            }
+        };
         self.renderer.set_composition(composition);
         let px = |p: Px| baud_present_wayland::Px(p.value());
         if let Some([x, y, w, h]) = rect {
