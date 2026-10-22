@@ -595,9 +595,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
         (d != self.said.0 && b != self.said.1).then(|| {
             let n = d.0 - self.said.0.0;
             self.said = (d, b);
-            format!(
-                "notifications: {n} dropped, more than four at once or one a second; said once a burst"
-            )
+            format!("notifications: {n} dropped, more than four at once or one a second")
         })
     }
 

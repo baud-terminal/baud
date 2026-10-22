@@ -12595,9 +12595,10 @@ impl PrinterList {
 ///
 /// The name `gethostname` gives, which is what shells send (zsh's `$HOST`,
 /// bash's `$HOSTNAME`, fish's `$hostname`), and `NSProcessInfo`'s
-/// `hostName`, which on macOS is a different name, `<name>.local`.
-/// RFC 8089 § 3's "resolves to the machine" holds of both
-/// (`[[source: rfc8089]]`).
+/// `hostName`, which on macOS can be a different name, such as
+/// `<name>.local`. On a Mac with `HostName` set the two can be the same;
+/// the code accepts either. RFC 8089 § 3's "resolves to the machine"
+/// holds of both (`[[source: rfc8089]]`).
 fn machine_names() -> Vec<String> {
     let mut names: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
     let process = baud_present_macos::link::host_name();
@@ -12615,8 +12616,10 @@ mod host_tests {
     /// **An `OSC 7` naming the machine as a shell names it is local**: the
     /// name `/bin/hostname` prints, which is `gethostname`'s and zsh's
     /// `$HOST`, gives the shell's path and so the title the shell's
-    /// folder. On macOS `NSProcessInfo`'s name is `<name>.local`, and
-    /// comparing with it alone refused every local report as remote.
+    /// folder. On macOS `NSProcessInfo`'s name can be a different name,
+    /// such as `<name>.local`, and comparing with it alone refused every
+    /// local report as remote. On a Mac with `HostName` set the two can be
+    /// the same; the code accepts either.
     #[test]
     fn an_osc_7_naming_the_hostname_is_this_machine() {
         let out = std::process::Command::new("/bin/hostname")

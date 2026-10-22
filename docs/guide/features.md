@@ -180,7 +180,7 @@ A see-through window that follows your Mac's appearance.
 - **A fade for full-screen programs** — An optional fade when a full-screen program opens or exits, off by default. *macOS.* <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **The bell, your way** — The Mac's alert sound, a short flash or nothing; a burst rings once, and a bell in a background window never makes a sound. *macOS.* <sub>[proof](../../baud-app/src/bell.rs)</sub>
 - **A bell can ask for attention** — A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard. *macOS.* <sub>[proof](../../baud-core/tests/xterm/bell_modes.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **The bell on Linux** — A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once. *Linux, headless so far.* <sub>[proof](../../baud-present-wayland/tests/handshake.rs) · [reference](../vt-coverage.md#c0-controls)</sub>
+- **The bell on Linux** — A bell rings the desktop's system bell while the window has the keyboard, where the desktop offers one, or shows a short flash, as the config's bell says; a burst rings once. *Linux, headless so far.* **Partly:** A bell in a window you are not looking at does not mark it for attention yet on Linux. <sub>[proof](../../baud-present-wayland/tests/handshake.rs) · [reference](../vt-coverage.md#c0-controls)</sub>
 
 ## The cursor
 

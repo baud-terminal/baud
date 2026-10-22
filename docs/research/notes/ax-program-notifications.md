@@ -161,5 +161,6 @@ one does.
   `CloseNotification` at the deadline. Progress and `RequestAttention` are
   the launcher's `progress` and `urgent`.
 - **Neither** posts while the setting is off, nor more than four at once
-  and then one a second; what the bound drops is logged once a burst, a
-  burst ending when the bucket has filled again.
+  and then one a second; what the bound drops is logged once a burst,
+  each line counting every drop since the one before, a burst ending
+  when the bucket has filled again.

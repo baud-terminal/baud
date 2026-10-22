@@ -1080,8 +1080,8 @@ impl Driver {
     /// `xdg-system-bell-v1`, and nothing without it; the flash is the
     /// visual bell. `?1042`'s attention and `?1043`'s raise are not acted
     /// on yet: baud has neither pinned nor built `xdg-activation-v1`, the
-    /// request foot uses to mark a window urgent (`[[source:
-    /// foot-2705e36-wayland]]` 2630-2658), an open gap.
+    /// request foot uses to mark a window urgent
+    /// (`[[source: foot-2705e36-wayland]]` 2630-2658), an open gap.
     fn ring_bell(&mut self, volume: baud_core::BellVolume) {
         use crate::bell::{Shown, Sound, Window};
         let state = match self.focus {
