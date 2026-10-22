@@ -53,6 +53,7 @@
 #   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs; no note)
 #   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs; no note)
 #   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
+#   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -3395,6 +3396,7 @@ bytes  = 19164
 status = "external"
 group  = "J"
 # Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: an unfocused window with cursor.unfocused_hollow draws CursorShape::HollowBlock for every shape (58-59).
 
 [sources.alacritty-display-damage]
 key    = "alacritty-display-damage"
@@ -3675,6 +3677,7 @@ bytes  = 154117
 status = "external"
 group  = "J"
 # Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: an unfocused cursor at full opacity, block_hollow drawn as the cursor_hollow_rect sprite (3460-3473).
 
 [sources.ghostty-renderer-metal-buffer]
 key    = "ghostty-renderer-metal-buffer"
@@ -11718,6 +11721,7 @@ status = "external"
 group  = "J"
 # Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
 # copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: -ah/+ah and the alwaysHighlight resource, "a hollow text cursor is displayed whenever the pointer moves out of the window or the window loses the input focus"; OTHER FEATURES, the cursor highlighted while the window is the focus window.
 
 [sources.ghostty-discovery-8f0dd37]
 key    = "ghostty-discovery-8f0dd37"
@@ -13151,6 +13155,7 @@ group  = "J"
 # doparsing's string accumulation, `string_area[...] = (utf8Title ? CharOf(c) :
 # AsciiOf(c))`, "ECMA-48 section 9 recommends parsing controls with a 7-bit table,
 # precluding the use of 8-bit data" -- every OSC byte but a UTF-8 title's is 7-bit.
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: ShowCursor, filled = (screen->select || screen->always_highlight) && isCursorBlock(screen) (13743); an unfilled box draws the text and an outline over the cell (13973-13978); an underline or bar is drawn whatever the focus (13853-13871).
 
 [sources.urxvt-rxvtfont-5865a43]
 key    = "urxvt-rxvtfont-5865a43"
@@ -18282,6 +18287,7 @@ sha256 = "61ac5bad191ee18fdbe9c96d1fc9eca004410909ef26b412e26723b4d4bcde11"
 bytes  = 28413
 status = "retrieved"
 group  = "AK"
+# Read 2026-10-22 (lane b144): colors.cursor (327-334) and colors.selection (398-405) take CellForeground/CellBackground, "which references the affected cell".
 
 [sources.iterm2-8622e64-addressbookmgr-h]
 key    = "iterm2-8622e64-addressbookmgr-h"
@@ -18464,6 +18470,7 @@ sha256 = "1da7914a4b33b20b55cc7558d004f5017300f4121c2d7fdf05ba79517073a220"
 bytes  = 67050
 status = "retrieved"
 group  = "AK"
+# Read 2026-10-22 (lane b144): main, key and inactive windows have different appearances; "Make sure custom windows use the system-defined appearances."
 
 [sources.apple-terminal-guide-window-settings]
 key    = "apple-terminal-guide-window-settings"
@@ -19119,6 +19126,7 @@ sha256 = "0b958701f84ecc98f50714bd46cc3ba753223e23e9e5557b09716c7fc3c61cbf"
 bytes  = 166014
 status = "external"
 group  = "AJ"
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: cursor_shape_unfocused, default hollow (398-407).
 
 [sources.kitty-update-check]
 key    = "kitty-update-check"
@@ -20056,6 +20064,7 @@ status = "external"
 # Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
 # copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
 group  = "AL"
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: should_skip_cursor_trail_update tests a live resize, DECTCEM and the threshold, and no focus (74-84).
 
 [sources.kitty-trail-lightning-851cb80]
 key    = "kitty-trail-lightning-851cb80"
@@ -20191,6 +20200,7 @@ status = "external"
 # Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
 # copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
 group  = "AL"
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: an unfocused cursor takes cursor_shape_unfocused unless it is unchanged (1019); the trail is drawn with no focus test (3021-3023).
 
 [sources.kitty-cocoa-window-851cb80]
 key    = "kitty-cocoa-window-851cb80"
@@ -24578,6 +24588,7 @@ bytes  = 382024
 status = "external"
 group  = "L"
 # Read 2026-10-11 (round 2026-10-11d, lane v1q2): 666-678 (scrollEnd), 3495-3518, 8311-8313.
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: the unfocused selection colour is the selection colour dimmed 2/3 toward grey 0.5 (6578-6580).
 
 [sources.iterm2-7ce037e-metal-clip-view]
 key    = "iterm2-7ce037e-metal-clip-view"
@@ -27035,6 +27046,7 @@ bytes  = 48445
 status = "external"
 group  = "Y"
 # Read 2026-10-17 for the .itermcolors reader (note AR); not committed: GPL.
+# Read 2026-10-22 (lane b144), the same bytes fetched from 7ce037e: colorDimmedBy:towardsGrayLevel:, each component (1 - d) c + d g (756-778).
 
 [sources.windows-terminal-colorscheme-9fd41b2]
 key    = "windows-terminal-colorscheme-9fd41b2"
@@ -31033,6 +31045,7 @@ bytes  = 187364
 status = "external"
 group  = "Y"
 # Fetched 2026-10-21 (lane b135, where the find field sits) and hash-verified; read as practice, not copied.
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: draw_hollow_block, one logical pixel wide (342-356); draw_cursor without keyboard focus draws every shape hollow under unfocused-style hollow (645-655).
 
 [sources.alacritty-display-5421470]
 key    = "alacritty-display-5421470"
@@ -31703,6 +31716,7 @@ sha256 = "fba3f7596175a246ffa8fdab6213b6678d7e07ab551de3878cdd561f53a8881c"
 bytes  = 431388
 status = "external"
 group  = "J"
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: selection-foreground and selection-background (707-716) and cursor-text (905-911) take cell-foreground and cell-background since 1.2.0; selection-invert-fg-bg sets cell-background over cell-foreground (5080-5089).
 
 [sources.ghostty-sharedgridset-8f0dd37]
 key    = "ghostty-sharedgridset-8f0dd37"
@@ -31795,6 +31809,7 @@ bytes  = 41098
 status = "external"
 group  = "Y"
 # Read 2026-10-21 (lane b142); hash recorded only, not committed -- a vendor header. The header names the colours, not their values: those were resolved through AppKit in sRGB under aqua and darkAqua, never sampled from the screen, and follow the user's highlight colour.
+# Read 2026-10-22 (lane b144), the copy whose sha256 matches: the unemphasized pair (232-235), resolved through AppKit in sRGB, never sampled: aqua #dcdcdc with #000000, darkAqua #464646 with #ffffff.
 
 [sources.terminal-app-clear-dark]
 key    = "terminal-app-clear-dark"
@@ -31837,3 +31852,73 @@ bytes  = 108385
 status = "external"
 group  = "Y"
 # Fetched 2026-10-21 (lane b142), the hash matching iterm2-8622e64-profile-preferences'. Read, not copied.
+
+[sources.ghostty-cursor-9bbb9b2]
+key    = "ghostty-cursor-9bbb9b2"
+title  = "ghostty 9bbb9b2, src/renderer/cursor.zig -- an unfocused cursor is always the hollow block (59-60)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/cursor.zig"
+file   = ""
+sha256 = "4499c3b652c0a3182526e5194412790fa3df1125f4981b5f6401721b2fbd3182"
+bytes  = 6444
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
+
+[sources.iterm2-7ce037e-cursor]
+key    = "iterm2-7ce037e-cursor"
+title  = "iTerm2 at 7ce037e, sources/Drawing/iTermCursor.m -- an unfocused box is a frame (331-334); the underline and vertical cursors ignore focus (146-218)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Drawing/iTermCursor.m"
+file   = ""
+sha256 = "13d90c48b0840b2c4e19355b012a099e83074b095e3e0606dafb1817285a9960"
+bytes  = 13670
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
+
+[sources.iterm2-7ce037e-text-drawing-helper]
+key    = "iterm2-7ce037e-text-drawing-helper"
+title  = "iTerm2 at 7ce037e, sources/Drawing/iTermTextDrawingHelper.m -- isFocused (4121-4123); the outline pass is an advanced setting, not focus (566-575); the unfocused selection colour (4464-4470)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Drawing/iTermTextDrawingHelper.m"
+file   = ""
+sha256 = "64b0c67f735c3956c6d75cf72ec26d2781d086c3a36d82ba340cc44a21fc2d0b"
+bytes  = 225914
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
+
+[sources.iterm2-7ce037e-metal-per-frame-state]
+key    = "iterm2-7ce037e-metal-per-frame-state"
+title  = "iTerm2 at 7ce037e, sources/MetalRenderer/Glue/iTermMetalPerFrameState.m -- focused (379); an unfocused box draws its frame only (456, 470-472); the selection colour for the current focus (2210-2217)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/MetalRenderer/Glue/iTermMetalPerFrameState.m"
+file   = ""
+sha256 = "91a4d16d6e3247bcfceb72533f7f697724d70933392b2b69ba20a83978da2b70"
+bytes  = 146926
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
+
+[sources.wezterm-e2a98e1-render-mod]
+key    = "wezterm-e2a98e1-render-mod"
+title  = "wezterm e2a98e1, wezterm-gui/src/termwindow/render/mod.rs -- an unfocused or inactive pane draws every cursor shape as an outlined block (731-737)"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at e2a98e1 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-gui/src/termwindow/render/mod.rs"
+file   = ""
+sha256 = "203c2f5f00e9106d3537f5e8ab122dae40ad3701a4a9042a3b782c8c044b500c"
+bytes  = 34651
+status = "external"
+group  = "AZ"
+# Fetched 2026-10-22 (lane b144) and hash-verified; read as practice, not copied.
