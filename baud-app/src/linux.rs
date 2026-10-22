@@ -1909,26 +1909,32 @@ impl Driver {
             .as_ref()
             .map(|f| f.look(&self.term, self.term.window_back()));
         self.renderer.set_find(&self.term, look);
-        // The input method's composition at the live cursor, and the cell
-        // its candidate window opens beside, sent when it moved.
-        self.renderer.set_composition(crate::marked::composition(
+        // The input method's composition at the live cursor, and where
+        // its candidate window opens -- at the input method's own cursor
+        // in it, as drawn -- sent when it moved; while it hides its
+        // cursor, the last stands.
+        let composition = crate::marked::composition(
             &self.term,
             &self.composing,
             &self.composing_hints,
             self.composing_caret,
-        ));
-        let m = self.renderer.metrics();
-        let [x, y, w, h] = crate::marked::cursor_cell(&self.term, m.cell_w, m.cell_h);
-        let px = |p: Px| baud_present_wayland::Px(p.value());
-        self.window.set_text_cursor(
-            &mut self.conn.sender(),
-            baud_present_wayland::CursorRect {
-                x: px(x),
-                y: px(y),
-                width: px(w),
-                height: px(h),
-            },
         );
+        let m = self.renderer.metrics();
+        let rect =
+            crate::marked::candidate_rect(&self.term, composition.as_ref(), m.cell_w, m.cell_h);
+        self.renderer.set_composition(composition);
+        let px = |p: Px| baud_present_wayland::Px(p.value());
+        if let Some([x, y, w, h]) = rect {
+            self.window.set_text_cursor(
+                &mut self.conn.sender(),
+                baud_present_wayland::CursorRect {
+                    x: px(x),
+                    y: px(y),
+                    width: px(w),
+                    height: px(h),
+                },
+            );
+        }
         // The thumb, the trail, the fade and the blink phases at this
         // moment (`timed.rs`), in the macOS frame's order.
         let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));

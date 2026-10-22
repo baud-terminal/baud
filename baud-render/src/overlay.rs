@@ -1563,6 +1563,47 @@ impl Composition {
             Caret::Range(..) | Caret::Hidden => None,
         }
     }
+
+    /// **The cells the input method's cursor names**, for the rectangle
+    /// its candidate window opens beside: a caret's cell
+    /// ([`Composition::cursor`]), both cells of a wide character there,
+    /// one past the clusters; a range's cells, from its first cluster to
+    /// the end of its last, as foot sends them (`[[source:
+    /// foot-2705e36-render]]` 1858-1870); none while the cursor is hidden
+    /// or a range holds no cluster drawn.
+    pub fn caret_cells(&self, cols: Cols) -> Option<(Row, Col, Cols)> {
+        let width = |p: &Piece| Cols::of_index(if p.span == CellSpan::Two { 2 } else { 1 });
+        let pieces = self.pieces(cols);
+        match self.caret {
+            Caret::End | Caret::At(_) => {
+                let (row, col) = self.cursor(cols)?;
+                let w = pieces
+                    .iter()
+                    .find(|p| p.col == col)
+                    .map_or(Cols::of_index(1), width);
+                Some((row, col, w))
+            }
+            Caret::Range(start, end) => {
+                let lead = self
+                    .text
+                    .iter()
+                    .take_while(|&&cp| Classified::of(cp).width(self.ambiguous) == Width::ZERO)
+                    .count();
+                let mut first = lead;
+                let mut cells: Option<(Col, usize)> = None;
+                for p in &pieces {
+                    let ends = first + p.cps.len();
+                    if first < end && start < ends {
+                        let right = p.col.index() + width(p).index();
+                        cells = Some(cells.map_or((p.col, right), |(l, _)| (l, right)));
+                    }
+                    first = ends;
+                }
+                cells.map(|(l, r)| (self.row, l, Cols::of_index(r - l.index())))
+            }
+            Caret::Hidden => None,
+        }
+    }
 }
 
 /// The records that draw a composition: each cluster's glyphs in the

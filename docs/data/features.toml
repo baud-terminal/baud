@@ -950,10 +950,10 @@ shipped = ["2026-10-15-text-being-composed-follows-the-wide"]
 id = "input-methods-linux"
 area = "input"
 name = "Input methods on Linux"
-does = "On Linux, text you compose with an input method such as IBus or Fcitx is drawn at the cursor, styled as GTK styles it, with the cursor where the input method puts it inside the text, or the part it marks highlighted."
+does = "On Linux, text you compose with an input method such as IBus or Fcitx is drawn at the cursor, styled as GTK styles it, with the cursor where the input method puts it inside the text, or the part it marks highlighted, and the list of suggestions opens beside that cursor or that part."
 status = "built"
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::an_input_method_composes_at_the_cursor_and_commits_text", "baud-render/tests/composition.rs::the_input_methods_cursor_is_drawn_where_it_puts_it", "baud-render/tests/composition.rs::the_input_methods_cursor_follows_the_clusters", "baud-app/src/marked.rs::the_input_methods_cursor_lands_on_codepoints"]
+tests = ["baud-present-wayland/tests/handshake.rs::an_input_method_composes_at_the_cursor_and_commits_text", "baud-render/tests/composition.rs::the_input_methods_cursor_is_drawn_where_it_puts_it", "baud-render/tests/composition.rs::the_input_methods_cursor_follows_the_clusters", "baud-app/src/marked.rs::the_input_methods_cursor_lands_on_codepoints", "baud-app/src/marked.rs::the_candidate_window_opens_at_the_input_methods_cursor"]
 shipped = ["F2-07"]
 
 [[feature]]

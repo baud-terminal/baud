@@ -1,7 +1,7 @@
 //! **An input method's composition, for both drivers**: the text being
 //! composed, drawn underlined at the cursor of the live screen until it is
-//! committed or cancelled, and the cell the input method's candidate
-//! window opens beside. The macOS driver hears it from AppKit's
+//! committed or cancelled, and where the input method's candidate
+//! window opens. The macOS driver hears it from AppKit's
 //! `setMarkedText:` and answers `firstRectForCharacterRange:`; the Linux
 //! driver from `text-input-v3`'s `preedit_string`, and it sends
 //! `set_cursor_rectangle` (`baud_present_wayland::ime`). One rule here, so
@@ -127,6 +127,45 @@ pub fn cursor_cell(term: &Term<'_>, w: Px, h: Px) -> [Px; 4] {
     [at(c.index(), w), at(r.index(), h), w, h]
 }
 
+/// **Where the Linux input method's candidate window is asked to open**,
+/// as `[x, y, width, height]` in pixels from the grid's top-left corner:
+/// "an area around the cursor" (`[[source: wp-text-input-unstable-v3]]`),
+/// the cursor being the input method's own inside the composition, as
+/// baud draws it -- a caret's cell, or a range's cells
+/// ([`Composition::caret_cells`]), at the doubled size on a double-width
+/// line. With no composition, the terminal cursor's cell
+/// ([`cursor_cell`]). `None` while the input method hides its cursor: the
+/// last rectangle stands, as foot leaves it (`[[source:
+/// foot-2705e36-render]]` 1839-1872).
+#[cfg(any(target_os = "linux", test))]
+pub fn candidate_rect(
+    term: &Term<'_>,
+    composition: Option<&Composition>,
+    w: Px,
+    h: Px,
+) -> Option<[Px; 4]> {
+    let Some(c) = composition else {
+        return Some(cursor_cell(term, w, h));
+    };
+    let view = term.view(baud_domain::Rows::ZERO);
+    let cols = c.width_on(&view);
+    let (row, col, n) = c.caret_cells(cols)?;
+    let doubled = row.index() < view.rows().index()
+        && view.rendition(row) != baud_domain::LineRendition::Single;
+    let cw = match doubled {
+        true => w.value().saturating_mul(2),
+        false => w.value(),
+    };
+    let at =
+        |i: usize, size: u32| Px::of(u32::try_from(i).unwrap_or(u32::MAX).saturating_mul(size));
+    Some([
+        at(col.index(), cw),
+        at(row.index(), h.value()),
+        at(n.index(), cw),
+        h,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +275,46 @@ mod tests {
         );
     }
 
+    /// **The candidate window opens at the input method's cursor**: at a
+    /// caret, its cell, both of a wide character's; past the clusters, the
+    /// cell after; over a range, the range's cells; hidden, nothing new,
+    /// so the last stands; with no composition, the terminal cursor's
+    /// cell; on a double-width line, at the doubled cells. Each assertion
+    /// with a composition fails for the rule before, its first cell.
+    #[test]
+    fn the_candidate_window_opens_at_the_input_methods_cursor() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\r\nab");
+        let px = Px::of;
+        let (w, h) = (px(9), px(18));
+        // `か` and `な` are wide, `a` narrow: cells 2-3, 4-5 and 6.
+        let text = codepoints("かなa");
+        let rect = |t: &Term<'_>, caret| {
+            let c = composition(t, &text, &[], caret).expect("composed");
+            candidate_rect(t, Some(&c), w, h)
+        };
+        assert_eq!(rect(&t, Caret::At(1)), Some([px(36), px(18), px(18), h]));
+        assert_eq!(rect(&t, Caret::At(2)), Some([px(54), px(18), px(9), h]));
+        assert_eq!(rect(&t, Caret::End), Some([px(63), px(18), px(9), h]));
+        assert_eq!(
+            rect(&t, Caret::Range(1, 3)),
+            Some([px(36), px(18), px(27), h])
+        );
+        assert_eq!(rect(&t, Caret::Hidden), None);
+        assert_eq!(
+            candidate_rect(&t, None, w, h),
+            Some([px(18), px(18), px(9), h]),
+            "no composition: the cursor's cell"
+        );
+        feed(&mut t, b"\x1b#6");
+        assert_eq!(
+            rect(&t, Caret::At(1)),
+            Some([px(72), px(18), px(36), h]),
+            "a double-width line doubles the cells"
+        );
+    }
+
     /// **Both drivers draw through this**: the macOS driver's frame and
     /// its `marked_text`, and the Linux driver's frame and its preedit
     /// event, so a composition looks the same on both.
@@ -252,11 +331,15 @@ mod tests {
                 src.contains("crate::marked::codepoints("),
                 "{name} reads it"
             );
-            assert!(
-                src.contains("crate::marked::cursor_cell("),
-                "{name} places it"
-            );
         }
+        assert!(
+            app.contains("crate::marked::cursor_cell("),
+            "app.rs places it"
+        );
+        assert!(
+            linux.contains("crate::marked::candidate_rect("),
+            "linux.rs places it at the input method's cursor"
+        );
         assert!(
             linux.contains("Event::Preedit("),
             "linux.rs hears the preedit"
