@@ -32112,3 +32112,19 @@ sha256 = "c31107471eeffa00c37e786be96f3f5fc31af1f9b97d1123f592d2b9cb713e71"
 bytes  = 55512
 status = "external"
 group  = "C"
+
+# Read 2026-10-22 for an empty value on an OSC 21 palette entry (lane
+# b151): kitty's ColorProfile refuses None for the default colours, which
+# color_control's suppress(TypeError) leaves unchanged.
+[sources.kitty-6d5d0c4-colors-c]
+key    = "kitty-6d5d0c4-colors-c"
+title  = "kitty 6d5d0c4, kitty/colors.c -- CGETSET: default_fg and default_bg 'cannot be set to None', cursor_color and cursor_text_color nullable"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/colors.c"
+file   = ""
+sha256 = "a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f"
+bytes  = 65249
+status = "external"
+group  = "C"

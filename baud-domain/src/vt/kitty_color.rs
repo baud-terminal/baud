@@ -180,32 +180,3 @@ fn trim_spaces(v: &[u8]) -> &[u8] {
     let end = v.len() - v[start..].iter().rev().take_while(|&&b| b == b' ').count();
     &v[start..end]
 }
-
-/// **The colour a palette entry past the sixteen has when nothing set
-/// it**, xterm's fixed 256: the 6x6x6 cube from 16 and the 24 greys from
-/// 232, as kitty's FG_BG_256 builds them (`[[source:
-/// kitty-colors-1e1486e]]` 40-55). What kitty's empty value gives such an
-/// entry under its default palette_generate fixed (set_color, 686-697),
-/// where an entry of the sixteen goes back to its configured colour.
-/// Built at compile time; entries below 16 hold black and are never read.
-pub fn fixed_entry(i: Chan) -> (Chan, Chan, Chan) {
-    let [r, g, b] = FIXED[usize::from(i.get())];
-    (Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
-}
-
-const FIXED: [[u8; 3]; 256] = {
-    const STEPS: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
-    let mut t = [[0u8; 3]; 256];
-    let mut i = 0;
-    while i < 216 {
-        t[16 + i] = [STEPS[(i / 36) % 6], STEPS[(i / 6) % 6], STEPS[i % 6]];
-        i += 1;
-    }
-    let mut k = 0;
-    while k < 24 {
-        let v = 8 + k as u8 * 10;
-        t[232 + k] = [v, v, v];
-        k += 1;
-    }
-    t
-};

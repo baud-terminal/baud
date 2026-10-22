@@ -154,25 +154,59 @@ fn a_sequence_that_asks_nothing_is_not_answered() {
     });
 }
 
-/// An entry set, reset with its bare key, and made "dynamic": an entry of
-/// the sixteen goes back to its configured colour, one past them takes
-/// xterm's fixed colour, as kitty's set_color does under its default
-/// palette_generate fixed (`[[source: kitty-colors-1e1486e]]` 686-697).
+/// A palette entry takes a colour and a reset, the bare key; an entry of
+/// the sixteen and one past them alike.
 #[test]
-fn a_palette_entry_is_set_reset_and_made_automatic() {
+fn a_palette_entry_is_set_and_reset() {
     told(|t| {
-        support::feed(t, b"\x1b]21;1=#123456;200=red;5=green\x07");
+        support::feed(t, b"\x1b]21;1=#123456;200=red;5=#008000\x07");
         assert_eq!(t.palette(Chan::from_u8(1)), Some((0x12, 0x34, 0x56)));
         assert_eq!(t.palette(Chan::from_u8(200)), Some((0xff, 0, 0)));
-        support::feed(t, b"\x1b]21;1;200=;5=\x07");
+        support::feed(t, b"\x1b]21;1;200\x07");
         assert_eq!(t.palette(Chan::from_u8(1)), None);
-        assert_eq!(t.palette(Chan::from_u8(200)), Some((0xff, 0x00, 0xd7)));
-        assert_eq!(t.palette(Chan::from_u8(5)), None);
-        support::feed(t, b"\x1b]21;1=?;5=?\x07");
+        assert_eq!(t.palette(Chan::from_u8(200)), None);
+        assert_eq!(t.palette(Chan::from_u8(5)), Some((0, 0x80, 0)));
+        support::feed(t, b"\x1b]21;1=?;200=?\x07");
         assert_eq!(
             text(&drain(t)),
-            "\x1b]21;1=rgb:10/10/40;5=rgb:50/50/40\x1b\\"
+            "\x1b]21;1=rgb:10/10/40;200=rgb:ff/00/d7\x1b\\"
         );
+    });
+}
+
+/// **An empty value on a palette entry is refused and counted**: "Setting
+/// the ANSI color table colors to dynamic is not allowed" (`[[source:
+/// kitty-6d5d0c4-color-stack]]` 82). The entry keeps the colour it had,
+/// within the sequence too, so a query after it in the same sequence
+/// answers that colour; the sequence's other records still apply, and the
+/// set sends nothing. An entry of the sixteen and one past them alike.
+#[test]
+fn a_palette_entry_takes_no_dynamic_value() {
+    told(|t| {
+        support::feed(t, b"\x1b]21;5=red;200=#0a0b0c\x07");
+        let before = t.unsupported;
+        support::feed(t, b"\x1b]21;5=;200=;7=#0000ff\x07");
+        assert_eq!(t.unsupported, before + 2);
+        assert!(drain(t).is_empty());
+        assert_eq!(t.palette(Chan::from_u8(5)), Some((0xff, 0, 0)));
+        assert_eq!(t.palette(Chan::from_u8(200)), Some((0x0a, 0x0b, 0x0c)));
+        assert_eq!(t.palette(Chan::from_u8(7)), Some((0, 0, 0xff)));
+        support::feed(t, b"\x1b]21;5=#008000;5=;5=?;200=;200=?\x07");
+        assert_eq!(
+            text(&drain(t)),
+            "\x1b]21;5=rgb:00/80/00;200=rgb:0a/0b/0c\x1b\\"
+        );
+        assert_eq!(t.palette(Chan::from_u8(5)), Some((0, 0x80, 0)));
+    });
+    // Never set: the entry stays the configured one, and answers it.
+    told(|t| {
+        support::feed(t, b"\x1b]21;3=;3=?;30=;30=?\x07");
+        assert_eq!(
+            text(&drain(t)),
+            "\x1b]21;3=rgb:30/30/40;30=rgb:00/87/87\x1b\\"
+        );
+        assert_eq!(t.palette(Chan::from_u8(3)), None);
+        assert_eq!(t.palette(Chan::from_u8(30)), None);
     });
 }
 

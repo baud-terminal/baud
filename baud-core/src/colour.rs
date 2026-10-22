@@ -403,14 +403,21 @@ impl Paint<'_, '_> {
             (KittyTarget::Entry(i), op) => {
                 let w = match op {
                     KittyOp::Set(r, g, b) => ColorWord::rgb(r, g, b),
-                    // An empty value: an entry of the sixteen goes back to
-                    // its configured colour, one past them takes its fixed
-                    // colour, as kitty's code does (`[[source: kitty-window-py]]` 621-629).
-                    KittyOp::Automatic if i.get() >= 16 => {
-                        let (r, g, b) = fixed_entry(i);
-                        ColorWord::rgb(r, g, b)
+                    KittyOp::Reset => ColorWord::DEFAULT,
+                    // **An empty value is refused and counted**: "Setting
+                    // the ANSI color table colors to dynamic is not
+                    // allowed" (`[[source: kitty-6d5d0c4-color-stack]]`
+                    // 82), so the entry keeps what it had, as kitty's own
+                    // code keeps a default colour asked to be dynamic
+                    // (`[[source: kitty-window-py]]` 617-619, `[[source:
+                    // kitty-6d5d0c4-colors-c]]` 825-840). Decided by Jev,
+                    // REFUSE, 0.96/1.00 after research.
+                    KittyOp::Automatic => {
+                        self.unsupported_total += 1;
+                        return;
                     }
-                    _ => ColorWord::DEFAULT,
+                    // Taken by the arms above: answered, or counted.
+                    KittyOp::Query | KittyOp::Unreadable => return,
                 };
                 self.strs.colours.palette[i.index()] = Some(w);
             }
