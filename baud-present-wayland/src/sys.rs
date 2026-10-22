@@ -3,16 +3,19 @@
 //! tests run against a socket pair, it is an unlinked temporary file --
 //! the compositor side of the test never maps it, and the mapping calls
 //! are the same. And a clipboard transfer's pipe, made non-blocking so
-//! the driver's one wait reads and writes it a piece at a time. This is
-//! the one module in the crate that allows `unsafe`, for the five externs
-//! it declares.
+//! the driver's one wait reads and writes it a piece at a time. And the
+//! compositor's presentation clock, read as `clock_gettime` reads it
+//! (`timing.rs`). This is the one module in the crate that allows
+//! `unsafe`, for the six externs it declares.
 
 #![allow(unsafe_code)]
 
+use crate::timing::{ClockId, Stamp};
 use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::time::Duration;
 
 unsafe extern "C" {
     #[cfg(target_os = "linux")]
@@ -21,6 +24,30 @@ unsafe extern "C" {
     fn munmap(addr: *mut u8, len: usize) -> i32;
     fn ftruncate(fd: i32, len: i64) -> i32;
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    fn clock_gettime(clock: ClockId, ts: *mut Timespec) -> i32;
+}
+
+/// `struct timespec` where `time_t` and `long` are 64 bits: the 64-bit
+/// Linux targets and Darwin.
+#[repr(C)]
+#[derive(Default)]
+struct Timespec {
+    tv_sec: i64,
+    tv_nsec: i64,
+}
+
+/// The clock `clock` reads now, or `None` where this system has no such
+/// clock -- a Linux clock id asked on another system among them.
+pub fn clock_now(clock: ClockId) -> Option<Stamp> {
+    let mut ts = Timespec::default();
+    // SAFETY: a clock id and a pointer to a timespec this frame owns,
+    // which the call fills and nothing else holds.
+    if unsafe { clock_gettime(clock, &mut ts) } != 0 {
+        return None;
+    }
+    let secs = u64::try_from(ts.tv_sec).ok()?;
+    let nanos = u32::try_from(ts.tv_nsec).ok()?;
+    Some(Stamp(Duration::new(secs, nanos)))
 }
 
 const F_GETFL: i32 = 3;

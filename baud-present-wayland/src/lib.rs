@@ -23,6 +23,7 @@ pub mod keys;
 pub mod pointer;
 pub mod shm;
 pub mod sys;
+pub mod timing;
 pub mod window;
 
 pub use clip::{Board, Copied, Pasting, Want};
@@ -31,4 +32,5 @@ pub use ime::{ByteAt, CursorAt, CursorRect, Hint, Hinted, Preedit, PreeditCursor
 pub use keys::Shortcut;
 pub use pointer::{At, Button, CursorShape, EventCode, PointerEvent, Press, Scroll};
 pub use shm::{Pool, Px};
+pub use timing::{ClockId, Presentation, Stamp};
 pub use window::{ConfigureBounds, Event, Presented, Resize, Shaped, Shown, Toggle, Window};

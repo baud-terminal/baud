@@ -99,9 +99,10 @@ summary = "Each frame hands the desktop only the rows that changed, instead of t
 [[item]]
 id = "F2-09"
 area = "platforms"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Smoother frames and pointer shapes on Linux"
-summary = "Frame timing from the compositor, the right pointer shape over text, and input methods."
+summary = "Frames drawn when the desktop asks and timed for the moment they reach the screen, the right pointer shape over text, and input methods."
 
 [[item]]
 id = "F2-11"

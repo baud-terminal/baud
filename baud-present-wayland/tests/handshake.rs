@@ -744,6 +744,159 @@ fn a_frame_copies_and_damages_only_the_rows_it_changed() {
     assert_eq!(w.rows_copied(), Px(480));
 }
 
+/// The monotonic clock's id on this system, which the test's compositor
+/// names as its presentation clock: Linux's `CLOCK_MONOTONIC` and
+/// Darwin's.
+#[cfg(target_os = "linux")]
+const MONOTONIC: u32 = 1;
+#[cfg(target_os = "macos")]
+const MONOTONIC: u32 = 6;
+
+/// **A frame waits for the callback, and is timed by the presentation
+/// feedback** (`timing.rs`). Where the compositor offers `wp_presentation`,
+/// every commit asks for feedback; until a frame is presented, a frame is
+/// planned for now; once one is, for the next refresh after now -- ahead
+/// of now and within one period. A discarded frame leaves the last one
+/// shown. The frame in flight holds the next until its callback.
+#[test]
+fn frames_wait_for_the_callback_and_are_timed_by_the_presentation() {
+    use std::time::{Duration, Instant};
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+        (4, "wp_presentation", 2),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut presentation, mut xdg, mut top) = (None, None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) if i == "wp_presentation" => {
+                assert_eq!(*v, 2);
+                presentation = Some(*id);
+            }
+            ("xdg_wm_base", "get_xdg_surface", [Val::New(id), _]) => xdg = Some(*id),
+            ("xdg_surface", "get_toplevel", [Val::New(id)]) => top = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    let presentation = presentation.expect("bound");
+    server.send(
+        presentation,
+        "wp_presentation",
+        "clock_id",
+        &[Arg::Uint(MONOTONIC)],
+    );
+    configure(&mut server, top.unwrap(), xdg.unwrap(), 64, 32, &[]);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    let frame = vec![0xff00_0000u32; 64 * 32];
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::Yes
+    );
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Whole),
+        Presented::No,
+        "the frame in flight holds the next"
+    );
+    conn.flush().unwrap();
+    let (mut callback, mut feedback) = (None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_surface", "frame", [Val::New(cb)]) => callback = Some(*cb),
+            ("wp_presentation", "feedback", [Val::Obj(_), Val::New(fb)]) => feedback = Some(*fb),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    let (callback, feedback) = (callback.unwrap(), feedback.expect("feedback asked"));
+    let now = Instant::now();
+    assert_eq!(w.next_shown(now), now, "nothing presented yet: now");
+
+    // Shown a millisecond ago at 60 Hz: the next refresh is ahead.
+    let before = Instant::now();
+    let clock = baud_present_wayland::sys::clock_now(ClockId(i32::try_from(MONOTONIC).unwrap()))
+        .expect("the monotonic clock");
+    let shown = clock.0 - Duration::from_millis(1);
+    let secs = shown.as_secs();
+    let refresh = 16_666_667u32;
+    server.send(
+        feedback,
+        "wp_presentation_feedback",
+        "presented",
+        &[
+            Arg::Uint(u32::try_from(secs >> 32).unwrap()),
+            Arg::Uint(u32::try_from(secs & 0xffff_ffff).unwrap()),
+            Arg::Uint(shown.subsec_nanos()),
+            Arg::Uint(refresh),
+            Arg::Uint(0),
+            Arg::Uint(1),
+            Arg::Uint(0),
+        ],
+    );
+    server.send(callback, "wl_callback", "done", &[Arg::Uint(16)]);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.next_event(), Some(Event::Frame));
+    let p = w.presented().expect("presented");
+    assert_eq!(p.refresh, Duration::from_nanos(u64::from(refresh)));
+    // The refresh lands a period after it was shown, read before the
+    // clock was: a stall past a period only makes it later. Darwin's
+    // CLOCK_MONOTONIC reads whole microseconds, and the test's read and
+    // the window's are each cut down to one, so the bound allows two.
+    let now = Instant::now();
+    let next = w.next_shown(now);
+    let resolution = Duration::from_micros(2);
+    assert!(
+        next + resolution >= before + p.refresh - Duration::from_millis(1)
+            && next <= now + p.refresh,
+        "{:?} after now",
+        next.checked_duration_since(now)
+    );
+
+    // The next frame's feedback discarded: the last presentation stands.
+    assert_eq!(
+        w.present(&mut conn.sender(), &frame, 64, Changed::Strips(&[])),
+        Presented::Yes
+    );
+    conn.flush().unwrap();
+    let feedback = loop {
+        let r = server.next();
+        if let ("wp_presentation", "feedback", [_, Val::New(fb)]) = (r.iface, r.name, &r.args[..]) {
+            break *fb;
+        }
+    };
+    server.send(feedback, "wp_presentation_feedback", "discarded", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.presented(), Some(p));
+}
+
 /// A session as far as a keyboard with the `us` keymap: the globals bound,
 /// the surface made, the seat's keyboard created and its keymap sent. Returns
 /// the keyboard and the surface, which `enter` and `leave` name.

@@ -1302,6 +1302,16 @@ tests = ["baud-present-wayland/tests/handshake.rs::a_frame_copies_and_damages_on
 shipped = ["F2-08"]
 
 [[feature]]
+id = "linux-frames"
+area = "window"
+name = "Frames in time with the screen, on Linux"
+does = "A frame is drawn when the desktop is ready for the next one, and where it reports when frames reach the screen, the cursor's blink, the bell's flash and the trails are timed for that moment, as on a Mac."
+status = "built"
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::frames_wait_for_the_callback_and_are_timed_by_the_presentation", "baud-present-wayland/src/timing.rs::the_next_refresh_is_whole_periods_after_the_last_frame"]
+shipped = ["F2-09"]
+
+[[feature]]
 id = "window-frame"
 area = "window"
 name = "A margin around the text"

@@ -686,14 +686,19 @@ pub fn run() {
         let now = Instant::now();
         d.window.tick(now);
         d.window.pump_transfers(now);
-        if d.bell.is_due(now) {
+        // What a frame owes is decided at the moment a frame drawn now is
+        // first seen (`Window::next_shown`), the moment it is planned for
+        // in `present`: one clock for both, as the macOS app decides and
+        // plans by its display link's target.
+        let at = d.window.next_shown(now);
+        if d.bell.is_due(at) {
             d.pending = Pending::Dirty;
         }
         let blinks = d.blinks();
-        if d.caret.due(now, blinks) == Owes::Frame {
+        if d.caret.due(at, blinks) == Owes::Frame {
             d.pending = Pending::Dirty;
         }
-        match d.timed.turn(now, &mut d.term) {
+        match d.timed.turn(at, &mut d.term) {
             crate::timed::Owes::Nothing => {}
             crate::timed::Owes::Frame => d.pending = Pending::Dirty,
             // A blink flip moves no cell word, so row damage cannot see it.
@@ -1885,12 +1890,16 @@ impl Driver {
             self.bell.hold(&self.term);
             return;
         }
+        // The moment the frame is first seen: the next refresh where the
+        // compositor's presentation feedback says one, else now -- what
+        // the macOS frame plans for with its display link's target.
+        let seen_at = self.window.next_shown(Instant::now());
         // The visual bell, before the margin: the flash moves it too. Kept
         // only if the frame reaches the compositor, below.
-        let bell = self.bell.plan(&self.term, Instant::now(), update);
+        let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
         let blinks = self.blinks();
-        let caret = self.caret.plan(Instant::now(), blinks);
+        let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
         self.renderer.set_highlight(self.seat.highlight(&self.term));
@@ -1929,7 +1938,7 @@ impl Driver {
         };
         let renderer = &self.renderer;
         let plan = self.timed.plan(
-            Instant::now(),
+            seen_at,
             &self.term,
             |r, c, style| renderer.cursor_rect(r, c, style),
             cell,

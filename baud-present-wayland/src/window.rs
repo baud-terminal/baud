@@ -24,6 +24,7 @@ use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
 use crate::shm::{Pool, Px};
+use crate::timing::{ClockId, Presentation, Stamp};
 use baud_domain::{
     EventMillis, Focus, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
 };
@@ -209,6 +210,8 @@ struct Globals {
     pointer_framing: Framing,
     pointer_release: Release,
     cursor_shape: Option<ObjectId>,
+    /// `wp_presentation`, where the compositor offers it (`timing.rs`).
+    presentation: Option<ObjectId>,
     scaling: Scaling,
 }
 
@@ -270,6 +273,10 @@ pub struct Window {
     /// The rows the last frame shown copied into its buffer.
     copied: Px,
     callback: Option<ObjectId>,
+    /// The presentation clock, from `clock_id`, and the last frame the
+    /// compositor said it showed (`timing.rs`).
+    clock: Option<ClockId>,
+    presented: Option<Presentation>,
     keymap: Option<Keymap>,
     mods: Mods,
     group: usize,
@@ -344,6 +351,8 @@ impl Window {
             owed: RowSet::default(),
             copied: Px(0),
             callback: None,
+            clock: None,
+            presented: None,
             keymap: None,
             mods: Mods::default(),
             group: 0,
@@ -919,6 +928,9 @@ impl Window {
             // The surface shows a buffer of another size, or none.
             rows = RowSet::all(h);
         }
+        // The frame callback, and the presentation feedback where the
+        // compositor offers it: both for this commit.
+        let presentation = self.globals.presentation;
         let cb = |s: &mut Sender<'_>| {
             let cb = s.new_id(Interface::named("wl_callback").expect("pinned"));
             let _ = s.request(
@@ -926,6 +938,14 @@ impl Window {
                 Opcode(protocol::wl_surface::request::FRAME),
                 &[Arg::NewId(cb)],
             );
+            if let Some(p) = presentation {
+                let fb = s.new_id(Interface::named("wp_presentation_feedback").expect("pinned"));
+                let _ = s.request(
+                    p,
+                    Opcode(protocol::wp_presentation::request::FEEDBACK),
+                    &[Arg::Object(surface), Arg::NewId(fb)],
+                );
+            }
             cb
         };
         if rows.is_empty() {
@@ -982,6 +1002,23 @@ impl Window {
         rows.clear();
         self.owed = rows;
         Presented::Yes
+    }
+
+    /// **When a frame drawn now will first be seen**: the next refresh
+    /// after the last frame the compositor said it showed, where it offers
+    /// `wp_presentation` and says a refresh, and `now` otherwise -- what
+    /// the bell's flash, the cursor's blink and the effects are planned
+    /// for, as the macOS app plans for its display link's target.
+    pub fn next_shown(&self, now: Instant) -> Instant {
+        self.presented
+            .and_then(|p| p.next())
+            .map_or(now, |t| t.max(now))
+    }
+
+    /// The compositor's last presentation, if it offers feedback and has
+    /// shown a frame.
+    pub fn presented(&self) -> Option<Presentation> {
+        self.presented
     }
 
     /// The rows the last frame shown copied into its buffer: what it
@@ -1134,6 +1171,13 @@ impl Handler for Window {
                             self.clip.bound(Board::Primary, m);
                             self.clip.devices(s, self.globals.seat);
                         }
+                    }
+                    // Version 2 where offered: what it adds is a refresh
+                    // for an output without a constant rate, which
+                    // `timing.rs` reads as any refresh.
+                    "wp_presentation" => {
+                        self.globals.presentation =
+                            Window::bind(s, self.registry, name, iface, version.min(2));
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
@@ -1501,6 +1545,31 @@ impl Handler for Window {
             ("wl_buffer", "release", _) => {
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);
+                }
+            }
+            ("wp_presentation", "clock_id", [Read::Uint(id)]) => {
+                self.clock = i32::try_from(*id).ok().map(ClockId);
+            }
+            // "presented" and "discarded" each end their feedback object;
+            // a frame discarded leaves the last one shown the latest.
+            (
+                "wp_presentation_feedback",
+                "presented",
+                [
+                    Read::Uint(hi),
+                    Read::Uint(lo),
+                    Read::Uint(nanos),
+                    Read::Uint(refresh),
+                    ..,
+                ],
+            ) => {
+                let secs = u64::from(*hi) << 32 | u64::from(*lo);
+                if let (Some(clock), true) = (self.clock, *nanos < 1_000_000_000) {
+                    self.presented = Some(Presentation {
+                        clock,
+                        at: Stamp(Duration::new(secs, *nanos)),
+                        refresh: Duration::from_nanos(u64::from(*refresh)),
+                    });
                 }
             }
             ("wl_callback", "done", _) => {
