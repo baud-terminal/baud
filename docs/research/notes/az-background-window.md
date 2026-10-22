@@ -97,15 +97,15 @@ Each option against the texts above:
 
 The selection on macOS:
 
-- **Reverse video in an inactive window in an inactive window** takes AppKit's
-  unemphasized pair, the lane's rule: the colours AppKit documents for a
-  selection "when the associated control/view/window is not key". Jev
-  picked whichever option was listed second in each order (confidence
-  0.14/0.32, then 0.06/0.20), so the pick carries no signal. V13 chose
-  reverse video for the selection after a side-by-side look; it did not
-  decide how an inactive window draws it. baud has no selection in the
-  system's colours, so reverse video is the one look that takes the
-  pair. Taking it conforms to the header; unchanged follows no text.
+- **Reverse video in an inactive window** takes AppKit's unemphasized
+  pair, the lane's rule: the colours AppKit documents for a selection
+  "when the associated control/view/window is not key". Jev picked
+  whichever option was listed second in each order (confidence 0.14/0.32,
+  then 0.06/0.20), so the pick carries no signal. V13 chose reverse video
+  for the selection after a side-by-side look; it did not decide how an
+  inactive window draws it. baud has no selection in the system's colours,
+  so reverse video is the one look that takes the pair. Taking it conforms
+  to the header; unchanged follows no text.
 - **A selection colour of its own** (`[palette] selection`, a theme file,
   `OSC 17`/`19`) is drawn unchanged in an inactive window: Jev's lean in
   four asks, 0.70/0.49 and 0.71/0.58, taken. No text above covers it:

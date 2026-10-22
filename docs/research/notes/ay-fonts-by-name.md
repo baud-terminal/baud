@@ -59,12 +59,13 @@ from the Bold face; alacritty draws it Regular.
 
 A scan of the macOS directories: 388 files, 805 faces, each read only for
 its directory, `name`, `OS/2`, `head`, `post` and `fvar`, from a mapping
-released at once, over eight threads: 2.3-3.5 ms per scan with the files
-in the page cache, 12.8 ms the one time they were not, with the picks for
-the six default names 0.07-0.29 ms more. CoreText, for comparison: its list of available font
-URLs, 16-34 ms; descriptor matching for the six default families, 4.0-5.1
-ms. CSS 5.2 over the six default names reproduces the paths and indexes the
-default stack named: Menlo.ttc@0, Apple Color Emoji.ttc@0 (not the hidden
+released at once, over eight threads: 2.3-3.5 ms per scan with the files in
+the page cache, 6.9-12.8 ms in the first round of a first process, with the
+picks for the six default names 0.07-0.29 ms more. CoreText, for
+comparison: its list of available font URLs, 16-34 ms; descriptor matching
+for the six default families, 4.0-5.1 ms. CSS 5.2 over the six default
+names reproduces the paths and indexes the default stack named:
+Menlo.ttc@0, Apple Color Emoji.ttc@0 (not the hidden
 `.Apple Color Emoji UI` at 1), Apple Symbols, Hiragino Sans GB's W3 at 300
 (400 searches down before up to the W6), Apple SD Gothic Neo@0, Kohinoor
 Devanagari@0.
@@ -97,25 +98,24 @@ Devanagari@0.
 - A name is looked up as a PostScript name (nameID 6), then a full name
   (nameID 4, US English else the first record, passed over where it is
   one of the face's own family names, nameID 16 or 1), then a family --
-  L_PS_FIRST, kitty's
-  order (`[[source: kitty-fonts-core-text-fa9f8da]]`,
+  L_PS_FIRST, kitty's order (`[[source: kitty-fonts-core-text-fa9f8da]]`,
   `[[source: kitty-fonts-fontconfig-fa9f8da]]`); first ask 0.33/0.23,
   split by order, re-ask 0.23/0.22, still split: the lean of the re-ask's
   two orders, probabilities 0.92 against 0.78 for family first. On this
-  Mac 264 of 691 family names are also some face's full or PostScript
-  name, always a face of that family (fontTools). The pass-over takes
-  nameID 1 as well as 16: a weight-split family's "Seravek Light" is its
-  Light face's full name and nameID 1, and found as that face it drew
-  bold and italic from all of Seravek, where the family search keeps
-  them among the Light faces. With it, 689 of the 690 family names the
-  catalogue held at the base resolve to the same regular, bold, italic
-  and bold italic faces, at the same axis values, as the family search
-  gave; the other, "STIX Two Math", picks the embedded face, as the
-  embedded faces come first, and the 692 now held add the embedded
-  faces' two.
-  47 of the 692 are reached as a PostScript or full name (a one-off
-  sweep through baud's own resolve, not kept). Passing over only the
-  preferred family (nameID 16 else 1), 77 of the 690 resolved
+  Mac 264 of the 690 family names the catalogue held at the base are also
+  some face's full or PostScript name, always a face of that family
+  (fontTools). The pass-over takes nameID 1 as well as 16: a weight-split
+  family's "Seravek Light" is its Light face's full name and nameID 1,
+  and found as that face it drew bold and italic from all of Seravek,
+  where the family search keeps them among the Light faces. With it, 689
+  of the 690 family names the catalogue held at the base resolve to the
+  same regular, bold, italic and bold italic faces, at the same axis
+  values, as the family search gave; the other, "STIX Two Math", picks
+  the embedded face, as the embedded faces come first, and the 692 now
+  held add the embedded faces' two. 47 of the 692 are reached as a
+  PostScript name, and none as a full name (a one-off sweep through
+  baud's own resolve, not kept). Passing over only the preferred family
+  (nameID 16 else 1), 77 of the 690 besides STIX Two Math resolved
   differently. CSS gives these names to `local()` only
   (`[[source: css-fonts-3]]` 4.3), which states no case rule; the
   family's caseless match is applied to them as a reading.
