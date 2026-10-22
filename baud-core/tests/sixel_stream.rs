@@ -535,7 +535,7 @@ fn shown(data: &[u8], cuts: &[usize]) -> Shown {
             (p.line.value(), p.col, v.width.raw(), v.height.raw(), px)
         })
         .collect();
-    (placed, im.refusals, im.sixel_p2_ignored, t.cursor())
+    (placed, im.refusals, im.sixels_filled, t.cursor())
 }
 
 /// Reads of `k` bytes each.
@@ -624,7 +624,7 @@ fn shown_at(data: &[u8], budget: ImageBudget) -> Shown {
             )
         })
         .collect();
-    (placed, im.refusals, im.sixel_p2_ignored, t.cursor())
+    (placed, im.refusals, im.sixels_filled, t.cursor())
 }
 
 /// **A body cut off is placed from what it received**: four fifths of the

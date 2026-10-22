@@ -17,8 +17,8 @@
 //! positions are set to the background color". Under `P2 = 1` the position
 //! keeps what the screen shows under the image, which a transparent image
 //! pixel (`Pixel::CLEAR`) composites to (a reading); under `P2 = 0` or
-//! `2` baud draws it transparent too, its counted, standing departure
-//! (`sixel_p2_ignored`, note S). Neither text, under any `P2`, lets the
+//! `2` it is set to the background (`Pixel::FILL`, counted in
+//! `sixels_filled`). Neither text, under any `P2`, lets the
 //! position show a different image that was erased before this one arrived.
 
 use baud_core::*;
@@ -64,7 +64,7 @@ fn placed_after(
         usize::from(v.width.raw()),
         usize::from(v.height.raw()),
         v.pixels.to_vec(),
-        imgs.sixel_p2_ignored,
+        imgs.sixels_filled,
     )
 }
 
@@ -108,9 +108,11 @@ fn reuse_program(p2: &str, bands: usize) -> (Vec<u8>, usize) {
 }
 
 /// What the text gives the second image: its top row green, every other
-/// position unpainted.
-fn want(w: usize, h: usize) -> Vec<Pixel> {
-    let mut v = vec![Pixel::CLEAR; w * h];
+/// position unpainted -- clear under `P2 = 1`, and under `P2` 0 set to the
+/// background its raster extent covers, which is the whole image here.
+fn want(w: usize, h: usize, p2: &str) -> Vec<Pixel> {
+    let unset = if p2 == "1" { Pixel::CLEAR } else { Pixel::FILL };
+    let mut v = vec![unset; w * h];
     v[..w].fill(green());
     v
 }
@@ -127,13 +129,13 @@ fn holds_at_every_split(p2: &str, bands: usize) {
     let mut wrong = Vec::new();
     for c in &cuts {
         // An arena of exactly one image's words.
-        let (w, h, px, ignored) = placed_after(&prog, c, ImageBudget::of(area));
+        let (w, h, px, filled) = placed_after(&prog, c, ImageBudget::of(area));
         assert_eq!((w, h), (10, 6 * bands), "P2 {p2}, cuts {c:?}: the extent");
         // The positive control on the P2 reading: `P2 = 1` is the text's
-        // transparent, `0` is baud's counted departure, both images counted.
+        // transparent, `0` fills, both images counted.
         let counted = if p2 == "1" { 0 } else { 2 };
-        assert_eq!(ignored, counted, "P2 {p2}: the opaque-background count");
-        if px != want(w, h) {
+        assert_eq!(filled, counted, "P2 {p2}: the filled count");
+        if px != want(w, h, p2) {
             let reds = px.iter().filter(|&&p| p == red()).count();
             wrong.push((c.len(), c.first().copied(), reds));
         }
@@ -166,8 +168,8 @@ fn a_freed_span_is_cleared_past_the_first_band() {
 }
 
 /// **The default `P2`, which asks for the background, draws no freed image
-/// either.** baud draws an unset bit transparent here, its counted departure
-/// (note S), and the freed red image is no part of that.
+/// either.** An unset bit is the background here (`Pixel::FILL`), and the
+/// freed red image is no part of that.
 #[test]
 fn under_the_default_p2_a_freed_span_shows_none_of_the_freed_image() {
     holds_at_every_split("0", 2);

@@ -15,8 +15,9 @@ use baud_domain::{ImageBudget, ImagePx, Pixel};
 mod support;
 
 /// A 40 by 36 Sixel at 1:1, every pixel register 1's red: four columns
-/// and two rows of cells.
-const RED: &[u8] = b"\x1bP9q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
+/// and two rows of cells. `P2` 1, so no background fill reaches past its
+/// data.
+const RED: &[u8] = b"\x1bP9;1q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
 
 /// A ReGIS fill over the page's upper-left corner: cells 0 to 19 of rows
 /// 0 to 4.

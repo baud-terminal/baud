@@ -786,17 +786,17 @@ impl UpdatesOpened {
 }
 
 /// A Sixel's requested background, from its `Pb`/`P2` parameter. `Opaque`
-/// (`P2` = 0 or 2) asks for unpainted pixels to be filled rather than left
-/// transparent; baud renders them transparent and counts the request, so this
-/// says which Sixels to count. Not a `bool`, so the two-state meaning is named
-/// and the field cannot be confused with a flag.
+/// (`P2` = 0 or 2) asks for the positions its data leaves at zero to be set
+/// to the background colour rather than left transparent
+/// (`baud_domain::SixelFill`). Not a `bool`, so the two-state meaning is
+/// named and the field cannot be confused with a flag.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SixelBg {
     /// `P2` = 1: unpainted pixels are transparent, which baud does; and a
     /// value past 2, which neither DEC text lists.
     Transparent,
-    /// `P2` = 0 or 2, or absent or empty, which is 0: an opaque background
-    /// baud does not fill; counted.
+    /// `P2` = 0 or 2, or absent or empty, which is 0: the zero positions are
+    /// set to the background.
     Opaque,
 }
 

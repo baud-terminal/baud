@@ -1737,12 +1737,12 @@ shipped = ["2026-10-15-images-can-be-partly-transparent-and", "2026-10-14-large-
 id = "sixel-background"
 area = "images"
 name = "Solid image backgrounds"
-does = "A Sixel image is drawn whatever background it asks for."
+does = "A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too."
 status = "partial"
-gap = "an image that asks for a solid background is drawn without it."
+gap = "on the see-through window the solid background is not drawn yet."
 platform = "both"
-tests = ["baud-core/tests/sixel.rs::a_transparent_p2_is_not_counted"]
-behind = "foot and wezterm fill the solid background a Sixel image asks for."
+tests = ["baud-core/tests/sixel_fill.rs::a_raster_extent_is_filled_where_the_data_left_zero", "baud-core/tests/sixel_fill.rs::without_a_raster_the_fill_reaches_the_margins", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws"]
+behind = "foot draws the solid background on its see-through window too."
 roadmap = ["B2-23"]
 
 [[feature]]

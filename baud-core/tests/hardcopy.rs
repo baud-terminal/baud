@@ -17,8 +17,9 @@ const WS: WinSize = WinSize {
     ws_row: 24,
 };
 
-/// A 40 by 36 Sixel at 1:1, every pixel register 1's red.
-const RED: &[u8] = b"\x1bP9q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
+/// A 40 by 36 Sixel at 1:1, every pixel register 1's red; `P2` 1, so no
+/// background fill reaches past its data.
+const RED: &[u8] = b"\x1bP9;1q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
 
 /// A face whose every character fills its cell.
 fn solid(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
@@ -174,6 +175,41 @@ fn pictures_print_over_the_text() {
         let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
         assert_eq!(px[0], red);
         assert_eq!(px[35 * w + 39], red);
+    });
+}
+
+/// **A Sixel's background fill prints as the background**: its positions
+/// are "set to the current background color" (`[[source: vt3xx-sixel]]`),
+/// so the printed page shows no ink there and no text under them, where a
+/// fill word read as a colour printed black. The data's own pixels print;
+/// the text beside the extent prints, the control.
+#[test]
+fn a_sixel_fill_prints_as_the_background() {
+    run(1 << 20, b"\x1b[H", |t| {
+        support::feed(t, b"\x1b[1;1HEEEEEEEEEE\x1b[2;1HEEEEEEEEEE\x1b[1;1H");
+        support::feed(
+            t,
+            b"\x1bP9;0;0q\"1;1;60;40#1;2;100;0;0#1!20i-!20i-!20i-!20A\x1b\\",
+        );
+        support::feed(t, b"\x1bPpS(H)\x1b\\");
+        let j = jobs(t);
+        let (w, _, px) = decode(&j[0]);
+        let lit = |x: usize, y: usize| px[y * w + x] != Pixel::CLEAR;
+        assert!(lit(0, 1) && lit(19, 19), "the data prints");
+        assert!(!lit(0, 0), "a zero position of the data is the background");
+        let inked = (0..40)
+            .flat_map(|y| (20..60).map(move |x| (x, y)))
+            .filter(|&(x, y)| lit(x, y))
+            .count();
+        assert_eq!(
+            inked, 0,
+            "the fill hides the text under it and prints no ink"
+        );
+        let beside = (0..40)
+            .flat_map(|y| (60..100).map(move |x| (x, y)))
+            .filter(|&(x, y)| lit(x, y))
+            .count();
+        assert!(beside > 0, "the control: the text beside the extent prints");
     });
 }
 

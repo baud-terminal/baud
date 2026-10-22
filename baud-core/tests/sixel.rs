@@ -1061,23 +1061,18 @@ fn the_cursor_advance_is_chunk_invariant() {
 // Sixels differing only in the `Pb`/`P2` background-transparency selector,
 // the second `DCS Pa;Pb;Ph` parameter. Each is a 1x6 red image so the only
 // variable is P2.
-const P2_OPAQUE: &[u8] = b"\x1bP0;0;0q#0;2;100;0;0~\x1b\\"; // P2 = 0, opaque background
-const P2_MODE2: &[u8] = b"\x1bP0;2;0q#0;2;100;0;0~\x1b\\"; // P2 = 2, also opaque for a display
-const P2_TRANSPARENT: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\"; // P2 = 1, what baud does
+const P2_OPAQUE: &[u8] = b"\x1bP0;0;0q#0;2;100;0;0~\x1b\\"; // P2 = 0, the background
+const P2_MODE2: &[u8] = b"\x1bP0;2;0q#0;2;100;0;0~\x1b\\"; // P2 = 2, the background too
+const P2_TRANSPARENT: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\"; // P2 = 1, kept clear
 const P2_NONE: &[u8] = b"\x1bPq#0;2;100;0;0~\x1b\\"; // no parameters at all
 const P2_EMPTY: &[u8] = b"\x1bP0;;0q#0;2;100;0;0~\x1b\\"; // P2 present and empty
 
 #[test]
 fn an_opaque_p2_is_counted_and_the_image_still_draws() {
-    // P2 = 0 asks for an opaque background baud renders transparent: the image
-    // still places (honoured as transparent, the more useful default) and the
-    // request is counted rather than dropped unseen.
+    // P2 = 0 sets the positions the data leaves at zero to the background:
+    // the image places and is counted among the filled.
     run(P2_OPAQUE, P2_OPAQUE.len(), ample(), |t| {
-        assert_eq!(
-            t.images().sixel_p2_ignored,
-            1,
-            "the opaque request is counted"
-        );
+        assert_eq!(t.images().sixels_filled, 1, "the filled image is counted");
         assert_eq!(
             t.images().placements().count(),
             1,
@@ -1085,15 +1080,15 @@ fn an_opaque_p2_is_counted_and_the_image_still_draws() {
         );
     });
     run(P2_MODE2, P2_MODE2.len(), ample(), |t| {
-        assert_eq!(t.images().sixel_p2_ignored, 1, "P2 = 2 is counted too");
+        assert_eq!(t.images().sixels_filled, 1, "P2 = 2 is counted too");
     });
 }
 
 #[test]
 fn a_transparent_p2_is_not_counted() {
-    // P2 = 1 is exactly baud's behaviour, so it is no gap and is not counted.
+    // P2 = 1 keeps the zero positions clear, so nothing is filled or counted.
     run(P2_TRANSPARENT, P2_TRANSPARENT.len(), ample(), |t| {
-        assert_eq!(t.images().sixel_p2_ignored, 0, "P2 = 1 is honoured");
+        assert_eq!(t.images().sixels_filled, 0, "P2 = 1 is honoured");
         assert_eq!(t.images().placements().count(), 1);
     });
 }
@@ -1112,7 +1107,7 @@ fn an_absent_or_empty_p2_is_counted_as_zero_is() {
     for (name, body) in [("absent", P2_NONE), ("empty", P2_EMPTY)] {
         for chunk in [1usize, 2, body.len()] {
             run(body, chunk, ample(), |t| {
-                assert_eq!(t.images().sixel_p2_ignored, 1, "{name}, chunk {chunk}");
+                assert_eq!(t.images().sixels_filled, 1, "{name}, chunk {chunk}");
                 assert_eq!(t.images().placements().count(), 1, "{name}: placed");
             });
         }
@@ -1125,7 +1120,7 @@ fn the_p2_count_is_chunk_invariant() {
     // a read boundary inside `0;0;0q` must not change what P2 reads.
     for chunk in [1usize, 2, 3, 5, P2_OPAQUE.len()] {
         run(P2_OPAQUE, chunk, ample(), |t| {
-            assert_eq!(t.images().sixel_p2_ignored, 1, "chunk {chunk}: counted");
+            assert_eq!(t.images().sixels_filled, 1, "chunk {chunk}: counted");
             assert_eq!(t.images().placements().count(), 1, "chunk {chunk}: placed");
         });
     }
@@ -1159,11 +1154,10 @@ fn a_digit_before_the_dollar_still_reaches_decrqss() {
 
 #[test]
 fn a_refused_opaque_sixel_is_not_counted() {
-    // The counter is a decision input for building the fill, so it counts only
-    // images that render. A P2 = 0 Sixel whose pixels do not fit (an arena
-    // starved to zero) is refused -- nothing drawn -- and must not inflate the
-    // count. This is why P2 is read at the terminator, after the store succeeds,
-    // not at `SixelStart`.
+    // The counter counts only images that render. A P2 = 0 Sixel whose pixels
+    // do not fit (an arena starved to zero) is refused -- nothing drawn -- and
+    // must not inflate the count: it is counted at the terminator, after the
+    // store succeeds, not at `SixelStart`.
     run(P2_OPAQUE, P2_OPAQUE.len(), ImageBudget::of(0), |t| {
         assert_eq!(
             t.images().placements().count(),
@@ -1172,9 +1166,9 @@ fn a_refused_opaque_sixel_is_not_counted() {
         );
         assert_eq!(t.images().images_refused, 1, "the refusal is counted");
         assert_eq!(
-            t.images().sixel_p2_ignored,
+            t.images().sixels_filled,
             0,
-            "but the ignored-P2 count is not, since nothing drew"
+            "but the filled count is not, since nothing drew"
         );
     });
 }
@@ -1246,7 +1240,7 @@ const GR_SIXELS: [Gr; 8] = [
 /// first GR byte to the body, so no image was drawn and its data were
 /// discarded.
 ///
-/// The values are what only `sixel_p2_ignored` can see: `P2` of 0 or 2 is
+/// The values are what only `sixels_filled` can see: `P2` of 0 or 2 is
 /// counted and 1, 12 or 20 is not, so a GR digit folded as anything but its
 /// own value moves the count -- `0;1` read as `0;0` would count one. Each
 /// program is held to its GL spelling in all four framings at every read
@@ -1262,7 +1256,7 @@ fn a_gr_byte_in_a_sixel_introducer_is_read_as_its_seven_bit_byte_under_latin1() 
             let mut want = None;
             run(&gl, gl.len(), ample(), |t| {
                 assert_eq!(
-                    t.images().sixel_p2_ignored,
+                    t.images().sixels_filled,
                     p2,
                     "control: {name}, {frame}, the GL spelling's P2"
                 );
@@ -1278,7 +1272,7 @@ fn a_gr_byte_in_a_sixel_introducer_is_read_as_its_seven_bit_byte_under_latin1() 
                 run(&gr, read, ample(), |t| {
                     let at = format!("{name}, {frame}, read size {read}");
                     assert_eq!(drawn(t), want, "{at}");
-                    assert_eq!(t.images().sixel_p2_ignored, p2, "{at}: P2");
+                    assert_eq!(t.images().sixels_filled, p2, "{at}: P2");
                 });
             }
         }
@@ -1370,9 +1364,10 @@ fn a_sixel_pixel_is_drawn_at_its_pixel_aspect_ratio() {
 /// of them.** `t` is `0b110101`, rows 1, 0, 1, 0, 1, 1 from the top
 /// (`[[source: vt3xx-sixel]]`); at 2:1 each is two device rows. With an
 /// 8-pixel cell the 12-row image takes two text rows where 1:1 took one.
+/// `P2` 1, so an unset row stays clear rather than filled.
 #[test]
 fn a_two_to_one_sixel_doubles_each_row_and_the_cursor_follows() {
-    let body = b"\x1bPq#1;2;100;0;0#1t\x1b\\";
+    let body = b"\x1bP0;1q#1;2;100;0;0#1t\x1b\\";
     run(body, body.len(), ample(), |t| {
         let (img, _, _) = drawn(t);
         let (w, h, px) = img.expect("placed");

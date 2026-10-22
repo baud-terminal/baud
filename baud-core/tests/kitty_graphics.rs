@@ -1115,8 +1115,9 @@ fn an_unprovisioned_terminal_answers_a_query_with_an_error() {
 }
 
 /// A red Sixel at the cursor: two columns, six rows at the 2:1 default
-/// aspect, so twelve pixels high.
-const SIXEL: &[u8] = b"\x1bPq#0;2;100;0;0#0~~\x1b\\";
+/// aspect, so twelve pixels high; `P2` 1, so no background fill reaches
+/// past its data.
+const SIXEL: &[u8] = b"\x1bP0;1q#0;2;100;0;0#0~~\x1b\\";
 
 /// The images visible now, as their sizes.
 fn visible(t: &Term<'_>) -> Vec<(u16, u16)> {
@@ -1398,8 +1399,9 @@ fn a_cut_picture_goes_when_its_last_shown_row_leaves_the_history() {
 }
 
 /// A three-row Sixel: four bands of six sixels at the default 2:1
-/// aspect are 48 pixels, over three 20-pixel rows.
-const TALL_SIXEL: &[u8] = b"\x1bPq#0;2;100;0;0#0~~-~~-~~-~~\x1b\\";
+/// aspect are 48 pixels, over three 20-pixel rows; `P2` 1, so no
+/// background fill reaches past its data.
+const TALL_SIXEL: &[u8] = b"\x1bP0;1q#0;2;100;0;0#0~~-~~-~~-~~\x1b\\";
 
 /// **A tall Sixel goes when its last row leaves the history, not its
 /// first**: "The top line of the sixel image may scroll off the screen"

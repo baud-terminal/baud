@@ -205,15 +205,15 @@ as 5 VT340 pixels, 4 as 3, 6 as 2 and 7 and 8 as 1
 (`[[source: vt340test-physicalsixels]]` 223-229), the VT3xx column rounded,
 alternative c, on the terminal that manual describes.
 
-**The raster extent `Ph`x`Pv` has two jobs and baud does neither yet,
-because both wait on the fill.** `[[source: vt3xx-sixel]]`: "Ph and Pv do not
+**The raster extent `Ph`x`Pv` has two jobs, and since 2026-10-22 baud does
+the first.** `[[source: vt3xx-sixel]]`: "Ph and Pv do not
 limit the size of the image defined by the sixel data. However, Ph and Pv let
 you omit background sixel data from the image definition and still have a
 color background. They also provide a concise way for the application or
 terminal to encode the size of an image" (298-301). 070-9 §8.1.2 says the
 same of each, the device "will NOT clip the image" to it (PDF pp. 920-921).
-The first job is the region a `P2` of 0 or 2 erases, the open question at the
-end of this note. The second, a size known before the data, ~~is what would
+The first job is the region a `P2` of 0 or 2 erases, built 2026-10-22 (the
+end of this note). The second, a size known before the data, ~~is what would
 reserve the arena before the body is read, which is the streaming decoder's
 change and not this one~~ is half used since 2026-10-14, when the decoder
 began painting as the body arrives (below): `Ph` lays the decode's rows out
@@ -288,7 +288,8 @@ value grid positions)" and "2 set to background color - zero bit value grid
 positions are set to the background color" and 0 "device default action" (PDF
 p. 918, read on the page image). baud composites an image over the cells, so a
 transparent pixel is `P2 = 1`'s "current color" (a reading), and under
-`P2` 0 or 2 it is the counted stand-in for the unbuilt fill below. `sixel_end`
+`P2` 0 or 2 it was the counted stand-in for the fill below until that was
+built on 2026-10-22. `sixel_end`
 filled the span with `ColorWord::DEFAULT` before decoding; since 2026-10-14
 the decode clears each row of its claim as the image reaches it, the same
 words. `store` does not clear, so a caller that writes every word (a Kitty
@@ -855,7 +856,35 @@ if the operation regressed.
   answers DECRQM from its flags whatever its configuration; Jev did not
   decide between the two (0.61 and 0.67). A Sixel sent while DA does not list
   Sixel still draws, also outside that sentence, and is open.
-* **`Pb`/`P2` opaque background: counted, not built.** `P2` = 0 or 2 asks that
+* **`Pb`/`P2` background: built 2026-10-22.** A `P2` of 0 or 2, or none,
+  sets each position its data leaves at zero to `Pixel::FILL`, over the
+  raster extent when a raster command before the data sends one, else from
+  the image's corner to the margins in force (Jev, EXTENT_ELSE_MARGINS,
+  0.92/0.94), the data's reach on a side no cell size measures; the image is
+  marked `ImageGround::Filled` with how far its data reached, and the cursor
+  goes below the data. The renderer draws a fill word in the default
+  background unreversed, read each frame (DEFAULT_BG_EACH_FRAME, 0.97/0.94;
+  UNREVERSED, 0.98/0.94, once xterm's graphics were read: its comment that
+  the fill is register 0 "including in light background mode" on the VT340,
+  and no reverse video in `graphics.c`), opaque, on all three paths. Text on
+  the fill alone clears it in its cells, as on a VT340's one bitmap; text on
+  the data frees the image. **On the see-through window it is not drawn
+  yet**, the owner's question: Jev leaned to opaque image pixels at 0.77
+  and 0.79 after foot was read, which draws an opaque Sixel with
+  `PIXMAN_OP_SRC` over its translucent window (`[[source: foot-sixel-c]]`,
+  `[[source: foot-render]]`). Not drawn there, the fill is still stored: a
+  Sixel with `P2` 0 and no raster command grows to the margins, 5.78
+  million words on a 200x50 grid of 17x34 cells against the app's 95 MiB
+  arena, and every write on that region clears cells and moves the store's
+  epoch, so on the default macOS window the fill costs arena and uploads
+  and shows nothing. No committed recording takes this path: img2sixel,
+  swirl and the yazi walk all send a raster command. `sixel_p2_ignored`
+  became `sixels_filled`. The record, "A Sixel's P2 fill is drawn, and on
+  the see-through window it waits on the owner".
+
+  What follows is the history of the decision.
+
+* **`Pb`/`P2` opaque background: counted, not built (until 2026-10-22).** `P2` = 0 or 2 asks that
   unpainted pixels be drawn in an opaque background rather than left
   transparent. baud draws them transparent -- the `P2` = 1 behaviour, and the
   more useful default, since an image then composites over the text -- and the

@@ -46,7 +46,7 @@ summary = "macOS's Dim Flashing Lights setting will calm blinking text too."
 [[item]]
 id = "B2-23"
 area = "images"
-status = "planned"
+status = "in_progress"
 title = "Solid backgrounds for Sixel images"
 summary = "A Sixel image that asks for a solid background gets one, including under reverse video and on the see-through window."
 

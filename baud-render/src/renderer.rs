@@ -32,8 +32,8 @@ use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
-    ImageDraw, ImageGen, ImageId, ImagePx, ImageStore, KittyId, LineRendition, PackedCell, Row,
-    Rows, Viewport, ZIndex,
+    ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageStore, KittyId, LineRendition,
+    PackedCell, Pixel, Row, Rows, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -908,6 +908,13 @@ impl Under for UnderImages<'_, '_> {
     }
 }
 
+/// What pixel `p` of an image with a background fill draws as.
+///
+/// A fill word draws as `ground`, and every other word as it is.
+pub(crate) fn filled(p: Pixel, ground: Pixel) -> Pixel {
+    if p == Pixel::FILL { ground } else { p }
+}
+
 /// Whether a partly transparent placement over the text covers the band:
 /// its rows are repainted every CPU frame, since its blit over its own last
 /// blit would blend it twice. One under the text is blitted only into a
@@ -1225,6 +1232,10 @@ pub struct ImagePlacement {
     pub scale: ImageScale,
     /// Where its tables are.
     pub map: MapAt,
+    /// What its [`Pixel::FILL`] words draw as this frame
+    /// ([`Renderer::fill_pixel`]): a Sixel's background fill, and
+    /// [`Pixel::CLEAR`] for every image without one.
+    pub ground: Pixel,
 }
 
 /// Two placements are one when they draw the same: everything but where
@@ -1255,10 +1266,21 @@ impl ImagePlacement {
         KittyId,
         ImageDraw,
         ImageScale,
+        u32,
     ) {
         (
-            self.id, self.epoch, self.x, self.y, self.w, self.h, self.alpha, self.z, self.tie,
-            self.draw, self.scale,
+            self.id,
+            self.epoch,
+            self.x,
+            self.y,
+            self.w,
+            self.h,
+            self.alpha,
+            self.z,
+            self.tie,
+            self.draw,
+            self.scale,
+            self.ground.bits(),
         )
     }
 }
@@ -1272,8 +1294,11 @@ impl ImagePlacement {
 pub struct ImageUpload {
     /// Which stored image these pixels are.
     pub id: ImageId,
-    /// The store epoch -- the cache key with `id`.
+    /// The store epoch -- the cache key with `id` and `ground`.
     pub epoch: ImageGen,
+    /// What its [`Pixel::FILL`] words were drawn as in `pixels`, so a
+    /// change of the default background uploads the image again.
+    pub ground: Pixel,
     /// The image width in pixels.
     pub w: u16,
     /// The image height in pixels.
@@ -1540,12 +1565,15 @@ pub struct Renderer<'f, 'a> {
     /// Each referenced image's pixels, straight, for a GPU to upload
     /// once. Keyed by id and store epoch; the CPU path reads the term's
     /// pixels directly instead. **Kept across frames** and refreshed only for a
-    /// new `(id, epoch)`, so a static image is snapshotted once rather than
+    /// new `(id, epoch, ground)`, so a static image is snapshotted once rather than
     /// rebuilt every frame -- a large image's per-frame allocation and
     /// per-pixel conversion, which the frame path would otherwise pay while it
     /// is on screen. Cleared whole when the store epoch moves. See
     /// [`Renderer::set_images`].
     image_uploads: Vec<ImageUpload>,
+    /// What a Sixel's fill draws as in the placements being built
+    /// ([`Renderer::fill_pixel`]), read from the term as they are built.
+    image_fill: Pixel,
     /// The store epoch [`Renderer::image_uploads`] is snapshotted at; a change
     /// drops the whole snapshot cache, the [`baud_domain::ImageGen`] rule.
     image_epoch: ImageGen,
@@ -1755,6 +1783,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_image_places: Vec::new(),
             place_diff: PlaceDiff::default(),
             image_uploads: Vec::new(),
+            image_fill: Pixel::CLEAR,
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
             marks_unmapped: Tally::of(0),
@@ -3116,6 +3145,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn place_images(&mut self, term: &Term<'_>, back: Rows, snap: Snapshots) {
         self.image_places.clear();
         self.image_maps.clear();
+        self.image_fill = self.fill_pixel(term);
         let imgs = term.images();
         let epoch = imgs.generation();
         // The snapshot cache is kept across frames and dropped whole only when
@@ -3356,6 +3386,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             },
             _ => ImageScale::Mapped,
         };
+        let ground = match view.ground {
+            ImageGround::Clear => Pixel::CLEAR,
+            ImageGround::Filled { .. } => self.image_fill,
+        };
         self.image_places.push(ImagePlacement {
             id,
             epoch,
@@ -3370,27 +3404,73 @@ impl<'f, 'a> Renderer<'f, 'a> {
             draw,
             scale,
             map: at,
+            ground,
         });
-        // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
-        // reads this to upload, the CPU reads the term itself. The words
-        // are the store's own, straight: the fragment premultiplies, so a
-        // clear (unpainted Sixel) pixel, `0x00000000`, leaves the cell
-        // showing through and a partial one blends by its alpha.
+        // Snapshot the pixels once per referenced `(id, epoch, ground)`:
+        // the GPU reads this to upload, the CPU reads the term itself. The
+        // words are the store's own, straight, but a fill word, which is
+        // drawn as `ground`: the fragment premultiplies, so a clear
+        // (unpainted Sixel) pixel, `0x00000000`, leaves the cell showing
+        // through and a partial one blends by its alpha.
         if snap == Snapshots::Kept
             && !self
                 .image_uploads
                 .iter()
-                .any(|u| u.id == id && u.epoch == epoch)
+                .any(|u| u.id == id && u.epoch == epoch && u.ground == ground)
         {
-            let pixels = view.pixels.iter().map(|p| p.bits()).collect();
+            // One snapshot an image: the one drawn in an older fill colour
+            // goes, so a fill that follows `OSC 11` keeps no copy per colour.
+            self.image_uploads
+                .retain(|u| !(u.id == id && u.epoch == epoch));
+            let pixels = match view.ground {
+                ImageGround::Clear => view.pixels.iter().map(|p| p.bits()).collect(),
+                ImageGround::Filled { .. } => view
+                    .pixels
+                    .iter()
+                    .map(|&p| filled(p, ground).bits())
+                    .collect(),
+            };
             self.image_uploads.push(ImageUpload {
                 id,
                 epoch,
+                ground,
                 w: view.width.raw(),
                 h: view.height.raw(),
                 pixels,
             });
             self.image_snapshots = self.image_snapshots.inc();
+        }
+    }
+
+    /// **What a Sixel's background fill draws as this frame**: the default
+    /// background unreversed, `OSC 11`'s colour else the theme's, opaque, as
+    /// `[[source: vt3xx-sixel]]` has it, "Pixel positions specified as 0 are
+    /// set to the current background color". Under `?5` too: a VT340 fills
+    /// with colour-map entry 0 on a reversed screen
+    /// (`[[source: vt340test-background-select-2-png]]`), and xterm's
+    /// graphics read no reverse video (`[[source: xterm-graphics-c]]`);
+    /// decided by Jev 2026-10-22, UNREVERSED, 0.98 and 0.94. Read each
+    /// frame, as a VT340 looks its map up at every refresh (Jev 2026-10-12,
+    /// DEFAULT_BG_EACH_FRAME, 0.97 and 0.94).
+    ///
+    /// **On the see-through window the fill is not drawn**, as before it
+    /// was built: how a filled position draws there is the owner's to
+    /// answer (Jev leaned to opaque at 0.77 and 0.79, under the bar).
+    ///
+    /// Read from `term` itself, as the placements are built, and not from
+    /// the defaults the frame's convert refreshes after them: from those,
+    /// the frame after an `OSC 11` drew the fill in the colour before.
+    pub fn fill_pixel(&self, term: &Term<'_>) -> Pixel {
+        match self.page() {
+            Page::Opaque => {
+                let bg = self
+                    .theme
+                    .defaults(Video::Normal, |d| term.dynamic_color(d))
+                    .1;
+                let [_, r, g, b] = bg.0.to_be_bytes();
+                Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+            }
+            Page::Glass => Pixel::CLEAR,
         }
     }
 
@@ -3457,7 +3537,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
-            target.blit_image(&self.blit_of(p, all), &view, self.blend, page);
+            target.blit_image(&self.blit_of(p, all), &view, p.ground, self.blend, page);
         }
     }
 
@@ -3516,7 +3596,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.clear_set(target, row, page, set);
                 below = true;
             }
-            target.blit_image(&self.blit_of(p, band), &view, self.blend, page);
+            target.blit_image(&self.blit_of(p, band), &view, p.ground, self.blend, page);
         }
         if below {
             self.cover_set(target, row, page, set);
@@ -5977,6 +6057,7 @@ mod place_diff {
                     },
                 },
                 map: MapAt(usize::try_from(n).unwrap()),
+                ground: Pixel::CLEAR,
             }
         };
         (0..40u32).map(placement_of).collect()

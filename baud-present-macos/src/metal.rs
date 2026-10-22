@@ -577,8 +577,10 @@ pub struct Gpu {
     /// its own texture -- images are not glyph-sized and do not belong in the
     /// shared atlas -- and the cache is cleared whole when the store's epoch
     /// changes, so an image slot reused after a `reset` cannot return the old
-    /// texture. Keyed by [`ImageId`] within an epoch.
-    images: Vec<(ImageId, Texture)>,
+    /// texture. Keyed by [`ImageId`] within an epoch, and by the word a
+    /// Sixel's background fill was drawn as, so a change of the default
+    /// background uploads a filled image again.
+    images: Vec<((ImageId, u32), Texture)>,
     image_gen: ImageGen,
     /// Frames committed and not yet completed: zero or one.
     in_flight: Arc<AtomicUsize>,
@@ -1246,11 +1248,12 @@ impl Gpu {
         }
         let mut draws = Vec::with_capacity(places.len());
         for p in places {
-            if !self.images.iter().any(|(id, _)| *id == p.id) {
+            let key = (p.id, p.ground.bits());
+            if !self.images.iter().any(|(k, _)| *k == key) {
                 let Some(up) = renderer
                     .image_uploads()
                     .iter()
-                    .find(|u| u.id == p.id && u.epoch == epoch)
+                    .find(|u| u.id == p.id && u.epoch == epoch && u.ground == p.ground)
                 else {
                     continue;
                 };
@@ -1265,9 +1268,12 @@ impl Gpu {
                     continue;
                 };
                 upload(&tex, w, h, word_bytes(&up.pixels), Texel::Bgra8);
-                self.images.push((p.id, tex));
+                // One texture an image: the one drawn in an older fill
+                // colour goes, so the cache keeps no texture per colour.
+                self.images.retain(|((id, _), _)| *id != p.id);
+                self.images.push((key, tex));
             }
-            if let Some((_, tex)) = self.images.iter().find(|(id, _)| *id == p.id) {
+            if let Some((_, tex)) = self.images.iter().find(|(k, _)| *k == key) {
                 let (xs, ys) = renderer.image_map(p);
                 let mut map = Vec::with_capacity(xs.len() + ys.len());
                 map.extend_from_slice(xs);

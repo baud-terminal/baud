@@ -79,14 +79,61 @@ impl Paint<'_, '_> {
             ),
             false => (SixelEdge::Open, SixelEdge::Open),
         };
+        let fill = match self.cold.sixel_bg {
+            SixelBg::Transparent => SixelFill::Keep,
+            SixelBg::Opaque => self.sixel_fill_to_margins(),
+        };
         let begin = SixelBegin {
             aspect,
             ink,
             registers,
             floor,
             right,
+            fill,
         };
         self.strs.sixel.begin_with(begin, self.images);
+    }
+
+    /// **The region a `P2` of 0 or 2 fills when no raster extent is sent**:
+    /// from the image's corner to the right margin and the bottom margin in
+    /// force, `[[source: dec-std-070]]` 070-9 §10's "Distance from current
+    /// ANSI text position to current ANSI right margin" and "to current ANSI
+    /// bottom margin" (PDF p. 926), as a VT340 clears "from the cursor to
+    /// the bottom right corner" (`[[source: vt340test-p2effect-sh]]`
+    /// 12-13). The corner is where the image is placed: the cursor, or in
+    /// display mode the screen's upper-left cell. A cursor past a margin
+    /// fills to the screen's edge on that side. In device pixels, so zero
+    /// while the cell size is unknown.
+    fn sixel_fill_to_margins(&self) -> SixelFill {
+        let display = self.cold.modes.is_set(ModeBit::SixelDisplay);
+        let (col, row) = match display {
+            true => (0, 0),
+            false => (self.cx.col().index(), self.cy.index()),
+        };
+        let (cols, rows) = (self.cols.index(), self.rows.index());
+        let right = match col <= self.cold.right.index() {
+            true => self.cold.right.index(),
+            false => cols - 1,
+        };
+        let bottom = match row <= self.cold.bot.index() {
+            true => self.cold.bot.index(),
+            false => rows - 1,
+        };
+        // As display columns: twice the character positions on a double
+        // line ([`Paint::display_col`]).
+        let k = match display {
+            true => 1,
+            false => 1 + usize::from(self.view.rendition(self.cy).is_double()),
+        };
+        let w_cells = ((right + 1) * k).min(cols).saturating_sub(col * k);
+        let h_cells = bottom + 1 - row;
+        let px = |n: usize, cell: ImagePx| {
+            u32::try_from(n.saturating_mul(cell.index())).unwrap_or(u32::MAX)
+        };
+        SixelFill::Background {
+            w: px(w_cells, self.cell_width),
+            h: px(h_cells, self.cell_height),
+        }
     }
 
     /// Record the Sixel decoded as its body arrived, and place it at the
@@ -118,18 +165,14 @@ impl Paint<'_, '_> {
         // to the current background color" (192-203); `[[source: dec-std-070]]`
         // 070-9 §7.2 (PDF p. 918) gives 1 "no action", 2 "set to background
         // color" and 0 "device default action". A transparent pixel is what
-        // "current color" composites to (a reading) and baud's counted
-        // stand-in for the background, and an erased image is none of these.
+        // "current color" composites to (a reading); under `P2` 0 or 2 the
+        // decode sets each such position to the background
+        // ([`SixelFill`], `Pixel::FILL`), counted in `sixels_filled`; and an
+        // erased image is none of these. `w` and `h` are how far the data
+        // reached, which the fill may pass.
         let Some((id, w, h)) = self.strs.sixel.finish(self.images) else {
             return;
         };
-        // The image stored, so an ignored opaque-background request is now a
-        // real one -- counted here, after the store, rather than at `SixelStart`
-        // where a Sixel later refused would have inflated the number the fill
-        // decision reads.
-        if self.cold.sixel_bg == SixelBg::Opaque {
-            self.images.sixel_p2_ignored += 1;
-        }
         // Anchor to the cursor's absolute line and column on the live screen:
         // `top + cursor row`, where `top` is the line at the window's top in
         // that screen's numbering (`Book::top`, `Book::alt_top`). It moves with
@@ -138,13 +181,11 @@ impl Paint<'_, '_> {
         // refused placement; an image that fails to place keeps a zero refcount
         // and is freed by `RIS`.
         //
-        // **`Pa` sets the aspect ratio, `Pb`/`P2` is counted, and the
+        // **`Pa` sets the aspect ratio, `Pb`/`P2` the fill, and the
         // envelope's grid size is dropped.** The graph routes the `Node::Dcs`
         // parameters into `csi` (`Act::Digit`/`Sep`), so `SixelStart` begins
-        // the decode at the macro parameter's ratio and reads the
-        // transparency selector, bumping `sixel_p2_ignored` when it asks for
-        // an opaque background baud renders transparent -- `s-sixel.md`
-        // records why the fill itself is not built. The third parameter, the
+        // the decode at the macro parameter's ratio and with the fill the
+        // background selector asks for ([`Paint::sixel_begin`]). The third parameter, the
         // horizontal grid size that ctlseqs calls `Ph` and the VT3xx chapter
         // `P3`, is dropped: a sixel pixel is one image pixel wide, as "The
         // VT300 ignores this parameter because the horizontal grid size is

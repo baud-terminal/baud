@@ -70,6 +70,16 @@ impl Pixel {
     /// Fully transparent: drawn as nothing.
     pub const CLEAR: Pixel = Pixel(0);
 
+    /// **A position a Sixel's `P2` of 0 or 2 sets to the background
+    /// colour**, "Pixel positions specified as 0 are set to the current
+    /// background color" (`[[source: vt3xx-sixel]]`): stored as this word
+    /// and drawn in the colour a renderer resolves at each frame, the
+    /// default background, only in an image whose [`ImageGround`] is
+    /// [`ImageGround::Filled`]. Black at an alpha of one, so a reader that
+    /// does not resolve it draws next to nothing; and not clear, so an
+    /// erase counts it among the pixels it clears.
+    pub const FILL: Pixel = Pixel(0x0100_0000);
+
     /// **`n` pixels, every one [`Pixel::CLEAR`], from zeroed memory**: what
     /// `vec![Pixel::CLEAR; n]` holds, without writing it. `vec!` takes the
     /// allocator's zeroed path only for the primitive types it knows to be
@@ -170,6 +180,19 @@ impl ImageAlpha {
             false => ImageAlpha::OpaqueOrClear,
         }
     }
+}
+
+/// **Whether an image's [`Pixel::FILL`] words are its background**: a Sixel
+/// whose `P2` of 0 or 2 asked for its zero positions to be set to the
+/// background colour is [`ImageGround::Filled`], every other image
+/// [`ImageGround::Clear`], whatever its words, so a kitty image's own
+/// pixels are never read as a fill. `Filled` carries how far the Sixel's
+/// data reached, which the fill may pass: text written over the data frees
+/// the image, and text written over the fill alone clears it in its cells.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageGround {
+    Clear,
+    Filled { data_w: ImagePx, data_h: ImagePx },
 }
 
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
@@ -764,6 +787,8 @@ pub struct ImageSlot {
     /// band's move. So a page with nothing left lit is freed without a
     /// pixel read twice.
     lit: Option<u32>,
+    /// Whether its [`Pixel::FILL`] words are a background to draw.
+    ground: ImageGround,
 }
 
 impl ImageSlot {
@@ -778,6 +803,7 @@ impl ImageSlot {
         state: ImageState::Ready,
         born: ImageGen::ZERO,
         lit: None,
+        ground: ImageGround::Clear,
     };
 
     fn is_empty(self) -> bool {
@@ -1212,6 +1238,8 @@ pub struct ImageView<'a> {
     pub height: ImagePx,
     /// Whether any pixel is partly transparent, marked when it was stored.
     pub alpha: ImageAlpha,
+    /// Whether its [`Pixel::FILL`] words are a background to draw.
+    pub ground: ImageGround,
 }
 
 /// A bounded, caller-owned store of images and their placements.
@@ -1281,18 +1309,12 @@ pub struct ImageStore<'b> {
     /// one: a step or two each, where a walk of the table was one a
     /// placement already made.
     pub key_probes: usize,
-    /// Sixels that stored *and* explicitly asked for an opaque background
-    /// (`P2` = 0 or 2) that baud renders transparent instead. baud draws
-    /// unpainted pixels transparent -- the `P2` = 1 behaviour, and the more
-    /// useful default, since an image then composites over the text -- and the
-    /// opaque fill has no defensible pinned source for *what colour* to fill
-    /// with, so the request is honoured as transparent and counted rather than
-    /// filled with a guess. Counted at the terminator after the image stores,
-    /// not when its parameters parse: a refused image drew nothing, so the fill
-    /// would not have helped it, and counting it would inflate the number. How
-    /// often a *rendered* image asks for it is what would justify building the
-    /// fill.
-    pub sixel_p2_ignored: usize,
+    /// Sixels stored with a background fill: a `P2` of 0 or 2, or none,
+    /// which is 0, sets the positions its data leaves at zero to the
+    /// background colour ([`Pixel::FILL`], [`ImageGround::Filled`]).
+    /// Counted at the terminator after the image stores, not when its
+    /// parameters parse, so a refused image, which drew nothing, is not.
+    pub sixels_filled: usize,
     /// The epoch, bumped whenever the set of stored images changes. A GPU
     /// texture cache keyed on it drops a texture whose image was freed and
     /// its id reused. See [`ImageGen`].
@@ -1392,7 +1414,7 @@ impl<'b> ImageStore<'b> {
             images_evicted: 0,
             placements_expired: 0,
             key_probes: 0,
-            sixel_p2_ignored: 0,
+            sixels_filled: 0,
             epoch: ImageGen::ZERO,
             placed: 0,
             live: 0,
@@ -1692,6 +1714,7 @@ impl<'b> ImageStore<'b> {
             state: ImageState::Ready,
             born: self.epoch,
             lit: None,
+            ground: ImageGround::Clear,
         };
         self.tallest = self.tallest.max(height);
         Some(ImageId::from_index(slot))
@@ -2193,7 +2216,16 @@ impl<'b> ImageStore<'b> {
             width: s.width,
             height: s.height,
             alpha: s.alpha,
+            ground: s.ground,
         })
+    }
+
+    /// **Mark image `id`'s [`Pixel::FILL`] words as its background**: a
+    /// Sixel's `P2` of 0 or 2, once its fill is written.
+    pub(crate) fn set_ground(&mut self, id: ImageId, ground: ImageGround) {
+        if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+            s.ground = ground;
+        }
     }
 
     /// Place a live image at an absolute line of `screen`, a column and a draw
@@ -3196,9 +3228,61 @@ impl<'b> ImageStore<'b> {
                     }
                     continue;
                 }
+                // **A Sixel's fill is written over as a VT340's bitmap is**:
+                // text that lands on the fill alone, not on the cells the
+                // data reached, clears the fill in the cells it writes, as
+                // it clears a ReGIS page; text on the data frees the image.
+                if let ImageGround::Filled { data_w, data_h } = img.ground {
+                    let (rows, cols) = (data_h.index().div_ceil(ch), data_w.index().div_ceil(cw));
+                    if wl >= l0 + rows || col1 <= c0 || col0 >= c0 + cols {
+                        freed += self.clear_cells_of(p, i, wl - l0, (col0, col1), (cw, ch));
+                        continue;
+                    }
+                }
                 self.unplace(PlacementId::from_index(p));
                 freed += 1;
             }
+        }
+        freed
+    }
+
+    /// **Clear the cells `[a, b)` of row `row` of placement `p`'s image,
+    /// slot `i`**, a Sixel's, an embedder's or a ReGIS page's: what an
+    /// erase does to the cells it covers and text written over a Sixel's
+    /// fill does to it. Lowers the image's lit count, counting it the first
+    /// time, and frees a Sixel with nothing left lit and a ReGIS page with
+    /// nothing left lit. Returns how many placements or pages it freed.
+    fn clear_cells_of(
+        &mut self,
+        p: usize,
+        i: usize,
+        row: usize,
+        (a, b): (usize, usize),
+        (cw, ch): (usize, usize),
+    ) -> usize {
+        let slot = self.placements[p];
+        let img = self.slots[i];
+        let c0 = slot.col.index();
+        let lit = match (img.owner, img.lit) {
+            (ImageOwner::Local, None) => {
+                let n = self.pixels[img.start()..img.end()]
+                    .iter()
+                    .filter(|px| px.alpha().get() != 0)
+                    .count();
+                Some(u32::try_from(n).unwrap_or(u32::MAX))
+            }
+            (_, lit) => lit,
+        };
+        let cleared = self.clear_page_cells(slot.image, row, a.saturating_sub(c0), b - c0, cw, ch);
+        let left = lit.map(|n| n.saturating_sub(cleared));
+        self.slots[i].lit = left;
+        let mut freed = 0;
+        if img.owner == ImageOwner::Local && left == Some(0) {
+            self.unplace(PlacementId::from_index(p));
+            freed += 1;
+        }
+        if self.free_if_unlit(slot.image) {
+            freed += 1;
         }
         freed
     }
@@ -3257,33 +3341,7 @@ impl<'b> ImageStore<'b> {
             if wl < l0 || wl >= l0 + rows || col1 <= c0 || col0 >= c0 + cols {
                 continue;
             }
-            let lit = match (img.owner, img.lit) {
-                (ImageOwner::Local, None) => {
-                    let n = self.pixels[img.start()..img.end()]
-                        .iter()
-                        .filter(|px| px.alpha().get() != 0)
-                        .count();
-                    Some(u32::try_from(n).unwrap_or(u32::MAX))
-                }
-                (_, lit) => lit,
-            };
-            let cleared = self.clear_page_cells(
-                slot.image,
-                wl - l0,
-                col0.saturating_sub(c0),
-                col1 - c0,
-                cw,
-                ch,
-            );
-            let left = lit.map(|n| n.saturating_sub(cleared));
-            self.slots[i].lit = left;
-            if img.owner == ImageOwner::Local && left == Some(0) {
-                self.unplace(PlacementId::from_index(p));
-                freed += 1;
-            }
-            if self.free_if_unlit(slot.image) {
-                freed += 1;
-            }
+            freed += self.clear_cells_of(p, i, wl - l0, (col0, col1), (cw, ch));
         }
         freed
     }

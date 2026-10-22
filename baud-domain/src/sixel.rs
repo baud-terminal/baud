@@ -22,7 +22,7 @@
 //! this is the decode half of its first acceptance gate.
 
 use crate::decode::{InputEncoding, StreamByte};
-use crate::image::{ImageAlpha, ImageId, ImagePx, ImageRefusal, ImageStore, Pixel};
+use crate::image::{ImageAlpha, ImageGround, ImageId, ImagePx, ImageRefusal, ImageStore, Pixel};
 use crate::style::Chan;
 
 /// A pixel coordinate or extent. A Sixel is bounded by its raster attributes
@@ -295,9 +295,30 @@ impl SixelEdge {
     }
 }
 
+/// **What a Sixel does with the positions its data leaves at zero**, its
+/// `P2`: `[[source: vt3xx-sixel]]`, 1 "Pixel positions specified as 0
+/// remain at their current color", 0 or 2 "Pixel positions specified as 0
+/// are set to the current background color" (lines 192-203).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SixelFill {
+    /// `P2` = 1: they stay clear, and what is under the image shows.
+    Keep,
+    /// `P2` = 0 or 2: they are set to the background ([`Pixel::FILL`]) over
+    /// the raster extent `Ph` by `Pv` when a raster command sends one --
+    /// "The VT300 uses Ph and Pv to erase the background when P2 is set to 0
+    /// or 2" (`[[source: vt3xx-sixel]]` 302-303) -- and otherwise over `w` by
+    /// `h` device pixels from the image's corner, the extent `[[source:
+    /// dec-std-070]]` 070-9 §10 starts a Sixel with, "Distance from current
+    /// ANSI text position to current ANSI right margin" and "to current ANSI
+    /// bottom margin" (PDF p. 926). Zero where the terminal does not know
+    /// its cell size, and the fill then covers the data's reach on that
+    /// side. Decided by Jev 2026-10-12, EXTENT_ELSE_MARGINS, 0.92 and 0.94.
+    Background { w: u32, h: u32 },
+}
+
 /// How a terminal begins one Sixel: its aspect ratio, the colour an
-/// undefined register paints with, whose registers it starts from, and how
-/// far down and right it may go.
+/// undefined register paints with, whose registers it starts from, how
+/// far down and right it may go, and what it does with its zero positions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SixelBegin {
     pub aspect: SixelAspect,
@@ -312,6 +333,7 @@ pub struct SixelBegin {
     /// `[[source: dec-std-070]]` 070-9 §11.2.2, "Right Margin: Sixels
     /// defined to be printed past the right margin are not printed".
     pub right: SixelEdge,
+    pub fill: SixelFill,
 }
 
 /// The Sixel decoder over a body held whole: stateless between calls, each a
@@ -474,8 +496,10 @@ impl Cmd {
 /// sized ([`Clipped`]), or a pixel in the gap of the image store's arena a
 /// Sixel claimed as it began ([`Claim`]).
 trait Sink {
-    /// The raster's horizontal extent `Ph`, when one is set before any data.
-    fn extent(&mut self, ph: u16);
+    /// The raster's extent when one is set before any data: `Ph`, and `Pv`
+    /// in device rows -- "the vertical by the aspect ratio"
+    /// (`[[source: vt340test-physicalsixels]]` 193-195).
+    fn extent(&mut self, ph: u16, pv: u32);
 
     /// One data byte, `bits` its six bits, drawn over columns `[x0, x1)` --
     /// one, or a repeat count's -- in the band whose top row is `top`, each
@@ -498,7 +522,7 @@ trait Sink {
 struct Measure;
 
 impl Sink for Measure {
-    fn extent(&mut self, _ph: u16) {}
+    fn extent(&mut self, _ph: u16, _pv: u32) {}
     fn data(&mut self, _x0: u32, _x1: u32, _top: u32, _rows: u16, _bits: u8, _c: Pixel) {}
 }
 
@@ -510,7 +534,7 @@ struct Clipped<'c, 'a> {
 }
 
 impl Sink for Clipped<'_, '_> {
-    fn extent(&mut self, _ph: u16) {}
+    fn extent(&mut self, _ph: u16, _pv: u32) {}
 
     fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
         for x in x0..x1 {
@@ -699,7 +723,7 @@ impl Walk {
             Cmd::Raster => {
                 if let Raster::Open = self.raster {
                     self.rows = SixelAspect::from_raster(p[0], p[1]).0;
-                    sink.extent(p[2]);
+                    sink.extent(p[2], u32::from(p[3]) * u32::from(self.rows));
                 }
                 self.repeat = 1;
             }
@@ -825,6 +849,9 @@ struct Gap {
     floor: u32,
     right: u32,
     defined: RegisterSet,
+    /// The raster extent a command before any data sent, zero where it
+    /// sent none: the region a background fill covers ([`SixelFill`]).
+    raster: (u32, u32),
 }
 
 impl Gap {
@@ -839,6 +866,7 @@ impl Gap {
         floor: u32::MAX,
         right: u32::MAX,
         defined: RegisterSet::NONE,
+        raster: (0, 0),
     };
 }
 
@@ -977,6 +1005,22 @@ impl Claim<'_, '_, '_> {
         self.gap.stride = to;
     }
 
+    /// **Set every clear position of the first `fw` columns of the first
+    /// `fh` rows to [`Pixel::FILL`]**: the background a `P2` of 0 or 2
+    /// asks for, once the claim reaches that far ([`Claim::grow`]).
+    fn fill(&mut self, fw: usize, fh: usize) {
+        let Gap { stride, zeroed, .. } = *self.gap;
+        let (fw, fh) = (fw.min(stride), fh.min(zeroed));
+        let words = self.words();
+        for y in 0..fh {
+            for px in &mut words[y * stride..y * stride + fw] {
+                if *px == Pixel::CLEAR {
+                    *px = Pixel::FILL;
+                }
+            }
+        }
+    }
+
     /// The claim has written its words up to `to`: the store keeps the
     /// pages they touch, and only those, from a release beside it.
     fn wrote(&mut self, to: usize) {
@@ -999,12 +1043,13 @@ fn moved(store: &mut ImageStore, old: &Gap, at: usize) {
 }
 
 impl Sink for Claim<'_, '_, '_> {
-    fn extent(&mut self, ph: u16) {
+    fn extent(&mut self, ph: u16, pv: u32) {
         // Only before any data, so no row is laid out yet to move; never
         // past the right edge.
         if ph > 0 {
             self.gap.stride = usize::from(ph).min(self.gap.right as usize);
         }
+        self.gap.raster = (u32::from(ph), pv);
     }
 
     fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
@@ -1074,6 +1119,7 @@ pub struct SixelStream {
     shared: [Pixel; REGISTERS],
     shared_defined: RegisterSet,
     registers: SixelRegisters,
+    fill: SixelFill,
 }
 
 impl SixelStream {
@@ -1084,6 +1130,7 @@ impl SixelStream {
         shared: [Pixel::CLEAR; REGISTERS],
         shared_defined: RegisterSet::NONE,
         registers: SixelRegisters::Private,
+        fill: SixelFill::Keep,
     };
 
     /// Begin a Sixel drawn at `aspect`, claiming `store`'s largest free gap.
@@ -1097,6 +1144,7 @@ impl SixelStream {
                 registers: SixelRegisters::Private,
                 floor: SixelEdge::Open,
                 right: SixelEdge::Open,
+                fill: SixelFill::Keep,
             },
             store,
         );
@@ -1122,6 +1170,7 @@ impl SixelStream {
             }
         }
         self.registers = b.registers;
+        self.fill = b.fill;
         self.gap = Gap {
             at,
             len,
@@ -1211,19 +1260,59 @@ impl SixelStream {
             store.refuse(ImageRefusal::Empty);
             return None;
         }
-        let (iw, ih) = (ImagePx::of(w.raw()), ImagePx::of(h.raw()));
+        // **The fill** grows the image to its region and sets every
+        // position in it the data left clear to [`Pixel::FILL`]. The data's
+        // extent is still what the image reports, for the cursor's advance:
+        // 070-9 §11.3 moves the text by "the vertical motion commands
+        // executed in the Sixel printing" (PDF p. 928), not by the fill.
+        let region = match self.fill {
+            SixelFill::Keep => None,
+            SixelFill::Background { w: mw, h: mh } => {
+                // A side neither the raster nor the margins say -- the cell
+                // size unknown -- is the data's reach, the image's own
+                // rectangle.
+                let (ph, pv) = self.gap.raster;
+                let side = |raster: u32, margin: u32, data: u32| match (raster, margin) {
+                    (0, 0) => data,
+                    (0, m) => m,
+                    (r, _) => r,
+                };
+                let fw = side(ph, mw, u32::from(w.raw()));
+                let fh = side(pv, mh, u32::from(h.raw()));
+                let cap = u32::from(u16::MAX);
+                Some((
+                    fw.min(self.gap.right).min(cap),
+                    fh.min(self.gap.floor).min(cap),
+                ))
+            }
+        };
+        let (fw, fh) = region.unwrap_or((0, 0));
+        let (iw, ih) = (
+            ImagePx::of(w.raw().max(fw as u16)),
+            ImagePx::of(h.raw().max(fh as u16)),
+        );
+        if region.is_some() && self.gap.held != Held::Lost {
+            let mut sink = Claim {
+                gap: &mut self.gap,
+                store,
+            };
+            sink.grow(u32::from(iw.raw()), u32::from(ih.raw()));
+            if sink.gap.held != Held::Lost {
+                sink.fill(fw as usize, fh as usize);
+            }
+        }
         if !store.has_free_slot() || self.gap.held == Held::Lost {
             // `store_at` counts which: the slot table first, as `store` does.
             let _ = store.store_at(None, iw, ih, ImageAlpha::OpaqueOrClear);
             return None;
         }
-        let area = w.index() * h.index();
+        let area = iw.index() * ih.index();
         {
             let mut sink = Claim {
                 gap: &mut self.gap,
                 store,
             };
-            sink.restride(w.index());
+            sink.restride(iw.index());
         }
         let at = self.gap.at;
         let to = store.lowest_gap(area).unwrap_or(at);
@@ -1231,6 +1320,14 @@ impl SixelStream {
             store.arena_mut().copy_within(at..at + area, to);
         }
         let id = store.store_at(Some(to), iw, ih, ImageAlpha::OpaqueOrClear)?;
+        if region.is_some() {
+            let ground = ImageGround::Filled {
+                data_w: ImagePx::of(w.raw()),
+                data_h: ImagePx::of(h.raw()),
+            };
+            store.set_ground(id, ground);
+            store.sixels_filled += 1;
+        }
         Some((id, w, h))
     }
 

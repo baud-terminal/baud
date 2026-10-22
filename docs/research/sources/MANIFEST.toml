@@ -3581,6 +3581,42 @@ status = "external"
 group  = "J"
 # Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
 
+[sources.foot-sixel-c]
+key    = "foot-sixel-c"
+title  = "foot: sixel.c -- P2 1 is transparent, else the image fills with register 0 and is marked opaque"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/sixel.c"
+file   = ""
+sha256 = "756a6fcae368e839e02b4987cdc067b9ae1aa41dd0cff8bb301724c2bbc80ea6"
+bytes  = 72016
+status = "external"
+group  = "J"
+# Read 2026-10-22 (lane b154) for a Sixel's P2 on a see-through window:
+# line 106 "term->sixel.transparent_bg = p2 == 1;", line 1470 fills new
+# pixels with "term->sixel.transparent_bg ? 0 : term->sixel.palette[0]",
+# line 1286 marks the image ".opaque = !term->sixel.transparent_bg", and
+# render.c ([[source: foot-render]]) 1537-1538 draws an opaque one with
+# PIXMAN_OP_SRC. Register 0 is config.c's VT340 map, "0xff000000", opaque
+# ([[source: foot-config-c]] 89-91).
+
+[sources.foot-config-c]
+key    = "foot-config-c"
+title  = "foot: config.c -- the default Sixel colour map, the VT340's, register 0 opaque black"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/config.c"
+file   = ""
+sha256 = "bc8c134edc51e1225a583603888e3989d4f4a6acc794738bd03cd86418c3a0e1"
+bytes  = 136321
+status = "external"
+group  = "J"
+# Read 2026-10-22 (lane b154): default_sixel_colors (88-106), "VT330/VT340
+# Programmer Reference Manual - Table 2-3 VT340 Default Color Map", entry 0
+# "0xff000000".
+
 [sources.foot-shm]
 key    = "foot-shm"
 title  = "foot: shm.c"

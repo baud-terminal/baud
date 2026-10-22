@@ -16,8 +16,9 @@ use baud_domain::{ImageBudget, ImagePx, Pixel};
 mod support;
 
 /// A 40 by 36 Sixel at 1:1 (`P1` 9), every pixel register 1's red: four
-/// columns and two rows of cells from where it is drawn.
-const RED: &[u8] = b"\x1bP9q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
+/// columns and two rows of cells from where it is drawn. `P2` 1, so no
+/// background fill reaches past its data.
+const RED: &[u8] = b"\x1bP9;1q#1;2;100;0;0#1!40~-!40~-!40~-!40~-!40~-!40~\x1b\\";
 
 fn term_run(bytes: &[u8], f: impl FnOnce(&mut Term<'_>)) {
     let ws = support::CORPUS;

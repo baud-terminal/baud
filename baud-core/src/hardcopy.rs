@@ -179,6 +179,11 @@ impl Visible<'_, '_, '_> {
             let Some(&px) = view.pixels.get(i) else {
                 continue;
             };
+            // A Sixel's fill is "set to the current background color"
+            // (`[[source: vt3xx-sixel]]`): the background, over the text.
+            if px == Pixel::FILL && view.ground != ImageGround::Clear {
+                return Hit::Clear;
+            }
             if p.owner == ImageOwner::Regis {
                 let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
                 let (x, y) = self.zoom.plane_of(at(sx), at(sy));

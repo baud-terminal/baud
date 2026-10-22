@@ -3558,6 +3558,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert_eq!(placed(&t), line, "the dot survived the scroll");
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
     partial_image_gate(&mut arms, &mut t);
+    sixel_fill_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
@@ -4822,6 +4823,169 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the arms disagree with the partial image on screen"
     );
+    feed(t, b"\x1bc");
+}
+
+/// **A Sixel's background fill, on all three paths**: `P2` 0 sets the
+/// positions its data leaves at zero to the background, over the raster
+/// extent `Ph` by `Pv` (`[[source: vt3xx-sixel]]`), 40 by 40 over data 20
+/// by 24 here, in the default
+/// background unreversed, opaque, over the text under it -- the instance
+/// arm, the cell arm and the CPU arm alike, and under `?5` the same colour
+/// while a blank cell shows the reversed screen (Jev, UNREVERSED, 0.98 and
+/// 0.94), and after `OSC 11` the colour it names, the next frame (Jev,
+/// DEFAULT_BG_EACH_FRAME, 0.97 and 0.94), with one snapshot of the image
+/// kept. The control is the same Sixel with `P2` 1, whose zero positions
+/// show the text. On the see-through window the fill is not drawn, as
+/// before it was built, the owner's question: the two Sixels draw alike
+/// there. And an embedder's image whose every word is the fill word, with
+/// no fill asked for, draws those words as they are: black at an alpha of
+/// one over the frame.
+fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let base = arms.renderer.theme().clone();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let opaque = Theme {
+        bg_alpha: Chan::from_u8(0xFF),
+        ..base.clone()
+    };
+    arms.renderer.set_theme(opaque.clone());
+    let text: &[u8] = b"\x1bc\x1b[?25l\x1b[2;1HEEEEEEEEEEEEEEEEEEEE\x1b[3;1HEEEEEEEEEEEEEEEEEEEE\
+        \x1b[4;1HEEEEEEEEEEEEEEEEEEEE\x1b[5;1HEEEEEEEEEEEEEEEEEEEE\x1b[2;3H";
+    let sixel =
+        |p2: u8| format!("\x1bP9;{p2};0q\"1;1;40;40#1;2;100;0;0#1!20i-!20i-!20i-!20A\x1b\\");
+    let bg = 0xFF00_0000 | (opaque.bg.0 & 0x00FF_FFFF);
+    let red = 0xFFFF_0000u32;
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "one image on screen");
+        let at = (
+            usize::try_from(places[0].x).unwrap(),
+            usize::try_from(places[0].y).unwrap(),
+        );
+        ([a, b, c], at, places[0].ground)
+    };
+    // The region past the data, inside the extent: columns 20-39, rows 0-39.
+    let past_data = |f: &[u32], (x0, y0): (usize, usize)| {
+        (0..40)
+            .flat_map(|y| (20..40).map(move |x| (y0 + y) * fw + x0 + x))
+            .filter(|&i| f[i] != bg)
+            .count()
+    };
+    for (what, pre) in [("normal", ""), ("reverse video", "\x1b[?5h")] {
+        feed(t, text);
+        feed(t, pre.as_bytes());
+        feed(t, sixel(1).as_bytes());
+        let (control, at, ground) = frames(arms, t);
+        assert_eq!(ground, Pixel::CLEAR, "{what}: P2 1 has no fill");
+        assert!(
+            past_data(&control[0], at) > 0,
+            "{what}: the control, P2 1 shows what is under it"
+        );
+        feed(t, text);
+        feed(t, pre.as_bytes());
+        feed(t, sixel(0).as_bytes());
+        let (got, at, ground) = frames(arms, t);
+        assert_eq!(
+            ground.bits(),
+            bg,
+            "{what}: the fill is the default background"
+        );
+        let (x0, y0) = at;
+        let px = |f: &[u32], x: usize, y: usize| f[(y0 + y) * fw + x0 + x];
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            assert_eq!(px(f, 0, 1), red, "{what}, {arm}: a set position");
+            assert_eq!(
+                px(f, 0, 0),
+                bg,
+                "{what}, {arm}: a zero position of the data"
+            );
+            assert_eq!(px(f, 39, 39), bg, "{what}, {arm}: the extent's last pixel");
+            assert_eq!(
+                past_data(f, at),
+                0,
+                "{what}, {arm}: the text under it is hidden"
+            );
+        }
+        // Row 8, column 30: a blank cell, reversed under `?5`.
+        let m = arms.renderer.metrics();
+        let (cw, ch) = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let blank = got[0][(8 * ch + ch / 2) * fw + 30 * cw + cw / 2];
+        match pre.is_empty() {
+            true => assert_eq!(blank, bg, "the blank cell is the default background"),
+            false => assert_ne!(blank, bg, "the premise: ?5 reverses the blank cell"),
+        }
+    }
+    // Read each frame: `OSC 11` moves the default background, and the next
+    // frame draws the fill in it on every arm, with one snapshot kept for
+    // the image whatever colours it was drawn in.
+    feed(t, text);
+    feed(t, sixel(0).as_bytes());
+    for (osc, want) in [
+        (&b"\x1b]11;rgb:10/20/30\x1b\\"[..], 0xFF10_2030u32),
+        (b"\x1b]11;rgb:a0/b0/c0\x1b\\", 0xFFA0_B0C0),
+    ] {
+        feed(t, osc);
+        let (got, (x0, y0), ground) = frames(arms, t);
+        assert_eq!(ground.bits(), want, "the fill follows OSC 11");
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            assert_eq!(f[(y0 + 39) * fw + x0 + 39], want, "{arm}: {want:08x}");
+        }
+        assert_eq!(arms.renderer.image_uploads().len(), 1, "one snapshot");
+    }
+    feed(t, b"\x1b]111\x1b\\");
+    // The see-through window: the fill waits on the owner, so P2 0 draws
+    // as P2 1 does.
+    let glass = Theme {
+        bg_alpha: Chan::from_u8(56),
+        ..base.clone()
+    };
+    arms.renderer.set_theme(glass);
+    let mut seen = Vec::new();
+    for p2 in [1, 0] {
+        feed(t, text);
+        feed(t, sixel(p2).as_bytes());
+        let (f, _, ground) = frames(arms, t);
+        assert_eq!(ground, Pixel::CLEAR, "glass, P2 {p2}: no fill drawn");
+        seen.push(f);
+    }
+    for (arm, i) in [("instance", 0), ("cell", 1), ("cpu", 2)] {
+        assert_eq!(
+            differing(&seen[0][i], &seen[1][i]),
+            0,
+            "glass, {arm}: P2 0 draws as P2 1"
+        );
+    }
+    // An embedder's image of fill words, no fill asked: drawn as they are.
+    arms.renderer.set_theme(opaque);
+    feed(t, text);
+    let (under, _) = arms.draw(t);
+    let (w, h) = (8usize, 8usize);
+    let placed = t.put_image(ImagePx::of(8), ImagePx::of(8), ImageAlpha::Partial, |px| {
+        px.fill(Pixel::FILL)
+    });
+    assert!(!placed.is_none(), "the embedder's image placed");
+    let (got, (x0, y0), ground) = frames(arms, t);
+    assert_eq!(ground, Pixel::CLEAR, "an embedder's image has no fill");
+    let over = |d: u32| {
+        let mix = |shift: u32| (((d >> shift) & 0xFF) * 254 + 127) / 255;
+        0xFF00_0000 | mix(16) << 16 | mix(8) << 8 | mix(0)
+    };
+    for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+        let wrong = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (y0 + y) * fw + x0 + x))
+            .filter(|&i| f[i] != over(under[i]))
+            .count();
+        assert_eq!(
+            wrong, 0,
+            "{arm}: a fill word in an embedder's image is itself"
+        );
+    }
+    arms.renderer.set_theme(base);
     feed(t, b"\x1bc");
 }
 

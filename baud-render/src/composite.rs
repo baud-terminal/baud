@@ -13,7 +13,7 @@ use crate::color::Argb;
 use crate::instance::Instance;
 use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
-use baud_domain::{Chan, Cols, ImageAlpha, ImageView, Pixel};
+use baud_domain::{Chan, Cols, ImageAlpha, ImageGround, ImageView, Pixel};
 use baud_font::Px;
 
 /// How coverage mixes a glyph colour into the background.
@@ -369,10 +369,46 @@ impl<'p> Target<'p> {
     /// **Each loop runs over the clipped rectangle only**, never over the
     /// rest with a skip: a placement's size is the client's (`c=65535`), and
     /// what it costs is the pixels on screen.
-    pub fn blit_image(&mut self, blit: &Blit<'_>, view: &ImageView<'_>, blend: Blend, page: Page) {
+    ///
+    /// **A Sixel's background fill draws as `ground`**: in an image whose
+    /// ground is [`ImageGround::Filled`] each [`Pixel::FILL`] word is taken
+    /// as `ground` ([`crate::renderer::filled`]), and in every other image
+    /// no word is read as one, through a copy of the loops of its own.
+    pub fn blit_image(
+        &mut self,
+        blit: &Blit<'_>,
+        view: &ImageView<'_>,
+        ground: Pixel,
+        blend: Blend,
+        page: Page,
+    ) {
         let Some(area) = self.clip(blit) else {
             return;
         };
+        match view.ground {
+            ImageGround::Clear => self.blit_texels(&area, blit, view, |p| p, blend, page),
+            ImageGround::Filled { .. } => self.blit_texels(
+                &area,
+                blit,
+                view,
+                move |p| crate::renderer::filled(p, ground),
+                blend,
+                page,
+            ),
+        }
+    }
+
+    /// [`Target::blit_image`] over `area`, each texel through `drawn`.
+    #[inline(always)]
+    fn blit_texels(
+        &mut self,
+        area: &Area,
+        blit: &Blit<'_>,
+        view: &ImageView<'_>,
+        drawn: impl Fn(Pixel) -> Pixel + Copy,
+        blend: Blend,
+        page: Page,
+    ) {
         let (iw, pixels) = (view.width.index(), view.pixels);
         let cols = area.cols.clone();
         match blit.texels {
@@ -380,9 +416,11 @@ impl<'p> Target<'p> {
                 let (x, y) = (slots(x), slots(y));
                 let row = |j: usize| {
                     let from = (y + j) * iw + x;
-                    pixels[from + cols.start..from + cols.end].iter().copied()
+                    pixels[from + cols.start..from + cols.end]
+                        .iter()
+                        .map(move |&p| drawn(p))
                 };
-                self.blit_by(&area, row, view.alpha, blend, page);
+                self.blit_by(area, row, view.alpha, blend, page);
             }
             Texels::Mapped { xs, ys } => {
                 let index = |v: u32| usize::try_from(v).unwrap_or(0);
@@ -390,9 +428,9 @@ impl<'p> Target<'p> {
                     let from = index(ys[j]) * iw;
                     xs[cols.clone()]
                         .iter()
-                        .map(move |&x| pixels[from + index(x)])
+                        .map(move |&x| drawn(pixels[from + index(x)]))
                 };
-                self.blit_by(&area, row, view.alpha, blend, page);
+                self.blit_by(area, row, view.alpha, blend, page);
             }
         }
     }

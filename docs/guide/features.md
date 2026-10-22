@@ -211,7 +211,7 @@ Your shape and blink, and an optional trail when it jumps.
 Image viewers and file-manager previews show real pictures.
 
 - **Inline images** — Images from img2sixel, chafa, yazi and gnuplot show inline, partly transparent where they ask, at any length, decoded as they arrive. <sub>[Sixel](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/sixel.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **Solid image backgrounds** — A Sixel image is drawn whatever background it asks for. **Partly:** an image that asks for a solid background is drawn without it. <sub>[proof](../../baud-core/tests/sixel.rs)</sub>
+- **Solid image backgrounds** — A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too. **Partly:** on the see-through window the solid background is not drawn yet. <sub>[proof](../../baud-core/tests/sixel_fill.rs)</sub>
 - **Image scrolling and colour options** — Images that scroll or stay put, the cursor left beside the image, private colours per image, and a colour query. <sub>[proof](../../baud-core/tests/sixel_modes.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **Images announced only when you say so** — baud tells programs it draws Sixel only once you turn on `advertise_sixel`, so file managers keep their text previews until then. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **Pictures from image tools** — Raw, compressed and PNG pictures from kitten icat, yazi and timg, sent in pieces of any size and decoded quickly. <sub>[kitty graphics protocol](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/kitty_graphics.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
@@ -273,7 +273,7 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Key releases** — the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **Links open safely** — the pointer keeps its shape over a link, where iTerm2 and WezTerm show a pointing hand.
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
-- **Solid image backgrounds** — foot and wezterm fill the solid background a Sixel image asks for. [Roadmap](../roadmap.md#pictures)
+- **Solid image backgrounds** — foot draws the solid background on its see-through window too. [Roadmap](../roadmap.md#pictures)
 - **Linux** — the Linux version has run only headless, with no GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
 - **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **More than one window** — baud opens one window; Cmd-N for another is not built yet. [Roadmap](../roadmap.md#window-colours-and-bell)
