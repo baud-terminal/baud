@@ -800,11 +800,12 @@ impl Boot {
         // frame, because no window exists here to ask.
         // The theme files are read here, at launch, once: an appearance
         // flip swaps between two themes built from them and reads nothing.
-        let (halves, said) = crate::palette::load_halves(
+        let (mut halves, said) = crate::palette::load_halves(
             cfg.palette_light.as_deref(),
             cfg.palette_dark.as_deref(),
             &crate::palette::Dirs::from_env(cfg.source.as_deref()),
         );
+        halves.selection = cfg.selection;
         for s in said {
             crate::warn!("{s}");
         }

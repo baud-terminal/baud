@@ -56,6 +56,8 @@ impl Half {
 pub struct Halves {
     pub dark: Option<Scheme>,
     pub light: Option<Scheme>,
+    /// The config's selection colours, laid over either half's file.
+    pub selection: crate::config::Selection,
 }
 
 impl Halves {
@@ -92,6 +94,7 @@ pub fn load_halves(light: Option<&str>, dark: Option<&str>, dirs: &Dirs) -> (Hal
     let halves = Halves {
         dark: dark.and_then(|s| load(s, Half::Dark, dirs, &mut said)),
         light: light.and_then(|s| load(s, Half::Light, dirs, &mut said)),
+        selection: crate::config::Selection::default(),
     };
     (halves, said)
 }
@@ -599,6 +602,8 @@ pub fn half_theme(
     if let Some(scheme) = halves.get(half) {
         theme.take_scheme(scheme);
     }
+    theme.selection = halves.selection.page.over(theme.selection);
+    theme.selection_text = halves.selection.text.over(theme.selection_text);
     theme.bg_alpha = baud_domain::Chan::from_unit(match half {
         Half::Dark => glass.dim_dark,
         Half::Light => glass.dim_light,
@@ -1193,6 +1198,7 @@ mod tests {
         let halves = Halves {
             dark: None,
             light: Some(day),
+            selection: crate::config::Selection::default(),
         };
         let light = half_theme(Half::Light, &glass, floor, &halves);
         let mut want = Theme::light();
@@ -1215,6 +1221,53 @@ mod tests {
         assert_eq!(
             (dark.floor, dark.app_bg, dark.picture_bg),
             (floor, glass.app_backgrounds, glass.pictures)
+        );
+    }
+
+    /// **The config's selection colours win over a theme file's, and a
+    /// file's over reverse video** (Jev, 0.97 both orders: a key set after
+    /// the theme wins, as in ghostty and kitty); `"none"` takes a file's
+    /// colour away. The file here is iTerm2's, which names both.
+    #[test]
+    fn the_configs_selection_wins_over_the_files_and_none_takes_it_away() {
+        use crate::config::{Selection, SelectionPick};
+        let glass = crate::config::Glass::defaults();
+        let floor = baud_render::Floor::DEFAULT;
+        let (night, _) = dark_of("iterm-sel", "night.itermcolors");
+        let file = |selection| Halves {
+            dark: night,
+            light: None,
+            selection,
+        };
+        let drawn = |h: &Halves, half| {
+            let t = half_theme(half, &glass, floor, h);
+            (t.selection, t.selection_text)
+        };
+        // fixture_night's selection and selected text.
+        let from_file = (
+            Some(baud_render::Argb(0xFF_37_3B_41)),
+            Some(baud_render::Argb(0xFF_C5_C8_C8)),
+        );
+        assert_eq!(drawn(&file(Selection::default()), Half::Dark), from_file);
+        assert_eq!(
+            drawn(&file(Selection::default()), Half::Light),
+            (None, None),
+            "a half with no file is reverse video"
+        );
+        let mine = baud_render::Argb::rgb(
+            baud_domain::Chan::from_u8(1),
+            baud_domain::Chan::from_u8(2),
+            baud_domain::Chan::from_u8(3),
+        );
+        let config = Selection {
+            page: SelectionPick::Colour(mine),
+            text: SelectionPick::None,
+        };
+        assert_eq!(drawn(&file(config), Half::Dark), (Some(mine), None));
+        assert_eq!(
+            drawn(&file(config), Half::Light),
+            (Some(mine), None),
+            "over both halves"
         );
     }
 

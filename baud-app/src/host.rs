@@ -458,8 +458,9 @@ pub fn tell_defaults(
     overrides: baud_core::Overrides,
 ) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
-    // One call: the defaults and the table, so an `OSC 4 ; c ; ?` for an entry
-    // nothing overrode is answered with the colour drawn, and a `?2031`
+    // One call: the defaults, the table and the selection's colours, so an
+    // `OSC 4 ; c ; ?` for an entry nothing overrode, or an `OSC 17 ; ?` with
+    // no program colour, is answered with the colour drawn, and a `?2031`
     // subscriber gets at most one `CSI ? 997 ; 1|2 n` for the whole change.
     // Every caller that changes the theme comes through here, so the core's
     // copy cannot fall out of step. `Drop` is an OS light/dark flip under
@@ -470,8 +471,8 @@ pub fn tell_defaults(
             fg: rgb(theme.fg),
             bg: rgb(theme.bg),
             palette: &palette,
-            selection: None,
-            selection_text: None,
+            selection: theme.selection.map(rgb),
+            selection_text: theme.selection_text.map(rgb),
         },
         overrides,
     );
@@ -1418,6 +1419,39 @@ mod tests {
         super::tell_defaults(&mut t, &Theme::light(), baud_core::Overrides::Keep);
         feed(&mut t, b"\x1b]4;2;?\x07");
         assert_eq!(t.reply(), b"\x1b]4;2;rgb:0000/6868/0000\x07");
+    }
+
+    /// **The theme's selection colours are what `OSC 17`/`19 ; ?` answer**:
+    /// the colour the renderer draws the selection in, pushed with the rest
+    /// of the theme, and reverse video's colours on a theme with none.
+    #[test]
+    fn osc_17_and_19_answer_the_themes_selection() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let page = baud_render::Argb::rgb(
+            Chan::from_u8(0x33),
+            Chan::from_u8(0x4e),
+            Chan::from_u8(0x5e),
+        );
+        let theme = Theme {
+            selection: Some(page),
+            ..Theme::dark()
+        };
+        super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]17;?\x07");
+        assert_eq!(t.reply(), b"\x1b]17;rgb:3333/4e4e/5e5e\x07");
+        t.clear_reply();
+        super::tell_defaults(&mut t, &Theme::dark(), baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]17;?\x07");
+        assert_eq!(
+            t.reply(),
+            b"\x1b]17;rgb:d8d8/d8d8/d8d8\x07",
+            "the text shown"
+        );
     }
 
     /// **An OS flip under `auto` drops the application's colours and reports

@@ -791,6 +791,15 @@ pub struct Theme {
     /// [`Backdrop::any`] on both built-in themes.
     pub backdrop: Backdrop,
     pub palette: [Argb; 256],
+    /// **The selection's colours, the `Theme` selection setting**: the
+    /// page under selected text and the selected text, each `None` for no
+    /// colour of its own -- both `None` is reverse video, the default (the
+    /// owner's V13 call; Jev, 1.00 both orders, with renders beside
+    /// Terminal.app's and iTerm2's). A page alone draws each selected
+    /// cell's own text on it. A program's `OSC 17`/`19` wins over each
+    /// while it is set ([`Renderer::hilite`](crate::Renderer::hilite)).
+    pub selection: Option<Argb>,
+    pub selection_text: Option<Argb>,
 }
 
 /// What the window's dim does to a background the application set.
@@ -864,6 +873,8 @@ impl Theme {
             floor: Floor::DEFAULT,
             backdrop: Backdrop::any(),
             palette: dark_palette(),
+            selection: None,
+            selection_text: None,
         }
     }
 
@@ -891,11 +902,14 @@ impl Theme {
             floor: Floor::DEFAULT,
             backdrop: Backdrop::any(),
             palette: light_palette(),
+            selection: None,
+            selection_text: None,
         }
     }
 
     /// Lays a theme file's scheme over this half: each of the sixteen, the
-    /// page and the text that the file sets replaces the half's, and the
+    /// page, the text and the selection's two colours that the file sets
+    /// replaces the half's, and the
     /// count of those it leaves unset -- which stay the half's -- comes back
     /// for the caller to report. Entries 16-255 are not written whatever the
     /// file says (note Y, decision 2): a program addresses them by number and
@@ -909,6 +923,17 @@ impl Theme {
             match (*c).and_then(argb_of) {
                 Some(a) => *slot = a,
                 None => unset += 1,
+            }
+        }
+        // The selection's colours are not counted: a theme that leaves
+        // them unset leaves reverse video, which is no colour of baud's.
+        let selected = [
+            (&mut self.selection, &scheme.selection),
+            (&mut self.selection_text, &scheme.selection_text),
+        ];
+        for (slot, c) in selected {
+            if let Some(a) = (*c).and_then(argb_of) {
+                *slot = Some(a);
             }
         }
         Count::of(unset)

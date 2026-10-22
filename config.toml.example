@@ -193,10 +193,25 @@ ambiguous_width = "narrow"
 # stay xterm's, and a file that cannot be read is reported and leaves baud's
 # own half. On Linux, where `auto` is dark, a light half is drawn only with
 # theme = "light".
+#
+# `selection` and `selection_text`: the colour behind selected text and the
+# colour of the text itself -- also of the find field and its current match,
+# which is selected, and of a region a program highlights (mode 1001). Left
+# out, a selection is drawn in a theme file's selection colours where the
+# file names them, and otherwise in reverse video: each cell's text and
+# background exchanged. A colour set here wins over the theme file's, on both
+# halves. A background colour with no text colour, from here or the theme
+# file, keeps each cell's own text colour on it. "none" means no colour of
+# its own, so both set to "none" is reverse video whatever the theme file
+# says. A colour is written as "#rrggbb", "rgb:rr/gg/bb" or an X11 name such
+# as "steelblue". A program can still set its own (OSC 17 and 19), and its
+# reset (OSC 117 and 119) returns to these.
 [palette]
 floor = 1.2
 # light = "~/.config/baud/themes/day.yaml"
 # dark = "night"
+# selection = "#3f638b"
+# selection_text = "none"
 
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns

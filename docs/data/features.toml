@@ -1188,6 +1188,16 @@ platform = "both"
 tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/seat.rs::a_region_scroll_carries_the_selection", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
 
 [[feature]]
+id = "selection-colour"
+area = "scroll"
+name = "Your selection colour"
+does = "A selection is drawn in reverse video unless you choose its colours in the config or your theme file names them; the find field's current match and a region a program highlights take the same colours, and a program can set its own and put yours back."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/highlight_colours.rs::a_theme_selection_colour_is_drawn_until_a_program_sets_its_own", "baud-app/src/palette.rs::the_configs_selection_wins_over_the_files_and_none_takes_it_away", "baud-app/src/config.rs::the_selection_keys_take_a_colour_or_none", "baud-core/tests/xterm/osc.rs::a_configured_selection_colour_answers_and_is_what_117_and_119_restore"]
+rows = ["vt:`OSC 17` / `OSC 19`", "vt:`OSC 117` / `OSC 119`"]
+
+[[feature]]
 id = "reflow"
 area = "scroll"
 name = "Resizing rewraps"

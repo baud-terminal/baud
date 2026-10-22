@@ -2546,7 +2546,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The colours a selection draws in on the last convert or resolve:
-    /// `OSC 17`'s and `19`'s, as [`Term::highlight_colors`] gives them. What a
+    /// `OSC 17`'s and `19`'s, as [`Term::highlight_colors`] gives them, each
+    /// the theme's ([`Theme::selection`]) where the program set none. What a
     /// caller that draws the selection itself -- the cell path -- reads.
     pub fn hilite(&self) -> Hilite {
         self.hilite
@@ -2609,11 +2610,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // **A change of the selection's colours repaints every row**: row
         // damage compares cells, renditions and where the selection lies,
         // and an `OSC 17` moves none of them. Rare, so the whole frame.
+        // Each colour is the program's while it set one, else the
+        // theme's, as `OSC 10`/`11` lay over the theme's defaults.
         let rgb = |c: Option<(u8, u8, u8)>| {
             c.map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)))
         };
         let colors = term.highlight_colors();
-        let hilite = Hilite::of(rgb(colors.bg), rgb(colors.fg));
+        let hilite = Hilite::of(
+            rgb(colors.bg).or(self.theme.selection),
+            rgb(colors.fg).or(self.theme.selection_text),
+        );
         if hilite != self.hilite {
             self.hilite = hilite;
             self.known = Prev::Unknown;

@@ -34,12 +34,17 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 /// blank, selected together, painted under `osc`: the page of each and the
 /// middle pixel of the block.
 fn selected(osc: &[u8]) -> (Argb, Argb, u32) {
+    selected_in(Theme::dark(), osc)
+}
+
+/// [`selected`] under `theme`.
+fn selected_in(theme: Theme, osc: &[u8]) -> (Argb, Argb, u32) {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     let mut r = Renderer::new(
         Stack::new(&faces).unwrap(),
         PxSize::of(14.0).unwrap(),
-        Theme::dark(),
+        theme,
         Blend::Native,
         Cols::of_index(6),
         Rows::of_index(2),
@@ -92,6 +97,38 @@ fn a_selection_is_drawn_in_the_highlight_colours_each_when_set() {
     // `OSC 117` and `119` put reverse video back.
     let (block, _, glyph) = selected(b"\x1b]17;#2f5f9f;;#ffd75f\x07\x1b]117\x07\x1b]119\x07");
     assert_eq!((block, glyph), (RED, opaque(dark.bg).0));
+}
+
+/// **A theme's selection colours are drawn until a program sets its
+/// own**, the owner's V13 `Theme` selection setting: each is the theme's
+/// where no `OSC 17`/`19` is set, the program's while one is, and the
+/// theme's again after `OSC 117`/`119` -- "their default (resource)
+/// values" (`[[source: ctlseqs]]`). Both unset is still reverse video.
+#[test]
+fn a_theme_selection_colour_is_drawn_until_a_program_sets_its_own() {
+    let themed = |page, text| Theme {
+        selection: page,
+        selection_text: text,
+        ..Theme::dark()
+    };
+    // The page alone: each cell's own text on it.
+    let (block, blank, glyph) = selected_in(themed(Some(PAGE), None), b"");
+    assert_eq!((block, blank), (PAGE, PAGE));
+    assert_eq!(glyph, RED.0, "the block keeps its own text");
+    // Both: the text on the page.
+    let both = themed(Some(PAGE), Some(TEXT));
+    let (block, _, glyph) = selected_in(both.clone(), b"");
+    assert_eq!((block, glyph), (PAGE, TEXT.0));
+    // A program's page wins over the theme's, and the theme's text stays.
+    let green = Argb(0xFF_00_80_00);
+    let (block, _, glyph) = selected_in(both.clone(), b"\x1b]17;#008000\x07");
+    assert_eq!((block, glyph), (green, TEXT.0));
+    // A reset puts the theme's back, not reverse video.
+    let (block, _, glyph) = selected_in(both, b"\x1b]17;#008000\x07\x1b]117\x07");
+    assert_eq!((block, glyph), (PAGE, TEXT.0));
+    // The text alone: on the reversed page.
+    let (block, _, glyph) = selected_in(themed(None, Some(TEXT)), b"");
+    assert_eq!((block, glyph), (RED, TEXT.0));
 }
 
 /// **A change of the selection's colours repaints the selected rows**,

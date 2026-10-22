@@ -1,6 +1,7 @@
 //! A theme file's scheme laid over a built-in half (note Y, step 7): the
 //! sixteen and the page and text it sets replace the half's; what it leaves
-//! unset stays the half's and is counted; 16-255 are never written.
+//! unset stays the half's and is counted; 16-255 are never written; its
+//! selection colours become the half's.
 
 use baud_domain::themefile::{Format, Scheme};
 use baud_domain::{Chan, Color};
@@ -89,4 +90,28 @@ fn the_built_in_halves_read_as_their_names() {
     use baud_domain::ColorScheme;
     assert_eq!(Theme::dark().polarity(), Some(ColorScheme::Dark));
     assert_eq!(Theme::light().polarity(), Some(ColorScheme::Light));
+}
+
+/// **A theme file's selection colours are the half's selection**, each
+/// one the file names, uncounted when unset: a half with none is reverse
+/// video, which is no colour of baud's to keep.
+#[test]
+fn a_schemes_selection_colours_are_taken_and_unset_ones_are_not_counted() {
+    let mut s = empty();
+    s.selection = Some(rgb(0x334e5e));
+    let mut t = Theme::dark();
+    let unset = t.take_scheme(&s);
+    assert_eq!(unset.get_raw(), 18, "the sixteen, the page and the text");
+    assert_eq!(
+        (t.selection, t.selection_text),
+        (Some(argb(0x334e5e)), None)
+    );
+    s.selection_text = Some(rgb(0xffffff));
+    t.take_scheme(&s);
+    assert_eq!(t.selection_text, Some(argb(0xffffff)));
+    assert_eq!(
+        (Theme::dark().selection, Theme::light().selection_text),
+        (None, None),
+        "the built-in halves are reverse video"
+    );
 }

@@ -162,6 +162,9 @@ pub struct Config {
     /// own complaints, in `palette.rs`.
     pub palette_light: Option<String>,
     pub palette_dark: Option<String>,
+    /// `[palette] selection` and `selection_text`: the selection's colours
+    /// over both halves' theme files ([`Selection`]).
+    pub selection: Selection,
     /// `[cursor] trail`: which trail a cursor move leaves -- see
     /// [`CursorTrail`] -- or the default, which is not the same thing:
     /// [`TrailPick`]. **On by default**, the owner's call on 2026-09-25,
@@ -730,6 +733,7 @@ impl Config {
             floor: baud_render::Floor::DEFAULT,
             palette_light: None,
             palette_dark: None,
+            selection: Selection::default(),
             cursor_trail: TrailPick::Default,
             cursor_shape: CursorShape::Block,
             cursor_blink: BlinkChoice::Auto,
@@ -1028,6 +1032,12 @@ impl Config {
                 }
                 ("palette", "dark") => {
                     self.palette_dark = Some(value.trim().trim_matches('"').to_string())
+                }
+                ("palette", "selection") => {
+                    self.selection.page = selection_pick(&value, "selection", &mut said)
+                }
+                ("palette", "selection_text") => {
+                    self.selection.text = selection_pick(&value, "selection_text", &mut said)
                 }
                 ("cursor", "trail") => {
                     // `true` is the default's word and not a name: it has
@@ -1565,6 +1575,61 @@ fn floor(value: &str, said: &mut Vec<String>) -> baud_render::Floor {
                 "config: palette floor {raw:?} is not \"off\" or a ratio from 1 to 21; using 1.2"
             ));
             baud_render::Floor::DEFAULT
+        }
+    }
+}
+
+/// One of `[palette]`'s selection colours: `"none"`, kitty's word for no
+/// colour of its own, or a colour as an `OSC` names one (`XColor::parse`:
+/// `#rrggbb`, `rgb:`, an X11 name). Anything else is said and leaves the
+/// theme's.
+fn selection_pick(value: &str, key: &str, said: &mut Vec<String>) -> SelectionPick {
+    let raw = value.trim().trim_matches('"');
+    if raw == "none" {
+        return SelectionPick::None;
+    }
+    match baud_domain::XColor::parse(raw.as_bytes()) {
+        baud_domain::XColor::Rgb(r, g, b) => SelectionPick::Colour(baud_render::Argb::rgb(r, g, b)),
+        _ => {
+            said.push(format!(
+                "config: palette {key} {raw:?} is not \"none\" or a colour; the theme's stays"
+            ));
+            SelectionPick::Theme
+        }
+    }
+}
+
+/// **`[palette] selection` and `selection_text`, the `Theme` selection
+/// setting**: the page under selected text and the selected text, over both
+/// halves. Each wins over a theme file's colour, as a key set after the
+/// theme wins in ghostty and kitty (Jev, 0.97 both orders); both unset and
+/// no theme colour is reverse video, the default (the owner's V13 call).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Selection {
+    pub page: SelectionPick,
+    pub text: SelectionPick,
+}
+
+/// One selection colour as the config names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SelectionPick {
+    /// Not named: the theme file's colour, or none.
+    #[default]
+    Theme,
+    /// `"none"`: no colour of its own, whatever the theme file says (Jev,
+    /// 0.98 and 1.00 for kitty's word).
+    None,
+    /// A colour, whatever the theme file says.
+    Colour(baud_render::Argb),
+}
+
+impl SelectionPick {
+    /// The colour drawn, given the theme file's.
+    pub fn over(self, theme: Option<baud_render::Argb>) -> Option<baud_render::Argb> {
+        match self {
+            SelectionPick::Theme => theme,
+            SelectionPick::None => None,
+            SelectionPick::Colour(c) => Some(c),
         }
     }
 }
@@ -3289,6 +3354,45 @@ shadow     = "never"
         assert_eq!(said, 1, "and it is said");
     }
 
+    /// `[palette] selection` and `selection_text`: a colour as an `OSC`
+    /// names one, or `"none"`; left out, the theme's; anything else is
+    /// said and leaves the theme's.
+    #[test]
+    fn the_selection_keys_take_a_colour_or_none() {
+        let get = |t: &str| {
+            let mut c = Config::defaults();
+            let said = c.apply(t);
+            (c.selection, said.len())
+        };
+        let rgb = |r, g, b| {
+            SelectionPick::Colour(baud_render::Argb::rgb(
+                baud_domain::Chan::from_u8(r),
+                baud_domain::Chan::from_u8(g),
+                baud_domain::Chan::from_u8(b),
+            ))
+        };
+        assert_eq!(get(""), (Selection::default(), 0));
+        assert_eq!(
+            get("[palette]\nselection = \"#3f638b\"\nselection_text = \"none\"\n"),
+            (
+                Selection {
+                    page: rgb(0x3f, 0x63, 0x8b),
+                    text: SelectionPick::None
+                },
+                0
+            )
+        );
+        assert_eq!(
+            get("[palette]\nselection_text = \"white\"\n").0.text,
+            rgb(255, 255, 255),
+            "an X11 name"
+        );
+        let (got, said) = get("[palette]\nselection = \"blueish\"\n");
+        assert_eq!((got.page, said), (SelectionPick::Theme, 1));
+        let (got, said) = get("selection = \"#3f638b\"\n");
+        assert_eq!((got, said), (Selection::default(), 1), "the palette's key");
+    }
+
     /// `[palette] light` and `dark` are stored as written, quotes off and
     /// `~` kept for `palette.rs` to expand; they belong to `[palette]`, not
     /// the top level.
@@ -3508,6 +3612,7 @@ shadow     = "never"
         let halves = crate::palette::Halves {
             dark: None,
             light: Some(scheme),
+            selection: Selection::default(),
         };
         let (dark, light) = crate::app::themes_with(&halves);
         let mut want = baud_render::Theme::light();

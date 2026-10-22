@@ -31751,3 +31751,59 @@ sha256 = "fd0b2d2cdbe1128a21dc2b3f0cea50a548fc79e7ac4d9d4d74dc1a9e8d3d0038"
 bytes  = 34488
 status = "external"
 group  = "J"
+
+[sources.sdk27-nscolor-h]
+key    = "sdk27-nscolor-h"
+title  = "macOS SDK 27.0, AppKit NSColor.h -- selectedTextBackgroundColor, selectedTextColor and the unemphasized pair (232-235), findHighlightColor (224)"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSColor.h"
+file   = ""
+sha256 = "9dadf6af222eabf442c157c7a9bc62fdf42a251d47e9818434e0080705767a79"
+bytes  = 41098
+status = "external"
+group  = "Y"
+# Read 2026-10-21 (lane b142); hash recorded only, not committed -- a vendor header. The header names the colours, not their values: those were resolved through AppKit in sRGB under aqua and darkAqua, never sampled from the screen, and follow the user's highlight colour.
+
+[sources.terminal-app-clear-dark]
+key    = "terminal-app-clear-dark"
+title  = "macOS 27.0 Terminal 2.15, Initial Settings/Clear Dark.terminal -- the default profile's SelectionColor (#334e5e in sRGB); no selected-text colour key"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (26A5425a), Terminal.app 2.15"
+url    = "file:///System/Applications/Utilities/Terminal.app/Contents/Resources/Initial%20Settings/Clear%20Dark.terminal"
+file   = ""
+sha256 = "f37090a588ab964b78a758c3cf0fd825b3de8613b13409dc1cd2cfca4aa62f89"
+bytes  = 9701
+status = "external"
+group  = "Y"
+# Read 2026-10-21 (lane b142), the keyed NSColor archives decoded through AppKit; hash recorded only. settings.plist (sha256 5ad73baab6130088b60d31cb13e66b7f83ca7429846cb47eff2ff69c5fed655e) names it "Default Settings".
+
+[sources.terminal-app-clear-light]
+key    = "terminal-app-clear-light"
+title  = "macOS 27.0 Terminal 2.15, Initial Settings/Clear Light.terminal -- SelectionColor #e5ecf1 in sRGB"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (26A5425a), Terminal.app 2.15"
+url    = "file:///System/Applications/Utilities/Terminal.app/Contents/Resources/Initial%20Settings/Clear%20Light.terminal"
+file   = ""
+sha256 = "90e0985103924b1a3772b1ae04ca55f90659a543c164f9356c224fb6e35a8fb8"
+bytes  = 21144
+status = "external"
+group  = "Y"
+# Read 2026-10-21 (lane b142); hash recorded only.
+
+[sources.iterm2-8622e64-profile-defaults]
+key    = "iterm2-8622e64-profile-defaults"
+title  = "iTerm2 8622e64, iTermProfilePreferences.m -- the default Selection Color, calibrated (0.709, 0.835, 1.000), and Selected Text Color black (967-973), used by default (1071-1073)"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/Settings/iTermProfilePreferences.m"
+file   = ""
+sha256 = "4a7a4df10ee6bd2da8584e4203cabd3a012883f401ce62eeba0c6a5da01f8861"
+bytes  = 108385
+status = "external"
+group  = "Y"
+# Fetched 2026-10-21 (lane b142), the hash matching iterm2-8622e64-profile-preferences'. Read, not copied.

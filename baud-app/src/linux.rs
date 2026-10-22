@@ -367,11 +367,12 @@ pub fn run() {
     let half = crate::appearance::half_for(cfg.theme, None);
     // Both halves are read, so a mistake in the one not drawn is still
     // reported; only the half drawn is built.
-    let (halves, said) = crate::palette::load_halves(
+    let (mut halves, said) = crate::palette::load_halves(
         cfg.palette_light.as_deref(),
         cfg.palette_dark.as_deref(),
         &crate::palette::Dirs::from_env(cfg.source.as_deref()),
     );
+    halves.selection = cfg.selection;
     for s in said {
         crate::warn!("{s}");
     }

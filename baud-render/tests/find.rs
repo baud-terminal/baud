@@ -9,7 +9,9 @@ mod support;
 use baud_core::{CacheGeometry, Depth, Owned, Term};
 use baud_domain::{BytePos, Codepoint, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, Current, Damage, Find, FindLook, PxSize, Renderer, Stack, Target, Theme};
+use baud_render::{
+    Argb, Blend, Current, Damage, Find, FindLook, PxSize, Renderer, Stack, Target, Theme,
+};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -201,10 +203,14 @@ struct Painter<'f> {
 
 impl<'f> Painter<'f> {
     fn renderer(&self) -> Renderer<'f, 'f> {
+        self.renderer_in(Theme::dark())
+    }
+
+    fn renderer_in(&self, theme: Theme) -> Renderer<'f, 'f> {
         Renderer::new(
             Stack::new(self.faces).unwrap(),
             PxSize::of(14.0).unwrap(),
-            Theme::dark(),
+            theme,
             Blend::Native,
             Cols::of_index(usize::from(WS.ws_col)),
             Rows::of_index(usize::from(WS.ws_row)),
@@ -306,5 +312,48 @@ fn a_program_palette_moves_the_wash() {
         let (y, b) = (px(&yellow), px(&blue));
         assert_ne!(y, b, "the wash follows the program's palette");
         assert!(b & 0xff > (b >> 16) & 0xff, "blue now: {b:08x}");
+    });
+}
+
+/// **The field is drawn in the selection's colours, the theme's
+/// included**: with a theme's selection page, a blank of the field is that
+/// page, where reverse video makes it the text colour (Jev, 0.96 and 0.98:
+/// the find takes the selection's colours).
+#[test]
+fn the_field_takes_the_themes_selection_colour() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let p = Painter { faces: &faces };
+    let page = Argb(0xFF_33_4E_5E);
+    with_term(40, |t| {
+        feed(t, b"\x1b[?25l\r\n\r\nab needle cd");
+        let mut f = Find::new();
+        f.set_query(t, query("needle"), Rows::ZERO);
+        let corner = |theme: Theme, t: &mut Term<'_>| {
+            let mut r = p.renderer_in(theme);
+            let (w, h) = r.pixel_size();
+            let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+            r.set_find(
+                t,
+                Some(FindLook {
+                    marks: f.marks(t, Rows::ZERO),
+                    field: f.field(t.geometry().0),
+                }),
+            );
+            paint(&mut r, t, &mut px, Damage::Full);
+            // The field's first cell is a blank: its top-left pixel is page.
+            px[usize::try_from(w.value()).unwrap() + 1]
+        };
+        let themed = Theme {
+            selection: Some(page),
+            ..Theme::dark()
+        };
+        assert_eq!(corner(themed, t), page.0, "the theme's page");
+        let dark = Theme::dark();
+        assert_eq!(
+            corner(dark.clone(), t),
+            dark.fg.0 | 0xFF00_0000,
+            "reverse video: the text colour"
+        );
     });
 }

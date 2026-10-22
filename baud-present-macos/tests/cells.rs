@@ -1975,6 +1975,52 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "the resets put reverse video back"
     );
+    // **The theme's selection colours**, the `Theme` selection setting: a
+    // page and text the theme names are drawn alike by both arms, a
+    // program's `OSC 17` wins over the theme's page, `OSC 117` puts the
+    // theme's back, and the theme without them is reverse video again.
+    let resting = arms.renderer.theme().clone();
+    arms.renderer.set_theme(Theme {
+        selection: Some(Argb(0xFF_33_4E_5E)),
+        selection_text: Some(Argb(0xFF_FF_D7_5F)),
+        ..resting.clone()
+    });
+    let (themed, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&themed, &b),
+        0,
+        "the arms disagree under the theme's"
+    );
+    assert!(
+        differing(&themed, &reverse) > 0,
+        "the theme's reached the pixels"
+    );
+    feed(&mut t, b"\x1b]17;#2f5f9f\x07");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree under OSC 17 over the theme's"
+    );
+    assert!(
+        differing(&a, &themed) > 0,
+        "OSC 17 won over the theme's page"
+    );
+    feed(&mut t, b"\x1b]117\x07");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree after OSC 117 under the theme's"
+    );
+    assert_eq!(differing(&a, &themed), 0, "OSC 117 put the theme's back");
+    arms.renderer.set_theme(resting);
+    let (a, _) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &reverse),
+        0,
+        "no theme colour is reverse video"
+    );
     // **xterm's special colours** (`OSC 5`, `OSC 6`): bold, underline and
     // reverse drawn in their own colours, under colorAttrMode over the
     // scene's own colours too, each attribute dropped where its colour took
