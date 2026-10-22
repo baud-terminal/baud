@@ -1201,7 +1201,9 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // gives a GR digit's lead the row its GL digit's has.
         Node::Dcs => {
             return match enc.gr_as_gl(b).raw_byte() {
-                b'$' => edge(Act::Consume, Node::DcsDollar),
+                // **`$` is kept as the intermediate**, so a `p` after it is
+                // DECRSTS's and not ReGIS's (`Paint::dcs_start`).
+                b'$' => edge(Act::Inter, Node::DcsDollar),
                 // A bare `q` (no `$` before it) is a Sixel: rename the string
                 // kind and route the body through the `StrPut`/`StrEnd` path,
                 // which now decodes it rather than dropping it.
@@ -1264,11 +1266,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         }
         // **`$ t` is DECRSPS**, `DCS Ps $ t D...D ST` (`[[source:
         // dec-std-070]]` p. 5-205), its `Ps` collected by `Dcs`'s digit
-        // edges, and **`$ w` DECLKD**, `DCS Pc $ w ... ST` (070-13 § 5.4);
-        // `DcsQuery` reads which of the three the byte names.
+        // edges, **`$ w` DECLKD**, `DCS Pc $ w ... ST` (070-13 § 5.4), and
+        // **`$ p` DECRSTS**, `DCS Ps $ p D...D ST` (p. 5-208); `DcsQuery`
+        // reads which of the four the byte names.
         Node::DcsDollar => {
             return match enc.gr_as_gl(b).raw_byte() {
-                b'q' | b't' | b'w' => edge(Act::DcsQuery, Node::DcsStr),
+                b'q' | b't' | b'w' | b'p' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
                 _ => edge(Act::Consume, Node::DcsStr),
@@ -2528,11 +2531,18 @@ mod classes {
         // both led there as `Consume`. 59 -> 61, 2,505 -> 2,621, 77,196 ->
         // 81,385 and 2,106,468 -> 2,232,041 at strides 1 to 4, +6.0% at
         // stride 4.
+        // **DECRSTS's `p` after `DCS $`, and the `$` kept as an
+        // intermediate** (2026-10-22): `70` and, under ISO 8859-1, `F0` in
+        // `DcsDollar` lead to the body as `DcsQuery`, where both led there
+        // as `Consume`, and `24` and `A4` in `Dcs` take `Inter` where they
+        // took `Consume`. Stride 1 does not move; 2,621 -> 2,634, 81,385 ->
+        // 82,006 and 2,232,041 -> 2,257,008 at strides 2 to 4, +1.1% at
+        // stride 4.
         // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_621, "stride 2");
-        assert_eq!(three.len(), 81_385, "stride 3");
-        assert_eq!(four.len(), 2_232_041, "stride 4");
+        assert_eq!(two.len(), 2_634, "stride 2");
+        assert_eq!(three.len(), 82_006, "stride 3");
+        assert_eq!(four.len(), 2_257_008, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -3158,7 +3168,7 @@ mod classes {
                 }
             }
             if latin1 {
-                assert_eq!(at(Node::Dcs, 0xa4), edge(Act::Consume, Node::DcsDollar));
+                assert_eq!(at(Node::Dcs, 0xa4), edge(Act::Inter, Node::DcsDollar));
                 for v in 0xb0..=0xb9 {
                     assert_eq!(at(Node::Dcs, v), edge(Act::Digit, Node::Dcs), "{v:#04x}");
                 }
@@ -3166,6 +3176,7 @@ mod classes {
                 assert_eq!(at(Node::Dcs, 0xba), edge(Act::Consume, Node::DcsStr));
                 assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::SixelStr));
                 assert_eq!(at(Node::DcsDollar, 0xf1), edge(Act::DcsQuery, Node::DcsStr));
+                assert_eq!(at(Node::DcsDollar, 0xf0), edge(Act::DcsQuery, Node::DcsStr));
                 assert_eq!(at(Node::Dcs, 0xff), edge(Act::Consume, Node::Dcs));
                 assert_eq!(
                     at(Node::DcsDollar, 0xff),

@@ -76,6 +76,35 @@ pub(crate) struct Csi {
 }
 
 impl Csi {
+    /// A control's parameters, intermediates and final from its bytes after
+    /// `CSI`, collected as the parser collects them: the controls DECRSTS
+    /// replays. `None` when the bytes end before a final.
+    fn control(bytes: &[u8]) -> Option<(Csi, FinalByte)> {
+        let mut c = Csi::NEW;
+        let mut rest = bytes;
+        if let Some((&b, tail)) = rest.split_first() {
+            if let Some(m) = Marker::from_private(StreamByte::from_stream(b)) {
+                c.set_marker(m);
+                rest = tail;
+            }
+        }
+        for &b in rest {
+            match b {
+                b'0'..=b'9' => {
+                    let i = c.n.raw_index();
+                    let v = c.p[i].map_or(0, |p| p.value());
+                    let d = u16::from(b - b'0');
+                    c.p[i] = Some(Param::from_raw(v.saturating_mul(10).saturating_add(d)));
+                }
+                b';' => c.sep(),
+                b':' => c.sub_sep(),
+                0x20..=0x2f => c.set_inter(StreamByte::from_stream(b)),
+                _ => return FinalByte::from_stream(StreamByte::from_stream(b)).map(|f| (c, f)),
+            }
+        }
+        None
+    }
+
     pub(crate) const NEW: Csi = Csi {
         p: [None; NPARAM + 1],
         n: ParamIdx::FIRST,
@@ -839,6 +868,12 @@ pub(crate) fn act(
             if p.cold.str_kind == StrKind::Regis && p.strs.regis.playing() {
                 return p.regis_end(from, left, node);
             }
+            // DECRSTS replays controls, which may move the parser's node
+            // and select the other encoding's table.
+            if p.cold.str_kind == StrKind::RestoreTerminal {
+                p.restore_terminal_state(node, from);
+                *enc = p.cold.encoding;
+            }
             p.str_end(StreamByte::from_stream(p.arena[from.index()]));
             if p.cold.restored_shift.take().is_some() {
                 *node = Node::SingleShift;
@@ -887,7 +922,16 @@ pub(crate) fn act(
             esc_final(p, csi, b, enc);
             ReadLen::ONE
         }
-        Act::Again => ReadLen::ZERO,
+        // **Into `Escape`, only from a string's `ESC`**, which cancels it:
+        // the sequence that begins is a new one, so it starts with nothing
+        // collected, as `EscStart` starts one. A DCS prefix's `$` is kept as
+        // its intermediate, and `DCS $ ESC D` was read as `ESC $ D`.
+        Act::Again => {
+            if *node == Node::Escape {
+                csi.reset();
+            }
+            ReadLen::ZERO
+        }
         // A Sixel cut off: placed from what it received, then the byte is
         // read again from the edge's node (`Node::SixelStr`), as `Again`.
         Act::SixelCut => {
@@ -1805,6 +1849,30 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 
 /// Perform the operation a `CSI` final byte names.
 ///
+/// Replay one control, its bytes after `CSI`, through the dispatch a parsed
+/// one takes: DECRSTS's restore, a field at a time.
+#[cold]
+#[inline(never)]
+pub(crate) fn replay(p: &mut Paint<'_, '_>, bytes: &[u8], node: &mut Node, at: BytePos) {
+    if let Some((csi, f)) = Csi::control(bytes) {
+        csi_final(p, &csi, f, node, at);
+    }
+}
+
+impl Paint<'_, '_> {
+    /// `S7C1T` and `S8C1T`: which controls the replies use. `S8C1T` "if
+    /// (conformance_level != LEVEL_1)" (`[[source: dec-std-070]]` 070-3 p.
+    /// 3-72): Level 1 is seven-bit only, so there it is counted and changes
+    /// nothing, as xterm ignores it below its level 2 (Jev's lean, IGNORED,
+    /// 0.88/0.94).
+    pub(crate) fn select_c1(&mut self, c: C1Transmit) {
+        match (c, self.cold.level) {
+            (C1Transmit::EightBit, ConformanceLevel::One) => self.unsupported_total += 1,
+            _ => self.cold.replies = self.cold.replies.with_c1(c),
+        }
+    }
+}
+
 /// **`#[cold]` and out of line.** It runs once a sequence where the loop above
 /// runs once a byte, and this repo has measured that a big `match` inlined into
 /// a per-byte body costs every payload whether or not it executes.
@@ -2112,6 +2180,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // read out of line.
         DomCsi::Area(op) => p.area_op(op, csi),
         DomCsi::RequestPresentationState => p.request_presentation_state(csi),
+        DomCsi::RequestTerminalState => p.request_terminal_state(csi),
         // The reports a VT420 and xterm answer (`crate::query`), their
         // parameters read out of line.
         DomCsi::Query(op) => p.answer_query(op, csi, node),
@@ -2230,17 +2299,8 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // It changes only what baud *writes*. What it reads is settled by
             // the encoding, because a `9B` can be a control only where it
             // cannot be a UTF-8 continuation byte.
-            b' ' if b.raw_byte() == b'F' => {
-                p.cold.replies = p.cold.replies.with_c1(C1Transmit::SevenBit)
-            }
-            // `S8C1T` "if (conformance_level != LEVEL_1)" (`[[source:
-            // dec-std-070]]` 070-3 p. 3-72): Level 1 is seven-bit only, so
-            // there it is counted and changes nothing, as xterm ignores it
-            // below its level 2 (Jev's lean, IGNORED, 0.88/0.94).
-            b' ' if b.raw_byte() == b'G' => match p.cold.level {
-                ConformanceLevel::One => p.unsupported_total += 1,
-                _ => p.cold.replies = p.cold.replies.with_c1(C1Transmit::EightBit),
-            },
+            b' ' if b.raw_byte() == b'F' => p.select_c1(C1Transmit::SevenBit),
+            b' ' if b.raw_byte() == b'G' => p.select_c1(C1Transmit::EightBit),
             // **`ESC SP L`, `M` and `N` announce an ISO 4873 level, and at
             // Level 3 and above they designate and invoke** (`[[source:
             // dec-std-070]]` 070-3 §3.8.1, pp. 3-68 to 3-70): L and M put

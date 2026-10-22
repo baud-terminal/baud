@@ -946,6 +946,10 @@ pub enum Csi {
     /// and DECTABSR for 2 ([`PresentationState`]). `Ps` is read where the
     /// report is made, as [`Csi::Area`]'s rectangle is.
     RequestPresentationState,
+    /// DECRQTSR, `CSI Ps $ u`: the terminal state report DECTSR for 1, the
+    /// colour table report DECCTR for 2, `CSI 2 ; Pu $ u`. Its parameters
+    /// are read where the report is made, as DECRQPSR's are.
+    RequestTerminalState,
     /// One of xterm's stack controls ([`StackOp`]), its parameters read
     /// where it is performed, as [`Csi::Area`]'s are.
     Stack(StackOp),
@@ -1144,6 +1148,10 @@ impl Csi {
                 // "causes the terminal to respond with a Presentation State
                 // Report"; `[[source: vt510-decrqpsr]]`.
                 (b'$', b'w') if marker == Marker::Standard => Csi::RequestPresentationState,
+                // DECRQTSR, `CSI Ps $ u`: `[[source: dec-std-070]]` p. 5-206,
+                // "To request a compact report of most settable state", and
+                // DECCTR's request, `CSI 2 ; Pu $ u` (p. 5-109).
+                (b'$', b'u') if marker == Marker::Standard => Csi::RequestTerminalState,
                 // DECRQUPSS and DECRQDE. Their parameters, which neither
                 // takes, are read where they are answered ([`QueryOp::with`]).
                 (b'&', b'u') if marker == Marker::Standard => {
@@ -1716,6 +1724,8 @@ impl Csi {
             // "Select checksum extension (XTCHECKSUM), xterm."
             Area(AreaOp::SelectChecksum) => Level::Xterm,
             Area(_) | RequestPresentationState => Level::Vt420,
+            // "Levels: 2x (TSI), 3-4" (`[[source: dec-std-070]]` p. 5-206).
+            RequestTerminalState => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.

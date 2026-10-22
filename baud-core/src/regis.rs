@@ -146,17 +146,19 @@ pub(crate) struct Want {
 
 impl Paint<'_, '_> {
     /// The string a `DcsQuery` byte other than DECRQSS's `q` begins:
-    /// DECRSPS's `t` and DECLKD's `w` after `$`, ReGIS's bare `p`, or the
+    /// DECRSPS's `t`, DECLKD's `w` and DECRSTS's `p` after `$`, ReGIS's bare
+    /// `p`, or the
     /// `+` of XTGETTCAP and XTSETTCAP. Out of line, so the
     /// per-byte loop's arm is DECRQSS's test and one call, the shape it had
     /// with DECRSPS's alone.
     #[cold]
     #[inline(never)]
     pub(crate) fn dcs_start(&mut self, b: StreamByte, csi: &Csi) -> crate::osc::StrKind {
-        match b.raw_byte() {
-            b'p' => self.regis_start(csi),
-            b'w' => self.locator_keys_start(csi),
-            b'+' => crate::dcs::tcap_start(csi),
+        match (b.raw_byte(), csi.intermediate().map(StreamByte::raw_byte)) {
+            (b'p', Some(b'$')) => self.restore_state_start(csi),
+            (b'p', _) => self.regis_start(csi),
+            (b'w', _) => self.locator_keys_start(csi),
+            (b'+', _) => crate::dcs::tcap_start(csi),
             _ => self.restore_start(csi),
         }
     }

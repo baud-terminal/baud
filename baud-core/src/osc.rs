@@ -194,6 +194,8 @@ impl Paint<'_, '_> {
                 | StrKind::LocatorKeys
                 | StrKind::Tcap
                 | StrKind::TcapCut
+                | StrKind::RestoreTerminal
+                | StrKind::RestoreColors
         ) {
             return self.status_data_put(b);
         }
@@ -377,6 +379,9 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::RestoreTabs {
             return self.restore_tab_put(b);
         }
+        if self.cold.str_kind == StrKind::RestoreColors {
+            return self.restore_color_put(b);
+        }
         // A byte past `OSC_MAX` cuts an XTGETTCAP list, which `keep_pending`
         // counts; the kind remembers it for the terminator.
         if self.cold.str_kind == StrKind::Tcap && self.cold.str_len.index() == OSC_MAX {
@@ -472,6 +477,10 @@ impl Paint<'_, '_> {
                 self.restore_cursor_information(&data[..n]);
             }
             StrKind::RestoreTabs => self.restore_tab_end(),
+            // Restored where the terminator is read (`write.rs`), since a
+            // control it replays can move the parser's node.
+            StrKind::RestoreTerminal => {}
+            StrKind::RestoreColors => self.restore_color_end(),
             // ReGIS acts as its body arrives and keeps its state for the
             // next envelope; its cursors go with the envelope, "the ReGIS
             // locator will be disabled until ReGIS is re-entered" (070-13
@@ -1289,6 +1298,14 @@ pub(crate) enum StrKind {
     /// notifications' chunk, decoded as it arrives (`notice.rs`). Reached
     /// through the body's own bytes, as `Clipboard` is.
     Notice,
+    /// A `DCS 1 $ p`, DECRSTS of a terminal state report: the body is kept
+    /// and checksummed at the terminator, then restored
+    /// (`Paint::restore_terminal_state`).
+    RestoreTerminal,
+    /// A `DCS 2 $ p`, DECRSTS of a colour table report: each group is set
+    /// as its `/` arrives (`Paint::restore_color_put`), so no length limits
+    /// it.
+    RestoreColors,
 }
 
 impl StrKind {

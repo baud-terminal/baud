@@ -1053,6 +1053,30 @@ impl ModeSlot {
     }
 }
 
+/// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
+/// DECTSR carries, and the controls DECRSTS restores them through.
+/// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
+pub const SLOT_WIRE: [u16; 60] = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
+    1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
+    117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
+    18, 19, 43,
+];
+
+#[cfg(test)]
+mod slot_wire {
+    use super::*;
+
+    /// Each entry of [`SLOT_WIRE`] is the mode whose slot is its index.
+    #[test]
+    fn every_slot_is_its_wire_number() {
+        for (i, w) in SLOT_WIRE.iter().enumerate() {
+            let m = PrivateMode::from_wire(Some(Param(*w)));
+            assert_eq!(m.slot(), Some(ModeSlot(i as u8)), "?{w}");
+        }
+    }
+}
+
 /// XTSAVE's one-level cache, `CSI ? Pm s`, which XTRESTORE `CSI ? Pm r` reads
 /// back (`[[source: ctlseqs]]`): "Like Save Cursor (DECSC), this uses a
 /// one-level cache. Unlike Save Cursor, specific settings can be saved and

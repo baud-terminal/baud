@@ -399,6 +399,13 @@ group  = "C"
 # and trailing spaces, 7.6 print operations, 7.7's DSR ?15, MC, DECPFF, DECPEX, PRINT PAGE and
 # PRINT LINE with their algorithms; host_state_init's printer port (PRINT_DISPLAY, NVM);
 # DECSTR's list ("NOT affected ... Printer Controller Mode, Auto Print Mode").
+# Re-read 2026-10-22 (lane b147) on the text layer, the sha256 matching: TSI, 5.13.2
+# (p. 5-191); DECRQSS's list, 'Set Lines Per Page DECSLPP t' (p. 5-196); DECRQTSR, DECTSR
+# and DECRSTS (pp. 5-206 to 5-208): 'guaranteed not to be longer than 256 characters',
+# 'The format of the data is firmware revision dependent', the checksum 'the 2's complement
+# of D1 + D2 + ... + Dn; 8-bit addition with no Carry', 'If the checksum fails, the entire
+# sequence is ignored', 'ignore the error if possible'; DECCTR (p. 5-109); DECSLPP, 'if
+# (parv[0] <= 24) lines_per_page = 24' (pp. 5-75, 5-76) [text].
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -14967,6 +14974,11 @@ group  = "C"
 # host-writable line shares; Notes on DECSC and DECRC, a separate buffer per display, p. 271
 # (PDF 293); Unlocking the Keyboard, the Wait indicator on "the keyboard indicator line at the
 # bottom of the screen" (PDF 102); Table 12-4's `$}` and `$~` (PDF 288).
+# Read 2026-10-22 (lane b147) on the text layer [text]: chapter 12, DECRQTSR, DECTSR and
+# DECRSTS (pp. 245-247), 'DECTSR informs the host of the entire state of the terminal,
+# except for user-defined key definitions and the current soft character set', and 'If
+# there is an invalid value in the DECRSTS sequence, the terminal ignores the rest of the
+# sequence'.
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -14997,6 +15009,8 @@ group  = "C"
 # DECPEX and DECPFF, p. 5-81 ("Default: Scrolling region"); Table 4-9's printer functions;
 # chapter 10, Printer Port, 10.4-10.8 (10.8 "Clear communications ... may be used to get out
 # of a hung state").
+# Read 2026-10-22 (lane b147) on the text layer [text]: DECRQTSR (p. 5-110), DECRSTS
+# (p. 5-113), DECTSR (p. 5-152).
 
 [sources.vt520-rm]
 key    = "vt520-rm"
@@ -15028,6 +15042,10 @@ group  = "C"
 # Set-Up's "Warning bell volume High", "Margin bell volume Off", and section 2.12.7,
 # "high, low, or off, with high as the default" (p. 2-42); DECRPSS's list with "SP u"
 # and "SP t" (pp. 5-103, 5-104).
+# Read 2026-10-22 (lane b147) on the text layer [text]: the DECRPSS list (pp. 5-102,
+# 5-103); DECRQTSR (p. 5-113); DECCTR (p. 5-114), 'Pu 0 Illegal', its Response printed
+# 'DCS 2 $ p'; DECRSTS and DECRSTS of the colour table (pp. 5-117, 5-118); DECTSR and its
+# colour table report, 'DCS 2 $ s' (pp. 5-160, 5-161).
 
 # No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
 # contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is
@@ -22838,6 +22856,12 @@ status = "external"
 group  = "C"
 # `external`: over 3 MB. Read 2026-10-11 (round 2026-10-11b): DECSCNM and DECSTGLT,
 # PDF 196-197 (printed 187-188); Table 12-3 DECSDM 80, PDF 230 (printed 221).
+# Re-fetched 2026-10-22 (lane b147), the sha256 matching, and read on the Paper Capture
+# text layer: VT300 Reports pp. 205-209 -- DECRQTSR Ps 2, the color table report, 'Ps2 ... 0
+# or none HLS (default)'; DECTSR's '196 bytes in the data string ... in the range 4/0 to
+# 4/15'; DECCTR 'DCS 2 $ s', 'Pc is the color number (0 through 255)'; DECRSTS Ps 2; 'If
+# there is an invalid value in the DECRSTS sequence, the terminal ignores the rest of the
+# sequence' [text].
 
 [sources.vt3xx-ug-002]
 key    = "vt3xx-ug-002"

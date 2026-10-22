@@ -136,12 +136,12 @@ rows = ["vt:`CSI $ p`", "vt:`CSI n`"]
 id = "vt420-answers"
 area = "programs"
 name = "A VT420's questions, answered"
-does = "Programs that ask a VT420's status questions get true answers: where the cursor is and on which page, whether a printer is there, the keyboard, the locator and stored macros. They can also read back the cursor's state and the tab stops and put them back later."
+does = "Programs that ask a VT420's status questions get true answers: where the cursor is and on which page, whether a printer is there, the keyboard, the locator and stored macros. They can also read back the cursor's state, the tab stops, the colour table and the terminal's whole state in one report, and put any of them back later."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/vt420/reports.rs::decxcpr_reports_the_cursor_with_its_page", "baud-core/tests/vt420/presentation.rs::a_report_fed_back_restores_what_it_reported"]
-rows = ["vt:`CSI ? 6 n` to `CSI ? 85 n`", "vt:`CSI Ps $ w`", "vt:`DCS Ps $ t D...D ST`"]
-shipped = ["F1-60"]
+tests = ["baud-core/tests/vt420/reports.rs::decxcpr_reports_the_cursor_with_its_page", "baud-core/tests/vt420/presentation.rs::a_report_fed_back_restores_what_it_reported", "baud-core/tests/vt420/state_reports.rs::decrsts_restores_what_every_tsi_control_reports"]
+rows = ["vt:`CSI ? 6 n` to `CSI ? 85 n`", "vt:`CSI Ps $ w`", "vt:`DCS Ps $ t D...D ST`", "vt:`CSI Ps $ u`", "vt:`DCS Ps $ p D...D ST`"]
+shipped = ["F1-60", "F1-61"]
 
 [[feature]]
 id = "xterm-settings"

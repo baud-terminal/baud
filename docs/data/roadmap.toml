@@ -361,9 +361,10 @@ summary = "The questions a VT420 answers, about the cursor's page, the printer, 
 [[item]]
 id = "F1-61"
 area = "programs"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "Save and restore the whole terminal state"
-summary = "Programs can read back the cursor's place, colours and character sets and the tab stops, and put them back later; the VT420's report of the terminal's whole set of modes is not built yet."
+summary = "Programs can read back the cursor's place, the tab stops, the colour table and the whole terminal state in one report, and put any of them back later."
 
 [[item]]
 id = "F1-62"

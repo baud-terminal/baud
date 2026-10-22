@@ -19,6 +19,7 @@ mod rect_ops;
 mod rect_scroll;
 mod reports;
 mod side_margins;
+mod state_reports;
 mod status_line;
 mod tab_backspace;
 

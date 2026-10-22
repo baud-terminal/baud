@@ -82,6 +82,7 @@ mod stack;
 mod status;
 mod storage;
 mod term;
+mod tsr;
 mod vt52;
 mod window;
 mod write;

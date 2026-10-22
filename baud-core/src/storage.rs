@@ -471,6 +471,10 @@ pub struct StrBuf<'b> {
     /// XTSMTITLE's set modes (`crate::window`), read where an `OSC 0`, `1`
     /// or `2` is: here for the reason `window` is.
     pub(crate) title_modes: TitleModes,
+    /// A DECRSTS colour table restore's group being read
+    /// (`crate::tsr`): here for the reason `window` is, only that string
+    /// reaches it.
+    pub(crate) color_restore: ColorRestore,
     /// The encoding the title's and the icon name's bytes are in
     /// (`Term::title_encoding`), decided where each is set.
     pub(crate) title_enc: InputEncoding,
@@ -604,6 +608,7 @@ impl<'b> StrBuf<'b> {
             window: baud_domain::WindowFacts::UNKNOWN,
             title_reports_refused: crate::term::TitleReportsRefused::FIRST,
             title_modes: TitleModes::DEFAULT,
+            color_restore: ColorRestore::Stopped,
             title_enc: InputEncoding::Utf8,
             icon_enc: InputEncoding::Utf8,
             renditions: crate::stack::RenditionStack::EMPTY,
@@ -936,6 +941,7 @@ impl Owned {
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 title_modes: TitleModes::DEFAULT,
+                color_restore: ColorRestore::Stopped,
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
                 renditions: crate::stack::RenditionStack::EMPTY,
@@ -1020,6 +1026,7 @@ impl Owned {
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 title_modes: TitleModes::DEFAULT,
+                color_restore: ColorRestore::Stopped,
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
                 renditions: crate::stack::RenditionStack::EMPTY,

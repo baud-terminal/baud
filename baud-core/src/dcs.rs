@@ -528,6 +528,18 @@ impl Paint<'_, '_> {
     }
 }
 
+/// The SGR control for `w`, `0 ; Ps... m`, as DECRQSS answers it: the one
+/// DECRSTS replays to restore a rendition.
+pub(crate) fn sgr_control(w: StyleWord) -> ([u8; DECRQSS_MAX], ByteLen) {
+    let mut s = Status::new();
+    s.sgr(w);
+    s.push(b"m");
+    let mut out = [0u8; DECRQSS_MAX];
+    let b = s.bytes().unwrap_or_default();
+    out[..b.len()].copy_from_slice(b);
+    (out, ByteLen::from_index(b.len()))
+}
+
 /// A DECRQSS answer, assembled before any of it reaches the reply buffer.
 ///
 /// [`DECRQSS_MAX`] bytes on the stack of a `#[cold]` function, rather than
