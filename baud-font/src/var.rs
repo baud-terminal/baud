@@ -25,6 +25,14 @@ impl Fixed {
     pub fn from_f32(v: f32) -> Fixed {
         Fixed(core::f32::math::floor(v * 65536.0 + 0.5) as i32)
     }
+
+    /// The value as a float: its integer half and its fraction are each
+    /// exact in an `f32`, and only their sum rounds.
+    pub fn to_f32(self) -> f32 {
+        let hi = i16::try_from(self.0 >> 16).unwrap_or(0);
+        let lo = u16::try_from(self.0 & 0xFFFF).unwrap_or(0);
+        f32::from(hi) + f32::from(lo) / 65536.0
+    }
 }
 
 impl FromBe for Fixed {

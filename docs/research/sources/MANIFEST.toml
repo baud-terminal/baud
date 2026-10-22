@@ -31548,3 +31548,206 @@ bytes  = 30394
 status = "external"
 group  = "H"
 # Fetched 2026-10-21 (lane b140): practice for baud-present-wayland/src/damage.rs. Read, not copied.
+
+# Fonts by family name (lane b141, 2026-10-21): how a family name is matched
+# and a family's styled faces picked, the font directories a scan reads, and
+# how ghostty, kitty, alacritty and WezTerm resolve a family. Read and
+# hash-verified; not committed -- vendor pages and source files at pinned
+# commits. Re-fetch the url and compare.
+
+[sources.css-fonts-3]
+key    = "css-fonts-3"
+title  = "CSS Fonts Module Level 3 (W3C Recommendation, 20 September 2018) -- 5.1 case sensitivity of family names (Default Caseless Matching, no normalisation, every localized name), 5.2 matching font styles (width, then style, then weight), font-weight, font-synthesis, Appendix A (usWeightClass)"
+author = "John Daggett, Myles C. Maxfield, Chris Lilley (W3C)"
+year   = 2018
+venue  = "W3C Recommendation"
+url    = "https://www.w3.org/TR/2018/REC-css-fonts-3-20180920/"
+file   = ""
+sha256 = "e3982d57e3992dfa7c0e56c1ff39977bd71d807731247decc794c61d2eacd63b"
+bytes  = 240662
+status = "external"
+group  = "J"
+
+[sources.css-fonts-4-wd-2026-10-16]
+key    = "css-fonts-4-wd-2026-10-16"
+title  = "CSS Fonts Module Level 4 (W3C Working Draft, 16 October 2026) -- 5.1 unchanged; 5.2 with ranges: a face covering a range of width, style or weight matched 'as if each supported combination of values is a unique font', the width, italic/oblique and weight search orders"
+author = "Chris Lilley (W3C)"
+year   = 2026
+venue  = "W3C Working Draft"
+url    = "https://www.w3.org/TR/2026/WD-css-fonts-4-20261016/"
+file   = ""
+sha256 = "13f1d4394a071b5fc6e3e72b756d17e976ab5171998c4ef80f580cb6844a7538"
+bytes  = 1392036
+status = "external"
+group  = "J"
+
+[sources.ms-opentype-os2-2026-10-21]
+key    = "ms-opentype-os2-2026-10-21"
+title  = "OS/2 -- OS/2 and Windows Metrics Table: usWeightClass (1-1000, 400 Normal, 700 Bold), usWidthClass and its % of normal, fsSelection bits 0 ITALIC, 5 BOLD, 6 REGULAR, 9 OBLIQUE"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/os2"
+file   = ""
+sha256 = "4021e58bdec7fb90c2219553ed76f231719845692acd5af9c05d764c5f5a47c2"
+bytes  = 160582
+status = "external"
+group  = "J"
+# The page `ms-opentype-os2` pinned has changed upstream since (that key's
+# hash no longer matches a fetch); this is the 2026-10-21 fetch.
+
+[sources.fontconfig-configure-2-15-0]
+key    = "fontconfig-configure-2-15-0"
+title  = "fontconfig 2.15.0, configure.ac -- --with-default-fonts: on Darwin /System/Library/Fonts, /Library/Fonts, ~/Library/Fonts and the MobileAsset font directories, else /usr/share/fonts; --with-add-fonts: the X11 font directories that exist"
+author = "fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/configure.ac"
+file   = ""
+sha256 = "279c05b83fbf64288c9ea0321ed85e771b7605b2271ade2bdadffe95aaebcf39"
+bytes  = 24645
+status = "external"
+group  = "J"
+
+[sources.fontconfig-fonts-conf-2-15-0]
+key    = "fontconfig-fonts-conf-2-15-0"
+title  = "fontconfig 2.15.0, fonts.conf.in -- the font directory list: the default fonts, <dir prefix=\"xdg\">fonts</dir> and ~/.fonts"
+author = "fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/fonts.conf.in"
+file   = ""
+sha256 = "1d9a9790ace86c6cc7c748f39ccb7251886bb7c64ce13dc625c22f43c4f3dbc5"
+bytes  = 2664
+status = "external"
+group  = "J"
+
+[sources.fontconfig-user]
+key    = "fontconfig-user"
+title  = "fontconfig user documentation -- font names, font matching by distance, <dir> and its xdg prefix"
+author = "Keith Packard and fontconfig contributors"
+year   = 2026
+venue  = "freedesktop.org"
+url    = "https://www.freedesktop.org/software/fontconfig/fontconfig-user.html"
+file   = ""
+sha256 = "b645f91133a9d8522ec3079c9e40aa7d11cc4841c6d1fdc7a97c1d2c680f6854"
+bytes  = 46117
+status = "external"
+group  = "J"
+
+[sources.apple-font-book-settings]
+key    = "apple-font-book-settings"
+title  = "Change Font Book settings on Mac -- default install location: Current User ~/Library/Fonts/, All Users /Library/Fonts/; 'System fonts you download from Apple aren't installed in these locations'"
+author = "Apple"
+year   = 2026
+venue  = "Font Book User Guide, support.apple.com"
+url    = "https://support.apple.com/guide/font-book/manage-fonts-fntbk1004/mac"
+file   = ""
+sha256 = "434774aa5fbe8630fbce2ace5c690985f8bc7ea7541d322088477775624a677f"
+bytes  = 562341
+status = "external"
+group  = "J"
+
+[sources.macos-sdk-ctfontdescriptor-h]
+key    = "macos-sdk-ctfontdescriptor-h"
+title  = "CTFontDescriptor.h -- kCTFontFamilyNameAttribute, kCTFontEnabledAttribute ('Unregistered font descriptors will return NULL, which is equivalent to false'), CTFontDescriptorCreateMatchingFontDescriptors"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK"
+url    = "$SDKROOT/System/Library/Frameworks/CoreText.framework/Headers/CTFontDescriptor.h"
+file   = ""
+sha256 = "e0b1a00342376ed5679f1d74a13802091299536b7c3bf5ee75b070e50a1e7328"
+bytes  = 34849
+status = "external"
+group  = "J"
+
+[sources.ghostty-config-8f0dd37]
+key    = "ghostty-config-8f0dd37"
+title  = "ghostty config/Config.zig -- font-family (repeatable) and its styled variants, font-style, font-synthetic-style (on by default)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 8f0dd37 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/8f0dd3709050b1026f6324368805033197d8b4a5/src/config/Config.zig"
+file   = ""
+sha256 = "fba3f7596175a246ffa8fdab6213b6678d7e07ab551de3878cdd561f53a8881c"
+bytes  = 431388
+status = "external"
+group  = "J"
+
+[sources.ghostty-sharedgridset-8f0dd37]
+key    = "ghostty-sharedgridset-8f0dd37"
+title  = "ghostty font/SharedGridSet.zig -- each style discovered from the configured family, 'font-family ... not found' logged, completeStyles"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 8f0dd37 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/8f0dd3709050b1026f6324368805033197d8b4a5/src/font/SharedGridSet.zig"
+file   = ""
+sha256 = "27d0e0734e1e19952ad87edab3afdfaa56059c2ced3b7bdc368d9b391977c880"
+bytes  = 31640
+status = "external"
+group  = "J"
+
+[sources.kitty-fonts-common-fa9f8da]
+key    = "kitty-fonts-common-fa9f8da"
+title  = "kitty kitty/fonts/common.py -- get_font_files: bold_font/italic_font auto found in the resolved regular face's family, a variable face's styles from its axes, fontconfig's synthetic italic matrix"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "kovidgoyal/kitty at fa9f8da"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/fonts/common.py"
+file   = ""
+sha256 = "fc21579a71dbface3d54a0da6a5c3f1f1a35e0cf32693c2c0c7fec0b112fedfe"
+bytes  = 23269
+status = "external"
+group  = "J"
+
+[sources.kitty-fonts-core-text-fa9f8da]
+key    = "kitty-fonts-core-text-fa9f8da"
+title  = "kitty kitty/fonts/core_text.py -- find_best_match: PostScript and full name, then family, scored by weight and slant distance; 'The font X was not found, falling back to Menlo'"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "kovidgoyal/kitty at fa9f8da"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/fonts/core_text.py"
+file   = ""
+sha256 = "297e7c1d161e10b9f4e0c3004c709de36f3fc05cd2be5fafd650ec83e6be8302"
+bytes  = 10351
+status = "external"
+group  = "J"
+
+[sources.alacritty-font-0-15-1]
+key    = "alacritty-font-0-15-1"
+title  = "alacritty 0.15.1, src/config/font.rs -- font.normal.family; bold and italic default to the normal family"
+author = "Christian Duerr, Joe Wilm and contributors"
+year   = 2025
+venue  = "alacritty/alacritty, tag v0.15.1 (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/config/font.rs"
+file   = ""
+sha256 = "c6a6956e11dbd6f99b8ce25baee02a96886f4e3c0b5dbda61d0943a5a1fc7b6a"
+bytes  = 4448
+status = "external"
+group  = "J"
+
+[sources.crossfont-darwin-0-8-1]
+key    = "crossfont-darwin-0-8-1"
+title  = "crossfont 0.8.1, src/darwin/mod.rs -- get_matching_face: the family's first descriptor whose bold and italic traits match, else regular; an unknown family falls back to Menlo"
+author = "Christian Duerr and contributors"
+year   = 2024
+venue  = "alacritty/crossfont, tag v0.8.1 (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/crossfont/v0.8.1/src/darwin/mod.rs"
+file   = ""
+sha256 = "3688aaf3021162c8642517ad0cb2498cdf723ef9afe5a747b4c8d5fb1fe76e52"
+bytes  = 18570
+status = "external"
+group  = "J"
+
+[sources.wezterm-parser-3725482]
+key    = "wezterm-parser-3725482"
+title  = "wezterm-font/src/parser.rs -- names from the name table (16/1, 17/2), weight from OS/2, best_matching_index: CSS Fonts Level 3 5.2, synthesize_bold/italic"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at 3725482 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-font/src/parser.rs"
+file   = ""
+sha256 = "fd0b2d2cdbe1128a21dc2b3f0cea50a548fc79e7ac4d9d4d74dc1a9e8d3d0038"
+bytes  = 34488
+status = "external"
+group  = "J"

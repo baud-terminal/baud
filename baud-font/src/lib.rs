@@ -60,6 +60,7 @@ mod cff2;
 mod cmap;
 mod colr;
 mod compose;
+mod describe;
 mod face;
 mod glyf;
 mod gpos;
@@ -87,6 +88,7 @@ pub use bitmap::{
 pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
+pub use describe::{Angle, Described, Slope, Weight, Width};
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,

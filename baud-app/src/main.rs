@@ -52,6 +52,10 @@ mod caret;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod clip;
 mod config;
+// Fonts by family name: the installed faces, read once at launch, and the
+// face a family and a style pick among them, for both drivers.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod discover;
 // The font compiled into the binary: the default stack's first face.
 mod embedded;
 // A pointer event to the child or the selection, the cell under it, its
@@ -186,6 +190,12 @@ mod wheel;
 fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     host::startup_begin();
+    // The installed fonts are read on a thread of their own from the
+    // first instant, so the config's family names find them read: the
+    // scan overlaps the window's and the GPU's setup instead of following
+    // it, and the config waits only for what is left of it.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    std::thread::spawn(discover::Catalogue::system);
     log::init();
     #[cfg(target_os = "macos")]
     app::run();

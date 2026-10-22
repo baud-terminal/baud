@@ -81,20 +81,19 @@ impl<'a> Family<'a> {
         Some(&out[..n])
     }
 
-    /// Whether `name`, UTF-8, is this family, ASCII letters compared
-    /// without their case, as a family typed by hand is compared.
+    /// Whether `name`, UTF-8, is this family, by default caseless match:
+    /// `[[source: css-fonts-3]]` 5.1, "case insensitively, using the
+    /// \"Default Caseless Matching\" algorithm ... without normalizing the
+    /// strings involved" ([`baud_domain::caseless_eq`]). A name that does
+    /// not decode, on either side, matches nothing.
     pub fn matches(&self, name: &[u8]) -> bool {
         let Ok(name) = core::str::from_utf8(name) else {
             return false;
         };
-        let mut want = name.chars();
-        for c in self.chars() {
-            match (c, want.next()) {
-                (Some(c), Some(w)) if c.eq_ignore_ascii_case(&w) => {}
-                _ => return false,
-            }
+        if self.chars().any(|c| c.is_none()) {
+            return false;
         }
-        want.next().is_none()
+        baud_domain::caseless_eq(self.chars().flatten(), name.chars())
     }
 }
 
@@ -104,17 +103,42 @@ impl<'a> Face<'a> {
     /// `None` with no `name` table, or none of the two in an encoding read
     /// here.
     pub fn family(&self) -> Option<Family<'a>> {
-        let t = self.table(Tag::NAME)?;
-        let count = Count::of(t.read::<u16>(Offset::of(2u32))?);
-        let storage = Offset::of(t.read::<u16>(Offset::of(4u32))?);
-        let mut best: Option<(Rank, Family<'a>)> = None;
-        let mut i = Index::ZERO;
+        family_in(self.table(Tag::NAME)?)
+    }
+
+    /// **Whether `name` is one of the face's family names**: any nameID 16
+    /// or 1 record, in any language and on any platform read here, by
+    /// [`Family::matches`]. `[[source: css-fonts-3]]` 5.1: "On systems
+    /// containing fonts with multiple localized font family names, user
+    /// agents must match any of these names independent of the underlying
+    /// system locale or platform API used."
+    pub fn answers_to(&self, name: &[u8]) -> bool {
+        self.table(Tag::NAME)
+            .is_some_and(|t| families_in(t).any(|f| f.matches(name)))
+    }
+}
+
+/// One family record of a `name` table: its rank in the module's order,
+/// and the name.
+fn records(t: Bytes<'_>) -> impl Iterator<Item = (Rank, Family<'_>)> {
+    let count = t
+        .read::<u16>(Offset::of(2u32))
+        .map_or(Count::ZERO, Count::of);
+    let storage = t.read::<u16>(Offset::of(4u32)).map(Offset::of);
+    let mut i = Index::ZERO;
+    core::iter::from_fn(move || {
         while count.holds(i) {
             let at = Offset::of(6u32).at(i, Len::of(12))?;
-            let field = |k: u32| t.read::<u16>(at.plus(Len::of(k))?);
-            let (platform, encoding, language, id) = (field(0)?, field(2)?, field(4)?, field(6)?);
-            let (length, offset) = (field(8)?, field(10)?);
             i = i.next();
+            let field = |k: u32| t.read::<u16>(at.plus(Len::of(k))?);
+            let (Some(platform), Some(encoding), Some(language), Some(id)) =
+                (field(0), field(2), field(4), field(6))
+            else {
+                return None;
+            };
+            let (Some(length), Some(offset)) = (field(8), field(10)) else {
+                return None;
+            };
             let id_rank = match id {
                 16 => 0,
                 1 => 1,
@@ -127,23 +151,39 @@ impl<'a> Face<'a> {
                 (1, 0, _) => (3, Encoding::Ascii),
                 _ => continue,
             };
-            let start = storage.plus(Len::of(u32::from(offset)))?;
-            let Some(bytes) = t.slice(start, Len::of(u32::from(length))) else {
+            let Some(bytes) = storage
+                .and_then(|s| s.plus(Len::of(u32::from(offset))))
+                .and_then(|start| t.slice(start, Len::of(u32::from(length))))
+            else {
                 continue;
             };
-            let rank = Rank(id_rank * 4 + place);
-            if best.as_ref().is_none_or(|(r, _)| rank < *r) {
-                best = Some((
-                    rank,
-                    Family {
-                        bytes,
-                        encoding: how,
-                    },
-                ));
-            }
+            return Some((
+                Rank(id_rank * 4 + place),
+                Family {
+                    bytes,
+                    encoding: how,
+                },
+            ));
         }
-        best.map(|(_, f)| f)
+        None
+    })
+}
+
+/// The family the module's order prefers, of `name` table `t`.
+pub(crate) fn family_in(t: Bytes<'_>) -> Option<Family<'_>> {
+    let mut best: Option<(Rank, Family<'_>)> = None;
+    for (rank, f) in records(t) {
+        if best.as_ref().is_none_or(|(r, _)| rank < *r) {
+            best = Some((rank, f));
+        }
     }
+    best.map(|(_, f)| f)
+}
+
+/// Every family record of `name` table `t`, nameIDs 16 and 1, in the
+/// table's order.
+pub(crate) fn families_in(t: Bytes<'_>) -> impl Iterator<Item = Family<'_>> {
+    records(t).map(|(_, f)| f)
 }
 
 /// A record's place in the module's order, lower first.

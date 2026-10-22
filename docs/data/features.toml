@@ -509,11 +509,11 @@ tests = ["baud-render/tests/missing_mark.rs::a_missing_mark_takes_no_other_mark_
 [[feature]]
 id = "own-fonts"
 area = "text"
-name = "Your own fonts"
-does = "List your own fonts in order, each filling in what the ones before it lack, including one face of a font collection; baud's built-in fonts stay behind yours unless you turn that off."
+name = "Your own fonts, by name"
+does = "Name your own fonts by family, such as \"Fira Code\", and baud finds them among the fonts installed on your machine; list them in order, each filling in what the ones before it lack. A font file's path works too. baud's built-in fonts stay behind yours unless you turn that off."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/config.rs::a_configured_stack_keeps_the_embedded_font_behind_it", "baud-app/src/config.rs::font_fallback_reads_true_and_false_and_says_anything_else"]
+tests = ["baud-app/src/config.rs::a_name_resolves_to_its_face_and_a_miss_is_said", "baud-app/src/discover.rs::a_family_name_picks_its_regular_face", "baud-app/src/config.rs::a_configured_stack_keeps_the_embedded_font_behind_it", "baud-app/src/config.rs::font_fallback_reads_true_and_false_and_says_anything_else"]
 
 [[feature]]
 id = "own-fonts-styles"

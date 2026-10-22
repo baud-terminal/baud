@@ -140,6 +140,18 @@ impl baud_font::Sink for Null {
 fn exercise(data: &[u8]) {
     let n = faces(data).map(|n| n.value()).unwrap_or(1).min(8);
     for i in 0..n {
+        // Discovery's reader runs on every installed face before any is
+        // parsed, so it meets a malformed one first.
+        if let Some(d) = baud_font::Described::of(data, FaceIndex::of(i)) {
+            let _ = (d.weight(), d.width(), d.slope(), d.family());
+            let _ = d.answers_to(b"JetBrains Mono");
+            for f in d.families() {
+                let _ = f.utf8(&mut [0u8; 64]);
+            }
+            for tag in [*b"wght", *b"wdth", *b"ital", *b"slnt"] {
+                let _ = d.axis(baud_font::Tag::from_bytes(tag));
+            }
+        }
         let Ok(face) = Face::parse_index(data, FaceIndex::of(i)) else {
             continue;
         };

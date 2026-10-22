@@ -319,9 +319,7 @@ pub fn run() {
         None => crate::info!("config: none found; the built-in stack"),
     }
     if cfg.faces.is_empty() {
-        crate::warn!(
-            "no font: none of the usual DejaVu Sans Mono paths exists; name one in a config"
-        );
+        crate::warn!("no font: the stack is empty; name one in a config");
         std::process::exit(1);
     }
     for f in &cfg.faces {

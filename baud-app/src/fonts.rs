@@ -4,17 +4,20 @@
 //! platform, and both drivers perform through it.
 //!
 //! **A name resolves to a face baud has loaded** (Jev's lean, OWN_FACES,
-//! 0.79/0.85 after a re-ask): the family (`name` table, nameID 16 else 1,
-//! `[[source: ms-opentype-name]]`) of a face in the fallback chain -- the
-//! embedded Regular, Symbols Nerd Font Mono and STIX Two Math, and the
-//! faces a config names -- compared without ASCII case. The embedded
+//! 0.79/0.85 after a re-ask): a family name (`name` table, nameID 16 or 1,
+//! any language, `[[source: ms-opentype-name]]`) of a face in the fallback
+//! chain -- the embedded Regular, Symbols Nerd Font Mono and STIX Two Math,
+//! and the faces a config names -- by the default caseless match CSS Fonts
+//! gives a family name (`[[source: css-fonts-3]]` 5.1), as the config's
+//! own names are matched (`discover.rs`). The embedded
 //! Regular's table names it "Proto Hebrew Mono C", the built font's name
 //! while its family name is open (`fonts/built/FONTLOG.txt`), and a query
 //! answers that. That face leads
 //! the chain, the rest follow in the config's order, and the styled faces
 //! of its family come with it; the embedded faces stay behind it as they
 //! stay behind a configured stack. A family baud has not loaded leaves the
-//! font as it was: fonts by family name from the system are not built.
+//! font as it was: a program's name is not looked up among the installed
+//! fonts, only a config's is.
 //!
 //! **A size step is a point of the View menu's Bigger and Smaller**,
 //! bounded as they are (Jev's lean, SIZE_STEPS, 0.22/0.18): `#+n` and `#-n`
@@ -24,6 +27,7 @@
 
 use crate::config::Config;
 use baud_core::{FontChange, FontSize, SizeStep};
+use baud_font::var::Variation;
 use baud_font::{Face, FaceIndex};
 use baud_render::FaceRole;
 
@@ -47,7 +51,13 @@ impl Slot {
 /// The faces a program can name, and the stacks built for them.
 pub struct Fonts {
     data: Vec<&'static [u8]>,
-    specs: Vec<(FaceIndex, FaceRole)>,
+    /// The config's faces as the app starts with them, each answering to
+    /// its own family names.
+    named: &'static [Face<'static>],
+    /// Each face's index in its file, its role, and the axis values a
+    /// variable one is drawn at, so a stack made again draws it as the
+    /// config's did.
+    specs: Vec<(FaceIndex, FaceRole, Vec<Variation>)>,
     families: Vec<Option<String>>,
     built: Vec<Option<Built>>,
     current: Slot,
@@ -94,7 +104,7 @@ impl Fonts {
         let specs: Vec<_> = cfg
             .faces
             .iter()
-            .map(|f| (FaceIndex::of(f.index), f.role))
+            .map(|f| (f.index, f.role, f.variations.clone()))
             .collect();
         let mut built = vec![None; specs.len()];
         if let Some(first) = built.first_mut() {
@@ -105,6 +115,7 @@ impl Fonts {
         }
         Fonts {
             data,
+            named: faces,
             specs,
             families,
             built,
@@ -124,16 +135,10 @@ impl Fonts {
     /// The face of the chain that is `name`'s family, the first in the
     /// config's order.
     pub fn resolve(&self, name: &[u8]) -> Option<Slot> {
-        let name = core::str::from_utf8(name).ok()?;
         self.specs
             .iter()
-            .zip(&self.families)
-            .position(|((_, role), family)| {
-                *role == FaceRole::Fallback
-                    && family
-                        .as_deref()
-                        .is_some_and(|f| f.eq_ignore_ascii_case(name))
-            })
+            .zip(self.named)
+            .position(|((_, role, _), face)| *role == FaceRole::Fallback && face.answers_to(name))
             .map(Slot)
     }
 
@@ -175,7 +180,7 @@ impl Fonts {
         }
         let family = self.families.get(slot.0)?.clone();
         let mut order = vec![slot.0];
-        for (i, (_, role)) in self.specs.iter().enumerate() {
+        for (i, (_, role, _)) in self.specs.iter().enumerate() {
             let same = family.is_some() && self.families[i] == family;
             match role {
                 FaceRole::Fallback if i != slot.0 => order.push(i),
@@ -185,7 +190,11 @@ impl Fonts {
         }
         let faces = order
             .iter()
-            .map(|&i| Face::parse_index(self.data[i], self.specs[i].0).ok())
+            .map(|&i| {
+                let mut face = Face::parse_index(self.data[i], self.specs[i].0).ok()?;
+                face.set_variations(&self.specs[i].2);
+                Some(face)
+            })
             .collect::<Option<Vec<_>>>()?;
         let built = Built {
             faces: Box::leak(faces.into_boxed_slice()),
@@ -254,6 +263,7 @@ mod tests {
         let mut cfg = Config::defaults();
         let said = cfg.apply(text);
         assert!(said.is_empty(), "{said:?}");
+        crate::host::resolved(&mut cfg);
         let data = crate::host::map_faces(&cfg);
         let faces = crate::host::parse_faces(&cfg, &data);
         Fonts::new(&cfg, data, faces)
@@ -334,6 +344,68 @@ mod tests {
         );
         f.set(stix);
         assert_eq!(f.family(), "STIX Two Math");
+    }
+
+    /// **A program names a loaded family by any of its family records,
+    /// by default caseless match** (`[[source: css-fonts-3]]` 5.1), on the
+    /// default stack's system faces (macOS only): Hiragino Sans GB by its
+    /// Simplified Chinese record, Apple SD Gothic Neo by its Korean one in
+    /// another case.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_program_names_a_family_by_any_of_its_names() {
+        let f = fonts("");
+        let hiragino = f.resolve(b"Hiragino Sans GB").expect("loaded");
+        assert_eq!(f.resolve("冬青黑体简体中文".as_bytes()), Some(hiragino));
+        let gothic = f.resolve(b"Apple SD Gothic Neo").expect("loaded");
+        assert_eq!(f.resolve("APPLE SD 산돌고딕 NEO".as_bytes()), Some(gothic));
+    }
+
+    /// **A stack made again draws a variable face at the axis values the
+    /// config's did**: Fira Code named alone, from a directory holding only
+    /// its variable face, is drawn at wght 400 (its default is 300), and so
+    /// it still is in the stack STIX Two Math leads after an `OSC 50`.
+    #[test]
+    fn a_restack_keeps_a_variable_faces_values() {
+        let dir = std::env::temp_dir().join(format!("baud-b141-vf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../baud-font/tests/fonts/FiraCode-VF.ttf"
+            ),
+            dir.join("FiraCode-VF.ttf"),
+        )
+        .unwrap();
+        let mut cfg = Config::defaults();
+        assert!(cfg.apply("fonts = [\"Fira Code\"]\n").is_empty());
+        let cat = crate::discover::Catalogue::scan(std::slice::from_ref(&dir));
+        assert!(cfg.resolve(&cat).is_empty());
+        assert!(
+            !cfg.faces[0].variations.is_empty(),
+            "drawn at 400, not its default"
+        );
+        let data = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data);
+        let first = *faces[0].coords();
+        assert_ne!(first, baud_font::var::Coords::default());
+        let mut f = Fonts::new(&cfg, data, faces);
+        let stix = f.resolve(b"STIX Two Math").expect("the math face");
+        let b = f.stack(stix).expect("its stack");
+        let mut out = [0u8; 64];
+        let at = b
+            .faces
+            .iter()
+            .position(|x| {
+                x.family()
+                    .and_then(|n| n.utf8(&mut out).map(<[u8]>::to_vec))
+                    .as_deref()
+                    == Some(&b"Fira Code"[..])
+            })
+            .expect("Fira Code in the chain");
+        assert_eq!(*b.faces[at].coords(), first);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// **A change is planned whole**: a family baud has not and a step past

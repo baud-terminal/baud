@@ -34,28 +34,51 @@
 //! built for a configured stack yet (note AC decision 9); and the owner's
 //! call of 2026-10-03, as every terminal that bundles faces keeps them behind
 //! a configured font), unless `font_fallback = false`. A configured stack has
-//! no styled faces yet: naming them waits on fonts by family name.
+//! no styled faces yet.
+//!
+//! **A font is named by its family**, as ghostty's `font-family`, kitty's
+//! `font_family`, alacritty's `font.normal.family` and WezTerm's
+//! `wezterm.font` take one, and the default stack's system faces are names
+//! too: [`Config::resolve`] finds each among the installed faces once at
+//! launch (`discover.rs`), and a file path stays accepted, as theirs do.
 
 use baud_domain::{CursorBlink, CursorShape};
 
 /// A face is a file and, for a collection (`.ttc`), which face in it: the
 /// path may carry `@N`, so `Menlo.ttc@0`. Or it is the font compiled into
-/// the binary, whose `path` is only a name for the log.
+/// the binary, whose `path` is only a name for the log. Or, until the
+/// config is resolved at launch, a family name, which `path` holds.
+#[derive(Clone)]
 pub struct FaceSpec {
     pub path: String,
-    pub index: u32,
+    pub index: baud_font::FaceIndex,
     pub from: FaceFrom,
     /// Part of the fallback chain, or the face one style is drawn from.
     pub role: baud_render::FaceRole,
+    /// The axis values a variable face is drawn at; none for a static one.
+    pub variations: Vec<baud_font::var::Variation>,
 }
 
 /// Where a face's bytes come from.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FaceFrom {
     /// A file on disk, mapped read-only at launch.
     File,
     /// Bytes compiled into the binary.
     Embedded(&'static [u8]),
+    /// A family name, which [`Config::resolve`] turns into the file of the
+    /// installed face it picks, or drops.
+    Family,
+}
+
+/// Whether the stack is the built-in one or one a config's `fonts` named:
+/// a name a config gave that matches nothing is said, one of the defaults
+/// that is not installed is left out quietly, as a default path that did
+/// not exist was.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StackFrom {
+    Default,
+    Configured,
 }
 
 /// A `[screen]` print choice's value: `"on"` is true, `"off"` false, and
@@ -106,6 +129,8 @@ pub struct Config {
     pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
+    /// Whether `faces` is the built-in stack or a config's.
+    pub stack: StackFrom,
     /// Whether the embedded Regular, the icon face and STIX Two Math follow
     /// a `fonts` stack the config names, already folded into `faces` by the
     /// time the config is read.
@@ -693,6 +718,7 @@ impl Config {
     pub fn defaults() -> Config {
         Config {
             faces: default_faces(),
+            stack: StackFrom::Default,
             font_fallback: FontFallback::Embedded,
             font_size: 13.0,
             padding: 8.0,
@@ -731,8 +757,27 @@ impl Config {
     }
 
     /// The config from the first file that exists, over the defaults; the
-    /// defaults themselves when none is found.
+    /// defaults themselves when none is found; its family names resolved
+    /// to the installed faces ([`Config::resolve`]).
     pub fn load() -> Config {
+        #[cfg_attr(
+            not(any(target_os = "macos", target_os = "linux")),
+            expect(unused_mut, reason = "no font directories to resolve against")
+        )]
+        let mut c = Config::read();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            for said in c.resolve(crate::discover::Catalogue::system()) {
+                crate::warn!("{said}");
+            }
+            crate::host::startup_mark("fonts named");
+        }
+        c
+    }
+
+    /// The config from the first file that exists, over the defaults, as
+    /// written: a family name not yet resolved.
+    fn read() -> Config {
         let mut c = Config::defaults();
         if let Some((path, text)) = read_first() {
             for said in c.apply(&text) {
@@ -746,6 +791,57 @@ impl Config {
         c
     }
 
+    /// **The stack's family names, made files**: each name the installed
+    /// face `cat` picks for its regular style (`[[source: css-fonts-3]]`
+    /// 5.2, [`crate::discover::pick`]), and a file that does not exist
+    /// left out. Once at launch, off every per-byte and per-frame path.
+    /// Returns what it could not act on: a name a config gave that is no
+    /// installed family, and a path that is no file, each left out of the
+    /// stack; and, when nothing a config named is left, the built-in stack
+    /// in its place. The defaults' own misses are left out without a word,
+    /// as a default path that did not exist always was.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub fn resolve(&mut self, cat: &crate::discover::Catalogue) -> Vec<String> {
+        use crate::discover::{Want, pick};
+        let mut said = Vec::new();
+        let configured = self.stack == StackFrom::Configured;
+        let mut kept = Vec::new();
+        for f in std::mem::take(&mut self.faces) {
+            match f.from {
+                FaceFrom::Embedded(_) => kept.push(f),
+                FaceFrom::File => {
+                    if std::fs::metadata(&f.path).is_ok_and(|m| m.is_file()) {
+                        kept.push(f);
+                    } else if configured {
+                        said.push(format!(
+                            "config: font {:?} is not a file; the stack goes on without it",
+                            f.path
+                        ));
+                    }
+                }
+                FaceFrom::Family => match pick(&cat.family(&f.path), Want::REGULAR) {
+                    Some(p) => kept.push(FaceSpec::picked(&p, f.role)),
+                    None if configured => said.push(format!(
+                        "config: no installed font is the family {:?}; the stack goes on without it",
+                        f.path
+                    )),
+                    None => {}
+                },
+            }
+        }
+        if configured && !kept.iter().any(|f| f.from == FaceFrom::File) {
+            said.push(
+                "config: no font fonts names was found; the built-in stack is used instead".into(),
+            );
+            self.faces = default_faces();
+            self.stack = StackFrom::Default;
+            said.extend(self.resolve(cat));
+            return said;
+        }
+        self.faces = kept;
+        said
+    }
+
     /// **A relative font path names a file beside the config**, in `dir`,
     /// the directory the config file is in -- the owner's call of
     /// 2026-10-13 -- and not under the directory baud was started in, which
@@ -755,7 +851,7 @@ impl Config {
     /// unreadable as UTF-8 is kept as written.
     fn faces_beside(&mut self, dir: &std::path::Path) {
         for f in &mut self.faces {
-            if matches!(f.from, FaceFrom::File) && std::path::Path::new(&f.path).is_relative() {
+            if f.from == FaceFrom::File && std::path::Path::new(&f.path).is_relative() {
                 if let Some(joined) = dir.join(&f.path).to_str() {
                     f.path = joined.to_string();
                 }
@@ -1360,6 +1456,7 @@ impl Config {
                 faces.push(FaceSpec::embedded(crate::embedded::STIX));
             }
             self.faces = faces;
+            self.stack = StackFrom::Configured;
         }
         said
     }
@@ -1476,23 +1573,25 @@ fn fallback(name: &str) -> f32 {
 }
 
 impl FaceSpec {
+    /// A `fonts` value: a file, when [`names_a_file`] says so, with any
+    /// `@N`; else a family name, trimmed.
     fn parse(s: &str) -> FaceSpec {
+        let fallback = |path: &str, index, from| FaceSpec {
+            path: path.to_string(),
+            index,
+            from,
+            role: baud_render::FaceRole::Fallback,
+            variations: Vec::new(),
+        };
+        if !names_a_file(s) {
+            return fallback(s.trim(), baud_font::FaceIndex::FIRST, FaceFrom::Family);
+        }
         match s
             .rsplit_once('@')
-            .and_then(|(p, i)| Some((p, i.parse().ok()?)))
+            .and_then(|(p, i)| Some((p, baud_font::FaceIndex::of(i.parse().ok()?))))
         {
-            Some((path, index)) => FaceSpec {
-                path: path.to_string(),
-                index,
-                from: FaceFrom::File,
-                role: baud_render::FaceRole::Fallback,
-            },
-            None => FaceSpec {
-                path: s.to_string(),
-                index: 0,
-                from: FaceFrom::File,
-                role: baud_render::FaceRole::Fallback,
-            },
+            Some((path, index)) => fallback(path, index, FaceFrom::File),
+            None => fallback(s, baud_font::FaceIndex::FIRST, FaceFrom::File),
         }
     }
 
@@ -1500,9 +1599,22 @@ impl FaceSpec {
     fn embedded(e: crate::embedded::Embedded) -> FaceSpec {
         FaceSpec {
             path: e.name.to_string(),
-            index: 0,
+            index: baud_font::FaceIndex::FIRST,
             from: FaceFrom::Embedded(e.bytes),
             role: baud_render::FaceRole::Fallback,
+            variations: Vec::new(),
+        }
+    }
+
+    /// The installed face discovery picked, with `role`.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn picked(p: &crate::discover::Picked, role: baud_render::FaceRole) -> FaceSpec {
+        FaceSpec {
+            path: p.path.clone(),
+            index: p.index,
+            from: FaceFrom::File,
+            role,
+            variations: p.variations.clone(),
         }
     }
 
@@ -1651,15 +1763,18 @@ fn strings(value: &str) -> Vec<String> {
 /// drawing Menlo lacks, and the two faces that carry the CJK scripts --
 /// Hiragino Sans GB for Han and kana, Apple SD Gothic Neo for Hangul --
 /// which the first three do not: without them a CJK character is a box --
-/// and Kohinoor for Devanagari, which the corpus carries too.
+/// and Kohinoor Devanagari, which the corpus carries too. By family name:
+/// CSS's search picks each one's regular face, which is the face the paths
+/// named before (Menlo.ttc@0 and so on; Hiragino Sans GB's W3, at 300, as
+/// 400 searches down before it searches up to the W6).
 #[cfg(target_os = "macos")]
 const DEFAULT_FACES: [&str; 6] = [
-    "/System/Library/Fonts/Menlo.ttc@0",
-    "/System/Library/Fonts/Apple Color Emoji.ttc@0",
-    "/System/Library/Fonts/Apple Symbols.ttf",
-    "/System/Library/Fonts/Hiragino Sans GB.ttc@0",
-    "/System/Library/Fonts/AppleSDGothicNeo.ttc@0",
-    "/System/Library/Fonts/Kohinoor.ttc@0",
+    "Menlo",
+    "Apple Color Emoji",
+    "Apple Symbols",
+    "Hiragino Sans GB",
+    "Apple SD Gothic Neo",
+    "Kohinoor Devanagari",
 ];
 
 /// The embedded Regular first -- JetBrains Mono with baud's Hebrew -- the
@@ -1698,41 +1813,42 @@ fn styled_faces() -> [FaceSpec; 3] {
     ]
 }
 
-/// The embedded Regular and icon face first; then, since Linux has no one system
-/// mono, the first of the usual DejaVu Sans Mono locations that exists, for
-/// what JetBrains Mono does not map, Noto Color Emoji where it is, and the
-/// embedded STIX Two Math last, as on macOS. A config names anything else.
-#[cfg(target_os = "linux")]
+/// The embedded Regular and icon face first; then, since Linux has no one
+/// system mono, DejaVu Sans Mono where it is installed, for what JetBrains
+/// Mono does not map, Noto Color Emoji where it is, and the embedded STIX
+/// Two Math last, as on macOS. A config names anything else.
+#[cfg(not(target_os = "macos"))]
 fn default_faces() -> Vec<FaceSpec> {
-    const MONO: &[&str] = &[
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-        "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-        "/run/current-system/sw/share/X11/fonts/DejaVuSansMono.ttf",
-    ];
-    const EMOJI: &[&str] = &[
-        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/google-noto-color-emoji-fonts/NotoColorEmoji.ttf",
-        "/run/current-system/sw/share/X11/fonts/NotoColorEmoji.ttf",
-    ];
-    let first = |paths: &[&str]| {
-        paths
-            .iter()
-            .find(|p| std::path::Path::new(p).exists())
-            .map(|s| FaceSpec::parse(s))
-    };
     [
         FaceSpec::embedded(crate::embedded::REGULAR),
         FaceSpec::embedded(crate::embedded::SYMBOLS),
     ]
     .into_iter()
-    .chain(first(MONO))
-    .chain(first(EMOJI))
+    .chain(["DejaVu Sans Mono", "Noto Color Emoji"].map(FaceSpec::parse))
     .chain([FaceSpec::embedded(crate::embedded::STIX)])
     .chain(styled_faces())
     .collect()
+}
+
+/// **Whether a `fonts` value names a file rather than a family**: it holds
+/// a path separator, or ends in a font file's extension (`.ttf`, `.otf`,
+/// `.ttc`, `.otc`, any case) before any `@N`. Anything else is a family
+/// name, as every other terminal's font setting takes one; a path stays
+/// accepted, as theirs do, for a font that is not installed.
+pub fn names_a_file(entry: &str) -> bool {
+    let path = match entry.rsplit_once('@') {
+        Some((p, i)) if i.parse::<u32>().is_ok() => p,
+        _ => entry,
+    };
+    let font = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            ["ttf", "otf", "ttc", "otc"]
+                .iter()
+                .any(|x| e.eq_ignore_ascii_case(x))
+        });
+    path.contains('/') || font
 }
 
 /// The default stack has to carry what the corpus draws, on the machine
@@ -1744,14 +1860,16 @@ fn default_faces() -> Vec<FaceSpec> {
 mod tests {
     use super::*;
     use baud_domain::Codepoint;
-    use baud_font::{Face, FaceIndex};
+    use baud_font::Face;
 
     /// Box drawing, block elements and braille are not in the list: baud
     /// draws those itself (`baud_render::boxes`), so no face has to carry
     /// them and the stack is not held to a range it never renders.
     #[test]
     fn the_default_stack_carries_han_kana_hangul_devanagari_and_emoji() {
-        let specs = default_faces();
+        let mut c = Config::defaults();
+        assert!(c.resolve(crate::discover::Catalogue::system()).is_empty());
+        let specs = c.faces;
         let files: Vec<Vec<u8>> = specs
             .iter()
             .map(|f| match f.from {
@@ -1759,12 +1877,13 @@ mod tests {
                 FaceFrom::File => {
                     std::fs::read(&f.path).unwrap_or_else(|e| panic!("{}: {e}", f.path))
                 }
+                FaceFrom::Family => panic!("{}: not resolved", f.path),
             })
             .collect();
         let faces: Vec<Face<'_>> = files
             .iter()
             .zip(&specs)
-            .map(|(d, f)| Face::parse_index(d, FaceIndex::of(f.index)).expect("a face"))
+            .map(|(d, f)| Face::parse_index(d, f.index).expect("a face"))
             .collect();
         for (name, cp) in [
             ("Han", 0x4E2D),
@@ -1781,6 +1900,131 @@ mod tests {
                 "{name} U+{cp:04X} is in no face of the default stack"
             );
         }
+    }
+}
+
+/// **Fonts by family name**: what a `fonts` value names, and what resolving
+/// the stack against the installed faces makes of it.
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod named {
+    use super::*;
+    use crate::discover::Catalogue;
+
+    const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+
+    fn read(text: &str) -> Config {
+        let mut c = Config::defaults();
+        let said = c.apply(text);
+        assert!(said.is_empty(), "{said:?}");
+        c
+    }
+
+    /// The faces of the four static JetBrains Mono files baud carries, as a
+    /// font directory holds them.
+    fn jetbrains() -> Catalogue {
+        Catalogue::scan(&[format!("{ROOT}/baud-app/fonts/jetbrains-mono").into()])
+    }
+
+    /// **A value is a file when it has a path separator or a font file's
+    /// extension, and a family name otherwise**, as the other terminals'
+    /// font settings take one.
+    #[test]
+    fn a_fonts_value_is_a_file_or_a_family() {
+        for file in [
+            "/System/Library/Fonts/Menlo.ttc@0",
+            "fonts/Mine.ttf",
+            "Mine.TTF",
+            "x.otf",
+            "y.ttc@2",
+            "z.OTC",
+        ] {
+            assert!(names_a_file(file), "{file}");
+        }
+        for family in [
+            "Menlo",
+            "JetBrains Mono",
+            "Fira Code@1",
+            "Font Awesome 6 Free",
+            "a.b",
+        ] {
+            assert!(!names_a_file(family), "{family}");
+        }
+        let c = read("fonts = [\"JetBrains Mono\", \"/a.ttf\"]\n");
+        assert_eq!(
+            (c.faces[0].from, c.faces[0].path.as_str()),
+            (FaceFrom::Family, "JetBrains Mono")
+        );
+        assert_eq!(c.faces[1].from, FaceFrom::File);
+        assert_eq!(c.stack, StackFrom::Configured);
+        assert_eq!(Config::defaults().stack, StackFrom::Default);
+    }
+
+    /// **A family name is not a path beside the config**: the relative
+    /// path rule (the owner's call of 2026-10-13) joins a file to the
+    /// config's directory, and joining a name there would make `Menlo` a
+    /// file that does not exist.
+    #[test]
+    fn a_family_name_is_not_read_beside_the_config() {
+        let mut c = read("fonts = [\"Menlo\", \"fonts/Mine.ttf\"]\n");
+        c.faces_beside(std::path::Path::new("/cfg"));
+        assert_eq!(c.faces[0].path, "Menlo");
+        assert_eq!(c.faces[1].path, "/cfg/fonts/Mine.ttf");
+    }
+
+    /// **Resolving makes each name the face it picks, says what it could
+    /// not find, and keeps the embedded faces behind**: a configured name
+    /// that is no installed family and a path that is no file are left out
+    /// and said, the stack goes on with the rest.
+    #[test]
+    fn a_name_resolves_to_its_face_and_a_miss_is_said() {
+        let jb = format!("{ROOT}/baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf");
+        let mut c =
+            read("fonts = [\"No Such Family\", \"jetbrains mono\", \"/no/such/file.ttf\"]\n");
+        let said = c.resolve(&jetbrains());
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!(said[0].contains("\"No Such Family\""), "{said:?}");
+        assert!(said[1].contains("/no/such/file.ttf"), "{said:?}");
+        assert_eq!(
+            (c.faces[0].path.as_str(), c.faces[0].from),
+            (jb.as_str(), FaceFrom::File)
+        );
+        assert_eq!(c.faces[0].role, baud_render::FaceRole::Fallback);
+        assert!(
+            c.faces[1..]
+                .iter()
+                .all(|f| matches!(f.from, FaceFrom::Embedded(_)))
+        );
+        assert_eq!(
+            c.faces.len(),
+            4,
+            "the face and the three embedded fallbacks"
+        );
+        assert_eq!(c.stack, StackFrom::Configured);
+    }
+
+    /// **When nothing a config named is found, the built-in stack is
+    /// used, and said**; the built-in stack's own names that are not
+    /// installed -- every system name, against a catalogue of JetBrains
+    /// Mono alone -- are left out without a word.
+    #[test]
+    fn nothing_found_is_the_built_in_stack() {
+        let mut c = read("fonts = [\"No Such Family\"]\n");
+        let said = c.resolve(&jetbrains());
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!(said[1].contains("built-in stack"), "{said:?}");
+        assert_eq!(c.stack, StackFrom::Default);
+        assert!(
+            c.faces
+                .iter()
+                .all(|f| matches!(f.from, FaceFrom::Embedded(_))),
+            "only the embedded faces are left"
+        );
+        let mut d = Config::defaults();
+        assert!(
+            d.resolve(&jetbrains()).is_empty(),
+            "the defaults' misses are quiet"
+        );
+        assert!(d.faces.iter().all(|f| f.from != FaceFrom::Family));
     }
 }
 
@@ -2778,7 +3022,7 @@ shadow     = "never"
         assert!(is(&d.faces[1], SYMBOLS), "{}", d.faces[1].path);
         #[cfg(target_os = "macos")]
         assert!(
-            d.faces[2].path.ends_with("Menlo.ttc"),
+            d.faces[2].from == FaceFrom::Family && d.faces[2].path == "Menlo",
             "{}",
             d.faces[2].path
         );
@@ -3303,14 +3547,14 @@ shadow     = "never"
         // `fonts` is under `[glass]` here, so it is NOT the font stack --
         // which is the namespace working, not a defect.
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
-        let c = read("fonts = [\n  \"a\",\n  \"b@2\",\n]\n[glass]\ndim_dark = 0.3\n");
+        let c = read("fonts = [\n  \"/a.ttf\",\n  \"/b.ttc@2\",\n]\n[glass]\ndim_dark = 0.3\n");
         assert_eq!(
             c.faces.len(),
             5,
             "the two named and the three embedded fallbacks"
         );
-        assert_eq!(c.faces[1].path, "b");
-        assert_eq!(c.faces[1].index, 2);
+        assert_eq!(c.faces[1].path, "/b.ttc");
+        assert_eq!(c.faces[1].index, baud_font::FaceIndex::of(2));
         assert!(is_symbols(&c.faces[3]));
         assert_eq!(c.glass.dim_dark, 0.3);
     }
@@ -3353,7 +3597,8 @@ mod lookup {
     const LOAD_HELPER: &str = "BAUD_TEST_LOAD_HELPER";
 
     /// **Run only by the tests below**, as a process of its own; a no-op
-    /// otherwise. It loads the config as the app does and prints the file
+    /// otherwise. It reads the config as the app does, before its family
+    /// names are resolved against the installed fonts, and prints the file
     /// it read, every face read from a file, and where a theme named
     /// `night` would be looked for.
     #[test]
@@ -3361,14 +3606,14 @@ mod lookup {
         if std::env::var_os(LOAD_HELPER).is_none() {
             return;
         }
-        let c = super::Config::load();
+        let c = super::Config::read();
         match &c.source {
             Some(p) => println!("SOURCE[{}]", p.display()),
             None => println!("SOURCE[none]"),
         }
         for f in &c.faces {
             if matches!(f.from, super::FaceFrom::File) {
-                println!("FACE[{}@{}]", f.path, f.index);
+                println!("FACE[{}@{:?}]", f.path, f.index);
             }
         }
         let dirs = crate::palette::Dirs::from_env(c.source.as_deref());
@@ -3533,9 +3778,9 @@ mod lookup {
         assert_eq!(
             faces,
             [
-                &format!("FACE[{}@1]", dir.join("f.ttf").display()),
-                &format!("FACE[{}@0]", dir.join("deep/g.otf").display()),
-                &"FACE[/abs/h.ttf@0]".to_string(),
+                &format!("FACE[{}@FaceIndex(1)]", dir.join("f.ttf").display()),
+                &format!("FACE[{}@FaceIndex(0)]", dir.join("deep/g.otf").display()),
+                &"FACE[/abs/h.ttf@FaceIndex(0)]".to_string(),
             ],
             "{got:?}"
         );

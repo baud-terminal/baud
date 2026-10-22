@@ -6,7 +6,7 @@
 use crate::config::Config;
 use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, ImageRefusals, WinSize};
 use baud_font::bytes::Index;
-use baud_font::{Face, FaceIndex, Px, StrikeRefusal, StrikeState};
+use baud_font::{Face, Px, StrikeRefusal, StrikeState};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -195,8 +195,17 @@ pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<
 /// with its path and the reason (a `CFF2` table that does not read, say),
 /// because a terminal with no font draws nothing.
 #[cfg(test)]
-pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
+pub fn load_faces(cfg: &mut Config) -> &'static [Face<'static>] {
+    resolved(cfg);
     parse_faces(cfg, &map_faces(cfg))
+}
+
+/// `cfg`'s family names resolved against the system's fonts, as
+/// `Config::load` resolves them, for a test that builds its config in place.
+#[cfg(test)]
+pub fn resolved(cfg: &mut Config) {
+    let said = cfg.resolve(crate::discover::Catalogue::system());
+    assert!(said.is_empty(), "{said:?}");
 }
 
 /// The bytes of every face the config names, in its order: compiled in, or
@@ -212,6 +221,10 @@ pub fn map_faces(cfg: &Config) -> Vec<&'static [u8]> {
                 startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
                 bytes
             }
+            // `Config::load` resolves every name before anything maps.
+            crate::config::FaceFrom::Family => {
+                panic!("font family {:?}: the config was not resolved", f.path)
+            }
         })
         .collect()
 }
@@ -222,8 +235,11 @@ pub fn parse_faces(cfg: &Config, data: &[&'static [u8]]) -> &'static [Face<'stat
         data.iter()
             .zip(&cfg.faces)
             .map(|(d, f)| {
-                let face = Face::parse_index(d, FaceIndex::of(f.index))
+                let mut face = Face::parse_index(d, f.index)
                     .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+                // A variable face is drawn at the values discovery picked
+                // for its style (`discover::pick`).
+                face.set_variations(&f.variations);
                 for line in bitmap_refusals(&f.path, &face) {
                     crate::warn!("{line}");
                 }
@@ -530,8 +546,8 @@ mod tests {
     #[test]
     fn the_default_stack_loads_the_embedded_faces() {
         use baud_render::FaceStyle;
-        let cfg = crate::config::Config::defaults();
-        let faces = super::load_faces(&cfg);
+        let mut cfg = crate::config::Config::defaults();
+        let faces = super::load_faces(&mut cfg);
         assert_eq!(faces.len(), cfg.faces.len());
         let stack = super::stack(&cfg, faces);
         let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
@@ -557,8 +573,8 @@ mod tests {
     #[test]
     fn the_default_stack_draws_hebrew_from_the_embedded_font() {
         use baud_render::FaceStyle;
-        let cfg = crate::config::Config::defaults();
-        let faces = super::load_faces(&cfg);
+        let mut cfg = crate::config::Config::defaults();
+        let faces = super::load_faces(&mut cfg);
         let stack = super::stack(&cfg, faces);
         let n = faces.len();
         for cp in [0x05D0, 0x05E9, 0x05B0] {
@@ -617,7 +633,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&cfg);
+            let loaded = super::load_faces(&mut cfg);
             assert_eq!(loaded.len(), faces, "{extra:?}");
             assert!(
                 loaded[0].glyph(alef).is_none(),
@@ -657,7 +673,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&cfg);
+            let loaded = super::load_faces(&mut cfg);
             assert_eq!(loaded.len(), faces, "{extra:?}");
             assert!(
                 loaded[0].glyph(folder).is_none(),
@@ -754,7 +770,7 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
-            let loaded = super::load_faces(&cfg);
+            let loaded = super::load_faces(&mut cfg);
             assert_eq!(loaded.len(), faces, "{extra:?}");
             for c in [arrow, bullet] {
                 assert!(
@@ -1201,6 +1217,7 @@ mod tests {
         for (text, queued) in [("", 1), ("[font]\nchanges = \"off\"\n", 0)] {
             let mut cfg = crate::config::Config::defaults();
             assert!(cfg.apply(text).is_empty());
+            super::resolved(&mut cfg);
             let data = super::map_faces(&cfg);
             let faces = super::parse_faces(&cfg, &data);
             let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
@@ -1258,7 +1275,8 @@ mod tests {
             ws_row: 4,
             ws_col: 20,
         };
-        let cfg = crate::config::Config::defaults();
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
         let data = super::map_faces(&cfg);
         let faces = super::parse_faces(&cfg, &data);
         let fonts = crate::fonts::Fonts::new(&cfg, data, faces);

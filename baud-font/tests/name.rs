@@ -130,3 +130,35 @@ fn a_name_matches_whole_without_case() {
     assert!(!f.matches(b""));
     assert!(!f.matches(b"\xff"));
 }
+
+/// **A family answers by default caseless match, under any of its
+/// family records** (`[[source: css-fonts-3]]` 5.1: "user agents must match
+/// any of these names independent of the underlying system locale"):
+/// nameID 16 and 1, every language, `ß` matching `ss`, and nothing
+/// normalised, so a precomposed letter does not match its decomposition.
+#[test]
+fn a_family_answers_to_every_record_caselessly() {
+    let (fr, us, one, sub) = (
+        utf16("Nom Fran\u{E7}ais"),
+        utf16("Stra\u{DF}e Mono"),
+        utf16("Stra\u{DF}e Mono Bold"),
+        utf16("Bold"),
+    );
+    let t = table(&[
+        (3, 1, 0x040c, 16, &fr),
+        (3, 1, 0x0409, 16, &us),
+        (3, 1, 0x0409, 1, &one),
+        (3, 1, 0x0409, 2, &sub),
+    ]);
+    let data = spliced(&t);
+    let face = Face::parse(&data).unwrap();
+    assert!(face.family().unwrap().matches("STRASSE MONO".as_bytes()));
+    for name in ["STRASSE MONO", "nom fran\u{C7}ais", "strasse mono bold"] {
+        assert!(face.answers_to(name.as_bytes()), "{name}");
+        let d = baud_font::Described::of(&data, baud_font::FaceIndex::FIRST).unwrap();
+        assert!(d.answers_to(name.as_bytes()), "{name}");
+    }
+    for name in ["Bold", "Strasse", "nom franc\u{327}ais", ""] {
+        assert!(!face.answers_to(name.as_bytes()), "{name:?}");
+    }
+}

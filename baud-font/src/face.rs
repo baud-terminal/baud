@@ -241,22 +241,21 @@ pub fn faces(data: &[u8]) -> Result<FaceCount, Error> {
     }
 }
 
-fn is_sfnt(version: u32) -> bool {
-    matches!(
-        version,
-        SFNT_TRUETYPE | SFNT_CFF | SFNT_APPLE_TRUE | SFNT_APPLE_TYP1
-    )
+/// **A face's table directory and nothing more**: where each table is,
+/// for a reader that wants a few tables of many faces -- discovery reads
+/// `name`, `OS/2`, `head`, `post` and `fvar` of every installed face and
+/// parses none of them ([`crate::Described`]).
+#[derive(Clone, Copy)]
+pub(crate) struct Directory<'a> {
+    data: Bytes<'a>,
+    records: Bytes<'a>,
+    tables: Count,
 }
 
-impl<'a> Face<'a> {
-    /// The first face of `data`, which is the only face of a plain sfnt.
-    pub fn parse(data: &'a [u8]) -> Result<Face<'a>, Error> {
-        Face::parse_index(data, FaceIndex::FIRST)
-    }
-
-    /// Face `index` of a collection, or the one face of an sfnt when `index`
-    /// is `FIRST`.
-    pub fn parse_index(data: &'a [u8], index: FaceIndex) -> Result<Face<'a>, Error> {
+impl<'a> Directory<'a> {
+    /// Face `index`'s directory in `data`: the one face of an sfnt, or
+    /// face `index` of a `'ttcf'` collection.
+    pub(crate) fn of(data: &'a [u8], index: FaceIndex) -> Result<Directory<'a>, Error> {
         let b = Bytes::new(data);
         let version: u32 = b.read(Offset::ZERO).ok_or(Error::NotAFont)?;
         let dir = if version == TTCF {
@@ -278,22 +277,79 @@ impl<'a> Face<'a> {
         } else {
             return Err(Error::NotAFont);
         };
-        Face::at_directory(b, dir)
-    }
-
-    fn at_directory(data: Bytes<'a>, dir: Offset) -> Result<Face<'a>, Error> {
-        let version: u32 = data.read(dir).ok_or(Error::NotAFont)?;
+        let version: u32 = b.read(dir).ok_or(Error::NotAFont)?;
         if !is_sfnt(version) {
             return Err(Error::NotAFont);
         }
-        let n: u16 = data
+        let n: u16 = b
             .read(dir.plus(Len::of(4)).ok_or(Error::NotAFont)?)
             .ok_or(Error::NotAFont)?;
         let tables = Count::of(n);
         let first = dir.plus(DIRECTORY_HEADER).ok_or(Error::NotAFont)?;
-        let records = data
+        let records = b
             .slice(first, RECORD.times(tables).ok_or(Error::NotAFont)?)
             .ok_or(Error::NotAFont)?;
+        Ok(Directory {
+            data: b,
+            records,
+            tables,
+        })
+    }
+
+    fn record(&self, i: Index) -> Option<Record> {
+        let at = Offset::ZERO.at(i, RECORD)?;
+        let tag: u32 = self.records.read(at)?;
+        let off: u32 = self.records.read(at.plus(Len::of(8))?)?;
+        let len: u32 = self.records.read(at.plus(Len::of(12))?)?;
+        Some(Record {
+            tag: Tag::from_bytes(tag.to_be_bytes()),
+            at: Offset::of(off),
+            len: Len::of(len),
+        })
+    }
+
+    /// The bytes of table `tag`, or `None` when absent or when its record
+    /// points outside the file. A linear scan: the directory is sorted by
+    /// tag and could be searched, but a face has a few dozen tables.
+    pub(crate) fn table(&self, tag: Tag) -> Option<Bytes<'a>> {
+        let mut i = Index::ZERO;
+        while self.tables.holds(i) {
+            let r = self.record(i)?;
+            if r.tag == tag {
+                return self.data.slice(r.at, r.len);
+            }
+            i = i.next();
+        }
+        None
+    }
+}
+
+fn is_sfnt(version: u32) -> bool {
+    matches!(
+        version,
+        SFNT_TRUETYPE | SFNT_CFF | SFNT_APPLE_TRUE | SFNT_APPLE_TYP1
+    )
+}
+
+impl<'a> Face<'a> {
+    /// The first face of `data`, which is the only face of a plain sfnt.
+    pub fn parse(data: &'a [u8]) -> Result<Face<'a>, Error> {
+        Face::parse_index(data, FaceIndex::FIRST)
+    }
+
+    /// Face `index` of a collection, or the one face of an sfnt when `index`
+    /// is `FIRST`.
+    pub fn parse_index(data: &'a [u8], index: FaceIndex) -> Result<Face<'a>, Error> {
+        let dir = Directory::of(data, index)?;
+        Face::at_directory(dir)
+    }
+
+    fn at_directory(dir: Directory<'a>) -> Result<Face<'a>, Error> {
+        let Directory {
+            data,
+            records,
+            tables,
+        } = dir;
 
         let mut face = Face {
             data,
@@ -471,18 +527,6 @@ impl<'a> Face<'a> {
         Ok(face)
     }
 
-    fn record(&self, i: Index) -> Option<Record> {
-        let at = Offset::ZERO.at(i, RECORD)?;
-        let tag: u32 = self.records.read(at)?;
-        let off: u32 = self.records.read(at.plus(Len::of(8))?)?;
-        let len: u32 = self.records.read(at.plus(Len::of(12))?)?;
-        Some(Record {
-            tag: Tag::from_bytes(tag.to_be_bytes()),
-            at: Offset::of(off),
-            len: Len::of(len),
-        })
-    }
-
     /// The variation axes the face offers, in `fvar`'s order; none for a
     /// static face.
     pub fn axis(&self, i: Index) -> Option<crate::var::Axis> {
@@ -506,8 +550,16 @@ impl<'a> Face<'a> {
     /// Directory record `i`: its tag, and its bytes when the record lies
     /// inside the file.
     pub(crate) fn table_at(&self, i: Index) -> Option<(Tag, Option<Bytes<'a>>)> {
-        let r = self.record(i)?;
+        let r = self.directory().record(i)?;
         Some((r.tag, self.data.slice(r.at, r.len)))
+    }
+
+    fn directory(&self) -> Directory<'a> {
+        Directory {
+            data: self.data,
+            records: self.records,
+            tables: self.tables,
+        }
     }
 
     pub(crate) fn glyf(&self) -> Option<Glyf<'a>> {
@@ -531,15 +583,7 @@ impl<'a> Face<'a> {
     /// but a face has a few dozen tables and this runs once per table at
     /// construction.
     pub fn table(&self, tag: Tag) -> Option<Bytes<'a>> {
-        let mut i = Index::ZERO;
-        while self.tables.holds(i) {
-            let r = self.record(i)?;
-            if r.tag == tag {
-                return self.data.slice(r.at, r.len);
-            }
-            i = i.next();
-        }
-        None
+        self.directory().table(tag)
     }
 
     pub fn units_per_em(&self) -> UnitsPerEm {

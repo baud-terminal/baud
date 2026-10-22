@@ -244,7 +244,6 @@ unsafe extern "C" {
     #[cfg(not(target_os = "macos"))]
     pub fn shm_open(name: *const c_char, oflag: c_int, mode: core::ffi::c_uint) -> Fd;
     pub fn shm_unlink(name: *const c_char) -> c_int;
-    #[cfg(any(target_os = "macos", test))]
     pub fn munmap(addr: *mut c_void, len: MapLen) -> c_int;
 }
 
