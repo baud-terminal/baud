@@ -133,6 +133,27 @@ tests = ["baud-core/tests/color_scheme.rs::other_private_dsrs_stay_unsupported"]
 rows = ["vt:`CSI $ p`", "vt:`CSI n`"]
 
 [[feature]]
+id = "vt420-answers"
+area = "programs"
+name = "A VT420's questions, answered"
+does = "Programs that ask a VT420's status questions get true answers: where the cursor is and on which page, whether a printer is there, the keyboard, the locator and stored macros. They can also read back the cursor's state and the tab stops and put them back later."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt420/reports.rs::decxcpr_reports_the_cursor_with_its_page", "baud-core/tests/vt420/presentation.rs::a_report_fed_back_restores_what_it_reported"]
+rows = ["vt:`CSI ? 6 n` to `CSI ? 85 n`", "vt:`CSI Ps $ w`", "vt:`DCS Ps $ t D...D ST`"]
+shipped = ["F1-60"]
+
+[[feature]]
+id = "xterm-settings"
+area = "programs"
+name = "xterm's own settings"
+does = "Programs can switch xterm's own settings and ask which are on: jumping to the live screen on output or on a key, reverse wrap past the left margin, hiding the scrollbar, copying a selection to the clipboard, and the alternate-screen variants."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm_resources.rs::each_mode_answers_what_baud_does_at_power_on", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores"]
+rows = ["vt:`?1010`", "vt:`?1041`", "vt:`?30`"]
+
+[[feature]]
 id = "program-notifications"
 area = "programs"
 name = "Notifications and progress bars from programs"
@@ -205,6 +226,28 @@ platform = "both"
 rows = ["vt:`CSI A`", "vt:`CSI J`", "vt:`CSI L`", "vt:`0x09` HT", "vt:`CSI b`", "vt:`ESC # 8`"]
 
 [[feature]]
+id = "rectangles"
+area = "programs"
+name = "Rectangle editing"
+does = "Programs can copy, fill, erase and change the styles of a rectangle of the screen in one go, and read back its checksum, as on a VT420."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt420/rect_ops.rs::deccra_copies_the_rectangle_and_its_renditions_and_leaves_the_cursor", "baud-core/tests/vt420/rect_ops.rs::decfra_fills_with_the_character_in_the_current_rendition", "baud-core/tests/vt420/rect_ops.rs::rectangle_operations_act_on_the_alternate_screen"]
+rows = ["vt:`CSI Pts;Pls;Pbs;Prs;Pps;Ptd;Pld;Ppd $ v`", "vt:`CSI Pch;Pt;Pl;Pb;Pr $ x`", "vt:`CSI Pt;Pl;Pb;Pr $ z`", "vt:`CSI Pt;Pl;Pb;Pr $ {`", "vt:`CSI Pt;Pl;Pb;Pr;Ps.. $ r` / `$ t`", "vt:`CSI Pi;Pg;Pt;Pl;Pb;Pr * y`"]
+shipped = ["F1-62"]
+
+[[feature]]
+id = "sideways-and-tabs"
+area = "programs"
+name = "Sideways scrolling and every tab stop"
+does = "Programs can slide the screen's text left or right, clear every kind of tab stop, and set line tab stops for vertical tabs."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt100/scroll_columns.rs::sl_moves_every_row_left_and_blanks_the_right", "baud-core/tests/vt100/line_tabs.rs::tbc_5_clears_both_kinds", "baud-core/tests/vt100/line_tabs.rs::vt_moves_to_the_following_line_stop"]
+rows = ["vt:`CSI Ps SP @` / `CSI Ps SP A`", "vt:`CSI g`"]
+shipped = ["F1-65"]
+
+[[feature]]
 id = "soft-reset"
 area = "programs"
 name = "A soft reset keeps you where you were"
@@ -219,21 +262,24 @@ shipped = ["2026-10-14-several-reset-and-cursor-save-sequences"]
 id = "protected-text"
 area = "programs"
 name = "Protected text and saved settings"
-does = "Text a program protects survives its selective erase, and programs can save and restore their own settings."
+does = "Text a program protects survives its selective erase, an area it fences off the ISO way survives every erase, and programs can save and restore their own settings."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/vt220/selective_erase.rs::decsed_spares_protected_characters"]
-rows = ["vt:`CSI \" q`", "vt:`CSI ? J`", "vt:`CSI ? s`", "vt:`CSI ? r`"]
+tests = ["baud-core/tests/vt220/selective_erase.rs::decsed_spares_protected_characters", "baud-core/tests/guarded_area.rs::spa_and_epa_guard_from_spa_through_the_position_before_epa"]
+rows = ["vt:`CSI \" q`", "vt:`CSI ? J`", "vt:`CSI ? s`", "vt:`CSI ? r`", "vt:`ESC V` / `ESC W`"]
+shipped = ["F1-64"]
 
 [[feature]]
 id = "cursor-save"
 area = "programs"
 name = "Cursor save and restore"
-does = "Saving the cursor keeps its position, colours, wrap, origin and protection."
+does = "Saving the cursor keeps its position, colours, wrap, origin and protection, and a position saved on the main screen stays on its text when the window is resized."
 status = "partial"
 gap = "two of the character-set details are not saved yet."
 platform = "both"
+tests = ["baud-core/tests/saved_cursor_per_screen.rs::decsc_follows_its_cell_through_a_narrowing_re_cut", "baud-core/tests/saved_cursor_per_screen.rs::decsc_follows_its_row_through_a_shrink_that_retires_rows"]
 rows = ["vt:`ESC 7`", "vt:`ESC 8`"]
+shipped = ["F1-32"]
 
 [[feature]]
 id = "conformance-levels"
@@ -760,6 +806,17 @@ platform = "both"
 rows = ["vt:`ESC ( J`", "vt:`ESC ( >`", "vt:`ESC ( & 4`"]
 
 [[feature]]
+id = "charset-shifts"
+area = "text"
+name = "Character set shifts"
+does = "Older programs can switch between their four character sets for one character or until told otherwise, and use the upper half of the character table, as DEC and ISO 2022 terminals allow."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt220/shifts.rs::ls2_invokes_g2_into_gl", "baud-core/tests/vt220/shifts.rs::ss2_draws_one_character_from_g2", "baud-core/tests/vt220/shifts.rs::the_right_locking_shifts_move_gr"]
+rows = ["vt:`ESC n` / `ESC o`", "vt:`ESC ~` / `ESC }` / `ESC \\|`", "vt:`ESC N` / `ESC O`, `8E` / `8F` under `ESC % @`"]
+shipped = ["F1-50"]
+
+[[feature]]
 id = "boxes"
 area = "text"
 name = "Boxes without gaps"
@@ -875,6 +932,28 @@ platform = "both"
 rows = ["input:2473", "input:2485", "input:2529", "input:2685"]
 
 [[feature]]
+id = "key-modes"
+area = "input"
+name = "Keypad, Backspace and Delete modes"
+does = "Programs can choose whether the keypad types digits or sends its own codes, whether Backspace sends DEL or BS and whether Delete sends DEL, as on DEC terminals and xterm, and ask which they have."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/keyboard_modes.rs::decnkm_is_the_keypad_mode_and_decrqm_reads_it", "baud-core/tests/keyboard_modes.rs::decbkm_chooses_what_the_backarrow_key_sends", "baud-core/tests/keyboard_modes.rs::mode_1037_makes_the_editing_delete_send_del"]
+rows = ["vt:`?66`", "vt:`?67`", "vt:`?1037`"]
+shipped = ["F1-54"]
+
+[[feature]]
+id = "keyboard-lock"
+area = "input"
+name = "Keyboard lock and local echo"
+does = "A program can lock the keyboard, so keys send nothing until it unlocks it, or turn on local echo, so what you type shows on the screen as well as going to the program."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/keyboard_modes.rs::kam_locks_the_keyboard_and_a_key_sends_nothing", "baud-core/tests/keyboard_modes.rs::srm_reset_draws_a_typed_key_as_well_as_sending_it"]
+rows = ["vt:`CSI 2 h` / `CSI 2 l`", "vt:`CSI 12 h` / `CSI 12 l`"]
+shipped = ["F1-68"]
+
+[[feature]]
 id = "meta"
 area = "input"
 name = "Option works as Meta"
@@ -887,10 +966,12 @@ rows = ["vt:`?1036`", "vt:`?1039`"]
 id = "ambiguous-keys"
 area = "input"
 name = "Keys that look alike, told apart"
-does = "Programs that ask can tell apart keys that normally send the same thing, such as Ctrl-I and Tab, and bind combinations other terminals swallow."
+does = "Programs that ask can tell apart keys that normally send the same thing, such as Ctrl-I and Tab, and bind combinations other terminals swallow. They can choose how the arrows, function keys and keypad carry Shift, Ctrl and Alt, and ask which choice is in force."
 status = "built"
 platform = "both"
-rows = ["vt:`CSI > 4 ; 2 m`", "vt:`CSI > 4 ; 1 f`"]
+tests = ["baud-core/tests/key_modifiers.rs::modify_cursor_keys_each_value", "baud-core/tests/key_modifiers.rs::modify_function_keys_each_value"]
+rows = ["vt:`CSI > 4 ; 2 m`", "vt:`CSI > 4 ; 1 f`", "vt:`CSI > 1 n`", "vt:`CSI ? 4 m` / `CSI > 4 g`"]
+shipped = ["F1-51"]
 chips = ["modifyOtherKeys"]
 
 [[feature]]
@@ -1010,10 +1091,12 @@ rows = ["vt:`CSI ? 1004 h/l`"]
 id = "shift-select"
 area = "input"
 name = "Shift selects inside mouse programs"
-does = "Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go."
+does = "Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go. A program can ask that Shift reach it instead for every button but the one that selects."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/gesture.rs::shift_let_go_mid_drag_leaves_the_selection_its_release"]
+tests = ["baud-app/src/gesture.rs::shift_let_go_mid_drag_leaves_the_selection_its_release", "baud-core/tests/xterm/mouse.rs::xtshiftescape_is_the_state_the_pointer_reads"]
+rows = ["vt:`CSI > 1 s`"]
+shipped = ["F1-69"]
 
 [[feature]]
 id = "copy-paste"
@@ -1087,6 +1170,7 @@ rows = ["vt:`OSC 8`"]
 chips = ["hyperlinks"]
 behind = "a link's address is not shown before it opens."
 roadmap = ["F1-04"]
+shipped = ["F1-03"]
 
 
 [[feature]]
@@ -1184,10 +1268,11 @@ tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty
 id = "selection-honest"
 area = "scroll"
 name = "You never copy text that is gone"
-does = "A selection stays on its text when a program scrolls it, and disappears when the text under it is redrawn, scrolled away, reset or switched."
+does = "A selection stays on its text when a program scrolls it or the window changes height, and disappears when the text under it is redrawn, scrolled away, reset or switched."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/seat.rs::a_region_scroll_carries_the_selection", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
+tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/seat.rs::a_region_scroll_carries_the_selection", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history", "baud-app/src/app.rs::a_height_only_resize_keeps_the_selection_on_its_lines"]
+shipped = ["F1-31"]
 
 [[feature]]
 id = "selection-colour"
@@ -1204,11 +1289,11 @@ shipped = ["SQ-v1.0-07"]
 id = "reflow"
 area = "scroll"
 name = "Resizing rewraps"
-does = "Making the window narrower or wider rewraps long lines instead of cutting them, and keeps your history."
+does = "Making the window narrower or wider rewraps long lines instead of cutting them, and keeps your history. Rows a shorter window cut off below the cursor come back when it grows again, if they held any text."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/reflow.rs::the_history_reflows_with_the_screen", "baud-core/tests/resize_matrix.rs::output_comes_back_when_the_window_does"]
-shipped = ["2026-10-15-wrapped-lines-re-wrap-correctly-after"]
+tests = ["baud-core/tests/reflow.rs::the_history_reflows_with_the_screen", "baud-core/tests/resize_matrix.rs::output_comes_back_when_the_window_does", "baud-core/tests/scrollback.rs::a_cut_row_of_written_spaces_is_content", "baud-core/tests/scrollback.rs::a_cut_row_in_a_colour_alone_is_not_content"]
+shipped = ["2026-10-15-wrapped-lines-re-wrap-correctly-after", "F1-34"]
 
 [[feature]]
 id = "one-prompt"
@@ -1373,6 +1458,7 @@ does = "A program can ask whether the window is minimized, where it and its text
 status = "built"
 platform = "macos"
 tests = ["baud-core/tests/window_reports.rs::the_window_reports_answer_from_what_the_embedder_handed_over", "baud-core/tests/window_reports.rs::the_title_reports_are_refused_and_counted", "baud-app/src/app.rs::the_window_facts_are_appkits_geometry_in_device_pixels_from_the_top"]
+shipped = ["F1-53"]
 
 [[feature]]
 id = "window-control"
@@ -1441,6 +1527,7 @@ does = "xterm's sixteen colours on dark and Modus Operandi's on light, with the 
 status = "built"
 platform = "both"
 tests = ["baud-app/src/host.rs::osc_4_answers_the_light_themes_modus_green", "baud-render/tests/readable_defaults.rs::the_five_corrected_entries_read_at_four_and_a_half_on_their_page"]
+shipped = ["F1-29"]
 
 [[feature]]
 id = "themes"
@@ -1455,12 +1542,23 @@ tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "bau
 id = "program-colours"
 area = "window"
 name = "Programs can set and ask colours"
-does = "Programs can set and reset the palette and default colours, by value or by X11 name such as red or lime green, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
+does = "Programs can set and reset the palette, the default colours and the colours bold, underlined and other styled text is drawn in, by value or by X11 name such as red or lime green, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override", "baud-core/tests/xterm/osc.rs::xterms_own_colour_names_resolve"]
-rows = ["vt:`OSC 4`", "vt:`OSC 10` / `OSC 11`", "vt:`CSI ? 996 n`", "vt:`?5`"]
-shipped = ["2026-10-14-reverse-video-swaps-every-cell-s"]
+tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override", "baud-core/tests/xterm/osc.rs::xterms_own_colour_names_resolve", "baud-core/tests/xterm/osc.rs::osc_5_sets_and_answers_the_special_colours"]
+rows = ["vt:`OSC 4`", "vt:`OSC 10` / `OSC 11`", "vt:`CSI ? 996 n`", "vt:`?5`", "vt:`OSC 5`, `OSC 105`, `OSC 6` / `OSC 106`"]
+shipped = ["2026-10-14-reverse-video-swaps-every-cell-s", "F1-23"]
+
+[[feature]]
+id = "colour-stack"
+area = "window"
+name = "Programs put your colours back"
+does = "A program can save the colours and styles it is drawing in, or the whole palette, and put them back later, ten levels deep, so a program that recolours the terminal can leave it as it found it."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/sgr_stack.rs::a_bare_push_and_pop_restore_the_whole_rendition", "baud-core/tests/color_stack.rs::a_pop_restores_the_palette_the_specials_and_the_dynamic_colours"]
+rows = ["vt:`CSI # {`, `CSI # }`", "vt:`CSI # P`, `CSI # Q`", "vt:`CSI # R`"]
+shipped = ["F1-66", "F1-23"]
 
 [[feature]]
 id = "true-colour"

@@ -9,22 +9,23 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Programs just work
 
 - [ ] **Answer programs that ask what the terminal can do** — Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is; the truecolor answer neovim asks for over ssh is left. *In progress.*
-- [ ] **The remaining xterm settings** — Each of the xterm settings baud does not act on yet is built or has its reason written down. *In progress.*
+- [ ] **Choose a terminal generation** — Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; at the VT100 level the later terminals' features and keys still stay on. *In progress.*
+- [ ] **More from shell prompt marks** — Clicking in the command line you are typing moves the shell's cursor there, and on a Mac Command-Up and Command-Down jump between prompts; each command's exit status is kept but not shown yet. *In progress.*
+- [ ] **More messages from programs, and colour names** — Colours can be given by name, such as red or lime green, and programs can name the window and its icon, set the pointer's shape and ask for the font; most of iTerm2's own messages are recognised but not acted on yet, beyond its request for attention. *In progress.*
+- [ ] **Save and restore the whole terminal state** — Programs can read back the cursor's place, colours and character sets and the tab stops, and put them back later; the VT420's report of the terminal's whole set of modes is not built yet. *In progress.*
+- [ ] **The remaining xterm settings** — Programs can switch xterm's own settings, among them jumping to new output or to a keypress, reverse wrap, hiding the scrollbar and copying a selection to the clipboard; keeping a selection after a program writes over it is left. *In progress.*
 - [ ] **A hidden cursor moves with scrolling output** — A cursor a program hid and placed stays on its text while output scrolls.
-- [ ] **A saved cursor follows its text through a resize** — A position a program saved stays on the same text when the window is resized.
-- [ ] **Choose a terminal generation** — Programs can ask baud to behave as a VT100, VT220 or VT420, and every answer it gives follows that choice.
-- [ ] **More answers to programs' status questions** — More of the questions programs ask about the cursor and the terminal's settings get a true answer.
-- [ ] **More colour controls for programs** — Programs can set the selection and pointer colours, name colours, and save and restore the palette.
-- [ ] **More from shell prompt marks** — Clicking to move the cursor within a command line, and the exit status of each command.
-- [ ] **More messages from programs, and colour names** — More of the messages programs send are understood, and colours can be given by name.
-- [ ] **More scrolling and tab-stop controls** — Sideways scrolling and the remaining tab-stop clears.
-- [ ] **Protected areas the ISO way** — Programs can protect text from erasing with the ISO controls as well as DEC's.
-- [ ] **Rectangle editing** — Programs can copy, fill and erase rectangles of the screen, as on a VT420.
-- [ ] **Save and restore colours and styles** — Programs can push the current colours and styles and pop them back.
-- [ ] **Save and restore the whole terminal state** — Programs that save the terminal's state and put it back later can do so.
-- [ ] **The rest of the old character-set switching** — Single and locking shifts and the second character table that some older programs use.
-- [ ] **Window position reports** — Programs can ask where the window is on screen and get a true answer, beside the size reports already answered.
+- [ ] **Programs set colours the kitty way** — Programs written for kitty can read and set the terminal's colours with kitty's own colour message, beside the xterm messages baud already answers.
 - [x] **Folder, notification and progress messages from programs** — Programs can tell baud the folder they are in, post a desktop notification or show a progress bar. (2026-10-21)
+- [x] **More answers to programs' status questions** — The questions a VT420 answers, about the cursor's page, the printer, the keyboard, the locator and stored macros, get a true answer. (2026-10-21)
+- [x] **A saved cursor follows its text through a resize** — A position a program saved on the main screen stays on the same text when the window is resized, so restoring it lands where the program left off. (2026-10-20)
+- [x] **More colour controls for programs** — Programs can set the selection's colours, give colours by name, colour bold, underlined and other styled text a colour of its own, and save the palette and put it back. (2026-10-20)
+- [x] **Save and restore colours and styles** — Programs can push the colours and styles they are drawing in, or the whole palette, and pop them back, ten levels deep. (2026-10-20)
+- [x] **More scrolling and tab-stop controls** — Programs can slide the screen's text left or right, clear every kind of tab stop, and set line tab stops for vertical tabs. (2026-10-19)
+- [x] **Protected areas the ISO way** — Programs can fence off part of the screen with the ISO controls so that erasing leaves it alone, as well as protecting text DEC's way. (2026-10-19)
+- [x] **The rest of the old character-set switching** — Single and locking shifts, and the upper half of the character table, so older programs can switch between their four character sets. (2026-10-19)
+- [x] **Window position reports** — Programs can ask where the window is on screen and get a true answer, beside the size reports already answered. On Linux the desktop does not say, so baud gives no answer rather than a wrong one. (2026-10-19)
+- [x] **Rectangle editing** — Programs can copy, fill, erase and change the styles of a rectangle of the screen, and read back its checksum, as on a VT420. (2026-10-18)
 - [x] **The old terminal-ID request answers** — Programs that identify the terminal with ESC Z, the VT100's original request, now get the same answer as the modern one; VT52 mode keeps its own reply. (2026-10-16)
 - [x] **Cursor up and down stop at the scroll margins** — Inside a scrolling region, cursor up and down now stop at its edge, as DEC's text, xterm and ghostty do. (2026-10-15)
 - [x] **New lines and cursor moves stay inside side margins** — With left and right margins set, as in a vertical split, a new line starts at the left margin and cursor moves stop at the margins, as DEC's VT420 does. (2026-10-15)
@@ -46,7 +47,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Text, fonts and emoji
 
 - [ ] **Hebrew in every style** — Italic and bold italic Hebrew with its points, to match the regular and bold already built in. *In progress.*
-- [ ] **Hebrew points in fonts without positioning data** — Points on some Hebrew letters can land one cell to the right in fonts that do not position them. *In progress.*
+- [ ] **Hebrew points on the last few fonts** — Hebrew points sit on their letters in the fonts tested but a few: Courier New stacks two points under one letter where they belong side by side, Arial Unicode MS draws points outside their letter's cell, and Arial Hebrew draws its meteg and cantillation marks as another glyph. *In progress.*
 - [ ] **Right-to-left text** — Hebrew and Arabic lines laid out right to left, with the cursor and selection following.
 - [x] **Choose fonts by name** — Name a font family and size instead of pointing at a font file. File paths keep working. (2026-10-22)
 - [x] **Real bold and italic for your own fonts** — When you choose your own font, its bold and italic faces are used instead of the regular one. (2026-10-22)
@@ -66,23 +67,23 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Keyboard, mouse and clipboard
 
 - [ ] **Key releases and modifier keys on macOS** — Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them. *In progress.*
-- [ ] **Keyboard lock and local echo** — Two old modes: a program can lock the keyboard, or have typed text shown without waiting for it.
-- [ ] **Keypad and Backspace key modes** — Programs can choose what the keypad and the Backspace key send, as on DEC terminals.
-- [ ] **Plain web addresses become clickable** — Cmd-click opens a web address a program printed as plain text, not only links the program marked.
-- [ ] **Programs choose whether Shift selects** — A program that uses the mouse can say whether Shift-drag still selects text.
 - [ ] **See where a link goes before opening it** — Holding Cmd marks the linked text and shows its address.
-- [ ] **The remaining key-modifier modes** — The last of xterm's settings for how modified keys are sent.
 - [x] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off, and the selection takes the colours you or your theme choose. (2026-10-22)
+- [x] **Keypad and Backspace key modes** — Programs can choose whether the keypad types digits or sends its own codes, whether Backspace sends DEL or BS and whether Delete sends DEL, as on DEC terminals, and ask which they have. (2026-10-20)
+- [x] **Keyboard lock and local echo** — Two old modes: a program can lock the keyboard, or have typed text shown on the screen as well as sent. (2026-10-19)
+- [x] **Programs choose whether Shift selects** — A program that uses the mouse can say whether Shift-drag still selects text, or whether Shift reaches the program for every button but the one that selects. (2026-10-19)
+- [x] **The remaining key-modifier modes** — Programs can choose how the arrows, function keys, keypad and other keys carry Shift, Control and Alt, as every one of xterm's settings allows, and ask which is in force. (2026-10-19)
+- [x] **Plain web addresses become clickable** — A web address a program prints as plain text opens on Cmd-click, as a marked link does, even when it wraps onto the next line. (2026-10-18)
 - [x] **Keypad arrows reach programs that ask for every key, on Linux** — With NumLock off, the keypad's arrows, Home, End, Page Up/Down, Insert, Delete and the centre key are sent as kitty's own keypad keys, or as the keys they stand for in older modes. A Mac keyboard has no NumLock, so on macOS the keypad still types digits. (2026-10-16)
 - [x] **Programs can copy to the macOS clipboard** — Programs can set your clipboard. Reads are still refused. It can be turned off in the config. Input method composition text is drawn at the cursor. (2026-10-11)
-- [x] **Every mouse reporting mode works, and a fast wheel scroll reaches the program whole** — The X10, UTF-8, urxvt and SGR pixel modes work. Slow wheel movement adds up, and a slow program no longer freezes the window. Whether scrolling works under a multiplexer is still waiting on your check. (2026-10-09)
+- [x] **Every mouse reporting mode works, and a fast wheel scroll reaches the program whole** — The X10, UTF-8, urxvt and SGR pixel modes work. Slow wheel movement adds up, and a slow program no longer freezes the window. Whether the wheel scrolls under a multiplexer such as herdr still needs a check on a real Mac. (2026-10-09)
 
 ## Scrollback, selection and resizing
 
-- [ ] **A selection survives a change of height** — Making the window taller or shorter keeps what you selected.
 - [ ] **The scrollbar follows a settings change at once** — Switching between always-visible and overlay scrollbars in System Settings shows without waiting for the next scroll.
-- [ ] **Widening the window brings back cut text** — A row cut off by narrowing the window comes back when it is widened again.
 - [x] **Search the scrollback** — Find text in the history and on the screen: every match marked, the newest selected, the window following as you step through them. (2026-10-21)
+- [x] **A selection survives a change of height** — Making the window taller or shorter keeps what you selected on its lines; a change of width, or a full-screen program, still clears it. (2026-10-20)
+- [x] **A taller window brings back cut text** — Rows a shorter window cut off below the cursor come back when the window grows again, if they held any text. (2026-10-20)
 - [x] **Wrapped lines re-wrap correctly after a resize** — A line is marked as wrapped only when its text really ran past the edge, whatever way the output arrived. The fix also costs a little less work per line than the first version. (2026-10-15)
 - [x] **The terminal remembers where you scrolled to** — Your place in the history is kept through output, resizes and clears, and returns to the live screen when the program redraws that line or you clear the history. (2026-10-14)
 - [x] **Programs can clear the scrollback** — Programs can clear scrollback from either screen, and a window scrolled into history returns to the live screen. (2026-10-09)
@@ -90,13 +91,13 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Window, colours and bell
 
 - [ ] **A window title with the folder and the running program** — When a program sets no title, the window shows the current folder and what is running in it; on a Mac the title bar does not draw it yet. *In progress.*
-- [ ] **Readable colours on the light and dark glass** — Check the built-in light and dark colours for contrast over the see-through window, and tune them where they fall short. *In progress.*
 - [ ] **A launch splash** — baud's colour logo, gone in a burst of plasma by the time the shell is ready, with a setting to turn it off.
 - [ ] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window.
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
 - [ ] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off.
 - [ ] **Blinking text follows Dim Flashing Lights** — macOS's Dim Flashing Lights setting will calm blinking text too.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
+- [x] **Readable colours on the light and dark glass** — Every built-in light and dark colour but the page's own reads at 4.5:1 on its page, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper. (2026-10-18)
 - [x] **Reverse video swaps every cell's colours** — With the reverse-screen mode on, foreground and background swap on every cell, including cells with explicit colours, as the DEC standard says. (2026-10-14)
 - [x] **The bell now rings on macOS** — A bell sounds when the window is focused. When it is not, programs can ask for the Dock icon to bounce or for the window to come forward. A config option picks sound, flash or none, and flash is off under Reduce Motion. (2026-10-14)
 
@@ -113,19 +114,19 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Solid backgrounds for Sixel images** — A Sixel image that asks for a solid background gets one, including under reverse video and on the see-through window.
 - [x] **A picture that can't be placed says so** — When the terminal has no room for another picture placement, the program now gets an error it can act on instead of being told the picture is up. (2026-10-16)
 - [x] **A refused picture file no longer pushes out older pictures** — When a PNG sent as a file can't be placed, older pictures waiting to be placed stay, exactly as when the file is missing, so the reply reveals nothing about your files. (2026-10-16)
-- [x] **Background pictures show through tinted glass** — On the see-through window, a bottom-layer picture now shows dimmed through coloured cells, the way the desktop does, and a cell painted the same colour as the default background shows it like a plain cell. Both are your picks; frames without such a picture cost nothing extra. (2026-10-16)
+- [x] **Background pictures show through tinted glass** — On the see-through window, a bottom-layer picture now shows dimmed through coloured cells, the way the desktop does, and a cell painted the same colour as the default background shows it like a plain cell. Frames without such a picture cost nothing extra. (2026-10-16)
 - [x] **Background pictures sit behind coloured text** — A program can put a picture on the very bottom layer, so it shows only where text has the plain background and stays hidden behind coloured cells, the selection and the cursor, as the kitty protocol describes. Drawn the same on every drawing path. (2026-10-16)
 - [x] **Deleting a picture gives its memory back** — After a full-window picture is shown and deleted, the terminal falls back to within 0.3 MB of its idle memory, where 19.5 MB (a PNG) or 8.4 MB (raw pixels) used to stay. The next picture takes about 0.3 ms longer per 8 MB to write. Measured on macOS; the Linux half is built but not yet run. (2026-10-16)
 - [x] **Even more picture memory goes back** — A Sixel picture that is refused, moved or cut off now gives its memory back too: a refused full-window picture leaves 0.25 MB above idle, where it left 8.6 MB. Memory shared by two neighbouring pictures goes back once both are gone. (2026-10-16)
 - [x] **Full-window pictures fit, at no cost when idle** — Image memory is now only used once a picture is written into it, so the default holds three 4K screens while an idle terminal stays at about 12 MB instead of 111. Queries from programs testing for picture support are always answered and never remove a stored picture. (2026-10-16)
-- [x] **PNG decoding 14% faster** — Compressed image data now decodes through lookup tables built at compile time; a full-window picture takes 32 ms instead of 37, and 4K pictures 233 ms instead of 284. Large pictures will decode in the background between frames, so the terminal never stalls on one. (2026-10-16)
+- [x] **PNG decoding 14% faster** — Compressed image data now decodes through lookup tables built at compile time; a full-window picture takes 32 ms instead of 37, and 4K pictures 233 ms instead of 284. Large pictures decode between frames, so the terminal never stalls on one. (2026-10-16)
 - [x] **PNG decoding three times faster** — Checksums, unfiltering and copying now work on many bytes at once: a full-window picture decodes in 11 ms instead of 30, and a 4K picture in 150 ms instead of 232. (2026-10-16)
 - [x] **Picture files can't be used to probe your disk** — A program asking the terminal to show a picture from a file gets the same single error whatever went wrong -- missing, unreadable, not a picture, or refused after reading -- and the terminal ends up in the same state either way, as the kitty protocol requires. Temporary picture files are deleted only inside the folder that was checked. (2026-10-16)
 - [x] **Pictures are cropped, scaled and layered as asked** — Pictures now show just the part a program asks for, scaled into the cells it names without distortion, offset inside their first cell, and under the text when asked. They clip at a scroll region's edge as text does. The CPU and both GPU paths draw the same pixels. (2026-10-16)
 - [x] **Pictures can be sent as files** — Programs on the same machine can hand baud a picture as a file path, a temporary file or shared memory instead of sending its bytes through the terminal. Only regular files are read, never anything under /proc, /sys or /dev, a file swapped mid-read is refused, temporary files are removed only from a temp folder, and every failure looks the same to the program. (2026-10-16)
-- [x] **Pictures from image tools such as kitten icat and yazi** — Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls; on Linux too. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering are drawn in a later step. (2026-10-16)
+- [x] **Pictures from image tools such as kitten icat and yazi** — Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls; on Linux too. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering followed the same day. (2026-10-16)
 - [x] **Pictures over the see-through window look the same on every drawing path** — Text, cursors and semi-transparent pictures drawn over the translucent window now get identical colours from the CPU and GPU paths (they differed by up to 47 per channel), following the W3C compositing rule. This matters most on Linux, which draws on the CPU. (2026-10-16)
-- [x] **Pictures through tmux stay put while scrolling** — During a smooth scroll, the row sliding off the top keeps drawing its placeholder picture instead of blinking out, on every drawing path. Placeholder pictures are now complete: your picks settled how a missing picture and its position marks behave. (2026-10-16)
+- [x] **Pictures through tmux stay put while scrolling** — During a smooth scroll, the row sliding off the top keeps drawing its placeholder picture instead of blinking out, on every drawing path. Placeholder pictures are now complete, down to how a missing picture and its position marks behave. (2026-10-16)
 - [x] **Pictures work through tmux** — Programs can show a picture as special placeholder characters, which tmux and other multiplexers pass along as ordinary text, so the picture moves, scrolls and copies with the text around it. kitten icat --unicode-placeholder places pixel-exact, on every drawing path. Every picture size kitten allows is exact, where a full-screen picture used to lose most of its position marks. (2026-10-16)
 - [x] **Raw-pixel pictures arrive ten times faster** — Picture data is now read in bulk instead of a byte at a time: a full-window raw picture takes under 5 ms instead of 46, and a full-window PNG 13 ms instead of 18, since its first data block is also checked once instead of twice. (2026-10-16)
 - [x] **Images can be partly transparent, and decode as they arrive** — Pictures with soft edges and shadows now blend over your text instead of being drawn solid, while opaque pictures and Sixel images cost the same as before. PNG decoding is 12% cheaper and can resume between reads, ready for kitty's image protocol, which sends pictures in pieces. (2026-10-15)

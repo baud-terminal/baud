@@ -33,8 +33,8 @@ summary = "Programs that ask will learn when a key is let go and when Shift, Con
 id = "B1-13"
 area = "text"
 status = "in_progress"
-title = "Hebrew points in fonts without positioning data"
-summary = "Points on some Hebrew letters can land one cell to the right in fonts that do not position them."
+title = "Hebrew points on the last few fonts"
+summary = "Hebrew points sit on their letters in the fonts tested but a few: Courier New stacks two points under one letter where they belong side by side, Arial Unicode MS draws points outside their letter's cell, and Arial Hebrew draws its meteg and cantillation marks as another glyph."
 
 [[item]]
 id = "B2-03"
@@ -196,9 +196,10 @@ summary = "Switching between always-visible and overlay scrollbars in System Set
 [[item]]
 id = "F1-03"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-18"
 title = "Plain web addresses become clickable"
-summary = "Cmd-click opens a web address a program printed as plain text, not only links the program marked."
+summary = "A web address a program prints as plain text opens on Cmd-click, as a marked link does, even when it wraps onto the next line."
 
 [[item]]
 id = "F1-04"
@@ -245,37 +246,49 @@ summary = "Small modem-style lights for bytes coming in and going out, with a se
 [[item]]
 id = "F1-23"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-20"
 title = "More colour controls for programs"
-summary = "Programs can set the selection and pointer colours, name colours, and save and restore the palette."
+summary = "Programs can set the selection's colours, give colours by name, colour bold, underlined and other styled text a colour of its own, and save the palette and put it back."
+
+[[item]]
+id = "F1-23-kitty"
+area = "programs"
+status = "planned"
+title = "Programs set colours the kitty way"
+summary = "Programs written for kitty can read and set the terminal's colours with kitty's own colour message, beside the xterm messages baud already answers."
 
 [[item]]
 id = "F1-29"
 area = "window"
-status = "in_progress"
+status = "done"
+date = "2026-10-18"
 title = "Readable colours on the light and dark glass"
-summary = "Check the built-in light and dark colours for contrast over the see-through window, and tune them where they fall short."
+summary = "Every built-in light and dark colour but the page's own reads at 4.5:1 on its page, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper."
 
 [[item]]
 id = "F1-31"
 area = "scroll"
-status = "planned"
+status = "done"
+date = "2026-10-20"
 title = "A selection survives a change of height"
-summary = "Making the window taller or shorter keeps what you selected."
+summary = "Making the window taller or shorter keeps what you selected on its lines; a change of width, or a full-screen program, still clears it."
 
 [[item]]
 id = "F1-32"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-20"
 title = "A saved cursor follows its text through a resize"
-summary = "A position a program saved stays on the same text when the window is resized."
+summary = "A position a program saved on the main screen stays on the same text when the window is resized, so restoring it lands where the program left off."
 
 [[item]]
 id = "F1-34"
 area = "scroll"
-status = "planned"
-title = "Widening the window brings back cut text"
-summary = "A row cut off by narrowing the window comes back when it is widened again."
+status = "done"
+date = "2026-10-20"
+title = "A taller window brings back cut text"
+summary = "Rows a shorter window cut off below the cursor come back when the window grows again, if they held any text."
 
 [[item]]
 id = "F1-43"
@@ -294,65 +307,71 @@ summary = "An optional mode that keeps the shell prompt at the bottom of the win
 [[item]]
 id = "F1-50"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "The rest of the old character-set switching"
-summary = "Single and locking shifts and the second character table that some older programs use."
+summary = "Single and locking shifts, and the upper half of the character table, so older programs can switch between their four character sets."
 
 [[item]]
 id = "F1-51"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "The remaining key-modifier modes"
-summary = "The last of xterm's settings for how modified keys are sent."
+summary = "Programs can choose how the arrows, function keys, keypad and other keys carry Shift, Control and Alt, as every one of xterm's settings allows, and ask which is in force."
 
 [[item]]
 id = "F1-53"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "Window position reports"
-summary = "Programs can ask where the window is on screen and get a true answer, beside the size reports already answered."
+summary = "Programs can ask where the window is on screen and get a true answer, beside the size reports already answered. On Linux the desktop does not say, so baud gives no answer rather than a wrong one."
 
 [[item]]
 id = "F1-54"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-20"
 title = "Keypad and Backspace key modes"
-summary = "Programs can choose what the keypad and the Backspace key send, as on DEC terminals."
+summary = "Programs can choose whether the keypad types digits or sends its own codes, whether Backspace sends DEL or BS and whether Delete sends DEL, as on DEC terminals, and ask which they have."
 
 [[item]]
 id = "F1-56"
 area = "programs"
 status = "in_progress"
 title = "The remaining xterm settings"
-summary = "Each of the xterm settings baud does not act on yet is built or has its reason written down."
+summary = "Programs can switch xterm's own settings, among them jumping to new output or to a keypress, reverse wrap, hiding the scrollbar and copying a selection to the clipboard; keeping a selection after a program writes over it is left."
 
 [[item]]
 id = "F1-59"
 area = "programs"
-status = "planned"
+status = "in_progress"
 title = "Choose a terminal generation"
-summary = "Programs can ask baud to behave as a VT100, VT220 or VT420, and every answer it gives follows that choice."
+summary = "Programs can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit controls, and read back which they have; at the VT100 level the later terminals' features and keys still stay on."
 
 [[item]]
 id = "F1-60"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "More answers to programs' status questions"
-summary = "More of the questions programs ask about the cursor and the terminal's settings get a true answer."
+summary = "The questions a VT420 answers, about the cursor's page, the printer, the keyboard, the locator and stored macros, get a true answer."
 
 [[item]]
 id = "F1-61"
 area = "programs"
-status = "planned"
+status = "in_progress"
 title = "Save and restore the whole terminal state"
-summary = "Programs that save the terminal's state and put it back later can do so."
+summary = "Programs can read back the cursor's place, colours and character sets and the tab stops, and put them back later; the VT420's report of the terminal's whole set of modes is not built yet."
 
 [[item]]
 id = "F1-62"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-18"
 title = "Rectangle editing"
-summary = "Programs can copy, fill and erase rectangles of the screen, as on a VT420."
+summary = "Programs can copy, fill, erase and change the styles of a rectangle of the screen, and read back its checksum, as on a VT420."
 
 [[item]]
 id = "F1-63"
@@ -365,51 +384,56 @@ summary = "Banner lines drawn twice as wide, or twice as wide and twice as tall 
 [[item]]
 id = "F1-64"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "Protected areas the ISO way"
-summary = "Programs can protect text from erasing with the ISO controls as well as DEC's."
+summary = "Programs can fence off part of the screen with the ISO controls so that erasing leaves it alone, as well as protecting text DEC's way."
 
 [[item]]
 id = "F1-65"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "More scrolling and tab-stop controls"
-summary = "Sideways scrolling and the remaining tab-stop clears."
+summary = "Programs can slide the screen's text left or right, clear every kind of tab stop, and set line tab stops for vertical tabs."
 
 [[item]]
 id = "F1-66"
 area = "programs"
-status = "planned"
+status = "done"
+date = "2026-10-20"
 title = "Save and restore colours and styles"
-summary = "Programs can push the current colours and styles and pop them back."
+summary = "Programs can push the colours and styles they are drawing in, or the whole palette, and pop them back, ten levels deep."
 
 [[item]]
 id = "F1-67"
 area = "programs"
-status = "planned"
+status = "in_progress"
 title = "More messages from programs, and colour names"
-summary = "More of the messages programs send are understood, and colours can be given by name."
+summary = "Colours can be given by name, such as red or lime green, and programs can name the window and its icon, set the pointer's shape and ask for the font; most of iTerm2's own messages are recognised but not acted on yet, beyond its request for attention."
 
 [[item]]
 id = "F1-68"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "Keyboard lock and local echo"
-summary = "Two old modes: a program can lock the keyboard, or have typed text shown without waiting for it."
+summary = "Two old modes: a program can lock the keyboard, or have typed text shown on the screen as well as sent."
 
 [[item]]
 id = "F1-69"
 area = "input"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "Programs choose whether Shift selects"
-summary = "A program that uses the mouse can say whether Shift-drag still selects text."
+summary = "A program that uses the mouse can say whether Shift-drag still selects text, or whether Shift reaches the program for every button but the one that selects."
 
 [[item]]
 id = "F1-71"
 area = "programs"
-status = "planned"
+status = "in_progress"
 title = "More from shell prompt marks"
-summary = "Clicking to move the cursor within a command line, and the exit status of each command."
+summary = "Clicking in the command line you are typing moves the shell's cursor there, and on a Mac Command-Up and Command-Down jump between prompts; each command's exit status is kept but not shown yet."
 
 [[item]]
 id = "F1-83"
@@ -484,7 +508,7 @@ area = "images"
 status = "done"
 date = "2026-10-16"
 title = "Background pictures show through tinted glass"
-summary = "On the see-through window, a bottom-layer picture now shows dimmed through coloured cells, the way the desktop does, and a cell painted the same colour as the default background shows it like a plain cell. Both are your picks; frames without such a picture cost nothing extra."
+summary = "On the see-through window, a bottom-layer picture now shows dimmed through coloured cells, the way the desktop does, and a cell painted the same colour as the default background shows it like a plain cell. Frames without such a picture cost nothing extra."
 
 [[item]]
 id = "2026-10-16-picture-files-can-t-be-used"
@@ -500,7 +524,7 @@ area = "images"
 status = "done"
 date = "2026-10-16"
 title = "Pictures through tmux stay put while scrolling"
-summary = "During a smooth scroll, the row sliding off the top keeps drawing its placeholder picture instead of blinking out, on every drawing path. Placeholder pictures are now complete: your picks settled how a missing picture and its position marks behave."
+summary = "During a smooth scroll, the row sliding off the top keeps drawing its placeholder picture instead of blinking out, on every drawing path. Placeholder pictures are now complete, down to how a missing picture and its position marks behave."
 
 [[item]]
 id = "2026-10-16-background-pictures-sit-behind-coloured-text"
@@ -604,7 +628,7 @@ area = "images"
 status = "done"
 date = "2026-10-16"
 title = "Pictures from image tools such as kitten icat and yazi"
-summary = "Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls; on Linux too. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering are drawn in a later step."
+summary = "Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls; on Linux too. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering followed the same day."
 
 [[item]]
 id = "2026-10-16-png-decoding-three-times-faster"
@@ -628,7 +652,7 @@ area = "images"
 status = "done"
 date = "2026-10-16"
 title = "PNG decoding 14% faster"
-summary = "Compressed image data now decodes through lookup tables built at compile time; a full-window picture takes 32 ms instead of 37, and 4K pictures 233 ms instead of 284. Large pictures will decode in the background between frames, so the terminal never stalls on one."
+summary = "Compressed image data now decodes through lookup tables built at compile time; a full-window picture takes 32 ms instead of 37, and 4K pictures 233 ms instead of 284. Large pictures decode between frames, so the terminal never stalls on one."
 
 [[item]]
 id = "2026-10-16-pictures-over-the-see-through-window"
@@ -884,7 +908,7 @@ area = "input"
 status = "done"
 date = "2026-10-09"
 title = "Every mouse reporting mode works, and a fast wheel scroll reaches the program whole"
-summary = "The X10, UTF-8, urxvt and SGR pixel modes work. Slow wheel movement adds up, and a slow program no longer freezes the window. Whether scrolling works under a multiplexer is still waiting on your check."
+summary = "The X10, UTF-8, urxvt and SGR pixel modes work. Slow wheel movement adds up, and a slow program no longer freezes the window. Whether the wheel scrolls under a multiplexer such as herdr still needs a check on a real Mac."
 
 [[item]]
 id = "2026-10-09-csi-3-j-clears-saved-history"

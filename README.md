@@ -95,7 +95,7 @@ setting turned on ([how](docs/guide/configuration.md#images)).
 
 <img src="assets/readme/images.gif" width="776" alt="a photo shown in the terminal, then a smaller one beside text">
 
-**[See all 169 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
+**[See all 177 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
 
 ## Install
 
