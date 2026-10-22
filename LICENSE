@@ -51,6 +51,11 @@ Fonts embedded in the baud application:
       and OFL.txt, FONTLOG.txt and AUTHORS.txt beside them: JetBrains Mono
       with Hebrew drawn from Cascadia Mono, a Modified Version under the SIL
       Open Font License 1.1 (OFL.txt, which carries both copyright lines).
+  baud-app/fonts/built/Italic.ttf
+  baud-app/fonts/built/BoldItalic.ttf
+      JetBrains Mono 2.304's Italic and Bold Italic with their family name
+      records changed to the built font's and nothing else, a Modified
+      Version under the SIL Open Font License 1.1 (OFL.txt beside them).
   baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
   baud-app/fonts/glyphs/languages/hebrew/anchors-400.json
   baud-app/fonts/glyphs/languages/hebrew/anchors-700.json

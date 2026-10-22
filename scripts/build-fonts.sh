@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # **Build baud's embedded font from what is committed, and prove the bytes.**
 #
-#   scripts/build-fonts.sh            build Regular and Bold, gate them, and write
-#                                     baud-app/fonts/built/{Regular,Bold}.ttf and MANIFEST
+#   scripts/build-fonts.sh            build Regular and Bold, name the stock italics into
+#                                     their family, gate all four, and write
+#                                     baud-app/fonts/built/{Regular,Bold,Italic,BoldItalic}.ttf
+#                                     and MANIFEST
 #   scripts/build-fonts.sh --check    rebuild into a temporary directory and compare with
 #                                     built/MANIFEST and the committed files; writes nothing
 #   scripts/build-fonts.sh --italics  build the four italic recipes (both leans) into a
@@ -15,6 +17,10 @@
 # (build/). The steps: instance the variable font at wght 400 and 700, regenerate the
 # anchors from those instances and require them equal to the committed ones, then run
 # build/build.py once per style under `env -i` with that style's exact environment.
+# Then the stock Italic and Bold Italic get the built family's name records
+# (scripts/font-family-records.py: nameIDs 1, 4 and 6, every other table and every
+# glyph stock), so the four embedded faces are one family, as the OpenType name
+# table's nameID 1 has a style-linking group share one name.
 #
 # **The gate is the sha256 of the gated files, by value.** These outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
@@ -79,6 +85,8 @@ gate_hash() {
   Italic-left) echo 800a1eaac9886e6f98c61968da931743828e3a2084c2d8036f3517d67f5318a6 ;;
   BoldItalic-right) echo 6175bc972ced48e18f7bdc141699775e4c6174821b05fdb47e23ea8d9905dd48 ;;
   BoldItalic-left) echo 2fbc56fb574adfe5cf906703c4b16061b364d00c4264fe94dc42a009d1b2f1ac ;;
+  Italic) echo b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c ;;
+  BoldItalic) echo aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c ;;
   *) return 1 ;;
   esac
 }
@@ -113,8 +121,8 @@ base_of() {
   case $1 in
   Regular) echo Regular ;;
   Bold) echo Bold ;;
-  Italic-*) echo Italic ;;
-  BoldItalic-*) echo BoldItalic ;;
+  Italic | Italic-*) echo Italic ;;
+  BoldItalic | BoldItalic-*) echo BoldItalic ;;
   esac
 }
 
@@ -209,9 +217,22 @@ if [ "$mode" = italics ]; then
 fi
 
 STYLES=(Regular Bold)
+# The stock italics, named into the built family: no recipe, the stock file in and
+# the built Regular's family name out.
+RENAMED=(Italic BoldItalic)
 fail=0
 for name in "${STYLES[@]}"; do
   build_one "$name"
+done
+for name in "${RENAMED[@]}"; do
+  if ! py -- scripts/font-family-records.py "$JBM/JetBrainsMono-$name.ttf" "$WORK/Regular.ttf" \
+    "$WORK/$name.ttf" >"$WORK/$name.log" 2>&1; then
+    echo "FAIL name $name; the log's tail:" >&2
+    tail -n 30 "$WORK/$name.log" >&2
+    exit 1
+  fi
+done
+for name in "${STYLES[@]}" "${RENAMED[@]}"; do
   got=$(sha "$WORK/$name.ttf")
   want=$(gate_hash "$name")
   if [ "$got" != "$want" ]; then
@@ -249,17 +270,19 @@ print("package uharfbuzz", uharfbuzz.__version__, "(HarfBuzz %s)" % uharfbuzz.ve
   echo "step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf"
   echo "step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)"
   echo "step build build/build.py <style>.ttf, once per recipe"
+  echo "step name scripts/font-family-records.py JetBrainsMono-<style>.ttf Regular.ttf <style>.ttf, for ${RENAMED[*]}"
   local f
   while IFS= read -r f; do
     echo "input $(sha "$f") $f"
   done < <(find "$HEB" -type f -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*' | LC_ALL=C sort)
-  for name in "${STYLES[@]}"; do
+  for name in "${STYLES[@]}" "${RENAMED[@]}"; do
     echo "input $(sha "$JBM/JetBrainsMono-$(base_of "$name").ttf") $JBM/JetBrainsMono-$(base_of "$name").ttf"
   done
+  echo "input $(sha scripts/font-family-records.py) scripts/font-family-records.py"
   for w in 400 700; do
     echo "intermediate $(sha "$WORK/cas$w.ttf") cas$w.ttf (the wght $w instance; not committed)"
   done
-  for name in "${STYLES[@]}"; do
+  for name in "${STYLES[@]}" "${RENAMED[@]}"; do
     echo "output $(sha "$WORK/$name.ttf") $OUT/$name.ttf"
   done
 }
@@ -271,10 +294,10 @@ if [ "$mode" = build ]; then
     exit 1
   fi
   mkdir -p "$OUT"
-  for name in "${STYLES[@]}"; do cp "$WORK/$name.ttf" "$OUT/$name.ttf"; done
+  for name in "${STYLES[@]}" "${RENAMED[@]}"; do cp "$WORK/$name.ttf" "$OUT/$name.ttf"; done
   cp "$WORK/MANIFEST" "$OUT/MANIFEST"
   grep '^output ' "$OUT/MANIFEST"
-  echo "ok: wrote ${STYLES[*]} into $OUT, each the gated bytes, and $OUT/MANIFEST"
+  echo "ok: wrote ${STYLES[*]} ${RENAMED[*]} into $OUT, each the gated bytes, and $OUT/MANIFEST"
   exit 0
 fi
 
@@ -283,7 +306,7 @@ if [ ! -f "$OUT/MANIFEST" ]; then
   echo "FAIL: no $OUT/MANIFEST to check against" >&2
   exit 1
 fi
-for name in "${STYLES[@]}"; do
+for name in "${STYLES[@]}" "${RENAMED[@]}"; do
   want=$(awk -v p="$OUT/$name.ttf" '$1 == "output" && $3 == p { print $2 }' "$OUT/MANIFEST")
   got=$(sha "$OUT/$name.ttf" 2>/dev/null || echo missing)
   if [ -z "$want" ] || [ "$got" != "$want" ]; then

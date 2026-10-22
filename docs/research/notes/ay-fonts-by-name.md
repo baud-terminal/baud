@@ -80,12 +80,17 @@ Devanagari@0.
   0.78/0.70 after the practice above: the lean, and the text's.
 - A variable face serves the weights its axis covers, drawn at the
   searched value -- V_AXIS, 0.82/0.82, then 0.94/0.96: decided.
-- The embedded faces do not answer to a name in `fonts` -- E_OUT 0.67/0.59
-  before the research; the re-ask after it chose E_IN_NAMES in both
-  orders, 0.58/0.70 (probabilities 0.72/0.80). E_OUT wins only when the
-  first ask's probabilities are pooled with the re-ask's, 0.485 to 0.483,
-  so the lean depends on that pooling; and the split names (the built
-  Regular and Bold are "Proto Hebrew Mono C", the stock italics "JetBrains
-  Mono") would make "JetBrains Mono" a family with only italic faces,
-  which the re-ask was shown. E_OUT is what is built, and the fork is an
-  open lean: the re-ask's own lean is E_IN_NAMES.
+- The embedded faces answer to a name in `fonts`, ahead of an installed
+  copy -- E_IN_NAMES, the re-ask's lean. E_OUT led the first ask,
+  0.67/0.59; the re-ask after the research chose E_IN_NAMES in both
+  orders, 0.58/0.70 (probabilities 0.72/0.80). Lane b141 took E_OUT by
+  pooling the two asks' probabilities, 0.485 to 0.483, which the lean
+  rule does not do: it takes the re-ask. Corrected in lane b145.
+- Which names: the font's build gives the two stock italics the built
+  family's nameIDs 1, 4 and 6, so the four embedded faces are one family,
+  "Proto Hebrew Mono C" until decision 11 names it -- N_SHARE, 0.92/0.96,
+  decided. The name table: nameID 1 "should be shared among at most four
+  fonts that differ only in weight or style" (`[[source: ms-opentype-name]]`).
+  Left as they were, the stock italics alone would answer to "JetBrains
+  Mono", and with none installed CSS 5.2 would draw regular text from the
+  Italic. The icon face and STIX Two Math answer to their own names.

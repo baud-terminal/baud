@@ -21,6 +21,7 @@ recipe Bold STYLE=Bold LEAN=R BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF
 step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf
 step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)
 step build build/build.py <style>.ttf, once per recipe
+step name scripts/font-family-records.py JetBrainsMono-<style>.ttf Regular.ttf <style>.ttf, for Italic BoldItalic
 input 08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2 baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
 input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/OFL.txt
 input e9de63db0be49591f607204de85eefeca3d9ead280eebd594e96f1fd19a01f1d baud-app/fonts/glyphs/languages/hebrew/SOURCE
@@ -39,7 +40,12 @@ input 818f6a59c95845e32c5a8f20d1cefe55c0588508663dddc7575e53d31aad850a baud-app/
 input 134370f01a2193c447165de0d76cf0549e939d5a9c3097ffada7ad670c3dcab9 baud-app/fonts/glyphs/languages/hebrew/casanchors.py
 input a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
 input 5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf
+input 9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4 baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf
+input 4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf
+input e626b577fcc5cee08c4aab37c71b8eeb569c71222e1daae2f28eed9a75ec38eb scripts/font-family-records.py
 intermediate 7670e8a65b21e6c06db84f03cdd5e28711f55d8458c9e0482611235249f6b9d1 cas400.ttf (the wght 400 instance; not committed)
 intermediate dcfd67fdd811153235a5b9f44efd7b14a5bd9f82990b67b810ab090cb6db33f9 cas700.ttf (the wght 700 instance; not committed)
 output df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f baud-app/fonts/built/Regular.ttf
 output a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 baud-app/fonts/built/Bold.ttf
+output b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c baud-app/fonts/built/Italic.ttf
+output aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c baud-app/fonts/built/BoldItalic.ttf

@@ -20,8 +20,12 @@
 //! `fonts/glyphs/languages/hebrew/` and refuses any bytes but these;
 //! `fonts/built/MANIFEST` pins how, and `fonts/built/FONTLOG.txt` says what
 //! changed, what was picked for the meantime and what is still the owner's.
-//! The Italic and Bold Italic are JetBrains Mono v2.304's own, unmodified,
-//! for now: the interim pick STOCK_ITALIC, under which italic Hebrew draws
+//! The Italic and Bold Italic are `fonts/built/Italic.ttf` and
+//! `BoldItalic.ttf`: JetBrains Mono v2.304's own glyphs and tables, with
+//! only nameIDs 1, 4 and 6 rewritten to the built family's
+//! (`scripts/font-family-records.py`), so the four are one family that a
+//! `fonts` name finds (Jev, N_SHARE, 0.92/0.96). They carry no Hebrew for
+//! now: the interim pick STOCK_ITALIC, under which italic Hebrew draws
 //! upright Regular from the chain. Nerd Fonts v3.5.1's
 //! `SymbolsNerdFontMono-Regular.ttf` and STIX Two v2.13b171's
 //! `STIXTwoMath-Regular.otf` are unmodified. Each source directory's `SOURCE`
@@ -49,17 +53,18 @@ pub const BOLD: Embedded = Embedded {
     bytes: include_bytes!("../fonts/built/Bold.ttf"),
 };
 
-/// Stock JetBrains Mono Italic, which maps no Hebrew (STOCK_ITALIC, interim).
+/// JetBrains Mono Italic in the built family's name, which maps no Hebrew
+/// (STOCK_ITALIC, interim).
 pub const ITALIC: Embedded = Embedded {
-    name: "JetBrainsMono-Italic.ttf (embedded)",
-    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-Italic.ttf"),
+    name: "Italic.ttf, JetBrains Mono Italic (embedded)",
+    bytes: include_bytes!("../fonts/built/Italic.ttf"),
 };
 
-/// Stock JetBrains Mono Bold Italic, which maps no Hebrew (STOCK_ITALIC,
-/// interim).
+/// JetBrains Mono Bold Italic in the built family's name, which maps no
+/// Hebrew (STOCK_ITALIC, interim).
 pub const BOLD_ITALIC: Embedded = Embedded {
-    name: "JetBrainsMono-BoldItalic.ttf (embedded)",
-    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
+    name: "BoldItalic.ttf, JetBrains Mono Bold Italic (embedded)",
+    bytes: include_bytes!("../fonts/built/BoldItalic.ttf"),
 };
 
 /// The icon face: behind the text faces in the default stack, and behind a
@@ -91,9 +96,8 @@ mod tests {
     /// font's MANIFEST name: each file's length and an FNV-1a over every
     /// byte, so a replaced, rebuilt or truncated file fails here rather than
     /// drawing something else; and each style is the style its font says it
-    /// is. The Regular and Bold are the built files, whose sha256s MANIFEST
-    /// records as `scripts/build-fonts.sh`'s outputs; the Italic and Bold
-    /// Italic are the release's.
+    /// is. All four text faces are the built files, whose sha256s MANIFEST
+    /// records as `scripts/build-fonts.sh`'s outputs.
     #[test]
     fn the_embedded_fonts_are_the_pinned_releases() {
         let fnv = |b: &[u8]| {
@@ -115,8 +119,8 @@ mod tests {
         for (e, len, hash, style) in [
             (REGULAR, 279_896, 0x753b_59e6_d38e_813b_u64, 0),
             (BOLD, 284_460, 0x825c_ce6f_6e15_4098, 1),
-            (ITALIC, 276_840, 0x328e_eb84_de91_fb86, 2),
-            (BOLD_ITALIC, 279_832, 0x2643_2855_1691_33bf, 3),
+            (ITALIC, 276_816, 0xc0fd_3354_f436_ef77, 2),
+            (BOLD_ITALIC, 279_808, 0x4f2c_7e36_e9c6_1de6, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -152,6 +156,8 @@ mod tests {
         for out in [
             "output df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f baud-app/fonts/built/Regular.ttf",
             "output a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 baud-app/fonts/built/Bold.ttf",
+            "output b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c baud-app/fonts/built/Italic.ttf",
+            "output aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -181,6 +187,26 @@ mod tests {
             readme.contains("| Icon set name"),
             "Nerd Fonts' icon-set licence table"
         );
+    }
+
+    /// **The embedded font is one family of four**: its Regular, Bold,
+    /// Italic and Bold Italic share one family name, as the OpenType name
+    /// table's nameID 1 has a style-linking group share one
+    /// (`[[source: ms-opentype-name]]`), so a `fonts` name finds all four.
+    #[test]
+    fn the_embedded_font_is_one_family() {
+        let family = |e: Embedded| {
+            let f = face(e);
+            let mut out = [0u8; 128];
+            f.family().and_then(|n| {
+                n.utf8(&mut out)
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+            })
+        };
+        let regular = family(REGULAR).expect("a family name");
+        for e in [BOLD, ITALIC, BOLD_ITALIC] {
+            assert_eq!(family(e).as_deref(), Some(regular.as_str()), "{}", e.name);
+        }
     }
 
     /// The bundle carries every licence file beside the binary that carries
@@ -445,6 +471,41 @@ mod tests {
             lost.push("outline");
         }
         lost
+    }
+
+    /// **The embedded italics are JetBrains Mono's but for their names**:
+    /// every table the stock file has is the stock file's byte for byte,
+    /// `head` but for its checkSumAdjustment, except `name`, whose family
+    /// records are the built family's (`scripts/font-family-records.py`).
+    /// The stock file against itself is the control that the comparison
+    /// reads a table at all.
+    #[test]
+    fn the_embedded_italics_are_stock_but_for_their_names() {
+        let tags: [&[u8; 4]; 17] = [
+            b"GDEF", b"GPOS", b"GSUB", b"OS/2", b"cmap", b"cvt ", b"fpgm", b"gasp", b"glyf",
+            b"head", b"hhea", b"hmtx", b"loca", b"maxp", b"name", b"post", b"prep",
+        ];
+        let differs = |a: &[u8], b: &[u8]| -> Vec<String> {
+            tags.iter()
+                .filter(|t| {
+                    let (x, y) = (table_bytes(a, t), table_bytes(b, t));
+                    match **t {
+                        // checkSumAdjustment, bytes 8 to 11.
+                        [b'h', b'e', b'a', b'd'] => x[..8] != y[..8] || x[12..] != y[12..],
+                        _ => x != y,
+                    }
+                })
+                .map(|t| String::from_utf8_lossy(&t[..]).into_owned())
+                .collect()
+        };
+        for (e, file) in [
+            (ITALIC, "JetBrainsMono-Italic.ttf"),
+            (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
+        ] {
+            let stock = stock(file);
+            assert_eq!(differs(e.bytes, &stock), ["name"], "{}", e.name);
+            assert!(differs(&stock, &stock).is_empty(), "the control");
+        }
     }
 
     /// **The built font keeps JetBrains Mono**: each built style against

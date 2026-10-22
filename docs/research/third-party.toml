@@ -2042,6 +2042,14 @@ upstream = "https://github.com/JetBrains/JetBrainsMono and https://github.com/mi
 status   = "open"
 
 [[tree]]
+what     = "baud's embedded Italic and Bold Italic: JetBrains Mono 2.304's, with only nameIDs 1, 4 and 6 changed to the built family's name (scripts/font-family-records.py), a Modified Version under the OFL; no Cascadia material"
+paths    = ["baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-app/fonts/built/OFL.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
+status   = "kept"
+
+[[tree]]
 what     = "Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font"
 paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json"]
 licence  = "OFL-1.1"

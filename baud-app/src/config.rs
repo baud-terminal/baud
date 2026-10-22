@@ -74,6 +74,13 @@ pub enum FaceFrom {
     Family,
 }
 
+/// Whether [`Config::resolve`] has found a face a config named yet.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Found {
+    None,
+    Some,
+}
+
 /// Whether the stack is the built-in one or one a config's `fonts` named:
 /// a name a config gave that matches nothing is said, one of the defaults
 /// that is not installed is left out quietly, as a default path that did
@@ -829,6 +836,10 @@ impl Config {
         let mut said = Vec::new();
         let configured = self.stack == StackFrom::Configured;
         let mut kept = Vec::new();
+        // Whether a face the config named was found: the embedded faces
+        // behind a configured stack are not one, and a name can now pick
+        // an embedded face, so the kept faces' origins cannot say.
+        let mut found = Found::None;
         // The first face a config named that was found, and its family's
         // other styles: CSS 5.2's pick of each in the family it names.
         let mut styled: Option<Vec<FaceSpec>> = None;
@@ -861,11 +872,13 @@ impl Config {
                             }
                             let regular = Picked {
                                 path: f.path.clone(),
+                                origin: crate::discover::Origin::File,
                                 index: f.index,
                                 variations: f.variations.clone(),
                             };
                             styled = Some(styles_of(&beside.faces(), &regular));
                         }
+                        found = Found::Some;
                         kept.push(f);
                     } else if configured {
                         said.push(format!(
@@ -879,6 +892,7 @@ impl Config {
                         if configured && styled.is_none() {
                             styled = Some(styles_of(&cat.family(&f.path), &p));
                         }
+                        found = Found::Some;
                         kept.push(FaceSpec::picked(&p, f.role));
                     }
                     None if configured => said.push(format!(
@@ -889,7 +903,7 @@ impl Config {
                 },
             }
         }
-        if configured && !kept.iter().any(|f| f.from == FaceFrom::File) {
+        if configured && found == Found::None {
             said.push(
                 "config: no font fonts names was found; the built-in stack is used instead".into(),
             );
@@ -1754,7 +1768,10 @@ impl FaceSpec {
         FaceSpec {
             path: p.path.clone(),
             index: p.index,
-            from: FaceFrom::File,
+            from: match p.origin {
+                crate::discover::Origin::File => FaceFrom::File,
+                crate::discover::Origin::Embedded(b) => FaceFrom::Embedded(b),
+            },
             role,
             variations: p.variations.clone(),
         }
@@ -2147,6 +2164,64 @@ mod named {
             "the face, the three embedded fallbacks and its family's three styles"
         );
         assert_eq!(c.stack, StackFrom::Configured);
+    }
+
+    /// **baud's embedded font answers to its family's name, as one family
+    /// of four, and the icon face to its own** (Jev, E_IN_NAMES and
+    /// N_SHARE): with no font installed at all, the embedded Regular is
+    /// the first face, its Bold, Italic and Bold Italic the styled faces,
+    /// and nothing is said. "JetBrains Mono" is no embedded family: the
+    /// stock italics carry the embedded family's name now. An embedded
+    /// face wins a tie with an installed copy of itself.
+    #[test]
+    fn the_embedded_font_answers_to_its_name() {
+        use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, STIX, SYMBOLS};
+        use baud_render::{FaceRole, FaceStyle};
+        let none = Catalogue::scan(&[]);
+        let mut c = read("fonts = [\"proto HEBREW mono c\", \"Symbols Nerd Font Mono\"]\n");
+        let said = c.resolve(&none);
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.stack, StackFrom::Configured);
+        // Which embedded face, told by its bytes: a `const`'s
+        // `include_bytes!` may be a copy at each use, merged in a release
+        // build and not in a debug one, so an address names no face.
+        let bytes = |f: &FaceSpec| match f.from {
+            FaceFrom::Embedded(b) => [REGULAR, BOLD, ITALIC, BOLD_ITALIC, SYMBOLS, STIX]
+                .into_iter()
+                .find(|e| e.bytes == b)
+                .map(|e| e.name),
+            _ => None,
+        };
+        assert_eq!(bytes(&c.faces[0]), Some(REGULAR.name));
+        assert_eq!(bytes(&c.faces[1]), Some(SYMBOLS.name));
+        for (style, e) in [
+            (FaceStyle::Bold, BOLD),
+            (FaceStyle::Italic, ITALIC),
+            (FaceStyle::BoldItalic, BOLD_ITALIC),
+        ] {
+            let f = c
+                .faces
+                .iter()
+                .find(|f| f.role == FaceRole::Style(style))
+                .unwrap_or_else(|| panic!("{style:?}"));
+            assert_eq!(bytes(f), Some(e.name), "{style:?}");
+        }
+        // Ahead of an installed copy: the icon face's own file, scanned as a
+        // font directory holds it, loses the tie to the embedded one.
+        let installed =
+            Catalogue::scan(&[format!("{ROOT}/baud-app/fonts/symbols-nerd-font").into()]);
+        let mut icons = read("fonts = [\"Symbols Nerd Font Mono\"]\n");
+        assert!(icons.resolve(&installed).is_empty());
+        assert_eq!(bytes(&icons.faces[0]), Some(SYMBOLS.name));
+        let mut jbm = read("fonts = [\"JetBrains Mono\", \"Symbols Nerd Font Mono\"]\n");
+        let said = jbm.resolve(&none);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("\"JetBrains Mono\""), "{said:?}");
+        assert!(
+            jbm.faces
+                .iter()
+                .all(|f| !matches!(f.role, FaceRole::Style(_)))
+        );
     }
 
     /// **When nothing a config named is found, the built-in stack is

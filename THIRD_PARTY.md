@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 300 | 27 | redistributable, and its notice is satisfied |
+| kept | 300 | 28 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 849 | 38 | |
+| total | 849 | 39 | |
 
 ## Licence texts in LICENSES/
 
@@ -201,6 +201,14 @@ they were built from.
 - **Notice:** [baud-app/fonts/symbols-nerd-font/LICENSE](baud-app/fonts/symbols-nerd-font/LICENSE)
 - **From:** https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
 - **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE)
+
+### baud's embedded Italic and Bold Italic: JetBrains Mono 2.304's, with only nameIDs 1, 4 and 6 changed to the built family's name (scripts/font-family-records.py), a Modified Version under the OFL; no Cascadia material
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
+- **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+- **Files:** [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf)
 
 ### Bungee Tint, a test font, unmodified
 

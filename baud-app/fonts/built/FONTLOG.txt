@@ -16,28 +16,36 @@ Linux package must carry the same files.
 
 THE FILES
 
-Regular.ttf  JetBrains Mono 2.304 Regular plus Hebrew. The variant is A-L2.
-Bold.ttf     JetBrains Mono 2.304 Bold plus Hebrew. The variant is A-L2.
+Regular.ttf     JetBrains Mono 2.304 Regular plus Hebrew. The variant is A-L2.
+Bold.ttf        JetBrains Mono 2.304 Bold plus Hebrew. The variant is A-L2.
+Italic.ttf      JetBrains Mono 2.304 Italic, renamed into this family.
+BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic, renamed into this family.
 
-There is no Italic.ttf or BoldItalic.ttf. Those two slots stay stock JetBrains Mono
-(baud-app/fonts/jetbrains-mono/) for now, which is the interim pick below. In those
-slots, Hebrew draws from the stack's chain, so it comes out upright and at Regular
-weight.
+The Italic and Bold Italic are stock JetBrains Mono's glyphs and tables: no Hebrew,
+which is the interim pick below. In those slots, Hebrew draws from the stack's chain,
+so it comes out upright and at Regular weight. Only their family name records
+changed (see WHAT CHANGED); they hold nothing from Cascadia.
 
-Both files are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
+Regular and Bold are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
-write bytes other than these sha256s:
+write bytes other than these sha256s,
 
   Regular.ttf  df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f
   Bold.ttf     a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3
 
-They are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
+and Italic.ttf and BoldItalic.ttf from the stock italics by
+scripts/font-family-records.py, to these:
+
+  Italic.ttf      b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c
+  BoldItalic.ttf  aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c
+
+Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and nothing else: take the 6-byte hebr script record
 out of GSUB and of GPOS and both tables are final3's byte for byte, and every other
 table but name (nameID 7) and head (its checksum) is final3's. The gates were run
 again on these bytes on 2026-10-08 (CHANGELOG).
 
-Running scripts/build-fonts.sh --check rebuilds both and compares them with MANIFEST.
+Running scripts/build-fonts.sh --check rebuilds all four and compares them with MANIFEST.
 scripts/build-fonts.sh --italics rebuilds the four italic recipes (both leans) and
 compares each with its gated hash; none of them is embedded.
 
@@ -71,7 +79,8 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   baud selects latn first, so what baud draws does not change.
 - OS/2 sets the Hebrew Unicode range bit (ulUnicodeRange1 bit 11) and the Hebrew code
   page bit (ulCodePageRange1 bit 5).
-- In the name table, the family is "Proto Hebrew Mono C". nameID 3 carries the
+- In the name table, the family is "Proto Hebrew Mono C", and the same in Italic.ttf
+  and BoldItalic.ttf (below). nameID 3 carries the
   prototype tag. nameID 0 carries JetBrains' copyright line followed by Microsoft's,
   with the Reserved Font Name Cascadia Code. nameID 7 carries both trademark notices,
   each as its source font has it: "JetBrains Mono is a trademark of JetBrains s.r.o.
@@ -82,6 +91,22 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   table; since 2026-10-20 it reads the family to answer a program that asks which
   font is in use (xterm's OSC 50), and the answer is this family. The family name
   is an open call; see below.
+
+
+WHAT CHANGED IN ITALIC.TTF AND BOLDITALIC.TTF
+
+Against stock JetBrains Mono 2.304 Italic and Bold Italic, three name records and
+nothing else: nameID 1 is "Proto Hebrew Mono C", nameID 4 "Proto Hebrew Mono C
+Italic" (or "Bold Italic") and nameID 6 "ProtoHebrewMonoC-Italic" (or "-BoldItalic"),
+each the built Regular's family name with the stock subfamily (nameID 2). Every other
+table is stock byte for byte, and head differs only in checkSumAdjustment;
+scripts/font-family-records.py refuses to write any other result. The OpenType name
+table says a family name "should be shared among at most four fonts that differ only
+in weight or style (italic/oblique)", a style-linking group of regular, italic, bold
+and bold italic; baud uses these four faces as that group, and a font named in baud's
+config by family finds all four by this name. Copyright, trademark (nameID 7, JetBrains
+Mono's own), version and licence records are stock. When decision 11 names the family,
+all four files are renamed together.
 
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
@@ -121,8 +146,10 @@ interim)
 - Regular: the gated Regular-A-L2 design, its bytes changed only by the two
   conformance fixes; the review page's shown defaults for 1a (A) and 1b (L2).
   Interim; the owner's call.
-- Italic and Bold Italic: STOCK_ITALIC, interim, 0.57. The slots stay stock JetBrains
-  Mono, so no lean and no shear is baked in. The build keeps both leans' recipes
+- Italic and Bold Italic: STOCK_ITALIC, interim, 0.57. The slots keep stock JetBrains
+  Mono's glyphs, so no lean and no shear is baked in. Their family name records are
+  the built family's since 2026-10-22 (N_SHARE, settled, Jev 0.92/0.96 in both
+  orders; CHANGELOG). The build keeps both leans' recipes
   (--italics).
 - Inputs: COMMIT_VF, settled, 0.93. Cascadia's variable font is committed with SOURCE
   and its licence, and the build instances it.
@@ -279,3 +306,7 @@ CHANGELOG
   style-path, Latin and floor render is pixel-identical to final3's. That checks the
   latn path only: baud's shaper selects latn, else DFLT (baud-font/src/layout.rs), so
   no render reads the hebr record, whose effect is the HarfBuzz measurement above.
+2026-10-22 (i-am-logger, baud): Italic.ttf and BoldItalic.ttf added: JetBrains Mono
+  2.304's Italic and Bold Italic with nameIDs 1, 4 and 6 in this family's name, so
+  the four embedded faces are one family (see WHAT CHANGED IN ITALIC.TTF AND
+  BOLDITALIC.TTF). Regular.ttf and Bold.ttf are unchanged.

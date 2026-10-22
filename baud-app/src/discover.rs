@@ -29,6 +29,12 @@
 //! the set". Nothing is synthesised (Jev, R_REGULAR, 0.98/0.98): a family
 //! with no face nearer a style than its regular one draws that style
 //! regular.
+//!
+//! **baud's own embedded faces answer to their names too, ahead of every
+//! installed face** (Jev, E_IN_NAMES, the re-ask's lean): the embedded
+//! font's four faces by its family's name -- one family since the font's
+//! build gave the stock italics the built family's name records (Jev,
+//! N_SHARE, 0.92/0.96) -- and the icon and maths faces by theirs.
 
 use baud_font::var::{Fixed, Variation};
 use baud_font::{Described, FaceIndex, Slope, Tag};
@@ -77,10 +83,19 @@ struct Axis {
     span: Span,
 }
 
-/// An installed face: where it is, its family names and its style.
+/// Where a face's bytes are: a file on disk, or compiled into the binary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Origin {
+    File,
+    Embedded(&'static [u8]),
+}
+
+/// An installed or embedded face: where it is, its family names and its
+/// style. An embedded face's `path` is only its name for the log.
 #[derive(Clone, Debug)]
 pub struct Known {
     path: String,
+    origin: Origin,
     index: FaceIndex,
     /// The family the module's order in baud-font's `name.rs` prefers,
     /// nameID 16 else 1: what a face named by its path is a face of.
@@ -93,8 +108,8 @@ pub struct Known {
 }
 
 impl Known {
-    /// The face `index` of `data`, read from `path`.
-    fn read(path: &str, data: &[u8], index: FaceIndex) -> Option<Known> {
+    /// The face `index` of `data`, read from `path` or compiled in.
+    fn read(path: &str, origin: Origin, data: &[u8], index: FaceIndex) -> Option<Known> {
         let d = Described::of(data, index)?;
         let names: Vec<String> = d
             .families()
@@ -161,6 +176,7 @@ impl Known {
         }
         Some(Known {
             path: path.to_string(),
+            origin,
             index,
             family,
             names,
@@ -219,6 +235,7 @@ impl Want {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Picked {
     pub path: String,
+    pub origin: Origin,
     pub index: FaceIndex,
     pub variations: Vec<Variation>,
 }
@@ -425,6 +442,7 @@ pub fn pick(family: &[&Known], want: Want) -> Option<Picked> {
         .collect();
     Some(Picked {
         path: k.path.clone(),
+        origin: k.origin,
         index: k.index,
         variations,
     })
@@ -436,10 +454,13 @@ pub struct Catalogue {
 }
 
 impl Catalogue {
-    /// The faces under `dirs`, each walked in name order, earlier
-    /// directories first; a directory that does not exist adds nothing.
+    /// baud's embedded faces, then the faces under `dirs`, each walked in
+    /// name order, earlier directories first; a directory that does not
+    /// exist adds nothing.
     pub fn scan(dirs: &[PathBuf]) -> Catalogue {
-        Catalogue::read(dirs, DEPTH_MAX)
+        let mut faces = embedded();
+        faces.extend(Catalogue::read(dirs, DEPTH_MAX).faces);
+        Catalogue { faces }
     }
 
     /// The faces under `dirs`, walked to `max` levels below each.
@@ -570,6 +591,17 @@ fn walk(dir: &Path, depth: Depth, max: Depth, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// **baud's embedded faces**, in the order a tie between two faces is
+/// decided, so ahead of any installed copy: the embedded font's Regular,
+/// Bold, Italic and Bold Italic, then the icon face and STIX Two Math.
+fn embedded() -> Vec<Known> {
+    use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, STIX, SYMBOLS};
+    [REGULAR, BOLD, ITALIC, BOLD_ITALIC, SYMBOLS, STIX]
+        .into_iter()
+        .filter_map(|e| Known::read(e.name, Origin::Embedded(e.bytes), e.bytes, FaceIndex::FIRST))
+        .collect()
+}
+
 /// Every face of the file at `p`, or none when it does not map or is not
 /// a font.
 fn read_file(p: &Path) -> Vec<Known> {
@@ -582,7 +614,7 @@ fn read_file(p: &Path) -> Vec<Known> {
     let data = map.bytes();
     let n = baud_font::faces(data).map_or(0, |n| n.value());
     (0..n)
-        .filter_map(|i| Known::read(path, data, FaceIndex::of(i)))
+        .filter_map(|i| Known::read(path, Origin::File, data, FaceIndex::of(i)))
         .collect()
 }
 
@@ -731,6 +763,7 @@ mod tests {
     fn face(path: &str, weight: Span, slopes: Vec<(Scale, Span)>) -> Known {
         Known {
             path: path.to_string(),
+            origin: Origin::File,
             index: FaceIndex::FIRST,
             family: Some("Test Family".into()),
             names: vec!["Test Family".into()],
