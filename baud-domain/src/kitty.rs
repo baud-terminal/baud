@@ -113,10 +113,19 @@
 //! ([`KittyStream::mark_drawn`]), so a placement under it is tested where
 //! it is drawn.
 //!
-//! **Out of this step, each ignored and counted**: animation `a=f`, `a=a`,
-//! `a=c` and the frame deletes `d=f`/`d=F` (the text gives no reply for a
-//! terminal without them).
+//! **Animation** ("Animation"): an `a=f` frame's data is transmitted as an
+//! image's is, into an image of its own with no name, and at its last
+//! chunk -- or when its deferred decode completes -- composed into its
+//! image's frame ([`ImageStore::kitty_frame`]) and answered with the
+//! frame's number in `r`. `a=c` composes ([`ImageStore::kitty_compose`]),
+//! `d=f` and `d=F` delete a frame ([`ImageStore::kitty_delete_frame`]),
+//! and `a=a` sets the state the store's clock runs
+//! ([`ImageStore::kitty_animation`], [`ImageStore::animate`]), answered
+//! only with an error, as kitty answers it.
 
+use crate::image::{
+    FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth, FrameLoad, FrameRefusal,
+};
 use crate::image::{
     ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore, KittyFit,
     KittyFree, KittyId, KittyNumber, KittyParent, KittyPlace, KittyPlacement, LinkRefusal,
@@ -143,11 +152,11 @@ pub enum KittyAction {
     Put,
     /// `d`: delete.
     Delete,
-    /// `f`: an animation frame. Not built.
+    /// `f`: an animation frame.
     Frame,
-    /// `a`: control an animation. Not built.
+    /// `a`: control an animation.
     Animate,
-    /// `c`: compose animation frames. Not built.
+    /// `c`: compose animation frames.
     Compose,
 }
 
@@ -220,7 +229,7 @@ pub enum KittyDelete {
     Number,
     /// `c`: what covers the cursor's cell.
     Cursor,
-    /// `f`: animation frames. Not built.
+    /// `f`: animation frames.
     Frames,
     /// `p`: what covers a cell.
     Cell,
@@ -305,6 +314,44 @@ impl KittyError {
     /// "the terminal must respond with the ECYCLE error code".
     pub const CYCLE: KittyError =
         KittyError::new("ECYCLE", "This parent reference creates a cycle");
+    /// An animation command naming no image, kitty's code and text.
+    pub const NO_ANIMATED: KittyError =
+        KittyError::new("ENOENT", "Animation command refers to non-existent image");
+    /// An animation command naming no image by id or number, which
+    /// kitty answers nothing ("Add frame data command without image id or
+    /// number"): never sent, as a command naming no image is never
+    /// answered.
+    pub const FRAME_NAMELESS: KittyError =
+        KittyError::new("EINVAL", "Animation command without image id or number");
+    /// Frame data wider than its image, kitty's code and text.
+    pub const FRAME_WIDE: KittyError =
+        KittyError::new("EINVAL", "Frame width larger than image width");
+    /// Taller.
+    pub const FRAME_TALL: KittyError =
+        KittyError::new("EINVAL", "Frame height larger than image height");
+    /// A base frame `c` that does not exist.
+    pub const NO_BASE: KittyError = KittyError::new("EINVAL", "No frame with that number found");
+    /// No room for a frame, kitty's code and text.
+    pub const FRAME_SPACE: KittyError =
+        KittyError::new("ENOSPC", "Failed to cache data for image frame");
+    /// "If the frames or the image are not found the terminal emulator
+    /// must respond with ENOENT."
+    pub const NO_SOURCE: KittyError =
+        KittyError::new("ENOENT", "No source frame number exists in image");
+    pub const NO_DEST: KittyError =
+        KittyError::new("ENOENT", "No destination frame number exists in image");
+    /// "If the rectangles go out of bounds of the image the terminal must
+    /// respond with EINVAL."
+    pub const DEST_OUT: KittyError =
+        KittyError::new("EINVAL", "The destination rectangle is out of bounds");
+    pub const SOURCE_OUT: KittyError =
+        KittyError::new("EINVAL", "The source rectangle is out of bounds");
+    /// "If the source and destination frames are the same and the
+    /// rectangles overlap, the terminal must respond with EINVAL."
+    pub const OVERLAP: KittyError = KittyError::new(
+        "EINVAL",
+        "The source and destination rectangles overlap and the src and destination frames are the same",
+    );
     /// "the terminal must respond with the ETOODEEP error code".
     pub const TOO_DEEP: KittyError =
         KittyError::new("ETOODEEP", "Too many levels of parent references");
@@ -370,6 +417,9 @@ pub struct KittyCommand {
     /// `r`, the rows to display over.
     pub rows: u32,
     pub cursor: KittyCursor,
+    /// `C` as sent: in `a=c`, the composition mode, "`1` means a simple
+    /// overwrite".
+    pub compose: u32,
     /// `U`: non-zero for a Unicode placeholder's virtual placement.
     pub virtual_place: u32,
     /// `z`.
@@ -434,6 +484,7 @@ impl KittyCommand {
         cols: 0,
         rows: 0,
         cursor: KittyCursor::Move,
+        compose: 0,
         virtual_place: 0,
         z: 0,
         delete: (KittyDelete::Visible, KittyFree::Placements),
@@ -604,6 +655,7 @@ impl KittyCommand {
                     b'c' => self.cols = n,
                     b'r' => self.rows = n,
                     b'C' => {
+                        self.compose = n;
                         self.cursor = match n {
                             1 => KittyCursor::Stay,
                             _ => KittyCursor::Move,
@@ -645,9 +697,10 @@ fn signed(v: &[u8]) -> Option<i32> {
     }
 }
 
-/// The longest reply: `ESC _ G`, three ids of ten digits with their keys,
-/// `;`, the longest message and `ESC \`.
-const REPLY_MAX: usize = 128;
+/// The longest reply: `ESC _ G`, four numbers of ten digits with their
+/// keys -- `i`, `I`, `p` and an animation command's `r` -- `;`, the longest
+/// message ([`KittyError::OVERLAP`]'s) and `ESC \`.
+const REPLY_MAX: usize = 192;
 
 /// Replies owed, in order: two at most per call -- a pending decode's,
 /// finished before a new command, and the new command's.
@@ -852,13 +905,16 @@ pub struct KittyCounts {
     /// Commands refused, whether or not a reply was sent: one naming no
     /// image is answered nothing, and `q` may silence the error.
     pub refused: usize,
-    /// Commands ignored: animation, and frame deletes.
+    /// Commands no handler takes: none the text names reaches here since
+    /// animation was built, so a count here is a defect to find.
     pub ignored: usize,
     /// Chunks a `CAN`, `SUB` or `ESC` cancelled before their terminator,
     /// which abort the upload they belonged to.
     pub cancelled: usize,
     /// Images stored whole.
     pub images: usize,
+    /// Animation frames made or edited by `a=f`.
+    pub frames: usize,
     /// Payload octets past what `s` and `v` declared, dropped as kitty
     /// drops them.
     pub excess: usize,
@@ -982,7 +1038,8 @@ enum Deferred {
 
 /// **The protocol's state, in caller memory**: the chunk being read, the
 /// transmission in flight, the decode deferred, and the replies owed.
-/// About 11 KB, most of it two inflate states and the 2 KiB path buffer; an embedder keeps one beside
+/// About 21 KB, most of it two inflate states, the virtual placements'
+/// table and the 2 KiB path buffer; an embedder keeps one beside
 /// the Sixel stream.
 pub struct KittyStream {
     ctrl: [u8; KITTY_CONTROL_MAX],
@@ -1091,6 +1148,7 @@ impl KittyStream {
             ignored: 0,
             cancelled: 0,
             images: 0,
+            frames: 0,
             excess: 0,
             replies_dropped: 0,
             virtuals_refused: 0,
@@ -1340,7 +1398,10 @@ impl KittyStream {
             };
         }
         match this.act() {
-            KittyAction::Transmit | KittyAction::TransmitPut | KittyAction::Query => {
+            KittyAction::Transmit
+            | KittyAction::TransmitPut
+            | KittyAction::Query
+            | KittyAction::Frame => {
                 // A file medium is one chunk: its `m` chunks nothing.
                 match (this.more, self.start.medium) {
                     (KittyMore::More, KittyMedium::Direct) => None,
@@ -1386,6 +1447,7 @@ impl KittyStream {
             KittyAction::Transmit | KittyAction::TransmitPut | KittyAction::Query => {
                 self.transmit(this, store, scratch)
             }
+            KittyAction::Frame => self.transmit_frame(this, store, scratch),
             _ => {}
         }
     }
@@ -1434,7 +1496,67 @@ impl KittyStream {
             self.load = Load::Refused(e);
             return;
         }
-        self.load = match (cmd.format, cmd.compression) {
+        self.load = self.load_for(cmd, owner, ImageId::NONE, store, scratch);
+    }
+
+    /// **Begin an animation frame's data** (`a=f`, "Transferring animation
+    /// frame data"): "exactly the same as for transferring image data",
+    /// into an image of its own with no name, sparing the image it is a
+    /// frame of when space is made. Naming no image it is refused and
+    /// answered nothing, as kitty answers nothing; naming one that does not
+    /// exist, ENOENT at the last chunk.
+    fn transmit_frame(
+        &mut self,
+        mut cmd: KittyCommand,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) {
+        self.b64 = Base64::NEW;
+        self.stage_len = 0;
+        self.z = Inflate::NEW;
+        self.path_len = 0;
+        if cmd.error.is_none() && cmd.medium != KittyMedium::Direct && self.files.is_none() {
+            cmd.error = Some(KittyError::FILE);
+        }
+        if cmd.error.is_none() && cmd.id.is_none() && cmd.number.is_none() {
+            cmd.error = Some(KittyError::FRAME_NAMELESS);
+        }
+        let root = frame_root(&cmd, store);
+        if cmd.error.is_none() && root.is_none() {
+            cmd.error = Some(KittyError::NO_ANIMATED);
+        }
+        // The frame's number, resolved before anything loads, as kitty
+        // resolves it (`handle_animation_frame_load_command()`): every
+        // reply after the image is found carries it in `r`, an error's
+        // too; past the last, or none, it is the next.
+        if let Some(count) = root.and_then(|r| store.kitty_frames(r)).map(|(n, _, _)| n) {
+            if cmd.rows == 0 || cmd.rows > count + 1 {
+                cmd.rows = count + 1;
+            }
+        }
+        self.start = cmd;
+        self.load = match (cmd.error, root) {
+            (Some(e), _) => Load::Refused(e),
+            (None, None) => Load::Refused(KittyError::NO_ANIMATED),
+            (None, Some(root)) => {
+                let nameless = ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE);
+                self.load_for(cmd, nameless, root, store, scratch)
+            }
+        };
+    }
+
+    /// Where a transmission's payload goes: the scratch for a PNG, a span
+    /// reserved for `owner` for raw pixels, deleting for space anything but
+    /// `spare`.
+    fn load_for(
+        &mut self,
+        cmd: KittyCommand,
+        owner: ImageOwner,
+        spare: ImageId,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> Load {
+        match (cmd.format, cmd.compression) {
             (KittyFormat::Png, KittyCompression::None) => Load::Png { len: 0 },
             (KittyFormat::Png, KittyCompression::Zlib) => {
                 // "if you use both PNG and compression, then you must provide
@@ -1447,7 +1569,7 @@ impl KittyStream {
                 }
             }
             (_, compression) => {
-                match self.reserve(cmd.width, cmd.height, owner, cmd.act(), store) {
+                match self.reserve(cmd.width, cmd.height, owner, cmd.act(), spare, store) {
                     Err(e) => Load::Refused(e),
                     Ok(image) => match compression {
                         KittyCompression::None => Load::Raw {
@@ -1461,7 +1583,7 @@ impl KittyStream {
                     },
                 }
             }
-        };
+        }
     }
 
     /// **Reserve a `width` x `height` image**, every declared size checked
@@ -1479,6 +1601,7 @@ impl KittyStream {
         height: u32,
         owner: ImageOwner,
         act: KittyAction,
+        spare: ImageId,
         store: &mut ImageStore,
     ) -> Result<ImageId, KittyError> {
         if width == 0 || height == 0 {
@@ -1503,7 +1626,7 @@ impl KittyStream {
         // deletes nothing for space.
         match act {
             KittyAction::Query => store.reserve(w, h, owner),
-            _ => store.reserve_evicting(w, h, owner),
+            _ => store.reserve_sparing(w, h, owner, spare),
         }
         .ok_or(KittyError::NO_SPACE)
     }
@@ -1793,6 +1916,11 @@ impl KittyStream {
                     return None;
                 }
                 store.complete(image, alpha);
+                // An RGB root frame keeps no alpha a later frame could
+                // give it, as kitty's three-byte frame keeps none.
+                if cmd.format == KittyFormat::Rgb {
+                    store.mark_rgb(image);
+                }
                 self.done(image, cmd, at, store)
             }
             Load::RawZ { image } => {
@@ -1852,10 +1980,16 @@ impl KittyStream {
             }
         }
         let owner = match cmd.act() {
-            KittyAction::Query => ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE),
+            KittyAction::Query | KittyAction::Frame => {
+                ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE)
+            }
             _ => ImageOwner::Kitty(cmd.id, cmd.number),
         };
-        let image = match self.reserve(size.width, size.height, owner, cmd.act(), store) {
+        let spare = match cmd.act() {
+            KittyAction::Frame => frame_root(&cmd, store).unwrap_or(ImageId::NONE),
+            _ => ImageId::NONE,
+        };
+        let image = match self.reserve(size.width, size.height, owner, cmd.act(), spare, store) {
             Ok(i) => i,
             Err(e) => {
                 self.reply(&cmd, Err(e));
@@ -1969,6 +2103,10 @@ impl KittyStream {
             self.reply(&cmd, Ok(()));
             return None;
         }
+        if cmd.act() == KittyAction::Frame {
+            self.frame_done(image, cmd, store);
+            return None;
+        }
         // The placement first, so the reply is its outcome: an `OK` for a
         // placement not made would tell the client its picture is up.
         let placed = match cmd.act() {
@@ -2059,12 +2197,20 @@ impl KittyStream {
                     0 => {
                         self.deferred = Deferred::Idle;
                         store.complete(image, alpha);
+                        // An RGB root frame keeps no alpha a later frame could
+                        // give it, as kitty's three-byte frame keeps none.
+                        if cmd.format == KittyFormat::Rgb {
+                            store.mark_rgb(image);
+                        }
                         // What `defer` kept of the placement it tried.
                         let placed = cmd.error.map_or(Ok(()), Err);
                         match (cmd.act(), cmd.read) {
                             (KittyAction::Query, _) => {
                                 store.free(image);
                                 self.reply(&cmd, placed);
+                            }
+                            (KittyAction::Frame, KittyFileRead::Unasked) => {
+                                self.frame_done(image, cmd, store);
                             }
                             // `defer`, draining, places and answers it.
                             (_, KittyFileRead::Asked) => {}
@@ -2277,11 +2423,103 @@ impl KittyStream {
                 self.delete(&cmd, at, store, scratch);
                 None
             }
+            KittyAction::Animate | KittyAction::Compose => {
+                // Naming no image, kitty answers nothing ("Animation
+                // command ... without image id or number").
+                if cmd.id.is_none() && cmd.number.is_none() {
+                    self.counts.refused += 1;
+                    return None;
+                }
+                let Some(root) = frame_root(&cmd, store) else {
+                    self.reply(&cmd, Err(KittyError::NO_ANIMATED));
+                    return None;
+                };
+                match cmd.act() {
+                    // Answered only with an error, as kitty answers it
+                    // (`handle_animation_control_command()` sets no reply).
+                    KittyAction::Animate => store.kitty_animation(
+                        root,
+                        FrameControl {
+                            frame: cmd.rows,
+                            gap: cmd.z,
+                            current: cmd.cols,
+                            state: cmd.width,
+                            loops: cmd.height,
+                        },
+                    ),
+                    _ => {
+                        let blend = match cmd.compose {
+                            0 => FrameBlend::Blend,
+                            _ => FrameBlend::Replace,
+                        };
+                        let done = store.kitty_compose(
+                            root,
+                            FrameCompose {
+                                source: cmd.rows,
+                                dest: cmd.cols,
+                                w: cmd.w,
+                                h: cmd.h,
+                                sx: cmd.cell_x,
+                                sy: cmd.cell_y,
+                                dx: cmd.x,
+                                dy: cmd.y,
+                                blend,
+                            },
+                        );
+                        self.reply(&cmd, done.map_err(frame_error));
+                    }
+                }
+                None
+            }
             _ => {
                 self.counts.ignored += 1;
                 None
             }
         }
+    }
+
+    /// **An `a=f` frame's data is whole**: composed into its image's frame
+    /// ([`ImageStore::kitty_frame`]) and freed, and answered with the
+    /// frame's number in `r`, as kitty's `finish_command_response` adds it
+    /// to an animation command's reply -- on an error the number the frame
+    /// would have had.
+    fn frame_done(&mut self, data: ImageId, cmd: KittyCommand, store: &mut ImageStore) {
+        let mut answered = cmd;
+        let result = match frame_root(&cmd, store) {
+            None => Err(KittyError::NO_ANIMATED),
+            Some(root) => {
+                let count = store.kitty_frames(root).map_or(1, |(n, _, _)| n);
+                if cmd.rows == 0 || cmd.rows > count + 1 {
+                    answered.rows = count + 1;
+                }
+                let load = FrameLoad {
+                    edit: cmd.rows,
+                    base: cmd.cols,
+                    x: cmd.x,
+                    y: cmd.y,
+                    replace: match cmd.cell_x {
+                        1 => FrameBlend::Replace,
+                        _ => FrameBlend::Blend,
+                    },
+                    background: cmd.cell_y,
+                    gap: cmd.z,
+                    depth: match cmd.format {
+                        KittyFormat::Rgb => FrameDepth::Rgb,
+                        _ => FrameDepth::Rgba,
+                    },
+                };
+                match store.kitty_frame(root, data, load) {
+                    Ok(n) => {
+                        answered.rows = n.raw();
+                        self.counts.frames += 1;
+                        Ok(())
+                    }
+                    Err(e) => Err(frame_error(e)),
+                }
+            }
+        };
+        store.free(data);
+        self.reply(&answered, result);
     }
 
     /// **`a=d`**, every specifier the "Deleting images" table lists but the
@@ -2456,7 +2694,25 @@ impl KittyStream {
                 let z = ZIndex::of(cmd.z);
                 store.kitty_delete(free, |p, _, _| p.z == z);
             }
-            KittyDelete::Frames => self.counts.ignored += 1,
+            // "Delete animation frames": the frame `r`, kitty's
+            // `handle_delete_frame_command()`; an image of one frame goes
+            // whole by `d=F`. Naming no image, nothing, as kitty.
+            KittyDelete::Frames => {
+                let Some(root) = frame_root(cmd, store) else {
+                    return;
+                };
+                let whole = match free {
+                    KittyFree::Data => FrameDeleted::Image,
+                    KittyFree::Placements => FrameDeleted::Nothing,
+                };
+                if store.kitty_delete_frame(root, cmd.rows, whole) == FrameDeleted::Image {
+                    let id = store.kitty_names(root).map(|(i, _)| i);
+                    store.free(root);
+                    if let Some(id) = id.filter(|i| !i.is_none()) {
+                        self.drop_virtuals(store, KittyFree::Placements, |v| v.id == id);
+                    }
+                }
+            }
         }
     }
 
@@ -2710,10 +2966,17 @@ impl KittyStream {
         // "`<ESC>_Gi=<id>;OK<ESC>\\`".
         r.put(b"\x1b_G");
         let mut first = Sep::First;
+        // "`,r=`" an animation command's frame, kitty's
+        // `finish_command_response`.
+        let frame = match cmd.act() {
+            KittyAction::Frame | KittyAction::Animate => cmd.rows,
+            _ => 0,
+        };
         for (key, n) in [
             (b'i', cmd.id.raw()),
             (b'I', cmd.number.raw()),
             (b'p', cmd.placement.raw()),
+            (b'r', frame),
         ] {
             if n == 0 {
                 continue;
@@ -2797,6 +3060,32 @@ impl ReplyBuf {
 /// later step (Jev, REFUSE_WITH_EINVAL), and a virtual one made relative
 /// with it, which "the terminal must respond with the EINVAL error code"
 /// ("Relative placements").
+/// **The image an animation command names**: by `i`, or the newest with
+/// the number `I`, whole.
+fn frame_root(cmd: &KittyCommand, store: &ImageStore) -> Option<ImageId> {
+    let image = match cmd.id.is_none() {
+        false => store.kitty_image(cmd.id),
+        true if !cmd.number.is_none() => store.kitty_newest(cmd.number),
+        true => None,
+    };
+    image.filter(|i| store.image(*i).is_some())
+}
+
+/// A frame command's refusal in kitty's code.
+fn frame_error(e: FrameRefusal) -> KittyError {
+    match e {
+        FrameRefusal::Wide => KittyError::FRAME_WIDE,
+        FrameRefusal::Tall => KittyError::FRAME_TALL,
+        FrameRefusal::NoBase => KittyError::NO_BASE,
+        FrameRefusal::NoSpace => KittyError::FRAME_SPACE,
+        FrameRefusal::NoSource => KittyError::NO_SOURCE,
+        FrameRefusal::NoDest => KittyError::NO_DEST,
+        FrameRefusal::DestOut => KittyError::DEST_OUT,
+        FrameRefusal::SourceOut => KittyError::SOURCE_OUT,
+        FrameRefusal::Overlap => KittyError::OVERLAP,
+    }
+}
+
 /// **A placement no state can make**: a virtual one with a parent,
 /// "Virtual placements created for Unicode placeholder based images cannot
 /// also be relative placements ... the terminal must respond with the

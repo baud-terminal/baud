@@ -8627,6 +8627,40 @@ group  = "C"
 # `scroll_filter_margins_func` (2341-2380) clips one inside the margins
 # row by row and removes it once wholly outside; `clear_filter_func`
 # (2424-2428), `ED 2`'s, removes one with any row on screen.
+# Re-fetched and hash-verified 2026-10-23 for relative placements and
+# animation: `has_good_ancestry` (1292-1319) refuses a cycle before the
+# depth at each step and `PARENT_DEPTH_LIMIT` is 8; `handle_put_command`
+# (1321-1430) answers ENOPARENT three ways, EINVAL for a virtual placement
+# with a parent and for a placement its own parent, takes the first
+# placement of the parent image when `Q` is absent and never moves the
+# cursor for a relative one; `resolve_parent_offset` sums the offsets and
+# places a virtual parent at the least placeholder row and column;
+# `handle_animation_frame_load_command` (1861-2018), the default gap 40
+# and a gapless frame at a negative `z`, a whole-image frame with no base
+# stored as sent; `handle_delete_frame_command`,
+# `handle_animation_control_command`, `scan_active_animations` (2117-2152)
+# and `handle_compose_command` (2161-2246); `finish_command_response` adds
+# `,r=` to an `a=f` and an `a=a` reply.
+
+[sources.kitty-simd-string-h]
+key    = "kitty-simd-string-h"
+title  = "kitty v0.49.2, kitty/simd-string.h -- blend_pixel_over_straight and blend_pixel_over_opaque, the alpha blend an animation frame is composed with"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/simd-string.h"
+file   = ""
+sha256 = "2c0cec3947ed57a709f87174570e26877b17758659119fae264f74e1b6fbd6be"
+bytes  = 6570
+status = "external"
+group  = "C"
+# Fetched and hash-verified 2026-10-23. `div255_round` (82-86), "exact for
+# x <= 65407"; `blend_pixel_over_opaque` (89-93), each channel
+# `div255_round(src * alpha + dst * (255 - alpha))` and the destination
+# kept opaque; `blend_pixel_over_straight` (96-110), "The over operator on
+# straight alpha in 8-bit integer arithmetic", the colour by `lrintf` of a
+# float quotient, "matching the SIMD implementations bit for bit", the
+# alpha by `div255_round`, both clear leaving the destination unchanged.
 
 [sources.kitty-utils-py]
 key    = "kitty-utils-py"

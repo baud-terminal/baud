@@ -16,8 +16,8 @@ use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    BytePos, Chan, Col, Cols, Depth, ImageAlpha, ImageBudget, ImagePx, PackedCell, Pixel, ReadLen,
-    Row, RowRot, Rows, WinSize,
+    Animated, BytePos, Chan, Col, Cols, Depth, HostTime, ImageAlpha, ImageBudget, ImageMotion,
+    ImagePx, PackedCell, Pixel, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
@@ -6686,6 +6686,7 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     kitty_placeholder_gate(arms, t);
     kitty_placeholder_leaving_gate(arms, t);
     kitty_relative_gate(arms, t);
+    kitty_animation_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }
@@ -7221,6 +7222,93 @@ fn placeholder_grid(sgr: &str, cells: &[(usize, usize)], msb: usize, full: bool)
     }
     s += "\x1b[0m";
     s.into_bytes()
+}
+
+/// `a=f` of a 6 by 4 `f=32` frame of image `id`, `px`'s pixels.
+fn kitty_frame(t: &mut Term<'_>, id: u32, px: fn(u32, u32) -> u32) {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut rgba = Vec::new();
+    for y in 0..4 {
+        for x in 0..6 {
+            let [a, r, g, b] = px(x, y).to_be_bytes();
+            rgba.extend_from_slice(&[r, g, b, a]);
+        }
+    }
+    let mut cmd = format!("\x1b_Ga=f,f=32,s=6,v=4,i={id},q=2;").into_bytes();
+    for q in rgba.chunks(3) {
+        let n = u32::from_be_bytes([0, q[0], q[1], q[2]]);
+        for k in 0..4 {
+            cmd.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+        }
+    }
+    cmd.extend_from_slice(b"\x1b\\");
+    feed(t, &cmd);
+}
+
+/// **A kitty animation's frame on every arm** (`[[source:
+/// kitty-graphics]]`, "Animation"): an image with a second frame draws, on
+/// the instance, cell and CPU arms alike, what a still image of the frame
+/// it shows draws -- its root until a client's `a=a,c=2` makes the second
+/// current, then the second, then the root again when the clock's tick
+/// passes the second's gap. The frame changes at one store epoch, so a
+/// texture kept by the image alone would draw the frame before.
+fn kitty_animation_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        [a, b, cpu]
+    };
+    feed(t, b"\x1bc\x1b[?25l");
+    kitty_put(t, 1, kitty_texel, &["C=1"]);
+    let root = frames(arms, t);
+    feed(t, b"\x1bc\x1b[?25l");
+    kitty_put(t, 2, kitty_other, &["C=1"]);
+    let second = frames(arms, t);
+    assert!(
+        differing(&root[0], &second[0]) > 0,
+        "the premise: the two frames draw apart"
+    );
+    feed(t, b"\x1bc\x1b[?25l");
+    kitty_put(t, 1, kitty_texel, &["C=1"]);
+    kitty_frame(t, 1, kitty_other);
+    let start = HostTime::of_nanos(1_000_000_000);
+    // (name, the command, a tick's milliseconds, the frames expected).
+    type Step<'s> = (&'s str, &'s [u8], Option<u64>, &'s [Vec<u32>; 3]);
+    let steps: [Step<'_>; 3] = [
+        ("the root, before any control", b"", None, &root),
+        (
+            "the second, made current",
+            b"\x1b_Ga=a,i=1,c=2\x1b\\",
+            None,
+            &second,
+        ),
+        (
+            "the root again, its gap past",
+            b"\x1b_Ga=a,i=1,r=1,z=40,s=3\x1b\\",
+            Some(40),
+            &root,
+        ),
+    ];
+    for (name, cmd, tick, want) in steps {
+        feed(t, cmd);
+        if let Some(ms) = tick {
+            assert_eq!(t.animate_images(start, ImageMotion::Play), Animated::Same);
+            let then = start.plus(std::time::Duration::from_millis(ms));
+            assert_eq!(
+                t.animate_images(then, ImageMotion::Play),
+                Animated::Changed,
+                "{name}: the premise, the tick changed the frame"
+            );
+        }
+        let got = frames(arms, t);
+        for (k, arm) in ["instance", "cell", "cpu"].into_iter().enumerate() {
+            assert_eq!(
+                differing(&got[k], &want[k]),
+                0,
+                "{name}: the {arm} arm does not draw the frame shown"
+            );
+        }
+    }
 }
 
 /// **kitty's relative placements on every arm** (`[[source:

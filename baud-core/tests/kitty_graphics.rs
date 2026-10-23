@@ -783,9 +783,10 @@ fn text_does_not_erase_an_image_and_ed2_and_ris_do() {
 
 /// A relative placement naming a placement the parent image does not have
 /// is ENOPARENT, its reply the only change (`tests/kitty_relative.rs`
-/// holds the rest); a frame is ignored and counted.
+/// holds the rest); a frame is made and answered with its number
+/// (`tests/kitty_animation.rs` holds the rest).
 #[test]
-fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_ignored() {
+fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_made() {
     with(256, |t| {
         let mut r = Vec::new();
         feed(
@@ -803,11 +804,13 @@ fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_ignored() {
             r,
             "\x1b_Gi=1;OK\x1b\\\
              \x1b_Gi=1;ENOPARENT:Put command refers to a parent image placement \
-             that does not exist\x1b\\"
+             that does not exist\x1b\\\
+             \x1b_Gi=1,r=2;OK\x1b\\"
         );
         assert_eq!(t.images().placements().count(), 0);
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "no cursor move");
-        assert_eq!(t.kitty().ignored, 1, "the frame, counted");
+        assert_eq!(t.kitty().ignored, 0, "nothing ignored");
+        assert_eq!(t.kitty().frames, 1, "the frame, made");
         // The image itself was stored by the a=T.
         let mut r = Vec::new();
         feed(t, &apc("a=p,i=1", b""), &mut r);
@@ -1918,6 +1921,55 @@ fn a_file_medium_reads_through_the_embedder_and_decodes_as_direct() {
                 assert_eq!(m.asked()[0].req.medium, want);
             }
         }
+    }
+}
+
+/// **An `a=f` frame reads through a file medium** as an image's data
+/// does: the reader asked once for the payload's path, the frame answered
+/// with its number, `i=1,r=2;OK`, the image two frames after, and the new
+/// frame's pixels the file's, however the reader hands them over.
+#[test]
+fn an_animation_frame_reads_through_a_file_medium() {
+    let rgb = bytes(2 * 2 * 3, 95);
+    for chunk in [1, 5, 4096] {
+        let m = Mem::new(&[(b"/frame", &rgb)], chunk);
+        with_files(256, &m, |t| {
+            let mut r = Vec::new();
+            feed(
+                t,
+                &apc("a=t,i=1,f=24,s=2,v=2,q=2", &b64(&[0u8; 12])),
+                &mut r,
+            );
+            settle(t, &mut r);
+            assert!(r.is_empty(), "the premise: {}", String::from_utf8_lossy(&r));
+            feed(t, &apc("a=f,i=1,t=f,f=24,s=2,v=2", &b64(b"/frame")), &mut r);
+            settle(t, &mut r);
+            assert_eq!(
+                String::from_utf8_lossy(&r),
+                "\x1b_Gi=1,r=2;OK\x1b\\",
+                "chunk {chunk}"
+            );
+            let imgs = t.images();
+            let img = imgs.kitty_image(baud_domain::KittyId::of(1)).unwrap();
+            assert_eq!(
+                imgs.kitty_frames(img).map(|f| f.0),
+                Some(2),
+                "chunk {chunk}"
+            );
+            let got: Vec<u8> = imgs
+                .frame_pixels(img, baud_domain::FrameNo::of(2))
+                .expect("frame 2")
+                .iter()
+                .flat_map(|p| {
+                    let (r, g, b) = p.rgb();
+                    [r.get(), g.get(), b.get()]
+                })
+                .collect();
+            assert_eq!(got, rgb, "chunk {chunk}: the file's pixels");
+        });
+        assert_eq!(m.asked().len(), 1, "chunk {chunk}");
+        assert_eq!(m.asked()[0].path, b"/frame");
+        assert_eq!(m.asked()[0].req.medium, baud_domain::KittyMedium::File);
     }
 }
 

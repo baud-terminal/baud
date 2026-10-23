@@ -93,8 +93,8 @@ fn command(k: &mut KittyStream, store: &mut ImageStore, body: &[u8]) {
 
 /// **A reply with no room in the outbox is dropped whole and counted**,
 /// never cut: an embedder that does not drain the replies between
-/// commands. Five ENOENT replies of 56 bytes against 256 bytes of outbox:
-/// four fit, the fifth is counted.
+/// commands. Seven ENOENT replies of 56 bytes against 384 bytes of
+/// outbox, two of the longest replies: six fit, the seventh is counted.
 #[test]
 fn a_reply_with_no_room_is_dropped_whole_and_counted() {
     let mut k = KittyStream::NEW;
@@ -106,13 +106,13 @@ fn a_reply_with_no_room_is_dropped_whole_and_counted() {
     let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
     let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let one = b"\x1b_Gi=1;ENOENT:Put command refers to non-existent image\x1b\\";
-    for _ in 0..4 {
+    for _ in 0..6 {
         command(&mut k, &mut store, b"a=p,i=1");
     }
-    assert_eq!(k.replies(), one.repeat(4), "four whole replies");
+    assert_eq!(k.replies(), one.repeat(6), "six whole replies");
     assert_eq!(k.counts.replies_dropped, 0);
     command(&mut k, &mut store, b"a=p,i=1");
-    assert_eq!(k.replies(), one.repeat(4), "the fifth is not cut in");
+    assert_eq!(k.replies(), one.repeat(6), "the seventh is not cut in");
     assert_eq!(k.counts.replies_dropped, 1, "and is counted");
     k.clear_replies();
     command(&mut k, &mut store, b"a=p,i=1");

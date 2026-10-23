@@ -1854,7 +1854,6 @@ platform = "both"
 tests = ["baud-render/tests/kitty_draw.rs::a_negative_z_draws_under_the_text", "baud-render/tests/kitty_draw.rs::the_source_rectangle_is_what_is_drawn"]
 rows = ["vt:`APC G a=p`"]
 shipped = ["2026-10-16-kitty-pictures-are-cropped-scaled-and", "2026-10-16-background-pictures-sit-behind-coloured-text", "2026-10-16-background-pictures-show-through-tinted-glass", "2026-10-16-pictures-over-the-see-through-window"]
-roadmap = ["F1-43"]
 
 [[feature]]
 id = "image-placeholders"
@@ -1866,6 +1865,28 @@ platform = "both"
 tests = ["baud-core/tests/kitty_placeholder.rs::the_texts_examples_resolve_as_it_says", "baud-render/tests/kitty_placeholder.rs::kittens_placeholders_place_the_picture"]
 rows = ["vt:`APC G a=p,U=1` / `a=T,U=1`, `U+10EEEE`"]
 shipped = ["2026-10-16-kitty-pictures-work-through-tmux", "2026-10-16-pictures-through-tmux-stay-put-while"]
+
+[[feature]]
+id = "image-animation"
+area = "images"
+name = "Animated pictures"
+does = "Animated pictures sent with the kitty picture protocol play in the terminal, frame by frame at the pace the program asks, and hold still while Reduce Motion is on."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_animation.rs::the_clock_runs_a_placed_animation", "baud-core/tests/kitty_animation.rs::a_held_clock_moves_nothing_and_the_client_still_does"]
+rows = ["vt:`APC G a=f` / `a=a` / `a=c`, `d=f` / `d=F`"]
+shipped = ["F1-43"]
+
+[[feature]]
+id = "image-relative"
+area = "images"
+name = "Pictures pinned to pictures"
+does = "A picture can be placed beside another and moves and goes with it, so a program builds a layout of pictures that scrolls as one."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_relative.rs::a_relative_placement_sits_at_its_parent_plus_h_and_v", "baud-core/tests/kitty_relative.rs::a_parents_deletion_takes_its_children_and_their_images"]
+rows = ["vt:`APC G a=p,P=...,Q=...`, `H`, `V`"]
+shipped = ["F1-43"]
 
 [[feature]]
 id = "image-delete"

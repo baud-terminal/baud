@@ -253,6 +253,24 @@ impl Term<'_> {
         self.store.images.set_release(release);
     }
 
+    /// **A tick of kitty's animation clock at `now`** (`[[source:
+    /// kitty-graphics]]`, "Animation"): each running animation placed
+    /// somewhere whose frame's gap has passed shows its next frame
+    /// ([`ImageStore::animate`]), answered [`Animated::Changed`] when a
+    /// frame on show changed, which owes a frame. The macOS loop calls it
+    /// on each display-link tick and the Linux loop on each turn, with the
+    /// system's motion preference: held, nothing moves on the clock.
+    pub fn animate_images(&mut self, now: HostTime, motion: ImageMotion) -> Animated {
+        self.store.images.animate(now, motion)
+    }
+
+    /// When the next animation frame is due after `now`, for a loop that
+    /// waits on a deadline, a tick at `now` already taken
+    /// ([`ImageStore::next_frame`]); none while nothing runs.
+    pub fn next_image_frame(&self, now: HostTime) -> Option<HostTime> {
+        self.store.images.next_frame(now)
+    }
+
     /// What the kitty graphics protocol did: commands, refusals, ignored
     /// commands, cancelled chunks, images stored.
     pub fn kitty(&self) -> KittyCounts {

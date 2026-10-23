@@ -56,7 +56,7 @@ impl Clock {
         self.epoch + Duration::try_from_secs_f64(secs.max(0.0)).unwrap_or(Duration::MAX)
     }
 
-    fn instant_of(&self, t: HostTime) -> Instant {
+    pub(crate) fn instant_of(&self, t: HostTime) -> Instant {
         self.epoch + Duration::from_nanos(t.nanos())
     }
 }
@@ -230,6 +230,12 @@ impl Timed {
             owes = Owes::Full;
         }
         let host = self.clock.host(now);
+        // A kitty animation's next frame, on this clock and held under
+        // reduced motion, as on macOS (`access::image_motion`).
+        let motion = crate::access::image_motion(self.motion);
+        if term.animate_images(host, motion) == baud_domain::Animated::Changed {
+            owes = Owes::Full;
+        }
         // The thumb steps every turn, whatever else is owed.
         let thumb = self.bar.turn(host, term) == crate::bar::Owes::Frame;
         let moving = thumb
@@ -241,6 +247,14 @@ impl Timed {
             (_, true) => Owes::Frame,
             _ => owes,
         }
+    }
+
+    /// **The instant a kitty animation's next frame is due**, after the
+    /// turn at `now` took what was due: what bounds the loop's wait while a
+    /// picture animates (`Term::next_image_frame`).
+    pub(crate) fn frame_deadline(&self, now: Instant, term: &Term<'_>) -> Option<Instant> {
+        term.next_image_frame(self.clock.host(now))
+            .map(|t| self.clock.instant_of(t))
     }
 
     /// The rates the frame just drawn found on screen, and whether the
@@ -387,7 +401,7 @@ mod tests {
     use super::*;
     use crate::config::TrailPick;
     use baud_core::Owned;
-    use baud_domain::{BytePos, ImageBudget, ReadLen, WinSize};
+    use baud_domain::{BytePos, FrameNo, ImageBudget, KittyId, ReadLen, WinSize};
 
     const WS: WinSize = WinSize {
         ws_row: 10,
@@ -475,6 +489,49 @@ mod tests {
             assert_eq!(fx.turn(next, &mut t), Owes::Full, "flip {n} at {next:?}");
             now = next;
         }
+    }
+
+    /// **A kitty animation wakes the wait at each frame's gap and repaints
+    /// whole there, and holds under reduced motion**, as the macOS tick
+    /// steps it and Reduce Motion holds it (`access::image_motion`): a 1x1
+    /// picture of two frames 100 ms apart, run. Perturbations: leave
+    /// `animate_images` out of `turn` -- the frame owes nothing; leave the
+    /// frames out of the wait -- no wake is named.
+    #[test]
+    fn a_kitty_animation_wakes_at_each_gap_and_holds_under_reduced_motion() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4 << 20));
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b_Ga=T,f=24,s=1,v=1,i=1,q=2;AAAA\x1b\\");
+        feed(&mut t, b"\x1b_Ga=f,f=24,s=1,v=1,i=1,z=100,q=2;////\x1b\\");
+        feed(
+            &mut t,
+            b"\x1b_Ga=a,i=1,r=1,z=100\x1b\\\x1b_Ga=a,i=1,s=3\x1b\\",
+        );
+        let off = TrailPick::Named(CursorTrail::Off);
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        let shown = |t: &Term<'_>| {
+            let img = t.images().kitty_image(KittyId::of(1)).expect("stored");
+            t.images().kitty_frames(img).expect("frames").1
+        };
+        assert_eq!(fx.turn(t0, &mut t), Owes::Nothing, "stamped, not yet due");
+        let wake = fx.frame_deadline(t0, &t).expect("the second frame ahead");
+        let after = wake.saturating_duration_since(t0);
+        assert!(
+            after >= Duration::from_millis(99) && after <= Duration::from_millis(101),
+            "{after:?}"
+        );
+        assert_eq!(fx.turn(wake, &mut t), Owes::Full, "the second frame");
+        assert_eq!(shown(&t), FrameNo::of(2));
+        let back = fx.frame_deadline(wake, &t).expect("the first again");
+        assert_eq!(fx.turn(back, &mut t), Owes::Full, "looped");
+        assert_eq!(shown(&t), FrameNo::ROOT);
+        let _ = fx.set_motion(SystemMotion::Reduced, back);
+        let later = back + Duration::from_millis(500);
+        assert_eq!(fx.turn(later, &mut t), Owes::Nothing, "held");
+        assert_eq!(fx.frame_deadline(later, &t), None, "nothing to wake for");
+        assert_eq!(shown(&t), FrameNo::ROOT, "held where it was");
     }
 
     /// **A ReGIS page's blinking pixels wake the wait at the slow flips and

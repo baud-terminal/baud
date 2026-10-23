@@ -110,7 +110,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Pictures
 
-- [ ] **Animated pictures and pictures placed beside others** — Animated pictures, and pictures placed relative to other pictures, the last parts of the kitty picture protocol. *In progress.*
+- [x] **Animated pictures and pictures placed beside others** — Animated pictures, and pictures placed relative to other pictures, the last parts of the kitty picture protocol. (2026-10-23)
 - [x] **Solid backgrounds for Sixel images** — A Sixel image that asks for a solid background gets one, including under reverse video and on the see-through window. (2026-10-22)
 - [x] **A picture that can't be placed says so** — When the terminal has no room for another picture placement, the program now gets an error it can act on instead of being told the picture is up. (2026-10-16)
 - [x] **A refused picture file no longer pushes out older pictures** — When a PNG sent as a file can't be placed, older pictures waiting to be placed stay, exactly as when the file is missing, so the reply reveals nothing about your files. (2026-10-16)

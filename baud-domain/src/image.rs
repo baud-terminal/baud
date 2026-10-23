@@ -47,7 +47,13 @@
 
 use crate::pos::LineIdx;
 use crate::quantity::{Col, Cols, Count, Rows};
+
+mod frames;
 use crate::style::Chan;
+pub use frames::{
+    AnimState, Animated, FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth,
+    FrameLoad, FrameNo, FrameRefusal, ImageMotion,
+};
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// **One image pixel, straight ARGB**: `0xAARRGGBB`, the colour not
@@ -934,6 +940,9 @@ pub struct ImageSlot {
     lit: Option<u32>,
     /// Whether its [`Pixel::FILL`] words are a background to draw.
     ground: ImageGround,
+    /// **Its kitty animation**: the frames after the first, laid after it
+    /// in its span, and the state `a=a` sets ([`frames`]).
+    anim: frames::Frames,
 }
 
 impl ImageSlot {
@@ -949,6 +958,7 @@ impl ImageSlot {
         born: ImageGen::ZERO,
         lit: None,
         ground: ImageGround::Clear,
+        anim: frames::Frames::ONE,
     };
 
     fn is_empty(self) -> bool {
@@ -964,7 +974,16 @@ impl ImageSlot {
         }
     }
 
+    /// The words its span takes: one frame's pixels for an image with no
+    /// animation, and for an animated one every frame it has room for and
+    /// a word for each frame's gap and depth after the first
+    /// ([`frames::Frames`]).
     fn span_len(self) -> usize {
+        self.anim.span(self.width.index() * self.height.index())
+    }
+
+    /// The words of one frame's pixels.
+    fn area(self) -> usize {
         self.width.index() * self.height.index()
     }
 
@@ -1388,6 +1407,10 @@ pub struct ImageView<'a> {
     pub alpha: ImageAlpha,
     /// Whether its [`Pixel::FILL`] words are a background to draw.
     pub ground: ImageGround,
+    /// Which frame of a kitty animation these pixels are, the first for
+    /// every other image: with the image and the epoch, what a renderer
+    /// keys its copy of them by.
+    pub frame: FrameNo,
 }
 
 /// A bounded, caller-owned store of images and their placements.
@@ -1522,6 +1545,11 @@ pub struct ImageStore<'b> {
     release: Option<PageRelease>,
     /// The serial the next placement made takes ([`PlaceSerial`]).
     serial: PlaceSerial,
+    /// **How many images have a second frame**: the gate for a tick of
+    /// the animation clock, one compare when none has.
+    framed: usize,
+    /// Whether the last tick ran the clock or held it.
+    held: ImageMotion,
     /// **How many live placements are relative** ([`KittyParent`]): the
     /// gate for following a parent that moved and deleting what a parent
     /// leaves, so a store with none pays one compare.
@@ -1584,6 +1612,8 @@ impl<'b> ImageStore<'b> {
             claim: None,
             serial: PlaceSerial::NONE,
             relatives: 0,
+            framed: 0,
+            held: ImageMotion::Play,
         }
     }
 
@@ -1613,6 +1643,10 @@ impl<'b> ImageStore<'b> {
             return;
         };
         let (start, end) = (s.start(), s.end());
+        if s.anim.animated() {
+            self.framed = self.framed.saturating_sub(1);
+        }
+        let s = &mut self.slots[i];
         *s = ImageSlot::EMPTY;
         // A slot reused must not be taken for the page being drawn or its
         // plane, whose indices text written over the page clears.
@@ -1876,6 +1910,7 @@ impl<'b> ImageStore<'b> {
             born: self.epoch,
             lit: None,
             ground: ImageGround::Clear,
+            anim: frames::Frames::ONE,
         };
         self.tallest = self.tallest.max(height);
         Some(ImageId::from_index(slot))
@@ -1927,12 +1962,32 @@ impl<'b> ImageStore<'b> {
         height: ImagePx,
         owner: ImageOwner,
     ) -> Option<ImageId> {
+        self.reserve_sparing(width, height, owner, ImageId::NONE)
+    }
+
+    /// [`ImageStore::reserve_evicting`] deleting anything but `spare`: an
+    /// animation frame's data, whose image must outlive it, as kitty spares
+    /// the image a frame is added to (`[[source: kitty-graphics-c]]`
+    /// `handle_animation_frame_load_command()`).
+    pub fn reserve_sparing(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        owner: ImageOwner,
+        spare: ImageId,
+    ) -> Option<ImageId> {
         let area = width.index().saturating_mul(height.index());
         let fits = |st: &ImageStore, live: &dyn Fn(&ImageSlot) -> bool| {
             st.slots.iter().any(|s| !live(s)) && st.lowest_gap_among(area, live).is_some()
         };
+        let kept = spare
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .filter(|s| !s.is_empty())
+            .map(|s| s.start());
         let evictable = |s: &ImageSlot| {
             !s.is_empty()
+                && kept != Some(s.start())
                 && s.placements.index() == 0
                 && s.state == ImageState::Ready
                 && matches!(s.owner, ImageOwner::Kitty(..))
@@ -2007,7 +2062,7 @@ impl<'b> ImageStore<'b> {
         }
         let s = *self.slots.get(id.index()?)?;
         match !s.is_empty() && s.state == ImageState::Decoding {
-            true => Some(&mut self.pixels[s.start()..s.end()]),
+            true => Some(&mut self.pixels[s.start()..s.start() + s.area()]),
             false => None,
         }
     }
@@ -2742,12 +2797,20 @@ impl<'b> ImageStore<'b> {
         if s.state == ImageState::Decoding {
             return None;
         }
+        // The frame shown; an animated image's frames change under a
+        // renderer that keeps its last blit, so it is repainted under as
+        // a partial one is.
+        let at = s.start() + s.anim.shown_index() * s.area();
         Some(ImageView {
-            pixels: &self.pixels[s.start()..s.end()],
+            pixels: &self.pixels[at..at + s.area()],
             width: s.width,
             height: s.height,
-            alpha: s.alpha,
+            alpha: match s.anim.animated() {
+                true => ImageAlpha::Partial,
+                false => s.alpha,
+            },
             ground: s.ground,
+            frame: s.anim.shown_frame(),
         })
     }
 
@@ -3296,6 +3359,7 @@ impl<'b> ImageStore<'b> {
         self.free_from = 0;
         self.local_placed = 0;
         self.relatives = 0;
+        self.framed = 0;
         self.page_plane = None;
         self.page_shows = PageShows::Own;
         self.reach = [None; 2];

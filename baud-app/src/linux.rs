@@ -681,6 +681,11 @@ pub fn run() {
             .timed
             .deadline(now)
             .map(|t| t.saturating_duration_since(now));
+        // A kitty animation's next frame (`Timed::frame_deadline`).
+        let frames = d
+            .timed
+            .frame_deadline(now, &d.term)
+            .map(|t| t.saturating_duration_since(now));
         // A notification's `w`, closed at its deadline whatever the server
         // does with `expire_timeout`.
         let expiry = d
@@ -695,7 +700,7 @@ pub fn run() {
             .and_then(|r| r.watch.deadline())
             .map(|t| t.saturating_duration_since(now));
         let timeout = [
-            sync, repeat, flash, caret, decode, paste, delay, effects, expiry, settle,
+            sync, repeat, flash, caret, decode, paste, delay, effects, frames, expiry, settle,
         ]
         .into_iter()
         .flatten()

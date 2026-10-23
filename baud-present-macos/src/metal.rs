@@ -55,7 +55,8 @@ use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    Col, Cols, CursorStyle, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
+    Col, Cols, CursorStyle, FrameNo, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows,
+    Stride,
 };
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
@@ -646,10 +647,11 @@ pub struct Gpu {
     /// its own texture -- images are not glyph-sized and do not belong in the
     /// shared atlas -- and the cache is cleared whole when the store's epoch
     /// changes, so an image slot reused after a `reset` cannot return the old
-    /// texture. Keyed by [`ImageId`] within an epoch, and by the word a
+    /// texture. Keyed by [`ImageId`] within an epoch, by the word a
     /// Sixel's background fill was drawn as, so a change of the default
-    /// background uploads a filled image again.
-    images: Vec<((ImageId, u32), Texture)>,
+    /// background uploads a filled image again, and by the frame of a
+    /// kitty animation, so a frame shown in another's place uploads.
+    images: Vec<((ImageId, u32, FrameNo), Texture)>,
     image_gen: ImageGen,
     /// Frames committed and not yet completed: zero or one.
     in_flight: Arc<AtomicUsize>,
@@ -1404,13 +1406,11 @@ impl Gpu {
         }
         let mut draws = Vec::with_capacity(places.len());
         for p in places {
-            let key = (p.id, p.ground.bits());
+            let key = (p.id, p.ground.bits(), p.frame);
             if !self.images.iter().any(|(k, _)| *k == key) {
-                let Some(up) = renderer
-                    .image_uploads()
-                    .iter()
-                    .find(|u| u.id == p.id && u.epoch == epoch && u.ground == p.ground)
-                else {
+                let Some(up) = renderer.image_uploads().iter().find(|u| {
+                    u.id == p.id && u.epoch == epoch && u.frame == p.frame && u.ground == p.ground
+                }) else {
                     continue;
                 };
                 let (w, h) = (Px::of(u32::from(up.w)), Px::of(u32::from(up.h)));
@@ -1425,8 +1425,10 @@ impl Gpu {
                 };
                 upload(&tex, w, h, word_bytes(&up.pixels), Texel::Bgra8);
                 // One texture an image: the one drawn in an older fill
-                // colour goes, so the cache keeps no texture per colour.
-                self.images.retain(|((id, _), _)| *id != p.id);
+                // colour goes, so the cache keeps no texture per colour,
+                // and an animation's other frame, so it keeps none per
+                // frame.
+                self.images.retain(|((id, _, _), _)| *id != p.id);
                 self.images.push((key, tex));
             }
             if let Some((_, tex)) = self.images.iter().find(|(k, _)| *k == key) {

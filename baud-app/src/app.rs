@@ -7614,6 +7614,20 @@ mod motion_tests {
         );
     }
 
+    /// **A kitty animation steps on the tick, through the motion
+    /// preference**, and a frame changed owes a whole frame: the tick is
+    /// AppKit-bound, so its source is what can be checked; the steps
+    /// themselves are the core's (`tests/kitty_animation.rs`) and the
+    /// Linux turn's (`timed.rs`).
+    #[test]
+    fn the_tick_steps_kitty_animations_under_the_motion_preference() {
+        const SRC: &str = include_str!("app.rs");
+        let motion = concat!("crate::access::image_", "motion(self.app.motion)");
+        assert_eq!(SRC.matches(motion).count(), 1, "{motion}");
+        let call = concat!("self.app.term.animate_", "images(now, motion)");
+        assert_eq!(SRC.matches(call).count(), 1, "{call}");
+    }
+
     /// A ReGIS page's blinking pixels flip with the slow phase the tick
     /// took through the motion preference, and a repaint owes a frame.
     #[test]
@@ -9181,6 +9195,16 @@ impl Responder for Driver {
         // sent by the pump's flush below.
         if crate::reads::decode_step(&mut self.app.term).1 == crate::reads::Shown::Changed {
             self.app.pending = Pending::Dirty;
+        }
+        // A kitty animation's next frame, off the display link's clock and
+        // held under Reduce Motion (`access::image_motion`): a frame shown
+        // in another's place moves no cell word, so the frame is whole.
+        if let Some(now) = HostTime::of_secs(target) {
+            let motion = crate::access::image_motion(self.app.motion);
+            if self.app.term.animate_images(now, motion) == baud_domain::Animated::Changed {
+                self.app.next_damage = Damage::Full;
+                self.app.pending = Pending::Dirty;
+            }
         }
         self.pump(Trigger::Tick);
         // Every tick, not every frame: an idle screen builds no frame and

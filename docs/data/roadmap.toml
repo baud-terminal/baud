@@ -301,7 +301,8 @@ summary = "Rows a shorter window cut off below the cursor come back when the win
 [[item]]
 id = "F1-43"
 area = "images"
-status = "in_progress"
+status = "done"
+date = "2026-10-23"
 title = "Animated pictures and pictures placed beside others"
 summary = "Animated pictures, and pictures placed relative to other pictures, the last parts of the kitty picture protocol."
 

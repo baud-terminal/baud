@@ -33,9 +33,9 @@ use baud_core::{PaintRole, ProgramPaint, Term};
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
-    ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen, ImageStore, KittyId,
-    KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows, Viewport, ZIndex,
+    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, FrameNo, GlyphId,
+    ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen, ImageStore,
+    KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -1277,6 +1277,10 @@ pub struct ImagePlacement {
     pub id: ImageId,
     /// The store epoch when it was snapshotted -- the cache key with `id`.
     pub epoch: ImageGen,
+    /// Which frame of a kitty animation it shows -- the cache key with
+    /// `id` and `epoch`: a frame shown in place of another is other
+    /// pixels at the same epoch.
+    pub frame: FrameNo,
     /// The screen x of the top-left, device pixels, signed.
     pub x: i16,
     /// The screen y of the top-left, device pixels, signed.
@@ -1330,7 +1334,7 @@ impl ImagePlacement {
         &self,
     ) -> (
         ImageId,
-        ImageGen,
+        (ImageGen, FrameNo),
         i16,
         i16,
         u16,
@@ -1344,7 +1348,7 @@ impl ImagePlacement {
     ) {
         (
             self.id,
-            self.epoch,
+            (self.epoch, self.frame),
             self.x,
             self.y,
             self.w,
@@ -1368,8 +1372,10 @@ impl ImagePlacement {
 pub struct ImageUpload {
     /// Which stored image these pixels are.
     pub id: ImageId,
-    /// The store epoch -- the cache key with `id` and `ground`.
+    /// The store epoch -- the cache key with `id`, `frame` and `ground`.
     pub epoch: ImageGen,
+    /// Which frame of a kitty animation these pixels are.
+    pub frame: FrameNo,
     /// What its [`Pixel::FILL`] words were drawn as in `pixels`, so a
     /// change of the default background uploads the image again.
     pub ground: Pixel,
@@ -4251,6 +4257,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.image_places.push(ImagePlacement {
             id,
             epoch,
+            frame: view.frame,
             x: clamp16(x0 + i0),
             y: clamp16(y0 + j0),
             w: side(i1 - i0),
@@ -4272,13 +4279,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // (unpainted Sixel) pixel, `0x00000000`, leaves the cell showing
         // through and a partial one blends by its alpha.
         if snap == Snapshots::Kept
-            && !self
-                .image_uploads
-                .iter()
-                .any(|u| u.id == id && u.epoch == epoch && u.ground == ground)
+            && !self.image_uploads.iter().any(|u| {
+                u.id == id && u.epoch == epoch && u.frame == view.frame && u.ground == ground
+            })
         {
             // One snapshot an image: the one drawn in an older fill colour
-            // goes, so a fill that follows `OSC 11` keeps no copy per colour.
+            // goes, so a fill that follows `OSC 11` keeps no copy per colour,
+            // and an animation's other frame goes, so it keeps none per
+            // frame.
             self.image_uploads
                 .retain(|u| !(u.id == id && u.epoch == epoch));
             let pixels = match view.ground {
@@ -4292,6 +4300,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.image_uploads.push(ImageUpload {
                 id,
                 epoch,
+                frame: view.frame,
                 ground,
                 w: view.width.raw(),
                 h: view.height.raw(),
@@ -6986,6 +6995,7 @@ mod place_diff {
             ImagePlacement {
                 id: ImageId::NONE,
                 epoch: ImageGen::ZERO,
+                frame: FrameNo::ROOT,
                 x: i16::try_from(n % 5 * 8).unwrap(),
                 y: i16::try_from(n % 7 * 9).unwrap() - 9,
                 w: 8,

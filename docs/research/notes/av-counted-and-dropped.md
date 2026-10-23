@@ -121,7 +121,7 @@ each has a decision behind it.
 | `marks_dropped` | combining marks past the cluster store | note AB's Q7 | **keep** open there |
 | `sixel_p2_ignored` | a Sixel asking for an opaque background, drawn transparent | note S records why the fill is not built and what the texts leave open | **for Jev**, with note S's open points: the owner's rule asks for it built |
 | `reply_overflows`, `string_truncations` | replies past the reply buffer, control strings past theirs | a cut reply is a wrong answer | **keep** |
-| the kitty stream's `refused`, `ignored`, `virtuals_refused` | refused commands; animation and frame deletes; virtual placements past the table | kitty graphics' animation is in scope and unbuilt | **build** animation (the out-of-scope table's row) |
+| the kitty stream's `refused`, `ignored`, `virtuals_refused` | refused commands; commands no handler takes; virtual placements past the table | animation, which `ignored` counted, is built since 2026-10-23, and nothing the text names reaches it now | **keep** |
 | the image store's `images_refused`, `placements_refused` | images and placements past the store's limits | bounded by design | **keep** |
 
 ## `out` rows no counter reaches
@@ -138,8 +138,8 @@ each has a decision behind it.
 
 The rows marked **partial** in `docs/vt-coverage.md` act on part of what
 they name and say which part; they are not counted and are not repeated
-here. Kitty graphics' animation commands are in that file's out-of-scope
-table as "in scope and unbuilt".
+here. Kitty graphics' animation commands, which that file's out-of-scope
+table carried as "in scope and unbuilt", are built since 2026-10-23.
 
 ## The owner's calls of 2026-10-20
 

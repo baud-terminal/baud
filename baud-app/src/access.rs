@@ -41,6 +41,22 @@ pub(crate) fn system_motion(
     }
 }
 
+/// **What the motion preference does to a kitty animation**: reduced, the
+/// frames hold where they are and a program's own frame changes still show
+/// (Jev's lean, HOLD_CURRENT, 0.85 and 0.88 after research, under the bar;
+/// the kitty text is silent): "reducing automatic and repetitive
+/// animations" under Reduce Motion (`[[source: apple-hig-accessibility]]`),
+/// as text blink and the cursor's blink stop under it. Apple's separate
+/// Animated Images setting, "Pause animations in animated images in your
+/// app when people turn off the Animated Images setting", is not read: the
+/// window crate has no reader for it.
+pub(crate) fn image_motion(m: crate::config::SystemMotion) -> baud_domain::ImageMotion {
+    match m {
+        crate::config::SystemMotion::Full => baud_domain::ImageMotion::Play,
+        crate::config::SystemMotion::Reduced => baud_domain::ImageMotion::Hold,
+    }
+}
+
 /// Increase Contrast: "UI should be presented with high contrast such as
 /// utilizing a less subtle color palette or bolder lines"
 /// ([[source: macos-sdk-nsaccessibility-h]] line 93); on Linux the
@@ -83,5 +99,20 @@ fn stricter(floor: baud_render::Floor) -> baud_render::Floor {
     baud_render::Floor::Lift {
         trigger: trigger.max(3.0),
         target: target.max(4.5),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SystemMotion;
+    use baud_domain::ImageMotion;
+
+    /// **Reduced motion holds a kitty animation, full motion runs it**,
+    /// on both drivers through this one mapping.
+    #[test]
+    fn reduced_motion_holds_a_kitty_animation() {
+        assert_eq!(image_motion(SystemMotion::Full), ImageMotion::Play);
+        assert_eq!(image_motion(SystemMotion::Reduced), ImageMotion::Hold);
     }
 }
