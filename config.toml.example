@@ -491,6 +491,12 @@ changes = "on"
 # font lacks from your ordinary fonts. None by default.
 # alternatives = ["Fira Code", "", "Menlo"]
 
+# The face Fraktur (Gothic) text draws in, as SGR 20 asks for, named as in
+# `fonts`. baud carries no Fraktur face, so with none named here Fraktur
+# text draws in your ordinary font. A character the face lacks comes from
+# the alternative font the text is in, if any, then your ordinary fonts.
+# fraktur = "UnifrakturMaguntia"
+
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
 # content both its examples draw, and what was built as "glassterm". The

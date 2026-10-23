@@ -160,9 +160,10 @@ pub struct Config {
     pub faces: Vec<FaceSpec>,
     /// Whether `faces` is the built-in stack or a config's.
     pub stack: StackFrom,
-    /// The faces `[font] alternatives` names for `SGR 11`-`19`, each with
-    /// its [`baud_render::FaceRole::Font`], until [`Config::resolve`] finds
-    /// each and its family's styles and puts them behind `faces`. Empty by
+    /// The faces `[font] alternatives` names for `SGR 11`-`19` and `[font]
+    /// fraktur` names for `SGR 20`, each with its
+    /// [`baud_render::FaceRole::Font`], until [`Config::resolve`] finds each
+    /// and its family's styles and puts them behind `faces`. Empty by
     /// default: a font no face is named for draws the primary.
     pub font_slots: Vec<FaceSpec>,
     /// Whether the embedded Regular, the icon face and STIX Two Math follow
@@ -1130,8 +1131,9 @@ impl Config {
         said
     }
 
-    /// **The faces `SGR 11`-`19` draw from**: each font `[font]
-    /// alternatives` names, found as a `fonts` entry is -- an installed
+    /// **The faces `SGR 11`-`19` and `SGR 20` draw from**: each font
+    /// `[font] alternatives` names, and the face `[font] fraktur` names,
+    /// found as a `fonts` entry is -- an installed
     /// family's regular face, or a file -- with its family's Bold, Italic
     /// and Bold Italic picked by the same CSS Fonts search, each given its
     /// [`baud_render::FaceRole::Font`]. A name no installed font has, or a
@@ -1673,6 +1675,21 @@ impl Config {
                         let font = baud_render::FontSlot::alternative(id);
                         self.font_slots.push(FaceSpec {
                             role: baud_render::FaceRole::Font(font, baud_render::FaceStyle::Regular),
+                            ..FaceSpec::parse(name)
+                        });
+                    }
+                }
+                ("font", "fraktur") => {
+                    self.font_slots.retain(|f| {
+                        !matches!(f.role, baud_render::FaceRole::Font(font, _) if font.has_fraktur())
+                    });
+                    let name = value.trim().trim_matches('"');
+                    if !name.trim().is_empty() {
+                        self.font_slots.push(FaceSpec {
+                            role: baud_render::FaceRole::Font(
+                                baud_render::FontSlot::FRAKTUR,
+                                baud_render::FaceStyle::Regular,
+                            ),
                             ..FaceSpec::parse(name)
                         });
                     }
@@ -2967,6 +2984,39 @@ mod named {
             .map(|(d, f)| baud_font::Face::parse_index(d, f.index).unwrap())
             .collect();
         assert!(baud_render::Stack::with_roles(&faces, &roles).is_some());
+    }
+
+    /// **`[font] fraktur` names the face of `SGR 20`**, none by default, and
+    /// a name found brings its family's styles; one not found is said.
+    #[test]
+    fn the_fraktur_key_names_the_face_of_sgr_20() {
+        let fraktur = baud_render::FontSlot::FRAKTUR;
+        let mut c = read("[font]\nfraktur = \"JetBrains Mono\"\n");
+        assert!(c.resolve(&jetbrains()).is_empty());
+        let got = font_faces(&c);
+        assert!(
+            got.iter().any(|f| f
+                == &(
+                    fraktur,
+                    baud_render::FaceStyle::Regular,
+                    "JetBrainsMono-Regular.ttf".to_string()
+                )),
+            "{got:?}"
+        );
+        assert!(got.iter().any(|f| (f.0, f.1) == (fraktur, Bold)), "{got:?}");
+        // A later key replaces it, and an empty one names none.
+        let c = read("[font]\nfraktur = \"a\"\nfraktur = \"\"\n");
+        assert!(c.font_slots.is_empty());
+        let mut c = read("[font]\nfraktur = \"No Such Font\"\n");
+        let said = c.resolve(&jetbrains());
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("[font] fraktur") && said[0].contains("SGR 20"),
+            "{said:?}"
+        );
+        // The alternatives leave it, and it leaves them.
+        let c = read("[font]\nfraktur = \"a\"\nalternatives = [\"b\"]\nfraktur = \"c\"\n");
+        assert_eq!(c.font_slots.len(), 2);
     }
 
     /// **A font not found is said, and draws the primary**: a name no

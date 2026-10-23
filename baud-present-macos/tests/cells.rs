@@ -4083,16 +4083,18 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     composed_decoration_gate(arms, t);
 }
 
-/// **`SGR 11`-`19` draw from their fonts alike on all three arms**: the
-/// cell arm through the font bits in its glyph-map key, the instance and
-/// CPU arms through the stack. Font 1 is JetBrains Mono Italic and font 9
-/// its Bold Italic, each named alone, with font 1's Bold beside it; the
-/// scene draws each named font over text, a ligature, a wide character, a
-/// marked cluster (a record of its own) and a Nerd Fonts icon no text face
+/// **`SGR 11`-`19` and `SGR 20` draw from their fonts alike on all three
+/// arms**: the cell arm through the font bits in its glyph-map key, the
+/// instance and CPU arms through the stack. Font 1 is JetBrains Mono
+/// Italic and font 9 its Bold Italic, each named alone, with font 1's Bold
+/// beside it, and the Fraktur face's stand-in is its Bold; the scene draws
+/// each named font over text, a ligature, a wide character, a marked
+/// cluster (a record of its own) and a Nerd Fonts icon no text face
 /// carries, which comes from the chain behind the font, bold in font 1,
-/// and font 2, which no face is named for and which draws the primary.
-/// The premise that the fonts reached the pixels: the same text in font
-/// 10 paints otherwise, and font 2's line paints what font 10's does.
+/// font 2, which no face is named for and which draws the primary, and
+/// Fraktur alone and over font 1. The premise that the fonts reached the
+/// pixels: the same text in font 10 paints otherwise, the Fraktur lines
+/// alone paint otherwise, and font 2's line paints what font 10's does.
 #[test]
 fn alternative_fonts_draw_alike_on_every_arm() {
     let app_font = |p: &str| {
@@ -4113,6 +4115,7 @@ fn alternative_fonts_draw_alike_on_every_arm() {
         Face::parse(&italic).expect("parse"),
         Face::parse(&bold).expect("parse"),
         Face::parse(&bold_italic).expect("parse"),
+        Face::parse(&bold).expect("parse"),
     ];
     let font = |n: u16| FontSlot::alternative(baud_domain::FontId::from_sgr(10 + n).unwrap());
     let roles = [
@@ -4121,6 +4124,7 @@ fn alternative_fonts_draw_alike_on_every_arm() {
         FaceRole::Font(font(1), FaceStyle::Regular),
         FaceRole::Font(font(1), FaceStyle::Bold),
         FaceRole::Font(font(9), FaceStyle::Regular),
+        FaceRole::Font(FontSlot::FRAKTUR, FaceStyle::Regular),
     ];
     let renderer = Renderer::new(
         Stack::with_roles(&faces, &roles).unwrap(),
@@ -4133,16 +4137,39 @@ fn alternative_fonts_draw_alike_on_every_arm() {
     .unwrap();
     arms!(renderer => arms, t);
     let body = "ab->x \u{4e2d}\u{6587} e\u{301}q \u{f07b} WiW the quick brown fox jumps 0123";
-    let lines = |sgr: [&str; 4]| {
-        format!(
-            "\x1bc\x1b[?25l\x1b[{}m{body}\x1b[0m\r\n\x1b[{}m{body}\x1b[0m\r\n\
-             \x1b[{}m{body}\x1b[0m\r\n\x1b[{}m{body}\x1b[0m",
-            sgr[0], sgr[1], sgr[2], sgr[3]
-        )
+    let lines = |sgr: [&str; 6]| {
+        let mut out = String::from("\x1bc\x1b[?25l");
+        for (i, s) in sgr.iter().enumerate() {
+            if i > 0 {
+                out.push_str("\r\n");
+            }
+            out.push_str(&format!("\x1b[{s}m{body}\x1b[0m"));
+        }
+        out
     };
-    feed(&mut t, lines(["10", "10", "1;10", "10"]).as_bytes());
+    feed(
+        &mut t,
+        lines(["10", "10", "1;10", "10", "10", "10"]).as_bytes(),
+    );
     let (plain, _) = arms.draw(&mut t);
-    feed(&mut t, lines(["11", "19", "1;11", "12"]).as_bytes());
+    feed(
+        &mut t,
+        lines(["10", "10", "1;10", "10", "20", "20"]).as_bytes(),
+    );
+    let (fraktur, fraktur_cell) = arms.draw(&mut t);
+    assert!(
+        differing(&plain, &fraktur) > 0,
+        "the Fraktur face never reached the instance arm's pixels"
+    );
+    assert_eq!(
+        differing(&fraktur, &fraktur_cell),
+        0,
+        "the GPU arms disagree on Fraktur"
+    );
+    feed(
+        &mut t,
+        lines(["11", "19", "1;11", "12", "20", "11;20"]).as_bytes(),
+    );
     let (a, b) = arms.draw(&mut t);
     let cpu = cpu_frame(&mut arms, &mut t);
     assert!(
@@ -4152,7 +4179,10 @@ fn alternative_fonts_draw_alike_on_every_arm() {
     assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the fonts");
     assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on the fonts");
     // Font 2, named no face, paints the primary's row.
-    feed(&mut t, lines(["12", "12", "1;12", "12"]).as_bytes());
+    feed(
+        &mut t,
+        lines(["12", "12", "1;12", "12", "12", "12"]).as_bytes(),
+    );
     let (unnamed, unnamed_cell) = arms.draw(&mut t);
     assert_eq!(differing(&plain, &unnamed), 0, "font 2 left the primary");
     assert_eq!(
