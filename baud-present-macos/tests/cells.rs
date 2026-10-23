@@ -3636,6 +3636,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
+    iterm_file_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
     line_rendition_gate(&mut arms, &mut t);
@@ -6212,6 +6213,162 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     kitty_picks_gate(arms, t);
     kitty_placeholder_gate(arms, t);
     kitty_placeholder_leaving_gate(arms, t);
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
+    feed(t, b"\x1bc");
+}
+
+/// A PNG of `w` by `h` opaque RGB pixels, its zlib stream in stored
+/// blocks, written here so no decoder under test writes its own input.
+fn stored_png(w: usize, h: usize, px: impl Fn(usize, usize) -> [u8; 3]) -> Vec<u8> {
+    fn crc(data: &[u8]) -> u32 {
+        let mut c = 0xFFFF_FFFFu32;
+        for &b in data {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = match c & 1 {
+                    1 => 0xEDB8_8320 ^ (c >> 1),
+                    _ => c >> 1,
+                };
+            }
+        }
+        !c
+    }
+    let mut raw = Vec::new();
+    for y in 0..h {
+        raw.push(0);
+        for x in 0..w {
+            raw.extend(px(x, y));
+        }
+    }
+    let mut z = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(65535).collect();
+    for (i, b) in blocks.iter().enumerate() {
+        z.push(u8::from(i + 1 == blocks.len()));
+        let n = u16::try_from(b.len()).unwrap();
+        z.extend(n.to_le_bytes());
+        z.extend((!n).to_le_bytes());
+        z.extend_from_slice(b);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in &raw {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    z.extend(((b << 16) | a).to_be_bytes());
+    let chunk = |kind: &[u8], data: &[u8], out: &mut Vec<u8>| {
+        out.extend(u32::try_from(data.len()).unwrap().to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend_from_slice(&body);
+        out.extend(crc(&body).to_be_bytes());
+    };
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = Vec::new();
+    ihdr.extend(u32::try_from(w).unwrap().to_be_bytes());
+    ihdr.extend(u32::try_from(h).unwrap().to_be_bytes());
+    ihdr.extend([8, 2, 0, 0, 0]);
+    chunk(b"IHDR", &ihdr, &mut out);
+    chunk(b"IDAT", &z, &mut out);
+    chunk(b"IEND", &[], &mut out);
+    out
+}
+
+/// **An iTerm2 inline picture, on all three paths** (`OSC 1337 ;
+/// File=inline=1:base64`, `[[source: iterm2-images]]`): placed at the
+/// cursor one pixel a device pixel, so every path draws the picture's own
+/// pixels over its cells; and text written over one of its cells clears
+/// that cell's part alone, the rest drawn as before, the arms agreeing on
+/// both frames.
+fn iterm_file_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let (w, h) = (
+        usize::try_from(3 * cw).unwrap(),
+        usize::try_from(2 * ch).unwrap(),
+    );
+    let rgb = |x: usize, y: usize| {
+        let v = |n: usize| u8::try_from(n % 256).unwrap();
+        [v(x * 9 + 20), v(y * 7 + 40), v(x * 3 + y * 5)]
+    };
+    let png = stored_png(w, h, rgb);
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut cmd = b"\x1bc\x1b[?25l\x1b[3;5H\x1b]1337;File=inline=1:".to_vec();
+    for q in png.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            match k <= q.len() {
+                true => cmd.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                false => cmd.push(b'='),
+            }
+        }
+    }
+    cmd.push(0x07);
+    feed(t, &cmd);
+    let (a, b) = arms.draw(t);
+    let places = arms.renderer.image_placements();
+    assert_eq!(places.len(), 1, "the picture is on screen");
+    let (x0, y0) = (
+        usize::try_from(places[0].x).unwrap(),
+        usize::try_from(places[0].y).unwrap(),
+    );
+    assert_eq!(
+        (x0, y0),
+        (
+            usize::try_from(4 * cw).unwrap(),
+            usize::try_from(2 * ch).unwrap()
+        ),
+        "at the cursor's cell"
+    );
+    let want = |x: usize, y: usize| {
+        let [r, g, bl] = rgb(x, y);
+        0xFF00_0000 | u32::from(r) << 16 | u32::from(g) << 8 | u32::from(bl)
+    };
+    let mut wrong = 0;
+    for y in 0..h {
+        for x in 0..w {
+            if a[(y0 + y) * fw + x0 + x] != want(x, y) {
+                wrong += 1;
+            }
+        }
+    }
+    assert_eq!(wrong, 0, "the instance arm draws the picture's own pixels");
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the picture");
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on the picture"
+    );
+    // `X` over the picture's second cell of its first row.
+    feed(t, b"\x1b[3;6HX");
+    let (a, b) = arms.draw(t);
+    let (cwu, chu) = (usize::try_from(cw).unwrap(), usize::try_from(ch).unwrap());
+    let (mut kept, mut cleared) = (0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            let in_cell = (cwu..2 * cwu).contains(&x) && y < chu;
+            let same = a[(y0 + y) * fw + x0 + x] == want(x, y);
+            match (in_cell, same) {
+                (false, false) => kept += 1,
+                (true, true) => cleared += 1,
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(kept, 0, "the rest of the picture is drawn as before");
+    assert_eq!(cleared, 0, "the cell the text landed on shows none of it");
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after the text");
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees after the text"
+    );
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }

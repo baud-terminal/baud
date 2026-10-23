@@ -106,6 +106,11 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
         "OSC 1337 ; SetColors=key=value",
         b"\x1b]1337;SetColors=fg=fff\x1b\\",
     ),
+    // A file in parts begun, inline: its data comes in later messages.
+    (
+        "OSC 1337 ; File=args, MultipartFile, FilePart, FileEnd",
+        b"\x1b]1337;MultipartFile=inline=1\x1b\\",
+    ),
     // The version `n` names: 9, the current tables.
     (
         "OSC 1337 ; UnicodeVersion=n",

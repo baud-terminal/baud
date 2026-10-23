@@ -6,6 +6,7 @@ mod esc;
 mod file_uri;
 mod font_ops;
 mod iterm;
+mod iterm_file;
 #[cfg(test)]
 mod iterm_keys;
 mod key;
@@ -42,6 +43,7 @@ pub use esc::*;
 pub use file_uri::*;
 pub use font_ops::*;
 pub use iterm::*;
+pub use iterm_file::*;
 pub use key::*;
 pub use kitty_color::*;
 pub use level::*;

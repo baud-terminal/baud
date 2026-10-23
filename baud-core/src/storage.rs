@@ -572,6 +572,9 @@ pub struct StrBuf<'b> {
     /// [`USER_VARS`]; none through [`StrBuf::new`], under which every one
     /// is refused and counted. A slice for the reason `clip_area` is.
     pub(crate) user_vars: &'b mut [UserVar],
+    /// iTerm2's inline image being received (`crate::file`), its octets in
+    /// `kitty_scratch`. Here for the reason `window_asks` is.
+    pub(crate) iterm_file: ItermFile,
 }
 
 impl<'b> StrBuf<'b> {
@@ -654,6 +657,7 @@ impl<'b> StrBuf<'b> {
             attention_requests: crate::notice::ReportCount::FIRST,
             iterm: crate::iterm::Iterm::NEW,
             user_vars: &mut [],
+            iterm_file: ItermFile::NEW,
         }
     }
 }
@@ -994,6 +998,7 @@ impl Owned {
                 attention_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
+                iterm_file: ItermFile::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -1082,6 +1087,7 @@ impl Owned {
                 attention_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
+                iterm_file: ItermFile::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,

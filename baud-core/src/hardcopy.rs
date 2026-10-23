@@ -458,7 +458,7 @@ impl Paint<'_, '_> {
             }
             if !matches!(
                 imgs.owner(p.image),
-                Some(ImageOwner::Local | ImageOwner::Regis)
+                Some(ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm)
             ) {
                 continue;
             }

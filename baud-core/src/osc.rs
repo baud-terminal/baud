@@ -89,6 +89,15 @@ impl Paint<'_, '_> {
                 return ReadLen::of_bytes(n);
             }
         }
+        // iTerm2's inline image data in bulk, as kitty's: a run of
+        // printable bytes, which base64 is, decoded at once.
+        if self.cold.str_kind == StrKind::ItermFile {
+            let n = crate::write::run_of_text(self, from, left);
+            if n.index() > 0 {
+                self.file_run(from, n);
+                return ReadLen::of_bytes(n);
+            }
+        }
         self.str_put(StreamByte::from_stream(self.arena[from.index()]));
         ReadLen::ONE
     }
@@ -220,7 +229,7 @@ impl Paint<'_, '_> {
                 folded if folded == b => b,
                 folded => self.osc_gr(b, folded),
             },
-            StrKind::Clipboard | StrKind::Notice | StrKind::ColorControl => {
+            StrKind::Clipboard | StrKind::Notice | StrKind::ColorControl | StrKind::ItermFile => {
                 self.cold.str_enc.gr_as_gl(b)
             }
             _ => b,
@@ -229,6 +238,10 @@ impl Paint<'_, '_> {
         // not kept in `pending`, whose 512 bytes hold under 400 of text.
         if self.cold.str_kind == StrKind::Clipboard {
             return self.clip_put(b);
+        }
+        // iTerm2's inline image data, past `File=args:` or `FilePart=`.
+        if self.cold.str_kind == StrKind::ItermFile {
+            return self.file_put(b);
         }
         // A kitty `OSC 99` payload, past the metadata `pending` keeps.
         if self.cold.str_kind == StrKind::Notice {
@@ -369,6 +382,22 @@ impl Paint<'_, '_> {
             {
                 self.copy_route(ByteLen::from_index(n));
             }
+            // **`1337;File=` routes its data at its `:`**, and a part's at
+            // `1337;FilePart=`: an inline picture's base64 is as unbounded
+            // as a copy's (`crate::file`).
+            if b.raw_byte() == b':'
+                && n >= 10
+                && self.cold.str_kind == StrKind::Osc
+                && self.strs.pending[..10] == *b"1337;File="
+            {
+                self.file_route(ByteLen::from_index(n));
+            }
+            if n == 13
+                && self.cold.str_kind == StrKind::Osc
+                && self.strs.pending[..14] == *b"1337;FilePart="
+            {
+                self.file_part_route();
+            }
             // **`21;` routes the rest to kitty's colour control**, read a
             // record at a time, so a sequence of any length is honoured
             // (`colour.rs`).
@@ -478,6 +507,7 @@ impl Paint<'_, '_> {
             StrKind::Osc => self.dispatch_osc(term),
             StrKind::Sixel => self.sixel_end(),
             StrKind::Clipboard => self.clip_end(),
+            StrKind::ItermFile => self.file_end(),
             StrKind::Notice => self.notice_end(),
             StrKind::ColorControl => self.colour_end(),
             StrKind::Decrqss => {
@@ -1340,6 +1370,10 @@ pub(crate) enum StrKind {
     /// at its `;` (`colour.rs`). Reached through the body's own bytes, as
     /// `Clipboard` is.
     ColorControl,
+    /// An `OSC 1337` past `File=args:` or `FilePart=`: iTerm2's inline
+    /// image data, decoded into the PNG scratch as it arrives (`file.rs`).
+    /// Reached through the body's own bytes, as `Clipboard` is.
+    ItermFile,
 }
 
 impl StrKind {

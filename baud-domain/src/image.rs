@@ -138,6 +138,12 @@ impl Pixel {
         self.0
     }
 
+    /// The words of `px` as the bytes they lie in, for a decoder that
+    /// writes RGBA8 rows in place, as kitty's PNG decode does.
+    pub fn bytes_mut(px: &mut [Pixel]) -> &mut [u8] {
+        px.as_mut_bytes()
+    }
+
     /// The pixel whose four bytes in memory are `r, g, b, a` in that order,
     /// as PNG's RGBA8 and kitty's `f=32` lay them out: the word a byte
     /// decoder left in place, read back as the straight ARGB it means.
@@ -469,6 +475,11 @@ pub enum ImageOwner {
     /// whole, as a Sixel is. It goes with its last placement as a local
     /// image does.
     Regis,
+    /// An iTerm2 inline picture ([`ImageStore::set_iterm`]): drawn as a
+    /// Sixel is, one pixel a device pixel, and written over by text a cell
+    /// at a time, as iTerm2's image characters are, the rest of the picture
+    /// staying (Jev's lean, PER_CELL). It goes with its last placement.
+    Iterm,
 }
 
 /// **Whether a stored image's pixels are all there.** A kitty image is
@@ -814,7 +825,7 @@ impl ImageSlot {
     /// kitty one no id names.
     fn goes_with_placements(self) -> bool {
         match self.owner {
-            ImageOwner::Local | ImageOwner::Regis => true,
+            ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm => true,
             ImageOwner::Kitty(id, _) => id.is_none(),
         }
     }
@@ -1442,7 +1453,7 @@ impl<'b> ImageStore<'b> {
     /// Hand the whole pages inside `span`, memory no live image holds, to
     /// the lent release, and count those it gave back: the kitty PNG
     /// scratch, outside the arena.
-    pub(crate) fn release_span(&mut self, span: &mut [u8]) {
+    pub fn release_span(&mut self, span: &mut [u8]) {
         if let Some(r) = self.release {
             self.bytes_released += r.release(span);
         }
@@ -1601,7 +1612,12 @@ impl<'b> ImageStore<'b> {
     fn rows_over(&self, p: PlacementSlot) -> Rows {
         let ch = self.cell_h.index();
         match p.image.index().and_then(|i| self.slots.get(i)) {
-            Some(img) if matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) && ch != 0 => {
+            Some(img)
+                if matches!(
+                    img.owner,
+                    ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm
+                ) && ch != 0 =>
+            {
                 Rows::of_count(img.height.index().div_ceil(ch).max(1))
             }
             _ => p.kitty.shown(),
@@ -1794,6 +1810,47 @@ impl<'b> ImageStore<'b> {
             }
         }
         self.reserve(width, height, owner)
+    }
+
+    /// **Mark a stored image an iTerm2 picture** ([`ImageOwner::Iterm`]),
+    /// which text clears a cell at a time.
+    pub fn set_iterm(&mut self, id: ImageId) {
+        if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+            if !s.is_empty() {
+                s.owner = ImageOwner::Iterm;
+            }
+        }
+    }
+
+    /// **Store `src` resampled to a `w` by `h` image**, the first `w` of
+    /// `full_w` drawn columns -- a picture drawn `full_w` by `h` device
+    /// pixels and cut at the screen's edge -- each pixel the source pixel
+    /// under its centre, [`ImageDraw::nearest`], the filter every drawing
+    /// path samples with, so a picture resampled here draws as one scaled
+    /// at draw time would. Refused and counted as [`ImageStore::store`]
+    /// refuses; `src` is left as it was.
+    pub fn store_resampled(
+        &mut self,
+        src: ImageId,
+        w: ImagePx,
+        h: ImagePx,
+        full_w: u32,
+    ) -> Option<ImageId> {
+        let (sw, sh) = self.size_of(src)?;
+        let from = self.slots.get(src.index()?)?.start();
+        let (id, _) = self.store(w, h, ImageAlpha::OpaqueOrClear)?;
+        let to = self.slots.get(id.index()?)?.start();
+        let (sw, sh) = (u32::from(sw.raw()), u32::from(sh.raw()));
+        let (w, h) = (w.index(), h.index());
+        let dh = u32::try_from(h).unwrap_or(u32::MAX);
+        for y in 0..h {
+            let sy = ImageDraw::nearest(u32::try_from(y).unwrap_or(0), dh, 0, sh) as usize;
+            for x in 0..w {
+                let sx = ImageDraw::nearest(u32::try_from(x).unwrap_or(0), full_w, 0, sw) as usize;
+                self.pixels[to + y * w + x] = self.pixels[from + sy * sw as usize + sx];
+            }
+        }
+        Some(id)
     }
 
     /// The pixels of an image still being decoded, to write in place;
@@ -2268,7 +2325,10 @@ impl<'b> ImageStore<'b> {
         self.placed += 1;
         self.live = self.live.max(p + 1);
         self.free_from = p + 1;
-        if matches!(self.slots[i].owner, ImageOwner::Local | ImageOwner::Regis) {
+        if matches!(
+            self.slots[i].owner,
+            ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm
+        ) {
             self.local_placed += 1;
         }
         self.widen(screen, line, line.plus(Rows::of_count(1)));
@@ -3203,7 +3263,12 @@ impl<'b> ImageStore<'b> {
             // erase text must have no effect on graphics"
             // (`[[source: kitty-graphics]]`), and one under the text, at a
             // negative z, is there to be written over.
-            if img.is_empty() || !matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) {
+            if img.is_empty()
+                || !matches!(
+                    img.owner,
+                    ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm
+                )
+            {
                 continue;
             }
             let rows = img.height.index().div_ceil(ch);
@@ -3213,6 +3278,12 @@ impl<'b> ImageStore<'b> {
             // The write's row `wl` lands in the image's rows, and its column
             // span `[col0, col1)` overlaps the image's `[c0, c0 + cols)`.
             if wl >= l0 && wl < l0 + rows && col1 > c0 && col0 < c0 + cols {
+                // **An iTerm2 picture loses the cells text lands on**, as
+                // iTerm2's image characters are replaced one at a time.
+                if img.owner == ImageOwner::Iterm {
+                    freed += self.clear_cells_of(p, i, wl - l0, (col0, col1), (cw, ch));
+                    continue;
+                }
                 if img.owner == ImageOwner::Regis {
                     let cleared = self.clear_page_cells(
                         slot.image,
@@ -3264,7 +3335,7 @@ impl<'b> ImageStore<'b> {
         let img = self.slots[i];
         let c0 = slot.col.index();
         let lit = match (img.owner, img.lit) {
-            (ImageOwner::Local, None) => {
+            (ImageOwner::Local | ImageOwner::Iterm, None) => {
                 let n = self.pixels[img.start()..img.end()]
                     .iter()
                     .filter(|px| px.alpha().get() != 0)
@@ -3277,7 +3348,7 @@ impl<'b> ImageStore<'b> {
         let left = lit.map(|n| n.saturating_sub(cleared));
         self.slots[i].lit = left;
         let mut freed = 0;
-        if img.owner == ImageOwner::Local && left == Some(0) {
+        if matches!(img.owner, ImageOwner::Local | ImageOwner::Iterm) && left == Some(0) {
             self.unplace(PlacementId::from_index(p));
             freed += 1;
         }
@@ -3331,7 +3402,12 @@ impl<'b> ImageStore<'b> {
                 continue;
             };
             let img = self.slots[i];
-            if img.is_empty() || !matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) {
+            if img.is_empty()
+                || !matches!(
+                    img.owner,
+                    ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm
+                )
+            {
                 continue;
             }
             let rows = img.height.index().div_ceil(ch);
@@ -3514,7 +3590,8 @@ impl<'b> ImageStore<'b> {
         let Some(img) = s.image.index().and_then(|i| self.slots.get(i)) else {
             return false;
         };
-        if img.is_empty() || img.owner != ImageOwner::Local || cw == 0 {
+        if img.is_empty() || !matches!(img.owner, ImageOwner::Local | ImageOwner::Iterm) || cw == 0
+        {
             return false;
         }
         let (c0, c1) = (
@@ -3655,7 +3732,12 @@ impl<'b> ImageStore<'b> {
             .image
             .index()
             .and_then(|i| self.slots.get(i))
-            .is_some_and(|s| matches!(s.owner, ImageOwner::Local | ImageOwner::Regis));
+            .is_some_and(|s| {
+                matches!(
+                    s.owner,
+                    ImageOwner::Local | ImageOwner::Regis | ImageOwner::Iterm
+                )
+            });
         if local {
             self.local_placed = self.local_placed.saturating_sub(1);
         }

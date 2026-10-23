@@ -143,6 +143,10 @@ impl Paint<'_, '_> {
             Osc1337::CopySegment { uid, data } => self.segment_whole(uid, data),
             Osc1337::CopyEnd => self.segment_end(),
             Osc1337::CopyAbandon => self.segment_abandon(),
+            Osc1337::File { .. }
+            | Osc1337::MultipartFile(_)
+            | Osc1337::FilePart(_)
+            | Osc1337::FileEnd => self.file_message(o),
             Osc1337::Fireworks => self.not_acted(ItermKey::RequestAttention),
             Osc1337::Malformed(key) | Osc1337::Ignored(key) => self.not_acted(key),
             Osc1337::Unknown => {

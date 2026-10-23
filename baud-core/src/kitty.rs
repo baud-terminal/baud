@@ -26,6 +26,8 @@ impl Paint<'_, '_> {
             return;
         }
         self.cold.str_kind = StrKind::Kitty;
+        // An iTerm2 file still arriving gives the scratch up (`crate::file`).
+        self.file_yield();
         let s = &mut *self.strs;
         s.kitty.begin(self.images, s.kitty_scratch);
         self.rehook();
@@ -138,7 +140,7 @@ impl Paint<'_, '_> {
     }
 
     /// The stream's replies into the reply buffer, each whole or counted.
-    fn kitty_replies(&mut self) {
+    pub(crate) fn kitty_replies(&mut self) {
         let s = &mut *self.strs;
         let b = s.kitty.replies();
         if b.is_empty() {

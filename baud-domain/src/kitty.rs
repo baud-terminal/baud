@@ -1075,6 +1075,27 @@ impl KittyStream {
         self.out_len = 0;
     }
 
+    /// **Whether a PNG holds the scratch**: one loading across chunks, or
+    /// one waiting for its deferred decode. Another stream that writes the
+    /// scratch -- iTerm2's inline images -- asks first.
+    pub fn holds_scratch(&self) -> bool {
+        matches!(self.load, Load::Png { .. } | Load::PngZ { .. })
+            || matches!(self.deferred, Deferred::Png { .. })
+    }
+
+    /// **Give the scratch up to another stream**: a deferred decode is
+    /// finished first, so its picture shows and its reply is owed
+    /// ([`KittyStream::replies`]), and a PNG still loading across chunks is
+    /// abandoned, as a cancelled chunk's upload is, and counted cancelled.
+    pub fn yield_scratch(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        self.drain(store, scratch);
+        if matches!(self.load, Load::Png { .. } | Load::PngZ { .. }) {
+            self.counts.cancelled += 1;
+            self.abort(store);
+        }
+        self.settle(store, scratch);
+    }
+
     /// Whether a deferred decode is pending.
     pub fn pending(&self) -> DecodeProgress {
         match self.deferred {

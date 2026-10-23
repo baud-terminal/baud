@@ -154,13 +154,13 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
         NoCounterpart,
     ),
     (b"CopyToClipboard", ItermKey::CopyToClipboard, Unbuilt),
-    (b"File", ItermKey::File, Unbuilt),
-    (b"MultipartFile", ItermKey::MultipartFile, Unbuilt),
+    (b"File", ItermKey::File, Acts),
+    (b"MultipartFile", ItermKey::MultipartFile, Acts),
     (b"Block", ItermKey::Block, Unbuilt),
     (b"UpdateBlock", ItermKey::UpdateBlock, Unbuilt),
     (b"Button", ItermKey::Button, Unbuilt),
-    (b"FilePart", ItermKey::FilePart, Unbuilt),
-    (b"FileEnd", ItermKey::FileEnd, Unbuilt),
+    (b"FilePart", ItermKey::FilePart, Acts),
+    (b"FileEnd", ItermKey::FileEnd, Acts),
     (b"Copy", ItermKey::Copy, Acts),
     (
         b"RequestUpload",
@@ -368,6 +368,20 @@ pub enum Osc1337<'a> {
     RemoteHost(&'a [u8]),
     /// `ReportCellSize`.
     ReportCellSize,
+    /// `File=args:base64`, whole: the arguments and the base64, `None`
+    /// without the `:`. The core streams a body past its `:` as it arrives,
+    /// so a whole one reaches here only from a test or an embedder without
+    /// the core.
+    File {
+        args: &'a [u8],
+        data: Option<&'a [u8]>,
+    },
+    /// `MultipartFile=args`: a file in parts begins.
+    MultipartFile(&'a [u8]),
+    /// `FilePart=base64`: a part of it.
+    FilePart(&'a [u8]),
+    /// `FileEnd`: the file in parts ends.
+    FileEnd,
     /// `SetMark`: "record a location and then jump back to it later", the
     /// line [`MarkAt`] names.
     SetMark(MarkAt),
@@ -456,6 +470,19 @@ impl<'a> Osc1337<'a> {
                 })
             }
             ItermKey::ReportCellSize => Osc1337::ReportCellSize,
+            ItermKey::File => match value.iter().position(|&b| b == b':') {
+                Some(i) => Osc1337::File {
+                    args: &value[..i],
+                    data: Some(&value[i + 1..]),
+                },
+                None => Osc1337::File {
+                    args: value,
+                    data: None,
+                },
+            },
+            ItermKey::MultipartFile => Osc1337::MultipartFile(value),
+            ItermKey::FilePart => Osc1337::FilePart(value),
+            ItermKey::FileEnd => Osc1337::FileEnd,
             // iTerm2's source: `saveScrollPosition` records "the entire
             // region of visible lines"; anything else, "implicitly
             // saveCursorLine" (`terminalSaveScrollPositionWithArgument:`).
@@ -1270,6 +1297,19 @@ mod tests {
         assert_eq!(uv(b"UnicodeVersion=push"), UnicodeOp::Push(b""));
         assert_eq!(uv(b"UnicodeVersion=push vim"), UnicodeOp::Push(b"vim"));
         assert_eq!(uv(b"UnicodeVersion=pop vim"), UnicodeOp::Pop(b"vim"));
+        assert_eq!(
+            Osc1337::parse(b"File=inline=1:aGk="),
+            Osc1337::File {
+                args: b"inline=1",
+                data: Some(b"aGk=")
+            }
+        );
+        assert_eq!(
+            Osc1337::parse(b"MultipartFile=inline=1"),
+            Osc1337::MultipartFile(b"inline=1")
+        );
+        assert_eq!(Osc1337::parse(b"FilePart=aGk="), Osc1337::FilePart(b"aGk="));
+        assert_eq!(Osc1337::parse(b"FileEnd"), Osc1337::FileEnd);
         assert_eq!(Osc1337::parse(b"Nonsense=1"), Osc1337::Unknown);
     }
 

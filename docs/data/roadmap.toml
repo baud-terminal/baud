@@ -418,7 +418,7 @@ id = "F1-67"
 area = "programs"
 status = "in_progress"
 title = "More messages from programs, and colour names"
-summary = "Colours can be given by name, such as red or lime green, and programs can name the window and its icon, set the pointer's shape and ask for the font. Programs written for iTerm2 can set the cursor's shape, erase the history, tell the title which folder and host they are in, copy text, recolour the screen, ask for attention, ask the cell size, mark lines to jump back to, post notifications, switch to Unicode 8's widths and keep user variables; iTerm2's badge, cursor guide, inline images and a few more are still to come."
+summary = "Colours can be given by name, such as red or lime green, and programs can name the window and its icon, set the pointer's shape and ask for the font. Programs written for iTerm2 can set the cursor's shape, erase the history, tell the title which folder and host they are in, copy text, recolour the screen, ask for attention, ask the cell size, mark lines to jump back to, post notifications, switch to Unicode 8's widths, keep user variables and show PNG pictures inline; iTerm2's badge, cursor guide, pictures in other formats and a few more are still to come."
 
 [[item]]
 id = "F1-68"

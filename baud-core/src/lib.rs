@@ -56,6 +56,7 @@ mod colour;
 mod cwd;
 mod dcs;
 mod feed;
+mod file;
 mod font;
 mod graph;
 mod hardcopy;

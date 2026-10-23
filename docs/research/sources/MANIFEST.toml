@@ -31371,7 +31371,7 @@ sha256 = "3b619ce2ce4d7798950f3c826b01c5676ecdee57bc89c5a5130863c1337d0290"
 bytes  = 5228
 status = "external"
 group  = "AX"
-# Read for the subcommand names only; the protocol is unbuilt.
+# The protocol inline images are built from (2026-10-22); the sizing is VT100InlineImageHelper.m's.
 
 [sources.iterm2-badges]
 key    = "iterm2-badges"
@@ -32826,6 +32826,32 @@ sha256 = "992c928614b915740036c0fcd7a7f0e59d35618d6d453b1c05f7dec6f106dd51"
 bytes  = 110533
 status = "external"
 group  = "C"
+
+[sources.iterm2-964a75d-inline-image-helper]
+key    = "iterm2-964a75d-inline-image-helper"
+title  = "iTerm2 964a75d, sources/InlineImages/VT100InlineImageHelper.m -- an inline image's cells and points from width, height and preserveAspectRatio, the full-width and 255-row rules, the broken image, the cursor after it"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/InlineImages/VT100InlineImageHelper.m"
+file   = ""
+sha256 = "a34f0b881741a665e29de81f9bc83d665e9a0beb3fc067a075aee727379b05c1"
+bytes  = 23031
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-image-info]
+key    = "iterm2-964a75d-image-info"
+title  = "iTerm2 964a75d, sources/InlineImages/iTermImageInfo.m -- the picture fitted into its requested size with its aspect kept, from its cells' top-left"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/InlineImages/iTermImageInfo.m"
+file   = ""
+sha256 = "6a9d24c2e317ac03c915768b72a87184eadb91353b4b7328ef9bcc9d38e88bd0"
+bytes  = 17450
+status = "external"
+group  = "AX"
 
 [sources.wezterm-e2a98e1-iterm-osc]
 key    = "wezterm-e2a98e1-iterm-osc"
