@@ -433,8 +433,11 @@ fn the_macro_parameter_sets_the_aspect_where_both_dec_texts_make_it_whole() {
     // 4 3:1, 5 and 6 2:1, 7 to 9 1:1. `[[source: dec-std-070]]` 070-9 §7.1:
     // 0, 1 and 5 200:100, 2 450:100, 3 300:100, 4 250:100, 6 150:100, 7
     // 130:100, 8 112:100, 9 100:100 (PDF p. 918). Where both are whole they
-    // agree; the rest, and a `P1` neither lists, are note AN's item 12, for
-    // Jev, and stay 1:1 as every Sixel was drawn before.
+    // agree. **Where 070-9's is not whole it is preserved**, a band six times
+    // the ratio tall rounded once, 27, 15, 9, 8 and 7 rows, where the VT300
+    // rounds each row to 5, 3, 2, 1 and 1 (Jev, PRESERVE, 2026-10-23); all
+    // five were 6, drawn 1:1. **A `P1` past 9 is omitted**, 12 (070-3
+    // §3.5.1.3; Jev, AS_DEFAULT); it was 6.
     let cases = [
         (None, 12),
         (Some(0), 12),
@@ -442,12 +445,13 @@ fn the_macro_parameter_sets_the_aspect_where_both_dec_texts_make_it_whole() {
         (Some(5), 12),
         (Some(3), 18),
         (Some(9), 6),
-        (Some(2), 6),
-        (Some(4), 6),
-        (Some(6), 6),
-        (Some(7), 6),
-        (Some(8), 6),
-        (Some(10), 6),
+        (Some(2), 27),
+        (Some(4), 15),
+        (Some(6), 9),
+        (Some(7), 8),
+        (Some(8), 7),
+        (Some(10), 12),
+        (Some(65535), 12),
     ];
     for (p1, rows) in cases {
         let report = Sixel::extent(b"#0;2;100;0;0~", SixelAspect::from_macro(p1));
@@ -461,16 +465,20 @@ fn a_raster_ratio_before_the_data_overrides_the_macro() {
     // attributes set by the macro parameter"; `[[source: dec-std-070]]` 070-9
     // §8.1.2: it "must precede any Sixel, or any sixel positioning command
     // ... or the command will be ignored", and omitted or zero `Pan`, `Pad`
-    // "default to '1' (one)" (PDF p. 921).
+    // "default to '1' (one)" (PDF p. 921). `"3;2` is 1.5:1, a band of 9
+    // rows; `"1;2`, below one, is 1:1 (070-9 §12's smallest imageable unit;
+    // Jev, CLAMP_ONE); both were 6 until 2026-10-23.
     let two = SixelAspect::from_macro(None);
-    let cases: [(&[u8], u16); 9] = [
+    let cases: [(&[u8], u16); 11] = [
         (b"\"1;1#0;2;100;0;0~", 6),
         (b"\"3;1#0;2;100;0;0~", 18),
         (b"\"6;3#0;2;100;0;0~", 12),
         (b"\";#0;2;100;0;0~", 6),
         (b"\"0;0#0;2;100;0;0~", 6),
         (b"\"2#0;2;100;0;0~", 12),
-        (b"\"3;2#0;2;100;0;0~", 6),
+        (b"\"3;2#0;2;100;0;0~", 9),
+        (b"\"1;2#0;2;100;0;0~", 6),
+        (b"\"31;30#0;2;100;0;0~", 6),
         (b"#0;2;100;0;0~\"3;1~", 12),
         (b"#0;2;100;0;0$\"3;1~", 12),
     ];

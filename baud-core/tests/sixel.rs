@@ -1313,8 +1313,7 @@ fn a_gr_byte_in_a_sixel_introducer_under_utf8_draws_nothing() {
 /// ignored", and its guideline reads an omitted or zero `Pan` and `Pad` as
 /// one (PDF p. 921). So one band is six sixel rows times the ratio. baud drew
 /// every image 1:1 before, each band 6 rows tall. The ratios the two tables do
-/// not both make whole, `P1` 2, 4, 6, 7 and 8 and a raster `"3;2`, are note
-/// AN's item 12, for Jev, and are drawn 1:1 as before.
+/// not both make whole are `a_ratio_that_is_not_whole_is_preserved`'s.
 #[test]
 fn a_sixel_pixel_is_drawn_at_its_pixel_aspect_ratio() {
     let cases: [(&str, &[u8], (u16, u16)); 13] = [
@@ -1356,6 +1355,136 @@ fn a_sixel_pixel_is_drawn_at_its_pixel_aspect_ratio() {
         for chunk in [1usize, 2, 3, body.len()] {
             run(body, chunk, ample(), |t| {
                 assert_eq!(placed_dims(t), Some(dims), "{name}, chunk {chunk}");
+            });
+        }
+    }
+}
+
+/// A program, its name, the image's size and the device row each of its
+/// sixel rows starts at.
+type RatioCase = (&'static str, &'static [u8], (u16, u16), &'static [u16]);
+
+/// **A pixel aspect ratio that is not a whole number is preserved**: sixel
+/// row `y` starts at device row `y` times the ratio rounded half up once, so
+/// a `P1` 2 image, 4.5:1 by `[[source: dec-std-070]]` 070-9 §7.1 (PDF p.
+/// 918), is 27 rows a band, its sixel rows 5, 4, 5, 4, 5 and 4 tall, and two
+/// bands 54. §12: "The pixel aspect ratio should be preserved if possible",
+/// the actual grid "the average grid size over not more than 30 pixels"
+/// (PDF pp. 928-929); Jev, PRESERVE, 0.97/0.98. A ratio below one is 1:1,
+/// §12's smallest imageable unit (Jev, CLAMP_ONE, 0.91/0.97), and a `P1`
+/// past 9 is omitted, 2:1 (070-3 §3.5.1.3; Jev, AS_DEFAULT, 1.00/1.00).
+/// Each was 1:1 until 2026-10-23. Every read size, so a band begun in one
+/// read and painted in the next lays its rows where the whole does; the
+/// rows painted are read off the image, not only its height.
+#[test]
+fn a_ratio_that_is_not_whole_is_preserved() {
+    // `t` is 0b110101: sixel rows 0, 2, 4 and 5 set.
+    let cases: [RatioCase; 9] = [
+        (
+            "P1 2: 4.5:1",
+            b"\x1bP2q#1;2;100;0;0#1t\x1b\\",
+            (1, 27),
+            &[0, 5, 9, 14, 18, 23, 27],
+        ),
+        (
+            "P1 4: 2.5:1",
+            b"\x1bP4q#1;2;100;0;0#1t\x1b\\",
+            (1, 15),
+            &[0, 3, 5, 8, 10, 13, 15],
+        ),
+        (
+            "P1 6: 1.5:1",
+            b"\x1bP6q#1;2;100;0;0#1t\x1b\\",
+            (1, 9),
+            &[0, 2, 3, 5, 6, 8, 9],
+        ),
+        (
+            "P1 7: 1.3:1",
+            b"\x1bP7q#1;2;100;0;0#1t\x1b\\",
+            (1, 8),
+            &[0, 1, 3, 4, 5, 7, 8],
+        ),
+        (
+            "P1 8: 1.12:1",
+            b"\x1bP8q#1;2;100;0;0#1t\x1b\\",
+            (1, 7),
+            &[0, 1, 2, 3, 4, 6, 7],
+        ),
+        (
+            "raster 3;2",
+            b"\x1bP9q\"3;2#1;2;100;0;0#1t\x1b\\",
+            (1, 9),
+            &[0, 2, 3, 5, 6, 8, 9],
+        ),
+        (
+            "raster 1;2, below one",
+            b"\x1bP9q\"1;2#1;2;100;0;0#1t\x1b\\",
+            (1, 6),
+            &[0, 1, 2, 3, 4, 5, 6],
+        ),
+        (
+            "P1 10, as omitted",
+            b"\x1bP10q#1;2;100;0;0#1t\x1b\\",
+            (1, 12),
+            &[0, 2, 4, 6, 8, 10, 12],
+        ),
+        (
+            "P1 2, the second band",
+            b"\x1bP2q#1;2;100;0;0#1?-t\x1b\\",
+            (1, 54),
+            &[27, 32, 36, 41, 45, 50, 54],
+        ),
+    ];
+    for (name, body, dims, tops) in cases {
+        for chunk in 1..=body.len() {
+            run(body, chunk, ample(), |t| {
+                assert_eq!(placed_dims(t), Some(dims), "{name}, chunk {chunk}");
+                let (image, _, _) = drawn(t);
+                let (w, _, px) = image.expect("an image");
+                assert_eq!(w, 1);
+                // Sixel row k covers tops[k]..tops[k + 1], set where `t`'s bit is.
+                for k in 0..6 {
+                    let set = 0b110101 & (1 << k) != 0;
+                    for y in tops[k]..tops[k + 1] {
+                        let painted =
+                            px[usize::from(y)] != Pixel::CLEAR && px[usize::from(y)] != Pixel::FILL;
+                        assert_eq!(
+                            painted, set,
+                            "{name}, chunk {chunk}: row {y}, sixel row {k}"
+                        );
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// **A horizontal grid size falls back to baud's one grid, and is
+/// counted**: `P3` 20 decipoints draws the image `P3` absent draws, a sixel
+/// column one device pixel, and counts one in `sixel_grids_fixed`; `P3` 0,
+/// "zero or not present" (070-9 §7.3), counts none. 070-9 §12 asks a device
+/// to state its fallback (PDF p. 928), and `docs/vt-coverage.md` does; it
+/// was dropped unseen until 2026-10-23. Every read size.
+#[test]
+fn a_horizontal_grid_size_falls_back_to_one_grid_and_is_counted() {
+    let plain: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\";
+    let mut want = None;
+    run(plain, plain.len(), ample(), |t| want = Some(drawn(t)));
+    let want = want.expect("drawn");
+    let cases: [(&[u8], usize); 3] = [
+        (b"\x1bP0;1;20q#1;2;100;0;0#1~~\x1b\\", 1),
+        (b"\x1bP0;1;0q#1;2;100;0;0#1~~\x1b\\", 0),
+        (plain, 0),
+    ];
+    for (body, counted) in cases {
+        for chunk in 1..=body.len() {
+            run(body, chunk, ample(), |t| {
+                assert_eq!(drawn(t), want, "{body:?}, chunk {chunk}");
+                assert_eq!(
+                    t.images().sixel_grids_fixed,
+                    counted,
+                    "{body:?}, chunk {chunk}"
+                );
             });
         }
     }

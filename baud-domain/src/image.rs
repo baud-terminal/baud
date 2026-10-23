@@ -1486,6 +1486,15 @@ pub struct ImageStore<'b> {
     /// Counted at the terminator after the image stores, not when its
     /// parameters parse, so a refused image, which drew nothing, is not.
     pub sixels_filled: usize,
+    /// **Sixels that asked for a horizontal grid size**, a third envelope
+    /// parameter above zero, drawn at baud's one actual grid instead: one
+    /// device pixel a sixel column, the aspect ratio kept. `[[source:
+    /// dec-std-070]]` 070-9 §12 lets a device fall back from a grid it does
+    /// not image and asks it to "clearly state in their product
+    /// documentation how grid sizes fall back" (PDF p. 928); this is that
+    /// fallback, stated in `docs/vt-coverage.md`, and counted so it is not
+    /// silent. Counted as the Sixel begins.
+    pub sixel_grids_fixed: usize,
     /// The epoch, bumped whenever the set of stored images changes. A GPU
     /// texture cache keyed on it drops a texture whose image was freed and
     /// its id reused. See [`ImageGen`].
@@ -1597,6 +1606,7 @@ impl<'b> ImageStore<'b> {
             placements_expired: 0,
             key_probes: 0,
             sixels_filled: 0,
+            sixel_grids_fixed: 0,
             epoch: ImageGen::ZERO,
             placed: 0,
             live: 0,

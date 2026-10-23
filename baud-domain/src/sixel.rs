@@ -70,46 +70,118 @@ pub enum SixelFit {
     TooLarge,
 }
 
-/// The pixel aspect ratio a Sixel is drawn at, as the device rows one sixel
-/// row takes: a sixel pixel is one device pixel wide and this many tall.
+/// The pixel aspect ratio a Sixel is drawn at, vertical to horizontal: a
+/// sixel pixel is one device pixel wide and `num / den` device rows tall,
+/// **preserved where it is not a whole number** by varying the rows each
+/// sixel row takes.
 ///
-/// `[[source: vt3xx-sixel]]` and `[[source: dec-std-070]]` 070-9 §7.1 agree
-/// on the macro parameter `P1` where both make the ratio whole: omitted, 0, 1
-/// and 5 are 2:1, 3 is 3:1, and 9 is 1:1. A raster command `"Pan;Pad` before
-/// any data overrides it ([`Sixel::decode`]). The other values are not drawn
-/// at a ratio: `P1` 2, 4, 6, 7 and 8, which 070-9 gives as 4.5, 2.5, 1.5, 1.3
-/// and 1.12 to 1 and the VT330/VT340 manual rounds, are note AN's item 12, for
-/// Jev, and a `P1` past 9, which neither text lists; each is drawn 1:1, as
-/// every Sixel was before the ratio was honoured.
+/// `[[source: dec-std-070]]` 070-9 §7.1's table (PDF p. 918): `P1` omitted,
+/// 0, 1 and 5 are 200:100, 2 is 450:100, 3 300:100, 4 250:100, 6 150:100, 7
+/// 130:100, 8 112:100 and 9 100:100; a raster command `"Pan;Pad` before any
+/// data overrides it ([`Sixel::decode`]). §12 lets a device fall back from a
+/// grid it cannot image but says "The pixel aspect ratio should be preserved
+/// if possible", and measures the actual grid as "the average grid size over
+/// not more than 30 pixels" (PDF pp. 928-929): sixel row `y` starts at device
+/// row `(y * num + den / 2) / den` from the image's top, rounded once, so
+/// 4.5:1 takes rows of 5 and 4 in turn and every `P1` ratio repeats within 30.
+/// The VT330/VT340 manual's column rounds each to a whole number, 5, 3, 2, 1
+/// and 1 ("The VT300 rounds the pixel aspect ratio to the nearest integer"),
+/// that terminal's own fallback. Jev, PRESERVE, 0.97/0.98 (2026-10-23).
+///
+/// **A ratio below one is drawn 1:1**: a row shorter than a device row is
+/// "less than the smallest imageable unit of the device", which §12 then
+/// images at that unit (Jev, CLAMP_ONE, 0.91/0.97). **A `P1` past 9** is
+/// read as omitted, 2:1: 070-3 §3.5.1.3, "unimplemented selective parameter
+/// values of control sequences shall be ignored as if that parameter were
+/// not received" (PDF p. 125), which a DCS introducer is parsed as (Jev,
+/// AS_DEFAULT, 1.00/1.00). Both were drawn 1:1, as was every ratio that is
+/// not whole, until 2026-10-23.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct SixelAspect(u16);
+pub struct SixelAspect {
+    num: u16,
+    den: u16,
+}
 
 impl SixelAspect {
     /// One device row a sixel row: what `P1 = 9` selects, and a raster
     /// `"1;1`.
-    pub const ONE_TO_ONE: SixelAspect = SixelAspect(1);
+    pub const ONE_TO_ONE: SixelAspect = SixelAspect { num: 1, den: 1 };
+
+    /// 070-9 §7.1's ratio for macro values 0 to 9, over 100.
+    const MACRO: [u16; 10] = [200, 200, 450, 300, 250, 200, 150, 130, 112, 100];
 
     /// The ratio the envelope's macro parameter `P1` sets; `None` when it is
-    /// omitted, which both texts make 2:1.
+    /// omitted, which both texts make 2:1, and a value past 9 as omitted.
     pub fn from_macro(p1: Option<u16>) -> SixelAspect {
-        match p1 {
-            None | Some(0) | Some(1) | Some(5) => SixelAspect(2),
-            Some(3) => SixelAspect(3),
-            _ => SixelAspect::ONE_TO_ONE,
-        }
+        let v = p1.map_or(0, usize::from);
+        let num = SixelAspect::MACRO
+            .get(v)
+            .copied()
+            .unwrap_or(SixelAspect::MACRO[0]);
+        SixelAspect { num, den: 100 }
     }
 
     /// The ratio a raster command's `Pan;Pad` sets. An omitted or zero
     /// parameter reads as one, 070-9 §8.1.2's guideline ("omitted parameters
     /// for Pn1 and Pn2 may be interpreted as '0' (zero) and default to '1'
-    /// (one)", PDF p. 921). A ratio that is not a whole number, `"3;2` or
-    /// `"1;2`, is item 12 and draws 1:1.
+    /// (one)", PDF p. 921), and a ratio below one is 1:1.
     fn from_raster(pan: u16, pad: u16) -> SixelAspect {
-        let (pan, pad) = (pan.max(1), pad.max(1));
-        match pan % pad {
-            0 => SixelAspect(pan / pad),
-            _ => SixelAspect::ONE_TO_ONE,
+        let (num, den) = (pan.max(1), pad.max(1));
+        match num < den {
+            true => SixelAspect::ONE_TO_ONE,
+            false => SixelAspect { num, den },
         }
+    }
+
+    /// The device row sixel row `y` starts at, from the image's top:
+    /// `y` times the ratio, rounded half up once, so the rounding never
+    /// accumulates and a body split anywhere lays its rows where the whole
+    /// does.
+    pub fn top(self, y: u32) -> u32 {
+        let (num, den) = (u64::from(self.num), u64::from(self.den));
+        let t = (u64::from(y) * num + den / 2) / den;
+        u32::try_from(t).unwrap_or(u32::MAX)
+    }
+
+    /// The top of the band that holds device row `row`: the last band top
+    /// at or above it. The estimate from the ratio is off by at most a band
+    /// either way, which the two steps settle.
+    fn band_top_at(self, row: u32) -> u32 {
+        let (num, den) = (u64::from(self.num), u64::from(self.den));
+        let mut n = u32::try_from(u64::from(row) * den / (6 * num)).unwrap_or(u32::MAX / 6);
+        while n > 0 && self.top(n * 6) > row {
+            n -= 1;
+        }
+        while self.top((n + 1).saturating_mul(6)) <= row {
+            n += 1;
+        }
+        self.top(n * 6)
+    }
+}
+
+/// **The device rows of one band's six sixel rows**: sixel row `k` of the
+/// band covers rows `[tops[k], tops[k + 1])`, so `tops[0]` is the band's top
+/// and `tops[6]` the next band's. Worked out when the band begins, from the
+/// band's index and the ratio, so a data byte reads seven numbers and does
+/// no arithmetic on the ratio.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Band {
+    tops: [u32; 7],
+}
+
+impl Band {
+    /// Band `n` (sixel rows `6n` to `6n + 5`) at `aspect`.
+    fn of(n: u32, aspect: SixelAspect) -> Band {
+        let first = n.saturating_mul(6);
+        let mut tops = [0u32; 7];
+        for (k, t) in tops.iter_mut().enumerate() {
+            *t = aspect.top(first.saturating_add(k as u32));
+        }
+        Band { tops }
+    }
+
+    fn bottom(&self) -> u32 {
+        self.tops[6]
     }
 }
 
@@ -507,10 +579,10 @@ trait Sink {
     fn extent(&mut self, ph: u16, pv: u32);
 
     /// One data byte, `bits` its six bits, drawn over columns `[x0, x1)` --
-    /// one, or a repeat count's -- in the band whose top row is `top`, each
-    /// sixel row `rows` device rows tall, in `colour`. Called for every data
-    /// byte, all bits clear included, because the image reaches that far.
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel);
+    /// one, or a repeat count's -- in `band`, in `colour`. Called for every
+    /// data byte, all bits clear included, because the image reaches that
+    /// far.
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel);
 
     /// The device row no graphics new line may start a band at or past:
     /// display mode's bottom edge ([`SixelEdge`]), else none.
@@ -528,7 +600,7 @@ struct Measure;
 
 impl Sink for Measure {
     fn extent(&mut self, _ph: u16, _pv: u32) {}
-    fn data(&mut self, _x0: u32, _x1: u32, _top: u32, _rows: u16, _bits: u8, _c: Pixel) {}
+    fn data(&mut self, _x0: u32, _x1: u32, _band: &Band, _bits: u8, _c: Pixel) {}
 }
 
 /// The sink over a caller's canvas: a pixel past its edge is refused and
@@ -541,15 +613,13 @@ struct Clipped<'c, 'a> {
 impl Sink for Clipped<'_, '_> {
     fn extent(&mut self, _ph: u16, _pv: u32) {}
 
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel) {
         for x in x0..x1 {
-            for row in 0u8..6 {
+            for row in 0..6 {
                 if bits & (1 << row) == 0 {
                     continue;
                 }
-                let first = top.saturating_add(u32::from(row) * u32::from(rows));
-                for k in 0..u32::from(rows) {
-                    let y = first.saturating_add(k);
+                for y in band.tops[row]..band.tops[row + 1] {
                     let painted = match (SixelPx::at(x), SixelPx::at(y)) {
                         (Some(px), Some(py)) => self.canvas.paint(px, py, colour),
                         _ => Painted::Refused,
@@ -573,15 +643,17 @@ impl Sink for Clipped<'_, '_> {
 #[derive(Clone)]
 struct Walk {
     regs: [Pixel; REGISTERS],
-    /// The device rows one sixel row takes, and whether a raster command may
-    /// still change it.
-    rows: u16,
+    /// The pixel aspect ratio, whether a raster command may still change
+    /// it, and the band the active position is in, by index and in device
+    /// rows.
+    aspect: SixelAspect,
     raster: Raster,
+    band_n: u32,
+    band: Band,
     reg: usize,
     /// Positions and the extent, counted in `u32` past what a coordinate
     /// holds, so an image too large to state is seen as one.
     x: u32,
-    band_top: u32,
     width: u32,
     height: u32,
     /// The repeat introducer applies to the one data byte that follows it;
@@ -598,11 +670,14 @@ struct Walk {
 impl Walk {
     const NEW: Walk = Walk {
         regs: [Pixel::CLEAR; REGISTERS],
-        rows: 2,
+        aspect: SixelAspect { num: 200, den: 100 },
         raster: Raster::Open,
+        band_n: 0,
+        band: Band {
+            tops: [0, 2, 4, 6, 8, 10, 12],
+        },
         reg: 0,
         x: 0,
-        band_top: 0,
         width: 0,
         height: 0,
         repeat: 1,
@@ -615,13 +690,10 @@ impl Walk {
 
     fn new(aspect: SixelAspect) -> Walk {
         Walk {
-            rows: aspect.0,
+            aspect,
+            band: Band::of(0, aspect),
             ..Walk::NEW
         }
-    }
-
-    fn band(&self) -> u32 {
-        6 * u32::from(self.rows)
     }
 
     /// One body byte. A digit grows the number in progress, saturating at
@@ -727,8 +799,9 @@ impl Walk {
             // says.
             Cmd::Raster => {
                 if let Raster::Open = self.raster {
-                    self.rows = SixelAspect::from_raster(p[0], p[1]).0;
-                    sink.extent(p[2], u32::from(p[3]) * u32::from(self.rows));
+                    self.aspect = SixelAspect::from_raster(p[0], p[1]);
+                    self.band = Band::of(self.band_n, self.aspect);
+                    sink.extent(p[2], self.aspect.top(u32::from(p[3])));
                 }
                 self.repeat = 1;
             }
@@ -758,10 +831,10 @@ impl Walk {
             // nothing and later data continues along the last band. With no
             // floor the comparison never holds.
             b'-' => {
-                let next = self.band_top.saturating_add(self.band());
-                if next < sink.floor() {
+                if self.band.bottom() < sink.floor() {
                     self.x = 0;
-                    self.band_top = next;
+                    self.band_n = self.band_n.saturating_add(1);
+                    self.band = Band::of(self.band_n, self.aspect);
                 }
                 self.repeat = 1;
                 self.raster = Raster::Closed;
@@ -772,13 +845,13 @@ impl Walk {
             0x3f..=0x7e => {
                 let x1 = self.x.saturating_add(u32::from(self.repeat));
                 let colour = self.regs[self.reg];
-                sink.data(self.x, x1, self.band_top, self.rows, b - 0x3f, colour);
+                sink.data(self.x, x1, &self.band, b - 0x3f, colour);
                 // The extent is where the data reached, not where pixels were
                 // set: `x1` is the first column past this data byte, and the
                 // band is six rows tall whether or not any bit set.
                 self.x = x1;
                 self.width = self.width.max(x1);
-                self.height = self.height.max(self.band_top.saturating_add(self.band()));
+                self.height = self.height.max(self.band.bottom());
                 self.repeat = 1;
                 self.raster = Raster::Closed;
             }
@@ -1057,25 +1130,24 @@ impl Sink for Claim<'_, '_, '_> {
         self.gap.raster = (u32::from(ph), pv);
     }
 
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
+    fn data(&mut self, x0: u32, x1: u32, band: &Band, bits: u8, colour: Pixel) {
         if self.gap.held == Held::Lost {
             return;
         }
-        let (x0, x1) = self.reach(x0, x1, top.saturating_add(6 * u32::from(rows)));
+        let (x0, x1) = self.reach(x0, x1, band.bottom());
         if self.gap.held == Held::Lost || bits == 0 {
             return;
         }
         // Inside the claim by `reach`: `x0..x1` is at most the stride, empty
         // past the right edge, and the band's last row is below `zeroed`.
         let stride = self.gap.stride;
-        let (x0, x1, top, rows) = (x0 as usize, x1 as usize, top as usize, usize::from(rows));
+        let (x0, x1) = (x0 as usize, x1 as usize);
         let words = self.words();
         for row in 0..6 {
             if bits & (1 << row) == 0 {
                 continue;
             }
-            let first = top + row * rows;
-            for y in first..first + rows {
+            for y in band.tops[row] as usize..band.tops[row + 1] as usize {
                 words[y * stride + x0..y * stride + x1].fill(colour);
             }
         }
@@ -1304,9 +1376,9 @@ impl SixelStream {
                 let scrolled = match (mh, cell) {
                     (0, _) | (_, 0) => None,
                     _ if data_h > mh => {
-                        let band = self.walk.band();
                         let to = data_h.div_ceil(cell).saturating_mul(cell);
-                        Some((mh / band * band, to.min(self.gap.floor).min(cap)))
+                        let from = self.walk.aspect.band_top_at(mh);
+                        Some((from, to.min(self.gap.floor).min(cap)))
                     }
                     _ => None,
                 };

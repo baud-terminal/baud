@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 67f789264cab5a41356682f02f86bd12838c4a0f85b112871c692144ddca77e0 # shrinks to len = 256, prog = [FreeInside(Some(7), [35, 48, 59, 50, 59, 48, 59, 48, 59, 48, 33, 49, 63], Index(0), 0)]
+cc 8ebeb5f8602ce6ea686f78ec007d3d559916b549f6cc8bba19992e150a28f643 # shrinks to len = 0, prog = [Sixel(Some(7), [63])]

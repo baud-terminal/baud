@@ -53,15 +53,28 @@ impl Paint<'_, '_> {
     /// pixel at or past the screen's width is painted or counted in its
     /// width. A tall image whose ignored new lines lay its last bands side
     /// by side is then at most the screen, not refused for the arena.
+    ///
+    /// **A horizontal grid size, `P3`, falls back to baud's one grid**: a
+    /// sixel column is one device pixel whatever the envelope asks, as "The
+    /// VT300 ignores this parameter because the horizontal grid size is
+    /// fixed" (`[[source: vt3xx-sixel]]`), and 070-9 §12 asks a device to
+    /// "clearly state in their product documentation how grid sizes fall
+    /// back" (PDF p. 928), which `docs/vt-coverage.md` does. One above zero
+    /// is counted in `ImageStore::sixel_grids_fixed`. No text maps a
+    /// decipoint to a screen pixel; Jev leaned to this, 0.48/0.32, over
+    /// scaling by the display's points (2026-10-23).
     #[cold]
     #[inline(never)]
-    pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect) {
+    pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect, grid: Option<u16>) {
         // **No image on the status line**: an image is placed on a line of
         // the main display, which the line is not. The string is kept and
         // discarded, and counted at its end (`status.rs`).
         if self.on_status() {
             self.cold.str_kind = crate::osc::StrKind::Other;
             return;
+        }
+        if grid.is_some_and(|g| g > 0) {
+            self.images.sixel_grids_fixed += 1;
         }
         let shown = self.cold.shown(DynamicColor::Foreground);
         let ink = match shown.as_rgb() {
@@ -188,15 +201,15 @@ impl Paint<'_, '_> {
         // and is freed by `RIS`.
         //
         // **`Pa` sets the aspect ratio, `Pb`/`P2` the fill, and the
-        // envelope's grid size is dropped.** The graph routes the `Node::Dcs`
+        // envelope's grid size falls back to one grid and is counted.** The graph routes the `Node::Dcs`
         // parameters into `csi` (`Act::Digit`/`Sep`), so `SixelStart` begins
         // the decode at the macro parameter's ratio and with the fill the
         // background selector asks for ([`Paint::sixel_begin`]). The third parameter, the
         // horizontal grid size that ctlseqs calls `Ph` and the VT3xx chapter
-        // `P3`, is dropped: a sixel pixel is one image pixel wide, as "The
+        // `P3`, falls back: a sixel pixel is one image pixel wide, as "The
         // VT300 ignores this parameter because the horizontal grid size is
-        // fixed" (`[[source: vt3xx-sixel]]`), and what 070-9 §7.3 falls back
-        // to is for Jev (note AN, `Ph`). It is not the raster command's `Ph`,
+        // fixed" (`[[source: vt3xx-sixel]]`), the fallback 070-9 §12 asks a
+        // device to state ([`Paint::sixel_begin`]). It is not the raster command's `Ph`,
         // the horizontal extent, which the decode lays its rows out by.
         //
         // **Display mode (`?80` set) puts the image at the window's

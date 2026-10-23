@@ -1370,7 +1370,10 @@ by the owner's rule of 2026-10-10, Jev at or above 0.9 confidence both times
 decides between the options, and otherwise the owner does. Items 1, 4, 10
 and 11 and questions 1 and 2 were built on 2026-10-19 (Jev: B_PUT_ALL
 0.99/0.99, BLANK_SIXEL 0.92/0.94, KEEP 0.94/0.94; leans STRIP 0.60/0.56
-and KEEP 0.72/0.68 for CAN); item 12 is still open.
+and KEEP 0.72/0.68 for CAN); item 12 was built on 2026-10-23 as option
+a, with a ratio below one drawn 1:1 and a `P1` past 9 read as omitted (Jev:
+PRESERVE 0.97/0.98, CLAMP_ONE 0.91/0.97, AS_DEFAULT 1.00/1.00; the record,
+"A Sixel pixel aspect ratio that is not whole is preserved").
 
 ### 10.2 Questions, the texts conflicting
 

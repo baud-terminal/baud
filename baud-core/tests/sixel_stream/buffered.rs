@@ -6,7 +6,11 @@
 //! conversions and its aspect table, with only what the test cannot reach
 //! from outside the crate (the canvas's painter, the aspect's field)
 //! spelled locally. A second spelling of the grammar on purpose: an oracle
-//! that shared the decoder's would agree with any mistake in it.
+//! that shared the decoder's would agree with any mistake in it. **The
+//! aspect ratio is 2026-10-23's**, 070-9 §7.1's table preserved where it
+//! is not whole, a ratio below one drawn 1:1 and a `P1` past 9 read as
+//! omitted, spelled here as the device row a sixel row starts at,
+//! `(2 * y * num + den) / (2 * den)`.
 
 use baud_domain::{Chan, Pixel};
 
@@ -17,22 +21,30 @@ pub struct Reach {
     pub height: u32,
 }
 
-/// The device rows a sixel row takes for the envelope's `P1`, as
-/// `SixelAspect::from_macro` was.
-pub fn rows_of_macro(p1: Option<u16>) -> u16 {
-    match p1 {
-        None | Some(0) | Some(1) | Some(5) => 2,
-        Some(3) => 3,
-        _ => 1,
-    }
+/// The ratio, vertical over horizontal, for the envelope's `P1`.
+pub fn rows_of_macro(p1: Option<u16>) -> (u16, u16) {
+    let num = match p1 {
+        Some(2) => 450,
+        Some(3) => 300,
+        Some(4) => 250,
+        Some(6) => 150,
+        Some(7) => 130,
+        Some(8) => 112,
+        Some(9) => 100,
+        _ => 200,
+    };
+    (num, 100)
 }
 
-fn rows_of_raster(pan: u16, pad: u16) -> u16 {
+fn rows_of_raster(pan: u16, pad: u16) -> (u16, u16) {
     let (pan, pad) = (pan.max(1), pad.max(1));
-    match pan % pad {
-        0 => pan / pad,
-        _ => 1,
-    }
+    if pan < pad { (1, 1) } else { (pan, pad) }
+}
+
+/// The device row sixel row `y` starts at.
+fn start(y: u32, (num, den): (u16, u16)) -> u32 {
+    let v = (2 * u64::from(y) * u64::from(num) + u64::from(den)) / (2 * u64::from(den));
+    u32::try_from(v).unwrap_or(u32::MAX)
 }
 
 enum Raster {
@@ -42,16 +54,15 @@ enum Raster {
 
 /// The walk. `canvas` absent measures; present, `(pixels, width)` is painted
 /// where a pixel is inside it, as `SixelCanvas::paint` painted.
-pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) -> Reach {
+pub fn walk(data: &[u8], rows0: (u16, u16), mut canvas: Option<(&mut [Pixel], usize)>) -> Reach {
     let mut regs = [Pixel::CLEAR; 256];
     let mut rows = rows0;
     let mut raster = Raster::Open;
     let mut reg: usize = 0;
     let mut x: u32 = 0;
-    let mut band_top: u32 = 0;
+    let mut band_n: u32 = 0;
     let mut width: u32 = 0;
     let mut height: u32 = 0;
-    let mut band = 6 * u32::from(rows);
     let mut repeat: u16 = 1;
     let mut i = 0;
     while i < data.len() {
@@ -98,7 +109,7 @@ pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) 
             }
             b'-' => {
                 x = 0;
-                band_top = band_top.saturating_add(band);
+                band_n = band_n.saturating_add(1);
                 i += 1;
                 repeat = 1;
                 raster = Raster::Closed;
@@ -110,7 +121,6 @@ pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) 
                 let (_pv, k4) = number_after_sep(data, k3);
                 if let Raster::Open = raster {
                     rows = rows_of_raster(pan, pad);
-                    band = 6 * u32::from(rows);
                 }
                 i = k4;
                 repeat = 1;
@@ -124,9 +134,8 @@ pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) 
                         if bits & (1 << row) != 0 {
                             if let Some((px, w)) = canvas.as_mut() {
                                 let h = px.len().checked_div(*w).unwrap_or(0);
-                                let top = band_top.saturating_add(u32::from(row) * u32::from(rows));
-                                for k in 0..u32::from(rows) {
-                                    let y = top.saturating_add(k);
+                                let y0 = band_n.saturating_mul(6).saturating_add(u32::from(row));
+                                for y in start(y0, rows)..start(y0.saturating_add(1), rows) {
                                     let (xi, yi) = (
                                         usize::try_from(x).unwrap_or(usize::MAX),
                                         usize::try_from(y).unwrap_or(usize::MAX),
@@ -142,7 +151,7 @@ pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) 
                     n -= 1;
                 }
                 width = width.max(x);
-                height = height.max(band_top.saturating_add(band));
+                height = height.max(start(band_n.saturating_mul(6).saturating_add(6), rows));
                 i += 1;
                 repeat = 1;
                 raster = Raster::Closed;

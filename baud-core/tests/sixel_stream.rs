@@ -376,8 +376,20 @@ fn banded() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(band, 1..10).prop_map(|v| v.join(&b'-'))
 }
 
+/// `P1`, ratios whole and not, and one past 9 (070-9 §7.1), the last
+/// three appended so earlier seeds keep their meaning.
 fn p1() -> impl Strategy<Value = Option<u16>> {
-    prop::sample::select(vec![None, Some(0), Some(1), Some(3), Some(7), Some(9)])
+    prop::sample::select(vec![
+        None,
+        Some(0),
+        Some(1),
+        Some(3),
+        Some(7),
+        Some(9),
+        Some(2),
+        Some(8),
+        Some(10),
+    ])
 }
 
 fn step() -> impl Strategy<Value = Step> {

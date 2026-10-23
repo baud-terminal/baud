@@ -865,14 +865,18 @@ pub(crate) fn act(
             //
             // `P1`, the first, is the macro parameter, which sets the pixel
             // aspect ratio the decode starts at (`SixelAspect::from_macro`);
-            // absent or empty, both DEC texts make it 2:1.
+            // absent or empty, both DEC texts make it 2:1. `P3`, the third,
+            // is the horizontal grid size, which falls back to baud's one
+            // grid and is counted (`Paint::sixel_begin`).
             let mut i = 0u8;
             let mut p1 = None;
             let mut p2 = None;
+            let mut p3 = None;
             csi.for_each_param(|param| {
                 match i {
                     0 => p1 = param,
                     1 => p2 = param,
+                    2 => p3 = param,
                     _ => {}
                 }
                 i = i.saturating_add(1);
@@ -882,7 +886,10 @@ pub(crate) fn act(
                 _ => crate::term::SixelBg::Transparent,
             };
             // The rest is `sixel_begin`'s, out of line: what it reads is cold.
-            p.sixel_begin(SixelAspect::from_macro(p1.map(|v| v.value())));
+            p.sixel_begin(
+                SixelAspect::from_macro(p1.map(|v| v.value())),
+                p3.map(|v| v.value()),
+            );
             csi.reset();
             ReadLen::ONE
         }
