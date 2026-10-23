@@ -29,6 +29,21 @@
 //! both are the same one memcpy away from the screen, and the `present`
 //! column is a separate instrument.
 //!
+//! `FRAME_CARET=switch|plasma|fire` makes the `FRAME_IDLE` frames the
+//! frame an idle cursor draws: the cursor shown as a block at the end of
+//! the replay, and each frame alternating two phases of that animation,
+//! its glow appended to the records as the app appends it. Then every arm
+//! draws them, not only the cell arms, and each arm's line of them reports
+//! its rows, its CPU and, on a waited arm, its GPU time a frame.
+//!
+//! Each GPU arm draws as the presenter does since a frame where only the
+//! cursor, its blink animation or its trail moved draws only its rows: into
+//! the one target as though it were the next of three surfaces, so each
+//! frame draws what the frame three back's surface would lack
+//! (`baud_present_macos::redraw::Ages`), and the cell arms skip the glyph
+//! map's walk over a screen they walked last (`baud_render::WalkKey`), as
+//! the app does. The `FRAME_CARET` line counts the rows drawn.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -37,15 +52,17 @@ fn main() {
     // only, so a top-level `use` is unused on every other target and `-D
     // warnings` makes that an error. CI lints on ubuntu; a Mac cannot see it.
     use baud_core::{Depth, Owned, Term, grid_stride};
+    use baud_domain::PackedCell;
     use baud_domain::{
         BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
     };
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx};
+    use baud_present_macos::redraw::{Ages, SurfaceIx};
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
     use baud_render::{
-        Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
-        StyleStamp, Tally, Target, Theme,
+        Blend, Candidate, CursorPhase, Damage, GlyphMap, Instance, Overlay, PxSize, Redraw,
+        Renderer, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey,
     };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -228,6 +245,14 @@ fn main() {
         overlay: Duration,
         copy: Duration,
         draw: Duration,
+        /// A waited arm's GPU start-to-end, and the CPU and instance arms'
+        /// convert and rows, for the `FRAME_CARET` line.
+        gpu: Duration,
+        convert: Duration,
+        rows: Tally,
+        /// The rows the frames drew by, over the frames drawn by rows.
+        drawn_rows: Tally,
+        partial: Tally,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Arm {
@@ -283,6 +308,20 @@ fn main() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let phase = |opacity: u8, glow: u8| CursorPhase {
+        opacity: baud_domain::Chan::from_u8(opacity),
+        glow: baud_domain::Chan::from_u8(glow),
+        ..CursorPhase::HIDDEN
+    };
+    let caret = std::env::var("FRAME_CARET").ok().map(|k| match k.as_str() {
+        "switch" => [CursorPhase::HIDDEN, CursorPhase::SHOWN],
+        "plasma" => [phase(0, 128), phase(0, 192)],
+        "fire" => [
+            CursorPhase::fire(baud_domain::Chan::from_u8(70)),
+            CursorPhase::fire(baud_domain::Chan::from_u8(80)),
+        ],
+        other => panic!("FRAME_CARET={other:?} is not switch, plasma or fire"),
+    });
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -387,13 +426,35 @@ fn main() {
             map = GlyphMap::over(map.into_entries());
             let mut exceptions = Overlay::new();
             let mut s = Sums::default();
+            // The surfaces the one target stands for, and what each lacks.
+            let mut ages = Ages::new();
+            let mut surface = SurfaceIx::FIRST;
+            // The screen the last walk read, as the app keeps it.
+            let mut screen: Vec<PackedCell> = Vec::new();
+            let mut walked: Option<WalkKey> = None;
             let mut at = 0usize;
             let t0 = Instant::now();
-            let mut idle_left = if cell_arm { idle_n } else { 0 };
+            let mut idle_left = if cell_arm || caret.is_some() {
+                idle_n
+            } else {
+                0
+            };
+            let mut shown = false;
             while at < data.len() || idle_left > 0 {
                 let idle = at >= data.len();
                 if idle {
                     idle_left -= 1;
+                    if let Some(pair) = caret {
+                        if !shown {
+                            // A block, shown: a recording may end with the
+                            // cursor hidden, as btop's does.
+                            let tail = b"\x1b[1 q\x1b[?25h";
+                            t.write_at(BytePos::ZERO, tail);
+                            t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
+                            shown = true;
+                        }
+                        r.set_cursor_blink(pair[idle_left % 2]);
+                    }
                 }
                 let part = usize::from(idle);
                 if cell_arm {
@@ -432,7 +493,38 @@ fn main() {
                             &mut candidates,
                         );
                     }
-                    map.ensure(&t, t.viewport(), styles_mem, &mut r, &mut candidates);
+                    // The walk skipped over the screen it walked last, under
+                    // the same key: the app's `Screens`.
+                    let vp = t.viewport();
+                    let (vc, vr) = (vp.cols().index(), vp.rows().index());
+                    let same = arm != Arm::Slide
+                        && screen.len() == vc * vr
+                        && (0..vr).all(|y| {
+                            screen[y * vc..(y + 1) * vc] == vp.row(Row::from_index(y))[..vc]
+                        });
+                    if !same {
+                        screen.clear();
+                        for y in 0..vr {
+                            screen.extend_from_slice(&vp.row(Row::from_index(y))[..vc]);
+                        }
+                    }
+                    let key = WalkKey {
+                        table: stamp,
+                        map: map.generation(),
+                        grown: r.atlas_stats().grown,
+                        clusters: t.cluster_epoch(),
+                        back: Rows::ZERO,
+                        cols: vp.cols(),
+                        rows: vp.rows(),
+                    };
+                    if !same || walked != Some(key) {
+                        map.ensure(&t, vp, styles_mem, &mut r, &mut candidates);
+                        walked = (arm != Arm::Slide).then(|| WalkKey {
+                            map: map.generation(),
+                            grown: r.atlas_stats().grown,
+                            ..key
+                        });
+                    }
                     s.parts[part].map += tc.elapsed();
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
@@ -458,6 +550,14 @@ fn main() {
                         overlay_mem,
                         &mut records,
                     );
+                    let moving_from = records.len();
+                    if caret.is_some() {
+                        // The glow over the cursor's cell, after the walk's
+                        // records, as `present` appends it.
+                        r.set_cursor_glow_at(cursor);
+                        records.extend_from_slice(r.cursor_glow());
+                    }
+                    let moving = (moving_from, records.len());
                     s.parts[part].overlay += to.elapsed();
                     s.cand.add(Tally::of(candidates.len()));
                     s.win.add(exceptions.stats().windows);
@@ -511,6 +611,10 @@ fn main() {
                         // frame would say nothing; the presenter's wheel is
                         // what decides in the app.
                         set: SetIx(0),
+                        table: stamp,
+                        map_gen: map.generation(),
+                        reach: map.reach(),
+                        moving,
                     };
                     let done = match arm {
                         Arm::Async | Arm::Slide => Done::Notify(Arc::clone(&sink)),
@@ -531,10 +635,18 @@ fn main() {
                         }
                         _ => Done::Wait,
                     };
-                    let Some(Drawn::Frame(g)) = gpu.draw_cells(&mut r, &input, &target, done)
+                    let missing = ages.missing(surface);
+                    let Some(Drawn::Frame(g)) =
+                        gpu.draw_cells_since(&mut r, &input, &target, done, missing)
                     else {
                         panic!("draw_cells");
                     };
+                    ages.drew(surface, g.changed);
+                    surface = surface.next();
+                    if let Redraw::Rows(set) = g.drawn {
+                        s.parts[part].partial.bump();
+                        s.parts[part].drawn_rows.add(Tally::of(set.len().index()));
+                    }
                     // `FRAME_REBUILD_EVERY=0` never rebuilds: the control
                     // that says the counter can read zero. Without it a
                     // counter that only ever reported "superseded" would be
@@ -548,6 +660,7 @@ fn main() {
                         epoch.bump();
                     }
                     s.parts[part].draw += g.upload + g.submit;
+                    s.parts[part].gpu += g.gpu.unwrap_or_default();
                     if idle {
                         // An idle frame's GPU time and the idle wait are not
                         // the replay's: they are reported with the parts.
@@ -570,6 +683,36 @@ fn main() {
                     continue;
                 }
                 let converted = r.convert(&t, Rows::ZERO, damage);
+                if idle {
+                    // A `FRAME_CARET` frame: reported with the parts.
+                    let p = &mut s.parts[part];
+                    p.frames.bump();
+                    p.convert += converted.convert;
+                    p.rows.add(converted.rows_dirty);
+                    match arm {
+                        Arm::Gpu => {
+                            let missing = ages.missing(surface);
+                            let Some(Drawn::Frame(g)) =
+                                gpu.draw_since(&mut r, &target, Done::Wait, missing)
+                            else {
+                                panic!("draw");
+                            };
+                            ages.drew(surface, g.changed);
+                            surface = surface.next();
+                            if let Redraw::Rows(set) = g.drawn {
+                                p.partial.bump();
+                                p.drawn_rows.add(Tally::of(set.len().index()));
+                            }
+                            p.draw += g.upload + g.submit;
+                            p.gpu += g.gpu.unwrap_or_default();
+                        }
+                        _ => {
+                            let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+                            p.draw += r.paint(&mut target, converted).composite;
+                        }
+                    }
+                    continue;
+                }
                 s.frames += 1;
                 s.convert += converted.convert;
                 s.rows += converted.rows_dirty.value();
@@ -581,9 +724,14 @@ fn main() {
                         s.inst += f.instances.value();
                     }
                     Arm::Gpu => {
-                        let Some(Drawn::Frame(g)) = gpu.draw(&mut r, &target, Done::Wait) else {
+                        let missing = ages.missing(surface);
+                        let Some(Drawn::Frame(g)) =
+                            gpu.draw_since(&mut r, &target, Done::Wait, missing)
+                        else {
                             panic!("draw");
                         };
+                        ages.drew(surface, g.changed);
+                        surface = surface.next();
                         s.draw += g.upload + g.submit;
                         s.bind += g.upload;
                         s.gpu += g.gpu.unwrap_or_default();
@@ -652,6 +800,21 @@ fn main() {
                 }
                 let n = u32::try_from(p.frames.value()).unwrap_or(u32::MAX);
                 let us = |d: Duration| (d / n).as_secs_f64() * 1e6;
+                if caret.is_some() && kind == &"nothing read" {
+                    println!(
+                        "      caret: {} frames; {} by rows, {:.2} rows drawn; rows {:.2}, convert {:.1}, map {:.1}, overlay {:.1}, draw {:.1}, gpu {:.1} us/frame",
+                        p.frames.value(),
+                        p.partial.value(),
+                        p.drawn_rows.value() as f64 / p.partial.value().max(1) as f64,
+                        p.rows.value() as f64 / f64::from(n),
+                        us(p.convert),
+                        us(p.map),
+                        us(p.overlay),
+                        us(p.draw),
+                        us(p.gpu),
+                    );
+                    continue;
+                }
                 println!(
                     "      {kind}: {} frames; map {:.1}, styles {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1} us/frame",
                     p.frames.value(),

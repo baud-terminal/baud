@@ -43,7 +43,7 @@ use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
     Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
-    Window, copy_for_shader, gutter,
+    WalkKey, Window, copy_for_shader, gutter,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -271,6 +271,176 @@ struct CellMemory {
     /// the next map is built over the other buffer and the binding moves --
     /// a pointer, no copy, no allocation and no wait.
     maps: Maps,
+    /// **What the last frame was built from, so a frame built from the same
+    /// screen does less** (`Screens`): the map walk is skipped and a set
+    /// whose copy already holds the screen is not copied again.
+    screens: Screens,
+}
+
+/// **Which screen each set's copy holds, and what the last map walk read.**
+/// A frame where only the cursor, its blink animation or its trail moved
+/// is built from the screen the last was: its cells, its status line and
+/// its line renditions are the ones the last frame copied, compared row
+/// for row against that frame's copy. Such a frame skips the glyph map's
+/// walk when nothing else the walk reads changed (`WalkKey`), and skips
+/// the copy into a set that already holds that screen.
+struct Screens {
+    /// Counts the screens frames were built from; moves when a frame's
+    /// screen differs from the last's.
+    now: ScreenGen,
+    /// The screen each set's copy holds, or none.
+    copied: Vec<Option<ScreenGen>>,
+    /// The set the last frame was built into, whose copy is its screen,
+    /// and that screen's line renditions and its status line's, if shown.
+    last: Option<usize>,
+    renditions: Vec<baud_domain::LineRendition>,
+    status: Option<baud_domain::LineRendition>,
+    /// What the last walk read, as it left the map; none after a frame
+    /// that slid, whose walks listed another window.
+    walked: Option<WalkKey>,
+}
+
+/// Whether a frame is built from the last frame's screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Built {
+    Last,
+    New,
+}
+
+/// A screen frames were built from, by its place among them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct ScreenGen(u64);
+
+impl Screens {
+    /// One record a buffer set, none holding a screen.
+    fn new() -> Screens {
+        Screens {
+            now: ScreenGen::default(),
+            copied: vec![None; Wheel::SETS],
+            last: None,
+            renditions: Vec::new(),
+            status: None,
+            walked: None,
+        }
+    }
+
+    /// Whether `view` and `status` show the screen the last frame was built
+    /// from, read from `copy`, the copy that frame left at `stride` cells a
+    /// row: every row's cells and line rendition, and the status line's.
+    fn is_last(
+        &self,
+        copy: &[PackedCell],
+        view: &baud_domain::Viewport<'_>,
+        status: Option<&baud_core::StatusLine<'_>>,
+        stride: baud_domain::Stride,
+    ) -> Built {
+        let (cols, rows) = (view.cols().index(), view.rows().index());
+        let stride = stride.index();
+        let same = self.status == status.map(|l| l.rendition)
+            && self.renditions.len() == rows
+            && (0..rows).all(|y| {
+                let r = Row::from_index(y);
+                self.renditions[y] == view.rendition(r)
+                    && copy.get(y * stride..y * stride + cols) == view.row(r).get(..cols)
+            })
+            && status.is_none_or(|line| {
+                let n = cols.min(line.cells.len());
+                copy.get(rows * stride..rows * stride + n) == line.cells.get(..n)
+            });
+        match same {
+            true => Built::Last,
+            false => Built::New,
+        }
+    }
+
+    /// A frame built from `view` and `status`, the last frame's screen when
+    /// `same`, else a screen of its own.
+    fn built(
+        &mut self,
+        built: Built,
+        view: &baud_domain::Viewport<'_>,
+        status: Option<&baud_core::StatusLine<'_>>,
+    ) {
+        if built == Built::Last {
+            return;
+        }
+        self.now = ScreenGen(self.now.0 + 1);
+        self.renditions.clear();
+        self.renditions
+            .extend((0..view.rows().index()).map(|y| view.rendition(Row::from_index(y))));
+        self.status = status.map(|l| l.rendition);
+    }
+}
+
+#[cfg(test)]
+mod screens_tests {
+    use super::{Built, Screens};
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, PackedCell, ReadLen, Row, WinSize};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 6,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// The window and the status line copied as the app copies them.
+    fn copy(t: &Term<'_>) -> Vec<PackedCell> {
+        let stride = t.stride().index();
+        let view = t.viewport();
+        let (cols, rows) = (view.cols().index(), view.rows().index());
+        let mut out = vec![PackedCell::EMPTY; stride * (rows + 1)];
+        for y in 0..rows {
+            out[y * stride..y * stride + cols]
+                .copy_from_slice(&view.row(Row::from_index(y))[..cols]);
+        }
+        if let Some(line) = t.status_line() {
+            let n = cols.min(line.cells.len());
+            out[rows * stride..rows * stride + n].copy_from_slice(&line.cells[..n]);
+        }
+        out
+    }
+
+    fn built_from(t: &Term<'_>) -> (Screens, Vec<PackedCell>) {
+        let mut s = Screens::new();
+        s.built(Built::New, &t.viewport(), t.status_line().as_ref());
+        (s, copy(t))
+    }
+
+    fn is_last(s: &Screens, c: &[PackedCell], t: &Term<'_>) -> Built {
+        s.is_last(c, &t.viewport(), t.status_line().as_ref(), t.stride())
+    }
+
+    /// **A frame whose screen is the last frame's skips the walk and the
+    /// copy**, and any change to what the shader reads of it is a new
+    /// screen: a cell, a line's rendition, the status line appearing or
+    /// changing. A cursor move is the last screen.
+    #[test]
+    fn the_last_screen_is_its_cells_line_renditions_and_status_line() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"hello\r\nworld");
+        let (s, c) = built_from(&t);
+        assert_eq!(is_last(&s, &c, &t), Built::Last, "the same screen");
+        feed(&mut t, b"\x1b[1;3H");
+        assert_eq!(is_last(&s, &c, &t), Built::Last, "the cursor moved alone");
+        feed(&mut t, b"X");
+        assert_eq!(is_last(&s, &c, &t), Built::New, "a cell written");
+        let (s, c) = built_from(&t);
+        feed(&mut t, b"\x1b[2;1H\x1b#6");
+        assert_eq!(is_last(&s, &c, &t), Built::New, "a line made double width");
+        let (s, c) = built_from(&t);
+        feed(&mut t, b"\x1b[2$~");
+        assert_eq!(is_last(&s, &c, &t), Built::New, "the status line shown");
+        let (s, c) = built_from(&t);
+        assert_eq!(is_last(&s, &c, &t), Built::Last, "and the same again");
+        feed(&mut t, b"\x1b[1$}status\x1b[0$}");
+        assert_eq!(is_last(&s, &c, &t), Built::New, "the status line written");
+    }
 }
 
 /// The glyph map and the buffer it is built over, which cannot be told
@@ -1093,6 +1263,7 @@ impl App {
                         style_stamps: vec![StyleStamp::default(); styles_mem.len()],
                         styles,
                         styles_mem,
+                        screens: Screens::new(),
                         maps: Maps {
                             buffers: [first_map, second_map],
                             at: MapSide::FIRST,
@@ -1914,13 +2085,49 @@ impl App {
                     }
                     (c, _) => c,
                 };
-                cell.maps.live.ensure(
-                    &self.term,
-                    view,
-                    &cell.styles_mem[set][..],
-                    &mut self.renderer,
-                    &mut cell.candidates,
-                );
+                // **Whether this frame's screen is the last frame's**: its
+                // rows, its status line and its line renditions against the
+                // copy that frame left, row for row. Never while sliding,
+                // whose copy holds a leaving row and whose walk another
+                // window.
+                let stride = self.term.stride().index();
+                let (vcols, vrows) = (view.cols().index(), view.rows().index());
+                let status = self.term.status_line();
+                let lined = usize::from(status.is_some());
+                let screens = &mut cell.screens;
+                let built = match (sliding, screens.last) {
+                    (false, Some(ps)) => screens.is_last(
+                        cell.copies_mem[ps],
+                        &view,
+                        status.as_ref(),
+                        self.term.stride(),
+                    ),
+                    _ => Built::New,
+                };
+                screens.built(built, &view, status.as_ref());
+                let key = WalkKey {
+                    table: cell.style_stamps[set],
+                    map: cell.maps.live.generation(),
+                    grown: self.renderer.atlas_stats().grown,
+                    clusters: self.term.cluster_epoch(),
+                    back,
+                    cols: view.cols(),
+                    rows: view.rows(),
+                };
+                if built == Built::New || screens.walked != Some(key) {
+                    cell.maps.live.ensure(
+                        &self.term,
+                        view,
+                        &cell.styles_mem[set][..],
+                        &mut self.renderer,
+                        &mut cell.candidates,
+                    );
+                    screens.walked = (!sliding).then(|| WalkKey {
+                        map: cell.maps.live.generation(),
+                        grown: self.renderer.atlas_stats().grown,
+                        ..key
+                    });
+                }
                 let cursor = cursor_at.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
                 // **D4: the window, copied into this frame's slot.** The
                 // rows the view names, in screen order, so what the shader
@@ -1932,33 +2139,37 @@ impl App {
                 // the ring, so the wrap at the ring's end costs nothing
                 // here: it is two slices either side of it, and this walks
                 // rows rather than one span.
-                let stride = self.term.stride().index();
-                let (vcols, vrows) = (view.cols().index(), view.rows().index());
-                for y in 0..vrows {
-                    let src = view.row(Row::from_index(y));
-                    let at = y * stride;
-                    cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
-                }
-                // **The status line's row, after the main display's**, at
-                // index `vrows`: the shader draws `vrows` and the line's row
-                // (`Renderer::grid`), its backgrounds from here and its
-                // glyphs from the records `Overlay::status` adds. No slide
-                // runs while it is shown (`slides`), so the leaving row
-                // never wants the index.
-                let lined = match self.term.status_line() {
-                    Some(line) => {
+                //
+                // A set whose copy holds this screen already -- a frame that
+                // changed only the cursor, built into a set an earlier one
+                // copied the same screen into -- is not copied again.
+                if screens.copied[set] != Some(screens.now) {
+                    for y in 0..vrows {
+                        let src = view.row(Row::from_index(y));
+                        let at = y * stride;
+                        cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
+                    }
+                    // **The status line's row, after the main display's**,
+                    // at index `vrows`: the shader draws `vrows` and the
+                    // line's row (`Renderer::grid`), its backgrounds from
+                    // here and its glyphs from the records `Overlay::status`
+                    // adds. No slide runs while it is shown (`slides`), so
+                    // the leaving row never wants the index.
+                    if let Some(line) = &status {
                         let at = vrows * stride;
                         let n = vcols.min(line.cells.len());
                         cell.copies_mem[set][at..at + n].copy_from_slice(&line.cells[..n]);
-                        1
                     }
-                    None => 0,
-                };
+                    screens.copied[set] = Some(screens.now);
+                }
+                screens.last = Some(set);
                 // **The config's notice row, after the status line's**:
                 // blank cells, whose default background the shader draws,
                 // under the notice's field drawn with baud's own overlays
                 // below (`Renderer::notice_bar`). No slide runs while it is
-                // shown (`below_grid`).
+                // shown (`below_grid`). Filled on every frame, the copy of
+                // the screen skipped or not: a set that holds the screen may
+                // not hold the notice's row.
                 let noticed = match self.renderer.notice_bar() {
                     Some(_) => {
                         let at = (vrows + lined) * stride;
@@ -2102,6 +2313,7 @@ impl App {
                 // The trail, thumb and screen fade ride with the records,
                 // drawn after the cell passes: the trail under the thumb, and
                 // the fade last so it veils everything during a switch.
+                let moving_from = cell.records.len();
                 cell.records.extend_from_slice(self.renderer.trail());
                 // The plasma blink's glow over the cursor's cell, after the
                 // trail as `Renderer::instances` has it: built from the
@@ -2121,6 +2333,7 @@ impl App {
                 cell.grounds.extend_from_slice(self.renderer.badge());
                 self.renderer
                     .cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.grounds);
+                let moving = (moving_from, cell.records.len());
                 // baud's own overlays, drawn over the images over the text
                 // (`CellInput::chrome`): the find field over its cells,
                 // masked off the shader as a composition is, and its caret;
@@ -2189,6 +2402,10 @@ impl App {
                     chrome,
                     slide: sliding.then_some(pan),
                     set: at,
+                    table: cell.style_stamps[set],
+                    map_gen: cell.maps.live.generation(),
+                    reach: cell.maps.live.reach(),
+                    moving,
                 };
                 if let Some(p) = &mut self.presenter {
                     let before = self.latency.stamp(host_now);
@@ -2260,8 +2477,16 @@ impl App {
                 };
                 self.stats = stats;
                 let clear = self.renderer.clear_color();
+                // What the frame repainted, so the surface it goes to copies
+                // only the rows it and the frames since that surface was
+                // last copied changed.
+                let painted: Vec<baud_render::Band> = self.renderer.painted().collect();
+                let changed = match damage {
+                    Damage::Full => baud_present_macos::Changed::Whole,
+                    Damage::Incremental => baud_present_macos::Changed::Bands(&painted),
+                };
                 if let Some(p) = &mut self.presenter {
-                    if p.present(screen, &self.frame, w, clear) == Presented::Yes {
+                    if p.present_changed(screen, &self.frame, w, clear, changed) == Presented::Yes {
                         shown = Presented::Yes;
                         self.latency.shown_cpu(host_now);
                         startup_first("first present", &FIRST_PRESENT);

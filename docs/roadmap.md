@@ -41,8 +41,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Faster emoji sequences** — Emoji families, flags and other joined emoji are taken in faster.
 - [ ] **Faster zoom** — Zooming keeps the glyphs it has already drawn instead of drawing every one again.
 - [ ] **Less GPU work per frame** — Fewer drawing passes for the text grid.
-- [ ] **Less work when only the cursor moves** — A frame where only the cursor or its trail changed is drawn with less work.
 - [ ] **Smoother window drags** — A drag step that cannot be shown yet is not drawn at all.
+- [x] **Less work when only the cursor moves** — A frame where only the cursor, its blinking, its trail or the cursor guide changed redraws just the rows they cover, on both GPU paths and in the copy the CPU path makes to the screen. (2026-10-23)
 
 ## Text, fonts and emoji
 

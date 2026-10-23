@@ -455,8 +455,10 @@ fn main() {
                 self.overlay_mem,
                 &mut self.records,
             );
+            let moving_from = self.records.len();
             self.records.extend_from_slice(self.renderer.trail());
             self.records.extend_from_slice(self.renderer.cursor_glow());
+            let moving = (moving_from, self.records.len());
             // The thumb and the fade are baud's own, drawn over the images.
             let chrome_from = self.records.len();
             self.records.extend_from_slice(self.renderer.scrollbar());
@@ -478,6 +480,10 @@ fn main() {
                 under: self.exceptions.under(),
                 chrome,
                 slide: None,
+                table: self.stamp,
+                map_gen: self.map.generation(),
+                reach: self.map.reach(),
+                moving,
             };
             let Some(Drawn::Frame(_)) =
                 self.gpu

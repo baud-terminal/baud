@@ -465,9 +465,10 @@ summary = "When you choose your own font, its bold and italic faces are used ins
 [[item]]
 id = "X2-02"
 area = "speed"
-status = "planned"
+status = "done"
+date = "2026-10-23"
 title = "Less work when only the cursor moves"
-summary = "A frame where only the cursor or its trail changed is drawn with less work."
+summary = "A frame where only the cursor, its blinking, its trail or the cursor guide changed redraws just the rows they cover, on both GPU paths and in the copy the CPU path makes to the screen."
 
 [[item]]
 id = "X2-14"

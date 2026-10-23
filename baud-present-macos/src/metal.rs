@@ -61,8 +61,8 @@ use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
     Argb, Atlas, CursorLook, Dirty, Generation, Ground, Highlight, ImageComposite, ImageLayer,
-    ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced,
-    Resolved, Screen, Side, Tally, Tex, TexRect,
+    ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw,
+    Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -150,6 +150,13 @@ pub struct GpuFrame {
     /// there is no GPU time to report and a zero would be a lie. It
     /// reaches the caller through [`Done::Notify`] instead.
     pub gpu: Option<Duration>,
+    /// What this frame changed of the frame committed before it: the rows
+    /// the cursor, its blink animation or its trail moved through, or the
+    /// whole. What a presenter records against the surface it went to.
+    pub changed: Redraw,
+    /// What was drawn into the target: that change and what the target
+    /// was missing before it, or the whole.
+    pub drawn: Redraw,
 }
 
 /// Which of the ring's instance buffers is written next.
@@ -275,7 +282,7 @@ enum Texel {
 }
 
 /// A count as a uniform word carries it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 struct Uni(u32);
 
@@ -290,7 +297,7 @@ impl Uni {
 /// `sel_to_row` are the selection, a flag and its two inclusive corners,
 /// and `sel_bg` to `sel_fg_curve` its colours.
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct CellUniforms {
     viewport_w: Px,
     viewport_h: Px,
@@ -362,6 +369,30 @@ struct CellUniforms {
 }
 
 const _: () = assert!(core::mem::size_of::<CellUniforms>() == 152);
+
+impl CellUniforms {
+    /// These uniforms with the cursor's words cleared: what two frames that
+    /// differ only in the cursor have alike.
+    fn without_cursor(self) -> CellUniforms {
+        CellUniforms {
+            cursor_col: Uni(0),
+            cursor_row: Uni(0),
+            cursor: CursorCode(0),
+            cursor_color: Uni(0),
+            cursor_alpha: Uni(0),
+            cursor_text: Uni(0),
+            cursor_text_curve: Uni(0),
+            ..self
+        }
+    }
+
+    /// The row the shader draws a cursor on, when it draws one.
+    fn cursor_at(&self) -> Option<Row> {
+        let none = CursorKind::None.code();
+        (self.cursor != none && self.cursor_alpha != Uni(0))
+            .then(|| Row::from_index(usize::try_from(self.cursor_row.0).unwrap_or(usize::MAX)))
+    }
+}
 
 /// The shader's word for the cell's own text, and for its page: never an
 /// opaque colour, whose alpha byte is `0xFF`.
@@ -438,6 +469,19 @@ pub struct CellInput<'a> {
     /// line just retired, which the shader reaches by the same modulo.
     /// `None` is the settled draw, unchanged.
     pub slide: Option<Px>,
+    /// The stamp of the table `styles` holds (`Renderer::sync_styles`):
+    /// a frame whose stamp moved may draw any cell in another colour.
+    pub table: StyleStamp,
+    /// The glyph map's generation and where its glyphs' ink can lie
+    /// ([`baud_render::GlyphMap::generation`], `reach`): a map that changed
+    /// may draw any cell anew, and a glyph reaching past its row is drawn
+    /// with the rows it reaches.
+    pub map_gen: MapGeneration,
+    pub reach: Reach,
+    /// Which of `records` are the cursor's trail and its blink animation,
+    /// from the first to one past the last: the records a cursor-only frame
+    /// moves, whose rows are its change. The rest must be the last frame's.
+    pub moving: (usize, usize),
 }
 
 /// How the cursor is drawn, as the shader switches on it.
@@ -479,7 +523,7 @@ impl CursorKind {
 }
 
 /// A cursor kind as the uniform carries it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 struct CursorCode(u32);
 
@@ -611,6 +655,72 @@ pub struct Gpu {
     in_flight: Arc<AtomicUsize>,
     /// What `Gpu::new` cost, step by step.
     build: Build,
+    /// **What the last frame committed drew**, beside its rows, on each
+    /// path: what the next frame must equal to change only rows.
+    last: Last,
+    /// The rectangle every scissor of the pass being encoded is held to:
+    /// the band of rows a partial frame draws, or none.
+    clip: Option<MTLScissorRect>,
+}
+
+/// The last frame committed, as [`Gpu::draw_since`] or
+/// [`Gpu::draw_cells_since`] drew it.
+enum Last {
+    None,
+    Instances(InstanceKey),
+    Cells(Box<CellLast>),
+}
+
+/// What an instance-path frame draws beside the rows the renderer converted
+/// ([`Renderer::redraw`]): two frames alike in this differ only in those.
+#[derive(PartialEq)]
+struct InstanceKey {
+    size: (Px, Px),
+    uniforms: [u32; UNIFORM_FLOATS],
+    clear: Argb,
+    strip: Vec<Instance>,
+    /// Whether an image was drawn, which the renderer's rows do not follow
+    /// on this path; or a trail or blink record past the grid, which no
+    /// row holds.
+    unrowed: Unrowed,
+}
+
+/// Whether a frame drew something no grid row holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Unrowed {
+    No,
+    Yes,
+}
+
+/// What a cell-path frame drew: everything it was handed and the
+/// uniforms built from it, the cursor's words apart.
+struct CellLast {
+    size: (Px, Px),
+    viewport: (u64, u64, u64, u64),
+    uniforms: CellUniforms,
+    clear: Argb,
+    strip: Vec<Instance>,
+    unrowed: Unrowed,
+    stride: Stride,
+    rotation: RowRot,
+    ring: Rows,
+    under: Tally,
+    chrome: Tally,
+    table: StyleStamp,
+    map_gen: MapGeneration,
+    /// The atlas the map's rectangles name: a map made again over a new
+    /// stack starts its generation over, and the atlas's does not.
+    atlas: Generation,
+    /// The records outside `moving`, and the rows `moving`'s covered.
+    records: Vec<Instance>,
+    moving: RowSet,
+    /// The grounds, the badge and the cursor guide, which move with the
+    /// cursor: the guide on its row, the badge with its block's cell left
+    /// out (`Renderer::place_grounds`).
+    grounds: Vec<Instance>,
+    /// The grid's drawn rows, `cols` cells each, and the overlay's bytes.
+    cells: Vec<PackedCell>,
+    overlay: Vec<u8>,
 }
 
 /// Whether a pass blends over what is under it, or replaces it. The
@@ -764,6 +874,23 @@ fn curve_buffer(device: &ProtocolObject<dyn MTLDevice>) -> Option<Buffer> {
     let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), table.len()) };
     dst.copy_from_slice(table);
     Some(buffer)
+}
+
+/// A `repr(C)` slice over the first `n` elements of a shared buffer's
+/// contents, read for as long as the borrow of the buffer lasts.
+///
+/// # Safety
+/// `T` must be valid for any bit pattern the buffer holds, and nothing may
+/// write the elements while the slice is read.
+unsafe fn peek<T>(buffer: &Buffer, n: Elems) -> Option<&[T]> {
+    let n = n.0;
+    if buffer.length() < n.saturating_mul(core::mem::size_of::<T>()) {
+        return None;
+    }
+    let ptr = buffer.contents().cast::<T>();
+    // SAFETY: a shared buffer's contents are page-aligned and at least
+    // `n * size_of::<T>()` bytes, as checked; the caller upholds the rest.
+    Some(unsafe { core::slice::from_raw_parts(ptr.as_ptr(), n) })
 }
 
 /// A `repr(C)` slice over the first `n` elements of a shared buffer's
@@ -969,6 +1096,8 @@ impl Gpu {
             image_gen: ImageGen::ZERO,
             in_flight: Arc::new(AtomicUsize::new(0)),
             build,
+            last: Last::None,
+            clip: None,
         })
     }
 
@@ -1628,18 +1757,23 @@ impl Gpu {
     /// A pass over `target`, cleared to `clear` -- the terminal's own
     /// background, so the margin around the grid is the same colour as a
     /// default cell rather than a see-through edge -- with the rasteriser
-    /// confined to `viewport`, the grid centred in the surface.
+    /// confined to `viewport`, the grid centred in the surface. A frame
+    /// `drawn` by rows loads what the target holds instead of clearing it.
     fn encoder(
         &self,
         target: &Target,
         clear: MTLClearColor,
         viewport: MTLViewport,
+        drawn: &Redraw,
     ) -> Option<(CommandBuffer, Encoder)> {
         let pass = MTLRenderPassDescriptor::new();
         // SAFETY: attachment 0 exists on every pass descriptor.
         let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
         att.setTexture(Some(&target.texture));
-        att.setLoadAction(MTLLoadAction::Clear);
+        att.setLoadAction(match drawn {
+            Redraw::Whole => MTLLoadAction::Clear,
+            Redraw::Rows(_) => MTLLoadAction::Load,
+        });
         att.setStoreAction(MTLStoreAction::Store);
         att.setClearColor(clear);
         let cmd = self.queue.commandBuffer()?;
@@ -1693,6 +1827,23 @@ impl Gpu {
         renderer: &mut Renderer<'_, '_>,
         target: &Target,
         done: Done,
+    ) -> Option<Drawn> {
+        self.draw_since(renderer, target, done, Redraw::Whole)
+    }
+
+    /// [`Gpu::draw`] into a target that holds an earlier frame and lacks
+    /// `missing` of the last one committed ([`crate::redraw::Ages`]). When
+    /// this frame and those changed only rows -- the cursor, its blink
+    /// animation or its trail ([`Renderer::redraw`]), and nothing an image,
+    /// the exit-status strip or the frame's size draws -- the target is
+    /// loaded and only those rows are drawn, each band the whole pass held
+    /// to its scissor; otherwise the whole frame is.
+    pub fn draw_since(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        target: &Target,
+        done: Done,
+        missing: Redraw,
     ) -> Option<Drawn> {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
@@ -1795,94 +1946,157 @@ impl Gpu {
             pad[0],
             pad[1],
         ];
+        // Whether the trail's, the blink animation's or the cursor guide's
+        // records leave the grid, where no row's band holds them: a guide
+        // spans a legacy scroller's gutter too.
+        let cell = (metrics.cell_w.value(), metrics.cell_h.value());
+        let grid = (
+            u32::try_from(cols.index()).unwrap_or(u32::MAX),
+            u32::try_from(rows.index()).unwrap_or(u32::MAX),
+        );
+        let off_grid = renderer
+            .trail()
+            .iter()
+            .chain(renderer.cursor_glow())
+            .chain(renderer.cursor_guide())
+            .any(|r| crate::redraw::record_rows(r, cell, grid).is_none());
+        let key = InstanceKey {
+            size: target.size(),
+            uniforms: uniforms.map(f32::to_bits),
+            clear: renderer.clear_color(),
+            strip: renderer.strip_records().to_vec(),
+            unrowed: match off_grid || !images.is_empty() {
+                true => Unrowed::Yes,
+                false => Unrowed::No,
+            },
+        };
+        let changed = match &self.last {
+            Last::Instances(last) if *last == key && key.unrowed == Unrowed::No => {
+                renderer.redraw()
+            }
+            _ => Redraw::Whole,
+        };
+        let drawn = missing.union(changed);
+        let clips: Vec<Option<MTLScissorRect>> = match drawn {
+            Redraw::Whole => vec![None],
+            Redraw::Rows(set) => bands(target, pad, grid_px, metrics.cell_h, set)
+                .into_iter()
+                .map(|(_, _, r)| Some(r))
+                .collect(),
+        };
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target, clear, viewport)?;
+        let (cmd, enc) = self.encoder(target, clear, viewport, &drawn)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
-        match &below {
-            Some((ground, pipe, _)) => {
-                enc.setRenderPipelineState(pipe);
-                // SAFETY: index 1 is `bg_ground_fragment`'s `[[texture(1)]]`.
-                unsafe { enc.setFragmentTexture_atIndex(Some(ground), 1) };
+        for clip in clips {
+            self.clip = clip;
+            if let Some(c) = clip {
+                enc.setScissorRect(c);
             }
-            None => enc.setRenderPipelineState(&self.bg_pipe),
-        }
-        // SAFETY: the byte pointers name `uniforms`, which outlives the
-        // encoder (Metal copies `setBytes` data at the call); the buffer
-        // and texture indices match the shader's `[[buffer(n)]]` and
-        // `[[texture(n)]]` attributes; the instance buffer holds `count`
-        // records, so an instance id never reads past it.
-        unsafe {
-            enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
-            enc.setFragmentTexture_atIndex(Some(&bg_texture), 0);
-            // The background pass replaces what is under it, and it writes
-            // nothing a cell does not cover -- so it is held to the grid,
-            // and a legacy scroller's gutter keeps the pass's clear colour,
-            // the letterbox margin's, rather than the transparent zero the
-            // fragment returns past the last column.
-            enc.setScissorRect(scissor(target, pad, grid_px));
-            enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
-            enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
-            // Images below the non-default backgrounds, then those
-            // backgrounds blended over them, as the CPU's `paint_under`.
-            if let Some((ground, _, pipe)) = &below {
-                self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Below, frame_px)?;
-                enc.setRenderPipelineState(pipe);
+            match &below {
+                Some((ground, pipe, _)) => {
+                    enc.setRenderPipelineState(pipe);
+                    // SAFETY: index 1 is `bg_ground_fragment`'s `[[texture(1)]]`.
+                    unsafe { enc.setFragmentTexture_atIndex(Some(ground), 1) };
+                }
+                None => enc.setRenderPipelineState(&self.bg_pipe),
+            }
+            // SAFETY: the byte pointers name `uniforms`, which outlives the
+            // encoder (Metal copies `setBytes` data at the call); the buffer
+            // and texture indices match the shader's `[[buffer(n)]]` and
+            // `[[texture(n)]]` attributes; the instance buffer holds `count`
+            // records, so an instance id never reads past it.
+            unsafe {
                 enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
                 enc.setFragmentTexture_atIndex(Some(&bg_texture), 0);
-                enc.setFragmentTexture_atIndex(Some(ground), 1);
-                enc.setScissorRect(scissor(target, pad, grid_px));
+                // The background pass replaces what is under it, and it writes
+                // nothing a cell does not cover -- so it is held to the grid,
+                // and a legacy scroller's gutter keeps the pass's clear colour,
+                // the letterbox margin's, rather than the transparent zero the
+                // fragment returns past the last column.
+                enc.setScissorRect(clipped(scissor(target, pad, grid_px), self.clip));
                 enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
-                enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
+                enc.setScissorRect(clipped(
+                    scissor(target, [0.0, 0.0], target.size()),
+                    self.clip,
+                ));
+                // Images below the non-default backgrounds, then those
+                // backgrounds blended over them, as the CPU's `paint_under`.
+                if let Some((ground, _, pipe)) = &below {
+                    self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Below, frame_px)?;
+                    enc.setRenderPipelineState(pipe);
+                    enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
+                    enc.setFragmentTexture_atIndex(Some(&bg_texture), 0);
+                    enc.setFragmentTexture_atIndex(Some(ground), 1);
+                    enc.setScissorRect(clipped(scissor(target, pad, grid_px), self.clip));
+                    enc.drawPrimitives_vertexStart_vertexCount(
+                        MTLPrimitiveType::TriangleStrip,
+                        0,
+                        4,
+                    );
+                    enc.setScissorRect(clipped(
+                        scissor(target, [0.0, 0.0], target.size()),
+                        self.clip,
+                    ));
+                }
+                // Images under the text, over the backgrounds, as the CPU
+                // compositor blits them into a repainted row.
+                self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
+                if content > 0 {
+                    self.draw_records(
+                        &enc,
+                        &self.instances[slot],
+                        At(0),
+                        At(content),
+                        trail_at,
+                        trail.as_ref(),
+                        &uniforms,
+                        &mask,
+                        &color,
+                    );
+                }
+                // Images over the text after the content, the way the CPU
+                // compositor blits them, and baud's own overlays over them.
+                self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
+                if count > content {
+                    self.draw_records(
+                        &enc,
+                        &self.instances[slot],
+                        At(content),
+                        At(count),
+                        trail_at,
+                        trail.as_ref(),
+                        &uniforms,
+                        &mask,
+                        &color,
+                    );
+                }
+                // The strip is outside every band, and a partial frame keeps
+                // what the target holds of it: the key says it did not change.
+                if self.clip.is_none() {
+                    self.draw_strip(
+                        &enc,
+                        &self.instances[slot],
+                        (At(count), At(count + marks)),
+                        (target, strip_vp, frame_px.1),
+                        metrics,
+                        (&mask, &color),
+                    )?;
+                }
             }
-            // Images under the text, over the backgrounds, as the CPU
-            // compositor blits them into a repainted row.
-            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
-            if content > 0 {
-                self.draw_records(
-                    &enc,
-                    &self.instances[slot],
-                    At(0),
-                    At(content),
-                    trail_at,
-                    trail.as_ref(),
-                    &uniforms,
-                    &mask,
-                    &color,
-                );
-            }
-            // Images over the text after the content, the way the CPU
-            // compositor blits them, and baud's own overlays over them.
-            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
-            if count > content {
-                self.draw_records(
-                    &enc,
-                    &self.instances[slot],
-                    At(content),
-                    At(count),
-                    trail_at,
-                    trail.as_ref(),
-                    &uniforms,
-                    &mask,
-                    &color,
-                );
-            }
-            self.draw_strip(
-                &enc,
-                &self.instances[slot],
-                (At(count), At(count + marks)),
-                (target, strip_vp, frame_px.1),
-                metrics,
-                (&mask, &color),
-            )?;
         }
+        self.clip = None;
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
+        self.last = Last::Instances(key);
+        renderer.take_redraw();
         Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count + marks),
             upload: upload_time,
             submit,
             gpu,
+            changed,
+            drawn,
         }))
     }
 
@@ -1899,6 +2113,28 @@ impl Gpu {
         input: &CellInput<'_>,
         target: &Target,
         done: Done,
+    ) -> Option<Drawn> {
+        self.draw_cells_since(renderer, input, target, done, Redraw::Whole)
+    }
+
+    /// [`Gpu::draw_cells`] into a target that holds an earlier frame and
+    /// lacks `missing` of the last one committed ([`crate::redraw::Ages`]).
+    /// A frame is compared with the last committed on everything it is
+    /// handed and every uniform built from it: when only the cursor's
+    /// words, the trail's and the blink animation's records (`moving`) and
+    /// the grounds -- the cursor guide and the badge -- differ, its change
+    /// is the rows of the old and the new cursor, each with the rows its
+    /// glyph can reach ([`CellInput::reach`]), and the rows those records
+    /// and the grounds that changed cover. Then the target is loaded and each band of
+    /// changed rows drawn alone: the cell passes over its rows and the rows
+    /// whose glyphs can reach it, every record, all held to its scissor.
+    pub fn draw_cells_since(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        input: &CellInput<'_>,
+        target: &Target,
+        done: Done,
+        missing: Redraw,
     ) -> Option<Drawn> {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
@@ -1936,7 +2172,7 @@ impl Gpu {
         let trail = self.trail_draw(renderer, pad);
         let kind = CursorKind::of(input.cursor, renderer.cursor_look());
         // The hollow box's pipeline, built the first frame one is drawn.
-        let ring = match kind {
+        let hollow = match kind {
             CursorKind::Hollow => Some(self.cell_ring_pipe.get_as(
                 &self.device,
                 &self.library,
@@ -2011,8 +2247,147 @@ impl Gpu {
             sel_bg_curve: Uni(curve_of(hilite.bg)),
             sel_fg_curve: Uni(curve_of(hilite.fg)),
         };
+        // **What this frame changed of the last committed**, from what it
+        // was handed. The grid's drawn rows and the overlay are read where
+        // the shader reads them.
+        let ncols = cols.index();
+        let (rot, ring, stride) = (
+            input.rotation.index(),
+            input.ring.index().max(1),
+            input.stride.index(),
+        );
+        // SAFETY: the grid holds `ring * stride` cells and the overlay at
+        // least `ncols * (draw_rows + 1)` bytes or its length, as `grid` and
+        // `overlay` lent them; nothing writes either while a frame is being
+        // built, the gate `in_flight` and the caller's thread keep.
+        let grid_cells =
+            unsafe { peek::<PackedCell>(&input.grid.0, Elems(ring.saturating_mul(stride))) }?;
+        let overlay_len = ncols
+            .saturating_mul(draw_rows.saturating_add(1))
+            .min(input.overlay.0.length());
+        let overlay_bytes = unsafe { peek::<u8>(&input.overlay.0, Elems(overlay_len)) }?;
+        let row_of = |dr: usize| {
+            let at = (dr + rot) % ring * stride;
+            grid_cells.get(at..at + ncols).unwrap_or(&[])
+        };
+        let n = input.records.len();
+        let (ma, mb) = (input.moving.0.min(n), input.moving.1.min(n));
+        let (ma, mb) = (ma, mb.max(ma));
+        let cell = (metrics.cell_w.value(), metrics.cell_h.value());
+        let grid_cells_rows = (
+            u32::try_from(ncols).unwrap_or(u32::MAX),
+            u32::try_from(draw_rows).unwrap_or(u32::MAX),
+        );
+        let moving = input.records[ma..mb]
+            .iter()
+            .try_fold(RowSet::NONE, |set, r| {
+                crate::redraw::record_rows(r, cell, grid_cells_rows).map(|rs| set.union(rs))
+            });
+        let strip_now = renderer.strip_records();
+        let unrowed = match moving.is_none() || !images.is_empty() || input.slide.is_some() {
+            true => Unrowed::Yes,
+            false => Unrowed::No,
+        };
+        let vp = (
+            viewport.originX.to_bits(),
+            viewport.originY.to_bits(),
+            viewport.width.to_bits(),
+            viewport.height.to_bits(),
+        );
+        let clear_word = renderer.clear_color();
+        let atlas_gen = renderer.atlas().generation();
+        let alike = |l: &CellLast| {
+            l.size == target.size()
+                && l.viewport == vp
+                && l.uniforms.without_cursor() == uniforms.without_cursor()
+                && l.clear == clear_word
+                && l.strip == strip_now
+                && l.unrowed == Unrowed::No
+                && unrowed == Unrowed::No
+                && l.stride == input.stride
+                && l.rotation == input.rotation
+                && l.ring == input.ring
+                && l.under == input.under
+                && l.chrome == input.chrome
+                && l.table == input.table
+                && l.map_gen == input.map_gen
+                && l.atlas == atlas_gen
+                && l.records.len() == n - (mb - ma)
+                && l.records[..ma] == input.records[..ma]
+                && l.records[ma..] == input.records[mb..]
+                && l.overlay == overlay_bytes
+                && l.cells.len() == ncols * draw_rows
+                && (0..draw_rows).all(|dr| l.cells[dr * ncols..(dr + 1) * ncols] == *row_of(dr))
+        };
+        // The rows a glyph can reach past its own, up and down.
+        let ch = i64::from(metrics.cell_h.value().max(1));
+        let base = i64::from(metrics.baseline.value());
+        let past = |px: i64| usize::try_from((px.max(0) + ch - 1) / ch).unwrap_or(usize::MAX);
+        let up = past(-(base + i64::from(input.reach.top.0)));
+        let down = past(base + i64::from(input.reach.bottom.0) - ch);
+        let cursor_rows = |at: Option<Row>| match at {
+            Some(r) => Redraw::NOTHING.with_span(
+                Row::from_index(r.index().saturating_sub(up)),
+                Row::from_index(
+                    r.index()
+                        .saturating_add(down)
+                        .saturating_add(1)
+                        .min(draw_rows),
+                ),
+            ),
+            None => Redraw::NOTHING,
+        };
+        // The grounds that changed, the cursor guide moved with the cursor's
+        // row or the badge cut round another cell: the rows of every ground
+        // from the first that differs to the last, in either frame, and the
+        // whole when one of them reaches past the grid -- a guide across a
+        // legacy scroller's gutter, which no band holds.
+        let ground_rows = |l: &CellLast| {
+            let (old, now) = (&l.grounds[..], input.grounds);
+            let same = old.iter().zip(now).take_while(|(a, b)| a == b).count();
+            let tail = old[same..]
+                .iter()
+                .rev()
+                .zip(now[same..].iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            old[same..old.len() - tail]
+                .iter()
+                .chain(&now[same..now.len() - tail])
+                .try_fold(RowSet::NONE, |set, r| {
+                    crate::redraw::record_rows(r, cell, grid_cells_rows).map(|rs| set.union(rs))
+                })
+        };
+        let changed = match (&self.last, moving) {
+            (Last::Cells(l), Some(now)) if alike(l) => match ground_rows(l) {
+                Some(grounds) => {
+                    let cursor = match l.uniforms == uniforms {
+                        true => Redraw::NOTHING,
+                        false => cursor_rows(l.uniforms.cursor_at())
+                            .union(cursor_rows(uniforms.cursor_at())),
+                    };
+                    Redraw::Rows(now.union(l.moving).union(grounds)).union(cursor)
+                }
+                None => Redraw::Whole,
+            },
+            _ => Redraw::Whole,
+        };
+        let drawn = missing.union(changed);
+        let clips: Vec<Option<(usize, usize, MTLScissorRect)>> = match drawn {
+            Redraw::Whole => vec![None],
+            Redraw::Rows(set) => bands(target, pad, renderer.pixel_size(), metrics.cell_h, set)
+                .into_iter()
+                .map(|(r, k, rect)| {
+                    // The cell passes over the band and the rows whose
+                    // glyphs can reach it.
+                    let from = r.index().saturating_sub(down);
+                    let to = (r.index() + k.index()).saturating_add(up).min(draw_rows);
+                    Some((from, to.max(from), rect))
+                })
+                .collect(),
+        };
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target, clear, viewport)?;
+        let (cmd, enc) = self.encoder(target, clear, viewport, &drawn)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<CellUniforms>();
         // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
@@ -2065,191 +2440,277 @@ impl Gpu {
                 self.ring = Ring((slot + 1) % RING);
                 records = Some(slot);
             }
-            let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
-            let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
-            let ru: [f32; UNIFORM_FLOATS] = [
-                px_f32(frame_px.0),
-                px_f32(frame_px.1),
-                px_f32(metrics.cell_w),
-                px_f32(metrics.cell_h),
-                0.0,
-                0.0,
-                side_m,
-                side_m,
-                side_c,
-                side_c,
-                pad[0],
-                pad[1],
-            ];
-            // The cell passes: the backgrounds, the glyphs inside their
-            // rows, the decorations, and then the parts of glyphs above
-            // their rows -- each row's glyphs and then its decorations,
-            // rows top to bottom, as the instance path draws them, so a
-            // glyph reaching up from the row below lies over the
-            // decorations of the row it reaches. `cell_glyph_vertex`'s
-            // `part`: `PART_INSIDE` and `PART_ABOVE`.
-            let inside: u32 = 0;
-            let above: u32 = 1;
-            let passes = [
-                (self.cell_bg_pipe.clone(), count),
-                (self.cell_glyph_pipe.clone(), count),
-                (
-                    self.cell_shape_pipe.clone(),
-                    count.saturating_mul(SHAPES_PER_CELL),
-                ),
-                (self.cell_glyph_pipe.clone(), count),
-            ];
-            // `cell_bg_vertex`'s `ground_pass`: `GROUND_EVERY`,
-            // `GROUND_ONLY_SET` and `GROUND_CLEAR_SET`.
-            let every: u32 = 0;
-            let only_set: u32 = 1;
-            let clear_set: u32 = 2;
-            let word = |w: &u32| NonNull::from(w).cast::<c_void>();
-            let wlen = core::mem::size_of::<u32>();
-            for (k, (pipe, instances)) in passes.iter().enumerate() {
-                // Images under the text after the backgrounds, before the
-                // glyphs: the CPU compositor's order in a repainted row.
-                // Those below the non-default backgrounds first, over a
-                // background pass that cleared those cells, and the
-                // background pass again over them for those cells alone,
-                // blended.
-                if k == 1 {
-                    if let Some(over) = &below {
+            for clip in clips.iter().copied() {
+                self.clip = clip.map(|(_, _, r)| r);
+                if let Some((_, _, r)) = clip {
+                    enc.setScissorRect(r);
+                }
+                let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
+                let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
+                let ru: [f32; UNIFORM_FLOATS] = [
+                    px_f32(frame_px.0),
+                    px_f32(frame_px.1),
+                    px_f32(metrics.cell_w),
+                    px_f32(metrics.cell_h),
+                    0.0,
+                    0.0,
+                    side_m,
+                    side_m,
+                    side_c,
+                    side_c,
+                    pad[0],
+                    pad[1],
+                ];
+                // The cell passes: the backgrounds, the glyphs inside their
+                // rows, the decorations, and then the parts of glyphs above
+                // their rows -- each row's glyphs and then its decorations,
+                // rows top to bottom, as the instance path draws them, so a
+                // glyph reaching up from the row below lies over the
+                // decorations of the row it reaches. `cell_glyph_vertex`'s
+                // `part`: `PART_INSIDE` and `PART_ABOVE`.
+                let inside: u32 = 0;
+                let above: u32 = 1;
+                let passes = [
+                    (self.cell_bg_pipe.clone(), count),
+                    (self.cell_glyph_pipe.clone(), count),
+                    (
+                        self.cell_shape_pipe.clone(),
+                        count.saturating_mul(SHAPES_PER_CELL),
+                    ),
+                    (self.cell_glyph_pipe.clone(), count),
+                ];
+                // `cell_bg_vertex`'s `ground_pass`: `GROUND_EVERY`,
+                // `GROUND_ONLY_SET` and `GROUND_CLEAR_SET`.
+                let every: u32 = 0;
+                let only_set: u32 = 1;
+                let clear_set: u32 = 2;
+                let word = |w: &u32| NonNull::from(w).cast::<c_void>();
+                let wlen = core::mem::size_of::<u32>();
+                for (k, (pipe, instances)) in passes.iter().enumerate() {
+                    // Images under the text after the backgrounds, before the
+                    // glyphs: the CPU compositor's order in a repainted row.
+                    // Those below the non-default backgrounds first, over a
+                    // background pass that cleared those cells, and the
+                    // background pass again over them for those cells alone,
+                    // blended.
+                    if k == 1 {
+                        if let Some(over) = &below {
+                            self.draw_images(
+                                &enc,
+                                &images,
+                                staged.as_ref(),
+                                ImageLayer::Below,
+                                frame_px,
+                            )?;
+                            // `draw_images` bound its own buffers at 0 and 1.
+                            enc.setRenderPipelineState(over);
+                            enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
+                            enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
+                            enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
+                            enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
+                            enc.setVertexBytes_length_atIndex(word(&only_set), wlen, 5);
+                            enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                                MTLPrimitiveType::TriangleStrip,
+                                0,
+                                4,
+                                count,
+                            );
+                        }
                         self.draw_images(
                             &enc,
                             &images,
                             staged.as_ref(),
-                            ImageLayer::Below,
+                            ImageLayer::Under,
                             frame_px,
                         )?;
-                        // `draw_images` bound its own buffers at 0 and 1.
-                        enc.setRenderPipelineState(over);
-                        enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
-                        enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
-                        enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
-                        enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
-                        enc.setVertexBytes_length_atIndex(word(&only_set), wlen, 5);
+                        // The grounds over them, under the glyphs.
+                        if let Some(slot) = records {
+                            self.draw_records(
+                                &enc,
+                                &self.instances[slot],
+                                At(0),
+                                At(g),
+                                trail_at,
+                                trail.as_ref(),
+                                &ru,
+                                &mask,
+                                &color,
+                            );
+                        }
+                    }
+                    // The records inside their rows, between the glyphs and the
+                    // decorations.
+                    if k == 2 {
+                        if let Some(slot) = records {
+                            self.draw_records(
+                                &enc,
+                                &self.instances[slot],
+                                At(g),
+                                At(under),
+                                trail_at,
+                                trail.as_ref(),
+                                &ru,
+                                &mask,
+                                &color,
+                            );
+                        }
+                    }
+                    let instances = *instances;
+                    enc.setRenderPipelineState(pipe);
+                    enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
+                    enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
+                    enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
+                    enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
+                    enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
+                    let pass = match (k, &below) {
+                        (0, Some(_)) => &clear_set,
+                        (1, _) => &inside,
+                        (3, _) => &above,
+                        _ => &every,
+                    };
+                    enc.setVertexBytes_length_atIndex(word(pass), wlen, 5);
+                    enc.setFragmentTexture_atIndex(Some(&mask), 0);
+                    enc.setFragmentTexture_atIndex(Some(&color), 1);
+                    enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                    enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
+                    match clip {
+                        // A band: the instances of its rows and of the rows that
+                        // reach it, which are each row's run of the pass.
+                        Some((from, to, _)) => {
+                            let per = instances / draw_rows.max(1);
+                            enc.drawPrimitives_vertexStart_vertexCount_instanceCount_baseInstance(
+                                MTLPrimitiveType::TriangleStrip,
+                                0,
+                                4,
+                                per * (to - from),
+                                per * from,
+                            );
+                        }
+                        None => enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                            MTLPrimitiveType::TriangleStrip,
+                            0,
+                            4,
+                            instances,
+                        ),
+                    }
+                    // The hollow cursor over the decorations, on the bindings
+                    // the decoration pass left: its four sides.
+                    if let (2, Some(hollow)) = (k, &hollow) {
+                        enc.setRenderPipelineState(hollow);
                         enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                             MTLPrimitiveType::TriangleStrip,
                             0,
                             4,
-                            count,
-                        );
-                    }
-                    self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
-                    // The grounds over them, under the glyphs.
-                    if let Some(slot) = records {
-                        self.draw_records(
-                            &enc,
-                            &self.instances[slot],
-                            At(0),
-                            At(g),
-                            trail_at,
-                            trail.as_ref(),
-                            &ru,
-                            &mask,
-                            &color,
+                            4,
                         );
                     }
                 }
-                // The records inside their rows, between the glyphs and the
-                // decorations.
-                if k == 2 {
-                    if let Some(slot) = records {
-                        self.draw_records(
-                            &enc,
-                            &self.instances[slot],
-                            At(g),
-                            At(under),
-                            trail_at,
-                            trail.as_ref(),
-                            &ru,
-                            &mask,
-                            &color,
-                        );
-                    }
-                }
-                let instances = *instances;
-                enc.setRenderPipelineState(pipe);
-                enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
-                enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
-                enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
-                enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
-                enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
-                let pass = match (k, &below) {
-                    (0, Some(_)) => &clear_set,
-                    (1, _) => &inside,
-                    (3, _) => &above,
-                    _ => &every,
-                };
-                enc.setVertexBytes_length_atIndex(word(pass), wlen, 5);
-                enc.setFragmentTexture_atIndex(Some(&mask), 0);
-                enc.setFragmentTexture_atIndex(Some(&color), 1);
-                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
-                enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
-                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
-                    MTLPrimitiveType::TriangleStrip,
-                    0,
-                    4,
-                    instances,
-                );
-                // The hollow cursor over the decorations, on the bindings
-                // the decoration pass left: its four sides.
-                if let (2, Some(ring)) = (k, &ring) {
-                    enc.setRenderPipelineState(ring);
-                    enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
-                        MTLPrimitiveType::TriangleStrip,
-                        0,
-                        4,
-                        4,
+                // The rest of the records after every cell pass: the parts of
+                // glyphs above their rows, then what the caller appended -- a
+                // prediction, a composition, the trail -- drawn as the instance
+                // path draws them; then the images over the text, and baud's
+                // own overlays over them, the thumb and the fade last.
+                let chrome = usize::try_from(input.chrome.value()).map_or(n, |c| c.min(n));
+                let content = (n - chrome).max(under);
+                if let Some(slot) = records {
+                    self.draw_records(
+                        &enc,
+                        &self.instances[slot],
+                        At(under),
+                        At(content),
+                        trail_at,
+                        trail.as_ref(),
+                        &ru,
+                        &mask,
+                        &color,
                     );
                 }
-            }
-            // The rest of the records after every cell pass: the parts of
-            // glyphs above their rows, then what the caller appended -- a
-            // prediction, a composition, the trail -- drawn as the instance
-            // path draws them; then the images over the text, and baud's
-            // own overlays over them, the thumb and the fade last.
-            let chrome = usize::try_from(input.chrome.value()).map_or(n, |c| c.min(n));
-            let content = (n - chrome).max(under);
-            if let Some(slot) = records {
-                self.draw_records(
-                    &enc,
-                    &self.instances[slot],
-                    At(under),
-                    At(content),
-                    trail_at,
-                    trail.as_ref(),
-                    &ru,
-                    &mask,
-                    &color,
-                );
-            }
-            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
-            if let Some(slot) = records {
-                self.draw_records(
-                    &enc,
-                    &self.instances[slot],
-                    At(content),
-                    At(n),
-                    trail_at,
-                    trail.as_ref(),
-                    &ru,
-                    &mask,
-                    &color,
-                );
-                self.draw_strip(
-                    &enc,
-                    &self.instances[slot],
-                    (At(n), At(n + marks)),
-                    (target, strip_vp, frame_px.1),
-                    metrics,
-                    (&mask, &color),
-                )?;
+                self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
+                if let Some(slot) = records {
+                    self.draw_records(
+                        &enc,
+                        &self.instances[slot],
+                        At(content),
+                        At(n),
+                        trail_at,
+                        trail.as_ref(),
+                        &ru,
+                        &mask,
+                        &color,
+                    );
+                    // Outside every band, and kept as the target holds it.
+                    if clip.is_none() {
+                        self.draw_strip(
+                            &enc,
+                            &self.instances[slot],
+                            (At(n), At(n + marks)),
+                            (target, strip_vp, frame_px.1),
+                            metrics,
+                            (&mask, &color),
+                        )?;
+                    }
+                }
             }
         }
+        self.clip = None;
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
+        // What the next frame is compared with: this one, its buffers kept
+        // where a frame alike leaves them as they are.
+        let mut last = match core::mem::replace(&mut self.last, Last::None) {
+            Last::Cells(l) => l,
+            _ => Box::new(CellLast {
+                size: target.size(),
+                viewport: vp,
+                uniforms,
+                clear: clear_word,
+                strip: Vec::new(),
+                unrowed,
+                stride: input.stride,
+                rotation: input.rotation,
+                ring: input.ring,
+                under: input.under,
+                chrome: input.chrome,
+                table: input.table,
+                map_gen: input.map_gen,
+                atlas: atlas_gen,
+                records: Vec::new(),
+                moving: RowSet::NONE,
+                grounds: Vec::new(),
+                cells: Vec::new(),
+                overlay: Vec::new(),
+            }),
+        };
+        if changed == Redraw::Whole {
+            last.strip.clear();
+            last.strip.extend_from_slice(strip_now);
+            last.records.clear();
+            last.records.extend_from_slice(&input.records[..ma]);
+            last.records.extend_from_slice(&input.records[mb..]);
+            last.overlay.clear();
+            last.overlay.extend_from_slice(overlay_bytes);
+            last.cells.clear();
+            for dr in 0..draw_rows {
+                last.cells.extend_from_slice(row_of(dr));
+            }
+        }
+        last.size = target.size();
+        last.viewport = vp;
+        last.uniforms = uniforms;
+        last.clear = clear_word;
+        last.unrowed = unrowed;
+        last.stride = input.stride;
+        last.rotation = input.rotation;
+        last.ring = input.ring;
+        last.under = input.under;
+        last.chrome = input.chrome;
+        last.table = input.table;
+        last.map_gen = input.map_gen;
+        last.atlas = atlas_gen;
+        last.moving = moving.unwrap_or(RowSet::NONE);
+        last.grounds.clear();
+        last.grounds.extend_from_slice(input.grounds);
+        self.last = Last::Cells(last);
         Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count.saturating_add(
                 input.grounds.len() + input.records.len() + renderer.strip_records().len(),
@@ -2257,6 +2718,8 @@ impl Gpu {
             upload: upload_time,
             submit,
             gpu,
+            changed,
+            drawn,
         }))
     }
 
@@ -2358,6 +2821,58 @@ fn word_bytes(words: &[u32]) -> &[u8] {
         core::slice::from_raw_parts(words.as_ptr().cast::<u8>(), words.len().saturating_mul(4))
     }
 }
+
+/// `r` held to `clip`: their overlap, empty where they do not meet.
+fn clipped(r: MTLScissorRect, clip: Option<MTLScissorRect>) -> MTLScissorRect {
+    let Some(c) = clip else {
+        return r;
+    };
+    let x0 = r.x.max(c.x);
+    let y0 = r.y.max(c.y);
+    let x1 = (r.x + r.width).min(c.x + c.width).max(x0);
+    let y1 = (r.y + r.height).min(c.y + c.height).max(y0);
+    MTLScissorRect {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    }
+}
+
+/// The scissor of each run of `rows`, the grid's full width at `pad`, for
+/// cells `cell_h` tall: at most [`BANDS`], the closest runs joined past it.
+fn bands(
+    target: &Target,
+    pad: [f32; 2],
+    grid: (Px, Px),
+    cell_h: Px,
+    rows: RowSet,
+) -> Vec<(Row, Rows, MTLScissorRect)> {
+    let mut runs: Vec<(Row, Rows)> = rows.runs().collect();
+    while runs.len() > BANDS {
+        // Join the two runs with the fewest rows between them.
+        let Some(i) = (0..runs.len() - 1)
+            .min_by_key(|&i| runs[i + 1].0.index() - (runs[i].0.index() + runs[i].1.index()))
+        else {
+            break;
+        };
+        let (a, b) = (runs[i], runs[i + 1]);
+        runs[i] = (a.0, Rows::of_index(b.0.index() + b.1.index() - a.0.index()));
+        runs.remove(i + 1);
+    }
+    let ch = cell_h.value();
+    let at = |r: usize| u32::try_from(r).unwrap_or(u32::MAX).saturating_mul(ch);
+    runs.into_iter()
+        .map(|(r, n)| {
+            let top = pad[1] + at(r.index()) as f32;
+            let rect = scissor(target, [pad[0], top], (grid.0, Px::of(at(n.index()))));
+            (r, n, rect)
+        })
+        .collect()
+}
+
+/// The most bands a partial frame draws, each the whole pass again.
+const BANDS: usize = 4;
 
 /// The rectangle of the target from `pad` that is `size` big, clamped to
 /// the target, as a scissor. The pad is the letterbox's, which may fall on

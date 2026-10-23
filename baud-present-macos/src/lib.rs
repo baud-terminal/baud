@@ -37,6 +37,7 @@ pub mod link;
 pub mod metal;
 pub mod notify;
 pub mod print;
+pub mod redraw;
 pub mod selection;
 pub mod settings;
 
@@ -74,9 +75,7 @@ impl Wake for Waker {
     }
 }
 
-/// How many surfaces rotate: one showing, one the compositor may still be
-/// reading for the previous transaction, one being drawn.
-const SURFACES: usize = 3;
+use redraw::{SURFACES, SurfaceIx};
 
 /// Which of the surfaces is drawn next.
 #[derive(Clone, Copy)]
@@ -118,6 +117,33 @@ pub struct Presenter {
     journal: Arc<Journal>,
     /// Which frame the next commit is.
     frame: FrameGen,
+    /// Which frame each surface holds and what the frames since changed,
+    /// so a GPU frame draws only what its surface lacks. New with the
+    /// surfaces, which hold nothing.
+    ages: redraw::Ages,
+    /// The CPU path's: the pixel rows of each surface that are not the last
+    /// frame's, so a frame copies only those -- the Wayland presenter's
+    /// rule (`baud-present-wayland`'s `damage.rs`) -- and the margin colour
+    /// and frame size the surfaces were filled for.
+    stale: Vec<Stale>,
+    filled: Option<(Argb, usize, usize)>,
+}
+
+/// The pixel rows of a surface that are not the last frame's: all of them,
+/// or these, one bit a row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Stale {
+    Whole,
+    Rows(Vec<u64>),
+}
+
+/// What a CPU frame changed of the one before it, in the frame's pixel
+/// rows: everything, or these bands and no pixel outside them
+/// ([`baud_render::Renderer::painted`]).
+#[derive(Clone, Copy, Debug)]
+pub enum Changed<'a> {
+    Whole,
+    Bands(&'a [baud_render::Band]),
 }
 
 /// Whether a frame reached the screen.
@@ -194,6 +220,9 @@ impl Presenter {
             epoch: shared.epoch,
             journal: shared.journal,
             frame: shared.frame,
+            ages: redraw::Ages::new(),
+            stale: vec![Stale::Whole; SURFACES],
+            filled: None,
         })
     }
 
@@ -289,6 +318,38 @@ impl Presenter {
         stride: Px,
         clear: Argb,
     ) -> Presented {
+        self.present_changed(view, frame, stride, clear, Changed::Whole)
+    }
+
+    /// [`Presenter::present`] of a frame that changed only `changed` of
+    /// the one before: the next surface is brought up to date in the rows
+    /// any frame since it was last copied changed, and no other.
+    pub fn present_changed(
+        &mut self,
+        view: &DrawableView,
+        frame: &[u32],
+        stride: Px,
+        clear: Argb,
+        changed: Changed<'_>,
+    ) -> Presented {
+        let at = self.next.0;
+        if self.copy_changed(frame, stride, clear, changed) == Presented::No {
+            return Presented::No;
+        }
+        view.set_surface(self.surfaces[at].io_surface());
+        Presented::Yes
+    }
+
+    /// The copy [`Presenter::present_changed`] shows, into the next surface,
+    /// and the surface after made the next. Public for the oracle that
+    /// holds it to a whole copy, which needs no view.
+    pub fn copy_changed(
+        &mut self,
+        frame: &[u32],
+        stride: Px,
+        clear: Argb,
+        changed: Changed<'_>,
+    ) -> Presented {
         if self.mode() != Mode::Cpu {
             return Presented::No;
         }
@@ -308,26 +369,71 @@ impl Presenter {
         let pad_x = (sw - fw) / 2;
         let pad_y = (sh - fh) / 2;
         let bg = premultiply(clear).0;
-        let surface = &self.surfaces[self.next.0];
-        let ok = surface.write(|pixels, dst_stride| {
-            for p in pixels.iter_mut() {
-                *p = bg;
+        // A new margin colour or frame size refills every surface whole.
+        let changed = match self.filled == Some((clear, fw, fh)) {
+            true => changed,
+            false => Changed::Whole,
+        };
+        let words = fh.div_ceil(64);
+        for stale in &mut self.stale {
+            match (changed, &mut *stale) {
+                (_, Stale::Whole) => {}
+                (Changed::Whole, s) => *s = Stale::Whole,
+                (Changed::Bands(bands), Stale::Rows(w)) => {
+                    w.resize(words, 0);
+                    for b in bands {
+                        for y in slots(b.top).min(fh)..slots(b.bottom).min(fh) {
+                            w[y / 64] |= 1 << (y % 64);
+                        }
+                    }
+                }
             }
-            for y in 0..fh {
-                let src = &frame[y * fw..y * fw + fw];
-                let base = (y + pad_y) * dst_stride + pad_x;
-                let dst = &mut pixels[base..base + fw];
-                for (d, &s) in dst.iter_mut().zip(src) {
-                    *d = premultiply(Argb(s)).0;
+        }
+        let at = self.next.0;
+        let surface = &self.surfaces[at];
+        let stale = &self.stale[at];
+        let copy_row = |pixels: &mut [u32], dst_stride: usize, y: usize| {
+            let src = &frame[y * fw..y * fw + fw];
+            let base = (y + pad_y) * dst_stride + pad_x;
+            let dst = &mut pixels[base..base + fw];
+            for (d, &s) in dst.iter_mut().zip(src) {
+                *d = premultiply(Argb(s)).0;
+            }
+        };
+        let ok = surface.write(|pixels, dst_stride| match stale {
+            Stale::Whole => {
+                for p in pixels.iter_mut() {
+                    *p = bg;
+                }
+                for y in 0..fh {
+                    copy_row(pixels, dst_stride, y);
+                }
+            }
+            Stale::Rows(w) => {
+                for y in
+                    (0..fh).filter(|&y| w.get(y / 64).is_some_and(|b| b & (1 << (y % 64)) != 0))
+                {
+                    copy_row(pixels, dst_stride, y);
                 }
             }
         });
         if !ok {
             return Presented::No;
         }
-        view.set_surface(surface.io_surface());
-        self.next = Next((self.next.0 + 1) % SURFACES);
+        self.stale[at] = Stale::Rows(vec![0; words]);
+        self.filled = Some((clear, fw, fh));
+        self.next = Next((at + 1) % SURFACES);
         Presented::Yes
+    }
+
+    /// Surface `i`'s pixels, row-major at its stride: what the CPU path's
+    /// oracle compares.
+    pub fn surface_pixels(&self, at: SurfaceIx) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        self.surfaces
+            .get(at.0)?
+            .write(|p, _| out.extend_from_slice(p))
+            .then_some(out)
     }
 
     /// What the GPU does when a frame into the next surface is done: hand
@@ -361,13 +467,14 @@ impl Presenter {
         &mut self,
         waker: W,
         set: Option<SetIx>,
-        draw: impl FnOnce(&mut Gpu, &Target, Done) -> Option<Drawn>,
+        draw: impl FnOnce(&mut Gpu, &Target, Done, baud_render::Redraw) -> Option<Drawn>,
     ) -> Option<Drawn> {
         let (done, tag) = self.on_done(waker, set);
+        let missing = self.ages.missing(SurfaceIx(self.next.0));
         let drawn = match &mut self.draw {
             Draw::Gpu { gpu, targets } => targets
                 .get(self.next.0)
-                .and_then(|target| draw(gpu, target, done)),
+                .and_then(|target| draw(gpu, target, done, missing)),
             Draw::Cpu => None,
         };
         self.settle(tag, drawn)
@@ -384,7 +491,8 @@ impl Presenter {
     }
 
     fn committed(&mut self, drawn: Drawn) -> Drawn {
-        if let Drawn::Frame(_) = drawn {
+        if let Drawn::Frame(f) = &drawn {
+            self.ages.drew(SurfaceIx(self.next.0), f.changed);
             self.next = Next((self.next.0 + 1) % SURFACES);
         }
         drawn
@@ -396,8 +504,8 @@ impl Presenter {
     pub fn draw<W: Wake>(&mut self, waker: W, renderer: &mut Renderer<'_, '_>) -> Option<Drawn> {
         // The instance path converts on the main thread and builds into
         // the presenter's own ring, so it holds none of the caller's sets.
-        self.commit_with(waker, None, |gpu, target, done| {
-            gpu.draw(renderer, target, done)
+        self.commit_with(waker, None, |gpu, target, done, missing| {
+            gpu.draw_since(renderer, target, done, missing)
         })
     }
 
@@ -413,7 +521,8 @@ impl Presenter {
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };
-        let drawn = gpu.draw(renderer, targets.get(slot)?, Done::Wait)?;
+        let missing = self.ages.missing(SurfaceIx(slot));
+        let drawn = gpu.draw_since(renderer, targets.get(slot)?, Done::Wait, missing)?;
         if let Drawn::Frame(_) = drawn {
             view.set_surface(self.surfaces[slot].io_surface());
         }
@@ -431,7 +540,9 @@ impl Presenter {
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };
-        let drawn = gpu.draw_cells(renderer, input, targets.get(slot)?, Done::Wait)?;
+        let missing = self.ages.missing(SurfaceIx(slot));
+        let drawn =
+            gpu.draw_cells_since(renderer, input, targets.get(slot)?, Done::Wait, missing)?;
         if let Drawn::Frame(_) = drawn {
             view.set_surface(self.surfaces[slot].io_surface());
         }
@@ -446,8 +557,8 @@ impl Presenter {
         renderer: &mut Renderer<'_, '_>,
         input: &CellInput<'_>,
     ) -> Option<Drawn> {
-        self.commit_with(waker, Some(input.set), |gpu, target, done| {
-            gpu.draw_cells(renderer, input, target, done)
+        self.commit_with(waker, Some(input.set), |gpu, target, done, missing| {
+            gpu.draw_cells_since(renderer, input, target, done, missing)
         })
     }
 

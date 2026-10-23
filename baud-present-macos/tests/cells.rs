@@ -20,6 +20,7 @@ use baud_domain::{
     Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
+use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
@@ -151,11 +152,31 @@ struct Arms<'f, 'a> {
     /// app keeps a set's, so each scene's frame resolves only what it wrote
     /// or what an input moved -- the cache the app draws from.
     stamp: StyleStamp,
+    /// Which of `records` are the trail's and the blink animation's.
+    moving: (usize, usize),
+    /// Which grid the cell arm reads: the core's, or the window copy as
+    /// the app does -- what a frame with the config's notice row needs,
+    /// which the core's grid has no row for.
+    reads: Reads,
     /// Pixels the target is wider and taller than the frame, which both arms
     /// letterbox to its centre: a scene that sets it draws at a frame origin
     /// other than zero, which a fragment function that forgot the origin
     /// would misplace in both arms alike.
     margin: (u32, u32),
+}
+
+/// Which grid the cell arm reads ([`Arms::reads`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reads {
+    Core,
+    Copy,
+}
+
+/// Whether a frame counts toward the rows-drawn bound ([`Rotation::drew`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Counted {
+    Yes,
+    No,
 }
 
 impl Arms<'_, '_> {
@@ -172,6 +193,36 @@ impl Arms<'_, '_> {
         let target_b = self.gpu.offscreen(w, h).expect("target");
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
+        let b = self.with_cells(t, |gpu, renderer, input| {
+            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &target_b, Done::Wait)
+            else {
+                panic!("draw_cells");
+            };
+            let mut b = vec![0u32; n];
+            gpu.read(&target_b, &mut b).expect("read");
+            b
+        });
+        self.renderer.convert(t, self.back, Damage::Full);
+        let Some(Drawn::Frame(_)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
+            panic!("draw");
+        };
+        let mut a = vec![0u32; n];
+        self.gpu.read(&target_a, &mut a).expect("read");
+        assert!(
+            self.map.stats().live.value() > 20,
+            "the map holds the scene's glyphs"
+        );
+        (a, b)
+    }
+
+    /// The cell arm's frame built as the app builds it -- the styles synced,
+    /// the map and the overlay walked, the records appended in the app's
+    /// order -- and handed to `f` with the GPU and the renderer to draw.
+    fn with_cells<R>(
+        &mut self,
+        t: &mut Term<'_>,
+        f: impl FnOnce(&mut Gpu, &mut Renderer<'_, '_>, &CellInput<'_>) -> R,
+    ) -> R {
         let view = t.view(self.back);
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_cursor_guide(self.guide);
@@ -289,11 +340,13 @@ impl Arms<'_, '_> {
             self.overlay_mem,
             &mut self.records,
         );
+        self.moving.0 = self.records.len();
         self.records.extend_from_slice(self.renderer.trail());
         // The plasma blink's glow, from the cursor before the phase's
         // filter, as the app builds it.
         self.renderer.set_cursor_glow_at(shown);
         self.records.extend_from_slice(self.renderer.cursor_glow());
+        self.moving.1 = self.records.len();
         // The cursor guide as the app draws it on the cell path: placed from
         // the live cursor, else on the cursor's line while the window looks
         // back, its records under the glyphs.
@@ -333,14 +386,21 @@ impl Arms<'_, '_> {
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
         self.chrome = Tally::of(self.records.len() - chrome_from);
+        let (grid, rotation, ring) = match self.reads {
+            Reads::Copy => {
+                let ring = self.copy_window(t);
+                (&self.copy, RowRot::NONE, Rows::of_index(ring))
+            }
+            Reads::Core => (&self.grid, view.rotation(), t.ring()),
+        };
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
-            grid: &self.grid,
+            grid,
             styles: &self.styles,
             map: &self.map_buffer,
             stride: t.stride(),
-            rotation: view.rotation(),
-            ring: t.ring(),
+            rotation,
+            ring,
             cursor,
             highlight: self.highlight,
             overlay: &self.overlay,
@@ -351,41 +411,19 @@ impl Arms<'_, '_> {
             // In place: the shared ring holds the leaving row one row up
             // (ring row `rot - 1`), reached by the shader's own modulo.
             slide: self.slide,
+            table: self.stamp,
+            map_gen: self.map.generation(),
+            reach: self.map.reach(),
+            moving: self.moving,
         };
-        let Some(Drawn::Frame(_)) =
-            self.gpu
-                .draw_cells(&mut self.renderer, &input, &target_b, Done::Wait)
-        else {
-            panic!("draw_cells");
-        };
-        let mut b = vec![0u32; n];
-        self.gpu.read(&target_b, &mut b).expect("read");
-        self.renderer.convert(t, self.back, Damage::Full);
-        let Some(Drawn::Frame(_)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
-            panic!("draw");
-        };
-        let mut a = vec![0u32; n];
-        self.gpu.read(&target_a, &mut a).expect("read");
-        assert!(
-            self.map.stats().live.value() > 20,
-            "the map holds the scene's glyphs"
-        );
-        (a, b)
+        f(&mut self.gpu, &mut self.renderer, &input)
     }
 
-    /// The cell path again, reading **a copy of the window** rather than
-    /// the core's grid: D4's buffer, laid out flat in screen order, so the
-    /// shader's rotation is the identity and its ring is the screen.
-    ///
-    /// Everything else is the frame `draw` just built -- the same styles,
-    /// the same map, the same overlay and records -- so a difference in
-    /// the pixels can only be the grid it read.
-    fn draw_copied(&mut self, t: &mut Term<'_>) -> Vec<u32> {
-        let (w, h) = self.renderer.frame_size();
-        let n = usize::try_from(w.value() * h.value()).unwrap();
-        let target = self.gpu.offscreen(w, h).expect("target");
+    /// The window copied flat into `copy`, as the app copies it: the
+    /// screen's rows, then the leaving row of a slide or the status line's,
+    /// then the config's notice row, blank. How many rows it holds.
+    fn copy_window(&mut self, t: &Term<'_>) -> usize {
         let view = t.view(self.back);
-        self.renderer.set_images(t, self.back);
         let stride = t.stride().index();
         let (cols, rows) = (view.cols().index(), view.rows().index());
         for y in 0..rows {
@@ -414,14 +452,30 @@ impl Arms<'_, '_> {
             rows
         };
         // The config's notice row after both, blank, as the app copies it.
-        let ring = match self.renderer.notice_bar() {
+        match self.renderer.notice_bar() {
             Some(_) => {
                 let at = ring * stride;
                 self.copy_mem[at..at + cols].fill(PackedCell::EMPTY);
                 ring + 1
             }
             None => ring,
-        };
+        }
+    }
+
+    /// The cell path again, reading **a copy of the window** rather than
+    /// the core's grid: D4's buffer, laid out flat in screen order, so the
+    /// shader's rotation is the identity and its ring is the screen.
+    ///
+    /// Everything else is the frame `draw` just built -- the same styles,
+    /// the same map, the same overlay and records -- so a difference in
+    /// the pixels can only be the grid it read.
+    fn draw_copied(&mut self, t: &mut Term<'_>) -> Vec<u32> {
+        let (w, h) = self.renderer.frame_size();
+        let n = usize::try_from(w.value() * h.value()).unwrap();
+        let target = self.gpu.offscreen(w, h).expect("target");
+        let view = t.view(self.back);
+        self.renderer.set_images(t, self.back);
+        let ring = self.copy_window(t);
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
@@ -454,6 +508,10 @@ impl Arms<'_, '_> {
             under: self.exceptions.under(),
             chrome: self.chrome,
             slide: self.slide,
+            table: self.stamp,
+            map_gen: self.map.generation(),
+            reach: self.map.reach(),
+            moving: self.moving,
         };
         let Some(Drawn::Frame(_)) =
             self.gpu
@@ -1335,6 +1393,8 @@ macro_rules! arms {
             copy_mem,
             slide: None,
             stamp: StyleStamp::default(),
+            moving: (0, 0),
+            reads: Reads::Core,
             margin: (0, 0),
         };
     };
@@ -7900,4 +7960,856 @@ fn the_cell_path_draws_the_status_line_as_the_instance_path_does() {
         assert!(a.len() > bare.len(), "{name}: the frame grew a row");
         assert_eq!(differing(&a, &c), 0, "{name}: the arms disagree");
     }
+}
+
+/// Three targets that rotate as the presenter's surfaces do, and what each
+/// holds, for the partial-redraw oracle.
+struct Rotation {
+    targets: Vec<baud_present_macos::Target>,
+    ages: Ages,
+    /// The surface the next frame goes to, and how many frames went.
+    next: SurfaceIx,
+    turns: Tally,
+    /// Frames drawn by rows, and the rows they drew.
+    partial: Tally,
+    rows: Tally,
+}
+
+impl Rotation {
+    fn new(gpu: &Gpu, (w, h): (Px, Px)) -> Rotation {
+        Rotation {
+            targets: (0..SURFACES)
+                .map(|_| gpu.offscreen(w, h).expect("target"))
+                .collect(),
+            ages: Ages::new(),
+            next: SurfaceIx::FIRST,
+            turns: Tally::default(),
+            partial: Tally::default(),
+            rows: Tally::default(),
+        }
+    }
+
+    /// The target `next` names: the turns go round the targets as the
+    /// surfaces go round.
+    fn target(&self) -> &baud_present_macos::Target {
+        let n = u64::try_from(self.targets.len()).unwrap();
+        &self.targets[usize::try_from(self.turns.value() % n).unwrap()]
+    }
+
+    /// A frame drawn: its change recorded against the target it went to,
+    /// and counted when it is `counted`.
+    fn drew(&mut self, f: &baud_present_macos::GpuFrame, counted: Counted) {
+        self.ages.drew(self.next, f.changed);
+        if let (baud_render::Redraw::Rows(set), Counted::Yes) = (f.drawn, counted) {
+            self.partial.bump();
+            self.rows.add(Tally::of(set.len().index()));
+        }
+        self.next = self.next.next();
+        self.turns.bump();
+    }
+}
+
+/// One step of the oracle: its name, the damage the app converts it with,
+/// the change to the scene, and what its frame must have changed.
+type Step = (&'static str, Damage, Act, Want);
+
+/// A change to the scene, for [`cursor_steps`].
+type Change = (&'static str, Damage, Act);
+
+/// What a step does to the scene.
+type Act = Box<dyn Fn(&mut Arms<'_, '_>, &mut Term<'_>)>;
+
+/// The cursor moved to row `r`, column `c`, counted from one.
+fn at(r: usize, c: usize) -> Act {
+    Box::new(move |_, t| feed(t, format!("\x1b[{r};{c}H").as_bytes()))
+}
+
+/// The cursor's blink set to `p`.
+fn blink(p: CursorPhase) -> Act {
+    Box::new(move |a, _| a.renderer.set_cursor_blink(p))
+}
+
+/// What a step's frame must have changed of the one before: the positive
+/// control that it was drawn by rows, so a pixel it got wrong would show.
+#[derive(Clone, Copy, Debug)]
+enum Want {
+    /// Anything, the whole included.
+    Any,
+    /// Rows, any of them.
+    Rows,
+    /// Rows, these among them.
+    Has(&'static [usize]),
+    /// The whole.
+    Whole,
+}
+
+impl Want {
+    /// Whether `changed` is what this wants.
+    fn met(self, changed: baud_render::Redraw) -> bool {
+        match (self, changed) {
+            (Want::Any, _) => true,
+            (Want::Rows, baud_render::Redraw::Rows(_)) => true,
+            (Want::Has(rows), baud_render::Redraw::Rows(set)) => {
+                rows.iter().all(|&r| set.has(Row::from_index(r)))
+            }
+            (Want::Whole, baud_render::Redraw::Whole) => true,
+            _ => false,
+        }
+    }
+}
+
+/// The oracle's steps: the cursor's own ([`cursor_steps`]), then the same
+/// with the things that move beside the cursor on the screen
+/// ([`ground_steps`]).
+fn partial_steps() -> Vec<Step> {
+    cursor_steps()
+        .into_iter()
+        .map(|(name, damage, change)| (name, damage, change, Want::Any))
+        .chain(ground_steps())
+        .collect()
+}
+
+/// The cursor's steps. The first is a content change; most of the rest
+/// change only the cursor, its blink animation or its trail, so each of
+/// those frames is drawn by rows. A text blink's flip is converted with
+/// `Damage::Full`, as the app's tick hands it.
+fn cursor_steps() -> Vec<Change> {
+    let phase = |opacity: u8, glow: u8| CursorPhase {
+        opacity: Chan::from_u8(opacity),
+        glow: Chan::from_u8(glow),
+        ..CursorPhase::HIDDEN
+    };
+    let ghost = |p: f32| {
+        TrailLook::Ghost(Trail {
+            from: (Row::from_index(1), Col::at_index(2)),
+            to: (Row::from_index(6), Col::at_index(40)),
+            progress: p,
+            origin_dy: 0.0,
+            lift: Px::of(0),
+            strength: baud_render::Strength::Full,
+        })
+    };
+    let mut steps: Vec<Change> = vec![(
+        "the scene, the cursor a blinking block on row 2",
+        Damage::Incremental,
+        Box::new(|_, t| {
+            scene(t);
+            // Rows of powerline arrows above and below the cursor's row:
+            // the Nerd Font's U+E0B0 reaches two pixels past its row at
+            // either end at 14 px, so a band between them is drawn with
+            // both of their rows.
+            for row in [2, 4] {
+                feed(t, format!("\x1b[{row};1H\x1b[2K").as_bytes());
+                feed(t, "\u{e0b0} ".repeat(60).as_bytes());
+            }
+            feed(t, b"\x1b[1 q\x1b[3;5H");
+        }),
+    )];
+    // Two onto an arrow, whose ink past its row changes colour under the
+    // block: the rows it reaches change with the cursor's.
+    for (r, c) in [(3, 9), (8, 30), (4, 1), (2, 3), (1, 1), (9, 119), (5, 60)] {
+        steps.push((
+            "the cursor moved",
+            Damage::Incremental,
+            Box::new(move |_, t| feed(t, format!("\x1b[{r};{c}H").as_bytes())),
+        ));
+    }
+    for p in [
+        CursorPhase::HIDDEN,
+        CursorPhase::SHOWN,
+        CursorPhase::HIDDEN,
+        CursorPhase::SHOWN,
+    ] {
+        steps.push((
+            "the blink flipped",
+            Damage::Incremental,
+            Box::new(move |a, _| a.renderer.set_cursor_blink(p)),
+        ));
+    }
+    for g in [128, 192, 64, 255] {
+        steps.push((
+            "a plasma phase",
+            Damage::Incremental,
+            Box::new(move |a, _| a.renderer.set_cursor_blink(phase(0, g))),
+        ));
+    }
+    for at in [70, 80, 135, 205] {
+        steps.push((
+            "a fire step",
+            Damage::Incremental,
+            Box::new(move |a, _| {
+                a.renderer
+                    .set_cursor_blink(CursorPhase::fire(Chan::from_u8(at)))
+            }),
+        ));
+    }
+    for at in [10, 70, 128, 190] {
+        steps.push((
+            "a ufo step",
+            Damage::Incremental,
+            Box::new(move |a, _| {
+                a.renderer
+                    .set_cursor_blink(CursorPhase::ufo(Chan::from_u8(at)))
+            }),
+        ));
+    }
+    steps.push((
+        "the blink shown again",
+        Damage::Incremental,
+        Box::new(|a, _| a.renderer.set_cursor_blink(CursorPhase::SHOWN)),
+    ));
+    for p in [0.1, 0.3, 0.6, 0.9] {
+        steps.push((
+            "a trail step",
+            Damage::Incremental,
+            Box::new(move |a, _| a.trail = Some(ghost(p))),
+        ));
+    }
+    steps.push((
+        "the trail gone",
+        Damage::Incremental,
+        Box::new(|a, _| a.trail = None),
+    ));
+    // A quad trail arriving at the cursor from row 7, and the fire trail's
+    // particles twice: from the top row, where they rise past the grid, and
+    // across the middle of the screen.
+    for p in [0.05f32, 0.2, 0.4, 0.6] {
+        steps.push((
+            "a quad trail step",
+            Damage::Incremental,
+            Box::new(move |a, t| {
+                let (cr, cc) = t.cursor();
+                let hole = a.renderer.cursor_rect(cr, cc, t.cursor_style());
+                let from = a
+                    .renderer
+                    .cursor_rect(Row::from_index(7), Col::at_index(60), t.cursor_style())
+                    .corners();
+                a.trail = Some(TrailLook::Smear(Smear {
+                    corners: Segment::new(from, hole).at(p),
+                    hole,
+                    shape: Shape::Quad,
+                    strength: baud_render::Strength::Full,
+                }));
+            }),
+        ));
+    }
+    for ((c0, r0), (c1, r1), ages) in [
+        (
+            (98.0f32, 0.0f32),
+            (116.0f32, 1.0f32),
+            &[0.04f32, 0.12, 0.25, 0.4][..],
+        ),
+        (
+            (60.0, 4.0),
+            (100.0, 6.0),
+            &[0.04, 0.12, 0.25, 0.4, 0.55, 0.7, 0.85],
+        ),
+    ] {
+        for &age in ages {
+            steps.push((
+                "a fire trail step",
+                Damage::Incremental,
+                Box::new(move |a, _| {
+                    let m = a.renderer.metrics();
+                    let (cw, ch) = (m.cell_w.value() as f32, m.cell_h.value() as f32);
+                    let cell = |c: f32, r: f32| Rect {
+                        left: c * cw,
+                        top: r * ch,
+                        right: (c + 1.0) * cw,
+                        bottom: (r + 1.0) * ch,
+                    };
+                    let (from, to) = (cell(c0, r0), cell(c1, r1));
+                    let centre = |r: Rect| Pt {
+                        x: (r.left + r.right) * 0.5,
+                        y: (r.top + r.bottom) * 0.5,
+                    };
+                    let (fa, ta) = (centre(from), centre(to));
+                    let l = (ta.x - fa.x).hypot(ta.y - fa.y);
+                    let ignite = Ignition::ignite(fa, to, Seed(7), ch);
+                    let life = (Effect::Fire.end(&ignite) / Effect::Fire.life()).min(1.0);
+                    let age = age * life;
+                    a.trail = Some(TrailLook::Vfx(Vfx {
+                        effect: Effect::Fire,
+                        emitter: Smear {
+                            corners: Segment::new(from.corners(), to).at(age),
+                            hole: to,
+                            shape: Shape::Quad,
+                            strength: baud_render::Strength::Full,
+                        },
+                        ignition: ignite.at(age),
+                        axis: Pt {
+                            x: (ta.x - fa.x) / l,
+                            y: (ta.y - fa.y) / l,
+                        },
+                    }));
+                }),
+            ));
+        }
+    }
+    steps.push((
+        "the effect gone",
+        Damage::Incremental,
+        Box::new(|a, _| a.trail = None),
+    ));
+    steps.push((
+        "text written, some of it blinking",
+        Damage::Incremental,
+        Box::new(|_, t| feed(t, b"\x1b[7;1Hmore \x1b[5mtext\x1b[25m\x1b[5;60H")),
+    ));
+    // Not the cursor's: the blinking text's phase, which the cell shader
+    // hides by a uniform. Drawn whole, or the text keeps its old phase.
+    for slow in [Blink::Hidden, Blink::Shown] {
+        steps.push((
+            "the text's blink flipped",
+            Damage::Full,
+            Box::new(move |a, _| {
+                a.renderer.set_blink(BlinkPhases {
+                    slow,
+                    rapid: Blink::Shown,
+                })
+            }),
+        ));
+    }
+    for (r, c) in [(5, 61), (5, 62), (6, 1), (2, 2)] {
+        steps.push((
+            "the cursor moved after text",
+            Damage::Incremental,
+            Box::new(move |_, t| feed(t, format!("\x1b[{r};{c}H").as_bytes())),
+        ));
+    }
+    steps
+}
+
+/// **The steps where what moves beside the cursor is drawn**: iTerm2's
+/// cursor guide on the cursor's row -- moved with a hidden cursor, which
+/// changes no cursor word, and on the cursor's line while the window looks
+/// back, where no cursor is drawn -- and under a hollow cursor; the badge,
+/// with a block cursor moved into it and blinking there, which cuts the
+/// badge round its cell; and the config's notice row below the grid, with
+/// the cursor on the row above it among glyphs that reach into it. Each
+/// step that changes only those names the rows its frame must change.
+fn ground_steps() -> Vec<Step> {
+    let look = Some(baud_render::GuideLook {
+        colour: baud_render::CURSOR_GUIDE,
+        line: Px::of(2),
+    });
+    let badge = |text: &str| baud_render::BadgeLook {
+        text: text.into(),
+        colour: baud_render::BADGE,
+        fraction: baud_render::BOX,
+        top: Px::of(4),
+        right: Px::of(10),
+        scale: 1.0,
+        style: FaceStyle::Bold,
+    };
+    let notice = |text: &str| -> Vec<baud_domain::Codepoint> {
+        text.chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect()
+    };
+    let inc = Damage::Incremental;
+    vec![
+        (
+            "the cursor guide on",
+            inc,
+            Box::new(move |a, _| a.guide = look),
+            Want::Has(&[1]),
+        ),
+        (
+            "the cursor moved under the guide",
+            inc,
+            at(6, 10),
+            Want::Has(&[1, 5]),
+        ),
+        (
+            "the blink hidden under the guide",
+            inc,
+            blink(CursorPhase::HIDDEN),
+            Want::Has(&[5]),
+        ),
+        // No cursor word changes: only the guide's rows.
+        (
+            "the hidden cursor moved under the guide",
+            inc,
+            at(8, 3),
+            Want::Has(&[5, 7]),
+        ),
+        (
+            "the blink shown under the guide",
+            inc,
+            blink(CursorPhase::SHOWN),
+            Want::Has(&[7]),
+        ),
+        (
+            "lines scrolled into the history",
+            inc,
+            Box::new(|_, t| feed(t, b"\x1b[10;1H\n\n\n\n\x1b[8;3H")),
+            Want::Any,
+        ),
+        (
+            "looking back with the guide",
+            inc,
+            Box::new(|a, _| a.back = Rows::of_count(3)),
+            Want::Any,
+        ),
+        // The live cursor's line, three rows down the window, takes the
+        // guide; no cursor is drawn.
+        (
+            "the live cursor moved, looking back",
+            inc,
+            at(4, 6),
+            Want::Has(&[6]),
+        ),
+        ("and again, looking back", inc, at(2, 6), Want::Has(&[4, 6])),
+        (
+            "a third time, looking back",
+            inc,
+            at(5, 8),
+            Want::Has(&[4, 7]),
+        ),
+        (
+            "a fourth time, looking back",
+            inc,
+            at(3, 2),
+            Want::Has(&[5, 7]),
+        ),
+        (
+            "the live screen again",
+            inc,
+            Box::new(|a, _| a.back = Rows::ZERO),
+            Want::Any,
+        ),
+        (
+            "the hollow cursor under the guide",
+            inc,
+            Box::new(|a, _| a.renderer.set_cursor_look(CursorLook::Hollow)),
+            Want::Has(&[2]),
+        ),
+        ("the hollow cursor moved", inc, at(4, 7), Want::Has(&[2, 3])),
+        (
+            "the shaped cursor again",
+            inc,
+            Box::new(|a, _| a.renderer.set_cursor_look(CursorLook::Shaped)),
+            Want::Has(&[3]),
+        ),
+        (
+            "the cursor guide off",
+            inc,
+            Box::new(|a, _| a.guide = None),
+            Want::Has(&[3]),
+        ),
+        (
+            "the badge set",
+            inc,
+            Box::new(move |a, _| a.badge = Some(badge("prod-db-01\nmain"))),
+            Want::Any,
+        ),
+        (
+            "a block cursor moved into the badge",
+            inc,
+            Box::new(|a, t| {
+                let rect = a.renderer.badge().iter().fold(
+                    [i32::MAX, i32::MAX, i32::MIN, i32::MIN],
+                    |r, i| {
+                        let (x, y) = (i32::from(i.x.0), i32::from(i.y.0));
+                        [
+                            r[0].min(x),
+                            r[1].min(y),
+                            r[2].max(x + i32::from(i.w.0)),
+                            r[3].max(y + i32::from(i.h.0)),
+                        ]
+                    },
+                );
+                assert!(rect[0] < rect[2], "the badge was drawn");
+                let m = a.renderer.metrics();
+                let (cw, ch) = (
+                    i32::try_from(m.cell_w.value()).unwrap(),
+                    i32::try_from(m.cell_h.value()).unwrap(),
+                );
+                let (row, col) = ((rect[1] + rect[3]) / 2 / ch, (rect[0] + rect[2]) / 2 / cw);
+                feed(t, format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
+            }),
+            Want::Rows,
+        ),
+        (
+            "the blink hidden in the badge",
+            inc,
+            blink(CursorPhase::HIDDEN),
+            Want::Rows,
+        ),
+        (
+            "the blink shown in the badge",
+            inc,
+            blink(CursorPhase::SHOWN),
+            Want::Rows,
+        ),
+        (
+            "the cursor moved out of the badge",
+            inc,
+            at(9, 5),
+            Want::Rows,
+        ),
+        (
+            "the badge changed",
+            inc,
+            Box::new(move |a, _| a.badge = Some(badge("staging\nmain"))),
+            Want::Any,
+        ),
+        // Two frames that leave the badge as it is, so the target its
+        // clearing goes to holds it.
+        (
+            "the cursor moved under the new badge",
+            inc,
+            at(7, 5),
+            Want::Has(&[6, 8]),
+        ),
+        ("and moved again", inc, at(6, 5), Want::Has(&[5, 6])),
+        (
+            "the badge cleared",
+            inc,
+            Box::new(|a, _| a.badge = None),
+            Want::Any,
+        ),
+        (
+            "the notice shown, arrows on the row above it",
+            inc,
+            Box::new(move |a, t| {
+                let less = WinSize {
+                    ws_col: WS.ws_col,
+                    ws_row: WS.ws_row - 1,
+                };
+                let _ = t.resize(&less);
+                a.renderer.set_notice(Some(notice(
+                    "~/.config/baud/config.toml line 12: \"font_size 15\" is not key = value",
+                )));
+                a.renderer.fit(t);
+                feed(t, b"\x1b[9;1H\x1b[2K");
+                feed(t, "\u{e0b0} ".repeat(60).as_bytes());
+                feed(t, b"\x1b[5;5H");
+            }),
+            Want::Any,
+        ),
+        // The arrows reach into the notice's row: its band is drawn.
+        (
+            "the cursor moved onto the arrows above the notice",
+            inc,
+            at(9, 4),
+            Want::Has(&[8, 9]),
+        ),
+        (
+            "the blink hidden above the notice",
+            inc,
+            blink(CursorPhase::HIDDEN),
+            Want::Has(&[9]),
+        ),
+        (
+            "the blink shown above the notice",
+            inc,
+            blink(CursorPhase::SHOWN),
+            Want::Has(&[9]),
+        ),
+        // Away from the notice, so the frames before its change hold no
+        // row of it.
+        (
+            "the cursor moved away from the notice",
+            inc,
+            at(3, 3),
+            Want::Has(&[8, 9]),
+        ),
+        ("the cursor moved again", inc, at(4, 4), Want::Has(&[2, 3])),
+        ("and again", inc, at(5, 5), Want::Has(&[3, 4])),
+        (
+            "the notice changed",
+            inc,
+            Box::new(move |a, _| {
+                a.renderer.set_notice(Some(notice(
+                    "~/.config/baud/config.toml line 3: a list never closed",
+                )))
+            }),
+            Want::Any,
+        ),
+        (
+            "the cursor moved above the changed notice",
+            inc,
+            at(9, 30),
+            Want::Has(&[9]),
+        ),
+        (
+            "the notice gone",
+            inc,
+            Box::new(|a, t| {
+                a.renderer.set_notice(None);
+                let _ = t.resize(&WS);
+                a.renderer.fit(t);
+            }),
+            Want::Any,
+        ),
+        (
+            "the cursor moved after the notice",
+            inc,
+            at(3, 3),
+            Want::Rows,
+        ),
+    ]
+}
+
+/// The faces the partial oracle draws with: JetBrains Mono, the Noto
+/// subset and the Nerd Font symbols behind it.
+fn partial_faces() -> [Vec<u8>; 3] {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    [
+        read("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf"),
+        read("baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+    ]
+}
+
+fn partial_renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
+    let theme = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        ..Theme::dark()
+    };
+    Renderer::new(
+        Stack::new(faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap()
+}
+
+/// **A cursor-only frame on the cell path draws only its rows, and every
+/// frame is the whole frame's pixels.** Three targets rotate as the
+/// presenter's surfaces do, each frame drawn into the next by
+/// `Gpu::draw_cells_since` with what that target lacks, then drawn whole
+/// into a fourth and read back: the two must agree to the pixel, over the
+/// glass, through cursor moves, blink flips, plasma and fire phases and
+/// trail steps, and after a content change; and with the cursor guide, the
+/// badge and the config's notice row ([`ground_steps`]).
+#[test]
+fn a_cursor_only_cell_frame_draws_its_rows_and_the_whole_frames_pixels() {
+    let rot = cell_oracle(
+        Reads::Copy,
+        Px::of(0),
+        partial_steps(),
+        cursor_steps().len(),
+    );
+    rows_were_few(&rot);
+    // And the cursor's own steps over the core's grid, read under its
+    // rotation.
+    let cursor = cursor_steps()
+        .into_iter()
+        .map(|(name, damage, change)| (name, damage, change, Want::Any))
+        .collect::<Vec<Step>>();
+    let n = cursor.len();
+    rows_were_few(&cell_oracle(Reads::Core, Px::of(0), cursor, n));
+}
+
+/// **The same on the instance path**: each frame converted as the app
+/// converts one, incrementally, and drawn by `Gpu::draw_since` into the
+/// target the rotation gives it.
+#[test]
+fn a_cursor_only_instance_frame_draws_its_rows_and_the_whole_frames_pixels() {
+    let rot = instance_oracle(Px::of(0), partial_steps(), cursor_steps().len());
+    rows_were_few(&rot);
+}
+
+/// **A guide across a legacy scroller's gutter is drawn whole**, on both
+/// paths: the gutter is outside every band, so a frame that moves the
+/// guide there draws every pixel, and still agrees with a whole draw.
+#[test]
+fn a_guide_across_the_gutter_is_drawn_whole_on_both_paths() {
+    cell_oracle(Reads::Copy, Px::of(16), gutter_steps(), 0);
+    instance_oracle(Px::of(16), gutter_steps(), 0);
+}
+
+/// The steps over a gutter: the scene, then the guide on and moved, with
+/// the cursor shown and hidden, each frame whole; and the cursor moved
+/// with the guide off, by rows.
+fn gutter_steps() -> Vec<Step> {
+    let look = Some(baud_render::GuideLook {
+        colour: baud_render::CURSOR_GUIDE,
+        line: Px::of(2),
+    });
+    let mut steps: Vec<Step> = cursor_steps()
+        .into_iter()
+        .take(3)
+        .map(|(name, damage, change)| (name, damage, change, Want::Any))
+        .collect();
+    let inc = Damage::Incremental;
+    steps.extend::<Vec<Step>>(vec![
+        (
+            "the cursor guide on",
+            inc,
+            Box::new(move |a, _| a.guide = look),
+            Want::Whole,
+        ),
+        (
+            "the cursor moved under the guide",
+            inc,
+            at(6, 10),
+            Want::Whole,
+        ),
+        ("and again", inc, at(3, 4), Want::Whole),
+        (
+            "the blink hidden under the guide",
+            inc,
+            blink(CursorPhase::HIDDEN),
+            Want::Whole,
+        ),
+        (
+            "the hidden cursor moved under the guide",
+            inc,
+            at(8, 3),
+            Want::Whole,
+        ),
+        ("and again", inc, at(2, 7), Want::Whole),
+        (
+            "the guide off, the blink shown",
+            inc,
+            Box::new(|a, _| {
+                a.guide = None;
+                a.renderer.set_cursor_blink(CursorPhase::SHOWN);
+            }),
+            Want::Whole,
+        ),
+        ("the cursor moved", inc, at(5, 5), Want::Rows),
+        ("and again", inc, at(6, 6), Want::Rows),
+    ]);
+    steps
+}
+
+/// The partial oracle on the cell path over `steps`, the arm reading the
+/// grid `reads` names, with a scroller's `gutter`: every frame against a
+/// whole draw, and each against its [`Want`]. The rotation, its first
+/// `counted` frames counted.
+fn cell_oracle(reads: Reads, gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    let mut renderer = partial_renderer(&faces);
+    renderer.set_gutter(gutter);
+    arms!(renderer => arms, t);
+    let size = arms.renderer.whole_size();
+    let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
+    let whole = arms.gpu.offscreen(size.0, size.1).expect("target");
+    let mut rot = Rotation::new(&arms.gpu, size);
+    let mut wrong = Vec::new();
+    // From the window's copy, as the app draws, the notice's row the
+    // copy's, which the core's grid has none of; or from the core's grid.
+    arms.reads = reads;
+    for (i, (name, _, step, want)) in steps.iter().enumerate() {
+        step(&mut arms, &mut t);
+        arms.renderer.set_trail(arms.trail);
+        let (partial, full, drawn, changed) = arms.with_cells(&mut t, |gpu, renderer, input| {
+            let target = rot.target();
+            let missing = rot.ages.missing(rot.next);
+            let Some(Drawn::Frame(f)) =
+                gpu.draw_cells_since(renderer, input, target, Done::Wait, missing)
+            else {
+                panic!("draw_cells_since");
+            };
+            let mut p = vec![0u32; n];
+            gpu.read(target, &mut p).expect("read");
+            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &whole, Done::Wait) else {
+                panic!("draw_cells");
+            };
+            let mut q = vec![0u32; n];
+            gpu.read(&whole, &mut q).expect("read");
+            let count = match i < counted {
+                true => Counted::Yes,
+                false => Counted::No,
+            };
+            rot.drew(&f, count);
+            (p, q, f.drawn, f.changed)
+        });
+        if differing(&partial, &full) != 0 {
+            wrong.push(format!(
+                "{i} {name}: {} pixels, drawn {drawn:?}",
+                differing(&partial, &full)
+            ));
+        }
+        if !want.met(changed) {
+            wrong.push(format!("{i} {name}: changed {changed:?}, wanted {want:?}"));
+        }
+    }
+    assert!(wrong.is_empty(), "cell path, gutter {gutter:?}: {wrong:#?}");
+    rot
+}
+
+/// The partial oracle on the instance path, as [`cell_oracle`].
+fn instance_oracle(gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    let mut renderer = partial_renderer(&faces);
+    renderer.set_gutter(gutter);
+    arms!(renderer => arms, t);
+    let size = arms.renderer.whole_size();
+    let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
+    let whole = arms.gpu.offscreen(size.0, size.1).expect("target");
+    let mut rot = Rotation::new(&arms.gpu, size);
+    let mut wrong = Vec::new();
+    for (i, (name, damage, step, want)) in steps.iter().enumerate() {
+        step(&mut arms, &mut t);
+        arms.renderer.set_trail(arms.trail);
+        arms.renderer.set_cursor_guide(arms.guide);
+        arms.renderer.set_badge(arms.badge.clone());
+        arms.renderer.set_images(&t, arms.back);
+        arms.renderer.convert(&t, arms.back, *damage);
+        let target = rot.target();
+        let missing = rot.ages.missing(rot.next);
+        let Some(Drawn::Frame(f)) =
+            arms.gpu
+                .draw_since(&mut arms.renderer, target, Done::Wait, missing)
+        else {
+            panic!("draw_since");
+        };
+        let mut partial = vec![0u32; n];
+        arms.gpu.read(target, &mut partial).expect("read");
+        let Some(Drawn::Frame(_)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+            panic!("draw");
+        };
+        let mut full = vec![0u32; n];
+        arms.gpu.read(&whole, &mut full).expect("read");
+        let count = match i < counted {
+            true => Counted::Yes,
+            false => Counted::No,
+        };
+        rot.drew(&f, count);
+        if differing(&partial, &full) != 0 {
+            wrong.push(format!(
+                "{i} {name}: {} pixels, drawn {:?}",
+                differing(&partial, &full),
+                f.drawn
+            ));
+        }
+        if !want.met(f.changed) {
+            wrong.push(format!(
+                "{i} {name}: changed {:?}, wanted {want:?}",
+                f.changed
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "instance path, gutter {gutter:?}: {wrong:#?}"
+    );
+    rot
+}
+
+/// The cursor's frames were drawn by rows, and each by few.
+fn rows_were_few(rot: &Rotation) {
+    assert!(
+        rot.partial.value() >= 20,
+        "the cursor-only frames were drawn by rows: {} of them",
+        rot.partial.value()
+    );
+    assert!(
+        rot.rows.value() < rot.partial.value() * u64::from(WS.ws_row) / 2,
+        "and each by few: {} rows over {} frames",
+        rot.rows.value(),
+        rot.partial.value()
+    );
 }

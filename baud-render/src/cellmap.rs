@@ -339,6 +339,25 @@ impl Reach {
     }
 }
 
+/// **What the glyph map's walk over a screen read**, beside the screen's
+/// cells: a frame whose cells and line renditions are the last walk's, and
+/// whose key is equal, skips the walk. The walk only adds an entry for a
+/// glyph the screen draws and lists the screen's candidates; on the same
+/// cells, under the same rendition table (`table`), with the map as the
+/// walk left it (`map`), no atlas grown under it (`grown`) and no cluster
+/// slot reused (`clusters`), it would find every entry present and list
+/// the same candidates. What the caller checks of the cells is its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WalkKey {
+    pub table: crate::StyleStamp,
+    pub map: MapGeneration,
+    pub grown: Tally,
+    pub clusters: baud_domain::ClusterEpoch,
+    pub back: baud_domain::Rows,
+    pub cols: baud_domain::Cols,
+    pub rows: baud_domain::Rows,
+}
+
 /// Counts every change to the entries, so a copy on the GPU knows when it
 /// is stale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

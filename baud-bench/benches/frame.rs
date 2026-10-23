@@ -266,6 +266,7 @@ fn main() {
         rb.render(&mut t, &mut target, Damage::Full);
         let n = 2000u32;
         let (mut rows, mut inst, mut glow) = (0u64, 0u64, 0u64);
+        let (mut conv, mut comp) = (Duration::ZERO, Duration::ZERO);
         let start = std::time::Instant::now();
         for i in 0..n {
             rb.set_cursor_blink(pair[usize::from(i % 2 == 1)]);
@@ -273,12 +274,17 @@ fn main() {
             rows += f.rows_dirty.value();
             inst += f.instances.value();
             glow += u64::try_from(rb.cursor_glow().len()).unwrap_or(0);
+            conv += f.convert;
+            comp += f.composite;
         }
         let us = start.elapsed().as_secs_f64() * 1e6 / f64::from(n);
+        let per = |d: Duration| d.as_secs_f64() * 1e6 / f64::from(n);
         // `instances` is the rows' converted records; the glow's solids
         // ride beside them and are counted on their own.
         println!(
-            "blink {kind} over {which}: {us:.1} us/frame, {:.2} rows/frame, {:.1} instances/frame, {:.2} glow solids/frame",
+            "blink {kind} over {which}: {us:.1} us/frame (convert {:.1}, composite {:.1}), {:.2} rows/frame, {:.1} instances/frame, {:.2} glow solids/frame",
+            per(conv),
+            per(comp),
             rows as f64 / f64::from(n),
             inst as f64 / f64::from(n),
             glow as f64 / f64::from(n),

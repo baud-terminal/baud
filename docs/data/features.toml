@@ -417,6 +417,16 @@ tests = ["baud-app/src/caret.rs::never_is_never"]
 measured = ["Idle CPU (row 11, measured, no change)"]
 
 [[feature]]
+id = "cursor-frames"
+area = "speed"
+name = "Less work when only the cursor moves"
+does = "When only the cursor, its blinking, its trail or the cursor guide changes, baud redraws just the rows they cover, with the badge and the config notice kept as they are; on this Mac a blinking cursor's frame took about 33 microseconds of GPU time where a whole frame took 242 to 391."
+status = "built"
+platform = "macos"
+tests = ["baud-present-macos/tests/cells.rs::a_cursor_only_cell_frame_draws_its_rows_and_the_whole_frames_pixels", "baud-present-macos/tests/cells.rs::a_cursor_only_instance_frame_draws_its_rows_and_the_whole_frames_pixels", "baud-present-macos/tests/cells.rs::a_guide_across_the_gutter_is_drawn_whole_on_both_paths", "baud-present-macos/tests/cpu_copy.rs::a_cpu_frame_copies_only_its_rows_and_each_surface_is_the_whole_copy", "baud-render/tests/walk_key.rs::a_walk_over_the_last_walked_screen_changes_nothing"]
+shipped = ["X2-02"]
+
+[[feature]]
 id = "no-half-drawn"
 area = "speed"
 name = "No half-drawn screens"

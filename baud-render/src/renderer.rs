@@ -1710,6 +1710,13 @@ pub struct Renderer<'f, 'a> {
     ink_refused: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
+    /// **What every convert since the last [`Renderer::take_redraw`]
+    /// changed**, for a GPU path that draws into surfaces it keeps: the
+    /// rows dirty only for the cursor, its blink animation or its trail,
+    /// else [`Redraw::Whole`]. Gathered across converts, so a frame
+    /// converted and never drawn -- a draw refused while one is in flight
+    /// -- still names its rows to the frame that is.
+    redraw: crate::Redraw,
     storage: Vec<Glyph>,
     /// The shaper's scratch for a varied face's glyph boxes, grown to the
     /// need a refusal names and kept; empty while no face varies.
@@ -1931,6 +1938,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             marks_unmapped: Tally::of(0),
             ink_refused: Tally::of(0),
             dirty: Vec::new(),
+            redraw: crate::Redraw::Whole,
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
             ink_scratch: Vec::new(),
         };
@@ -4875,6 +4883,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
+        // Whether a row is dirty for anything but the cursor, its blink
+        // animation, its trail or the cursor guide, which makes this frame's
+        // redraw whole.
+        let mut beyond_cursor = full;
         // Which placements left and arrived, and whether one under the
         // text arrived or changed, and whether one partly transparent is
         // over it: once a frame, so a frame with none asks no row about it.
@@ -4986,15 +4998,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if partial {
                 rows_partial.bump();
             }
-            self.dirty[r] = full
-                || changed
-                || cursor_moved
-                || glow_moved
-                || guide_moved
+            // The guide is the cursor's row's: it moves with the cursor
+            // and is drawn by that row's band, the cursor's own.
+            let beyond = changed
                 || badge_moved
                 || selection_moved
                 || bar_moved
-                || trail_moved
                 || pictured
                 || imaged
                 || partial
@@ -5003,6 +5012,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || found
                 || linked
                 || noticed;
+            beyond_cursor |= beyond;
+            self.dirty[r] =
+                full || beyond || cursor_moved || glow_moved || guide_moved || trail_moved;
         }
         self.place_diff = diff;
         if images == ImageRows::Repainted {
@@ -5086,6 +5098,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for r in reached {
             self.dirty[r] = true;
         }
+        let this = match beyond_cursor {
+            true => crate::Redraw::Whole,
+            false => (0..rows.index())
+                .filter(|&r| self.dirty[r])
+                .fold(crate::Redraw::NOTHING, |d, r| d.with(Row::from_index(r))),
+        };
+        self.redraw = self.redraw.union(this);
         self.blink_seen = self
             .row_blinks
             .iter()
@@ -5131,6 +5150,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } else {
             Page::Glass
         }
+    }
+
+    /// **What the converts since the last [`Renderer::take_redraw`]
+    /// changed**: the rows dirty for the cursor, its blink animation, its
+    /// trail or the cursor guide alone, or [`Redraw::Whole`] once any frame among them changed
+    /// anything else. What changed only *in the converted rows*: images,
+    /// the exit-status strip and a frame's size are the drawing path's to
+    /// compare.
+    pub fn redraw(&self) -> crate::Redraw {
+        self.redraw
+    }
+
+    /// [`Renderer::redraw`], and none from here: for a path that has drawn
+    /// a frame with it.
+    pub fn take_redraw(&mut self) -> crate::Redraw {
+        core::mem::replace(&mut self.redraw, crate::Redraw::NOTHING)
     }
 
     /// Paints the rows the last [`Renderer::convert`] found dirty into

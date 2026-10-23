@@ -49,6 +49,7 @@ mod overlay;
 mod picture;
 pub mod plasma;
 pub mod print;
+mod redraw;
 mod renderer;
 mod scroll;
 mod scrollbar;
@@ -71,7 +72,7 @@ pub use caret::{CursorPhase, Play};
 pub use cellmap::{
     BlockCursor, BlockPaint, Candidate, CellKey, CellSpan, CursorLook, Curves, Drawn, GlyphMap,
     Ground, Hilite, Ink, Line, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
-    Reach, Resolved, Selected, Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
+    Reach, Resolved, Selected, Shapes, Swaps, Text, WalkKey, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
     AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, dark_palette,
@@ -89,6 +90,7 @@ pub use overlay::{
     OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
+pub use redraw::{REDRAW_ROWS, Redraw, RowSet};
 pub use renderer::{
     Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame,
     GlyphSource, Glyphs, ImageComposite, ImageLayer, ImagePlacement, ImageScale, ImageUpload,
