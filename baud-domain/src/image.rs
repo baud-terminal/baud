@@ -348,7 +348,7 @@ impl PlacementId {
     /// two at least twice as many, so the index is never more than half
     /// full and a lookup ends at an empty entry in a step or two. A table
     /// sized to a 400x150 screen, 60,000 slots, has 131,072 entries, 512
-    /// KiB of address space beside the table's 7.2 MB.
+    /// KiB of address space beside the table's 9.1 MB.
     pub fn index_len(slots: usize) -> usize {
         slots.saturating_mul(2).max(2).next_power_of_two()
     }
@@ -456,6 +456,117 @@ impl KittyPlacement {
     }
 }
 
+/// **Which placement made in a store's life**: every placement, on screen
+/// or virtual, takes the next when it is made, so a parent named by its
+/// slot is not mistaken for another placement made in the slot after it
+/// went, and of two placements of one image the older is the lower. Zero
+/// names none.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default, FromZeros)]
+pub struct PlaceSerial(u32);
+
+impl PlaceSerial {
+    /// No placement.
+    pub const NONE: PlaceSerial = PlaceSerial(0);
+
+    /// Whether this names no placement.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The next serial, skipping [`PlaceSerial::NONE`] when it wraps.
+    fn next(self) -> PlaceSerial {
+        PlaceSerial(self.0.wrapping_add(1).max(1))
+    }
+}
+
+/// **What a relative placement is placed against** (`P`, `Q`, `H` and `V`,
+/// `[[source: kitty-graphics]]`, "Relative placements"): its parent, a
+/// placement on screen by its slot and serial or a virtual one by its
+/// serial, and the cells it sits right of and below the parent's top-left
+/// cell, "Negative values move left and up". [`KittyParent::NONE`] for a
+/// placement placed at the cursor.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+pub struct KittyParent {
+    /// The parent placement's slot, or none: no parent, or a virtual one.
+    pub slot: PlacementId,
+    /// The parent's serial: the slot's when it was named, or the virtual
+    /// placement's.
+    pub serial: PlaceSerial,
+    /// Whether the parent is a virtual placement, kept in the kitty
+    /// stream's own table rather than the store's.
+    pub on: ParentOn,
+    /// `H`, the cells right of the parent's top-left cell.
+    pub h: i32,
+    /// `V`, the cells below it.
+    pub v: i32,
+}
+
+/// Where a relative placement's parent is kept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+#[repr(u8)]
+pub enum ParentOn {
+    /// No parent.
+    Nothing,
+    /// A placement on screen, in the store's table.
+    Screen,
+    /// A virtual placement, in the kitty stream's table: its position is
+    /// "derived from all the actual Unicode placeholder images that refer
+    /// to it", known only where the placeholders are drawn.
+    Virtual,
+}
+
+impl KittyParent {
+    /// No parent.
+    pub const NONE: KittyParent = KittyParent {
+        slot: PlacementId::NONE,
+        serial: PlaceSerial::NONE,
+        on: ParentOn::Nothing,
+        h: 0,
+        v: 0,
+    };
+
+    /// Whether this places against a parent.
+    pub fn is_relative(&self) -> bool {
+        self.on != ParentOn::Nothing
+    }
+}
+
+/// **Where a relative placement's chain of parents ends**
+/// ([`ImageStore::kitty_root`]): at a placement on screen, which it is
+/// placed against by the summed offsets; at a virtual placement, which
+/// only the drawing can place; or broken, an ancestor gone or the chain
+/// past [`KITTY_PARENT_DEPTH`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyRoot {
+    /// A placement on screen at slot `slot`, `h` columns and `v` rows from
+    /// its top-left cell.
+    Screen { slot: usize, h: i64, v: i64 },
+    /// The virtual placement with this serial.
+    Virtual { serial: PlaceSerial, h: i64, v: i64 },
+    /// An ancestor gone, or more of them than the depth allows.
+    Broken,
+}
+
+/// **How many parents a relative placement may have above it**: kitty's
+/// `PARENT_DEPTH_LIMIT` (`[[source: kitty-graphics-c]]`
+/// `has_good_ancestry`), where the text sets only a floor: "implementation
+/// must allow a chain of length at least 8. If the implementation max
+/// depth is exceeded, the terminal must respond with the ETOODEEP error
+/// code".
+pub const KITTY_PARENT_DEPTH: usize = 8;
+
+/// Why a relative placement's chain is refused
+/// ([`ImageStore::kitty_link_check`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LinkRefusal {
+    /// The parent is the placement being replaced, or below it: "Terminals
+    /// are required to reject the creation of a relative placement that
+    /// would create a cycle".
+    Cycle,
+    /// More parents above it than [`KITTY_PARENT_DEPTH`].
+    TooDeep,
+}
+
 /// **Which plane the page being drawn shows**: its own, the first
 /// surface's, or another, the second's under ReGIS `S(P1)`, and whether a
 /// clear took its count to 0 while it did.
@@ -544,6 +655,14 @@ pub struct KittyPlace {
     pub cut_top: Rows,
     /// The rows clipped off its bottom by a margin scroll.
     pub cut_bottom: Rows,
+    /// What it is placed against, for a relative placement.
+    pub parent: KittyParent,
+    /// **How far left of column zero a relative placement's cell is**:
+    /// its column is clamped to zero, and it is drawn this many columns
+    /// further left, off the screen's edge, where its parent and `H` put it.
+    pub over_cols: Cols,
+    /// How far above the screen's first line it is, the same way.
+    pub over_rows: Rows,
 }
 
 /// **Which of `c` and `r` a kitty placement gave**, because the text scales
@@ -730,6 +849,9 @@ impl KittyPlace {
         fit: KittyFit::Natural,
         cut_top: Rows(0),
         cut_bottom: Rows(0),
+        parent: KittyParent::NONE,
+        over_cols: Cols(0),
+        over_rows: Rows(0),
     };
 }
 
@@ -1002,6 +1124,8 @@ pub struct PlacementSlot {
     /// (`an_anchor_on_a_wrapped_row_comes_back_on_its_row_after_a_round_trip`).
     follows: Col,
     staged: Staged,
+    /// When it was made ([`PlaceSerial`]).
+    pub serial: PlaceSerial,
     /// A kitty placement's geometry and id; [`KittyPlace::NONE`] for any
     /// other.
     pub kitty: KittyPlace,
@@ -1017,6 +1141,7 @@ impl PlacementSlot {
         z: ZIndex::ZERO,
         follows: Col::ZERO,
         staged: Staged::Idle,
+        serial: PlaceSerial::NONE,
         kitty: KittyPlace::NONE,
     };
 
@@ -1027,7 +1152,7 @@ impl PlacementSlot {
     /// **`n` free slots from zeroed memory**: [`PlacementSlot::EMPTY`] is
     /// all zero bytes, so the table comes from the allocator's zeroed pages
     /// and a page is committed only when a placement first lands on it --
-    /// a table sized to a 400x150 screen, 60,000 slots, is 7.2 MB of
+    /// a table sized to a 400x150 screen, 60,000 slots, is 9.1 MB of
     /// address space and none of it resident until used, where writing
     /// `EMPTY` into each slot would make it all resident at construction.
     /// Allocation failure is `vec!`'s, as [`Pixel::zeroed_vec`]'s is.
@@ -1395,6 +1520,12 @@ pub struct ImageStore<'b> {
     cell_h: ImagePx,
     /// The embedder's way to give freed pages back, `None` until lent.
     release: Option<PageRelease>,
+    /// The serial the next placement made takes ([`PlaceSerial`]).
+    serial: PlaceSerial,
+    /// **How many live placements are relative** ([`KittyParent`]): the
+    /// gate for following a parent that moved and deleting what a parent
+    /// leaves, so a store with none pays one compare.
+    relatives: usize,
     /// What the open Sixel claim has written, words `[start, end)` of the
     /// arena: a gap the slot table does not record, so a page it touches
     /// is not given back when a span beside it is freed ([`SixelStream`]).
@@ -1451,6 +1582,8 @@ impl<'b> ImageStore<'b> {
             cell_h: ImagePx::ZERO,
             release: None,
             claim: None,
+            serial: PlaceSerial::NONE,
+            relatives: 0,
         }
     }
 
@@ -1955,7 +2088,14 @@ impl<'b> ImageStore<'b> {
         z: ZIndex,
         place: KittyPlace,
     ) -> PlacementId {
+        // The replaced placement's children stay its children: "When the
+        // parent placement moves, the relative placement moves along with
+        // it", and a replacement is the parent moving, as kitty updates
+        // the one ref in place (`[[source: kitty-graphics-c]]`
+        // `handle_put_command`).
+        let mut old = None;
         if let Some(p) = self.find_kitty(id, place.id) {
+            old = Some((p, self.placements[p].serial));
             self.vacate(p);
             if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
                 s.placements = Count::of(s.placements.index().saturating_sub(1));
@@ -1967,6 +2107,32 @@ impl<'b> ImageStore<'b> {
             if !place.id.is_none() {
                 self.index_insert(p);
             }
+            if place.parent.is_relative() {
+                self.relatives += 1;
+            }
+            // The one ref keeps its age too: kitty's keeps its
+            // `internal_id`, so the oldest of an image's placements is
+            // still the one made first.
+            if let Some((_, serial)) = old {
+                self.placements[p].serial = serial;
+            }
+            if let (Some((from, serial)), true) = (old, self.relatives > 0) {
+                let to = PlacementId::from_index(p);
+                for q in 0..self.live {
+                    let k = &mut self.placements[q].kitty.parent;
+                    if k.on == ParentOn::Screen
+                        && pid_index(k.slot) == Some(from)
+                        && k.serial == serial
+                    {
+                        k.slot = to;
+                    }
+                }
+                self.settle_relatives();
+            }
+        }
+        // The old one went and none came: its children go with it.
+        if pid.is_none() && old.is_some() {
+            self.trim();
         }
         pid
     }
@@ -2112,6 +2278,58 @@ impl<'b> ImageStore<'b> {
         free: KittyFree,
         hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
     ) -> usize {
+        self.delete_shown(free, |_, s| Some(*s), hit)
+    }
+
+    /// **[`ImageStore::kitty_delete`] by a place on the screen**: `hit`
+    /// sees each placement where it is drawn, so a relative placement
+    /// under a virtual parent is tested at `drawn`'s cell for that parent
+    /// (its serial) plus the offsets down its chain -- "Delete all
+    /// placements that intersect a specific cell" (`[[source:
+    /// kitty-graphics]]`, "Deleting images") -- and with no cell, drawn
+    /// nowhere, is not hit.
+    pub fn kitty_delete_drawn(
+        &mut self,
+        free: KittyFree,
+        drawn: impl Fn(PlaceSerial) -> Option<(LineIdx, Col)>,
+        hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
+    ) -> usize {
+        self.delete_shown(free, |st, s| st.drawn_slot(s, &drawn), hit)
+    }
+
+    /// Placement `s` where it is drawn: itself, or under a virtual parent
+    /// at `drawn`'s cell plus the offsets, clamped as
+    /// [`ImageStore::kitty_anchor`] clamps; `None` when it is drawn
+    /// nowhere.
+    fn drawn_slot(
+        &self,
+        s: &PlacementSlot,
+        drawn: &impl Fn(PlaceSerial) -> Option<(LineIdx, Col)>,
+    ) -> Option<PlacementSlot> {
+        if !s.kitty.parent.is_relative() {
+            return Some(*s);
+        }
+        let KittyRoot::Virtual { serial, h, v } = self.kitty_root_of(s.kitty.parent) else {
+            return Some(*s);
+        };
+        let (line, col) = drawn(serial)?;
+        let ((c, oc), (l, ol)) = (hang(col.index() as i64 + h), hang(line.value() as i64 + v));
+        let mut t = *s;
+        t.line = LineIdx::of(l as u64);
+        t.col = Col(c);
+        t.kitty.over_cols = Cols(oc);
+        t.kitty.over_rows = Rows::of_count(ol);
+        Some(t)
+    }
+
+    /// [`ImageStore::kitty_delete`]'s work, `shown` placing each
+    /// placement where `hit` tests it.
+    fn delete_shown(
+        &mut self,
+        free: KittyFree,
+        shown: impl Fn(&Self, &PlacementSlot) -> Option<PlacementSlot>,
+        hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
+    ) -> usize {
         let mut n = 0;
         for p in 0..self.live {
             let slot = self.placements[p];
@@ -2124,7 +2342,7 @@ impl<'b> ImageStore<'b> {
             let ImageOwner::Kitty(kid, num) = self.slots[i].owner else {
                 continue;
             };
-            if !hit(&slot, kid, num) {
+            if !shown(self, &slot).is_some_and(|s| hit(&s, kid, num)) {
                 continue;
             }
             self.vacate(p);
@@ -2172,6 +2390,250 @@ impl<'b> ImageStore<'b> {
             self.images_dropped += 1;
             self.epoch = self.epoch.bumped();
         }
+    }
+
+    /// The serial the next placement made takes: [`ImageStore::place`]'s,
+    /// and a virtual placement's, which the kitty stream keeps in its own
+    /// table, so one clock orders both.
+    pub fn take_serial(&mut self) -> PlaceSerial {
+        self.serial = self.serial.next();
+        self.serial
+    }
+
+    /// **The placement of `image` on `screen` a relative placement names as
+    /// its parent**, with its serial: the one with placement id `pid`, or
+    /// with none the oldest live one (Jev, OLDEST, 1.00 and 0.98; kitty
+    /// takes the first of its map, `[[source: kitty-graphics-c]]`
+    /// `handle_put_command`, and the text names no rule). `None` when it
+    /// has none there.
+    pub fn kitty_parent_slot(
+        &mut self,
+        image: ImageId,
+        pid: KittyPlacement,
+        screen: ImageScreen,
+    ) -> Option<(PlacementId, PlaceSerial)> {
+        let p = match pid.is_none() {
+            false => self.find_kitty(image, pid)?,
+            true => (0..self.live)
+                .filter(|&p| {
+                    let s = &self.placements[p];
+                    !s.is_empty() && s.image == image && s.screen == screen
+                })
+                .min_by_key(|&p| self.placements[p].serial)?,
+        };
+        let s = &self.placements[p];
+        (s.screen == screen).then_some((PlacementId::from_index(p), s.serial))
+    }
+
+    /// **Whether a placement may take `parent`**, replacing the placement
+    /// in slot `replacing` if any: refused when the chain upward from the
+    /// parent reaches the placement being replaced -- "Terminals are
+    /// required to reject the creation of a relative placement that would
+    /// create a cycle" -- or holds more than [`KITTY_PARENT_DEPTH`]
+    /// parents, kitty's outcome (`[[source: kitty-graphics-c]]`
+    /// `has_good_ancestry`, which tests the cycle before the depth at each
+    /// step): a loop met within the bound is ECYCLE, and one longer than
+    /// the bound ETOODEEP, as there. A virtual parent ends the chain: it
+    /// has none.
+    pub fn kitty_link_check(
+        &self,
+        parent: KittyParent,
+        replacing: Option<PlacementId>,
+    ) -> Result<(), LinkRefusal> {
+        let replacing = replacing.and_then(pid_index);
+        let mut link = parent;
+        for _ in 0..KITTY_PARENT_DEPTH {
+            let Some(p) = (link.on == ParentOn::Screen)
+                .then(|| pid_index(link.slot))
+                .flatten()
+            else {
+                return Ok(());
+            };
+            if Some(p) == replacing {
+                return Err(LinkRefusal::Cycle);
+            }
+            match self.placements.get(p) {
+                Some(s) if !s.is_empty() && s.serial == link.serial => link = s.kitty.parent,
+                _ => return Ok(()),
+            }
+            if !link.is_relative() {
+                return Ok(());
+            }
+        }
+        Err(LinkRefusal::TooDeep)
+    }
+
+    /// The slot of the kitty placement of `image` with placement id `pid`,
+    /// a placement a put of the same pair replaces.
+    pub fn kitty_slot(&mut self, image: ImageId, pid: KittyPlacement) -> Option<PlacementId> {
+        self.find_kitty(image, pid).map(PlacementId::from_index)
+    }
+
+    /// **Where the chain of parents above `link` ends**, and the cells the
+    /// offsets along it sum to: "The origin is the top left cell of the
+    /// parent placement", each link adding its `H` and `V`.
+    pub fn kitty_root_of(&self, mut link: KittyParent) -> KittyRoot {
+        let (mut h, mut v) = (0i64, 0i64);
+        for _ in 0..KITTY_PARENT_DEPTH {
+            h += i64::from(link.h);
+            v += i64::from(link.v);
+            match link.on {
+                ParentOn::Nothing => return KittyRoot::Broken,
+                ParentOn::Virtual => {
+                    return KittyRoot::Virtual {
+                        serial: link.serial,
+                        h,
+                        v,
+                    };
+                }
+                ParentOn::Screen => {
+                    let Some(p) = pid_index(link.slot) else {
+                        return KittyRoot::Broken;
+                    };
+                    match self.placements.get(p) {
+                        Some(s) if !s.is_empty() && s.serial == link.serial => {
+                            if !s.kitty.parent.is_relative() {
+                                return KittyRoot::Screen { slot: p, h, v };
+                            }
+                            link = s.kitty.parent;
+                        }
+                        _ => return KittyRoot::Broken,
+                    }
+                }
+            }
+        }
+        KittyRoot::Broken
+    }
+
+    /// Where placement `pid`'s chain of parents ends: what a renderer
+    /// places a relative placement under a virtual parent by.
+    pub fn kitty_root(&self, pid: PlacementId) -> KittyRoot {
+        match pid_index(pid).and_then(|p| self.placements.get(p)) {
+            Some(s) if s.kitty.parent.is_relative() => self.kitty_root_of(s.kitty.parent),
+            _ => KittyRoot::Broken,
+        }
+    }
+
+    /// **The cell a placement against `link` is anchored at**: its root's
+    /// screen, line and column plus the offsets, the line and column
+    /// clamped at zero and what was clamped kept to draw by
+    /// ([`KittyPlace::over_cols`]). `None` under a virtual parent, which
+    /// only the drawing places, or for a broken chain.
+    pub fn kitty_anchor(
+        &self,
+        link: KittyParent,
+    ) -> Option<(ImageScreen, LineIdx, Col, Cols, Rows)> {
+        let KittyRoot::Screen { slot, h, v } = self.kitty_root_of(link) else {
+            return None;
+        };
+        let r = &self.placements[slot];
+        let col = r.col.index() as i64 - r.kitty.over_cols.index() as i64 + h;
+        let line = r.line.value() as i64 - r.kitty.over_rows.index() as i64 + v;
+        let ((c, oc), (l, ol)) = (hang(col), hang(line));
+        Some((
+            r.screen,
+            LineIdx::of(l as u64),
+            Col(c),
+            Cols(oc),
+            Rows::of_count(ol),
+        ))
+    }
+
+    /// **Every relative placement under a placement on screen moved with
+    /// it**: re-anchored at its root's cell plus the offsets, after
+    /// anything that moves placements -- a margin scroll, a shift, a
+    /// reflow. A placement moved by the same rows as its parent is where
+    /// it was.
+    fn settle_relatives(&mut self) {
+        if self.relatives == 0 {
+            return;
+        }
+        for q in 0..self.live {
+            let s = self.placements[q];
+            if s.is_empty() || !s.kitty.parent.is_relative() {
+                continue;
+            }
+            if let Some((screen, line, col, oc, ol)) = self.kitty_anchor(s.kitty.parent) {
+                let t = &mut self.placements[q];
+                t.screen = screen;
+                t.line = line;
+                t.col = col;
+                t.kitty.over_cols = oc;
+                t.kitty.over_rows = ol;
+                self.widen(screen, line, line.plus(Rows::of_count(1)));
+            }
+        }
+    }
+
+    /// **The relative placements whose parent is gone go too**, and their
+    /// own, down every chain: "If its parent is deleted, it is deleted as
+    /// well. If the image that the relative placement is a placement of,
+    /// has no more placements, the image is deleted as well"
+    /// (`[[source: kitty-graphics]]`, "Relative placements"), whatever its
+    /// id, as kitty's `grman_update_layers` removes it
+    /// (`[[source: kitty-graphics-c]]`). A pass a level, so a chain of
+    /// [`KITTY_PARENT_DEPTH`] goes in as many passes. A virtual parent is
+    /// the kitty stream's, which says when one goes
+    /// ([`ImageStore::kitty_orphan_virtual`]).
+    fn sweep_orphans(&mut self) {
+        loop {
+            let mut gone = 0;
+            for q in 0..self.live {
+                let s = self.placements[q];
+                if s.is_empty()
+                    || s.kitty.parent.on != ParentOn::Screen
+                    || self.kitty_root_of(s.kitty.parent) != KittyRoot::Broken
+                {
+                    continue;
+                }
+                self.drop_relative(q);
+                gone += 1;
+            }
+            if gone == 0 {
+                return;
+            }
+        }
+    }
+
+    /// Placement `q`, a relative one, gone, and its image with its last
+    /// placement.
+    fn drop_relative(&mut self, q: usize) {
+        let image = self.placements[q].image;
+        self.vacate(q);
+        let Some(i) = image.index() else {
+            return;
+        };
+        let s = &mut self.slots[i];
+        if s.is_empty() {
+            return;
+        }
+        s.placements = Count::of(s.placements.index().saturating_sub(1));
+        if s.placements.index() == 0 {
+            self.forget(i);
+            self.images_dropped += 1;
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// Whether a relative placement may be live: the gate a delete by a
+    /// place asks before it looks for where placeholders draw one.
+    pub fn kitty_relatives(&self) -> bool {
+        self.relatives > 0
+    }
+
+    /// **The virtual placement with serial `serial` went**: the relative
+    /// placements under it go, and theirs, as under a parent on screen.
+    pub fn kitty_orphan_virtual(&mut self, serial: PlaceSerial) {
+        if self.relatives == 0 {
+            return;
+        }
+        for q in 0..self.live {
+            let k = self.placements[q].kitty.parent;
+            if !self.placements[q].is_empty() && k.on == ParentOn::Virtual && k.serial == serial {
+                self.drop_relative(q);
+            }
+        }
+        self.trim();
     }
 
     /// **Free every kitty image `hit` picks that has no placement**: an
@@ -2331,6 +2793,7 @@ impl<'b> ImageStore<'b> {
             z,
             follows: Col::ZERO,
             staged: Staged::Idle,
+            serial: self.take_serial(),
             kitty: KittyPlace::NONE,
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
@@ -2832,6 +3295,7 @@ impl<'b> ImageStore<'b> {
         self.live = 0;
         self.free_from = 0;
         self.local_placed = 0;
+        self.relatives = 0;
         self.page_plane = None;
         self.page_shows = PageShows::Own;
         self.reach = [None; 2];
@@ -2987,7 +3451,12 @@ impl<'b> ImageStore<'b> {
         let mut n_gone = 0;
         for p in 0..self.live {
             let s = self.placements[p];
-            if s.is_empty() || s.screen != screen || s.line >= hi || self.is_regis(s) {
+            if s.is_empty()
+                || s.screen != screen
+                || s.line >= hi
+                || self.is_regis(s)
+                || s.kitty.parent.is_relative()
+            {
                 continue;
             }
             let kitty = s
@@ -3009,6 +3478,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
+        self.settle_relatives();
         self.rescan(screen);
         n_gone
     }
@@ -3073,6 +3543,11 @@ impl<'b> ImageStore<'b> {
             if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
                 continue;
             }
+            // A relative placement moves with its parent, not with the
+            // rows it is drawn over ([`ImageStore::settle_relatives`]).
+            if s.kitty.parent.is_relative() {
+                continue;
+            }
             // A ReGIS page's rows moved above (`ImageStore::shift_pages`);
             // under side margins it stays where it is.
             if self.is_regis(s) {
@@ -3129,6 +3604,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
+        self.settle_relatives();
         self.rescan(screen);
         n_gone
     }
@@ -3143,6 +3619,7 @@ impl<'b> ImageStore<'b> {
                 p.line = p.line.plus(n);
             }
         }
+        self.settle_relatives();
         self.rescan(screen);
     }
 
@@ -3158,7 +3635,8 @@ impl<'b> ImageStore<'b> {
     pub fn follow_begin(&mut self, screen: ImageScreen, floor: LineIdx) -> usize {
         let mut n = 0;
         for p in self.placements[..self.live].iter_mut() {
-            if p.is_empty() || p.screen != screen {
+            // A relative placement follows its parent after the reflow.
+            if p.is_empty() || p.screen != screen || p.kitty.parent.is_relative() {
                 continue;
             }
             p.staged = match p.line.since(floor) {
@@ -3221,6 +3699,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
+        self.settle_relatives();
         self.rescan(ImageScreen::Primary);
         self.rescan(ImageScreen::Alternate);
         n
@@ -3753,6 +4232,9 @@ impl<'b> ImageStore<'b> {
         if local {
             self.local_placed = self.local_placed.saturating_sub(1);
         }
+        if self.placements[p].kitty.parent.is_relative() {
+            self.relatives = self.relatives.saturating_sub(1);
+        }
         self.index_remove(p);
         self.placements[p] = PlacementSlot::EMPTY;
         self.placed = self.placed.saturating_sub(1);
@@ -3762,7 +4244,14 @@ impl<'b> ImageStore<'b> {
     /// **Lower [`ImageStore::live`] past the free slots below it**, after a
     /// slot is freed: each step is a slot the walks no longer visit, so the
     /// trimming over a table's life costs no more than its placements did.
+    ///
+    /// **The relative placements a removal left with no parent go here
+    /// too** ([`ImageStore::sweep_orphans`]), since every removal ends in
+    /// a trim.
     fn trim(&mut self) {
+        if self.relatives > 0 {
+            self.sweep_orphans();
+        }
         while self.live > 0 && self.placements[self.live - 1].is_empty() {
             self.live -= 1;
         }
@@ -3821,4 +4310,14 @@ impl<'b> ImageStore<'b> {
 
 fn pid_index(pid: PlacementId) -> Option<usize> {
     usize::try_from(pid.0).ok()?.checked_sub(1)
+}
+
+/// A cell offset split at the screen's edge: the cell, clamped at zero,
+/// and how far past the edge it hangs, what a relative placement "Negative
+/// values move left and up" put there is drawn by.
+fn hang(n: i64) -> (usize, usize) {
+    match usize::try_from(n) {
+        Ok(n) => (n, 0),
+        Err(_) => (0, usize::try_from(n.unsigned_abs()).unwrap_or(usize::MAX)),
+    }
 }

@@ -61,6 +61,9 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn kitty_end(&mut self) {
         let at = self.kitty_at();
+        if self.strs.kitty.wants_drawn(self.images) {
+            self.kitty_mark_drawn(&at);
+        }
         let s = &mut *self.strs;
         let moved = s.kitty.end(&at, self.images, s.kitty_scratch);
         // A placement text later in this read may land on (`Paint::hooks`),
@@ -69,6 +72,36 @@ impl Paint<'_, '_> {
         self.kitty_replies();
         if let Some(m) = moved {
             self.kitty_move(m);
+        }
+    }
+
+    /// **Where the live screen's placeholders draw each virtual
+    /// placement**, for a delete by a place: a relative placement under
+    /// one is drawn at the least line and display column of its runs plus
+    /// its offsets, as a renderer places it, so the delete tests the cells
+    /// it is drawn at, "Delete all placements that intersect a specific
+    /// cell" (`[[source: kitty-graphics]]`, "Deleting images"). A run on a
+    /// line not single-width begins at twice its column, where it is drawn.
+    #[cold]
+    #[inline(never)]
+    fn kitty_mark_drawn(&mut self, at: &KittyAt) {
+        let s = &mut *self.strs;
+        s.kitty.clear_drawn();
+        for r in 0..self.rows.index() {
+            let row = Row::from_index(r);
+            let stretch = match self.view.rendition(row).is_double() {
+                true => 2,
+                false => 1,
+            };
+            let (view, clusters, tmpl) = (&self.view, &*self.clusters, &*self.tmpl);
+            let cells = (0..self.cols.index())
+                .map(|c| placeholder_cell(clusters, tmpl, view.get(row, Col::at_index(c))));
+            let line = at.top.plus(Rows::of_count(r));
+            for run in PlaceholderRuns::new(cells) {
+                let col = Col::at_index(run.at.index() * stretch);
+                s.kitty
+                    .mark_drawn(run.image, run.placement, (line, col), self.images);
+            }
         }
     }
 
@@ -231,5 +264,31 @@ impl Term<'_> {
     /// decides it, so it is beside [`Term::kitty`] and not in it.
     pub fn kitty_feed(&self) -> KittyFeed {
         self.store.strs.kitty.feed
+    }
+}
+
+/// **What cell `c` is to a placeholder run** (`[[source: kitty-graphics]]`,
+/// "Unicode placeholders"): U+10EEEE with its diacritics and the ids its
+/// foreground and underline colours carry, or another character. The one
+/// reading of a cell [`Term::placeholder_runs`] and a delete by a place
+/// share.
+pub(crate) fn placeholder_cell(
+    clusters: &ClusterStore<'_>,
+    tmpl: &[Option<StyleWord>],
+    c: PackedCell,
+) -> PlaceholderCell {
+    let base = clusters.base_of(c.content);
+    if !base.as_codepoint().is_some_and(is_placeholder) {
+        return PlaceholderCell::Other;
+    }
+    let marks = match c.content.placeholder_marks() {
+        Some(m) => m,
+        None => PlaceholderMarks::read(clusters.marks_of(c.content)),
+    };
+    let style = tmpl[c.style.index()].unwrap_or(StyleWord::DEFAULT);
+    PlaceholderCell::Placeholder {
+        marks,
+        fg: style.fg(),
+        underline: style.underline(),
     }
 }

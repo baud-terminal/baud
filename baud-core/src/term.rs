@@ -5045,20 +5045,7 @@ impl<'b> Term<'b> {
         row: &'r [PackedCell],
     ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
         PlaceholderRuns::new(row.iter().map(move |c| {
-            let base = self.store.clusters.base_of(c.content);
-            if !base.as_codepoint().is_some_and(is_placeholder) {
-                return PlaceholderCell::Other;
-            }
-            let marks = match c.content.placeholder_marks() {
-                Some(m) => m,
-                None => PlaceholderMarks::read(self.store.clusters.marks_of(c.content)),
-            };
-            let style = self.style_of(*c);
-            PlaceholderCell::Placeholder {
-                marks,
-                fg: style.fg(),
-                underline: style.underline(),
-            }
+            crate::kitty::placeholder_cell(&self.store.clusters, self.store.tmpl, *c)
         }))
     }
 

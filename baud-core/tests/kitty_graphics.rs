@@ -781,8 +781,11 @@ fn text_does_not_erase_an_image_and_ed2_and_ris_do() {
     });
 }
 
+/// A relative placement naming a placement the parent image does not have
+/// is ENOPARENT, its reply the only change (`tests/kitty_relative.rs`
+/// holds the rest); a frame is ignored and counted.
 #[test]
-fn relative_placements_and_animation_are_refused_or_ignored() {
+fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_ignored() {
     with(256, |t| {
         let mut r = Vec::new();
         feed(
@@ -794,11 +797,13 @@ fn relative_placements_and_animation_are_refused_or_ignored() {
         feed(t, &apc("a=f,i=1,f=24,s=1,v=1", &b64(&[1, 2, 3])), &mut r);
         let r = String::from_utf8_lossy(&r).into_owned();
         // A virtual placement (`U=1`) is made and answered as a put is
-        // (`tests/kitty_placeholder.rs`); a relative one is refused.
+        // (`tests/kitty_placeholder.rs`); a relative one to a placement id
+        // it does not have is refused.
         assert_eq!(
             r,
             "\x1b_Gi=1;OK\x1b\\\
-             \x1b_Gi=1;EINVAL:Relative placements are not supported\x1b\\"
+             \x1b_Gi=1;ENOPARENT:Put command refers to a parent image placement \
+             that does not exist\x1b\\"
         );
         assert_eq!(t.images().placements().count(), 0);
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "no cursor move");
@@ -2163,8 +2168,8 @@ fn with_no_reader_a_file_medium_reserves_nothing() {
 
 /// **A decode that fails after the read: a bad signature, a broken later
 /// `IDAT`, an `IHDR` past the arena, a scanline buffer past the scratch,
-/// broken zlib, and a relative placement after a raw and after a PNG
-/// decode** -- each command with the arena it needs and what is fed after
+/// broken zlib, and a relative placement to a parent image that does not
+/// exist after a raw and after a PNG decode** -- each command with the arena it needs and what is fed after
 /// it. `t=d` answers each with
 /// its own code; this is the control that each reaches that code.
 fn after_the_read() -> Vec<AfterRead> {
@@ -2234,7 +2239,7 @@ fn after_the_read() -> Vec<AfterRead> {
             "a=T,i=1,f=24,s=2,v=2,P=5".into(),
             bytes(12, 4),
             b"",
-            "EINVAL:Relative",
+            "ENOPARENT",
         ),
         (
             "relative png",
@@ -2242,7 +2247,7 @@ fn after_the_read() -> Vec<AfterRead> {
             "a=T,i=1,f=100,P=5".into(),
             small,
             b"",
-            "EINVAL:Relative",
+            "ENOPARENT",
         ),
     ]
     .into_iter()

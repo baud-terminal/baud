@@ -101,16 +101,26 @@
 //! delete one; the same image and placement id replace one. The placeholder
 //! cells that show it are `placeholder.rs`'s.
 //!
-//! **Out of this step, each refused or ignored and counted**: relative
-//! placements `P`/`Q` (EINVAL, no placement and no cursor move; Jev
-//! REFUSE_WITH_EINVAL, 1.00 and 0.98), a virtual one among them, which the
-//! text answers EINVAL too; animation `a=f`, `a=a`, `a=c` and the frame
-//! deletes `d=f`/`d=F` (ignored and counted: the text gives no reply for a
+//! **A relative placement (`P`, `Q`, `H`, `V`) is placed against its
+//! parent** ("Relative placements"): at the parent's top-left cell plus
+//! the offsets, in the store's table with a link to its parent
+//! ([`KittyParent`]), which the store keeps it at as the parent moves and
+//! deletes it with ([`ImageStore::kitty_root_of`]). Its parent is named in
+//! [`KittyStream::place`] in kitty's order, and refused with kitty's codes:
+//! ENOPARENT, EINVAL, ECYCLE, ETOODEEP. A virtual parent is in this
+//! stream's table, which tells the store when one goes, and for a delete
+//! by a place is told where its placeholders are on the screen
+//! ([`KittyStream::mark_drawn`]), so a placement under it is tested where
+//! it is drawn.
+//!
+//! **Out of this step, each ignored and counted**: animation `a=f`, `a=a`,
+//! `a=c` and the frame deletes `d=f`/`d=F` (the text gives no reply for a
 //! terminal without them).
 
 use crate::image::{
     ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore, KittyFit,
-    KittyFree, KittyId, KittyNumber, KittyPlace, KittyPlacement, Pixel, PlacementSlot, ZIndex,
+    KittyFree, KittyId, KittyNumber, KittyParent, KittyPlace, KittyPlacement, LinkRefusal,
+    ParentOn, Pixel, PlaceSerial, PlacementSlot, ZIndex,
 };
 use crate::png::{Png, PngError, PngProgress, PngSteps};
 use crate::pos::LineIdx;
@@ -266,8 +276,38 @@ impl KittyError {
     pub const DELETE: KittyError = KittyError::new("EINVAL", "Unknown delete action");
     pub const PNG_SIZE: KittyError =
         KittyError::new("EINVAL", "PNG data size too large for the image scratch");
-    pub const RELATIVE: KittyError =
-        KittyError::new("EINVAL", "Relative placements are not supported");
+    /// "If a client attempts to make a virtual placement relative the
+    /// terminal must respond with the EINVAL error code", kitty's text.
+    pub const VIRTUAL_RELATIVE: KittyError = KittyError::new(
+        "EINVAL",
+        "Put command creating a virtual placement cannot refer to a parent",
+    );
+    /// "If a client attempts to create a reference to a placement that
+    /// does not exist the terminal must respond with the ENOPARENT error
+    /// code": no image with the id `P` names, kitty's text.
+    pub const NO_PARENT_IMAGE: KittyError = KittyError::new(
+        "ENOPARENT",
+        "Put command refers to a parent image that does not exist",
+    );
+    /// ENOPARENT: the parent image has no placement.
+    pub const PARENT_UNPLACED: KittyError = KittyError::new(
+        "ENOPARENT",
+        "Put command refers to a parent image that has no placements",
+    );
+    /// ENOPARENT: no placement of the parent image has the id `Q` names.
+    pub const NO_PARENT: KittyError = KittyError::new(
+        "ENOPARENT",
+        "Put command refers to a parent image placement that does not exist",
+    );
+    /// A placement named as its own parent, kitty's code and text.
+    pub const SELF_PARENT: KittyError =
+        KittyError::new("EINVAL", "Put command refers to itself as its own parent");
+    /// "the terminal must respond with the ECYCLE error code".
+    pub const CYCLE: KittyError =
+        KittyError::new("ECYCLE", "This parent reference creates a cycle");
+    /// "the terminal must respond with the ETOODEEP error code".
+    pub const TOO_DEEP: KittyError =
+        KittyError::new("ETOODEEP", "Too many levels of parent references");
     /// **A placement the store's full table refuses.** The text names no
     /// code for it, and kitty has no such table to fill; `ENOSPC` is the
     /// code it names for storage that has run out ("there is not enough
@@ -340,6 +380,10 @@ pub struct KittyCommand {
     pub parent: u32,
     /// `Q`.
     pub parent_placement: u32,
+    /// `H`, the cells right of the parent's top-left cell.
+    pub parent_x: i32,
+    /// `V`, the cells below it.
+    pub parent_y: i32,
     /// The first malformed key, if any.
     pub error: Option<KittyError>,
     /// Whether a file medium's reader was asked: from then on every
@@ -395,6 +439,8 @@ impl KittyCommand {
         delete: (KittyDelete::Visible, KittyFree::Placements),
         parent: 0,
         parent_placement: 0,
+        parent_x: 0,
+        parent_y: 0,
         error: None,
         read: KittyFileRead::Unasked,
     };
@@ -501,13 +547,16 @@ impl KittyCommand {
                 Some(n) => self.z = n,
                 None => self.fail(KittyError::CONTROL),
             },
-            // `H` and `V`, a relative placement's offsets, are signed and
-            // read only to refuse the placement: `P` alone decides that.
-            b'H' | b'V' => {
-                if signed(v).is_none() {
-                    self.fail(KittyError::CONTROL);
-                }
-            }
+            // `H` and `V`, a relative placement's offsets, signed: "Negative
+            // values move left and up".
+            b'H' => match signed(v) {
+                Some(n) => self.parent_x = n,
+                None => self.fail(KittyError::CONTROL),
+            },
+            b'V' => match signed(v) {
+                Some(n) => self.parent_y = n,
+                None => self.fail(KittyError::CONTROL),
+            },
             _ => {
                 let Some(n) = unsigned(v) else {
                     // A key the table does not list is ignored whatever its
@@ -841,6 +890,13 @@ struct Virtual {
     cols: Cols,
     rows: Rows,
     z: ZIndex,
+    /// When it was made, from the store's clock: a relative placement's
+    /// name for it, and which of an image's placements is the oldest.
+    serial: PlaceSerial,
+    /// The least line and the least display column of the placeholders
+    /// showing it on the live screen, found for a delete by a place
+    /// ([`KittyStream::mark_drawn`]); `None` when none was found.
+    drawn: Option<(LineIdx, Col)>,
 }
 
 impl Virtual {
@@ -851,6 +907,8 @@ impl Virtual {
         cols: Cols(0),
         rows: Rows::ZERO,
         z: ZIndex::ZERO,
+        serial: PlaceSerial::NONE,
+        drawn: None,
     };
 }
 
@@ -862,6 +920,8 @@ pub struct KittyVirtual {
     pub image: ImageId,
     pub place: KittyPlace,
     pub z: ZIndex,
+    /// Its serial: what a relative placement under it names it by.
+    pub serial: PlaceSerial,
 }
 
 /// Where the current chunk stands between its `G` and its terminator.
@@ -1786,7 +1846,7 @@ impl KittyStream {
         // file keeps none, so it must delete none for space either: decided
         // before the reserve, which may.
         if cmd.read == KittyFileRead::Asked && cmd.act() == KittyAction::TransmitPut {
-            if let Some(e) = self.placement_refusal(&cmd, store) {
+            if let Some(e) = self.placement_refusal(&cmd, at, store) {
                 self.reply(&cmd, Err(e));
                 return None;
             }
@@ -1817,10 +1877,16 @@ impl KittyStream {
     fn placement_refusal(
         &mut self,
         cmd: &KittyCommand,
+        at: &KittyAt,
         store: &mut ImageStore,
     ) -> Option<KittyError> {
         if let Some(e) = unplaceable(cmd) {
             return Some(e);
+        }
+        if cmd.parent != 0 {
+            if let Err(e) = self.parent_of(cmd, at, store, None) {
+                return Some(e);
+            }
         }
         if cmd.virtual_place != 0 {
             let room = cmd.id.is_none()
@@ -2058,11 +2124,29 @@ impl KittyStream {
             return Ok(None);
         }
         let (iw, ih) = store.size_of(image).ok_or(KittyError::NO_IMAGE)?;
-        let place = geometry(cmd, iw, ih, at);
-        let line = at.top.plus(at.row);
-        let pid = store.place_kitty(image, at.screen, line, at.col, ZIndex::of(cmd.z), place);
+        let mut place = geometry(cmd, iw, ih, at);
+        let mut anchor = (at.screen, at.top.plus(at.row), at.col);
+        if cmd.parent != 0 {
+            let replacing = store.kitty_slot(image, place.id);
+            let parent = self.parent_of(cmd, at, store, replacing)?;
+            place.parent = parent;
+            // Under a virtual parent the anchor is the drawing's to find;
+            // the cursor's cell is kept for what it is tested at.
+            if let Some((screen, line, col, oc, ol)) = store.kitty_anchor(parent) {
+                anchor = (screen, line, col);
+                place.over_cols = oc;
+                place.over_rows = ol;
+            }
+        }
+        let (screen, line, col) = anchor;
+        let pid = store.place_kitty(image, screen, line, col, ZIndex::of(cmd.z), place);
         if pid.is_none() {
             return Err(KittyError::PLACEMENTS_FULL);
+        }
+        // "the cursor must not move after a relative position, regardless
+        // of the value of the C key".
+        if cmd.parent != 0 {
+            return Ok(None);
         }
         Ok(match cmd.cursor {
             KittyCursor::Stay => None,
@@ -2071,6 +2155,83 @@ impl KittyStream {
                 cols: place.cols,
             }),
         })
+    }
+
+    /// **The parent `cmd`'s `P` and `Q` name**, checked in kitty's order
+    /// (`[[source: kitty-graphics-c]]` `handle_put_command`): no image with
+    /// the id `P`, then one with no placement on this screen or virtual,
+    /// `Q` given or not, then none with the placement id `Q`, is
+    /// ENOPARENT, each with kitty's text less the ids it prints; with no
+    /// `Q`, the image's
+    /// oldest placement, on screen or virtual (Jev, OLDEST, 1.00 and
+    /// 0.98). A placement named as its own parent is EINVAL, and a chain
+    /// that would loop or run past [`KITTY_PARENT_DEPTH`](crate::KITTY_PARENT_DEPTH)
+    /// parents ECYCLE or ETOODEEP. `replacing` is the slot of the
+    /// placement this put replaces, if it replaces one.
+    fn parent_of(
+        &self,
+        cmd: &KittyCommand,
+        at: &KittyAt,
+        store: &mut ImageStore,
+        replacing: Option<crate::image::PlacementId>,
+    ) -> Result<KittyParent, KittyError> {
+        let pid = KittyId::of(cmd.parent);
+        let Some(img) = store.kitty_image(pid) else {
+            return Err(KittyError::NO_PARENT_IMAGE);
+        };
+        let q = KittyPlacement::of(cmd.parent_placement);
+        let screen = store.kitty_parent_slot(img, q, at.screen);
+        let virt = self
+            .virtuals
+            .iter()
+            .filter(|v| {
+                v.id == pid && (q.is_none() || v.placement == q) && KittyStream::live(v, store)
+            })
+            .min_by_key(|v| v.serial);
+        let base = KittyParent {
+            h: cmd.parent_x,
+            v: cmd.parent_y,
+            ..KittyParent::NONE
+        };
+        let on_screen = |slot, serial| KittyParent {
+            slot,
+            serial,
+            on: ParentOn::Screen,
+            ..base
+        };
+        let on_virtual = |v: &Virtual| KittyParent {
+            serial: v.serial,
+            on: ParentOn::Virtual,
+            ..base
+        };
+        let parent = match (screen, virt) {
+            (Some((slot, serial)), Some(v)) if serial < v.serial => on_screen(slot, serial),
+            (_, Some(v)) => on_virtual(v),
+            (Some((slot, serial)), None) => on_screen(slot, serial),
+            // kitty asks whether the image has a placement before it
+            // looks for `Q`'s, so an image with none is that, `Q` or not.
+            (None, None) => {
+                let placed = store
+                    .kitty_parent_slot(img, KittyPlacement::NONE, at.screen)
+                    .is_some()
+                    || self
+                        .virtuals
+                        .iter()
+                        .any(|v| v.id == pid && KittyStream::live(v, store));
+                return Err(match placed {
+                    false => KittyError::PARENT_UNPLACED,
+                    true => KittyError::NO_PARENT,
+                });
+            }
+        };
+        if parent.on == ParentOn::Screen && replacing == Some(parent.slot) {
+            return Err(KittyError::SELF_PARENT);
+        }
+        match store.kitty_link_check(parent, replacing) {
+            Ok(()) => Ok(parent),
+            Err(LinkRefusal::Cycle) => Err(KittyError::CYCLE),
+            Err(LinkRefusal::TooDeep) => Err(KittyError::TOO_DEEP),
+        }
     }
 
     /// **A command that is not a transmission**: put, delete, or one of the
@@ -2202,9 +2363,19 @@ impl KittyStream {
             p.col.index() <= col && col < p.col.index() + cols
         };
         let window_end = at.top.plus(at.rows);
+        // Where placeholders put a virtual placement, by its serial: a
+        // relative placement under one is tested where it is drawn, and
+        // where none is found it is drawn nowhere and intersects nothing.
+        let virtuals = &self.virtuals;
+        let drawn = |serial: PlaceSerial| {
+            virtuals
+                .iter()
+                .find(|v| !v.image.is_none() && v.serial == serial)
+                .and_then(|v| v.drawn)
+        };
         match what {
             KittyDelete::Visible => {
-                store.kitty_delete(free, |p, _, _| {
+                store.kitty_delete_drawn(free, drawn, |p, _, _| {
                     let rows = p.kitty.shown().index();
                     p.screen == screen
                         && p.line < window_end
@@ -2241,7 +2412,7 @@ impl KittyStream {
             KittyDelete::Cursor => {
                 let line = at.top.plus(at.row);
                 let cols = at.col.index()..at.col.index() + at.span.index();
-                store.kitty_delete(free, |p, _, _| {
+                store.kitty_delete_drawn(free, drawn, |p, _, _| {
                     p.screen == screen
                         && covers_line(p, line)
                         && cols.clone().any(|c| covers_col(p, c))
@@ -2252,7 +2423,7 @@ impl KittyStream {
                     return;
                 };
                 let z = (what == KittyDelete::CellZ).then_some(ZIndex::of(cmd.z));
-                store.kitty_delete(free, |p, _, _| {
+                store.kitty_delete_drawn(free, drawn, |p, _, _| {
                     p.screen == screen
                         && covers_line(p, line)
                         && covers_col(p, col)
@@ -2269,13 +2440,17 @@ impl KittyStream {
                 let Some((_, col)) = cell(cmd.x, 1) else {
                     return;
                 };
-                store.kitty_delete(free, |p, _, _| p.screen == screen && covers_col(p, col));
+                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                    p.screen == screen && covers_col(p, col)
+                });
             }
             KittyDelete::Row => {
                 let Some((line, _)) = cell(1, cmd.y) else {
                     return;
                 };
-                store.kitty_delete(free, |p, _, _| p.screen == screen && covers_line(p, line));
+                store.kitty_delete_drawn(free, drawn, |p, _, _| {
+                    p.screen == screen && covers_line(p, line)
+                });
             }
             KittyDelete::Z => {
                 let z = ZIndex::of(cmd.z);
@@ -2318,6 +2493,7 @@ impl KittyStream {
         // went with every reference it had.
         for v in self.virtuals.iter_mut() {
             if !v.image.is_none() && !KittyStream::live(v, store) {
+                store.kitty_orphan_virtual(v.serial);
                 *v = Virtual::EMPTY;
                 self.virtuals_live -= 1;
             }
@@ -2326,16 +2502,29 @@ impl KittyStream {
             return Err(KittyError::NO_IMAGE);
         }
         let pid = cmd.placement;
+        // A replacement keeps the serial, and so the relative placements
+        // under it: "When the parent placement moves, the relative
+        // placement moves along with it".
+        let mut serial = None;
         if !pid.is_none() {
-            self.drop_virtuals(store, KittyFree::Placements, |v| {
-                v.image == image && v.placement == pid
-            });
+            for v in self.virtuals.iter_mut() {
+                if !v.image.is_none() && v.image == image && v.placement == pid {
+                    serial = Some(v.serial);
+                    store.release(v.image, KittyFree::Placements);
+                    *v = Virtual::EMPTY;
+                    self.virtuals_live -= 1;
+                }
+            }
         }
         let count = |n: u32| usize::try_from(n).unwrap_or(usize::MAX);
         let Some(slot) = self.virtuals.iter_mut().find(|v| v.image.is_none()) else {
             store.release(image, KittyFree::Placements);
             self.counts.virtuals_refused += 1;
             return Err(KittyError::VIRTUALS_FULL);
+        };
+        let serial = match serial {
+            Some(s) => s,
+            None => store.take_serial(),
         };
         *slot = Virtual {
             image,
@@ -2344,6 +2533,8 @@ impl KittyStream {
             cols: Cols(count(cmd.cols)),
             rows: Rows::of_count(count(cmd.rows)),
             z: ZIndex::of(cmd.z),
+            serial,
+            drawn: None,
         };
         self.virtuals_live += 1;
         Ok(())
@@ -2365,6 +2556,7 @@ impl KittyStream {
             if KittyStream::live(v, store) {
                 store.release(v.image, free);
             }
+            store.kitty_orphan_virtual(v.serial);
             *v = Virtual::EMPTY;
             self.virtuals_live -= 1;
         }
@@ -2373,6 +2565,67 @@ impl KittyStream {
     /// Whether any virtual placement is held.
     pub fn has_virtuals(&self) -> bool {
         self.virtuals_live > 0
+    }
+
+    /// **Whether the chunk ending deletes by a place on the screen** -- a
+    /// cell, a row, a column, the cursor's cell or the visible screen --
+    /// while a relative placement may hang under a virtual one: the one
+    /// command that needs where placeholders draw such a placement
+    /// ([`KittyStream::mark_drawn`]). One parse of the control data, asked
+    /// only while a virtual placement is held.
+    pub fn wants_drawn(&self, store: &ImageStore) -> bool {
+        if self.virtuals_live == 0 || !store.kitty_relatives() {
+            return false;
+        }
+        let c = self.this_chunk();
+        c.act() == KittyAction::Delete
+            && matches!(
+                c.delete.0,
+                KittyDelete::Visible
+                    | KittyDelete::Cursor
+                    | KittyDelete::Cell
+                    | KittyDelete::CellZ
+                    | KittyDelete::Column
+                    | KittyDelete::Row
+            )
+    }
+
+    /// Forget where placeholders were found, before they are looked for.
+    pub fn clear_drawn(&mut self) {
+        for v in self.virtuals.iter_mut() {
+            v.drawn = None;
+        }
+    }
+
+    /// **A placeholder run of image `image` and placement `placement` is
+    /// at `line` and display column `col`** of the live screen: the
+    /// virtual placement it shows, picked as [`KittyStream::virtual_of`]
+    /// picks it, keeps the least line and the least column, where "The x
+    /// position is the minimum of all the placeholder x positions and the
+    /// y position is the minimum of all the placeholder y positions"
+    /// (`[[source: kitty-graphics]]`, "Relative placements") puts the
+    /// placements under it.
+    pub fn mark_drawn(
+        &mut self,
+        image: KittyId,
+        placement: KittyPlacement,
+        (line, col): (LineIdx, Col),
+        store: &ImageStore,
+    ) {
+        if image.is_none() {
+            return;
+        }
+        let Some(v) = self.virtuals.iter_mut().find(|v| {
+            v.id == image
+                && (placement.is_none() || v.placement == placement)
+                && KittyStream::live(v, store)
+        }) else {
+            return;
+        };
+        v.drawn = Some(match v.drawn {
+            None => (line, col),
+            Some((l, c)) => (l.min(line), c.min(col)),
+        });
     }
 
     /// **The virtual placement a placeholder run of image `image` and
@@ -2414,6 +2667,7 @@ impl KittyStream {
             image: v.image,
             place,
             z: v.z,
+            serial: v.serial,
         })
     }
 
@@ -2543,10 +2797,15 @@ impl ReplyBuf {
 /// later step (Jev, REFUSE_WITH_EINVAL), and a virtual one made relative
 /// with it, which "the terminal must respond with the EINVAL error code"
 /// ("Relative placements").
+/// **A placement no state can make**: a virtual one with a parent,
+/// "Virtual placements created for Unicode placeholder based images cannot
+/// also be relative placements ... the terminal must respond with the
+/// EINVAL error code" (`[[source: kitty-graphics]]`, "Relative
+/// placements").
 fn unplaceable(cmd: &KittyCommand) -> Option<KittyError> {
-    match cmd.parent {
-        0 => None,
-        _ => Some(KittyError::RELATIVE),
+    match (cmd.parent, cmd.virtual_place) {
+        (0, _) | (_, 0) => None,
+        _ => Some(KittyError::VIRTUAL_RELATIVE),
     }
 }
 
@@ -2667,6 +2926,7 @@ fn geometry(cmd: &KittyCommand, iw: ImagePx, ih: ImagePx, at: &KittyAt) -> Kitty
         fit,
         cut_top: Rows::ZERO,
         cut_bottom: Rows::ZERO,
+        ..KittyPlace::NONE
     };
     let drawn = place.draw(iw, ih, at.cell_w, at.cell_h);
     // The source as drawn, clipped to the image, so a delete and a reader

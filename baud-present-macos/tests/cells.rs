@@ -6685,6 +6685,7 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     kitty_picks_gate(arms, t);
     kitty_placeholder_gate(arms, t);
     kitty_placeholder_leaving_gate(arms, t);
+    kitty_relative_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }
@@ -7220,6 +7221,115 @@ fn placeholder_grid(sgr: &str, cells: &[(usize, usize)], msb: usize, full: bool)
     }
     s += "\x1b[0m";
     s.into_bytes()
+}
+
+/// **kitty's relative placements on every arm** (`[[source:
+/// kitty-graphics]]`, "Relative placements"): a placement made with `P`,
+/// `Q`, `H` and `V` draws, on the instance, cell and CPU arms alike, what
+/// the same image placed at its parent's top-left cell plus `H` columns
+/// and `V` rows draws -- under a parent on screen; under a virtual parent,
+/// at the least row and the least column of the placeholders showing it
+/// ("The x position is the minimum of all the placeholder x positions and
+/// the y position is the minimum of all the placeholder y positions"), so
+/// a grid begun a cell in shifts it; and left of column zero it hangs over
+/// the edge, the part on screen drawn ("Negative values move left").
+fn kitty_relative_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let fw = arms.renderer.frame_size().0.value();
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        [a, b, cpu]
+    };
+    let all = |c: usize, r: usize| -> Vec<(usize, usize)> {
+        (0..r).flat_map(|y| (0..c).map(move |x| (y, x))).collect()
+    };
+    feed(t, b"\x1bc\x1b[?25l");
+    let blank = frames(arms, t);
+    // (name, the scene with the relative placement, the same pixels
+    // placed directly).
+    let put2 = |row: u32, col: u32| format!("\x1b[{row};{col}H\x1b_Ga=p,i=2,C=1,q=2\x1b\\");
+    let rel2 = |keys: &str| format!("\x1b[20;1H\x1b_Ga=p,i=2,q=2,{keys}\x1b\\");
+    type Scene<'s> = (&'s str, &'s [&'s str], Vec<u8>, Vec<u8>, Vec<u8>);
+    let scenes: [Scene<'_>; 3] = [
+        (
+            "under a parent on screen",
+            &["C=1,p=1"],
+            rel2("P=1,Q=1,H=8,V=2").into_bytes(),
+            Vec::new(),
+            put2(5, 13).into_bytes(),
+        ),
+        (
+            "under a virtual parent",
+            &["U=1,p=4,c=4,r=3"],
+            rel2("P=1,Q=4,H=6,V=1").into_bytes(),
+            placeholder_grid("38;5;1;58;5;4", &all(4, 3), 0, true),
+            put2(4, 11).into_bytes(),
+        ),
+        (
+            "under a virtual parent, a cell in",
+            &["U=1,p=4,c=4,r=3"],
+            rel2("P=1,Q=4,H=6,V=1").into_bytes(),
+            placeholder_grid("38;5;1;58;5;4", &[(1, 1), (1, 2), (2, 3)], 0, true),
+            put2(5, 12).into_bytes(),
+        ),
+    ];
+    for (name, parent, rel, grid, direct) in scenes {
+        feed(t, b"\x1bc\x1b[?25l");
+        kitty_put(t, 1, kitty_texel, parent);
+        kitty_put(t, 2, kitty_other, &[]);
+        feed(t, &grid);
+        feed(t, &direct);
+        let want = frames(arms, t);
+        assert!(
+            differing(&want[0], &blank[0]) > 0,
+            "{name}: the premise, the direct placement draws"
+        );
+        feed(t, b"\x1bc\x1b[?25l");
+        kitty_put(t, 1, kitty_texel, parent);
+        kitty_put(t, 2, kitty_other, &[]);
+        feed(t, &grid);
+        feed(t, &rel);
+        let got = frames(arms, t);
+        for (k, arm) in ["instance", "cell", "cpu"].into_iter().enumerate() {
+            assert_eq!(
+                differing(&got[k], &want[k]),
+                0,
+                "{name}: the {arm} arm's relative placement is not where its parent puts it"
+            );
+        }
+    }
+    // Left of column zero: a parent in the first column and `H=-1` puts the
+    // child's box, two cells wide, half over the edge; the half on screen
+    // is the box's right half, the text's pixels.
+    feed(t, b"\x1bc\x1b[?25l");
+    let (before, _) = arms.draw(t);
+    kitty_put(t, 2, kitty_other, &[]);
+    feed(t, b"\x1b[3;1H\x1b_Ga=t,f=24,s=1,v=1,i=1,q=2;AAAA\x1b\\");
+    feed(t, b"\x1b_Ga=p,i=1,p=1,C=1,q=2\x1b\\");
+    feed(t, rel2("P=1,Q=1,H=-1,c=2").as_bytes());
+    let got = frames(arms, t);
+    let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect("c=2", cw, ch);
+    let mut want = before;
+    // The parent, one black pixel at the anchor.
+    want[at(0, 2 * ch)] = 0xFF00_0000;
+    for j in 0..dh {
+        for i in cw..dw {
+            want[at(dx + i - cw, 2 * ch + dy + j)] = kitty_other(
+                sx + (2 * i + 1) * sw / (2 * dw),
+                sy + (2 * j + 1) * sh / (2 * dh),
+            );
+        }
+    }
+    for (k, arm) in ["instance", "cell", "cpu"].into_iter().enumerate() {
+        assert_eq!(
+            differing(&got[k], &want),
+            0,
+            "over the edge: the {arm} arm is not the text's pixels"
+        );
+    }
 }
 
 /// **kitty's Unicode placeholders on every arm** (`[[source:

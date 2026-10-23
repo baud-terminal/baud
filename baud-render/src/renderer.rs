@@ -34,8 +34,8 @@ use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
-    ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageStore, KittyId, LineRendition,
-    PackedCell, Pixel, Row, Rows, Viewport, ZIndex,
+    ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen, ImageStore, KittyId,
+    KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -1677,6 +1677,13 @@ pub struct Renderer<'f, 'a> {
     /// with the placements; the CPU reads them for a scaled placement and
     /// the GPU paths for every one, so the paths sample one way.
     image_maps: Vec<u32>,
+    /// **Where each virtual placement's placeholders begin this frame**,
+    /// by its serial: the least draw row and the least display column of
+    /// the runs showing it, what a relative placement under it is placed
+    /// against ("The x position is the minimum of all the placeholder x
+    /// positions and the y position is the minimum of all the placeholder
+    /// y positions", `[[source: kitty-graphics]]`, "Relative placements").
+    virtual_at: Vec<(PlaceSerial, i64, i64)>,
     /// The placements the last CPU frame drew, so the next one repaints the
     /// rows an image left as well as the rows it is on.
     last_image_places: Vec<ImagePlacement>,
@@ -1929,6 +1936,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             image_places: Vec::new(),
             place_rows: PlaceRows::default(),
             image_maps: Vec::new(),
+            virtual_at: Vec::new(),
             last_image_places: Vec::new(),
             place_diff: PlaceDiff::default(),
             image_uploads: Vec::new(),
@@ -3905,6 +3913,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn place_images(&mut self, term: &Term<'_>, back: Rows, snap: Snapshots) {
         self.image_places.clear();
         self.image_maps.clear();
+        self.virtual_at.clear();
         self.image_fill = self.fill_pixel(term);
         let imgs = term.images();
         let epoch = imgs.generation();
@@ -3925,8 +3934,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
         let screen_h = self.main.index() as i64 * ch;
         let frame_w = i64::from(self.frame_size().0.value());
-        for (_, p) in imgs.placements() {
+        for (pid, p) in imgs.placements() {
             if p.screen != origin.screen {
+                continue;
+            }
+            // Under a virtual parent: placed below, from its placeholders.
+            if p.kitty.parent.is_relative()
+                && !matches!(imgs.kitty_root(pid), KittyRoot::Screen { .. })
+            {
                 continue;
             }
             let Some(view) = imgs.image(p.image) else {
@@ -3942,8 +3957,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // outside the rows it still shows (`ImageStore::scroll_band`).
             let rows_px = |r: Rows| r.index() as i64 * ch;
             let (cut_top, cut_bottom) = (rows_px(p.kitty.cut_top), rows_px(p.kitty.cut_bottom));
-            let x0 = p.col.index() as i64 * cw + i64::from(dest.x);
-            let y0 = (p.line.value() as i64 - top) * ch - cut_top + i64::from(dest.y);
+            // A relative placement left of the first column or above the
+            // first line hangs off the edge by what its anchor was clamped by.
+            let (over_c, over_r) = (
+                p.kitty.over_cols.index() as i64,
+                p.kitty.over_rows.index() as i64,
+            );
+            let x0 = (p.col.index() as i64 - over_c) * cw + i64::from(dest.x);
+            let y0 = (p.line.value() as i64 - over_r - top) * ch - cut_top + i64::from(dest.y);
             // The visible part, in drawn pixels from the drawn top-left:
             // columns on the frame, rows from one row above the top -- the
             // leaving row the cell path draws under smooth scroll, which
@@ -4002,6 +4023,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             {
                 self.place_placeholders(term, imgs, epoch, (r, row, size), snap);
             }
+            self.place_under_virtuals(imgs, epoch, origin.screen, snap);
         }
         // The text's order: by `z`, then by the client's id; stable, so
         // placement order breaks what is left.
@@ -4055,6 +4077,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(v) = term.kitty_virtual(run.image, run.placement) else {
                 continue;
             };
+            let col = run.at.index() as i64 * sx;
+            match self.virtual_at.iter_mut().find(|e| e.0 == v.serial) {
+                Some(e) => (e.1, e.2) = (e.1.min(r), e.2.min(col)),
+                None => self.virtual_at.push((v.serial, r, col)),
+            }
             let Some(view) = imgs.image(v.image) else {
                 continue;
             };
@@ -4102,6 +4129,65 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // (`[[source: kitty-graphics-c]]` `grman_put_cell_image`),
                 // where the text says nothing; an open fork.
                 v.z.max(ZIndex::of(ImageLayer::BELOW_BACKGROUNDS)),
+                snap,
+            );
+        }
+    }
+
+    /// **The relative placements under a virtual parent**, each placed at
+    /// the least row and column of its root's placeholders found this
+    /// frame plus the offsets down its chain, and not drawn while none of
+    /// them is on screen, as kitty keeps but does not draw one
+    /// (`[[source: kitty-graphics-c]]` `grman_update_layers`).
+    fn place_under_virtuals(
+        &mut self,
+        imgs: &ImageStore<'_>,
+        epoch: ImageGen,
+        screen: ImageScreen,
+        snap: Snapshots,
+    ) {
+        if self.virtual_at.is_empty() {
+            return;
+        }
+        let cw = i64::from(self.metrics.cell_w.value());
+        let ch = i64::from(self.metrics.cell_h.value());
+        let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
+        let screen_h = self.main.index() as i64 * ch;
+        let frame_w = i64::from(self.frame_size().0.value());
+        let mut under = Vec::new();
+        for (pid, p) in imgs.placements() {
+            if p.screen != screen || !p.kitty.parent.is_relative() {
+                continue;
+            }
+            if let KittyRoot::Virtual { serial, h, v } = imgs.kitty_root(pid) {
+                if let Some(&(_, r, c)) = self.virtual_at.iter().find(|e| e.0 == serial) {
+                    under.push((*p, r + v, c + h));
+                }
+            }
+        }
+        for (p, row, col) in under {
+            let Some(view) = imgs.image(p.image) else {
+                continue;
+            };
+            let draw = p.kitty.draw(view.width, view.height, cell_w, cell_h);
+            let dest = draw.dest;
+            if dest.is_empty() {
+                continue;
+            }
+            let x0 = col * cw + i64::from(dest.x);
+            let y0 = row * ch + i64::from(dest.y);
+            let (i0, i1) = ((-x0).max(0), i64::from(dest.w).min(frame_w - x0));
+            let (j0, j1) = ((-ch - y0).max(0), i64::from(dest.h).min(screen_h - y0));
+            self.push_image(
+                imgs,
+                epoch,
+                p.image,
+                &view,
+                draw,
+                (x0, y0),
+                (i0, i1, j0, j1),
+                p.z,
                 snap,
             );
         }
