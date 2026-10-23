@@ -23,9 +23,11 @@ It does not read a config from the folder it was started in.
   it names and the fonts it names by path, and applies a save to the open
   window a moment after it lands, whether you edit in place, your editor
   saves to a new file and swaps it in, or you create the file for the first
-  time. A few settings wait for the next launch: see
-  [When a change shows](#when-a-change-shows). `config_reload = "off"`
-  turns this off.
+  time. A config that is a link, as home-manager makes one, is watched
+  where the link is: switching to a new generation shows at once, and so
+  does an edit through the link to the file it names. A few settings wait
+  for the next launch: see [When a change shows](#when-a-change-shows).
+  `config_reload = "off"` turns this off.
 - **A mistake does not stop baud.** A key it does not know, or a value it
   cannot use, is skipped with a warning and the default is kept. A line it
   cannot read at all, one that is not `key = value` or a list that is never

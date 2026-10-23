@@ -1619,6 +1619,83 @@ mod flow {
         assert_eq!(term.cursor().1.index(), 3, "the next one is wide");
     }
 
+    /// **A saved theme file reaches the colours the core answers, and a
+    /// program's colours stay**: the palette applied as both drivers apply
+    /// it -- the theme files read anew (`palette::load_halves`), the half
+    /// built (`palette::half_theme`), the core told with a program's
+    /// colours kept (`host::tell_defaults`). What only a window shows,
+    /// macOS's glass and appearance and Linux's contrast, is the drivers'.
+    #[test]
+    fn a_saved_theme_file_reaches_the_core_and_a_programs_colours_stay() {
+        use baud_domain::{BytePos, ReadLen};
+        let d = Dir::new("flow-theme");
+        let cfg = d.at("config.toml");
+        std::fs::create_dir(d.at("themes")).unwrap();
+        let theme = d.at("themes/night");
+        std::fs::write(&cfg, "[palette]\ndark = \"night\"\n").unwrap();
+        std::fs::write(&theme, "background = #101820\n").unwrap();
+        let old = launch(&cfg);
+        let named = |c: &Config| {
+            crate::palette::candidates(
+                c.palette_dark.as_deref().unwrap_or(""),
+                &crate::palette::Dirs::from_env(c.source.as_deref()),
+            )
+        };
+        assert!(named(&old).contains(&theme), "the theme file is watched");
+        let mut w = Watch::new(files(std::slice::from_ref(&cfg), &named(&old), &[]));
+        let ws = baud_domain::WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut term = baud_core::Term::new(owned.storage(), &ws);
+        let feed = |t: &mut baud_core::Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        // The theme files read; what they leave unset is said, and baud's.
+        let halves_of = |c: &Config| {
+            crate::palette::load_halves(
+                c.palette_light.as_deref(),
+                c.palette_dark.as_deref(),
+                &crate::palette::Dirs::from_env(c.source.as_deref()),
+            )
+            .0
+        };
+        let told = |t: &mut baud_core::Term<'_>, c: &Config, h: &crate::palette::Halves| {
+            let shown =
+                crate::palette::half_theme(crate::palette::Half::Dark, &c.glass, c.floor, h);
+            crate::host::tell_defaults(t, &shown, baud_core::Overrides::Keep);
+        };
+        let ask = |t: &mut baud_core::Term<'_>, q: &[u8]| {
+            t.clear_reply();
+            feed(t, q);
+            t.reply().to_vec()
+        };
+        told(&mut term, &old, &halves_of(&old));
+        feed(&mut term, b"\x1b]4;1;rgb:12/34/56\x07");
+        let (page, red) = (
+            ask(&mut term, b"\x1b]11;?\x07"),
+            ask(&mut term, b"\x1b]4;1;?\x07"),
+        );
+        let paths = [cfg.clone()];
+        let new = read(change(&mut w, &paths, Some(&cfg), || {
+            std::fs::write(&theme, "background = #304050\n").unwrap();
+        }));
+        assert!(between(&old, &new.config, FaceFiles::Same).contains(&Part::Palette));
+        told(&mut term, &new.config, &halves_of(&new.config));
+        assert_ne!(
+            ask(&mut term, b"\x1b]11;?\x07"),
+            page,
+            "the page is the file's new one"
+        );
+        assert_eq!(
+            ask(&mut term, b"\x1b]4;1;?\x07"),
+            red,
+            "the program's red stays"
+        );
+    }
+
     /// `config_reload = "off"` is read and named as a change of its own.
     #[test]
     fn the_setting_turned_off_is_read_as_its_own_change() {
