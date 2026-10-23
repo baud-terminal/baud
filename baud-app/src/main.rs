@@ -16,9 +16,11 @@
 //! type-checked against the Linux target from this Mac and has run only on
 //! weston's headless backend, which displays nothing and was sent no input.
 //!
-//! `unsafe` lives in `pty.rs`, in `kitty_files.rs`'s shared-memory read
-//! and in `pages.rs`'s release of freed image pages, which forbid nothing
-//! and say why at every call; `app.rs` and `linux.rs` forbid it.
+//! `unsafe` lives in `sys.rs`'s declarations; in `pty.rs`, `reload.rs`,
+//! `fg.rs`, `hostlog.rs` and `discover.rs`; in `kitty_files.rs`'s
+//! shared-memory read, in `pages.rs`'s release of freed image pages and in
+//! `host.rs`'s release of the fonts a font reload replaced, which forbid
+//! nothing and say why at every call; `app.rs` and `link.rs` forbid it.
 
 // What the system's accessibility settings ask -- reduced motion, increased
 // contrast: both drivers read their own system and act through it.

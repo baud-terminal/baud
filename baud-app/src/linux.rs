@@ -385,9 +385,9 @@ pub fn run() {
         crate::info!("face: {}", f.path);
     }
     crate::info!("{}", crate::host::describe_images(&cfg.images));
-    let data = crate::host::map_faces(&cfg);
-    let faces = crate::host::parse_faces(&cfg, &data);
-    let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+    let (data, mut held) = crate::host::map_faces(&cfg);
+    let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+    let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
     startup_mark("faces");
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
@@ -1815,13 +1815,9 @@ impl Driver {
     /// `points`, as the macOS driver's `reload_fonts` does.
     fn reload_fonts(&mut self, c: &Config, points: f32) -> Result<(), String> {
         let resolved = c.clone().resolved();
-        let (data, faces) = crate::host::faces_again(&resolved)?;
         let px = PxSize::of(points).ok_or("no size")?;
-        let fonts = crate::fonts::Fonts::new(&resolved, data, faces);
-        self.renderer
-            .restack(crate::host::stack(&resolved, faces), px)
-            .ok_or_else(|| "the fonts do not make a stack".to_string())?;
-        self.fonts = fonts;
+        let given = crate::host::refont(&mut self.renderer, &mut self.fonts, &resolved, px)?;
+        crate::info!("{}", crate::host::given_back(given));
         self.font_size = points;
         Ok(())
     }

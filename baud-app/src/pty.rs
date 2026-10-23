@@ -1497,13 +1497,92 @@ pub fn wait(
     Ok((ready(&fds[0]), ready(&fds[1]), extra))
 }
 
+/// **The font bytes and parsed faces a stack is made of, held**: each file
+/// mapping and each parsed slice lent out as `'static`, kept so a font
+/// reload can give them back once nothing borrows them
+/// ([`Held::release`]). Dropped without that, they stay for the process,
+/// as they did before a reload could give them back. It lives here beside
+/// [`map_readonly`], the mapping it gives back, which is private to this
+/// file.
+///
+/// A parsed slice is kept as the pointer `Box::into_raw` gave, not as the
+/// shared reference lent from it: freeing needs write permission, which a
+/// pointer taken back from a shared reference does not carry.
+#[derive(Default)]
+pub struct Held {
+    maps: Vec<&'static [u8]>,
+    parsed: Vec<*mut [baud_font::Face<'static>]>,
+}
+
+/// What [`Held::release`] gave back: mappings the kernel unmapped, and
+/// parsed slices freed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Released {
+    pub unmapped: usize,
+    pub freed: usize,
+}
+
+impl Held {
+    /// `path` mapped ([`map_readonly`]) and held.
+    pub fn map(&mut self, path: &str) -> std::io::Result<&'static [u8]> {
+        let bytes = map_readonly(path)?;
+        self.maps.push(bytes);
+        Ok(bytes)
+    }
+
+    /// `faces` lent for as long as they are held.
+    pub fn leak(
+        &mut self,
+        faces: Vec<baud_font::Face<'static>>,
+    ) -> &'static [baud_font::Face<'static>] {
+        let raw = Box::into_raw(faces.into_boxed_slice());
+        self.parsed.push(raw);
+        // SAFETY: a live allocation `Box::into_raw` just gave up, valid
+        // until `release` frees it, whose caller says nothing borrows it
+        // by then; nothing writes through `raw` before that.
+        unsafe { &*raw }
+    }
+
+    /// **Every parsed slice freed, then every mapping unmapped.**
+    ///
+    /// # Safety
+    ///
+    /// Nothing may borrow a slice this lent -- a face, or the bytes under
+    /// one -- once it is called: every `Stack` and `Fonts` made of them
+    /// dropped, and no frame drawing from them.
+    pub unsafe fn release(self) -> Released {
+        let mut given = Released::default();
+        for raw in self.parsed {
+            // SAFETY: the pointer `Box::into_raw` gave `leak`, given back
+            // once; the caller says nothing borrows the slice.
+            drop(unsafe { Box::from_raw(raw) });
+            given.freed += 1;
+        }
+        for bytes in self.maps {
+            // SAFETY: a whole mapping `map_readonly` made, unmapped once; the
+            // caller says nothing borrows it, and every face parsed over it
+            // is freed above.
+            let r = unsafe {
+                crate::sys::munmap(
+                    bytes.as_ptr().cast_mut().cast(),
+                    crate::sys::MapLen(bytes.len()),
+                )
+            };
+            if r == 0 {
+                given.unmapped += 1;
+            }
+        }
+        given
+    }
+}
+
 /// A font file as a read-only, private mapping, for the life of the
-/// process. A face is a bounds-checked view over the file's bytes, so a
-/// mapping is the same thing a read into memory is -- without the read:
-/// Apple Color Emoji is 192 MB, and reading it whole was 17 ms of every
-/// launch for the few strikes a screen uses. The pages a face touches are
-/// the pages that get paged in.
-pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
+/// process unless a [`Held`] gives it back. A face is a bounds-checked
+/// view over the file's bytes, so a mapping is the same thing a read into
+/// memory is -- without the read: Apple Color Emoji is 192 MB, and reading
+/// it whole was 17 ms of every launch for the few strikes a screen uses.
+/// The pages a face touches are the pages that get paged in.
+fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
     // **`File` is `open`, `fstat` and `close`**, and it opens
     // close-on-exec, so none of those and none of their flags has to be
     // declared in `sys`. That is most of what used to make this function
@@ -1515,7 +1594,8 @@ pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
     }
     // SAFETY: a private read-only mapping of the whole file at offset
     // zero; the kernel validates the length against the file. The mapping
-    // is never unmapped, so the slice below lives as long as the process.
+    // is unmapped only by `Held::release`, whose caller says nothing
+    // borrows the slice below any more.
     let ptr = unsafe {
         crate::sys::mmap(
             std::ptr::null_mut(),

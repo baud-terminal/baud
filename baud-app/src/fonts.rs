@@ -78,6 +78,9 @@ pub struct Fonts {
     /// Each face's last name a program's change was taken with, as it
     /// sent it: what a query answers while that face leads.
     asked: Vec<Option<String>>,
+    /// The mappings under `data` and every parsed slice in `built`, held
+    /// so a font reload can give them back (`host::refont`).
+    held: crate::pty::Held,
 }
 
 /// A stack's faces, in its order, and each one's role.
@@ -109,7 +112,13 @@ pub enum Refused {
 impl Fonts {
     /// The config's faces, `data` their bytes and `faces` them parsed, in
     /// the config's order: the stack the app starts with, led by the first.
-    pub fn new(cfg: &Config, data: Vec<&'static [u8]>, faces: &'static [Face<'static>]) -> Fonts {
+    /// `held` holds the mappings under `data` and the slice `faces` is.
+    pub fn new(
+        cfg: &Config,
+        data: Vec<&'static [u8]>,
+        faces: &'static [Face<'static>],
+        held: crate::pty::Held,
+    ) -> Fonts {
         let families = faces
             .iter()
             .map(|f| {
@@ -147,7 +156,15 @@ impl Fonts {
             lookup,
             slots,
             asked,
+            held,
         }
+    }
+
+    /// **What these fonts hold, for a font reload to give back**: every
+    /// other borrow of their faces and bytes -- the stacks built, the
+    /// lookup -- dropped here.
+    pub fn into_held(self) -> crate::pty::Held {
+        self.held
     }
 
     /// The family the chain is led by, as the core tells a query; empty
@@ -252,7 +269,7 @@ impl Fonts {
             })
             .collect::<Option<Vec<_>>>()?;
         let built = Built {
-            faces: Box::leak(faces.into_boxed_slice()),
+            faces: self.held.leak(faces),
             roles: order
                 .iter()
                 .enumerate()
@@ -326,9 +343,9 @@ mod tests {
         let said = cfg.apply(text);
         assert!(said.is_empty(), "{said:?}");
         crate::host::resolved(&mut cfg);
-        let data = crate::host::map_faces(&cfg);
-        let faces = crate::host::parse_faces(&cfg, &data);
-        Fonts::new(&cfg, data, faces)
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+        Fonts::new(&cfg, data, faces, held)
     }
 
     /// **A program cannot name the badge's face for the text**: with Fira
@@ -627,11 +644,11 @@ mod tests {
             !cfg.faces[0].variations.is_empty(),
             "drawn at 400, not its default"
         );
-        let data = crate::host::map_faces(&cfg);
-        let faces = crate::host::parse_faces(&cfg, &data);
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
         let first = *faces[0].coords();
         assert_ne!(first, baud_font::var::Coords::default());
-        let mut f = Fonts::new(&cfg, data, faces);
+        let mut f = Fonts::new(&cfg, data, faces, held);
         let stix = f.resolve(b"STIX Two Math").expect("the math face");
         let b = f.stack(stix).expect("its stack");
         let mut out = [0u8; 64];

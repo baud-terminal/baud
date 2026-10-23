@@ -1,7 +1,8 @@
 //! What both presentation layers set up the same way: the grid the storage
 //! is provisioned for, the cache probe whose answer picks the grid's pitch,
-//! and the faces the config names -- read once, parsed once, and leaked,
-//! because the renderer borrows them for the life of the process.
+//! and the faces the config names -- read once, parsed once, and held for
+//! as long as the renderer borrows them: until a font reload gives them
+//! back ([`refont`]).
 
 use crate::config::Config;
 use baud_domain::themefile::CellPaint;
@@ -198,7 +199,8 @@ pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<
 #[cfg(test)]
 pub fn load_faces(cfg: &mut Config) -> &'static [Face<'static>] {
     resolved(cfg);
-    parse_faces(cfg, &map_faces(cfg))
+    let (data, mut held) = map_faces(cfg);
+    parse_faces(cfg, &data, &mut held)
 }
 
 /// `cfg`'s family names resolved against the system's fonts, as
@@ -210,14 +212,17 @@ pub fn resolved(cfg: &mut Config) {
 }
 
 /// The bytes of every face the config names, in its order: compiled in, or
-/// a read-only mapping for the life of the process.
-pub fn map_faces(cfg: &Config) -> Vec<&'static [u8]> {
-    cfg.faces
+/// a read-only mapping, held by what is returned beside them.
+pub fn map_faces(cfg: &Config) -> (Vec<&'static [u8]>, crate::pty::Held) {
+    let mut held = crate::pty::Held::default();
+    let data = cfg
+        .faces
         .iter()
         .map(|f| match f.from {
             crate::config::FaceFrom::Embedded(bytes) => bytes,
             crate::config::FaceFrom::File => {
-                let bytes = crate::pty::map_readonly(&f.path)
+                let bytes = held
+                    .map(&f.path)
                     .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
                 startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
                 bytes
@@ -227,40 +232,111 @@ pub fn map_faces(cfg: &Config) -> Vec<&'static [u8]> {
                 panic!("font family {:?}: the config was not resolved", f.path)
             }
         })
-        .collect()
+        .collect();
+    (data, held)
 }
+
+/// The faces a config read again names, and what holds them
+/// ([`faces_again`]).
+type Again = (
+    Vec<&'static [u8]>,
+    &'static [Face<'static>],
+    crate::pty::Held,
+);
 
 /// **Every face a config read again names, mapped and parsed, or why
 /// not** (`reload.rs`): [`map_faces`] and [`parse_faces`] for a running
 /// window, where a font that does not map or parse leaves the faces in
-/// use as they were rather than ending the process. The mapped bytes and
-/// the parsed faces live for the process, as the launch's do.
-pub fn faces_again(cfg: &Config) -> Result<(Vec<&'static [u8]>, &'static [Face<'static>]), String> {
-    let mut data = Vec::with_capacity(cfg.faces.len());
-    for f in &cfg.faces {
-        data.push(match f.from {
-            crate::config::FaceFrom::Embedded(bytes) => bytes,
-            crate::config::FaceFrom::File => {
-                crate::pty::map_readonly(&f.path).map_err(|e| format!("font {}: {e}", f.path))?
-            }
-            crate::config::FaceFrom::Family => {
-                return Err(format!("font family {:?} is not installed", f.path));
-            }
-        });
+/// use as they were rather than ending the process, and gives back what
+/// it mapped before it.
+pub fn faces_again(cfg: &Config) -> Result<Again, String> {
+    let mut held = crate::pty::Held::default();
+    let parsed = (|| {
+        let mut data = Vec::with_capacity(cfg.faces.len());
+        for f in &cfg.faces {
+            data.push(match f.from {
+                crate::config::FaceFrom::Embedded(bytes) => bytes,
+                crate::config::FaceFrom::File => held
+                    .map(&f.path)
+                    .map_err(|e| format!("font {}: {e}", f.path))?,
+                crate::config::FaceFrom::Family => {
+                    return Err(format!("font family {:?} is not installed", f.path));
+                }
+            });
+        }
+        let mut faces = Vec::with_capacity(data.len());
+        for (d, f) in data.iter().zip(&cfg.faces) {
+            let mut face =
+                Face::parse_index(d, f.index).map_err(|e| format!("font {}: {e}", f.path))?;
+            face.set_variations(&f.variations);
+            faces.push(face);
+        }
+        Ok((data, faces))
+    })();
+    match parsed {
+        Ok((data, faces)) => {
+            let faces = held.leak(faces);
+            Ok((data, faces, held))
+        }
+        Err(e) => {
+            // SAFETY: the faces parsed before the failure were dropped with
+            // the closure's result, and nothing else was lent the bytes.
+            let _ = unsafe { held.release() };
+            Err(e)
+        }
     }
-    let mut faces = Vec::with_capacity(data.len());
-    for (d, f) in data.iter().zip(&cfg.faces) {
-        let mut face =
-            Face::parse_index(d, f.index).map_err(|e| format!("font {}: {e}", f.path))?;
-        face.set_variations(&f.variations);
-        faces.push(face);
-    }
-    Ok((data, Box::leak(faces.into_boxed_slice())))
 }
 
-/// `data`, which [`map_faces`] read from `cfg`, parsed in `cfg`'s order.
-pub fn parse_faces(cfg: &Config, data: &[&'static [u8]]) -> &'static [Face<'static>] {
-    Box::leak(
+/// **The fonts a config read again names, in place of `fonts`**, leading
+/// the renderer's chain at `size`: mapped and parsed ([`faces_again`]),
+/// the renderer restacked on them, and the faces the last fonts held given
+/// back -- what is returned. A font that does not load, or a stack the
+/// renderer cannot measure, leaves both as they were, and gives back what
+/// the attempt mapped.
+pub fn refont(
+    renderer: &mut baud_render::Renderer<'static, 'static>,
+    fonts: &mut crate::fonts::Fonts,
+    cfg: &Config,
+    size: baud_render::PxSize,
+) -> Result<crate::pty::Released, String> {
+    let (data, faces, held) = faces_again(cfg)?;
+    let next = crate::fonts::Fonts::new(cfg, data, faces, held);
+    if renderer.restack(stack(cfg, faces), size).is_none() {
+        // SAFETY: the stack made of `next`'s faces was dropped by the
+        // failed restack, which left the renderer's own as it was, and
+        // nothing else was lent them.
+        let _ = unsafe { next.into_held().release() };
+        return Err("the fonts do not make a stack".to_string());
+    }
+    let last = std::mem::replace(fonts, next);
+    // SAFETY: nothing borrows the last fonts' faces or bytes. A
+    // `Renderer`'s one borrow of faces is its `Stack` -- no other field
+    // carries its lifetimes -- and the restack above replaced it; every
+    // other stack made of them came from `last` (`Fonts::stack`) and went
+    // into a renderer's restack, not anywhere kept; `last` drops its own
+    // in `into_held`. No frame draws from them: a GPU frame reads the
+    // atlas, which the restack started over, and the macOS driver
+    // restacks only once no frame in flight reads it (`Reshape`); the
+    // Linux driver paints on the CPU, on this thread, and is not painting.
+    Ok(unsafe { last.into_held().release() })
+}
+
+/// The log's line for what a font reload gave back.
+pub fn given_back(given: crate::pty::Released) -> String {
+    format!(
+        "fonts: the last stack given back, {} font files unmapped and {} parsed stacks freed",
+        given.unmapped, given.freed
+    )
+}
+
+/// `data`, which [`map_faces`] read from `cfg`, parsed in `cfg`'s order,
+/// and held by `held`.
+pub fn parse_faces(
+    cfg: &Config,
+    data: &[&'static [u8]],
+    held: &mut crate::pty::Held,
+) -> &'static [Face<'static>] {
+    held.leak(
         data.iter()
             .zip(&cfg.faces)
             .map(|(d, f)| {
@@ -278,8 +354,7 @@ pub fn parse_faces(cfg: &Config, data: &[&'static [u8]]) -> &'static [Face<'stat
                 ));
                 face
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -594,6 +669,107 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     }
 
+    /// **A font reload gives the last fonts back**: their file's mapping
+    /// unmapped and their parsed stack freed, once the renderer is
+    /// restacked on the new ones, and it draws from those exactly as a
+    /// renderer made on them does. A file that is not a font changes
+    /// nothing and gives back what it mapped.
+    #[test]
+    fn a_font_reload_gives_the_last_fonts_back() {
+        use baud_domain::{Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Target};
+        let dir = std::env::temp_dir().join(format!("baud-refont-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let font = |sub: &str, bytes: &[u8]| {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            let p = dir.join(sub).join("Face.ttf");
+            std::fs::write(&p, bytes).unwrap();
+            p
+        };
+        let test_font = |name: &str| {
+            let p = format!(
+                "{}/../baud-font/tests/fonts/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            std::fs::read(p).expect("a test font")
+        };
+        let a = font("a", &test_font("FiraCode-Regular.ttf"));
+        let b = font("b", &test_font("JetBrainsMono-Regular.ttf"));
+        let broken = font("c", b"not a font");
+        let cfg_of = |p: &std::path::Path| {
+            let mut c = crate::config::Config::defaults();
+            assert!(
+                c.apply(&format!("fonts = [{:?}]\n", p.display().to_string()))
+                    .is_empty()
+            );
+            super::resolved(&mut c);
+            c
+        };
+        let (ws, px) = (
+            WinSize {
+                ws_row: 2,
+                ws_col: 8,
+            },
+            PxSize::of(26.0).unwrap(),
+        );
+        let renderer = |cfg: &crate::config::Config, faces| {
+            Renderer::new(
+                super::stack(cfg, faces),
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(2),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, b"baud Ag");
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let _ = r.render(&mut t, &mut target, Damage::Full);
+            frame
+        };
+        let (ca, cb) = (cfg_of(&a), cfg_of(&b));
+        let (data, mut held) = super::map_faces(&ca);
+        let faces = super::parse_faces(&ca, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&ca, data, faces, held);
+        let mut r = renderer(&ca, faces);
+        let drawn_a = draw(&mut r);
+        let given = super::refont(&mut r, &mut fonts, &cb, px).expect("b loads");
+        assert_eq!(
+            given,
+            crate::pty::Released {
+                unmapped: 1,
+                freed: 1
+            },
+            "a's file and its stack"
+        );
+        let drawn_b = draw(&mut r);
+        let (data, mut held) = super::map_faces(&cb);
+        let fresh_b = draw(&mut renderer(
+            &cb,
+            super::parse_faces(&cb, &data, &mut held),
+        ));
+        assert!(drawn_b == fresh_b, "drawn from b's faces");
+        assert!(drawn_b != drawn_a, "the control: a and b draw differently");
+        let cc = {
+            let mut c = crate::config::Config::defaults();
+            assert!(
+                c.apply(&format!("fonts = [{:?}]\n", broken.display().to_string()))
+                    .is_empty()
+            );
+            c
+        };
+        assert!(super::refont(&mut r, &mut fonts, &cc, px).is_err());
+        assert!(draw(&mut r) == drawn_b, "b stays");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The default stack loads with the embedded faces read from the binary
     /// rather than looked for as files -- their names are no paths, so a
     /// loader that mapped them would panic here -- and draws bold, italic
@@ -798,9 +974,9 @@ mod tests {
                 "the configured family's, not the embedded one's"
             );
         }
-        let data = super::map_faces(&cfg);
-        let faces = super::parse_faces(&cfg, &data);
-        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
         let slot = fonts.resolve(b"JETBRAINS MONO").expect("the family");
         let built = fonts.stack(slot).expect("its stack");
         let styled = built
@@ -1419,9 +1595,9 @@ mod tests {
             let mut cfg = crate::config::Config::defaults();
             assert!(cfg.apply(text).is_empty());
             super::resolved(&mut cfg);
-            let data = super::map_faces(&cfg);
-            let faces = super::parse_faces(&cfg, &data);
-            let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+            let (data, mut held) = super::map_faces(&cfg);
+            let faces = super::parse_faces(&cfg, &data, &mut held);
+            let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
             let mut s = Owned::new(&ws);
             let mut t = Term::new(s.storage(), &ws);
             super::set_font_changes(&mut t, cfg.font_changes);
@@ -1484,9 +1660,9 @@ mod tests {
         };
         let mut cfg = crate::config::Config::defaults();
         super::resolved(&mut cfg);
-        let data = super::map_faces(&cfg);
-        let faces = super::parse_faces(&cfg, &data);
-        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
         let mut s = Owned::new(&ws);
         let mut t = Term::new(s.storage(), &ws);
         super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);

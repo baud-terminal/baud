@@ -1017,9 +1017,9 @@ impl Boot {
             crate::info!("face: {}", f.path);
         }
         crate::info!("{}", crate::host::describe_images(&cfg.images));
-        let data = crate::host::map_faces(&cfg);
-        let faces = crate::host::parse_faces(&cfg, &data);
-        let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let (data, mut held) = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data, &mut held);
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
         startup_mark("faces");
         // An explicit choice is the palette; `Auto` starts dark and is
         // corrected from the window's own appearance before the first
@@ -10630,14 +10630,10 @@ impl Driver {
     /// 0.62). A font that does not load leaves the fonts as they were.
     fn reload_fonts(&mut self, c: &crate::config::Config, points: f32) -> Result<(), String> {
         let resolved = c.clone().resolved();
-        let (data, faces) = crate::host::faces_again(&resolved)?;
         let px = PxSize::of(points * self.app.scale as f32).ok_or("no size")?;
-        let fonts = crate::fonts::Fonts::new(&resolved, data, faces);
-        self.app
-            .renderer
-            .restack(crate::host::stack(&resolved, faces), px)
-            .ok_or_else(|| "the fonts do not make a stack".to_string())?;
-        self.app.fonts = fonts;
+        let given =
+            crate::host::refont(&mut self.app.renderer, &mut self.app.fonts, &resolved, px)?;
+        crate::info!("{}", crate::host::given_back(given));
         self.app.rescaled();
         self.app.font_size = points;
         Ok(())
