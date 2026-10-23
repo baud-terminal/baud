@@ -246,6 +246,35 @@ fn parse_positioned(body: &str) -> Vec<HbGlyph> {
 enum GposTable {
     Kept,
     Stripped,
+    /// Kept, with every Script table renamed past any script's tag.
+    Unselected,
+}
+
+/// Renames every Script table of the face's `GPOS` to `zzz0`, `zzz1` and
+/// on, in their order, so the ScriptList stays sorted and no script selects
+/// any of them: the table and its lookups stay, and a Hebrew run finds
+/// neither `hebr` nor `DFLT` nor `latn`, as on Arial Unicode MS.
+fn unselect_gpos(data: &mut [u8]) {
+    let be16 = |d: &[u8], at: usize| usize::from(u16::from_be_bytes([d[at], d[at + 1]]));
+    let n = be16(data, 4);
+    let gpos = (0..n)
+        .map(|i| 12 + 16 * i)
+        .find(|&at| &data[at..at + 4] == b"GPOS")
+        .map(|at| {
+            usize::try_from(u32::from_be_bytes([
+                data[at + 8],
+                data[at + 9],
+                data[at + 10],
+                data[at + 11],
+            ]))
+            .unwrap()
+        })
+        .expect("a GPOS to unselect");
+    let list = gpos + be16(data, gpos + 4);
+    for (k, i) in (0..be16(data, list)).enumerate() {
+        let at = list + 2 + 6 * i;
+        data[at..at + 4].copy_from_slice(&[b'z', b'z', b'z', b'0' + u8::try_from(k).unwrap()]);
+    }
 }
 
 /// Renames the `GPOS` directory entry to `GPOZ` -- a tag that keeps the
@@ -440,11 +469,20 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
             .split_whitespace()
             .map(|h| u32::from_str_radix(h, 16).unwrap())
             .collect();
-        let mut expected = parse_positioned(shaped);
         // hb-shape writes a right-to-left run in visual order, its last
-        // cluster first; baud's buffer is in logical order.
+        // cluster first; baud's buffer is in logical order. Each glyph is
+        // placed where hb-shape's pen puts it, in visual order, and taken
+        // from its cluster's left edge, as `script.txt`'s are: right to
+        // left, a glyph after its cluster's base sits left of it.
+        let expected = parse_positioned(shaped);
+        let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
+        let mut pen = 0i32;
+        for e in &expected {
+            placed.push((e, pen));
+            pen += e.ax;
+        }
         if expected.first().map(|e| e.cluster) > expected.last().map(|e| e.cluster) {
-            expected.reverse();
+            placed.reverse();
             rtl += 1;
         }
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
@@ -465,17 +503,15 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
                 )
             })
             .collect();
-        let mut want = Vec::new();
-        let mut pen = 0i32;
-        let mut cluster: Option<u16> = None;
-        for e in &expected {
-            if cluster != Some(e.cluster) {
-                cluster = Some(e.cluster);
-                pen = 0;
-            }
-            want.push((e.id, e.cluster, e.dx + pen, e.dy));
-            pen += e.ax;
+        let mut left = std::collections::HashMap::new();
+        for &(e, pen) in &placed {
+            let l = left.entry(e.cluster).or_insert(pen);
+            *l = (*l).min(pen);
         }
+        let want: Vec<(u16, u16, i32, i32)> = placed
+            .iter()
+            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
+            .collect();
         assert_eq!(
             got, want,
             "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
@@ -695,9 +731,77 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
     }
 }
 
+/// **Hebrew points sit as HarfBuzz sets them on three more macOS faces.**
+/// Every line of `tests/shape/hebrew-faces.txt` is a distinct cluster of
+/// the pointed Genesis 1:1-5 and Pango corpora (note AB, section 11),
+/// shaped by hb-shape and compared as `script.txt`'s are. On Arial Unicode
+/// MS, whose `GPOS` has no Script table a Hebrew run selects, baud kept the
+/// points' advances in the pen and drew them a cell or two right; on
+/// Courier New it ran only the anchors of the `hebr` `mark` feature, which
+/// also carries single, pair and chained-context positioning, so two points
+/// below one letter stacked where the face spreads them; and Arial Hebrew,
+/// which carries both `GSUB` and `morx`, it shaped through `GSUB`, whose
+/// `ccmp` draws meteg and every cantillation mark as one empty glyph. All
+/// three are system faces, so their lines run on macOS only. Four lines on
+/// the built Regular run everywhere: a Latin mark on a Hebrew letter, which
+/// no lookup places, sits where the pen leaves it, and right to left that
+/// is its letter's left edge -- baud's pen ran left to right inside a
+/// cluster and put it a cell right.
+#[test]
+fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
+    let on_macos = cfg!(target_os = "macos");
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        system_fixtures: Reached(system_fixtures),
+        system_hebrew: Reached(system_hebrew),
+        system_moved: Reached(system_moved),
+        skipped: Reached(skipped),
+        ..
+    } = shape_script_fixtures("hebrew-faces.txt", on_macos, GposTable::Kept);
+    eprintln!(
+        "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
+         {system_moved} glyphs offset, {skipped} skipped"
+    );
+    assert!(fixtures == 4 && hebrew == 4, "{fixtures} {hebrew}");
+    // 215 clusters on each of the three faces, every one Hebrew, and the
+    // positive control that some point was moved off its pen.
+    if on_macos {
+        assert!(
+            system_fixtures == 645 && system_hebrew == 645,
+            "{system_fixtures} {system_hebrew}"
+        );
+        assert!(system_moved >= 300, "{system_moved}");
+    } else {
+        assert!(skipped == 645 && system_fixtures == 0, "{skipped}");
+    }
+}
+
+/// **A Hebrew run whose `GPOS` selects no Script table is placed as on a
+/// face with no `GPOS`** -- HarfBuzz's Hebrew shaper takes `GPOS` only
+/// from `hebr` (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and
+/// baud now does too where nothing else is selected (Jev, 0.97 and 1.00).
+/// The built Regular with every `GPOS` Script table renamed away keeps its
+/// table and its lookups, and must shape each line of
+/// `tests/shape/fallback-hebrew.txt` exactly as the face with no `GPOS` at
+/// all does: the points zeroed and placed by the fallback, on every
+/// platform. Kept in the pen, they sat a cell right of their letters.
+#[test]
+fn a_gpos_selecting_no_table_places_hebrew_as_no_gpos_does() {
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        raised: Reached(raised),
+        ..
+    } = shape_script_fixtures("fallback-hebrew.txt", false, GposTable::Unselected);
+    assert!(fixtures == 38 && hebrew == 38, "{fixtures} {hebrew}");
+    assert!(raised >= 20, "{raised}");
+}
+
 /// What [`shape_script_fixtures`] compared: lines on the built faces, how
 /// many of them Hebrew, how many glyphs they offset and how many of those
-/// vertically; lines on system faces, and how many were skipped where the
+/// vertically; lines on system faces, how many of them Hebrew and how many
+/// glyphs they offset, and how many were skipped where the
 /// face is not; and how many lines on either came out in fewer glyphs than
 /// codepoints.
 struct Tally {
@@ -707,6 +811,7 @@ struct Tally {
     raised: Reached,
     system_fixtures: Reached,
     system_hebrew: Reached,
+    system_moved: Reached,
     skipped: Reached,
     ligated: Reached,
 }
@@ -730,6 +835,7 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
     let (mut fixtures, mut hebrew, mut moved, mut raised) = (0usize, 0usize, 0usize, 0usize);
     let mut mismatches: Vec<String> = Vec::new();
     let (mut system_fixtures, mut system_hebrew, mut skipped) = (0usize, 0usize, 0usize);
+    let mut system_moved = 0usize;
     let mut ligated = 0usize;
     for line in text
         .lines()
@@ -758,11 +864,26 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
             if gpos == GposTable::Stripped && !system {
                 assert_eq!(strip_gpos(&mut d), 1, "{path}: no GPOS to strip");
             }
+            if gpos == GposTable::Unselected && !system {
+                unselect_gpos(&mut d);
+            }
             d
         });
         let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
         if gpos == GposTable::Stripped {
             assert!(face.gpos().is_none(), "{path} {index} has a GPOS");
+        }
+        if gpos == GposTable::Unselected {
+            let hebrew = Script::of(Codepoint::from_char('א'));
+            let g = face.gpos().expect("the GPOS is kept");
+            assert!(
+                g.chosen(hebrew).is_none(),
+                "{path}: Hebrew still selects a table"
+            );
+            assert!(
+                !g.names_mark(hebrew),
+                "{path}: a mark feature is still named"
+            );
         }
         let cps: Vec<u32> = cps
             .split_whitespace()
@@ -814,6 +935,7 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         if system {
             system_fixtures += 1;
             system_hebrew += usize::from(rtl);
+            system_moved += want.iter().filter(|w| w.2 != 0 || w.3 != 0).count();
         } else {
             fixtures += 1;
             hebrew += usize::from(rtl);
@@ -834,6 +956,7 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         raised: Reached(raised),
         system_fixtures: Reached(system_fixtures),
         system_hebrew: Reached(system_hebrew),
+        system_moved: Reached(system_moved),
         skipped: Reached(skipped),
         ligated: Reached(ligated),
     }

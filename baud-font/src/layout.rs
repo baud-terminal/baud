@@ -596,6 +596,8 @@ impl Kind {
     pub const MARK_TO_BASE: Kind = Kind(4);
     pub const MARK_TO_MARK: Kind = Kind(6);
     pub const GPOS_EXTENSION: Kind = Kind(9);
+    pub const PAIR: Kind = Kind(2);
+    pub const CHAINED_POS: Kind = Kind(8);
 }
 
 /// One lookup: its type, its filter, and its subtables.
@@ -812,6 +814,32 @@ impl<'a> Layout<'a> {
             k = k.next();
         }
         set
+    }
+
+    /// Whether the language system text in `script` selects names the
+    /// feature `tag`, among its features or as its required one.
+    pub fn names(&self, script: Script, tag: FeatureTag) -> bool {
+        let (Some(lang), Some(features)) = (self.lang_sys(script), Layout::records(self.features))
+        else {
+            return false;
+        };
+        let is = |fi: u16| features.get(Index::of(fi)).is_some_and(|r| r.tag == tag);
+        let required: u16 = lang.read(Offset::of(2u32)).unwrap_or(0xFFFF);
+        if required != 0xFFFF && is(required) {
+            return true;
+        }
+        let count: u16 = lang.read(Offset::of(4u32)).unwrap_or(0);
+        let Some(indices) = lang.array::<u16>(Offset::of(6u32), Count::of(count)) else {
+            return false;
+        };
+        let mut k = Index::ZERO;
+        while let Some(fi) = indices.get(k) {
+            if is(fi) {
+                return true;
+            }
+            k = k.next();
+        }
+        false
     }
 
     /// Adds what one language system's selected features name to `set`.

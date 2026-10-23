@@ -124,6 +124,133 @@ fn a_hebrew_point_draws_in_its_letters_cell() {
     }
 }
 
+/// **A Hebrew point draws in its letter's cell on Arial Unicode MS and
+/// Arial Hebrew, which put it elsewhere** (roadmap B1-13; Courier New's
+/// points stayed in their cell, and the shaping fixtures hold where in
+/// it they sit). Arial Unicode MS's `GPOS`
+/// selects no Script table for Hebrew, so its points kept their advances
+/// and drew a cell or two right; they are placed by the fallback, and bet
+/// with dagesh draws the face's presentation form. Arial Hebrew carries
+/// `GSUB` and `morx`, and its `GSUB` drew meteg and the cantillation marks
+/// as one empty glyph; it shapes through `morx`, here behind JetBrains
+/// Mono, since it maps no Latin. A Latin letter leads each
+/// row, so the Hebrew is shaped as Hebrew only if the run is cut where the
+/// placement changes -- on Arial Unicode MS, Latin and Hebrew select the
+/// same (no) lookups. macOS system faces.
+#[test]
+fn a_hebrew_point_draws_in_its_letters_cell_on_arial_unicode_ms_and_arial_hebrew() {
+    if !cfg!(target_os = "macos") {
+        eprintln!("skipped: Arial Unicode MS and Arial Hebrew are macOS system faces");
+        return;
+    }
+    let unicode = std::fs::read("/System/Library/Fonts/Supplemental/Arial Unicode.ttf").unwrap();
+    let faces = [Face::parse(&unicode).unwrap()];
+    for (bare, pointed, cells) in [
+        ("aב", "aב\u{5B8}", vec![1]),
+        ("aב", "aב\u{5BC}", vec![1]),
+        ("aשלום", "aש\u{5B8}לו\u{5B9}ם", vec![1, 3]),
+    ] {
+        let (b, cell_w, _) = painted(&faces, bare);
+        let (p, _, _) = painted(&faces, pointed);
+        assert_eq!(
+            changed_cells(&b, &p, cell_w),
+            cells,
+            "Arial Unicode MS {pointed:?}: the cells the points changed"
+        );
+    }
+    // Arial Hebrew maps no Latin, so it follows JetBrains Mono, as a
+    // system face follows the configured one.
+    let jbm = font("JetBrainsMono-Regular.ttf");
+    let hebrew = std::fs::read("/System/Library/Fonts/ArialHB.ttc").unwrap();
+    let faces = [Face::parse(&jbm).unwrap(), Face::parse(&hebrew).unwrap()];
+    // Meteg draws inside its letter's cell. Etnahta's glyph is centred on
+    // its origin, which no lookup of the face moves and the pen leaves on
+    // the letter's left edge, so it straddles that edge -- where hb-shape
+    // puts it too. Before, neither drew at all.
+    for (bare, pointed, cells) in [
+        ("aב\u{5B8}", "aב\u{5B8}\u{5BD}", vec![1]),
+        ("aב", "aב\u{591}", vec![0, 1]),
+    ] {
+        let (b, cell_w, _) = painted(&faces, bare);
+        let (p, _, _) = painted(&faces, pointed);
+        assert_eq!(
+            changed_cells(&b, &p, cell_w),
+            cells,
+            "Arial Hebrew {pointed:?}: the cells the marks changed"
+        );
+    }
+}
+
+/// How the built Regular's `GPOS` is edited in memory: renamed out of the
+/// table directory, or kept with every Script table renamed past any
+/// script's tag.
+#[derive(Clone, Copy)]
+enum Gpos {
+    Gone,
+    Unselected,
+}
+
+/// The built Regular with its `GPOS` edited as `how` says.
+fn regular_with(how: Gpos) -> Vec<u8> {
+    let mut d = app_font("built/Regular.ttf");
+    let be16 = |d: &[u8], at: usize| usize::from(u16::from_be_bytes([d[at], d[at + 1]]));
+    let entry = (0..be16(&d, 4))
+        .map(|i| 12 + 16 * i)
+        .find(|&at| &d[at..at + 4] == b"GPOS")
+        .expect("the built Regular has a GPOS");
+    match how {
+        Gpos::Gone => d[entry..entry + 4].copy_from_slice(b"GPOZ"),
+        Gpos::Unselected => {
+            let at = usize::try_from(u32::from_be_bytes([
+                d[entry + 8],
+                d[entry + 9],
+                d[entry + 10],
+                d[entry + 11],
+            ]))
+            .unwrap();
+            let list = at + be16(&d, at + 4);
+            for (k, i) in (0..be16(&d, list)).enumerate() {
+                let rec = list + 2 + 6 * i;
+                d[rec..rec + 4].copy_from_slice(&[
+                    b'z',
+                    b'z',
+                    b'z',
+                    b'0' + u8::try_from(k).unwrap(),
+                ]);
+            }
+        }
+    }
+    d
+}
+
+/// **A face whose `GPOS` selects no Script table for Hebrew draws Hebrew as
+/// a face with no `GPOS` does** -- the points placed by the fallback --
+/// though Latin and Hebrew select the same (no) `GPOS` lookups and the
+/// same `GSUB` ones there. So the renderer must count the placement among
+/// what a script changes, or it shapes such a face's every run as Common
+/// and leaves the points where the pen put them. The built Regular, its
+/// `GPOS` kept with every Script table renamed, against the same face with
+/// its `GPOS` gone, pixel for pixel, on every platform.
+#[test]
+fn a_face_whose_gpos_selects_nothing_for_hebrew_draws_it_as_one_with_no_gpos() {
+    let unselected = regular_with(Gpos::Unselected);
+    let gone = regular_with(Gpos::Gone);
+    let unselected = [Face::parse(&unselected).unwrap()];
+    let gone = [Face::parse(&gone).unwrap()];
+    for text in ["aב\u{5B8}", "aש\u{5B8}\u{5C1}לו\u{5B9}ם", "ab"] {
+        assert_eq!(
+            painted(&unselected, text).0,
+            painted(&gone, text).0,
+            "{text:?}: drawn as with no GPOS"
+        );
+    }
+    // The control: with its GPOS kept whole, the face places the qamats
+    // by its anchors, elsewhere than the fallback does.
+    let kept = app_font("built/Regular.ttf");
+    let kept = [Face::parse(&kept).unwrap()];
+    assert_ne!(painted(&kept, "aב\u{5B8}").0, painted(&gone, "aב\u{5B8}").0);
+}
+
 /// **A run's cache key carries the lookups its script selects**, because a
 /// run of Common characters takes its script from the cells around it,
 /// which the key does not fold. On STIX Two Math, `--` after a box-drawing

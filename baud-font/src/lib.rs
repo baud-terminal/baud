@@ -60,6 +60,7 @@ mod cff2;
 mod cmap;
 mod colr;
 mod compose;
+mod context;
 mod describe;
 mod face;
 mod glyf;
@@ -99,13 +100,14 @@ pub use gsub::{Gsub, Walked};
 pub use layout::{
     Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, LookupSet, MAX_LOOKUPS, ScriptTag,
 };
-pub use morx::Morx;
+pub use morx::{Morx, Whole};
 pub use name::{Family, NameId};
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{
-    CombiningClass, Kept, Normalised, Shaped, Shaper, combining_class, decompose, each_decomposable,
+    CombiningClass, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution, combining_class,
+    decompose, each_decomposable,
 };
 
 /// A four-byte table tag, as the directory spells it.

@@ -493,6 +493,15 @@ impl Transition for Ligature<'_> {
 pub struct Morx<'a> {
     data: Bytes<'a>,
     chains: Count,
+    whole: Whole,
+}
+
+/// Whether baud runs every subtable a table's chains select by default:
+/// each is of a type it implements and parses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Whole {
+    Yes,
+    No,
 }
 
 impl<'a> Morx<'a> {
@@ -502,10 +511,54 @@ impl<'a> Morx<'a> {
             return None;
         }
         let chains: u32 = data.read(Offset::of(4u32))?;
-        Some(Morx {
+        let mut morx = Morx {
             data,
             chains: Count::of(chains),
-        })
+            whole: Whole::No,
+        };
+        morx.whole = morx.walk_whole().unwrap_or(Whole::No);
+        Some(morx)
+    }
+
+    /// Whether every subtable the chains' default flags select for a
+    /// horizontal run is one [`Morx::apply`] runs, by its type: what a
+    /// face shaping through this table instead of `GSUB` would lose
+    /// otherwise.
+    pub fn whole(&self) -> Whole {
+        self.whole
+    }
+
+    fn walk_whole(&self) -> Option<Whole> {
+        let d = self.data;
+        let mut at = Offset::of(8u32);
+        let mut chain = 0u32;
+        while chain < self.chains.value() {
+            let flags: u32 = d.read(at)?;
+            let length: u32 = d.read(at.plus(Len::of(4))?)?;
+            let features: u32 = d.read(at.plus(Len::of(8))?)?;
+            let subtables: u32 = d.read(at.plus(Len::of(12))?)?;
+            let mut sub = at.plus(Len::of(16))?.at(Index::of(features), Len::of(12))?;
+            let mut i = 0u32;
+            while i < subtables {
+                let sub_len: u32 = d.read(sub)?;
+                let coverage: u32 = d.read(sub.plus(Len::of(4))?)?;
+                let sub_flags: u32 = d.read(sub.plus(Len::of(8))?)?;
+                let horizontal =
+                    coverage & coverage::ALL_DIRECTIONS != 0 || coverage & coverage::VERTICAL == 0;
+                let runs = matches!(
+                    coverage & coverage::TYPE,
+                    kind::CONTEXTUAL | kind::LIGATURE | kind::NONCONTEXTUAL
+                );
+                if sub_flags & flags != 0 && horizontal && !runs {
+                    return Some(Whole::No);
+                }
+                sub = sub.plus(Len::of(sub_len))?;
+                i += 1;
+            }
+            at = at.plus(Len::of(length))?;
+            chain += 1;
+        }
+        Some(Whole::Yes)
     }
 
     /// Runs every chain's default subtables over the buffer, a run laid

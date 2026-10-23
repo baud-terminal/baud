@@ -31,10 +31,12 @@ use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
 use crate::face::Face;
 use crate::glyf::VarPoint;
+use crate::gpos::Gpos;
 use crate::layout::{Digest, Features};
+use crate::morx::Whole;
 use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
-use crate::script::{RunText, Script};
+use crate::script::{Direction, RunText, Script};
 use baud_domain::{Codepoint, GlyphId};
 
 /// Hangul syllables compose by arithmetic
@@ -67,6 +69,84 @@ pub fn compose(a: Codepoint, b: Codepoint) -> Option<Codepoint> {
         Some(&(x, y, c)) if x == a && y == b => Codepoint::new(c),
         _ => None,
     }
+}
+
+/// The Hebrew presentation form of letter `a` with point `b` that HarfBuzz's
+/// Hebrew shaper composes for a face with no `mark` feature
+/// (`[[source: harfbuzz-hb-ot-shaper-hebrew]]`, `compose_hebrew`): each is a
+/// canonical decomposition the Unicode Standard excludes from composition,
+/// with yod and hiriq, alef and patah or qamats, vav and holam, a letter and
+/// dagesh, a letter and rafe, shin and its dots. HarfBuzz's table, read as
+/// it stands.
+fn hebrew_form(a: Codepoint, b: Codepoint) -> Option<Codepoint> {
+    let form = match (a.value(), b.value()) {
+        (0x05D9, 0x05B4) => 0xFB1D,
+        (0x05F2, 0x05B7) => 0xFB1F,
+        (0x05D0, 0x05B7) => 0xFB2E,
+        (0x05D0, 0x05B8) => 0xFB2F,
+        (0x05D5, 0x05B9) => 0xFB4B,
+        (l @ 0x05D0..=0x05EA, 0x05BC) => {
+            match DAGESH_FORMS.get(usize::try_from(l - 0x05D0).ok()?) {
+                Some(&f) if f != 0 => f,
+                _ => return None,
+            }
+        }
+        (0xFB2A, 0x05BC) => 0xFB2C,
+        (0xFB2B, 0x05BC) => 0xFB2D,
+        (0x05D1, 0x05BF) => 0xFB4C,
+        (0x05DB, 0x05BF) => 0xFB4D,
+        (0x05E4, 0x05BF) => 0xFB4E,
+        (0x05E9, 0x05C1) => 0xFB2A,
+        (0xFB49, 0x05C1) => 0xFB2C,
+        (0x05E9, 0x05C2) => 0xFB2B,
+        (0xFB49, 0x05C2) => 0xFB2D,
+        _ => return None,
+    };
+    Codepoint::new(form)
+}
+
+/// The letter-with-dagesh presentation forms of alef to tav, in letter
+/// order; zero where the letter has none encoded (het, final mem, final
+/// nun, ayin, final tsadi).
+const DAGESH_FORMS: [u32; 27] = [
+    0xFB30, 0xFB31, 0xFB32, 0xFB33, 0xFB34, 0xFB35, 0xFB36, 0, 0xFB38, 0xFB39, 0xFB3A, 0xFB3B,
+    0xFB3C, 0, 0xFB3E, 0, 0xFB40, 0xFB41, 0, 0xFB43, 0xFB44, 0, 0xFB46, 0xFB47, 0xFB48, 0xFB49,
+    0xFB4A,
+];
+
+/// The table a face substitutes through: `GSUB`, `morx` or neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Substitution {
+    Gsub,
+    Morx,
+    Neither,
+}
+
+impl Substitution {
+    /// `face`'s: `morx` when it has no `GSUB`, and when it carries both and
+    /// baud runs the whole of its `morx`; else `GSUB` when it has one.
+    /// HarfBuzz shapes a horizontal run through `morx` whenever a face has
+    /// one (`_hb_apply_morx()`, `[[source: harfbuzz-hb-ot-shape]]`), as
+    /// CoreText does; a face carrying both was built for both, and Arial
+    /// Hebrew's `GSUB` draws meteg and every cantillation mark as one empty
+    /// glyph where its `morx` draws each. Where baud would decline a
+    /// subtable the defaults select -- a rearrangement or an insertion,
+    /// which forty-two of the seventy-four such faces on macOS 27 carry --
+    /// the face stays on `GSUB`, which baud runs whole, rather than shaping
+    /// through part of `morx`. Jev decided it, 0.91 and 0.94.
+    pub fn of(face: &Face<'_>) -> Substitution {
+        match (face.gsub(), face.morx()) {
+            (None, Some(_)) => Substitution::Morx,
+            (Some(_), Some(morx)) if morx.whole() == Whole::Yes => Substitution::Morx,
+            (Some(_), _) => Substitution::Gsub,
+            (None, None) => Substitution::Neither,
+        }
+    }
+}
+
+/// Whether `face` shapes through `morx` ([`Substitution::of`]).
+fn shapes_through_morx(face: &Face<'_>) -> bool {
+    Substitution::of(face) == Substitution::Morx
 }
 
 /// One level of canonical decomposition of `c`: the pair, or the singleton
@@ -440,17 +520,23 @@ impl Seq {
         }
     }
 
-    /// The sequence with each mark composed onto its starter where `takes`
-    /// accepts the composite. A mark is blocked from the starter by any
-    /// mark between them of class zero or of its own class or higher
-    /// (`[[source: unicode-ch3]]` D115); two adjacent starters compose as
+    /// The sequence with each mark composed onto its starter by `compose`
+    /// where `takes` accepts the composite. A mark is blocked from the
+    /// starter by any mark between them of class zero or of its own class
+    /// or higher (`[[source: unicode-ch3]]` D115), the classes being `key`'s,
+    /// the order the marks were sorted in; two adjacent starters compose as
     /// a Hangul jamo pair does. A default-ignorable never composes.
-    fn composed(&self, takes: impl Fn(Codepoint) -> bool) -> Seq {
+    fn composed(
+        &self,
+        compose: impl Fn(Codepoint, Codepoint) -> Option<Codepoint>,
+        key: impl Fn(Codepoint) -> CombiningClass,
+        takes: impl Fn(Codepoint) -> bool,
+    ) -> Seq {
         let mut out = Seq::empty();
         let mut starter: Option<usize> = None;
         let mut blocking: u8 = 0;
         for &c in self.as_slice() {
-            let class = combining_class(c).0;
+            let class = key(c).0;
             let m = out.len.slot();
             if let Some(s) = starter {
                 let blocked = m > s + 1 && (blocking == 0 || blocking >= class);
@@ -530,7 +616,28 @@ impl<'f, 'a> Normalised<'f, 'a> {
         // Compose onto the starter while the face has the result, so
         // `a` + dot-below + acute composes to `a-acute` + dot-below when
         // the face lacks `a-dot-below`, as HarfBuzz does.
-        let out = seq.composed(|composed| face.glyph(composed).is_some());
+        //
+        // A Hebrew letter and its point also compose to the presentation
+        // form the Unicode Standard excludes from composition, where the
+        // face draws it, shapes through OpenType and positions Hebrew with
+        // no `mark` feature: HarfBuzz's Hebrew shaper (`compose_hebrew`,
+        // `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), "wanted for old
+        // fonts" that place points by the precomposed glyph. The form is
+        // canonically equivalent to the pair (`[[source: unicode-ch3]]`
+        // D70), so the text is unchanged.
+        let forms = |a: Codepoint, b: Codepoint| -> Option<Codepoint> {
+            compose(a, b).or_else(|| {
+                let form = hebrew_form(a, b)?;
+                let hebrew = Script::of(a);
+                let placed = face.gpos().is_some_and(|g| g.names_mark(hebrew));
+                (!placed && !shapes_through_morx(face)).then_some(form)
+            })
+        };
+        let out = seq.composed(
+            forms,
+            |c| combining_class(c).sort_key(),
+            |composed| face.glyph(composed).is_some(),
+        );
         Normalised {
             face,
             seq: out.cps,
@@ -549,7 +656,7 @@ impl<'f, 'a> Normalised<'f, 'a> {
             seq.decompose_fully(c);
         }
         seq.order(combining_class);
-        seq.composed(|_| true)
+        seq.composed(compose, combining_class, |_| true)
     }
 
     /// Whether `c`, a character `face` lacks, comes apart into parts it
@@ -696,6 +803,37 @@ impl Kept {
     }
 }
 
+/// How a run's marks are placed on a face: by the lookups of its `GPOS`,
+/// or, with none to run, by the fallback that places a mark against its
+/// base's box.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MarkPlacement {
+    Gpos,
+    Fallback,
+}
+
+impl MarkPlacement {
+    /// How text in `script` is placed on `face`. HarfBuzz falls back to
+    /// geometric mark placement when the face has no `GPOS`; a face with
+    /// one that names no mark lookup leaves its marks at the pen, and so
+    /// does baud. But a Hebrew run whose `GPOS` selects no Script table at
+    /// all -- neither `hebr`, nor `DFLT`, nor `latn` after it (note AB
+    /// 11.1, Q-A and Q-B) -- has no positioning from it, and is placed as on
+    /// a face with none: HarfBuzz's Hebrew shaper takes `GPOS` only from
+    /// `hebr` (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and
+    /// Arial Unicode MS, whose `GPOS` carries six other scripts, drew its
+    /// points a cell or two right. Jev decided it, 0.97 and 1.00; other
+    /// scripts keep `GPOS`, as HarfBuzz keeps it.
+    pub fn of(face: &Face<'_>, script: Script) -> MarkPlacement {
+        match face.gpos() {
+            Some(g) if script.code() != *b"Hebr" || g.chosen(script).is_some() => {
+                MarkPlacement::Gpos
+            }
+            _ => MarkPlacement::Fallback,
+        }
+    }
+}
+
 /// A shaping pass over one face: push clusters, then finish.
 pub struct Shaper<'f, 'a, 'b> {
     face: &'f Face<'a>,
@@ -775,7 +913,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// call; the run's direction has still noted the refused cluster's
     /// characters.
     pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
-        if self.face.gsub().is_none() && self.face.morx().is_some() {
+        if shapes_through_morx(self.face) {
             for &c in cps {
                 self.run.push(c);
             }
@@ -829,20 +967,25 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         Some(())
     }
 
-    /// Every glyph's `dx` becomes its pen position within its cluster --
-    /// the advances of the glyphs before it in the same cluster, from the
-    /// cell origin -- so that positioning can add anchor offsets to an
-    /// absolute frame. Hidden ignorables and marks advance nothing, as
+    /// Every glyph's `dx` becomes its pen position within its cluster, from
+    /// the cell origin, where the base sits -- so that positioning can add
+    /// anchor offsets to an absolute frame. Left to right, a glyph sits at
+    /// the advances of the glyphs before it in the cluster. Right to left,
+    /// the pen runs the other way: each glyph after the base sits its own
+    /// advance left of the one before it, which is where HarfBuzz lays it
+    /// out, so a glyph that advances nothing stays on its base rather than
+    /// a cell to its right. Hidden ignorables and marks advance nothing, as
     /// HarfBuzz zeroes them by `GDEF` class.
-    fn pen_pass(&mut self) {
+    fn pen_pass(&mut self, gpos: Option<&Gpos<'_>>, direction: Direction) {
         // With no `GPOS` the fallback zeroes every classed mark it places,
         // whatever `GDEF` calls the glyph.
-        let no_gpos = self.face.gpos().is_none();
+        let no_gpos = gpos.is_none();
         let mut pen = 0i32;
         let mut cluster: Option<Cluster> = None;
         let mut at = crate::bytes::Index::ZERO;
         while let Some(g) = self.buf.get(at) {
-            if cluster != Some(g.cluster) {
+            let base = cluster != Some(g.cluster);
+            if base {
                 cluster = Some(g.cluster);
                 pen = 0;
             }
@@ -854,10 +997,17 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             } else {
                 self.face.advance(g.id).map_or(0, |a| i32::from(a.value()))
             };
+            let x = match direction {
+                Direction::RightToLeft if !base => pen.saturating_sub(advance),
+                _ => pen,
+            };
             if let Some(glyph) = self.buf.get_mut(at) {
-                glyph.dx = i16::try_from(pen).unwrap_or(i16::MAX);
+                glyph.dx = i16::try_from(x).unwrap_or(i16::MAX);
             }
-            pen = pen.saturating_add(advance);
+            pen = match direction {
+                Direction::LeftToRight => pen.saturating_add(advance),
+                Direction::RightToLeft => x,
+            };
             at = at.next();
         }
     }
@@ -910,27 +1060,38 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// one script; a caller splits where it changes, or where it changes
     /// which lookups apply ([`crate::Gsub::lookups`]).
     pub fn finish(mut self, features: Features, script: Script) -> (Buffer<'b>, Shaped) {
-        // `morx` stands in for `GSUB` on a face that has none -- HarfBuzz's
-        // rule, and the one CoreText's own faces are built for; a face
-        // carrying both shapes through `GSUB`.
+        // The face substitutes through `morx` or `GSUB` as
+        // [`Substitution::of`] says: `morx` on a face with no `GSUB`, and on
+        // one carrying both whose `morx` baud runs whole.
+        let through_morx = shapes_through_morx(self.face);
         let mut declined = match (self.face.gsub(), self.face.morx()) {
-            (Some(gsub), _) => gsub.apply_with(&mut self.buf, script, features, self.digests),
-            (None, Some(morx)) => {
+            (_, Some(morx)) if through_morx => {
                 // `morx` writes ids without classes; the positioning
                 // filters read them, so they are read again once here.
                 let declined = morx.apply(&mut self.buf, self.run.direction(script));
                 self.buf.retag(&self.face.gdef());
                 declined
             }
-            (None, None) => Count::ZERO,
+            (Some(gsub), _) => gsub.apply_with(&mut self.buf, script, features, self.digests),
+            (None, _) => Count::ZERO,
         };
-        self.pen_pass();
-        // HarfBuzz falls back to geometric mark placement only when the
-        // face has no GPOS at all; a face with one that names no mark
-        // lookup leaves its marks at the pen, and so does baud.
-        match self.face.gpos() {
+        let gpos = match MarkPlacement::of(self.face, script) {
+            MarkPlacement::Gpos => self.face.gpos(),
+            MarkPlacement::Fallback => None,
+        };
+        // The run's direction: its script's, unless a right-to-left run on
+        // a `morx` face holds numbers and no letter ([`RunText`]).
+        let direction = self.run.direction(script);
+        self.pen_pass(gpos, direction);
+        match gpos {
             Some(gpos) => {
-                let d = gpos.apply(&mut self.buf, script, features, self.face.coords());
+                let d = gpos.apply(
+                    &mut self.buf,
+                    script,
+                    direction,
+                    features,
+                    self.face.coords(),
+                );
                 declined = Count::of(declined.value().saturating_add(d.value()));
             }
             None => self.fallback_marks(),

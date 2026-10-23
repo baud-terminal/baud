@@ -1,13 +1,31 @@
-//! `GPOS` (`[[source: ms-opentype-gpos]]`): mark positioning, and only
-//! that.
+//! `GPOS` (`[[source: ms-opentype-gpos]]`): what a mark feature runs.
 //!
-//! **Types 4, 6 and 9.** Mark-to-base and mark-to-mark attachment through
-//! anchors, and the extension wrapper. A grid has no use for kerning (type
-//! 2) or cursive attachment (3): every base glyph sits at its cell origin
-//! by Windows Terminal's rule (D8), and what is left to position is where
-//! a combining mark goes relative to that base. Anchors are read in their
-//! design-unit form (formats 1, 2 and 3 all start with one); the contour
-//! point and the hinting devices are hinting's and D7 has none.
+//! **Types 1, 2, 4, 6, 8 and 9.** Single and pair adjustment, mark-to-base
+//! and mark-to-mark attachment through anchors, chained contexts in all
+//! three formats, and the extension wrapper. A grid has no use for kerning
+//! between cells or for cursive attachment (3): every base glyph sits at
+//! its cell origin by Windows Terminal's rule (D8), and what is left to
+//! position is where a combining mark goes relative to that base. But a
+//! `mark` feature is not only anchors: Courier New's `hebr` one moves a
+//! holam 25 units by a single adjustment and spreads two points below one
+//! letter by chained contexts that run single and pair adjustments, and a
+//! feature names whatever lookups it names. So every lookup the grid's
+//! features name runs, whatever its type, except contexts without a chain
+//! (7) and mark-to-ligature (5), which no measured face's Hebrew reaches.
+//! Anchors are read in their design-unit form (formats 1, 2 and 3 all start
+//! with one); the contour point and the hinting devices are hinting's and
+//! D7 has none.
+//!
+//! **An adjustment moves its glyph; an advance moves the glyphs after it
+//! in its cluster.** A placement adds to the glyph's offset. An advance
+//! changes where the pen leaves the glyphs of the cluster that follow it
+//! and are not attached -- rightward, or leftward in a right-to-left run,
+//! where "if the first glyph has an advance width of 100, then the second
+//! glyph begins at -100,0" (`[[source: ms-opentype-gpos-2026-10-23]]`) --
+//! unless the glyph advances nothing, as a mark and a default-ignorable do:
+//! HarfBuzz zeroes a mark's advance after `GPOS` has run
+//! (`[[source: harfbuzz-hb-ot-shape]]`, `zero_mark_widths_by_gdef()`), so an
+//! advance a lookup gives one is spent before anything reads it.
 //!
 //! **At a variation, a format-3 anchor moves** (note Z step 4): its x and
 //! y device tables, when of the VariationIndex format `0x8000`, index
@@ -18,7 +36,7 @@
 //! `[[source: harfbuzz-12-3-0-layout-common]]`, `[[source: harfbuzz-12-3-0-font]]`,
 //! `[[source: harfbuzz-12-3-0-hb]]`). The anchors' difference is whole units
 //! then, so HarfBuzz's final `roundf` (`[[source: harfbuzz-12-3-0-mark-array]]`)
-//! changes nothing.
+//! changes nothing. A value record's devices move its values the same way.
 //! A device that does not check out is no device: that coordinate does
 //! not vary, where HarfBuzz refuses the whole `GPOS` (Jev B, 0.84).
 //!
@@ -29,13 +47,15 @@
 //! HarfBuzz reports the same geometry relative to the mark's own pen
 //! position, one base advance further along; `tests/shape.rs` translates.
 
-use crate::buffer::{Buffer, Glyph, Ignorable, Positioned};
-use crate::bytes::{Bytes, Count, Index, Len, Offset};
+use crate::buffer::{Buffer, Glyph, Ignorable, Mark, Positioned};
+use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
+use crate::context::{Applied, Depth, Nested, chained, coverage_at, same, seen};
 use crate::ivs::{Store, VarIndex};
 use crate::layout::{
-    Coverage, Features, Filter, Gdef, Kind, Layout, Lookup, LookupSet, ScriptTag, Skip,
+    Class, ClassDef, Coverage, FeatureTag, Features, Filter, Gdef, Kind, Layout, Lookup, LookupSet,
+    ScriptTag, Skip,
 };
-use crate::script::Script;
+use crate::script::{Direction, Script};
 use crate::var::Coords;
 
 /// An anchor's design-unit coordinates, the head of every anchor format,
@@ -82,13 +102,22 @@ fn anchor(table: Bytes<'_>, at: Offset, vary: Vary<'_, '_>) -> Option<Anchor> {
 /// The rounded delta the device at `at` in `anchor` names, or 0: no
 /// offset, a device past the data, a hinting format, or no store.
 fn delta(anchor: Bytes<'_>, at: Offset, vary: Vary<'_, '_>) -> i32 {
+    match anchor.read::<u16>(at) {
+        Some(off) => device_delta(anchor, Offset::of(u32::from(off)), vary),
+        None => 0,
+    }
+}
+
+/// The rounded delta of the device `off` into `parent` names, or 0: no
+/// offset (zero), a device past the data, a hinting format, or no store.
+fn device_delta(parent: Bytes<'_>, off: Offset, vary: Vary<'_, '_>) -> i32 {
     let Some(store) = vary.store else {
         return 0;
     };
-    let Some(off) = anchor.read::<u16>(at).filter(|o| *o != 0) else {
+    if off == Offset::ZERO {
         return 0;
-    };
-    let Some(device) = anchor.tail(Offset::of(u32::from(off))) else {
+    }
+    let Some(device) = parent.tail(off) else {
         return 0;
     };
     let (Some(index), Some(format)) = (
@@ -125,60 +154,53 @@ impl<'a> Gpos<'a> {
         self.layout.chosen(script)
     }
 
+    /// Whether text in `script` is positioned with a `mark` feature here.
+    pub fn names_mark(&self, script: Script) -> bool {
+        self.layout.names(script, FeatureTag::MARK)
+    }
+
     pub fn parse(data: Bytes<'a>, gdef: Gdef<'a>) -> Option<Gpos<'a>> {
         Some(Gpos {
             layout: Layout::parse(data, gdef)?,
         })
     }
 
-    /// Applies the mark lookups the features name for text in `script`, in
-    /// lookup order, with the anchors read at `coords`.
+    /// Applies the lookups the features name for text in `script`, in
+    /// lookup order, with the anchors and values read at `coords`.
+    /// `direction` is the run's: which way an advance moves the pen.
     pub fn apply(
         &self,
         buf: &mut Buffer<'_>,
         script: Script,
+        direction: Direction,
         features: Features,
         coords: &Coords,
     ) -> Count {
-        let vary = Vary {
-            store: self.layout.gdef().store(),
-            coords,
+        let run = Run {
+            gpos: self,
+            vary: Vary {
+                store: self.layout.gdef().store(),
+                coords,
+            },
+            direction,
         };
         let set = self.layout.lookups_for(script, features);
         for i in set.iter() {
             if let Some(lookup) = self.layout.lookup(i) {
                 let mut pos = Index::ZERO;
                 while let Some(g) = buf.get(pos) {
-                    if lookup.filter.skip_class(g.class, g.id) == Skip::No {
-                        self.apply_at(&lookup, buf, pos, vary);
+                    if seen(&lookup.filter, g) == Skip::Yes {
+                        pos = pos.next();
+                        continue;
                     }
-                    pos = pos.next();
+                    pos = match run.apply_at(&lookup, buf, pos, Depth::TOP) {
+                        Some(a) => a.next.max(pos.next()),
+                        None => pos.next(),
+                    };
                 }
             }
         }
         set.declined()
-    }
-
-    fn apply_at(&self, lookup: &Lookup<'a>, buf: &mut Buffer<'_>, pos: Index, vary: Vary<'_, 'a>) {
-        let mut i = Index::ZERO;
-        while lookup.subtable_count().holds(i) {
-            let Some((kind, sub)) = lookup.subtable(i, Kind::GPOS_EXTENSION) else {
-                return;
-            };
-            let done = match kind {
-                Kind::MARK_TO_BASE => {
-                    self.mark_to(sub, &lookup.filter, buf, pos, Target::Base, vary)
-                }
-                Kind::MARK_TO_MARK => {
-                    self.mark_to(sub, &lookup.filter, buf, pos, Target::Mark, vary)
-                }
-                _ => None,
-            };
-            if done.is_some() {
-                return;
-            }
-            i = i.next();
-        }
     }
 
     /// The glyph a mark attaches to: the nearest earlier glyph the filter
@@ -275,6 +297,293 @@ impl<'a> Gpos<'a> {
     }
 }
 
+/// One application of `GPOS` to a run: the table, where its anchors and
+/// values are read, and the run's direction.
+struct Run<'g, 'v, 'a> {
+    gpos: &'g Gpos<'a>,
+    vary: Vary<'v, 'a>,
+    direction: Direction,
+}
+
+impl<'a> Nested<'a> for Run<'_, '_, 'a> {
+    fn nested(
+        &self,
+        lookup: Index,
+        buf: &mut Buffer<'_>,
+        pos: Index,
+        depth: Depth,
+    ) -> Option<Applied> {
+        let lookup = self.gpos.layout.lookup(lookup)?;
+        self.apply_at(&lookup, buf, pos, depth)
+    }
+}
+
+impl<'a> Run<'_, '_, 'a> {
+    /// Tries each subtable at `pos`; the first that applies wins.
+    fn apply_at(
+        &self,
+        lookup: &Lookup<'a>,
+        buf: &mut Buffer<'_>,
+        pos: Index,
+        depth: Depth,
+    ) -> Option<Applied> {
+        let mut i = Index::ZERO;
+        while lookup.subtable_count().holds(i) {
+            let (kind, sub) = lookup.subtable(i, Kind::GPOS_EXTENSION)?;
+            let done = match kind {
+                Kind::SINGLE => self.single(sub, buf, pos),
+                Kind::PAIR => self.pair(sub, &lookup.filter, buf, pos),
+                Kind::MARK_TO_BASE => self
+                    .gpos
+                    .mark_to(sub, &lookup.filter, buf, pos, Target::Base, self.vary)
+                    .map(|()| Applied::after(pos)),
+                Kind::MARK_TO_MARK => self
+                    .gpos
+                    .mark_to(sub, &lookup.filter, buf, pos, Target::Mark, self.vary)
+                    .map(|()| Applied::after(pos)),
+                Kind::CHAINED_POS => chained(self, sub, &lookup.filter, buf, pos, depth),
+                _ => None,
+            };
+            if done.is_some() {
+                return done;
+            }
+            i = i.next();
+        }
+        None
+    }
+
+    /// Type 1: one value record for every covered glyph (format 1), or one
+    /// per coverage index (format 2).
+    fn single(&self, sub: Bytes<'a>, buf: &mut Buffer<'_>, pos: Index) -> Option<Applied> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        let coverage = coverage_at(sub, Offset::of(2u32))?;
+        let ci = coverage.index(buf.get(pos)?.id)?;
+        let vf = ValueFormat(sub.read(Offset::of(4u32))?);
+        let at = match format {
+            1 => Offset::of(6u32),
+            2 => {
+                let count: u16 = sub.read(Offset::of(6u32))?;
+                if !Count::of(count).holds(ci) {
+                    return None;
+                }
+                Offset::of(8u32).at(ci, vf.size())?
+            }
+            _ => return None,
+        };
+        let v = vf.read(sub, sub, at, self.vary)?;
+        self.adjust(buf, pos, v);
+        Some(Applied::after(pos))
+    }
+
+    /// Type 2: a value record for each of two glyphs, the second the next
+    /// one the filter does not skip, by glyph pair (format 1) or by class
+    /// pair (format 2). The walk goes on after the second glyph when it was
+    /// given a value, and from it otherwise, as HarfBuzz's does.
+    fn pair(
+        &self,
+        sub: Bytes<'a>,
+        filter: &Filter<'_>,
+        buf: &mut Buffer<'_>,
+        pos: Index,
+    ) -> Option<Applied> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        let coverage = coverage_at(sub, Offset::of(2u32))?;
+        let first = buf.get(pos)?;
+        let ci = coverage.index(first.id)?;
+        let vf1 = ValueFormat(sub.read(Offset::of(4u32))?);
+        let vf2 = ValueFormat(sub.read(Offset::of(6u32))?);
+        let second = next_unskipped(filter, buf, pos)?;
+        let second_id = buf.get(second)?.id;
+        let record = vf1.size().value().saturating_add(vf2.size().value());
+        let (table, at) = match format {
+            1 => {
+                let sets_n: u16 = sub.read(Offset::of(8u32))?;
+                let sets: Array<'a, u16> = sub.array(Offset::of(10u32), Count::of(sets_n))?;
+                let set = sub.tail(Offset::of(u32::from(sets.get(ci)?)))?;
+                let n: u16 = set.read(Offset::ZERO)?;
+                let stride = Len::of(record.saturating_add(2));
+                let mut k = Index::ZERO;
+                let mut found = None;
+                while Count::of(n).holds(k) {
+                    let rec = Offset::of(2u32).at(k, stride)?;
+                    let glyph: u16 = set.read(rec)?;
+                    if same(second_id, glyph) {
+                        found = Some(rec.plus(Len::of(2))?);
+                        break;
+                    }
+                    k = k.next();
+                }
+                (set, found?)
+            }
+            2 => {
+                let def = |at: u32| -> Option<ClassDef<'a>> {
+                    let off: u16 = sub.read(Offset::of(at))?;
+                    ClassDef::parse(sub.tail(Offset::of(u32::from(off)))?)
+                };
+                let (def1, def2) = (def(8)?, def(10)?);
+                let n1: u16 = sub.read(Offset::of(12u32))?;
+                let n2: u16 = sub.read(Offset::of(14u32))?;
+                let (Class(c1), Class(c2)) = (def1.class(first.id), def2.class(second_id));
+                if c1 >= n1 || c2 >= n2 {
+                    return None;
+                }
+                let row = Len::of(record).times(Count::of(n2))?;
+                let at = Offset::of(16u32)
+                    .at(Index::of(c1), row)?
+                    .at(Index::of(c2), Len::of(record))?;
+                (sub, at)
+            }
+            _ => return None,
+        };
+        // A record's devices count from its immediate parent: the PairSet
+        // in format 1, the subtable in format 2.
+        let v1 = vf1.read(table, table, at, self.vary)?;
+        let v2 = vf2.read(table, table, at.plus(vf1.size())?, self.vary)?;
+        self.adjust(buf, pos, v1);
+        self.adjust(buf, second, v2);
+        Some(Applied {
+            next: if vf2.size().is_zero() {
+                second
+            } else {
+                second.next()
+            },
+            removed: Count::ZERO,
+        })
+    }
+
+    /// Applies one value record to the glyph at `pos`.
+    fn adjust(&self, buf: &mut Buffer<'_>, pos: Index, v: Value) {
+        let Some(g) = buf.get_mut(pos) else {
+            return;
+        };
+        g.dx = g.dx.saturating_add(v.dx);
+        g.dy = g.dy.saturating_add(v.dy);
+        // What advances nothing has no advance to change.
+        if v.advance == 0 || g.mark == Mark::Yes || g.ignorable == Ignorable::Yes {
+            return;
+        }
+        let (cluster, first) = (g.cluster, g.attached == crate::buffer::Attached::No);
+        // Left to right, the glyphs after this one move by the change;
+        // right to left, this one moves too unless it is the base, whose
+        // advance runs away from the glyphs after it.
+        let (from, by) = match self.direction {
+            Direction::LeftToRight => (pos.next(), v.advance),
+            Direction::RightToLeft if first => return,
+            Direction::RightToLeft => (pos, v.advance.saturating_neg()),
+        };
+        let mut at = from;
+        while let Some(h) = buf.get_mut(at) {
+            if h.cluster != cluster {
+                break;
+            }
+            if h.positioned == Positioned::No {
+                h.dx = h.dx.saturating_add(by);
+            }
+            at = at.next();
+        }
+    }
+}
+
+/// The next glyph after `pos` that `filter` does not skip and that is not
+/// a default-ignorable, which a pair's second glyph never is.
+fn next_unskipped(filter: &Filter<'_>, buf: &Buffer<'_>, pos: Index) -> Option<Index> {
+    let mut j = pos.next();
+    while let Some(g) = buf.get(j) {
+        if seen(filter, g) == Skip::No && g.ignorable == Ignorable::No {
+            return Some(j);
+        }
+        j = j.next();
+    }
+    None
+}
+
+/// Which fields a value record carries (`ValueFormat`), each two bytes, in
+/// this order.
+#[derive(Clone, Copy)]
+struct ValueFormat(u16);
+
+impl ValueFormat {
+    const X_PLACEMENT: ValueFormat = ValueFormat(0x0001);
+    const Y_PLACEMENT: ValueFormat = ValueFormat(0x0002);
+    const X_ADVANCE: ValueFormat = ValueFormat(0x0004);
+    const Y_ADVANCE: ValueFormat = ValueFormat(0x0008);
+    const X_PLACEMENT_DEVICE: ValueFormat = ValueFormat(0x0010);
+    const Y_PLACEMENT_DEVICE: ValueFormat = ValueFormat(0x0020);
+    const X_ADVANCE_DEVICE: ValueFormat = ValueFormat(0x0040);
+    const Y_ADVANCE_DEVICE: ValueFormat = ValueFormat(0x0080);
+
+    fn carries(self, field: ValueFormat) -> bool {
+        self.0 & field.0 != 0
+    }
+
+    /// The record's size: two bytes a field. The high byte is reserved.
+    fn size(self) -> Len {
+        Len::of((self.0 & 0x00FF).count_ones().saturating_mul(2))
+    }
+
+    /// The record at `at` in `table`, its devices' offsets counted from
+    /// `parent`, "the immediate parent table (SinglePos or PairPosFormat2
+    /// lookup subtable, PairSet table within a PairPosFormat1 lookup
+    /// subtable)" (`[[source: ms-opentype-gpos-2026-10-23]]`), moved at
+    /// `vary`. Only the horizontal advance is kept: a run here is
+    /// horizontal.
+    fn read(
+        self,
+        table: Bytes<'_>,
+        parent: Bytes<'_>,
+        at: Offset,
+        vary: Vary<'_, '_>,
+    ) -> Option<Value> {
+        let mut v = Value::ZERO;
+        let mut at = at;
+        let mut field = |f: ValueFormat| -> Option<Option<i16>> {
+            if !self.carries(f) {
+                return Some(None);
+            }
+            let x: i16 = table.read(at)?;
+            at = at.plus(Len::of(2))?;
+            Some(Some(x))
+        };
+        let x_place = field(ValueFormat::X_PLACEMENT)?;
+        let y_place = field(ValueFormat::Y_PLACEMENT)?;
+        let x_adv = field(ValueFormat::X_ADVANCE)?;
+        field(ValueFormat::Y_ADVANCE)?;
+        let x_place_dev = field(ValueFormat::X_PLACEMENT_DEVICE)?;
+        let y_place_dev = field(ValueFormat::Y_PLACEMENT_DEVICE)?;
+        let x_adv_dev = field(ValueFormat::X_ADVANCE_DEVICE)?;
+        field(ValueFormat::Y_ADVANCE_DEVICE)?;
+        let moved = |c: Option<i16>, dev: Option<i16>| -> i16 {
+            let base = i32::from(c.unwrap_or(0));
+            let d = dev.map_or(0, |o| {
+                device_delta(parent, Offset::of(u32::from(o.cast_unsigned())), vary)
+            });
+            let total = base.saturating_add(d);
+            i16::try_from(total.clamp(i32::from(i16::MIN), i32::from(i16::MAX))).unwrap_or(0)
+        };
+        v.dx = moved(x_place, x_place_dev);
+        v.dy = moved(y_place, y_place_dev);
+        v.advance = moved(x_adv, x_adv_dev);
+        Some(v)
+    }
+}
+
+/// What a value record does to a glyph, in font units: its placement and
+/// its horizontal advance.
+#[derive(Clone, Copy)]
+struct Value {
+    dx: i16,
+    dy: i16,
+    advance: i16,
+}
+
+impl Value {
+    const ZERO: Value = Value {
+        dx: 0,
+        dy: 0,
+        advance: 0,
+    };
+}
+
 /// What a mark lookup attaches to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Target {
@@ -284,7 +593,229 @@ enum Target {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
+    use crate::buffer::{Attached, Cluster};
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use baud_domain::GlyphId;
+
+    /// A `GPOS` table of one `DFLT` Script table whose `mark` feature names
+    /// the first lookup only; every lookup is one subtable, given as its
+    /// type and bytes, the subtable laid right after its lookup header.
+    fn table(lookups: &[(u16, Vec<u8>)]) -> Vec<u8> {
+        let be = |v: usize| u16::try_from(v).unwrap().to_be_bytes();
+        let mut t = vec![0, 1, 0, 0, 0, 10, 0, 30, 0, 44];
+        // ScriptList at 10: DFLT -> Script at 8; LangSys at 4 from it.
+        t.extend([0, 1, b'D', b'F', b'L', b'T', 0, 8]);
+        t.extend([0, 4, 0, 0, 0, 0, 0xFF, 0xFF, 0, 1, 0, 0]);
+        // FeatureList at 30: mark -> Feature at 8, naming lookup 0.
+        t.extend([0, 1, b'm', b'a', b'r', b'k', 0, 8, 0, 0, 0, 1, 0, 0]);
+        // LookupList at 44.
+        let mut list = be(lookups.len()).to_vec();
+        let mut bodies = Vec::new();
+        let head = 2 + 2 * lookups.len();
+        for (kind, sub) in lookups {
+            list.extend(be(head + bodies.len()));
+            bodies.extend(kind.to_be_bytes());
+            bodies.extend([0, 0, 0, 1, 0, 8]);
+            bodies.extend(sub);
+        }
+        t.extend(list);
+        t.extend(bodies);
+        t
+    }
+
+    /// A buffer of `(glyph, cluster, attached, mark, pen)`.
+    fn buffer<'b>(
+        storage: &'b mut [Glyph],
+        glyphs: &[(u16, u16, Attached, Mark, i16)],
+    ) -> Buffer<'b> {
+        let mut buf = Buffer::new(storage);
+        for &(id, cluster, attached, mark, pen) in glyphs {
+            let mut g = Glyph::new(GlyphId::from_shaper(id), Cluster(cluster), Ignorable::No);
+            g.attached = attached;
+            g.mark = mark;
+            g.dx = pen;
+            buf.push(g).unwrap();
+        }
+        buf
+    }
+
+    fn run(t: &[u8], buf: &mut Buffer<'_>, direction: Direction) {
+        let gpos = Gpos::parse(Bytes::new(t), Gdef::default()).unwrap();
+        let declined = gpos.apply(
+            buf,
+            Script::COMMON,
+            direction,
+            Features::GRID,
+            &Coords::default(),
+        );
+        assert!(declined.is_zero());
+    }
+
+    fn placed(buf: &Buffer<'_>) -> Vec<(i16, i16)> {
+        buf.as_slice().iter().map(|g| (g.dx, g.dy)).collect()
+    }
+
+    /// Format 1 single adjustment: XPlacement 30, YPlacement -20 and
+    /// XAdvance 100 for glyph 10 -- coverage at 12, after the record.
+    fn single_10() -> Vec<u8> {
+        vec![
+            0, 1, 0, 12, 0, 7, 0, 30, 0xFF, 0xEC, 0, 100, 0, 1, 0, 1, 0, 10,
+        ]
+    }
+
+    use Attached::{No as Base, Yes as After};
+    use Mark::{No as Letter, Yes as Point};
+
+    /// **A placement moves its glyph; an advance moves the glyphs after
+    /// it in its cluster, the way the pen runs.** Left to right, the glyph
+    /// after the adjusted base moves right by the advance and the next
+    /// cluster's glyphs do not; right to left, a base's advance runs away
+    /// from the glyphs after it and moves none.
+    #[test]
+    fn a_single_adjustment_places_its_glyph_and_its_advance_moves_the_pen() {
+        let t = table(&[(1, single_10())]);
+        let glyphs = [
+            (10, 0, Base, Letter, 0),
+            (20, 0, After, Letter, 600),
+            (10, 1, Base, Letter, 0),
+        ];
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(&mut storage, &glyphs);
+        run(&t, &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(30, -20), (700, 0), (30, -20)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(&mut storage, &glyphs);
+        run(&t, &mut buf, Direction::RightToLeft);
+        assert_eq!(placed(&buf), [(30, -20), (600, 0), (30, -20)]);
+    }
+
+    /// **A mark advances nothing, so an advance given to one moves
+    /// nothing**: HarfBuzz zeroes a mark's advance after `GPOS` has run.
+    /// Right to left, an advance given to a glyph after the base moves that
+    /// glyph and the ones after it left.
+    #[test]
+    fn a_marks_advance_moves_nothing_and_right_to_left_moves_the_glyph_itself() {
+        let t = table(&[(1, single_10())]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[
+                (20, 0, Base, Letter, 0),
+                (10, 0, After, Point, 0),
+                (21, 0, After, Point, 0),
+            ],
+        );
+        run(&t, &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(0, 0), (30, -20), (0, 0)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[
+                (20, 0, Base, Letter, 0),
+                (10, 0, After, Letter, -5),
+                (21, 0, After, Point, -5),
+            ],
+        );
+        run(&t, &mut buf, Direction::RightToLeft);
+        assert_eq!(placed(&buf), [(0, 0), (-75, -20), (-105, 0)]);
+    }
+
+    /// Format 2: one record per coverage index -- glyphs 10 and 11, the
+    /// second moved 7 left.
+    #[test]
+    fn a_format_two_single_adjustment_reads_the_record_of_its_coverage_index() {
+        let sub = vec![
+            0, 2, 0, 12, 0, 1, 0, 2, 0, 3, 0xFF, 0xF9, 0, 1, 0, 2, 0, 10, 0, 11,
+        ];
+        let t = table(&[(1, sub)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[(10, 0, Base, Letter, 0), (11, 1, Base, Letter, 0)],
+        );
+        run(&t, &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(3, 0), (-7, 0)]);
+    }
+
+    /// **A pair adjusts both glyphs**, by glyph pair (format 1) and by class
+    /// pair (format 2), and the walk goes on after the second glyph only
+    /// when the second was given a value: three glyphs 10 in a row with a
+    /// first-only value adjust the first two, and with a value for both
+    /// adjust the first pair alone.
+    #[test]
+    fn a_pair_adjusts_both_glyphs_and_steps_past_the_second_only_when_it_took_a_value() {
+        // Format 1: first 10, second 10 -- set at 12, coverage at 22.
+        let both = vec![
+            0, 1, 0, 22, 0, 1, 0, 1, 0, 1, 0, 12, 0, 1, 0, 10, 0, 5, 0xFF, 0xF9, 0, 0, 0, 1, 0, 1,
+            0, 10,
+        ];
+        let first = vec![
+            0, 1, 0, 20, 0, 1, 0, 0, 0, 1, 0, 12, 0, 1, 0, 10, 0, 5, 0, 0, 0, 1, 0, 1, 0, 10,
+        ];
+        let three = [
+            (10, 0, Base, Letter, 0),
+            (10, 1, Base, Letter, 0),
+            (10, 2, Base, Letter, 0),
+        ];
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(&mut storage, &three);
+        run(&table(&[(2, both)]), &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(5, 0), (-7, 0), (0, 0)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(&mut storage, &three);
+        run(&table(&[(2, first)]), &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(5, 0), (5, 0), (0, 0)]);
+        // Format 2: glyph 10 is first class 1, glyph 20 second class 1;
+        // classes 2 by 2, the record for (1, 1) moving 9 and 4; the two
+        // class definitions at 32 and 40, the coverage at 48.
+        let classes = vec![
+            0, 2, 0, 48, 0, 1, 0, 1, 0, 32, 0, 40, 0, 2, 0, 2, //
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 4, // (0,0) (0,1) (1,0) (1,1)
+            0, 1, 0, 10, 0, 1, 0, 1, // first classes: glyph 10 is 1
+            0, 1, 0, 20, 0, 1, 0, 1, // second classes: glyph 20 is 1
+            0, 1, 0, 1, 0, 10, // coverage
+        ];
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[(10, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+        );
+        run(&table(&[(2, classes)]), &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(9, 0), (4, 0)]);
+    }
+
+    /// **A chained context runs a nested lookup at its input**: glyph 20
+    /// after glyph 30 moves 250 right by lookup 1, which no feature names;
+    /// after glyph 31 it does not move.
+    #[test]
+    fn a_chained_context_runs_its_nested_adjustment_where_the_context_matches() {
+        // Format 3: one backtrack coverage (30), one input coverage (20),
+        // no lookahead, one record (0 -> lookup 1); coverages at 18 and 24.
+        let chain = vec![
+            0, 3, 0, 1, 0, 18, 0, 1, 0, 24, 0, 0, 0, 1, 0, 0, 0, 1, //
+            0, 1, 0, 1, 0, 30, // backtrack coverage
+            0, 1, 0, 1, 0, 20, // input coverage
+        ];
+        let nested = vec![0, 1, 0, 8, 0, 1, 0, 250, 0, 1, 0, 1, 0, 20];
+        let t = table(&[(8, chain), (1, nested)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[(30, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+        );
+        run(&t, &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(0, 0), (250, 0)]);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+        let mut buf = buffer(
+            &mut storage,
+            &[(31, 0, Base, Letter, 0), (20, 1, Base, Letter, 0)],
+        );
+        run(&t, &mut buf, Direction::LeftToRight);
+        assert_eq!(placed(&buf), [(0, 0), (0, 0)]);
+    }
     use crate::var::F2Dot14;
 
     /// An item variation store of one axis, one region peaking at 1, and

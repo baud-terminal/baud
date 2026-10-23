@@ -2563,6 +2563,28 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
 
+[sources.ms-opentype-gpos-2026-10-23]
+key    = "ms-opentype-gpos-2026-10-23"
+title  = "GPOS -- Glyph Positioning Table (as fetched 2026-10-23)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gpos"
+file   = ""
+sha256 = "844355c1818bb531eec8e715ac963038a30c4aa8db078a39ab73dff7624fa76a"
+bytes  = 199132
+status = "external"
+group  = "J"
+# Read and hash-verified 2026-10-23; not committed, as ms-opentype-gpos, whose
+# pinned bytes the page no longer serves. Read for the single, pair and
+# chained-context lookups and the value record: a device offset counts "from
+# beginning of the immediate parent table (SinglePos or PairPosFormat2 lookup
+# subtable, PairSet table within a PairPosFormat1 lookup subtable)"; "If
+# valueFormat2 is set to 0, then the second glyph of the pair is the 'next'
+# glyph for which a lookup should be performed"; and "In right-to-left
+# scripts, if the first glyph has an advance width of 100, then the second
+# glyph begins at -100,0."
+
 [sources.ms-opentype-gdef]
 key    = "ms-opentype-gdef"
 title  = "GDEF -- Glyph Definition Table"

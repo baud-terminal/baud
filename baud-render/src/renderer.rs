@@ -39,9 +39,9 @@ use baud_domain::{
 };
 use baud_font::bytes::Count;
 use baud_font::{
-    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, LookupSet, MAX_LOOKUPS,
-    Normalised, PerScript, Phase, Px, Scale, Script, ScriptTag, Shaper, Unresolved, VarPoint,
-    Walked,
+    Cluster, Digest as LookupDigest, Direction, Face, Features, Glyph, Ignorable, LookupSet,
+    MAX_LOOKUPS, MarkPlacement, Normalised, PerScript, Phase, Px, Scale, Script, ScriptTag, Shaper,
+    Substitution, Unresolved, VarPoint, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -312,7 +312,11 @@ impl Pairs {
     fn of(face: &Face<'_>) -> Pairs {
         let mut after: Vec<Option<LookupDigest>> = Vec::new();
         let mut seconds = LookupDigest::EMPTY;
-        let walked = face.gsub().map(|gsub| {
+        // A face that substitutes through `morx` begins no `GSUB` pair.
+        let gsub = face
+            .gsub()
+            .filter(|_| Substitution::of(face) == Substitution::Gsub);
+        let walked = gsub.map(|gsub| {
             gsub.pairs(Features::GRID, &mut |first, d| {
                 let i = first.index();
                 if after.len() <= i {
@@ -662,20 +666,22 @@ struct ClusterIn {
     at: CellIx,
 }
 
-/// Which lookups a script selects on one face, numbered: two scripts with
-/// the same number shape alike there, since the lookups are all a script
-/// changes in baud's shaper, so a run may cross between them. A run is cut
-/// only where this changes, not wherever the script does.
+/// Which lookups a script selects on one face, how they place its marks
+/// and which way it runs, numbered: two scripts with the same number shape
+/// alike there, since those are all a script changes in baud's shaper, so a
+/// run may cross between them. A run is cut only where this changes, not
+/// wherever the script does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 struct Selection(u8);
 
 /// Whether the scripts select different lookups on a face at all.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Varies {
-    /// Every script selects the same lookups: a run is never cut by
-    /// script, and no row's scripts need settling for this face. The
-    /// embedded text faces are this, their `DFLT`, `latn` and `hebr` naming
-    /// the same lookups; STIX Two Math is not.
+    /// Every script selects the same lookups and places marks alike: a run
+    /// is never cut by script, and no row's scripts need settling for this
+    /// face. The embedded text faces are this, their `DFLT`, `latn` and
+    /// `hebr` naming the same lookups; STIX Two Math is not. Such a face's
+    /// runs are shaped as Common, left to right, whatever their script.
     No,
     Yes,
 }
@@ -688,37 +694,60 @@ struct Selections {
 
 impl Selections {
     /// The `GSUB` and `GPOS` lookups each script selects on `face` under
-    /// the grid features, numbered by first appearance. The lookups are
-    /// gathered once per pair of Script tables chosen, not once per script:
-    /// a face lists a handful of tables, and 175 scripts share them.
+    /// the grid features, how its marks are placed ([`MarkPlacement`]) and its
+    /// direction, numbered by first appearance. The lookups are gathered
+    /// once per pair of Script tables chosen with a placement, not once per
+    /// script: a face lists a handful of tables, and 175 scripts share
+    /// them. A face varies when the lookups or the placement do; direction
+    /// alone does not make it vary, so a face whose scripts all select
+    /// alike keeps shaping every run as Common.
     fn of(face: &Face<'_>) -> Selections {
-        type Chosen = (Option<ScriptTag>, Option<ScriptTag>);
-        let mut tables: Vec<(Chosen, Selection)> = Vec::new();
-        let mut seen: Vec<(Option<LookupSet>, Option<LookupSet>)> = Vec::new();
+        type Chosen = (Option<ScriptTag>, Option<ScriptTag>, MarkPlacement);
+        type Shaping = (Option<LookupSet>, Option<LookupSet>, MarkPlacement);
+        let mut tables: Vec<(Chosen, usize)> = Vec::new();
+        let mut seen: Vec<Shaping> = Vec::new();
+        let mut numbered: Vec<(usize, Direction)> = Vec::new();
         let by_script = PerScript::from_fn(|s| {
             let chosen = (
                 face.gsub().and_then(|g| g.chosen(s)),
                 face.gpos().and_then(|g| g.chosen(s)),
+                MarkPlacement::of(face, s),
             );
-            if let Some(&(_, sel)) = tables.iter().find(|(c, _)| *c == chosen) {
-                return sel;
-            }
-            let key = (
-                face.gsub().map(|g| g.lookups(s, Features::GRID)),
-                face.gpos().map(|g| g.lookups(s, Features::GRID)),
-            );
-            let i = match seen.iter().position(|k| *k == key) {
-                Some(i) => i,
+            let i = match tables.iter().find(|(c, _)| *c == chosen) {
+                Some(&(_, i)) => i,
                 None => {
-                    seen.push(key);
-                    seen.len() - 1
+                    let key = (
+                        face.gsub().map(|g| g.lookups(s, Features::GRID)),
+                        face.gpos().map(|g| g.lookups(s, Features::GRID)),
+                        chosen.2,
+                    );
+                    let i = match seen.iter().position(|k| *k == key) {
+                        Some(i) => i,
+                        None => {
+                            seen.push(key);
+                            seen.len() - 1
+                        }
+                    };
+                    tables.push((chosen, i));
+                    i
                 }
             };
-            let sel = Selection(u8::try_from(i).unwrap_or(u8::MAX));
-            tables.push((chosen, sel));
-            sel
+            let whole = (i, s.direction());
+            let n = match numbered.iter().position(|k| *k == whole) {
+                Some(n) => n,
+                None => {
+                    numbered.push(whole);
+                    numbered.len() - 1
+                }
+            };
+            Selection(u8::try_from(n).unwrap_or(u8::MAX))
         });
-        let varies = match by_script.uniform() {
+        let shaping = PerScript::from_fn(|s| {
+            numbered
+                .get(usize::from(by_script[s].0))
+                .map_or(0, |&(i, _)| i)
+        });
+        let varies = match shaping.uniform() {
             true => Varies::No,
             false => Varies::Yes,
         };
@@ -1791,21 +1820,25 @@ impl PerFace {
         let starters = stack
             .faces()
             .iter()
-            .map(|f| match (f.gsub(), f.morx()) {
-                (Some(gsub), _) => {
+            .map(|f| match (Substitution::of(f), f.gsub()) {
+                (Substitution::Gsub, Some(gsub)) => {
                     let mut d = vec![LookupDigest::EMPTY; MAX_LOOKUPS];
                     gsub.digests(Features::GRID, &mut d);
                     Starter::Gsub(d.into_iter().fold(LookupDigest::EMPTY, LookupDigest::union))
                 }
-                (None, Some(_)) => Starter::Morx,
-                (None, None) => Starter::Plain,
+                (Substitution::Morx, _) => Starter::Morx,
+                _ => Starter::Plain,
             })
             .collect();
         let pairs = stack.faces().iter().map(Pairs::of).collect();
         let extents = stack
             .faces()
             .iter()
-            .map(|f| f.gsub().and_then(|g| g.extent(Features::GRID)))
+            .map(|f| {
+                f.gsub()
+                    .filter(|_| Substitution::of(f) == Substitution::Gsub)
+                    .and_then(|g| g.extent(Features::GRID))
+            })
             .collect();
         let selections: Vec<Selections> = stack.faces().iter().map(Selections::of).collect();
         let faces = stack.each().collect();

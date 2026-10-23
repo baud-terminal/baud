@@ -557,6 +557,16 @@ tests = ["baud-core/tests/cluster_bounds.rs::every_point_of_genesis_1_1_to_5_is_
 shipped = ["2026-10-15-hebrew-vowel-points-now-sit-on"]
 
 [[feature]]
+id = "hebrew-points-mac-fonts"
+area = "text"
+name = "Hebrew points on more of the Mac's fonts"
+does = "Hebrew vowel points and cantillation marks sit on their letters with Arial Unicode MS, Courier New and Arial Hebrew too, where they drew a cell or two to the right, stacked two under one letter, or did not draw at all."
+status = "built"
+platform = "macos"
+tests = ["baud-font/tests/shape.rs::every_hebrew_face_fixture_shapes_as_harfbuzz_does", "baud-font/tests/shape.rs::a_gpos_selecting_no_table_places_hebrew_as_no_gpos_does", "baud-render/tests/script_runs.rs::a_hebrew_point_draws_in_its_letters_cell_on_arial_unicode_ms_and_arial_hebrew", "baud-render/tests/script_runs.rs::a_face_whose_gpos_selects_nothing_for_hebrew_draws_it_as_one_with_no_gpos"]
+shipped = ["B1-13"]
+
+[[feature]]
 id = "system-fallback"
 area = "text"
 name = "Every script, from your Mac's fonts"

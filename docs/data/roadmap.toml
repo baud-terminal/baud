@@ -32,9 +32,10 @@ summary = "Programs that ask will learn when a key is let go and when Shift, Con
 [[item]]
 id = "B1-13"
 area = "text"
-status = "in_progress"
+status = "done"
+date = "2026-10-23"
 title = "Hebrew points on the last few fonts"
-summary = "Hebrew points sit on their letters in the fonts tested but a few: Courier New stacks two points under one letter where they belong side by side, Arial Unicode MS draws points outside their letter's cell, and Arial Hebrew draws its meteg and cantillation marks as another glyph."
+summary = "Hebrew points sit on their letters with Courier New, Arial Unicode MS and Arial Hebrew too: two points under one letter side by side, points inside their letter's cell, and meteg and the cantillation marks drawn."
 
 [[item]]
 id = "B2-03"
