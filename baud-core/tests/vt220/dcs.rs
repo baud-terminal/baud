@@ -80,7 +80,7 @@ fn decrqss_reports_sgr() {
 
 /// **neovim over ssh turns truecolor on from this answer.** Without
 /// `COLORTERM` it writes `SGR 0`, `SGR 48;2;1;2;3` and DECRQSS `m` in one
-/// payload (`[[source: neovim-core-defaults-lua]]` 1037-1039), and turns
+/// payload (`[[source: neovim-core-defaults-lua]]` 1040), and turns
 /// `termguicolors` on only for an answer of one attribute, or `0` and one,
 /// that is `48:2:` and the three channels, with an empty fourth element
 /// first or none (1040-1076). The semicolon spelling, `0;48;2;1;2;3`, is

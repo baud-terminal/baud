@@ -392,8 +392,12 @@ pub fn later(parts: &[Part]) -> Option<String> {
     match names.is_empty() {
         true => None,
         false => Some(format!(
-            "config: {} take effect at the next launch",
-            names.join(", ")
+            "config: {} {} effect at the next launch",
+            names.join(", "),
+            match names.len() {
+                1 => "takes",
+                _ => "take",
+            }
         )),
     }
 }
@@ -496,6 +500,10 @@ mod tests {
         assert_eq!(
             super::later(&[Part::FontSize, Part::Vs16Width, Part::Images]).as_deref(),
             Some("config: vs16_width, [images] pixels_mb take effect at the next launch")
+        );
+        assert_eq!(
+            super::later(&[Part::FontSize, Part::Vs16Width]).as_deref(),
+            Some("config: vs16_width takes effect at the next launch")
         );
         assert_eq!(super::later(&[Part::FontSize]), None);
         assert_eq!(super::later(&[Part::AmbiguousWidth]), None);

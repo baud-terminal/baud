@@ -3047,7 +3047,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.badge_drawn
     }
 
-    /// The badge's records for `look` on a frame `frame` in size.
     /// The face a badge's cluster is drawn from: the badge's own face
     /// ([`Stack::badge`]) when it draws every character of it, else the
     /// face `style` would draw it from in the text.

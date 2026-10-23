@@ -469,7 +469,7 @@ impl Paint<'_, '_> {
     /// ambiguous-wide and the Unicode version as they are set. `FILE` is
     /// not claimed: it says "including those using lossy compression", and
     /// baud draws PNG alone and refuses downloads (Jev, NOT_CLAIMED,
-    /// 0.90/0.92).
+    /// 0.96/0.88 and 0.90/0.92).
     fn capabilities(&mut self) {
         let clip =
             self.strs.window_asks.clipboard == Osc52Writes::On && !self.strs.clip_area.is_empty();
