@@ -1,6 +1,7 @@
 //! The frame: rows that changed, converted and painted.
 
 use crate::atlas::{Atlas, AtlasStats, Code, Kind, Stretch, Tex};
+use crate::badge::{self, BadgeLook};
 use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
     Shaped,
@@ -556,6 +557,10 @@ const MARK_SLOT: Chan = Chan::from_offset(33, 30);
 /// How much of it: enough to find on a page, little enough to read the
 /// text through.
 const MARK_ALPHA: u8 = 0x66;
+
+/// How many sizes of the badge's glyphs the atlas holds before it starts
+/// over (`Renderer::set_badge`).
+const BADGE_SIZES: usize = 2;
 
 /// Whether a CPU frame repainted the exit-status strip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1617,6 +1622,23 @@ pub struct Renderer<'f, 'a> {
     guide_at: Option<guide::Placed>,
     last_guide_at: Option<guide::Placed>,
     guide_inst: Vec<Instance>,
+    /// iTerm2's badge ([`Renderer::set_badge`]): the look and frame size
+    /// its records were built for, the records, the rectangle they cover
+    /// on this frame and the last, and a count of rebuilds, which marks
+    /// the rows under either rectangle dirty.
+    badge_key: Option<(BadgeLook, (Px, Px))>,
+    badge_inst: Vec<Instance>,
+    /// The badge's records as this frame draws them, cut around what it
+    /// stays out from under ([`Renderer::place_grounds`]), and those holes.
+    badge_drawn: Vec<Instance>,
+    badge_holes: Vec<[i32; 4]>,
+    /// The pixel sizes the badge's glyphs are held at in the atlas: at most
+    /// [`BADGE_SIZES`], past which the atlas starts over.
+    badge_sizes: Vec<f32>,
+    badge_rect: Option<[u32; 4]>,
+    last_badge_rect: Option<[u32; 4]>,
+    badge_built: Tally,
+    last_badge_built: Tally,
     /// Whether this frame shows the other video, set by
     /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
     /// phase is.
@@ -1864,6 +1886,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
             guide_at: None,
             last_guide_at: None,
             guide_inst: Vec::new(),
+            badge_key: None,
+            badge_inst: Vec::new(),
+            badge_drawn: Vec::new(),
+            badge_holes: Vec::new(),
+            badge_sizes: Vec::new(),
+            badge_rect: None,
+            last_badge_rect: None,
+            badge_built: Tally::default(),
+            last_badge_built: Tally::default(),
             flash: VideoFlash::default(),
             image_places: Vec::new(),
             place_rows: PlaceRows::default(),
@@ -1914,6 +1945,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .collect();
         self.metrics = metrics;
         self.atlas.reset();
+        // The badge's glyphs went with the rest: built again at the next
+        // `set_badge`.
+        self.badge_key = None;
+        self.badge_sizes.clear();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -1957,6 +1992,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cache = RunCache::new();
         self.metrics = metrics;
         self.atlas.reset();
+        // The badge's glyphs went with the rest: built again at the next
+        // `set_badge`.
+        self.badge_key = None;
+        self.badge_sizes.clear();
         self.known = Prev::Unknown;
         Some(())
     }
@@ -1970,6 +2009,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.emoji = emoji;
         self.atlas.reset();
+        self.badge_key = None;
+        self.badge_sizes.clear();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -2509,15 +2550,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         // An image under the text is a ground the cells do not name: their
         // styles are the page's while the pixels are the image's.
+        let meets = |px0: i32, py0: i32, px1: i32, py1: i32| {
+            self.trail_inst.iter().any(|r| {
+                let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
+                x < px1 && px0 < x + i32::from(r.w.0) && y < py1 && py0 < y + i32::from(r.h.0)
+            })
+        };
         let imaged = self.image_places.iter().any(|p| {
             let (px0, py0) = (i32::from(p.x), i32::from(p.y));
-            let (px1, py1) = (px0 + i32::from(p.w), py0 + i32::from(p.h));
-            p.layer.under_text()
-                && self.trail_inst.iter().any(|r| {
-                    let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
-                    x < px1 && px0 < x + i32::from(r.w.0) && y < py1 && py0 < y + i32::from(r.h.0)
-                })
+            p.layer.under_text() && meets(px0, py0, px0 + i32::from(p.w), py0 + i32::from(p.h))
         });
+        // **The badge is a ground no cell names, as an image under the text
+        // is**: a pass that meets its rectangle draws nothing.
+        let side = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+        let imaged = imaged
+            || self
+                .badge_rect
+                .is_some_and(|b| meets(side(b[0]), side(b[1]), side(b[2]), side(b[3])));
         let ink = self.cursor_fill.with_alpha(Chan::from_u8(0xFF));
         let opaque = |c: Argb| c.with_alpha(Chan::from_u8(0xFF));
         let mut triples: Vec<(Argb, Argb)> = Vec::new();
@@ -2880,10 +2929,193 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **iTerm2's badge** for the frames to come, or none (`badge.rs`): its
+    /// text laid out and its glyphs rasterised at the size it fits at, its
+    /// records drawn over the backgrounds and the images under the text,
+    /// before the cursor guide and under the text, on every path -- first
+    /// in [`Renderer::instances`], the CPU path's after a row's images, and
+    /// the cell path's from [`Renderer::badge`] with its grounds. Built
+    /// again only when the look or the frame's size changes.
+    pub fn set_badge(&mut self, look: Option<BadgeLook>) {
+        let frame = self.frame_size();
+        let key = look.map(|l| (l, frame));
+        if key == self.badge_key {
+            return;
+        }
+        self.badge_key = key.clone();
+        self.badge_built.bump();
+        self.badge_inst.clear();
+        self.badge_rect = None;
+        if let Some((look, _)) = key {
+            self.build_badge(&look, frame);
+        }
+        self.cut_badge();
+    }
+
+    /// The badge's records cut around this frame's holes.
+    fn cut_badge(&mut self) {
+        self.badge_drawn.clear();
+        for &inst in &self.badge_inst {
+            badge::around(inst, &self.badge_holes, &mut self.badge_drawn);
+        }
+    }
+
+    /// The badge's records, for a path that draws records of its own:
+    /// first among its grounds, before the cursor guide.
+    pub fn badge(&self) -> &[Instance] {
+        &self.badge_drawn
+    }
+
+    /// The badge's records for `look` on a frame `frame` in size.
+    /// The face a badge's cluster is drawn from: the badge's own face
+    /// ([`Stack::badge`]) when it draws every character of it, else the
+    /// face `style` would draw it from in the text.
+    fn badge_face(&mut self, cps: &[Codepoint], style: FaceStyle) -> FaceIx {
+        if cps.iter().all(|&c| self.stack.badge_carries(c)) {
+            self.stack.badge()
+        } else {
+            self.face_for(cps, style)
+        }
+    }
+
+    /// The badge's records for `look` over a frame of `frame` pixels, and
+    /// the rectangle they cover.
+    fn build_badge(&mut self, look: &BadgeLook, frame: (Px, Px)) {
+        let pieces = badge::pieces(&look.text);
+        if pieces.iter().all(|p| p.space == badge::Space::Yes) {
+            return;
+        }
+        // The badge face's grid at a point size, unrounded: its `M`'s
+        // advance a column, its ascent and its line, as `Metrics::of`.
+        let primary = self.stack.face(self.stack.badge());
+        let Some(m) = primary.glyph(baud_domain::Codepoint::from_char('M')) else {
+            return;
+        };
+        let Some(advance) = primary.default_advance(m) else {
+            return;
+        };
+        let lm = primary.line_metrics();
+        let upem = primary.units_per_em();
+        let grid = |points: u32| {
+            let px = f32::from(u16::try_from(points).unwrap_or(u16::MAX)) * look.scale;
+            let s = Scale::of(px, upem);
+            badge::Grid {
+                advance: s.px(f32::from(advance.value())),
+                ascent: s.px(f32::from(lm.ascender.value())),
+                height: s.px(
+                    f32::from(lm.ascender.value()) - f32::from(lm.descender.value())
+                        + f32::from(lm.line_gap.value()),
+                ),
+            }
+        };
+        let (fw, fh) = (
+            f32::from(u16::try_from(frame.0.value()).unwrap_or(u16::MAX)),
+            f32::from(u16::try_from(frame.1.value()).unwrap_or(u16::MAX)),
+        );
+        let max = (
+            fw * look.fraction.0.clamp(0.01, 1.0),
+            fh * look.fraction.1.clamp(0.0, 1.0),
+        );
+        let (points, lines, g) = badge::fit(&pieces, grid, max);
+        let px = f32::from(u16::try_from(points).unwrap_or(u16::MAX)) * look.scale;
+        // **The atlas holds the badge at two sizes at most.** A slot is
+        // never freed, so a window dragged through every size the badge fits
+        // at would fill the sheet with glyphs no frame draws; a third size
+        // starts the atlas over, as a font size change does, and every row
+        // is converted again with the glyphs drawn afresh.
+        if !self.badge_sizes.contains(&px) {
+            if self.badge_sizes.len() >= BADGE_SIZES {
+                self.atlas.reset();
+                self.badge_sizes.clear();
+                self.known = Prev::Unknown;
+            }
+            self.badge_sizes.push(px);
+        }
+        let cells = |n: u32| f32::from(u16::try_from(n).unwrap_or(u16::MAX)) * g.advance;
+        // Every line right-aligned at the box's right edge, `right` from
+        // the frame's.
+        let right = fw - f32::from(u16::try_from(look.right.value()).unwrap_or(0));
+        let y0 = f32::from(u16::try_from(look.top.value()).unwrap_or(0));
+        let curve = curve_row(look.colour);
+        let mut out = Vec::new();
+        for (n, line) in lines.iter().enumerate() {
+            let top = y0 + f32::from(u16::try_from(n).unwrap_or(u16::MAX)) * g.height;
+            if top + g.height > y0 + max.1 + 0.5 && n > 0 {
+                break;
+            }
+            let baseline = (top + g.ascent).round() as i32;
+            let mut col = 0u32;
+            let left = right - cells(line.cells);
+            // Runs of pieces on one face, each shaped on its own grid.
+            let mut at = line.from;
+            while at < line.to {
+                let p = &pieces[at];
+                if p.space == badge::Space::Yes || p.cells == 0 {
+                    col += p.cells;
+                    at += 1;
+                    continue;
+                }
+                let face = self.badge_face(&p.cps, look.style);
+                let (start, mut run, mut clusters) = (col, 0u32, Vec::new());
+                while at < line.to {
+                    let q = &pieces[at];
+                    let same = q.space == badge::Space::No
+                        && q.cells > 0
+                        && self.badge_face(&q.cps, look.style) == face;
+                    if !same || run + q.cells > 250 {
+                        break;
+                    }
+                    clusters.push(ClusterIn {
+                        cps: q.cps.clone(),
+                        at: CellIx(u8::try_from(run).unwrap_or(u8::MAX)),
+                    });
+                    run += q.cells;
+                    at += 1;
+                }
+                col += run;
+                let script = Script::of_cluster(&clusters[0].cps);
+                let shaped = self.shape(face, script, &clusters, ..);
+                let f = self.stack.face(face);
+                let scale = Scale::of(px, f.units_per_em());
+                for p in shaped.glyphs() {
+                    let Some(slot) = self.atlas.slot_sized(f, face, p.id, scale) else {
+                        continue;
+                    };
+                    let pen = left + cells(start + u32::from(p.cell.0)) + scale.px(f32::from(p.dx));
+                    let x = pen.round() as i32 + slot.left;
+                    let y = baseline - scale.px(f32::from(p.dy)).round() as i32 + slot.top;
+                    out.push(Instance {
+                        x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
+                        y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+                        w: slot.w,
+                        h: slot.h,
+                        u: slot.x,
+                        v: slot.y,
+                        color: look.colour,
+                        kind: slot.kind,
+                        curve,
+                    });
+                }
+            }
+        }
+        let mut rect: Option<[i32; 4]> = None;
+        for i in &out {
+            let (x, y) = (i32::from(i.x.0), i32::from(i.y.0));
+            let (x1, y1) = (x + i32::from(i.w.0), y + i32::from(i.h.0));
+            rect = Some(match rect {
+                None => [x, y, x1, y1],
+                Some(r) => [r[0].min(x), r[1].min(y), r[2].max(x1), r[3].max(y1)],
+            });
+        }
+        let at = |v: i32| u32::try_from(v.max(0)).unwrap_or(0);
+        self.badge_rect = rect.map(|r| [at(r[0]), at(r[1]), at(r[2]), at(r[3])]);
+        self.badge_inst = out;
+    }
+
     /// **iTerm2's cursor guide** for the frames to come, or none: drawn on
     /// the cursor's row, over the backgrounds and the images under the
     /// text and under the text and the cursor, on every path (`guide.rs`).
-    /// Its row is placed by [`Renderer::place_cursor_guide`].
+    /// Its row is placed by [`Renderer::place_grounds`].
     pub fn set_cursor_guide(&mut self, look: Option<GuideLook>) {
         self.guide = look;
     }
@@ -2910,16 +3142,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (term.cursor_visible() && row < main.index()).then(|| Row::from_index(row))
     }
 
-    /// **The guide's place for this frame**, from the live cursor `at`
-    /// while the cursor is shown -- `None` while it is hidden, looked back
-    /// from or off the screen drawn -- and `line`, the cursor's line in the
-    /// window ([`Renderer::cursor_line`]): on `at`'s row, else on `line`
-    /// while the window looks back, leaving out the cell of a block the
-    /// phase draws. [`Renderer::convert`] calls this itself; a cell-path
-    /// driver calls it with the cursor it computed and draws
-    /// [`Renderer::cursor_guide`] before the glyphs.
-    pub fn place_cursor_guide(&mut self, at: Option<(Row, Col, CursorStyle)>, line: Option<Row>) {
+    /// **What lies under the glyphs this frame, placed**, from the live
+    /// cursor `at` while the cursor is shown -- `None` while it is hidden,
+    /// looked back from or off the screen drawn -- and `line`, the cursor's
+    /// line in the window ([`Renderer::cursor_line`]): the cursor guide on
+    /// `at`'s row, else on `line` while the window looks back, and both the
+    /// guide and the badge leaving out the cell of a block the phase draws,
+    /// which iTerm2 draws over both; the badge leaves out an input method's
+    /// composition as well, whose background iTerm2 fills over everything
+    /// (`drawInputMethodEditorTextAt`, `[[source:
+    /// iterm2-7ce037e-text-drawing-helper]]`). [`Renderer::convert`] calls
+    /// this itself; a cell-path driver calls it with the cursor it computed
+    /// and draws [`Renderer::badge`] and [`Renderer::cursor_guide`] before
+    /// the glyphs.
+    pub fn place_grounds(&mut self, at: Option<(Row, Col, CursorStyle)>, line: Option<Row>) {
         let rows = self.rows.index();
+        let side = |v: Px| i32::try_from(v.value()).unwrap_or(i32::MAX);
+        self.badge_holes.clear();
+        if let Some((r, c, style)) = at.filter(|(r, _, _)| r.index() < rows) {
+            let block = matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock);
+            if block && self.cursor_drawn(style) {
+                let (x, y, w, h) = self.cursor_px(r, c, style);
+                let (x, y) = (side(x), side(y));
+                self.badge_holes.push([x, y, x + side(w), y + side(h)]);
+            }
+        }
+        if let Some(comp) = self.composition.as_ref().filter(|c| c.row.index() < rows) {
+            let (start, end) = comp.columns(self.cols);
+            let cw = side(self.metrics.cell_w);
+            let band = self.band(comp.row);
+            let at = |n: usize| i32::try_from(n).unwrap_or(i32::MAX).saturating_mul(cw);
+            self.badge_holes
+                .push([at(start), side(band.top), at(end), side(band.bottom)]);
+        }
+        self.cut_badge();
         self.guide_at = self.guide.and_then(|look| {
             let drawn = at.filter(|(r, _, _)| r.index() < rows);
             let r = drawn
@@ -2953,11 +3209,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.guide_inst
     }
 
-    /// [`Renderer::cursor_guide`] into `out`, lowered `pan` pixels: what the
-    /// cell path draws while a smooth scroll slides its grid, so the guide
-    /// stays on the cursor's row as the row moves.
+    /// [`Renderer::cursor_guide`] after `out`'s records, lowered `pan`
+    /// pixels: what the cell path draws while a smooth scroll slides its
+    /// grid, so the guide stays on the cursor's row as the row moves.
     pub fn cursor_guide_lowered(&self, pan: Px, out: &mut Vec<Instance>) {
-        out.clear();
         let down = i16::try_from(pan.value()).unwrap_or(i16::MAX);
         out.extend(self.guide_inst.iter().map(|g| Instance {
             y: Screen(g.y.0.saturating_add(down)),
@@ -4480,7 +4735,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map(|(r, c)| (r, c, term.cursor_style())),
         };
         self.set_cursor_glow_at(live);
-        self.place_cursor_guide(live, Self::cursor_line(term, back));
+        self.place_grounds(live, Self::cursor_line(term, back));
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
         let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
         // Every slot resolved again -- a theme, a video or a palette changed
@@ -4553,6 +4808,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let guide_moved = (guide_row(self.guide_at) || guide_row(self.last_guide_at))
                 && self.guide_at != self.last_guide_at;
+            let band_now = self.band(Row::from_index(r));
+            let badge_row = |b: Option<[u32; 4]>| {
+                b.is_some_and(|b| b[1] < band_now.bottom.value() && band_now.top.value() < b[3])
+            };
+            let badge_moved = self.badge_built != self.last_badge_built
+                && (badge_row(self.badge_rect) || badge_row(self.last_badge_rect));
             let row = Row::from_index(r);
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
             let selection_moved = selected(self.highlight) != selected(self.last_highlight);
@@ -4620,6 +4881,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || cursor_moved
                 || glow_moved
                 || guide_moved
+                || badge_moved
                 || selection_moved
                 || bar_moved
                 || trail_moved
@@ -4728,6 +4990,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_cursor_opacity = opacity;
         self.last_glow = self.glow;
         self.last_guide_at = self.guide_at;
+        self.last_badge_rect = self.badge_rect;
+        self.last_badge_built = self.badge_built;
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
         self.last_trail = self.trail;
@@ -4823,9 +5087,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             let examined = under.paint(self, target, row, page);
             frame.places_examined.add(examined);
-            // The cursor guide over the backgrounds and the images under the
-            // text, before the glyphs: first in `instances()`.
-            for inst in &self.guide_inst {
+            // The badge, then the cursor guide, over the backgrounds and the
+            // images under the text, before the glyphs: first in
+            // `instances()`.
+            for inst in self.badge_drawn.iter().chain(&self.guide_inst) {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
             // In the order `instances()` hands the GPU instance path: the
@@ -4916,8 +5181,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Every instance of the current frame, row by row: what a GPU path
     /// uploads whole (D2: nobody uploads partial ranges).
     pub fn instances(&self) -> impl Iterator<Item = &Instance> + '_ {
-        self.guide_inst
+        self.badge_drawn
             .iter()
+            .chain(self.guide_inst.iter())
             .chain(self.per_row.iter().flatten())
             .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())

@@ -754,7 +754,7 @@ fn request_attention_reaches_the_embedder() {
             assert_ne!(t.attention_requests(), n);
             support::feed(
                 t,
-                b"\x1b]1337;RequestAttention=fireworks\x07\x1b]1337;SetBadgeFormat=eA==\x07",
+                b"\x1b]1337;RequestAttention=fireworks\x07\x1b]1337;AddNote=eA==\x07",
             );
             assert_eq!(t.strings_ignored, 2);
         },

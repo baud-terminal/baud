@@ -4119,6 +4119,21 @@ impl<'b> Term<'b> {
         self.cold.cursor_guide
     }
 
+    /// **iTerm2's badge format as a program set it** with `OSC 1337 ;
+    /// SetBadgeFormat` (`[[source: iterm2-badges]]`), decoded: an
+    /// interpolated string the embedder evaluates and draws in the top
+    /// right behind the text. `None` while none has, when the embedder's
+    /// own decides, as iTerm2's profile does; an empty one is no badge.
+    pub fn badge_format(&self) -> Option<&str> {
+        self.store.strs.iterm.badge()
+    }
+
+    /// The badge's colour as `OSC 1337 ; SetColors=badge=` set it, opaque,
+    /// or `None` for the embedder's.
+    pub fn badge_colour(&self) -> Option<baud_domain::ColorWord> {
+        self.store.strs.iterm.badge_colour
+    }
+
     /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,
     /// blinking if that style blinks **or** `?12` is set -- foot's rule, so
     /// `?12l`, which vim sends at start and every `cnorm` sends, cannot stop a

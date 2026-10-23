@@ -177,7 +177,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
         ItermKey::SetProfileProperty,
         Refuses(RewritesSettings),
     ),
-    (b"SetBadgeFormat", ItermKey::SetBadgeFormat, Unbuilt),
+    (b"SetBadgeFormat", ItermKey::SetBadgeFormat, Acts),
     (b"SetUserVar", ItermKey::SetUserVar, Acts),
     (b"ReportCellSize", ItermKey::ReportCellSize, Acts),
     (b"SetWindowFrame", ItermKey::SetWindowFrame, Unbuilt),
@@ -408,6 +408,9 @@ pub enum Osc1337<'a> {
     /// format the program waits for an answer; with another iTerm2 sends
     /// none.
     RequestUpload(UploadFormat),
+    /// `SetBadgeFormat=base64`: the badge's format, encoded ("Base-64
+    /// encoded badge format", `[[source: iterm2-badges]]`).
+    BadgeFormat(&'a [u8]),
     /// `SetColors=key=value[,key=value...]`: [`ColorSettings`].
     SetColors(ColorSettings<'a>),
     /// `Copy=:base64`, whole: the base64 after the `:`. The core streams a
@@ -502,6 +505,7 @@ impl<'a> Osc1337<'a> {
                 _ => MarkAt::CursorLine,
             }),
             ItermKey::ReportVariable => Osc1337::ReportVariable(value),
+            ItermKey::SetBadgeFormat => Osc1337::BadgeFormat(value),
             ItermKey::SetColors => Osc1337::SetColors(ColorSettings(value)),
             ItermKey::Notification => Osc1337::Notification(NoticePairs(value)),
             // "name=base64 to set a user variable or just name to unset it";

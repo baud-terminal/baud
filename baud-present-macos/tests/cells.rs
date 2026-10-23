@@ -116,6 +116,8 @@ struct Arms<'f, 'a> {
     grounds: Vec<Instance>,
     /// The cursor guide both arms draw, or none.
     guide: Option<baud_render::GuideLook>,
+    /// The badge both arms draw, or none.
+    badge: Option<baud_render::BadgeLook>,
     candidates: Vec<Candidate>,
     /// Lines above the live screen both arms draw.
     back: Rows,
@@ -173,6 +175,7 @@ impl Arms<'_, '_> {
         let view = t.view(self.back);
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_cursor_guide(self.guide);
+        self.renderer.set_badge(self.badge.clone());
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
@@ -295,7 +298,9 @@ impl Arms<'_, '_> {
         // the live cursor, else on the cursor's line while the window looks
         // back, its records under the glyphs.
         self.renderer
-            .place_cursor_guide(shown, Renderer::cursor_line(t, self.back));
+            .place_grounds(shown, Renderer::cursor_line(t, self.back));
+        self.grounds.clear();
+        self.grounds.extend_from_slice(self.renderer.badge());
         self.renderer
             .cursor_guide_lowered(self.slide.unwrap_or(Px::of(0)), &mut self.grounds);
         // baud's own overlays last, over the images, as the app draws
@@ -1315,6 +1320,7 @@ macro_rules! arms {
             records: Vec::new(),
             grounds: Vec::new(),
             guide: None,
+            badge: None,
             candidates: Vec::new(),
             back: Rows::ZERO,
             highlight: None,
@@ -1914,7 +1920,70 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the guide stays on the cursor's row through a slide"
     );
     arms.guide = None;
-    feed(&mut t, b"\x1b[2 q\x1b[3;60H\x1b[K");
+    // **iTerm2's badge** in the top right, its text over it: the arms
+    // agree, and each draws it.
+    feed(&mut t, b"\x1b[2;40Hthe text that runs under the badge");
+    let (bare_a, bare_b) = arms.draw(&mut t);
+    arms.badge = Some(baud_render::BadgeLook {
+        text: "prod-db-01\nmain".into(),
+        colour: baud_render::BADGE,
+        fraction: baud_render::BOX,
+        top: Px::of(30),
+        right: Px::of(10),
+        scale: 1.0,
+        style: FaceStyle::Bold,
+    });
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms disagree on the badge");
+    assert_ne!(differing(&a, &bare_a), 0, "the instance arm drew no badge");
+    assert_ne!(differing(&b, &bare_b), 0, "the cell arm drew no badge");
+    // A block cursor inside the badge's rectangle is drawn over it, on
+    // both arms: its cell's pixels are the frame's without the badge.
+    let rect =
+        arms.renderer
+            .badge()
+            .iter()
+            .fold([i32::MAX, i32::MAX, i32::MIN, i32::MIN], |r, i| {
+                let (x, y) = (i32::from(i.x.0), i32::from(i.y.0));
+                [
+                    r[0].min(x),
+                    r[1].min(y),
+                    r[2].max(x + i32::from(i.w.0)),
+                    r[3].max(y + i32::from(i.h.0)),
+                ]
+            });
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        i32::try_from(m.cell_w.value()).unwrap(),
+        i32::try_from(m.cell_h.value()).unwrap(),
+    );
+    let (row, col) = ((rect[1] + rect[3]) / 2 / ch, (rect[0] + rect[2]) / 2 / cw);
+    feed(
+        &mut t,
+        format!("\x1b[2 q\x1b[?25h\x1b[{};{}H", row + 1, col + 1).as_bytes(),
+    );
+    let look = arms.badge.take();
+    let (bare_a, bare_b) = arms.draw(&mut t);
+    arms.badge = look;
+    let (a, b) = arms.draw(&mut t);
+    let width = usize::try_from(arms.renderer.whole_size().0.value() + arms.margin.0).unwrap();
+    let at = |v: i32| usize::try_from(v).unwrap();
+    for y in at(row * ch)..at((row + 1) * ch) {
+        for x in at(col * cw)..at((col + 1) * cw) {
+            assert_eq!(
+                a[y * width + x],
+                bare_a[y * width + x],
+                "instance arm, block at ({x}, {y})"
+            );
+            assert_eq!(
+                b[y * width + x],
+                bare_b[y * width + x],
+                "cell arm, block at ({x}, {y})"
+            );
+        }
+    }
+    arms.badge = None;
+    feed(&mut t, b"\x1b[2;40H\x1b[K\x1b[2 q\x1b[3;60H\x1b[K");
     // `SGR 8` the same way, in either phase: concealed text with an underline
     // and a strike is the frame of its spaces, on each arm.
     feed(

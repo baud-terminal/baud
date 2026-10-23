@@ -26,6 +26,7 @@
 #![forbid(unsafe_code)]
 
 mod atlas;
+mod badge;
 pub mod boxes;
 mod cache;
 mod caret;
@@ -64,6 +65,7 @@ pub use atlas::{
     Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Stretch, Tex, TexRect,
     VAR_POINTS_MAX,
 };
+pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{

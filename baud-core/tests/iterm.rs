@@ -149,6 +149,78 @@ fn highlight_cursor_line_shows_and_hides_the_guide() {
     }
 }
 
+// ── SetBadgeFormat ──────────────────────────────────────────────────────────
+
+/// **`SetBadgeFormat=base64` keeps the badge's format, decoded**, for the
+/// embedder to evaluate: none until a program sets one, an empty one
+/// clearing it, `RIS` keeping it as iTerm2's reset does. A value that is
+/// not base64 of UTF-8, or one that calls a function, leaves the format as
+/// it was and is counted under its key, as iTerm2 refuses both.
+#[test]
+fn set_badge_format_keeps_the_format_and_refuses_a_call() {
+    let set = |f: &str| osc(&format!("SetBadgeFormat={}", b64(f.as_bytes())));
+    for size in SIZES {
+        with(b"", size, |t| {
+            assert_eq!(t.badge_format(), None, "power-on")
+        });
+        with(&set("\\(user.host) on main"), size, |t| {
+            assert_eq!(
+                t.badge_format(),
+                Some("\\(user.host) on main"),
+                "reads of {size}"
+            );
+            assert_eq!(t.strings_ignored, 0);
+            for refused in [
+                osc("SetBadgeFormat=*not base64*"),
+                set("\\(foo())"),
+                osc(&format!("SetBadgeFormat={}", b64(&[0xFF, 0xFE]))),
+            ] {
+                feed(t, &refused, size);
+                assert_eq!(t.badge_format(), Some("\\(user.host) on main"), "kept");
+            }
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::SetBadgeFormat),
+                Messages::of(3)
+            );
+            feed(t, b"\x1bc", size);
+            assert_eq!(
+                t.badge_format(),
+                Some("\\(user.host) on main"),
+                "RIS keeps it"
+            );
+            feed(t, &set(""), size);
+            assert_eq!(t.badge_format(), Some(""), "an empty one clears it");
+            assert_eq!(t.iterm_counts().badge_unevaluated, Messages::NONE);
+            feed(t, &set("\\(user.a) \\(session.name) \\(1 + 2)"), size);
+            assert_eq!(
+                t.iterm_counts().badge_unevaluated,
+                Messages::of(2),
+                "all but the user variable"
+            );
+        });
+    }
+}
+
+/// **`SetColors=badge=` sets the badge's colour**, opaque, as iTerm2's
+/// source makes a hex colour.
+#[test]
+fn set_colors_sets_the_badge_colour() {
+    for size in SIZES {
+        with(&osc("SetColors=badge=ff8000"), size, |t| {
+            assert_eq!(
+                t.badge_colour(),
+                Some(baud_domain::ColorWord::rgb(
+                    baud_domain::Chan::from_u8(0xFF),
+                    baud_domain::Chan::from_u8(0x80),
+                    baud_domain::Chan::from_u8(0x00)
+                )),
+                "reads of {size}"
+            );
+            assert_eq!(t.unsupported, 0, "honoured, not counted");
+        });
+    }
+}
+
 // ── ClearScrollback ─────────────────────────────────────────────────────────
 
 fn lines(n: usize) -> Vec<u8> {

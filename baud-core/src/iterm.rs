@@ -28,12 +28,17 @@ pub struct ItermCounts {
     by_key: [Messages; ITERM_KEYS],
     /// Messages whose key iTerm2 does not know.
     pub unknown: Messages,
+    /// Expressions in the badge formats kept that baud does not evaluate,
+    /// each drawn as nothing: every one but a user variable's,
+    /// `\(user.NAME)`.
+    pub badge_unevaluated: Messages,
 }
 
 impl ItermCounts {
     pub(crate) const NONE: ItermCounts = ItermCounts {
         by_key: [Messages::NONE; ITERM_KEYS],
         unknown: Messages::NONE,
+        badge_unevaluated: Messages::NONE,
     };
 
     /// The messages with `key` not acted on: a key baud does not act on
@@ -68,6 +73,19 @@ pub(crate) struct Pushed {
     widths: UnicodeWidths,
 }
 
+/// **The longest badge format kept**, decoded: what the longest `OSC`
+/// body baud reads, `OSC_MAX` bytes of base64, decodes to.
+pub(crate) const BADGE_MAX: usize = OSC_MAX / 4 * 3;
+
+/// The badge format a program set, if any.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Badge {
+    /// None since power-on: the embedder's own, iTerm2's profile's.
+    Unset,
+    /// Its bytes, the first of [`Iterm::badge`], UTF-8.
+    Set(ByteLen),
+}
+
 /// The host the last `RemoteHost` named.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Host {
@@ -86,6 +104,11 @@ pub(crate) enum Host {
 pub(crate) struct Iterm {
     host: [u8; HOST_MAX],
     host_at: Host,
+    badge: [u8; BADGE_MAX],
+    badge_at: Badge,
+    /// The badge's colour as `SetColors=badge=` set it, opaque as iTerm2
+    /// makes it, or `None` for the embedder's.
+    pub(crate) badge_colour: Option<ColorWord>,
     pub(crate) scale: BackingScale,
     /// `UnicodeVersion`'s stack, its entries from the front, the first
     /// `None` its top. `RIS` keeps it, as iTerm2's reset does (Jev, KEPT,
@@ -98,10 +121,21 @@ impl Iterm {
     pub(crate) const NEW: Iterm = Iterm {
         host: [0; HOST_MAX],
         host_at: Host::Local,
+        badge: [0; BADGE_MAX],
+        badge_at: Badge::Unset,
+        badge_colour: None,
         scale: BackingScale::UNTOLD,
         pushed: [None; UNICODE_STACK],
         counts: ItermCounts::NONE,
     };
+
+    /// The badge format a program set, `None` while none has.
+    pub(crate) fn badge(&self) -> Option<&str> {
+        match self.badge_at {
+            Badge::Unset => None,
+            Badge::Set(n) => core::str::from_utf8(&self.badge[..n.index()]).ok(),
+        }
+    }
 }
 
 impl Paint<'_, '_> {
@@ -140,6 +174,7 @@ impl Paint<'_, '_> {
             Osc1337::Notification(pairs) => self.notification(pairs),
             Osc1337::RequestUpload(_) => self.request_upload(),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
+            Osc1337::BadgeFormat(b64) => self.set_badge_format(b64, body),
             Osc1337::SetColors(list) => self.set_colors(list),
             Osc1337::SetUserVar { name, value } => self.set_user_var(name, value, body),
             Osc1337::Copy(data) => self.copy_whole(data),
@@ -503,14 +538,75 @@ impl Paint<'_, '_> {
         self.strs.prompts.mark(line);
     }
 
+    /// **`SetBadgeFormat=base64`: the badge's format**, kept for the embedder
+    /// to evaluate and draw (`Term::badge_format`), as iTerm2's
+    /// `screenSetBadgeFormat` keeps it (`[[source:
+    /// iterm2-964a75d-ptysession]]`): decoded as UTF-8, and left as it was,
+    /// and counted under the key, when it is not base64 of UTF-8 ("Badge is
+    /// not properly base64 encoded"), when it calls a function ("For
+    /// security reasons, this is not allowed and the badge was not
+    /// updated"), or when its body was cut at `OSC_MAX`. An empty one
+    /// clears the badge. `RIS` keeps it, as iTerm2's reset does. Each
+    /// expression in it but a user variable's is counted
+    /// (`ItermCounts::badge_unevaluated`): the embedder draws those as
+    /// nothing (Jev's lean, LITERAL_AND_USER).
+    fn set_badge_format(&mut self, b64: &[u8], body: Body) {
+        let mut out = [0u8; BADGE_MAX];
+        let mut n = 0;
+        let mut b = Base64::NEW;
+        let mut fits = body == Body::Whole;
+        let mut keep = |o: Octets, n: &mut usize, fits: &mut bool| {
+            for &x in o.as_slice() {
+                match out.get_mut(*n) {
+                    Some(slot) => *slot = x,
+                    None => *fits = false,
+                }
+                *n += 1;
+            }
+        };
+        for &x in b64 {
+            match b.push(x) {
+                Base64Step::Octets(o) => keep(o, &mut n, &mut fits),
+                Base64Step::Need => {}
+                Base64Step::Invalid => return self.not_acted(ItermKey::SetBadgeFormat),
+            }
+        }
+        match b.finish() {
+            Ok(tail) => keep(tail, &mut n, &mut fits),
+            Err(_) => return self.not_acted(ItermKey::SetBadgeFormat),
+        }
+        let Some(text) = out.get(..n).filter(|_| fits) else {
+            return self.not_acted(ItermKey::SetBadgeFormat);
+        };
+        match core::str::from_utf8(text) {
+            Ok(s) if !calls_a_function(s) => {}
+            _ => return self.not_acted(ItermKey::SetBadgeFormat),
+        }
+        let it = &mut self.strs.iterm;
+        it.badge[..n].copy_from_slice(text);
+        it.badge_at = Badge::Set(ByteLen::from_index(n));
+        let mut unevaluated = it.counts.badge_unevaluated;
+        if let Some(s) = it.badge() {
+            interpolated_parts(s, |p| {
+                if let Interpolated::Expression(e) = p {
+                    if user_variable(e).is_none() {
+                        unevaluated = unevaluated.next();
+                    }
+                }
+            });
+        }
+        self.strs.iterm.counts.badge_unevaluated = unevaluated;
+    }
+
     /// **`SetColors`: each `key=value` sets the colour baud keeps for that
     /// role**, where `OSC 10`, `11`, `12`, `17` and `19`, `OSC 5 ; 0` and
     /// `OSC 4` set it -- the text, the page, the cursor, the selection and
     /// its text, bold text and the sixteen ANSI colours -- a P3 or Generic
     /// RGB value converted to sRGB as a theme file's is. `curfg` sets the
-    /// text under a block cursor, as `OSC 21 ; cursor_text` does. `link`,
-    /// `underline`, `tab`, `preset` and the source's `match` and `badge`
-    /// name colours baud keeps none of, and each such pair, and each off
+    /// text under a block cursor, as `OSC 21 ; cursor_text` does. `badge`
+    /// sets the badge's, opaque, as iTerm2's source makes a hex colour.
+    /// `link`, `underline`, `tab`, `preset` and the source's `match` name
+    /// colours baud keeps none of, and each such pair, and each off
     /// the form, is counted as an `OSC 4` pair that cannot be honoured is.
     fn set_colors(&mut self, list: ColorSettings<'_>) {
         for setting in list {
@@ -543,10 +639,13 @@ impl Paint<'_, '_> {
                     self.strs.palette[crate::storage::CURSOR_TEXT] = w;
                     None
                 }
+                ColorTarget::Badge => {
+                    self.strs.iterm.badge_colour = Some(w);
+                    None
+                }
                 ColorTarget::Link
                 | ColorTarget::Match
                 | ColorTarget::Underline
-                | ColorTarget::Badge
                 | ColorTarget::Tab
                 | ColorTarget::Preset => {
                     self.unsupported_total += 1;

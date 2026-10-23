@@ -365,6 +365,12 @@ guide = "off"
 # the marks a column of their own at the left, so the text has one column
 # fewer; a command still running, or one the shell reported nothing for,
 # has no mark.
+#
+# badge: whether a program's badge is shown -- a large faint label in the
+# top right of the window, behind the text, such as the host you are on or
+# the branch you are working in, which programs and shell scripts written
+# for iTerm2 set (OSC 1337 ; SetBadgeFormat). "on" by default; "off" hides
+# it.
 [screen]
 transition = false
 checksum = "on"
@@ -376,6 +382,7 @@ print_rgb = "off"
 print_background = "off"
 print_rotated = "off"
 exit_status = "off"
+badge = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

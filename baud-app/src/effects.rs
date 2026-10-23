@@ -6,7 +6,7 @@
 //! flip (`timed.rs`). Pure, so the tests run on every platform.
 
 use baud_core::Term;
-use baud_domain::{Col, RegisPhase, Row, Rows};
+use baud_domain::{Chan, Col, RegisPhase, Row, Rows};
 #[cfg(any(target_os = "linux", test))]
 use baud_render::Blinking;
 use baud_render::{Blink, BlinkPhases, GuideLook, Window};
@@ -113,6 +113,55 @@ pub(crate) fn guide_look(guide: baud_domain::CursorGuide, scale: f64) -> Option<
     }
 }
 
+/// **How the badge is drawn**, `None` while there is none to draw: the
+/// format a program set (`Term::badge_format`) evaluated -- its text and
+/// escapes, each user variable's value (baud keeps none yet, so each is
+/// empty, as iTerm2 draws an undefined variable), every other expression
+/// nothing -- in iTerm2's default colour or the one `SetColors=badge=`
+/// set, opaque as iTerm2 makes it, in iTerm2's box and margins at
+/// `scale` device pixels a point, in bold. Nothing while `[screen] badge`
+/// is off, and nothing for a text of white space alone.
+pub(crate) fn badge_look(
+    term: &Term<'_>,
+    shown: crate::config::BadgeShown,
+    scale: f64,
+) -> Option<baud_render::BadgeLook> {
+    if shown == crate::config::BadgeShown::Off {
+        return None;
+    }
+    let format = term.badge_format()?;
+    let mut text = String::new();
+    baud_domain::interpolate(
+        format,
+        |e, _w| {
+            // A user variable's value would be written here; none is kept.
+            let _ = baud_domain::user_variable(e);
+        },
+        |c| text.push(c),
+    );
+    if text.chars().all(char::is_whitespace) {
+        return None;
+    }
+    let colour = match term.badge_colour().and_then(|c| c.as_rgb()) {
+        Some((r, g, b)) => {
+            baud_render::Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+        }
+        None => baud_render::BADGE,
+    };
+    let s = scale as f32;
+    let px =
+        |points: f32| baud_font::Px::of(u32::try_from((points * s).round() as i64).unwrap_or(0));
+    Some(baud_render::BadgeLook {
+        text,
+        colour,
+        fraction: baud_render::BOX,
+        top: px(baud_render::MARGINS.0),
+        right: px(baud_render::MARGINS.1),
+        scale: s,
+        style: baud_render::FaceStyle::Bold,
+    })
+}
+
 /// The phase a ReGIS page's blinking pixels show: text blink's slow one,
 /// its faint off phase under dimmed flashing lights faint as the text's.
 pub(crate) fn regis_phase(slow: Blink) -> RegisPhase {
@@ -213,6 +262,70 @@ mod tests {
                 }),
                 "scale {scale}"
             );
+        }
+    }
+
+    /// **The badge is the program's format evaluated**: its text and
+    /// escapes, an undefined user variable empty, in iTerm2's colour, box
+    /// and margins at the backing scale, in bold; the colour `SetColors`
+    /// set opaque; nothing while the setting is off, before a program sets
+    /// one, or for white space.
+    #[test]
+    fn the_badge_is_the_programs_format_evaluated() {
+        use crate::config::BadgeShown;
+        let ws = baud_domain::WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        let feed = |t: &mut baud_core::Term<'_>, b: &[u8]| {
+            t.write_at(baud_domain::BytePos::ZERO, b);
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(b.len()),
+            );
+        };
+        assert_eq!(badge_look(&t, BadgeShown::On, 2.0), None, "none set");
+        // `on \(user.host)\tx`, base64.
+        feed(
+            &mut t,
+            b"\x1b]1337;SetBadgeFormat=b24gXCh1c2VyLmhvc3QpXHR4\x07",
+        );
+        let look = badge_look(&t, BadgeShown::On, 2.0).expect("a badge");
+        assert_eq!(look.text, "on \tx");
+        assert_eq!(look.colour, baud_render::BADGE);
+        assert_eq!(
+            (look.top, look.right),
+            (baud_font::Px::of(60), baud_font::Px::of(20))
+        );
+        assert_eq!(look.fraction, baud_render::BOX);
+        assert_eq!(look.style, baud_render::FaceStyle::Bold);
+        assert_eq!(
+            badge_look(&t, BadgeShown::Off, 2.0),
+            None,
+            "the setting off"
+        );
+        feed(&mut t, b"\x1b]1337;SetColors=badge=00ff00\x07");
+        assert_eq!(
+            badge_look(&t, BadgeShown::On, 1.0).map(|l| l.colour),
+            Some(baud_render::Argb::rgb(
+                Chan::from_u8(0),
+                Chan::from_u8(255),
+                Chan::from_u8(0)
+            ))
+        );
+        // `   `, base64.
+        feed(&mut t, b"\x1b]1337;SetBadgeFormat=ICAg\x07");
+        assert_eq!(
+            badge_look(&t, BadgeShown::On, 1.0),
+            None,
+            "white space alone"
+        );
+        let src = [include_str!("app.rs"), include_str!("linux.rs")];
+        for s in src {
+            assert!(s.contains(concat!("set_badge(crate::", "effects::badge_look(")));
+            assert!(s.contains(concat!("&self.term, self.", "badge, ")));
         }
     }
 

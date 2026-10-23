@@ -562,6 +562,8 @@ struct App {
     blink_interval: crate::config::BlinkInterval,
     /// `[cursor] guide`: the cursor guide while no program has set it.
     cursor_guide: baud_domain::CursorGuide,
+    /// `[screen] badge`: whether a program's badge is drawn.
+    badge: crate::config::BadgeShown,
     /// Whether the first tick has read the system's caret yet.
     caret_read: Done,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
@@ -695,6 +697,8 @@ struct Boot {
     blink_interval: crate::config::BlinkInterval,
     /// `[cursor] guide`.
     cursor_guide: baud_domain::CursorGuide,
+    /// `[screen] badge`.
+    badge: crate::config::BadgeShown,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -900,6 +904,7 @@ impl Boot {
             blink_animation: cfg.blink_animation,
             blink_interval: cfg.blink_interval,
             cursor_guide: cfg.cursor_guide,
+            badge: cfg.badge,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
@@ -953,6 +958,7 @@ impl App {
             blink_animation,
             blink_interval,
             cursor_guide,
+            badge,
             screen_transition,
             scroll,
             trail_scroll,
@@ -1274,6 +1280,7 @@ impl App {
             blink_animation,
             blink_interval,
             cursor_guide,
+            badge,
             focus: baud_core::Focus::Lost,
             blink_choice,
             warned_blink: Done::No,
@@ -1496,6 +1503,10 @@ impl App {
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, self.scale));
+        // iTerm2's badge, a program's, unless `[screen] badge` is off.
+        self.renderer.set_badge(crate::effects::badge_look(
+            &self.term, self.badge, self.scale,
+        ));
         // The find field and every match's mark, on the window drawn, and
         // the input manager's composition in the field while it is open.
         // AppKit hands no hints, and its selected range does not reach
@@ -2072,13 +2083,16 @@ impl App {
                 // while the cursor is not.
                 self.renderer.set_cursor_glow_at(cursor_at);
                 cell.records.extend_from_slice(self.renderer.cursor_glow());
-                // The cursor guide from the same cursor, else on the
-                // cursor's line while the window looks back, its records
-                // under the glyphs (`CellInput::grounds`).
-                self.renderer.place_cursor_guide(
+                // The badge, which stays where the view has it, and the
+                // cursor guide from the same cursor, else on the cursor's
+                // line while the window looks back, its records under the
+                // glyphs (`CellInput::grounds`).
+                self.renderer.place_grounds(
                     cursor_at,
                     baud_render::Renderer::cursor_line(&self.term, back),
                 );
+                cell.grounds.clear();
+                cell.grounds.extend_from_slice(self.renderer.badge());
                 self.renderer
                     .cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.grounds);
                 // baud's own overlays, drawn over the images over the text
@@ -10214,6 +10228,7 @@ impl Driver {
                     self.read_caret_system();
                 }
                 Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
+                Part::Badge => self.app.badge = c.badge,
                 Part::StatusMarks => {
                     self.app.renderer.set_status_marks(c.exit_status);
                     relayout = true;

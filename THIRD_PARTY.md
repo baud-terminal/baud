@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 310 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 311 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 301 | 28 | redistributable, and its notice is satisfied |
+| kept | 303 | 28 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 852 | 39 | |
+| total | 855 | 39 | |
 
 ## Licence texts in LICENSES/
 
@@ -797,7 +797,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 25
+- **Files:** 26
 
 | file | copied from |
 |---|---|
@@ -805,6 +805,7 @@ notice is, and the URL each file was copied from.
 | [l2-25179-ttwg.pdf](docs/research/sources/l2-25179-ttwg.pdf) | https://www.unicode.org/L2/L2025/25179-ttwg.pdf |
 | [l2-25263-ttwg-report-utc185.pdf](docs/research/sources/l2-25263-ttwg-report-utc185.pdf) | https://www.unicode.org/L2/L2025/25263-ttwg-report-utc185.pdf |
 | [uax11-east-asian-width.html](docs/research/sources/uax11-east-asian-width.html) | https://www.unicode.org/reports/tr11/tr11-44.html |
+| [uax14-line-breaking.html](docs/research/sources/uax14-line-breaking.html) | https://www.unicode.org/reports/tr14/tr14-55.html |
 | [uax24-script-property.html](docs/research/sources/uax24-script-property.html) | https://www.unicode.org/reports/tr24/tr24-39.html |
 | [uax29-text-segmentation.html](docs/research/sources/uax29-text-segmentation.html) | https://www.unicode.org/reports/tr29/tr29-47.html |
 | [uax9-tr9-52.html](docs/research/sources/uax9-tr9-52.html) | https://www.unicode.org/reports/tr9/tr9-52.html |
@@ -1689,7 +1690,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **Files:** 28
+- **Files:** 30
 
 | file | copied from |
 |---|---|
@@ -1716,6 +1717,8 @@ notice is, and the URL each file was copied from.
 | [unicode-emoji-variation-sequences.txt](docs/research/sources/unicode-emoji-variation-sequences.txt) | https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-variation-sequences.txt |
 | [unicode-graphemebreakproperty.txt](docs/research/sources/unicode-graphemebreakproperty.txt) | https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakProperty.txt |
 | [unicode-graphemebreaktest.txt](docs/research/sources/unicode-graphemebreaktest.txt) | https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakTest.txt |
+| [unicode-linebreak.txt](docs/research/sources/unicode-linebreak.txt) | https://www.unicode.org/Public/17.0.0/ucd/LineBreak.txt |
+| [unicode-linebreaktest.txt](docs/research/sources/unicode-linebreaktest.txt) | https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt |
 | [unicode-propertyvaluealiases.txt](docs/research/sources/unicode-propertyvaluealiases.txt) | https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt |
 | [unicode-proplist.txt](docs/research/sources/unicode-proplist.txt) | https://www.unicode.org/Public/17.0.0/ucd/PropList.txt |
 | [unicode-scriptextensions.txt](docs/research/sources/unicode-scriptextensions.txt) | https://www.unicode.org/Public/17.0.0/ucd/ScriptExtensions.txt |

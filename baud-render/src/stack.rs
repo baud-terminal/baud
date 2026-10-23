@@ -256,11 +256,13 @@ struct RowId(u16);
 struct Filled(usize);
 
 /// What a face is for in a [`Stack`]: part of the fallback chain every
-/// character tries in order, or the face one style tries first.
+/// character tries in order, the face one style tries first, or the face
+/// iTerm2's badge is drawn in, whatever face the text is ([`Stack::badge`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FaceRole {
     Fallback,
     Style(FaceStyle),
+    Badge,
 }
 
 /// An ordered list of faces: the primary first, then the fallbacks tried
@@ -268,18 +270,20 @@ pub enum FaceRole {
 /// Discovery is the caller's; this crate only draws.
 pub struct Stack<'f, 'a> {
     faces: &'f [Face<'a>],
-    /// The Bold, Italic and Bold Italic faces, where the caller has them.
-    /// A styled face is never in the fallback chain: a character the
-    /// regular faces lack is not looked for in a bold one.
+    /// The Bold, Italic and Bold Italic faces, where the caller has them,
+    /// and the badge's. Neither is ever in the fallback chain: a character
+    /// the regular faces lack is not looked for in a bold one.
     styled: Styled,
 }
 
-/// One optional face per style; regular has none, being the chain.
+/// One optional face per style; regular has none, being the chain. And
+/// the badge's face, kept out of the chain the same way.
 #[derive(Clone, Copy, Default)]
 struct Styled {
     bold: Option<FaceIx>,
     italic: Option<FaceIx>,
     bold_italic: Option<FaceIx>,
+    badge: Option<FaceIx>,
 }
 
 impl Styled {
@@ -302,7 +306,7 @@ impl Styled {
     }
 
     fn holds(&self, ix: FaceIx) -> bool {
-        [self.bold, self.italic, self.bold_italic].contains(&Some(ix))
+        [self.bold, self.italic, self.bold_italic, self.badge].contains(&Some(ix))
     }
 }
 
@@ -316,24 +320,45 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// A stack whose faces each carry a role. `None` when the lengths
-    /// differ, the primary is not a fallback face, a style is named twice,
-    /// or a face is given the regular style, which is the chain itself.
+    /// differ, the primary is not a fallback face, a style or the badge is
+    /// named twice, or a face is given the regular style, which is the
+    /// chain itself.
     pub fn with_roles(faces: &'f [Face<'a>], roles: &[FaceRole]) -> Option<Stack<'f, 'a>> {
         if roles.len() != faces.len() || roles.first() != Some(&FaceRole::Fallback) {
             return None;
         }
         let mut stack = Stack::new(faces)?;
         for (i, role) in roles.iter().enumerate() {
-            if let FaceRole::Style(style) = role {
-                let ix = FaceIx(u8::try_from(i).ok()?);
-                let slot = stack.styled.slot(*style)?;
-                if slot.is_some() {
-                    return None;
-                }
-                *slot = Some(ix);
+            let ix = FaceIx(u8::try_from(i).ok()?);
+            let slot = match role {
+                FaceRole::Fallback => continue,
+                FaceRole::Style(style) => stack.styled.slot(*style)?,
+                FaceRole::Badge => &mut stack.styled.badge,
+            };
+            if slot.is_some() {
+                return None;
             }
+            *slot = Some(ix);
         }
         Some(stack)
+    }
+
+    /// **The face iTerm2's badge is drawn in**: the one given
+    /// [`FaceRole::Badge`], which baud-app gives its embedded JetBrains Mono
+    /// Bold whatever font the text is in, as iTerm2's badge has a face of
+    /// its own (`badgeFont:`, `[[source:
+    /// iterm2-964a75d-profile-preferences]]`); else the bold face, else the
+    /// primary.
+    pub fn badge(&self) -> FaceIx {
+        self.styled
+            .badge
+            .or(self.styled.get(self.effective(FaceStyle::Bold)))
+            .unwrap_or(FaceIx::PRIMARY)
+    }
+
+    /// Whether the badge's face draws `c`.
+    pub fn badge_carries(&self, c: Codepoint) -> bool {
+        self.carries(self.badge(), c) != Draws::No
     }
 
     /// The style whose face a cell of `style` is drawn from: its own, when
@@ -797,6 +822,61 @@ mod tests {
         assert_eq!(s.select(cp('a')).index(), 0);
         assert_eq!(s.select_styled(cp('a'), FaceStyle::Italic).index(), 0);
         assert_eq!(s.select_styled(cp('a'), FaceStyle::Bold).index(), 1);
+    }
+
+    /// **The badge's face is not in the fallback chain nor any style's**:
+    /// a character only it carries is not drawn from it for the text,
+    /// regular or bold, and its table agrees; [`Stack::badge`] names it,
+    /// and without it names the bold face, else the primary.
+    #[test]
+    fn the_badge_face_is_never_the_texts() {
+        let sym = font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+        let b = font("jetbrains-mono/JetBrainsMono-Bold.ttf");
+        let faces = [Face::parse(&sym).unwrap(), Face::parse(&b).unwrap()];
+        assert!(
+            faces[0].glyph(cp('a')).is_none() && faces[1].glyph(cp('a')).is_some(),
+            "the control: 'a' in the badge's face alone"
+        );
+        let s = Stack::with_roles(&faces, &[FaceRole::Fallback, FaceRole::Badge]).unwrap();
+        assert_eq!(s.badge().index(), 1);
+        assert!(s.badge_carries(cp('a')));
+        assert_eq!(s.select(cp('a')).index(), 0);
+        let mut table = s.table();
+        for style in FaceStyle::ALL {
+            assert_eq!(s.select_styled(cp('a'), style).index(), 0, "{style:?}");
+            let p = Presentation::Text;
+            assert_eq!(
+                s.select_presented(cp('a'), style, p).index(),
+                0,
+                "{style:?}"
+            );
+            assert_eq!(table.face(&s, cp('a'), style, p).index(), 0, "{style:?}");
+        }
+        let bold = Stack::with_roles(
+            &faces,
+            &[FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)],
+        )
+        .unwrap();
+        assert_eq!(bold.badge().index(), 1, "no badge face: the bold one");
+        assert_eq!(
+            Stack::new(&faces).unwrap().badge().index(),
+            0,
+            "else the primary"
+        );
+        let three = [
+            Face::parse(&b).unwrap(),
+            Face::parse(&b).unwrap(),
+            Face::parse(&b).unwrap(),
+        ];
+        let f = FaceRole::Fallback;
+        assert!(
+            Stack::with_roles(&three, &[f, FaceRole::Badge, FaceRole::Badge]).is_none(),
+            "the badge twice"
+        );
+        assert!(
+            Stack::with_roles(&three[..2], &[FaceRole::Badge, f]).is_none(),
+            "a badge primary"
+        );
     }
 
     /// Roles that cannot describe a stack are refused.

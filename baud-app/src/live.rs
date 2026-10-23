@@ -50,6 +50,8 @@ pub enum Part {
     Scroll,
     /// `[screen] exit_status`.
     StatusMarks,
+    /// `[screen] badge`.
+    Badge,
     /// `[cursor] guide`.
     CursorGuide,
     /// What the core is told: `[screen] checksum`, `logging` and
@@ -95,6 +97,7 @@ impl Part {
             | Part::Transition
             | Part::Scroll
             | Part::StatusMarks
+            | Part::Badge
             | Part::CursorGuide
             | Part::TermOptions
             | Part::Bell
@@ -126,6 +129,7 @@ impl Part {
             Part::Transition => "[screen] transition",
             Part::Scroll => "[scroll] mode",
             Part::StatusMarks => "[screen] exit_status",
+            Part::Badge => "[screen] badge",
             Part::CursorGuide => "[cursor] guide",
             Part::TermOptions => "the terminal's options",
             Part::Bell => "bell",
@@ -200,6 +204,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         bell,
         clipboard,
         config_reload,
+        badge,
         cursor_guide,
     } = new;
     let same_faces = old.faces.len() == new_faces.len()
@@ -247,6 +252,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     );
     part(old.scroll != *scroll, Part::Scroll);
     part(old.exit_status != *exit_status, Part::StatusMarks);
+    part(old.badge != *badge, Part::Badge);
     part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
     part(
         old.checksum != *checksum
@@ -431,6 +437,7 @@ mod tests {
             ("[screen]\ntransition = true\n", Part::Transition),
             ("[scroll]\nmode = \"normal\"\n", Part::Scroll),
             ("[screen]\nexit_status = \"on\"\n", Part::StatusMarks),
+            ("[screen]\nbadge = \"off\"\n", Part::Badge),
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
             ("[screen]\nlogging = \"off\"\n", Part::TermOptions),

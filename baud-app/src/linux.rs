@@ -248,6 +248,8 @@ struct Driver {
     blink_animation: crate::config::BlinkAnimation,
     /// `[cursor] guide`: the cursor guide while no program has set it.
     cursor_guide: baud_domain::CursorGuide,
+    /// `[screen] badge`: whether a program's badge is drawn.
+    badge: crate::config::BadgeShown,
     /// The `xdg-open`s a link started, reaped on each turn, and this
     /// machine's name for a `file://host/` link.
     opener: crate::opener::Opener,
@@ -598,6 +600,7 @@ pub fn run() {
         motion: crate::config::SystemMotion::Full,
         blink_animation: cfg.blink_animation,
         cursor_guide: cfg.cursor_guide,
+        badge: cfg.badge,
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
         notes,
@@ -1720,6 +1723,7 @@ impl Driver {
                         .set_animation(c.blink_animation.effective(self.motion));
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
+                Part::Badge => self.badge = c.badge,
                 Part::StatusMarks => {
                     self.renderer.set_status_marks(c.exit_status);
                     reconfigure = true;
@@ -2301,6 +2305,8 @@ impl Driver {
         let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
         self.renderer
             .set_cursor_guide(crate::effects::guide_look(guide, 1.0));
+        self.renderer
+            .set_badge(crate::effects::badge_look(&self.term, self.badge, 1.0));
         // The find field and every match's mark, on the window drawn, and
         // the input method's composition in the field while it is open.
         let look = self.finding.as_ref().map(|f| {

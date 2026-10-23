@@ -174,6 +174,11 @@ pub struct Slot {
     pub top: i32,
 }
 
+/// A scale's pixels a unit, its bits, hashable: the key a glyph drawn at
+/// a size of its own is kept under.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ScaleKey(u32);
+
 /// A glyph's index in its face, hashable.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GlyphIx(u16);
@@ -478,6 +483,9 @@ pub struct Atlas {
     /// by codepoint, or a ring part's key, and stretch, and voided with the
     /// rest.
     procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+    /// Glyphs drawn at a size of their own, the badge's, by face, glyph and
+    /// scale; voided with the rest.
+    sized: HashMap<(FaceIx, GlyphIx, ScaleKey), Option<Slot>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
     /// need asked so far and kept.
@@ -508,6 +516,7 @@ impl Atlas {
             map: HashMap::new(),
             procedural: HashMap::new(),
             procedural_stretched: HashMap::new(),
+            sized: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
             coverage: Vec::new(),
@@ -609,6 +618,7 @@ impl Atlas {
         self.map.clear();
         self.procedural.clear();
         self.procedural_stretched.clear();
+        self.sized.clear();
         self.clear_mask(mask);
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
@@ -682,6 +692,33 @@ impl Atlas {
         phase: Phase,
     ) -> Option<Slot> {
         self.slot_at(face, ix, id, scale, phase, Stretch::One)
+    }
+
+    /// **A glyph at a size of its own**, `scale`: the badge's text, drawn
+    /// at a size the cells' are not. Its image is the face's bitmap, its
+    /// colour layers or its outline, as [`Atlas::slot`]'s; memoised apart
+    /// from the cells' glyphs under the scale, and voided with them.
+    pub fn slot_sized(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+    ) -> Option<Slot> {
+        let glyph = GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX));
+        let key = (ix, glyph, ScaleKey(scale.px(1.0).to_bits()));
+        if let Some(known) = self.sized.get(&key) {
+            return *known;
+        }
+        let (phase, stretch) = (Phase::ZERO, Stretch::One);
+        let slot = self
+            .bitmap(face, id, scale, phase, stretch)
+            .or_else(|| self.layered(face, id, scale, phase, stretch))
+            .or_else(|| self.rasterise(face, id, scale, phase, stretch));
+        if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase, stretch) {
+            self.sized.insert(key, slot);
+        }
+        slot
     }
 
     /// [`Atlas::slot`] for a line that draws its characters at `stretch`:

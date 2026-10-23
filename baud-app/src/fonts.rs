@@ -123,8 +123,13 @@ impl Fonts {
             .iter()
             .map(|f| (f.index, f.role, f.variations.clone()))
             .collect();
-        let loaded: Vec<_> = data.iter().zip(&specs).map(|(d, s)| (*d, s.0)).collect();
-        let (lookup, slots) = Catalogue::of_loaded(&loaded);
+        // The lookup holds every face but the badge's, which draws no text.
+        let named: Vec<usize> = (0..specs.len())
+            .filter(|&i| specs[i].1 != FaceRole::Badge)
+            .collect();
+        let loaded: Vec<_> = named.iter().map(|&i| (data[i], specs[i].0)).collect();
+        let (lookup, at) = Catalogue::of_loaded(&loaded);
+        let slots = at.into_iter().map(|k| named[k]).collect();
         let mut built = vec![None; specs.len()];
         if let Some(first) = built.first_mut() {
             *first = Some(Built {
@@ -166,7 +171,7 @@ impl Fonts {
     /// **The face `name` names**, by the config's lookup: the first face
     /// whose PostScript name or full name it is, styled or not, else the
     /// first face of the chain that is of its family, in the config's
-    /// order.
+    /// order. Never the badge's face, which draws no text.
     pub fn resolve(&self, name: &[u8]) -> Option<Slot> {
         let name = core::str::from_utf8(name).ok()?;
         match self.lookup.lookup_at(name) {
@@ -217,9 +222,9 @@ impl Fonts {
     }
 
     /// **The stack `slot` leads**: it first, as the regular face, the rest
-    /// of the chain in the config's order, and the other styled faces of
-    /// its family, so a styled face named alone has no style beside
-    /// itself. Parsed from
+    /// of the chain in the config's order, the other styled faces of its
+    /// family, so a styled face named alone has no style beside itself,
+    /// and the badge's face, whatever the family. Parsed from
     /// bytes already in memory and kept, so a face is parsed once per
     /// stack it leads and a program asking again and again makes nothing
     /// new. `None` if a face does not parse again, which it did once.
@@ -233,7 +238,7 @@ impl Fonts {
             let same = family.is_some() && self.families[i] == family;
             match role {
                 _ if i == slot.0 => {}
-                FaceRole::Fallback => order.push(i),
+                FaceRole::Fallback | FaceRole::Badge => order.push(i),
                 FaceRole::Style(_) if same => order.push(i),
                 FaceRole::Style(_) => {}
             }
@@ -324,6 +329,38 @@ mod tests {
         let data = crate::host::map_faces(&cfg);
         let faces = crate::host::parse_faces(&cfg, &data);
         Fonts::new(&cfg, data, faces)
+    }
+
+    /// **A program cannot name the badge's face for the text**: with Fira
+    /// Code configured alone, the embedded Bold is loaded only as the
+    /// badge's face, and `OSC 50` naming it by its PostScript or full name
+    /// finds no face, as it found none before the badge had one. The
+    /// control: on the default stack, where the embedded Bold is the bold
+    /// face too, the same names resolve to that styled face.
+    #[test]
+    fn a_program_cannot_name_the_badges_face() {
+        let fira = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
+        );
+        let names: [&[u8]; 2] = [b"ProtoHebrewMonoC-Bold", b"Proto Hebrew Mono C Bold"];
+        let f = fonts(&format!("font_fallback = false\nfonts = [\"{fira}\"]\n"));
+        assert!(
+            f.specs.iter().any(|s| s.1 == FaceRole::Badge),
+            "the control: the badge's face is loaded"
+        );
+        for name in names {
+            assert_eq!(f.resolve(name), None, "{}", String::from_utf8_lossy(name));
+        }
+        let d = fonts("");
+        for name in names {
+            let slot = d.resolve(name).expect("the default stack's bold");
+            assert!(
+                matches!(d.specs[slot.0].1, FaceRole::Style(_)),
+                "{}",
+                String::from_utf8_lossy(name)
+            );
+        }
     }
 
     fn change(t: &mut baud_core::Term<'_>, pt: &[u8]) -> FontChange {
@@ -431,7 +468,7 @@ mod tests {
             .iter()
             .filter_map(|r| match r {
                 FaceRole::Style(s) => Some(*s),
-                FaceRole::Fallback => None,
+                FaceRole::Fallback | FaceRole::Badge => None,
             })
             .collect();
         assert_eq!(styles, [Italic, BoldItalic], "no {Bold:?} beside itself");
@@ -509,8 +546,8 @@ mod tests {
     }
 
     /// **A stack led by another face keeps the rest of the chain behind it,
-    /// and only its own family's styles**; asked again, it is the same
-    /// faces, made once.
+    /// only its own family's styles, and the badge's face, last**; asked
+    /// again, it is the same faces, made once.
     #[test]
     fn a_stack_is_led_by_its_face_and_made_once() {
         let mut f = fonts("");
@@ -520,12 +557,22 @@ mod tests {
         let mut out = [0u8; 64];
         let first = b.faces[0].family().unwrap();
         assert_eq!(first.utf8(&mut out), Some(&b"STIX Two Math"[..]));
+        let (badge, text) = b.roles.split_last().unwrap();
+        assert_eq!(
+            *badge,
+            FaceRole::Badge,
+            "the badge's face, whatever the family"
+        );
         assert!(
-            b.roles.iter().all(|r| *r == FaceRole::Fallback),
+            text.iter().all(|r| *r == FaceRole::Fallback),
             "JetBrains Mono's styles stay"
         );
         let chain = f.specs.iter().filter(|s| s.1 == FaceRole::Fallback).count();
-        assert_eq!(b.faces.len(), chain, "the chain, and no styled face");
+        assert_eq!(
+            b.faces.len(),
+            chain + 1,
+            "the chain and the badge's face, and no styled face"
+        );
         assert!(baud_render::Stack::with_roles(b.faces, &b.roles).is_some());
         let again = f.stack(stix).unwrap();
         assert!(core::ptr::eq(again.faces, b.faces), "made once");
@@ -533,8 +580,8 @@ mod tests {
         let back = f.stack(jb).unwrap();
         assert_eq!(
             back.faces.len(),
-            chain + 3,
-            "the chain and the three styles"
+            chain + 4,
+            "the chain, the three styles and the badge's face"
         );
         f.set(stix);
         assert_eq!(f.family(), "STIX Two Math");

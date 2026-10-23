@@ -91,6 +91,13 @@ pub enum StackFrom {
     Configured,
 }
 
+/// `[screen] badge`: whether a program's badge is drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BadgeShown {
+    On,
+    Off,
+}
+
 /// A `[screen]` print choice's value: `"on"` is true, `"off"` false, and
 /// anything else false, said.
 fn on_off(key: &str, value: &str, said: &mut Vec<String>) -> bool {
@@ -231,6 +238,11 @@ pub struct Config {
     /// `"off"` by default (Jev's lean, `baud_render::status`), `"on"` shows
     /// it.
     pub exit_status: baud_render::StatusMarks,
+    /// `[screen] badge`: whether a program's badge -- iTerm2's large label
+    /// in the top right behind the text (`OSC 1337 ; SetBadgeFormat`) -- is
+    /// drawn, `"on"` by default, as iTerm2 draws every badge a program
+    /// sets, or `"off"`.
+    pub badge: crate::config::BadgeShown,
     /// `[screen] checksum`: whether a program's request for a checksum of
     /// the screen (DECRQCRA) is answered, `"on"` by default (the
     /// owner's call of 2026-10-19, option 3), or `"off"`, which leaves every
@@ -781,6 +793,7 @@ impl Config {
             cursor_guide: baud_domain::CursorGuide::Hidden,
             screen_transition: ScreenTransition::Off,
             exit_status: baud_render::StatusMarks::Off,
+            badge: BadgeShown::On,
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
@@ -1416,6 +1429,18 @@ impl Config {
                         }
                     };
                 }
+                ("screen", "badge") => {
+                    self.badge = match value.trim().trim_matches('"') {
+                        "on" => BadgeShown::On,
+                        "off" => BadgeShown::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] badge {other:?} is not on or off; using on"
+                            ));
+                            BadgeShown::On
+                        }
+                    };
+                }
                 ("screen", "exit_status") => {
                     self.exit_status = match value.trim().trim_matches('"') {
                         "on" => baud_render::StatusMarks::On,
@@ -1780,6 +1805,9 @@ impl Config {
                 faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
                 faces.push(FaceSpec::embedded(crate::embedded::STIX));
             }
+            // The badge's face, whatever the text's and with or without the
+            // fallback: not in the chain, it draws no text.
+            faces.push(FaceSpec::badge());
             self.faces = faces;
             self.stack = StackFrom::Configured;
         }
@@ -2012,6 +2040,18 @@ impl FaceSpec {
             },
             role,
             variations: p.variations.clone(),
+        }
+    }
+
+    /// **The face iTerm2's badge is drawn in**, baud's embedded JetBrains
+    /// Mono Bold, whatever font the text is in: iTerm2's badge has a face
+    /// of its own, `KEY_BADGE_FONT`, apart from the text's (`badgeFont:`,
+    /// `[[source: iterm2-964a75d-profile-preferences]]`; Jev,
+    /// EMBEDDED_BOLD). Never in the fallback chain (`Stack::badge`).
+    fn badge() -> FaceSpec {
+        FaceSpec {
+            role: baud_render::FaceRole::Badge,
+            ..FaceSpec::embedded(crate::embedded::BOLD)
         }
     }
 
@@ -2336,6 +2376,7 @@ fn default_faces() -> Vec<FaceSpec> {
     .chain(DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)))
     .chain([FaceSpec::embedded(crate::embedded::STIX)])
     .chain(styled_faces())
+    .chain([FaceSpec::badge()])
     .collect()
 }
 
@@ -2367,6 +2408,7 @@ fn default_faces() -> Vec<FaceSpec> {
     .chain(["DejaVu Sans Mono", "Noto Color Emoji"].map(FaceSpec::parse))
     .chain([FaceSpec::embedded(crate::embedded::STIX)])
     .chain(styled_faces())
+    .chain([FaceSpec::badge()])
     .collect()
 }
 
@@ -2521,6 +2563,7 @@ mod named {
         let mut c =
             read("fonts = [\"No Such Family\", \"jetbrains mono\", \"/no/such/file.ttf\"]\n");
         let said = c.resolve(&jetbrains());
+        let c = super::without_badge(c);
         assert_eq!(said.len(), 2, "{said:?}");
         assert!(said[0].contains("\"No Such Family\""), "{said:?}");
         assert!(said[1].contains("/no/such/file.ttf"), "{said:?}");
@@ -2645,7 +2688,7 @@ mod named {
                         .find(|v| v.tag == wght)
                         .map(|v| v.value.to_f32()),
                 )),
-                baud_render::FaceRole::Fallback => None,
+                baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
             })
             .collect()
     }
@@ -2977,7 +3020,7 @@ mod named {
                 .iter()
                 .filter_map(|f| match f.role {
                     baud_render::FaceRole::Style(s) => Some((s, full(f))),
-                    baud_render::FaceRole::Fallback => None,
+                    baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
                 })
                 .collect();
             assert_eq!(
@@ -3073,7 +3116,7 @@ mod named {
                     baud_render::FaceRole::Style(s) => {
                         Some((s, format!("{}@{:?}", f.path, f.index)))
                     }
-                    baud_render::FaceRole::Fallback => None,
+                    baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
                 })
                 .collect()
         };
@@ -3100,6 +3143,23 @@ mod named {
         assert!(c.resolve(cat).is_empty());
         assert_eq!(indexed(&c)[0], (Bold, at("AppleSDGothicNeo.ttc", 6)));
     }
+}
+
+/// `c` with the badge's face taken out (`FaceSpec::badge`): every stack
+/// carries it once, the embedded Bold out of the chain, so a test of the
+/// text's stack reads that stack as the text draws from it.
+#[cfg(test)]
+fn without_badge(mut c: Config) -> Config {
+    let at: Vec<usize> = (0..c.faces.len())
+        .filter(|&i| c.faces[i].role == baud_render::FaceRole::Badge)
+        .collect();
+    assert_eq!(at.len(), 1, "one badge face");
+    assert!(
+        matches!(c.faces[at[0]].from, FaceFrom::Embedded(b) if b == crate::embedded::BOLD.bytes),
+        "the embedded Bold"
+    );
+    c.faces.remove(at[0]);
+    c
 }
 
 /// The reader, and what sections being a namespace buys.
@@ -3780,6 +3840,22 @@ mod reader {
         );
     }
 
+    /// **A program's badge is drawn unless `[screen] badge = "off"`**, quoted
+    /// or bare; any other value keeps it on and says so.
+    #[test]
+    fn the_badge_is_on_unless_turned_off() {
+        assert_eq!(Config::defaults().badge, BadgeShown::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nbadge = {off}\n");
+            assert_eq!(read(&text).badge, BadgeShown::Off, "{off}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nbadge = \"no\"\n");
+        assert_eq!(c.badge, BadgeShown::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("badge"), "{said:?}");
+    }
+
     /// **The cursor guide is off unless `[cursor] guide = "on"`**, quoted
     /// or bare; any other value keeps it off and says so.
     #[test]
@@ -4214,7 +4290,7 @@ shadow     = "never"
     fn the_default_stack_starts_with_the_embedded_font() {
         use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, SYMBOLS};
         use baud_render::{FaceRole, FaceStyle};
-        let d = Config::defaults();
+        let d = super::without_badge(Config::defaults());
         assert!(is(&d.faces[0], REGULAR), "{}", d.faces[0].path);
         assert!(is(&d.faces[1], SYMBOLS), "{}", d.faces[1].path);
         #[cfg(target_os = "macos")]
@@ -4246,6 +4322,7 @@ shadow     = "never"
         let mut c = Config::defaults();
         let said = c.apply("fonts = [\"/a.ttf\"]\n");
         assert!(said.is_empty(), "{said:?}");
+        let c = super::without_badge(c);
         assert_eq!(c.faces.len(), 4);
         assert!(matches!(c.faces[0].from, FaceFrom::File));
         assert!(is(&c.faces[1], REGULAR));
@@ -4265,10 +4342,11 @@ shadow     = "never"
     /// A configured stack keeps the embedded font behind it -- the Regular,
     /// for the Hebrew and whatever else the named faces lack and it maps,
     /// then the icon face, so a Nerd Fonts icon still draws (and STIX after
-    /// it, below); and `font_fallback = false` leaves the stack exactly as
-    /// named, whichever of the two keys comes first.
+    /// it, below); and `font_fallback = false` leaves the text's stack
+    /// exactly as named, whichever of the two keys comes first.
     #[test]
     fn a_configured_stack_keeps_the_embedded_font_behind_it() {
+        let read = |text: &str| super::without_badge(read(text));
         let c = read("fonts = [\"/a.ttf\", \"/b.ttc@2\"]\n");
         assert_eq!(c.faces.len(), 5);
         assert_eq!(c.faces[0].path, "/a.ttf");
@@ -4307,6 +4385,7 @@ shadow     = "never"
     /// `font_fallback = false` takes it away with the other two.
     #[test]
     fn the_embedded_regular_follows_a_configured_stack_before_the_icons() {
+        let read = |text: &str| super::without_badge(read(text));
         let c = read("fonts = [\"/a.ttf\"]\n");
         assert!(matches!(c.faces[0].from, FaceFrom::File));
         assert!(
@@ -4332,9 +4411,11 @@ shadow     = "never"
     /// The owner's call of 2026-10-03: the symbol face follows a configured
     /// stack as the icon face does, after it and under the same switch, so a
     /// stack whose faces lack Claude Code's arrow and bullet still draws them,
-    /// and `font_fallback = false` still leaves the stack exactly as named.
+    /// and `font_fallback = false` still leaves the text's stack exactly as
+    /// named.
     #[test]
     fn a_configured_stack_keeps_the_symbol_face_last() {
+        let read = |text: &str| super::without_badge(read(text));
         let c = read("fonts = [\"/a.ttf\"]\n");
         assert_eq!(c.faces.len(), 4);
         assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
@@ -4754,7 +4835,9 @@ shadow     = "never"
         // `fonts` is under `[glass]` here, so it is NOT the font stack --
         // which is the namespace working, not a defect.
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
-        let c = read("fonts = [\n  \"/a.ttf\",\n  \"/b.ttc@2\",\n]\n[glass]\ndim_dark = 0.3\n");
+        let c = super::without_badge(read(
+            "fonts = [\n  \"/a.ttf\",\n  \"/b.ttc@2\",\n]\n[glass]\ndim_dark = 0.3\n",
+        ));
         assert_eq!(
             c.faces.len(),
             5,

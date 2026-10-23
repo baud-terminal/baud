@@ -608,7 +608,9 @@ mod tests {
         let stack = super::stack(&cfg, faces);
         let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
         let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
-        let n = faces.len();
+        // The badge's face last, behind the three styles.
+        let n = faces.len() - 1;
+        assert_eq!(stack.badge().index(), n, "the badge's face");
         for (style, face) in [
             (FaceStyle::Regular, 0),
             (FaceStyle::Bold, n - 3),
@@ -617,6 +619,49 @@ mod tests {
         ] {
             assert_eq!(stack.select_styled(a, style).index(), face, "{style:?}");
             assert_eq!(stack.select_styled(folder, style).index(), 1, "{style:?}");
+        }
+    }
+
+    /// **Every stack draws the badge in the embedded Bold, whatever the
+    /// text's font**: the default stack, Fira Code configured, and Fira Code
+    /// configured with `font_fallback = false` each give `Stack::badge` the
+    /// embedded JetBrains Mono Bold, as iTerm2's badge has a face of its own
+    /// (Jev, EMBEDDED_BOLD), and the text's `a` is drawn from another face
+    /// in every style.
+    #[test]
+    fn every_stack_draws_the_badge_in_the_embedded_bold() {
+        use crate::config::FaceFrom;
+        use baud_render::{FaceRole, FaceStyle};
+        let fira = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
+        );
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for text in [
+            String::new(),
+            format!("fonts = [\"{fira}\"]\n"),
+            format!("font_fallback = false\nfonts = [\"{fira}\"]\n"),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&text);
+            assert!(said.is_empty(), "{said:?}");
+            let faces = super::load_faces(&mut cfg);
+            let stack = super::stack(&cfg, faces);
+            let ix = stack.badge().index();
+            assert_eq!(cfg.faces[ix].role, FaceRole::Badge, "{text:?}");
+            assert!(
+                matches!(cfg.faces[ix].from,
+                    FaceFrom::Embedded(b) if b == crate::embedded::BOLD.bytes),
+                "{text:?}: {}",
+                cfg.faces[ix].path
+            );
+            for style in FaceStyle::ALL {
+                assert_ne!(
+                    stack.select_styled(a, style).index(),
+                    ix,
+                    "{text:?} {style:?}"
+                );
+            }
         }
     }
 
@@ -632,7 +677,8 @@ mod tests {
         let mut cfg = crate::config::Config::defaults();
         let faces = super::load_faces(&mut cfg);
         let stack = super::stack(&cfg, faces);
-        let n = faces.len();
+        // The badge's face last, behind the three styles.
+        let n = faces.len() - 1;
         for cp in [0x05D0, 0x05E9, 0x05B0] {
             let c = baud_domain::Codepoint::new(cp).unwrap();
             assert!(
