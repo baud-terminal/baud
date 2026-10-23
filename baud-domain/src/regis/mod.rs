@@ -385,6 +385,10 @@ pub enum RegisPhase {
     Shown,
     /// The background's.
     Hidden,
+    /// Half way from their own colours to the background's: the off phase
+    /// while the system asks for dimmed flashing lights, as blinking text
+    /// draws its off phase faint at the same rate.
+    Faint,
 }
 
 /// **How a page's blinking pixels are shown now**: their own colours, or,
@@ -395,6 +399,8 @@ pub enum RegisPhase {
 pub enum RegisBlinkShow {
     Shown,
     Hidden(RegisIndex),
+    /// Half way to the background index's colour ([`RegisPhase::Faint`]).
+    Faint(RegisIndex),
 }
 
 /// Whether a call repainted anything shown.
@@ -1251,11 +1257,12 @@ impl Regis {
     }
 
     /// How blinking pixels are shown now: in the hidden phase the
-    /// background index's colour.
+    /// background index's colour, in the faint one half way to it.
     pub fn blink_show(&self) -> RegisBlinkShow {
         match self.sem.blink_phase {
             RegisPhase::Shown => RegisBlinkShow::Shown,
             RegisPhase::Hidden => RegisBlinkShow::Hidden(self.sem.bg),
+            RegisPhase::Faint => RegisBlinkShow::Faint(self.sem.bg),
         }
     }
 

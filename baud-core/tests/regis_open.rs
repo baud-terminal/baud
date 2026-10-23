@@ -410,6 +410,40 @@ fn a_page_left_behind_keeps_its_own_colours() {
     });
 }
 
+/// **Under dimmed flashing lights the off phase is faint**: a blinking
+/// pixel is half way from its own colour to the background's, channel by
+/// channel in encoded sRGB rounded up, as blinking text's off phase is
+/// drawn faint, at the same flips. Red `#CC2121` over black is `#661111`,
+/// over `S(I1)`'s blue `#802A77`.
+#[test]
+fn a_blinking_drawing_is_faint_in_the_faint_phase() {
+    const FAINT_ON_BLACK: u32 = 0xff66_1111;
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]W(A0)P[0,2]V[9,2]"]);
+    run(&bytes, |t| {
+        assert_eq!(t.set_regis_blink(RegisPhase::Faint), RegisRepainted::Yes);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, FAINT_ON_BLACK), "half way");
+        assert_eq!(row(t, 2, 0, 10), n_of(10, RED), "a steady line stays");
+        assert_eq!(at(t, 0, 1), CLEAR, "nothing drawn stays clear");
+        assert_eq!(t.set_regis_blink(RegisPhase::Shown), RegisRepainted::Yes);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "shown again");
+        assert_eq!(t.set_regis_blink(RegisPhase::Hidden), RegisRepainted::Yes);
+        assert_eq!(t.set_regis_blink(RegisPhase::Faint), RegisRepainted::Yes);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, FAINT_ON_BLACK), "from hidden");
+    });
+    let bytes = regis(&[b"W(I2,A1)P[0,0]V[9,0]S(I1)"]);
+    run(&bytes, |t| {
+        t.set_regis_blink(RegisPhase::Faint);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, 0xff80_2a77), "toward blue");
+    });
+    // A page left behind in the faint phase shows its own colours.
+    run(&regis(&[b"W(I2,A1)P[0,0]V[9,0]"]), |t| {
+        t.set_regis_blink(RegisPhase::Faint);
+        support::feed(t, b"\x1b[50;1H\n\n\n");
+        support::feed(t, &regis(&[b"W(A0)P[0,100]V[9,100]"]));
+        assert_eq!(pages(t)[0].0[..10].to_vec(), n_of(10, RED));
+    });
+}
+
 #[test]
 fn a_blinking_flood_and_a_blinking_character_blink() {
     let bytes = regis(&[BOX, b"W(I2,A1)F[20,20]"]);

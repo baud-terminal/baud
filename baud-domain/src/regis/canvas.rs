@@ -848,6 +848,9 @@ impl<'a> RegisCanvas<'a> {
                 *o = match (b & WRITTEN, b & BLINK, blink) {
                     (0, _, _) => crate::image::Pixel::CLEAR,
                     (_, BLINK, RegisBlinkShow::Hidden(bg)) => map[bg.slot()],
+                    (_, BLINK, RegisBlinkShow::Faint(bg)) => {
+                        map[usize::from(b & 0x0f)].faint_on(map[bg.slot()])
+                    }
                     _ => map[usize::from(b & 0x0f)],
                 };
             }

@@ -747,7 +747,7 @@ fn repaint_blink(
 /// repaints it at a flip. What blinks on the lines a carry takes to the
 /// new page goes on blinking there ([`place`]).
 fn settle_blink(images: &mut ImageStore<'_>, page: &mut Page, regis: &mut Regis) {
-    if regis.blink_phase() == RegisPhase::Hidden {
+    if regis.blink_phase() != RegisPhase::Shown {
         let mut keep = page.blink;
         let p = *page;
         repaint_blink(
@@ -1209,7 +1209,9 @@ impl Term<'_> {
     /// ReGIS page's blinking pixels show their own colours in
     /// [`RegisPhase::Shown`] and the background's in
     /// [`RegisPhase::Hidden`] (070-8 § 8.8.3.1), at SGR 5's rate, as text
-    /// blinks (decided by Jev, SGR5_RATE, 0.98 and 0.98 on a second ask).
+    /// blinks (decided by Jev, SGR5_RATE, 0.98 and 0.98 on a second ask);
+    /// in [`RegisPhase::Faint`], dimmed flashing lights' off phase, half
+    /// way to the background's, as text's off phase is drawn faint.
     /// The page the next drawing goes on is repainted where it keeps its
     /// blinking pixels, the cursors drawn over it again; whether anything
     /// was, which owes a frame.

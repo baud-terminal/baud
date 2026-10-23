@@ -144,6 +144,18 @@ impl Pixel {
         px.as_mut_bytes()
     }
 
+    /// **Half way to `other`**, channel by channel in encoded sRGB,
+    /// rounded half up, this pixel's opacity kept: what a renderer draws
+    /// faint text as over its page, `SGR 2`'s mix, which
+    /// `baud-render`'s `Argb::faint_on` spells the same way.
+    pub fn faint_on(self, other: Pixel) -> Pixel {
+        let half = |shift: u32| {
+            let (x, y) = ((self.0 >> shift) & 0xFF, (other.0 >> shift) & 0xFF);
+            (x + y).div_ceil(2) << shift
+        };
+        Pixel((self.0 & 0xFF00_0000) | half(16) | half(8) | half(0))
+    }
+
     /// The pixel whose four bytes in memory are `r, g, b, a` in that order,
     /// as PNG's RGBA8 and kitty's `f=32` lay them out: the word a byte
     /// decoder left in place, read back as the straight ARGB it means.

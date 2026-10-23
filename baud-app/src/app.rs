@@ -7295,6 +7295,7 @@ mod motion_tests {
         use baud_render::Blink;
         assert_eq!(regis_phase(Blink::Shown), RegisPhase::Shown);
         assert_eq!(regis_phase(Blink::Hidden), RegisPhase::Hidden);
+        assert_eq!(regis_phase(Blink::Faint), RegisPhase::Faint);
     }
 }
 

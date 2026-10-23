@@ -1279,3 +1279,36 @@ pub fn xterm_palette() -> [Argb; 256] {
     }
     p
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Argb;
+    use baud_domain::{Chan, Pixel};
+
+    /// **One faint mix on both sides of the crate line**: what a ReGIS
+    /// page's faint phase paints in the core (`Pixel::faint_on`) is what
+    /// faint text is drawn with here, for every pair of channel bytes, an
+    /// opacity kept.
+    #[test]
+    fn a_regis_page_mixes_faint_as_text_does() {
+        let pixel = |[a, r, g, b]: [u8; 4]| {
+            Pixel::straight(
+                Chan::from_u8(a),
+                Chan::from_u8(r),
+                Chan::from_u8(g),
+                Chan::from_u8(b),
+            )
+        };
+        for x in 0..=255u8 {
+            for y in 0..=255u8 {
+                let a = [0x80, x, y, x ^ y];
+                let b = [0xFF, y, 255 - x, y];
+                let text = Argb(u32::from_be_bytes(a))
+                    .faint_on(Argb(u32::from_be_bytes(b)))
+                    .0;
+                let regis = pixel(a).faint_on(pixel(b)).bits();
+                assert_eq!(text, regis, "{a:02x?} on {b:02x?}");
+            }
+        }
+    }
+}

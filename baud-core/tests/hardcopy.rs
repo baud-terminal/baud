@@ -473,29 +473,35 @@ fn a_large_offset_is_held_to_a_sheet() {
     });
 }
 
-/// **A blinking ReGIS pixel prints its own colour in either phase**:
+/// **A blinking ReGIS pixel prints its own colour in every phase**:
 /// the hidden phase shows the background in its place (070-8 § 8.8.3.1),
-/// and a hard copy of it in that phase still prints the line.
+/// the faint one half way to it, and a hard copy of it in either phase
+/// still prints the line.
 #[test]
 fn a_blinking_pixel_prints_its_own_colour_when_hidden() {
-    run(1 << 20, b"\x1bPpW(I2,A1)P[100,100]V[200,100]\x1b\\", |t| {
-        t.set_graphics_print(GraphicsPrint {
-            colour: PrintColour::Colour,
-            ..GraphicsPrint::DEFAULT
+    for phase in [
+        baud_domain::RegisPhase::Hidden,
+        baud_domain::RegisPhase::Faint,
+    ] {
+        run(1 << 20, b"\x1bPpW(I2,A1)P[100,100]V[200,100]\x1b\\", |t| {
+            t.set_graphics_print(GraphicsPrint {
+                colour: PrintColour::Colour,
+                ..GraphicsPrint::DEFAULT
+            });
+            t.set_regis_blink(phase);
+            support::feed(t, b"\x1bPpS(H)\x1b\\");
+            let j = jobs(t);
+            let (w, _, px) = decode(&j[0]);
+            let (r, g, b) = px[100 * w + 150].rgb();
+            assert!(
+                r.get() > 150 && g.get() < 80 && b.get() < 80,
+                "{phase:?}: the line's red, ({}, {}, {})",
+                r.get(),
+                g.get(),
+                b.get()
+            );
         });
-        t.set_regis_blink(baud_domain::RegisPhase::Hidden);
-        support::feed(t, b"\x1bPpS(H)\x1b\\");
-        let j = jobs(t);
-        let (w, _, px) = decode(&j[0]);
-        let (r, g, b) = px[100 * w + 150].rgb();
-        assert!(
-            r.get() > 150 && g.get() < 80 && b.get() < 80,
-            "the line's red, ({}, {}, {})",
-            r.get(),
-            g.get(),
-            b.get()
-        );
-    });
+    }
 }
 
 /// **A hard copy prints the surface displayed**: under `S(P1)` the
