@@ -65,10 +65,20 @@ pub struct Watched {
 }
 
 /// **The files to watch**: each place the config is looked up, each path
-/// a theme name is tried at, and each font named by path -- and, for a
-/// symbolic link, the file it names as well, so an edit through the link
-/// is heard where it lands and a swapped link in its own directory. Each
-/// once, in this order.
+/// a theme name is tried at, and each font named by path, each once, in
+/// this order. A symbolic link is watched as itself, read through: the
+/// kernel's watch on its path is a watch on the file it names (an
+/// `O_EVTONLY` open follows it, and inotify does unless asked not to:
+/// `IN_DONT_FOLLOW`, "Don't dereference pathname if it is a symbolic
+/// link", `[[source: linux-man-inotify-7]]` 310-313), so an edit through
+/// it is heard in place, and a rename over its target as that file's
+/// delete: `NOTE_DELETE` on macOS, `IN_DELETE_SELF` on Linux, measured.
+/// The target's directory is not watched: a home-manager link resolves to
+/// a file directly in `/nix/store`, whose every write would be a settle
+/// and a reading, and a switch replaces the link in its own directory, as
+/// WezTerm watches a config's path and its directory and never its
+/// target's (`[[source: wezterm-20240203-config-lib]]`; Jev's lean after a
+/// re-ask, B_WEZTERM_SHAPE).
 pub fn files(lookup: &[PathBuf], themes: &[PathBuf], faces: &[PathBuf]) -> Vec<Watched> {
     let mut out: Vec<Watched> = Vec::new();
     let tagged = lookup
@@ -77,28 +87,52 @@ pub fn files(lookup: &[PathBuf], themes: &[PathBuf], faces: &[PathBuf]) -> Vec<W
         .map(|p| (p, Kind::Text))
         .chain(faces.iter().map(|p| (p, Kind::Face)));
     for (path, kind) in tagged {
-        let real = std::fs::canonicalize(path)
-            .ok()
-            .filter(|_| path.is_symlink());
-        for p in std::iter::once(path.clone()).chain(real) {
-            if !out.iter().any(|w| w.path == p) {
-                out.push(Watched { path: p, kind });
-            }
+        if !out.iter().any(|w| w.path == *path) {
+            out.push(Watched {
+                path: path.clone(),
+                kind,
+            });
         }
     }
     out
 }
 
 /// **The directories that see the files**: each file's directory, or,
-/// while it does not exist, the nearest one above it that does. Each once.
+/// while it does not exist, the nearest one above it that does -- and, for
+/// a directory that is itself a symbolic link, as home-manager links a
+/// whole config directory, the link's own directory too, where the next
+/// link is renamed over it. Each once.
 pub fn dirs(files: &[Watched]) -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    dirs_beside(files, home.as_deref())
+}
+
+/// [`dirs`], with `home` the home directory. The link's own directory is
+/// added only for the directory a file sits in, and never when it is
+/// `home` or the root: a missing config seen from a linked `~/.config`
+/// would otherwise watch the home directory, whose every write is a
+/// settle and a reading -- WezTerm never watches it, "so that we don't
+/// keep reloading every time something in the home dir changes"
+/// (`[[source: wezterm-20240203-config-lib]]`).
+fn dirs_beside(files: &[Watched], home: Option<&Path>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
+    let mut add = |d: &Path| {
+        if !out.iter().any(|o| o == d) {
+            out.push(d.to_path_buf());
+        }
+    };
     for w in files {
-        let mut dir = w.path.parent();
+        let own = w.path.parent();
+        let mut dir = own;
         while let Some(d) = dir {
             if d.is_dir() {
-                if !out.iter().any(|o| o == d) {
-                    out.push(d.to_path_buf());
+                add(d);
+                let up = d
+                    .parent()
+                    .filter(|up| Some(d) == own && d.is_symlink() && Some(*up) != home)
+                    .filter(|up| up.parent().is_some());
+                if let Some(up) = up {
+                    add(up);
                 }
                 break;
             }
@@ -399,9 +433,11 @@ impl Kernel {
         self.fd.as_raw_fd()
     }
 
-    /// Watch the directories among `paths` from now; a watch no longer
-    /// wanted is removed after the new ones are added. A file's events
-    /// come through its directory's watch, so files are not watched.
+    /// Watch the directories among `paths` from now, and each symbolic
+    /// link, which the watch follows to the file it names; a watch no
+    /// longer wanted is removed after the new ones are added. Any other
+    /// file's events come through its directory's watch; a link's target's
+    /// directory is not watched (`files`).
     fn arm(&mut self, paths: &[&Path]) {
         use crate::sys::{
             IN_ATTRIB, IN_CLOSE_WRITE, IN_CREATE, IN_DELETE, IN_DELETE_SELF, IN_MODIFY,
@@ -418,7 +454,7 @@ impl Kernel {
             | IN_DELETE_SELF
             | IN_MOVE_SELF;
         let mut wds = Vec::with_capacity(paths.len());
-        for p in paths.iter().filter(|p| p.is_dir()) {
+        for p in paths.iter().filter(|p| p.is_dir() || p.is_symlink()) {
             let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) else {
                 continue;
             };
@@ -888,13 +924,133 @@ mod tests {
         std::fs::write(&b, "font_size = 15\n").unwrap();
         std::os::unix::fs::symlink(&a, &cfg).unwrap();
         let mut w = Watch::new(files(std::slice::from_ref(&cfg), &[], &[]));
-        assert_eq!(w.files().len(), 2, "the link and the file it names");
+        assert_eq!(w.files(), [text(&cfg)], "the link, read through");
         let (heard, due) = one(&mut w, || {
             let next = d.at("next");
             std::os::unix::fs::symlink(&b, &next).unwrap();
             std::fs::rename(&next, &cfg).unwrap();
         });
         assert_eq!((heard, due), (Heard::Moved, Due::Changed));
+    }
+
+    /// **A link into a store is watched at the link, not in the store**:
+    /// a home-manager config resolves to a file directly in `/nix/store`,
+    /// whose every write would be a settle and a reading. The link's own
+    /// directory is watched, where a switch puts the next link, and the
+    /// link, read through; another file written beside the target is not
+    /// heard.
+    #[test]
+    fn a_link_into_a_store_is_watched_at_the_link_not_in_the_store() {
+        let d = Dir::new("store");
+        std::fs::create_dir_all(d.at("store")).unwrap();
+        std::fs::create_dir_all(d.at("cfg")).unwrap();
+        let (target, cfg) = (d.at("store/h-baud-config.toml"), d.at("cfg/config.toml"));
+        std::fs::write(&target, "font_size = 13\n").unwrap();
+        std::os::unix::fs::symlink(&target, &cfg).unwrap();
+        let mut w = Watch::new(files(std::slice::from_ref(&cfg), &[], &[]));
+        assert_eq!(dirs(w.files()), [d.at("cfg")]);
+        let (heard, due) = one(&mut w, || {
+            std::fs::write(d.at("store/h2-other"), "x").unwrap();
+        });
+        assert_eq!(
+            (heard, due),
+            (Heard::Quiet, Due::Wait),
+            "the store is not watched"
+        );
+        // The control: a switch, the next link renamed over this one.
+        let (heard, due) = one(&mut w, || {
+            let next = d.at("store/h3-baud-config.toml");
+            std::fs::write(&next, "font_size = 15\n").unwrap();
+            let link = d.at("cfg/.config.toml.new");
+            std::os::unix::fs::symlink(&next, &link).unwrap();
+            std::fs::rename(&link, &cfg).unwrap();
+        });
+        assert_eq!((heard, due), (Heard::Moved, Due::Changed));
+    }
+
+    /// **An edit through a link is heard where it lands**, with its
+    /// directory unwatched: in place, and a save by rename over the target,
+    /// which the target's own watch hears; armed again at the reading, the
+    /// file the rename put there is watched in turn.
+    #[test]
+    fn an_edit_through_a_link_is_heard_in_place_and_by_rename() {
+        let d = Dir::new("through");
+        std::fs::create_dir_all(d.at("dot")).unwrap();
+        std::fs::create_dir_all(d.at("cfg")).unwrap();
+        let (target, cfg) = (d.at("dot/baud.toml"), d.at("cfg/config.toml"));
+        std::fs::write(&target, "font_size = 13\n").unwrap();
+        std::os::unix::fs::symlink(&target, &cfg).unwrap();
+        let mut w = Watch::new(files(std::slice::from_ref(&cfg), &[], &[]));
+        let (heard, due) = one(&mut w, || {
+            std::fs::write(&target, "font_size = 14\n").unwrap();
+        });
+        assert_eq!((heard, due), (Heard::Moved, Due::Changed), "in place");
+        for n in [15, 16] {
+            let (heard, due) = one(&mut w, || {
+                let tmp = d.at("dot/.baud.toml.swp");
+                std::fs::write(&tmp, format!("font_size = {n}\n")).unwrap();
+                std::fs::rename(&tmp, &target).unwrap();
+            });
+            assert_eq!((heard, due), (Heard::Moved, Due::Changed), "by rename, {n}");
+        }
+    }
+
+    /// **A config directory that is a link**, as home-manager makes one
+    /// for a whole directory: the switch renames the next link over it in
+    /// its own directory, which is watched as well.
+    #[test]
+    fn a_linked_config_directory_swapped_is_heard() {
+        let d = Dir::new("dir-link");
+        for g in ["gen1", "gen2", "home"] {
+            std::fs::create_dir_all(d.at(g)).unwrap();
+        }
+        std::fs::write(d.at("gen1/config.toml"), "font_size = 13\n").unwrap();
+        std::fs::write(d.at("gen2/config.toml"), "font_size = 15\n").unwrap();
+        let linked = d.at("home/baud");
+        std::os::unix::fs::symlink(d.at("gen1"), &linked).unwrap();
+        let cfg = linked.join("config.toml");
+        let mut w = Watch::new(files(std::slice::from_ref(&cfg), &[], &[]));
+        assert_eq!(dirs(w.files()), [linked.clone(), d.at("home")]);
+        let (heard, due) = one(&mut w, || {
+            let next = d.at("home/.baud.new");
+            std::os::unix::fs::symlink(d.at("gen2"), &next).unwrap();
+            std::fs::rename(&next, &linked).unwrap();
+        });
+        assert_eq!((heard, due), (Heard::Moved, Due::Changed));
+    }
+
+    /// **Only the file's own directory brings its link's directory**: a
+    /// missing config seen from a directory above it that is a link -- a
+    /// `~/.config` linked into dotfiles, `/tmp` on macOS -- is watched at
+    /// the link alone, and the home directory and `/` are never added, as
+    /// WezTerm never watches the home directory (`[[source:
+    /// wezterm-20240203-config-lib]]`).
+    #[test]
+    fn a_link_above_a_missing_config_brings_no_directory_above_it() {
+        let d = Dir::new("link-above");
+        std::fs::create_dir_all(d.at("dots/config")).unwrap();
+        std::fs::create_dir_all(d.at("home")).unwrap();
+        let linked = d.at("home/.config");
+        std::os::unix::fs::symlink(d.at("dots/config"), &linked).unwrap();
+        let missing = text(&linked.join("baud/config.toml"));
+        assert_eq!(
+            dirs(std::slice::from_ref(&missing)),
+            std::slice::from_ref(&linked)
+        );
+        // A linked config directory directly under the home directory:
+        // the link, and not the home directory.
+        let beside = d.at("home/baud");
+        std::os::unix::fs::symlink(d.at("dots/config"), &beside).unwrap();
+        let cfg = text(&beside.join("config.toml"));
+        assert_eq!(
+            dirs_beside(std::slice::from_ref(&cfg), Some(&d.at("home"))),
+            std::slice::from_ref(&beside)
+        );
+        // The control: the same link anywhere else brings its directory.
+        assert_eq!(
+            dirs_beside(std::slice::from_ref(&cfg), None),
+            [beside, d.at("home")]
+        );
     }
 
     /// Another program's file in the same directory is heard -- a vnode
