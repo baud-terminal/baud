@@ -44,9 +44,10 @@ impl Attrs {
     ///
     /// `[[source: ecma48]]` § 8.3.117 does not *define* 26 -- it reserves it,
     /// "for proportional spacing as specified in CCITT Recommendation T.61",
-    /// and reserves 50 for cancelling it. baud records the bit and resolves
-    /// nothing, which is what a reservation permits: spacing is a renderer's
-    /// decision and T.61 is not a pinned source here.
+    /// and reserves 50 for cancelling it. `[[source: itu-t61]]` says the text
+    /// that follows "may be presented with proportional spacing at the
+    /// recipient's option", so baud records the bit and every path draws the
+    /// text at the cell pitch, as it draws it without 26.
     pub const PROPORTIONAL: Attrs = Attrs(1 << 9);
     /// `SGR 51`, off by `SGR 54`.
     pub const FRAMED: Attrs = Attrs(1 << 10);

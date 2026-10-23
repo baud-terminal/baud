@@ -238,15 +238,15 @@ fn decrqss_reports_the_presentation_attributes() {
     }
 }
 
-/// `SGR 26` is a **reservation**, and baud records it without resolving it.
+/// `SGR 26` is recorded, and the grid keeps its pitch.
 ///
 /// `[[source: ecma48]]` § 8.3.117 does not define 26; it reserves it "for
 /// proportional spacing as specified in CCITT Recommendation T.61", and
-/// reserves 50 for cancelling it. T.61 is not a pinned source here and
-/// proportional spacing is a renderer's decision, so the bit is recorded and
-/// nothing acts on it — which is exactly what a reservation permits, and is
-/// distinct from the "recorded but never read" failure this table exists to
-/// catch, because a renderer reads it off the cell's style.
+/// reserves 50 for cancelling it. `[[source: itu-t61]]`'s Note 1 says the
+/// text that follows "may be presented with proportional spacing at the
+/// recipient's option", and baud presents it at the cell pitch: the
+/// pixel oracle's `proportional_gate` holds every path to the same pixels
+/// with 26 and without.
 ///
 /// What must not happen is 26 being treated as a *width* change in the core:
 /// the grid is fixed-pitch, and a cell that silently became narrower would

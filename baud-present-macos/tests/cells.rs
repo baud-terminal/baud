@@ -3723,6 +3723,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     iterm_file_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
+    proportional_gate(&mut arms, &mut t);
     line_rendition_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
@@ -4080,6 +4081,49 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     reach_gate(arms, t);
     overlap_gate(arms, t);
     composed_decoration_gate(arms, t);
+}
+
+/// **`SGR 26` draws at the cell pitch on all three arms**: the text that
+/// follows it "may be presented with proportional spacing at the
+/// recipient's option" (`[[source: itu-t61]]`, Note 1), and baud keeps the
+/// pitch, so text under 26 -- a ligature, a wide character, a bold run, an
+/// underline and a frame among it, and 26 cancelled by 50 midway -- paints
+/// exactly what the same text paints without it, on every arm. The arms
+/// agreeing with each other is the cell oracle's half; the premise that the
+/// scene drew text at all is that it differs from a blank screen.
+fn proportional_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let body = "ab->x \u{4e2d}\u{6587} \x1b[1mbold\x1b[22m \x1b[4mline\x1b[24m \
+                \x1b[51mbox\x1b[54m iii WWW\r\nnext row";
+    let with = format!("\x1bc\x1b[?25l\x1b[26m{body}\x1b[50m tail");
+    let without = format!("\x1bc\x1b[?25l{body} tail");
+    feed(t, b"\x1bc\x1b[?25l");
+    let (blank, _) = arms.draw(t);
+    feed(t, without.as_bytes());
+    let (plain, plain_cell) = arms.draw(t);
+    let plain_cpu = cpu_frame(arms, t);
+    assert!(
+        differing(&blank, &plain) > 0,
+        "the proportional scene drew no text"
+    );
+    feed(t, with.as_bytes());
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(
+        differing(&plain, &a),
+        0,
+        "SGR 26 moved the instance arm's pixels"
+    );
+    assert_eq!(
+        differing(&plain_cell, &b),
+        0,
+        "SGR 26 moved the cell arm's pixels"
+    );
+    assert_eq!(
+        differing(&plain_cpu, &cpu),
+        0,
+        "SGR 26 moved the CPU arm's pixels"
+    );
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree under SGR 26");
 }
 
 /// **A line that is not single-width is drawn alike on all three arms**

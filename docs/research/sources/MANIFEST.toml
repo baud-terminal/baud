@@ -33615,3 +33615,20 @@ bytes  = 24493
 status = "external"
 group  = "AN"
 # Read 2026-10-23 (lane b173) with devenv-2-4-0-tasks-rs.
+
+[sources.itu-t61]
+key    = "itu-t61"
+title  = "CCITT Recommendation T.61 (11/88), Character repertoire and coded character sets for the international teletex service -- CP03 SGR 26: 'proportional spacing character pitch may be used'; Note 1, the text that follows 'may be presented with proportional spacing at the recipient's option'"
+author = "CCITT"
+year   = 1988
+venue  = "CCITT Blue Book, Fascicle VII.3; ITU-T Recommendations, T Series (superseded)"
+url    = "https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.61-198811-S!!PDF-E&type=items"
+file   = ""
+sha256 = "968bcf0d70b7119a72371ac6963c0bb4f554650a1012b91e5825aa95a0492d40"
+bytes  = 657473
+status = "external"
+group  = "AZ"
+# Read 2026-10-23 (lane b171) for SGR 26, the reading ECMA-48 § 8.3.117
+# defers to. The text layer extracts letter-spaced, as ECMA-48's does;
+# searched with the non-alphanumerics stripped, with a positive control:
+# the title, "teletex" and "SHS" hit before "proportional" was believed.
