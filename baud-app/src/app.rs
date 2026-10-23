@@ -917,9 +917,9 @@ struct Boot {
     bell: crate::config::BellStyle,
     /// What the window says about the config at launch (`live::Notice`).
     notice: crate::live::Notice,
-    /// The config as read and the files it pulls in, for the watch, while
-    /// `config_reload` is on.
-    reload: Option<(crate::config::Config, crate::config::Watched)>,
+    /// The config as read and the watch on the files it pulls in, taken
+    /// before the config was read, while `config_reload` is on.
+    reload: Option<(crate::config::Config, crate::reload::Watch<Instant>)>,
 }
 
 impl Boot {
@@ -992,10 +992,19 @@ impl Boot {
             g
         });
         startup_mark("gpu probing");
-        let launched = crate::config::Config::launch();
+        // **The watch before the read** (`reload::Watch::around`), so an
+        // edit that lands while the config is read is heard; the themes
+        // and fonts it names are read below, under it.
+        let (launched, watch) =
+            crate::reload::Watch::around(&crate::config::lookup(), Instant::now(), || {
+                let l = crate::config::Config::launch();
+                let w = &l.watched;
+                let files = crate::reload::files(&w.lookup, &w.themes, &w.faces);
+                (l, files)
+            });
         let notice = crate::live::Notice::of(&launched.said);
         let reload = match launched.config.config_reload {
-            crate::config::ConfigReload::On => Some((launched.read, launched.watched)),
+            crate::config::ConfigReload::On => Some((launched.read, watch)),
             crate::config::ConfigReload::Off => None,
         };
         let cfg = launched.config;
@@ -9686,14 +9695,14 @@ pub fn run() {
     // **The config's watch, heard on the main queue** (`reload.rs`): the
     // dispatch source's handler drains the kqueue and wakes the view, and
     // `pump` takes the mark. No thread of baud's waits on it.
-    if let Some((read, watched)) = reload_from {
-        let watch = crate::reload::Watch::new(crate::reload::files(
-            &watched.lookup,
-            &watched.themes,
-            &watched.faces,
-        ));
+    if let Some((read, watch)) = reload_from {
         let waker = view.waker();
         let heard = watch.listen(dispatch2::DispatchQueue::main(), move || waker.wake());
+        // A change heard while the config was read is due a settle after
+        // it, woken here: no event may follow it.
+        if let Some(at) = watch.deadline() {
+            driver.wake_at(at);
+        }
         driver.reload = Some(Reloading {
             _heard: heard,
             watch,
@@ -10395,6 +10404,19 @@ impl Driver {
         }
         let faces = r.watch.faces_moved();
         let parts = crate::live::between(&r.read, &config, faces);
+        // **The files the new config names watched before they are read**,
+        // as at launch (`reload::Watch::around`): a theme or font file it
+        // names for the first time and edited while it is applied is heard.
+        let mut again = None;
+        if let Some(r) = self.reload.as_mut() {
+            r.watch.rewatch(
+                crate::reload::files(&watched.lookup, &watched.themes, &watched.faces),
+                now,
+            );
+            // A change between the reading and the new watch is due a settle
+            // after it, woken here: the display link may be paused.
+            again = r.watch.deadline();
+        }
         said.extend(self.apply_config(&config, &parts));
         crate::info!(
             "config: read again from {}",
@@ -10407,16 +10429,8 @@ impl Driver {
             crate::info!("{line}");
         }
         let off = config.config_reload == crate::config::ConfigReload::Off;
-        let mut again = None;
         if let Some(r) = self.reload.as_mut() {
-            r.watch.rewatch(
-                crate::reload::files(&watched.lookup, &watched.themes, &watched.faces),
-                now,
-            );
             r.read = config;
-            // A change between the reading and the new watch is due a settle
-            // after it, woken here: the display link may be paused.
-            again = r.watch.deadline();
         }
         if let Some(at) = again {
             self.wake_at(at);

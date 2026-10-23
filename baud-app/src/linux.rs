@@ -353,15 +353,20 @@ pub fn run() {
     crate::warn!(
         "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels, typed into it, moved a mouse over it or pasted into it"
     );
-    let launched = Config::launch();
+    // **The watch before the read** (`reload::Watch::around`), so an edit
+    // that lands while the config is read is heard; the themes and fonts
+    // it names are read below, under it.
+    let (launched, watch) =
+        crate::reload::Watch::around(&crate::config::lookup(), Instant::now(), || {
+            let l = Config::launch();
+            let w = &l.watched;
+            let files = crate::reload::files(&w.lookup, &w.themes, &w.faces);
+            (l, files)
+        });
     let notice = crate::live::Notice::of(&launched.said);
     let reload = match launched.config.config_reload {
         crate::config::ConfigReload::On => Some(Reloading {
-            watch: crate::reload::Watch::new(crate::reload::files(
-                &launched.watched.lookup,
-                &launched.watched.themes,
-                &launched.watched.faces,
-            )),
+            watch,
             read: launched.read,
         }),
         crate::config::ConfigReload::Off => None,
@@ -1651,16 +1656,20 @@ impl Driver {
         }
         let faces = r.watch.faces_moved();
         let parts = crate::live::between(&r.read, &config, faces);
+        // The files the new config names watched before they are read, as
+        // the macOS driver does.
+        if let Some(r) = self.reload.as_mut() {
+            r.watch.rewatch(
+                crate::reload::files(&watched.lookup, &watched.themes, &watched.faces),
+                now,
+            );
+        }
         said.extend(self.apply_config(&config, &parts));
         if let Some(line) = crate::live::later(&parts) {
             crate::info!("{line}");
         }
         let off = config.config_reload == crate::config::ConfigReload::Off;
         if let Some(r) = self.reload.as_mut() {
-            r.watch.rewatch(
-                crate::reload::files(&watched.lookup, &watched.themes, &watched.faces),
-                now,
-            );
             r.read = config;
         }
         self.show_notice(crate::live::Notice::of(&said));

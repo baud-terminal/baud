@@ -34,6 +34,10 @@
 //! a higher place of the lookup. The watch is armed again before each
 //! reading, so a file replaced by a rename is watched by its new
 //! descriptor and a change after the reading is heard.
+//!
+//! **At launch the watch comes first** (`Watch::around`): taken, and the
+//! files read, before the config is, so an edit while the config is read
+//! reads differently at the next reading and is applied a settle later.
 #![allow(unsafe_code)]
 
 use std::path::{Path, PathBuf};
@@ -160,6 +164,17 @@ impl Reading {
         self.0
             .iter()
             .any(|(p, h)| earlier.0.iter().any(|(q, was)| q == p && was != h))
+    }
+
+    /// Each file both readings hold, put back as `earlier` read it: a file
+    /// that reads differently now is compared with its earlier reading at
+    /// the settle's end, and the rest read the same either way.
+    fn keep_earlier(&mut self, earlier: &Reading) {
+        for (p, h) in &mut self.0 {
+            if let Some((_, was)) = earlier.0.iter().find(|(q, _)| q == p) {
+                h.clone_from(was);
+            }
+        }
     }
 }
 
@@ -568,15 +583,44 @@ impl<T: Copy + PartialOrd + core::ops::Add<Duration, Output = T>> Watch<T> {
 
     /// **The files a config just read pulls in**, watched from now. A file
     /// the last reading also held that reads differently now changed
-    /// between that reading and this one, so it is heard at `now`.
+    /// between that reading and this one, so it is heard at `now`, and
+    /// kept as it read before: the settle's end compares with that, and
+    /// reads the change.
     pub fn rewatch(&mut self, files: Vec<Watched>, now: T) {
         self.files = files;
         self.arm();
-        let reading = Reading::take(&self.files);
+        let mut reading = Reading::take(&self.files);
         if reading.moved_from(&self.last) {
             self.settle.heard(now);
+            reading.keep_earlier(&self.last);
         }
         self.last = reading;
+    }
+
+    /// **The watch around the launch's read of the config**: taken on the
+    /// `lookup`, and its files read, before `read` reads the config, then
+    /// the files `read` says the config names watched from then on
+    /// ([`Watch::rewatch`]). An edit that lands after the launch's read and
+    /// before the watch's first reading is a file that reads differently
+    /// at the rewatch, so it is heard at `now`; a theme or font file the
+    /// config names is read after this returns, under the watch.
+    pub fn around<R>(
+        lookup: &[PathBuf],
+        now: T,
+        read: impl FnOnce() -> (R, Vec<Watched>),
+    ) -> (R, Watch<T>) {
+        let mut w = Watch::new(
+            lookup
+                .iter()
+                .map(|p| Watched {
+                    path: p.clone(),
+                    kind: Kind::Text,
+                })
+                .collect(),
+        );
+        let (r, files) = read();
+        w.rewatch(files, now);
+        (r, w)
     }
 
     /// The files watched, in the order they were given.
@@ -951,6 +995,43 @@ mod tests {
         w.settle = Settle::new();
         w.rewatch(vec![text(&cfg), text(&theme)], t);
         assert_eq!(w.deadline(), Some(after(t)));
+        assert_eq!(w.due(after(t)), Due::Changed, "and read as a change");
+    }
+
+    /// **An edit between the launch's read of the config and the watch's
+    /// first reading is heard**: the watch is taken, and the files read,
+    /// before the config is, so the reading after it differs from the one
+    /// before and the settle's end reads a change.
+    #[test]
+    fn an_edit_between_the_launch_read_and_the_watch_is_heard() {
+        let d = Dir::new("launch-race");
+        let cfg = d.at("config.toml");
+        std::fs::write(&cfg, "font_size = 13\n").unwrap();
+        let t = Instant::now();
+        let (read, mut w) = Watch::around(std::slice::from_ref(&cfg), t, || {
+            let read = std::fs::read(&cfg).unwrap();
+            // The edit lands after the launch read the file.
+            std::fs::write(&cfg, "font_size = 15\n").unwrap();
+            (read, vec![text(&cfg)])
+        });
+        assert_eq!(read, b"font_size = 13\n", "the launch read the old file");
+        let _ = w.heard(t);
+        assert_eq!(w.deadline(), Some(after(t)), "the edit is heard");
+        assert_eq!(w.due(after(t)), Due::Changed, "and reads as a change");
+    }
+
+    /// The control: nothing changed around the launch's read, nothing is
+    /// due.
+    #[test]
+    fn a_launch_with_no_edit_owes_no_reading() {
+        let d = Dir::new("launch-quiet");
+        let cfg = d.at("config.toml");
+        std::fs::write(&cfg, "font_size = 13\n").unwrap();
+        let t = Instant::now();
+        let (_, mut w) = Watch::around(std::slice::from_ref(&cfg), t, || ((), vec![text(&cfg)]));
+        assert_eq!(w.heard(t), Heard::Quiet);
+        assert_eq!(w.deadline(), None);
+        assert_eq!(w.due(t + Duration::from_secs(1)), Due::Wait);
     }
 
     #[test]
@@ -1002,6 +1083,32 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(10))
             .expect("the handler ran");
         // The handler drained the kqueue; the mark carries the event.
+        let t = Instant::now();
+        assert_eq!(w.heard(t), Heard::Moved);
+        assert_eq!(w.due(after(t)), Due::Changed);
+    }
+
+    /// **An event the kqueue holds before the source listens is heard**:
+    /// the launch's watch is taken before the window, and a change in
+    /// between waits in the kqueue until the source's handler drains it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_event_before_the_source_listens_is_heard_once_it_does() {
+        let d = Dir::new("dispatch-early");
+        let cfg = d.at("config.toml");
+        std::fs::write(&cfg, "font_size = 13\n").unwrap();
+        let mut w: Watch<Instant> = Watch::new(vec![text(&cfg)]);
+        std::fs::write(&cfg, "font_size = 15\n").unwrap();
+        let queue = dispatch2::DispatchQueue::new("baud.reload.early", None);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = std::sync::Mutex::new(tx);
+        let _heard = w
+            .listen(&queue, move || {
+                let _ = tx.lock().map(|t| t.send(()));
+            })
+            .expect("a source");
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("the handler ran for the event before it");
         let t = Instant::now();
         assert_eq!(w.heard(t), Heard::Moved);
         assert_eq!(w.due(after(t)), Due::Changed);
@@ -1346,5 +1453,29 @@ mod flow {
         }));
         assert_eq!(r.config.config_reload, crate::config::ConfigReload::Off);
         assert!(between(&old, &r.config, FaceFiles::Same).contains(&Part::Reload));
+    }
+
+    /// **Both drivers watch what a config read again names before they
+    /// read it**, as the launch does: the rewatch comes before the apply in
+    /// each `reload_config`, so a theme or font file named for the first
+    /// time and edited while it is applied is heard. The drivers start
+    /// AppKit or Wayland, so the order is held in their source.
+    #[test]
+    fn both_drivers_rewatch_before_they_apply() {
+        for (driver, src) in [
+            ("macOS", include_str!("app.rs")),
+            ("Linux", include_str!("linux.rs")),
+        ] {
+            let body = &src[src.find("    fn reload_config(").expect(driver)..];
+            let body = &body[..body.find("\n    }\n").expect(driver)];
+            let at = |needle: &str| {
+                assert_eq!(body.matches(needle).count(), 1, "{driver}: {needle}");
+                body.find(needle).unwrap_or(usize::MAX)
+            };
+            assert!(
+                at("r.watch.rewatch(") < at("self.apply_config(&config, &parts)"),
+                "{driver}: the rewatch before the apply"
+            );
+        }
     }
 }
