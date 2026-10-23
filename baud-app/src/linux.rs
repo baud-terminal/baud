@@ -210,6 +210,10 @@ struct Driver {
     clipboard: crate::config::Clipboard,
     /// Whether a copy the compositor could not take has been said.
     uncopied: Said,
+    /// The board a finished selection went to as SELECT, and the source
+    /// that offers it, given up when output takes the selection while
+    /// `?1040` is reset (`seat::Select`).
+    select_offer: Option<(Board, baud_wayland::ObjectId)>,
     /// What the input method is composing (`marked.rs`), drawn at the
     /// cursor as the macOS app draws AppKit's marked text, and the hints
     /// on each of its codepoints.
@@ -543,6 +547,7 @@ pub fn run() {
         clips,
         clipboard: cfg.clipboard,
         uncopied: Said::Not,
+        select_offer: None,
         composing: Vec::new(),
         composing_hints: Vec::new(),
         finding: None,
@@ -1010,6 +1015,11 @@ impl Driver {
         // the trail away and fades the new screen in; a reset that brought
         // a looked-back window live reveals the thumb.
         let after = self.seat.after_read(&self.term, before);
+        // Output took the selection while `?1040` is reset: what SELECT
+        // offered is given up, as xterm's `DisownSelection` does.
+        if after.select == crate::seat::Select::GivenUp {
+            self.give_up_select();
+        }
         // The find's matches after the read, the current one selected
         // again when it moved, as the macOS pump does.
         if let Some(f) = self.finding.as_mut() {
@@ -1222,6 +1232,7 @@ impl Driver {
                 self.pending = Pending::Dirty;
                 let board = board_of(crate::clip::select_board(&self.term));
                 self.copy_selection(board);
+                self.select_offer = self.window.offering(board).map(|id| (board, id));
             }
             Owed::PasteSelection => {
                 let board = board_of(crate::clip::select_board(&self.term));
@@ -1671,6 +1682,14 @@ impl Driver {
                     crate::warn!("{line}");
                 }
             }
+        }
+    }
+
+    /// **What SELECT offered, given up** where its source still offers
+    /// it; a copy since, ours or another client's, keeps its own.
+    fn give_up_select(&mut self) {
+        if let Some((board, source)) = self.select_offer.take() {
+            let _ = self.window.give_up(&mut self.conn.sender(), board, source);
         }
     }
 

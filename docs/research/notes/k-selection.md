@@ -63,6 +63,12 @@ is at absolute line `scrolled - back + y`. So a selection:
   it for a copy until another selection is made (`keep::KeptText`). Reset,
   the text goes with it, and every scroll above that would trim it drops
   it instead, as xterm's reset disowns it.
+  Since the same day the text kept is the one the selection was made
+  with, however a scroll carries or trims it, and a copy takes it while
+  the selection is up; a click that makes no selection leaves it, as
+  xterm's press takes the highlight and its release disowns nothing; and
+  reset, output that takes the selection gives up what SELECT offered on
+  Linux, as xterm's `DisownSelection` does.
 
 The alternative -- keying on physical rows and a generation -- is what the
 position-keyed marks table was, and CLAUDE.md records what that cost. An

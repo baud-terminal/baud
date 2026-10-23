@@ -2704,6 +2704,87 @@ fn the_primary_copies_and_pastes_on_its_own_protocol() {
     ));
 }
 
+/// **A selection given up is emptied only while its source still offers
+/// it**, as xterm's `DisownSelection` gives up a selection it owns and
+/// `XtDisownSelection` does nothing for one it no longer owns: the source
+/// a copy set is named by `offering`, and giving it up sets a NULL
+/// source; once another copy replaced it -- this client's, or another
+/// client's that cancelled it -- giving the old one up sends nothing.
+#[test]
+fn a_selection_is_given_up_only_while_it_is_offered() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard,
+        surface,
+        primary_device,
+        ..
+    } = clip_session();
+    keyboard_enter(&mut server, keyboard, 6, surface);
+    key_at(&mut server, keyboard, 7, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    assert_eq!(w.offering(Board::Primary), None, "nothing offered yet");
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Primary, "hello"),
+        Copied::Set
+    );
+    let first = w.offering(Board::Primary).expect("offered");
+    assert_eq!(
+        w.give_up(&mut conn.sender(), Board::Primary, first),
+        Some(Copied::Set)
+    );
+    assert_eq!(w.offering(Board::Primary), None, "given up");
+    conn.flush().unwrap();
+    server.expect("zwp_primary_selection_device_manager_v1", "create_source");
+    for _ in 0..5 {
+        server.expect("zwp_primary_selection_source_v1", "offer");
+    }
+    server.expect("zwp_primary_selection_device_v1", "set_selection");
+    let r = server.expect("zwp_primary_selection_device_v1", "set_selection");
+    assert_eq!(r.sender, primary_device);
+    assert!(matches!(
+        r.args[..],
+        [Val::Obj(ObjectId::NULL), Val::Uint(7)]
+    ));
+    server.expect("zwp_primary_selection_source_v1", "destroy");
+    // Replaced by a later copy of this client's: the old source is not
+    // given up, and the new one stays offered.
+    w.copy(&mut conn.sender(), Board::Primary, "one");
+    let one = w.offering(Board::Primary).expect("offered");
+    w.copy(&mut conn.sender(), Board::Primary, "two");
+    let two = w.offering(Board::Primary).expect("offered");
+    assert_ne!(one, two);
+    assert_eq!(w.give_up(&mut conn.sender(), Board::Primary, one), None);
+    assert_eq!(
+        w.offering(Board::Primary),
+        Some(two),
+        "the later copy stays"
+    );
+    // Cancelled by another client's copy: nothing to give up.
+    server.send(two, "zwp_primary_selection_source_v1", "cancelled", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.offering(Board::Primary), None, "cancelled");
+    assert_eq!(w.give_up(&mut conn.sender(), Board::Primary, two), None);
+    // A marker: everything sent before its source is read, and no NULL
+    // source is among it.
+    w.copy(&mut conn.sender(), Board::Primary, "marker");
+    let marker = w.offering(Board::Primary).expect("offered");
+    conn.flush().unwrap();
+    let mut nulls = 0;
+    loop {
+        let r = server.next();
+        if r.name == "set_selection" && matches!(r.args[..], [Val::Obj(ObjectId::NULL), _]) {
+            nulls += 1;
+        }
+        if r.name == "create_source" && matches!(r.args[..], [Val::New(id)] if id == marker) {
+            break;
+        }
+    }
+    assert_eq!(nulls, 0, "no other selection emptied");
+}
+
 /// **A paste whose owner sends nothing for two seconds is abandoned**,
 /// foot's timeout: the deadline is the driver's to wait to, and a pump at
 /// it reports the paste dropped and frees the next.

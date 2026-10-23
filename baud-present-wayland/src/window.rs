@@ -611,6 +611,23 @@ impl Window {
         self.clip.copy(s, board, text, self.serial)
     }
 
+    /// The source this client offers `board`'s selection from, while it
+    /// owns it (`clip.rs`).
+    pub fn offering(&self, board: Board) -> Option<ObjectId> {
+        self.clip.offering(board)
+    }
+
+    /// `board` given up if `source` still offers it (`clip.rs`), named
+    /// with the serial of the last input event; `None` when it does not.
+    pub fn give_up(
+        &mut self,
+        s: &mut Sender<'_>,
+        board: Board,
+        source: ObjectId,
+    ) -> Option<Copied> {
+        self.clip.give_up(s, board, source, self.serial)
+    }
+
     /// `board` emptied, as a program's `OSC 52` clear asks.
     pub fn clear(&mut self, s: &mut Sender<'_>, board: Board) -> Copied {
         self.clip.clear(s, board, self.serial)

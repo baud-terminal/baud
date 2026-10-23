@@ -5870,9 +5870,11 @@ mod restart_tests {
     /// (`keep::KeptText`, whose rules the seat's tests hold): taken before
     /// the row watch is armed, kept where the watch drops the selection,
     /// and the selection dropped off the primary's top while `?1040` is
-    /// reset, after the count moved and before the scroll carries it; and
-    /// Cmd-C copies the kept text when there is no selection. The pump is
-    /// AppKit-bound, so the source is held.
+    /// reset, after the count moved and before the scroll carries it, and
+    /// kept as the scroll carried it and the clip cut it; Cmd-C copies the
+    /// text taken when the selection was made while there is one, and the
+    /// kept text when there is none; and a gesture tells it before the pump.
+    /// The pump is AppKit-bound, so the source is held.
     #[test]
     fn the_pump_keeps_a_selections_text_as_the_seat_does() {
         const SRC: &str = include_str!("app.rs");
@@ -5895,13 +5897,36 @@ mod restart_tests {
         let off = at("scrolled_off_the_top(&self.app.term, &s, tops)");
         let carried = at("followed(&self.app.term, &mut self.app.selection, self.app.scrolled);");
         assert!(renumbered < off && off < carried);
+        let clipped = at(".is_some_and(|s| s.clip(oldest) == Clip::Cleared);");
+        let gone = &pump[clipped..clipped + pump[clipped..].find("\n        }\n").expect("ends")];
+        assert!(
+            gone.contains("self.app.kept.dropped(&self.app.term);"),
+            "kept where the clip cuts it away: {gone}"
+        );
+        let rekeyed = at("self.app.kept.carried(self.app.selection.as_ref());");
+        assert!(
+            carried < clipped && clipped < rekeyed,
+            "the text kept as the scroll carried it and the clip cut it"
+        );
         const COPY: &str = concat!("    fn copy(", "&mut self) {");
         let copy = SRC.split(COPY).nth(1).expect("copy");
         let copy = &copy[..copy.find("\n    }\n").expect("copy ends")];
         assert!(
-            copy.contains("None => match self.app.kept.text() {"),
+            copy.contains("Some(sel) => match self.app.kept.text(Some(&sel)) {"),
+            "Cmd-C with a selection copies the text taken when it was made: {copy}"
+        );
+        assert!(
+            copy.contains("None => match self.app.kept.text(None) {"),
             "Cmd-C without a selection copies the kept text: {copy}"
         );
+        const SELECT: &str = concat!("    fn select(", "&mut self, event: &Mouse) {");
+        let select = SRC.split(SELECT).nth(1).expect("select");
+        let select = &select[..select.find("\n    }\n").expect("select ends")];
+        let told = select
+            .find("self.app.kept.gestured(")
+            .expect("a gesture tells it");
+        let pumped = select.find("self.pump(Trigger::Wake);").expect("pumps");
+        assert!(told < pumped, "told before the pump takes the text");
     }
 }
 
@@ -8137,8 +8162,13 @@ impl Driver {
             .as_mut()
             .is_some_and(|s| s.clip(oldest) == Clip::Cleared);
         if gone {
+            // Clipped away: `?1040` keeps its text, as the seat does.
             self.app.selection = None;
+            self.app.kept.dropped(&self.app.term);
         }
+        // Carried or clipped, the text kept is the one it was made with
+        // (`keep::KeptText::carried`).
+        self.app.kept.carried(self.app.selection.as_ref());
         // The find's matches after the read: the lines it retired dropped,
         // the lines it wrote read again, and the current match selected
         // again when it moved -- after reads a ReGIS delay held too, fed
@@ -10263,6 +10293,15 @@ impl Driver {
             press_of(event.modifiers),
             at,
         );
+        if selected != Selected::Unchanged {
+            // The kept text hears of the gesture: a newer selection, or a
+            // press or click that took the highlight (`keep::KeptText`).
+            self.app.kept.gestured(
+                self.app.selection.as_ref(),
+                &self.app.term,
+                self.app.scrolled,
+            );
+        }
         match selected {
             Selected::Unchanged => return,
             Selected::Changed => {}
@@ -11024,13 +11063,18 @@ impl Driver {
         self.app.present(&self.view, Show::Event);
     }
 
-    /// Cmd-C: the selection's text to the pasteboard, if there is one;
-    /// without one, the text output took a selection's highlight away from
-    /// while `?1040` kept it (`keep::KeptText`).
+    /// Cmd-C: the selection's text to the pasteboard, if there is one --
+    /// the text taken when it was made while `?1040` kept it, however a
+    /// read carried it since; without one, the text output or a click took
+    /// a selection's highlight away from while `?1040` kept it
+    /// (`keep::KeptText`).
     fn copy(&mut self) {
         let text = match self.app.selection {
-            Some(sel) => sel.text(&self.app.term, self.app.scrolled),
-            None => match self.app.kept.text() {
+            Some(sel) => match self.app.kept.text(Some(&sel)) {
+                Some(t) => t.to_owned(),
+                None => sel.text(&self.app.term, self.app.scrolled),
+            },
+            None => match self.app.kept.text(None) {
                 Some(t) => t.to_owned(),
                 None => return,
             },

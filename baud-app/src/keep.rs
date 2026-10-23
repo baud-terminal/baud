@@ -134,16 +134,19 @@ pub(crate) fn stale_in_moved_rows(term: &Term<'_>) -> bool {
 /// set**, xterm's keepSelection: "keep the selection even after the
 /// selected area was touched by some output to the terminal"
 /// (`[[source: xterm-man]]`). xterm saves the text when the selection is
-/// made (`SaltTextAway`, `[[source: xterm-button]]`), and output that
-/// rewrites its cells takes the highlight away and leaves the text to
-/// paste (`ScrnDisownSelection`, `[[source: xterm-screen]]`); reset, the
-/// text goes too. Here the text is taken before a read, once each time
-/// the selection changes -- no output reaches the cells between a
-/// selection being made and the next read -- and a copy with no selection
-/// takes it once a read's output took the highlight away. The selection
-/// itself can change between reads, so a gesture that changes it tells
-/// the kept text too ([`KeptText::changed`]). Nothing is taken while
-/// `?1040` is reset.
+/// made (`SaltTextAway`, `[[source: xterm-button]]`) and never again for
+/// that selection: output that rewrites its cells takes the highlight away
+/// and leaves the text to paste (`ScrnDisownSelection`,
+/// `[[source: xterm-screen]]`), a scroll that trims it moves only its ends
+/// (`[[source: xterm-scroll]]`, `adjustHiliteOnFwdScroll`) and one
+/// scrolled past the saved lines is disowned, which takes the highlight
+/// alone, and a click that makes no selection takes the highlight at the
+/// press and disowns nothing at the release (`StartSelect`, then `SelectSet` on a null
+/// selection, whose `ScrnDisownSelection` finds no highlight). Here the
+/// text is taken before the first read after the selection is made -- no
+/// output reaches the cells between -- and kept while the selection is
+/// carried; a copy takes it while the selection is up and after its
+/// highlight went. Nothing is taken while `?1040` is reset.
 #[derive(Default)]
 pub(crate) struct KeptText {
     taken: Taken,
@@ -154,44 +157,72 @@ pub(crate) struct KeptText {
 enum Taken {
     #[default]
     Nothing,
-    /// The text of the selection up now.
+    /// A selection a gesture made, with no read since: its cells are the
+    /// ones it was made over, so its text is taken when it is first asked.
+    Made(Selection),
+    /// The text of the selection up now, taken when it was made.
     Of(Selection, String),
-    /// The text of a selection whose highlight a read's output took away.
+    /// The text of a selection whose highlight went: output wrote over
+    /// it, or a click took it away.
     Unhighlighted(String),
 }
 
 impl KeptText {
     /// **Before a read**: the text of `sel`, numbered by `scrolled`, taken
     /// when it is not the selection taken last; nothing while `?1040` is
-    /// reset. A selection gone with no read's output on it -- the user
-    /// clicked it away -- leaves nothing kept.
+    /// reset. A press that has not moved is not a selection yet and takes
+    /// nothing. A selection gone with neither a read's output on it nor a
+    /// click -- a switch, a reset, a resize -- leaves nothing kept.
     pub(crate) fn take(&mut self, sel: Option<&Selection>, term: &Term<'_>, scrolled: Scrolled) {
         if !term.resource(Resource::KeepSelection) {
             self.taken = Taken::Nothing;
             return;
         }
         match (sel, &self.taken) {
+            (Some(s), _) if s.is_click() => {}
             (Some(s), Taken::Of(from, _)) if from == s => {}
             (Some(s), _) => self.taken = Taken::Of(*s, s.text(term, scrolled)),
-            (None, Taken::Of(..)) => self.taken = Taken::Nothing,
+            (None, Taken::Of(..) | Taken::Made(_)) => self.taken = Taken::Nothing,
             (None, _) => {}
         }
     }
 
-    /// **A gesture changed the selection** -- made, moved, dismissed or
-    /// replaced -- with no read between: what was kept is not the newer
+    /// **A gesture changed the selection to `sel`**: made, moved,
+    /// dismissed or replaced, with no read between. A selection made is the
+    /// one whose text is kept from now on; a press, or a click that made
+    /// none, takes the highlight and leaves the text of the selection it
+    /// took to copy, as xterm's does (`StartSelect`, `SelectSet`), while
+    /// `?1040` is set.
+    pub(crate) fn gestured(
+        &mut self,
+        sel: Option<&Selection>,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+    ) {
+        if !term.resource(Resource::KeepSelection) {
+            self.taken = Taken::Nothing;
+            return;
+        }
+        self.taken = match (sel, core::mem::take(&mut self.taken)) {
+            (Some(s), _) if !s.is_click() => Taken::Made(*s),
+            (_, Taken::Of(_, text)) => Taken::Unhighlighted(text),
+            (_, Taken::Made(was)) => Taken::Unhighlighted(was.text(term, scrolled)),
+            (_, kept) => kept,
+        };
+    }
+
+    /// **A resize changed the selection**: what was kept is not the newer
     /// selection's, so it goes, and the next read takes the newer one's
-    /// text. On an idle screen no read comes, and a selection made and
-    /// clicked away there would otherwise leave an earlier one's text.
-    /// The Linux seat's; on macOS a gesture that changes the selection
-    /// pumps, and the pump takes the text.
+    /// text. The Linux seat's; on macOS a resize pumps, and the pump takes
+    /// the text.
     #[cfg(any(target_os = "linux", test))]
     pub(crate) fn changed(&mut self) {
         self.taken = Taken::Nothing;
     }
 
-    /// **A read's output took the selection's highlight away**: while
-    /// `?1040` is set its text stays to copy, and reset it goes.
+    /// **A read's output took the selection's highlight away**, or the
+    /// end of the history clipped it away: while `?1040` is set its text
+    /// stays to copy, and reset it goes.
     pub(crate) fn dropped(&mut self, term: &Term<'_>) {
         let taken = core::mem::take(&mut self.taken);
         if let (true, Taken::Of(_, text)) = (term.resource(Resource::KeepSelection), taken) {
@@ -199,11 +230,22 @@ impl KeptText {
         }
     }
 
-    /// The text a copy takes when there is no selection: what output took
-    /// the highlight away from, while `?1040` kept it.
-    pub(crate) fn text(&self) -> Option<&str> {
-        match &self.taken {
-            Taken::Unhighlighted(t) if !t.is_empty() => Some(t),
+    /// **A read carried the selection with its text** (`followed`), maybe
+    /// trimming it: the text kept is still the one taken when it was made,
+    /// as xterm moves only the ends of a selection it truncates.
+    pub(crate) fn carried(&mut self, sel: Option<&Selection>) {
+        if let (Some(s), Taken::Of(from, _)) = (sel, &mut self.taken) {
+            *from = *s;
+        }
+    }
+
+    /// The text a copy takes: with `sel` up, the text taken when it was
+    /// made, if that is held; with none, what lost its highlight while
+    /// `?1040` kept it.
+    pub(crate) fn text(&self, sel: Option<&Selection>) -> Option<&str> {
+        match (sel, &self.taken) {
+            (Some(s), Taken::Of(from, t)) if from == s => Some(t),
+            (None, Taken::Unhighlighted(t)) if !t.is_empty() => Some(t),
             _ => None,
         }
     }

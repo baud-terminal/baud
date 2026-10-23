@@ -318,6 +318,30 @@ impl Clip {
         }
     }
 
+    /// The source this client offers `b`'s selection from, while it owns
+    /// it: none once another client's copy cancelled it.
+    pub fn offering(&self, b: Board) -> Option<ObjectId> {
+        self.side_of(b).source.as_ref().map(|(id, _)| *id)
+    }
+
+    /// **`b` given up if `source` still offers it**, as xterm's
+    /// `DisownSelection` gives up a selection it owns, `XtDisownSelection`
+    /// doing nothing for one it no longer owns (`[[source: xterm-button]]`):
+    /// [`Clip::clear`], or `None` when another copy replaced the source,
+    /// whose selection is not this one's to empty.
+    pub fn give_up(
+        &mut self,
+        s: &mut Sender<'_>,
+        b: Board,
+        source: ObjectId,
+        serial: Option<u32>,
+    ) -> Option<Copied> {
+        match self.offering(b) == Some(source) {
+            true => Some(self.clear(s, b, serial)),
+            false => None,
+        }
+    }
+
     /// **`b` emptied**: "To unset the selection, set the source to NULL."
     pub fn clear(&mut self, s: &mut Sender<'_>, b: Board, serial: Option<u32>) -> Copied {
         let o = ops(b);
