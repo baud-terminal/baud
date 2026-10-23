@@ -719,10 +719,12 @@ pub fn run() {
                 transfers.push((bus.as_fd(), crate::pty::Interest::Write));
             }
         }
-        // The config's inotify descriptor, read when it is readable.
-        if let Some(fd) = d.reload.as_ref().and_then(|r| r.watch.as_fd()) {
+        // The config's inotify descriptor, read when it is readable: its
+        // place among the extra descriptors, whose readiness the wait says.
+        let inotify = d.reload.as_ref().and_then(|r| r.watch.as_fd()).map(|fd| {
             transfers.push((fd, crate::pty::Interest::Read));
-        }
+            transfers.len() - 1
+        });
         let waited = wait(
             d.conn.as_fd(),
             d.pty.as_fd(),
@@ -731,7 +733,7 @@ pub fn run() {
             timeout,
         );
         drop(transfers);
-        let (compositor, pty) = match waited {
+        let (compositor, pty, extra) = match waited {
             Ok(r) => r,
             Err(e) => {
                 crate::warn!("poll: {e}");
@@ -766,9 +768,12 @@ pub fn run() {
         if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
             d.feed(&[]);
         }
-        // The config's files: what inotify said, never waiting, and the
-        // reading at the settle's end (`follow_config`).
-        d.follow_config();
+        // The config's files: what inotify said, when the wait says it is
+        // readable, and the reading at the settle's end (`follow_config`).
+        let heard = inotify
+            .and_then(|i| extra.get(i).copied())
+            .unwrap_or(Ready::Idle);
+        d.follow_config(heard);
         // What the session bus sent, never waiting, and the openers a link
         // started that have ended.
         d.pump_bus();
@@ -1612,14 +1617,15 @@ impl Driver {
     }
 
     /// **The config's files, followed** (`reload.rs`): what inotify said
-    /// since the last turn, and at the settle's end the files read and,
-    /// when one reads differently, the config read again.
-    fn follow_config(&mut self) {
+    /// since the last turn, read only when the wait said it is `heard`,
+    /// and at the settle's end the files read and, when one reads
+    /// differently, the config read again.
+    fn follow_config(&mut self, heard: Ready) {
         let Some(r) = self.reload.as_mut() else {
             return;
         };
         let now = Instant::now();
-        let _ = r.watch.heard(now);
+        let _ = r.watch.heard_if(heard, now);
         if r.watch.due(now) == crate::reload::Due::Changed {
             self.reload_config(now);
         }

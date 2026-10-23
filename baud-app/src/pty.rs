@@ -1427,10 +1427,11 @@ pub enum Interest {
 
 /// Waits until either descriptor is readable, one of `also` is ready for
 /// what it is watched for, or `timeout` passes -- `None` waits as long as
-/// it takes -- and says which of the two. A signal that cuts the wait short
-/// answers `Idle` for both, so the caller simply waits again. Whatever of
-/// `also` is ready, the caller pumps them all after every wait, so it is
-/// not reported.
+/// it takes -- and says which of the two, and which of `also`, in its
+/// order: a descriptor the kernel says nothing of is one the caller need
+/// not read. A signal that cuts the wait short answers `Idle` for all,
+/// so the caller simply waits again; `poll` reports a descriptor that is
+/// still ready on the next wait.
 #[cfg(target_os = "linux")]
 pub fn wait(
     a: BorrowedFd<'_>,
@@ -1438,7 +1439,7 @@ pub fn wait(
     b_owed: Owed,
     also: &[(BorrowedFd<'_>, Interest)],
     timeout: Option<Duration>,
-) -> std::io::Result<(Ready, Ready)> {
+) -> std::io::Result<(Ready, Ready, Vec<Ready>)> {
     let mut fds = vec![
         crate::sys::PollFd {
             fd: a.as_raw_fd(),
@@ -1482,7 +1483,9 @@ pub fn wait(
     if n < 0 {
         let e = std::io::Error::last_os_error();
         return match e.kind() {
-            std::io::ErrorKind::Interrupted => Ok((Ready::Idle, Ready::Idle)),
+            std::io::ErrorKind::Interrupted => {
+                Ok((Ready::Idle, Ready::Idle, vec![Ready::Idle; also.len()]))
+            }
             _ => Err(e),
         };
     }
@@ -1490,7 +1493,8 @@ pub fn wait(
         0 => Ready::Idle,
         _ => Ready::Readable,
     };
-    Ok((ready(&fds[0]), ready(&fds[1])))
+    let extra = fds[2..].iter().map(ready).collect();
+    Ok((ready(&fds[0]), ready(&fds[1]), extra))
 }
 
 /// A font file as a read-only, private mapping, for the life of the
@@ -1676,6 +1680,49 @@ pub fn host_now() -> HostTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **`wait` says which of its extra descriptors is ready**, so the
+    /// loop reads only those: one with a byte waiting is readable, one
+    /// with none is idle, whichever end of the list each is at.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wait_says_which_extra_descriptor_is_ready() {
+        use std::io::Write;
+        use std::os::fd::AsFd;
+        let (a, _a) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (b, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (quiet, _q) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (heard, mut to_heard) = std::os::unix::net::UnixStream::pair().unwrap();
+        to_heard.write_all(b"x").unwrap();
+        for also in [
+            [
+                (quiet.as_fd(), Interest::Read),
+                (heard.as_fd(), Interest::Read),
+            ],
+            [
+                (heard.as_fd(), Interest::Read),
+                (quiet.as_fd(), Interest::Read),
+            ],
+        ] {
+            let (ra, rb, extra) = wait(
+                a.as_fd(),
+                b.as_fd(),
+                Owed::Nothing,
+                &also,
+                Some(Duration::ZERO),
+            )
+            .unwrap();
+            assert_eq!((ra, rb), (Ready::Idle, Ready::Idle));
+            let want: Vec<Ready> = also
+                .iter()
+                .map(|(fd, _)| match fd.as_raw_fd() == heard.as_raw_fd() {
+                    true => Ready::Readable,
+                    false => Ready::Idle,
+                })
+                .collect();
+            assert_eq!(extra, want);
+        }
+    }
 
     /// **What the environment says baud is, XTVERSION says too.** A
     /// program reads `TERM_PROGRAM` and `TERM_PROGRAM_VERSION` before it

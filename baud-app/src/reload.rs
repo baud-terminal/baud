@@ -581,6 +581,16 @@ impl<T: Copy + PartialOrd + core::ops::Add<Duration, Output = T>> Watch<T> {
         drained
     }
 
+    /// **What the kernel said, when the loop's `poll` says the descriptor
+    /// is readable**: a turn it says nothing of makes no `read`.
+    #[cfg(target_os = "linux")]
+    pub fn heard_if(&mut self, ready: crate::pty::Ready, now: T) -> Heard {
+        match ready {
+            crate::pty::Ready::Readable => self.heard(now),
+            crate::pty::Ready::Idle => Heard::Quiet,
+        }
+    }
+
     /// When the files are read, while an event waits on it.
     pub fn deadline(&self) -> Option<T> {
         self.settle.deadline()
@@ -1077,6 +1087,25 @@ mod tests {
         assert_eq!(w.heard(t), Heard::Quiet);
         assert_eq!(w.deadline(), None);
         assert_eq!(w.due(t + Duration::from_secs(1)), Due::Wait);
+    }
+
+    /// **A turn whose `poll` heard nothing from inotify reads nothing**:
+    /// the event waits in the descriptor, untaken, and is heard on the
+    /// turn that says it is readable.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_turn_with_nothing_heard_makes_no_read() {
+        use crate::pty::Ready;
+        let d = Dir::new("ready");
+        let cfg = d.at("config.toml");
+        std::fs::write(&cfg, "font_size = 13\n").unwrap();
+        let mut w: Watch<Instant> = Watch::new(vec![text(&cfg)]);
+        std::fs::write(&cfg, "font_size = 15\n").unwrap();
+        let t = Instant::now();
+        assert_eq!(w.heard_if(Ready::Idle, t), Heard::Quiet);
+        assert_eq!(w.deadline(), None, "nothing read, nothing settles");
+        assert_eq!(w.heard_if(Ready::Readable, t), Heard::Moved, "still there");
+        assert_eq!(w.due(after(t)), Due::Changed);
     }
 
     /// **A burst is one reading**, a settle after its last event: each
