@@ -366,15 +366,13 @@ fn text_after_a_dcs_still_prints() {
 
 /// A C0 inside the DCS prefix does not discard the sequence.
 ///
-/// `[[source: williams]]`: "C0 controls other than CAN, SUB and ESC are **not
-/// executed** while recognising the first part of a device control string."
-/// Not executed *and* not an error — they are ignored, and the sequence
-/// continues. baud sent them to `dcs_ignore`, so a stray NUL silently cost an
-/// application its DECRQSS reply.
-///
-/// Note this differs from a control *sequence*, where williams says "C0
-/// controls are executed immediately". Same byte, different state, different
-/// rule — which is exactly why the states are separate.
+/// `[[source: williams]]`: "C0 controls other than CAN, SUB and ESC are not
+/// executed while recognising the first part of a device control string";
+/// `[[source: dec-std-070]]` 3.5.5 executes them and the introducer
+/// "continues where it left off", which baud does since 2026-10-23
+/// (`a_c0_in_a_dcs_introducer_is_executed_and_the_introducer_goes_on`).
+/// Under either the sequence continues: baud sent them to `dcs_ignore`, so a
+/// stray NUL silently cost an application its DECRQSS reply.
 #[test]
 fn a_c0_in_the_dcs_prefix_does_not_discard_it() {
     assert_eq!(

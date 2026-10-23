@@ -331,17 +331,18 @@ fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
     }
 }
 
-/// **A BEL before a DCS body is ignored.**
+/// **A BEL before a DCS body rings, and the introducer goes on.**
 ///
-/// `[[source: williams]]` gives `dcs entry`, `dcs param` and `dcs
-/// intermediate` each the row `00-17,19,1C-1F / ignore` (lines 354, 361 and
-/// 368), and says "C0 controls other than CAN, SUB and ESC are not executed
-/// while recognising the first part of a device control string" (565). The prefix
-/// nodes ended the string on BEL, so `ESC P BEL $ q m ST` lost its reply and
-/// drew `$qm`. Each spelling must answer as the request without the BEL, and
-/// ring nothing.
+/// `[[source: dec-std-070]]` 3.5.5: "All other C0 controls are immediately
+/// recognized within escape, control, or control string introducer
+/// sequences. The escape, control, or control string introducer sequence
+/// continues where it left off" (PDF p. 144); `[[source: williams]]` ignores
+/// them there (565), and baud did until 2026-10-23 (Jev's lean, 0.74/0.70).
+/// The prefix nodes once ended the string on BEL, so `ESC P BEL $ q m ST`
+/// lost its reply and drew `$qm`. Each spelling must answer as the request
+/// without the BEL, and ring once.
 #[test]
-fn a_bel_before_a_dcs_body_is_ignored() {
+fn a_bel_before_a_dcs_body_rings_and_the_introducer_goes_on() {
     let plain = b"\x1bP$qm\x1b\\Y";
     let want = left(plain, plain.len());
     assert_eq!(
@@ -368,7 +369,7 @@ fn a_bel_before_a_dcs_body_is_ignored() {
             assert_eq!(got.reply, want.reply, "{name}: reply, read size {size}");
             assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
             fed(bytes, size, |t| {
-                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+                assert_eq!(t.bells, 1, "{name}: one bell, read size {size}");
             });
         }
     }
@@ -614,7 +615,8 @@ fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
     }
 }
 
-/// **Every C0 in a DCS body reaches the handler, and a `DEL` does not.**
+/// **Every C0 in a DCS body reaches the handler but `SO` and `SI`, and a
+/// `DEL` does not.**
 /// No handler here gives either a meaning, so only the accumulator
 /// can tell: a DCS this core ignores (`StrKind::Other`, here DECUDK-shaped)
 /// whose `OSC_MAX` printable bytes fill it counts one truncation for a byte
@@ -627,7 +629,10 @@ fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
 /// handler" (726). The graph ignored the six and put the `DEL`, the
 /// `osc string` row, so a handler could never see the first and always saw
 /// the second; and until 2026-10-19 it ignored the other C0 but `BEL`
-/// (Jev, B_PUT_ALL), so `SOH` counted none.
+/// (Jev, B_PUT_ALL), so `SOH` counted none. `SO` and `SI` shift and do not
+/// reach it, `[[source: ecma48]]` §9's "no effect on the interpretation of
+/// ... a control string" (`a_shift_inside_a_control_string_shifts_the_text_after_it`),
+/// so they count none either.
 ///
 /// The control is one more printable byte, which counts one, so the counter
 /// is live for this string. None of them is executed: the screen and cursor
@@ -639,7 +644,8 @@ fn a_format_effector_in_a_dcs_body_reaches_the_handler_and_a_del_does_not() {
         ("DEL".into(), b"\x7f".to_vec(), 0),
     ];
     for v in (0x00..=0x17u8).chain([0x19]).chain(0x1c..=0x1f) {
-        cases.push((format!("{v:#04x}"), vec![v], 1));
+        let put = usize::from(!matches!(v, 0x0e | 0x0f));
+        cases.push((format!("{v:#04x}"), vec![v], put));
     }
     for (name, tail, truncated) in &cases {
         for latin1 in [false, true] {

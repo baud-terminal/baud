@@ -80,10 +80,10 @@ pub enum Node {
     ///
     /// **It is williams' `dcs ignore` as well**, which this graph has no node
     /// for: a prefix williams sends there, `ESC P 1 ?` or `ESC P $ 1`, leads
-    /// here too, and its body is put -- `20-7E`, `BEL` and `08-0D` -- then
-    /// discarded as `StrKind::Other`, where williams ignores every byte of
-    /// it. Only `string_truncations` can see the difference, on such a string
-    /// longer than the accumulator.
+    /// here at its final byte, through `DcsIntro`, and its body is put --
+    /// `20-7E`, `BEL` and `08-0D` -- then discarded as `StrKind::Other`,
+    /// where williams ignores every byte of it. Only `string_truncations` can
+    /// see the difference, on such a string longer than the accumulator.
     DcsStr,
     /// The body of an `SOS`, `PM` or `APC`: williams' `sos/pm/apc string`,
     /// whose row ignores a `BEL` (426), so it goes nowhere and the string
@@ -226,9 +226,19 @@ pub enum Node {
     /// (`Paint::printer_bytes`), so no byte here is parsed, the anywhere
     /// block's included. Last, so no other node's index moves.
     Printing,
+    /// **A DCS introducer past an intermediate or a private marker**, up
+    /// to its final byte: `[[source: williams]]`' `dcs intermediate`, and
+    /// its `dcs ignore` for an introducer that broke the grammar. Its bytes
+    /// `20-3F` and its final are put to the body, as `DcsStr` puts them;
+    /// a C0 is executed and the introducer goes on, `[[source:
+    /// dec-std-070]]` 3.5.5 ("All other C0 controls are immediately
+    /// recognized within escape, control, or control string introducer
+    /// sequences"), where `DcsStr` would put it. Last, so no other node's
+    /// index moves.
+    DcsIntro,
 }
 
-pub(crate) const NNODE: usize = 38;
+pub(crate) const NNODE: usize = 39;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
@@ -275,6 +285,7 @@ impl Node {
         Node::SixelStr,
         Node::SixelEsc,
         Node::Printing,
+        Node::DcsIntro,
     ];
 }
 
@@ -518,6 +529,7 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::SixelStr => 35,
         Node::SixelEsc => 36,
         Node::Printing => 37,
+        Node::DcsIntro => 38,
     }] += 1;
 }
 
@@ -573,6 +585,7 @@ const fn node_name(n: Node) -> &'static str {
         Node::SixelStr => "SixelStr",
         Node::SixelEsc => "SixelEsc",
         Node::Printing => "Printing",
+        Node::DcsIntro => "DcsIntro",
     }
 }
 
@@ -842,9 +855,10 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 33 x 256 x 2 bytes = **16.5 KB of rodata per encoding, 33 KB for both**,
-/// no initialiser and nothing to load. (Was 2 KB when there were 4 nodes, 10
-/// KB at 20, before the string body split three ways on `BEL`, 11 KB at 22,
+/// 39 x 256 x 2 bytes = **19.5 KB of rodata per graph**, three graphs, no
+/// initialiser and nothing to load. (Was 16.5 KB at 33 nodes, 2 KB when
+/// there were 4 nodes, 10 KB at 20, before the string body split three
+/// ways on `BEL`, 11 KB at 22,
 /// before the two grounds after a control, 12 KB at 24, before `escape
 /// intermediate` had a node, and 12.5 KB at 25, before Table 3-7's four
 /// narrowed second bytes had a node each in both grounds; a row is read only
@@ -1070,7 +1084,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // payload's characters (`a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays`).
     let in_string = matches!(
         node,
-        Node::Dcs | Node::DcsDollar | Node::OscStr | Node::DcsStr | Node::SosStr
+        Node::Dcs | Node::DcsDollar | Node::DcsIntro | Node::OscStr | Node::DcsStr | Node::SosStr
     );
     if in_string {
         if let Some(e) = latin1_c1(enc, b) {
@@ -1223,17 +1237,20 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // consumed to its terminator and then ignored -- consumed is the half
         // that matters, because a DCS body reaching the screen would render an
         // application's private protocol as glyphs.
-        // **A C0 or `DEL` in the prefix is ignored, and the prefix survives
-        // it.** Both of these sent anything unrecognised to the body, so a
-        // `DEL` between `ESC P` and the `$` turned a `DECRQSS` into a generic
-        // control string -- the request was dropped and the application got no
-        // reply, which for a *query* is the worst of the three outcomes.
+        // **A C0 in the prefix is executed, a `DEL` is ignored, and the
+        // prefix survives both.** Both of these sent anything unrecognised to
+        // the body, so a `DEL` between `ESC P` and the `$` turned a `DECRQSS`
+        // into a generic control string -- the request was dropped and the
+        // application got no reply, which for a *query* is the worst of the
+        // three outcomes.
         //
         // `[[source: williams]]`'s `dcs_entry`, `dcs_param` and
         // `dcs_intermediate` all give `00-17`, `19`, `1C-1F` and `7F` the
         // *ignore* action (354, 361, 368): the byte goes nowhere and the state
-        // does not move. `18` and `1A` are absent because the `anywhere` rule
-        // takes them first -- they cancel.
+        // does not move. `[[source: dec-std-070]]` 3.5.5 executes the C0
+        // and the rows follow it (below); `DEL` stays ignored. `18` and `1A`
+        // are absent because the `anywhere` rule takes them first -- they
+        // cancel.
         //
         // **`BEL` is one of them.** Both rows ended the string on it, an
         // `OSC`'s terminator (`[[source: ctlseqs]]` 2023-2024) where no text
@@ -1283,7 +1300,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // first byte, read at the terminator (`Paint::tcap_end`).
                 // After a parameter it is no XTGETTCAP, as xterm's `do_dcs`
                 // switches on the first byte (`[[source: xterm-misc]]`).
-                b'+' => edge(Act::DcsQuery, Node::DcsStr),
+                b'+' => edge(Act::DcsQuery, Node::DcsIntro),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
@@ -1322,7 +1339,24 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 0x30..=0x39 => edge(Act::Digit, Node::Dcs),
                 0x3b => edge(Act::Sep, Node::Dcs),
                 0x1b => edge(Act::Consume, Node::StrEsc),
-                0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::Dcs),
+                // **A C0 in the introducer is executed and the introducer
+                // goes on**, as in a `CSI`: `[[source: dec-std-070]]` 3.5.5,
+                // "All other C0 controls are immediately recognized within
+                // escape, control, or control string introducer sequences.
+                // The escape, control, or control string introducer sequence
+                // continues where it left off" (PDF p. 144), and "DCS
+                // introducer sequences are parsed according to the rules for
+                // control sequences" (p. 145). `[[source: williams]]` ignores
+                // them (565), describing the VT500, and xterm too, practice.
+                // Jev leaned to executing, 0.74/0.70 (2026-10-23), below the
+                // bar, taken as the lean: it is the standard's reading. They
+                // were ignored until then, so `DCS 1 LF $ q m` moved nothing.
+                0x00..=0x17 | 0x19 | 0x1c..=0x1f => edge(c0(b), Node::Dcs),
+                0x7f => edge(Act::Consume, Node::Dcs),
+                // **An intermediate, a private marker or a `:` leads to
+                // `DcsIntro`**, where the introducer goes on to its final
+                // byte and a C0 is still executed; a final leads to the body.
+                0x20..=0x3f => edge(Act::Consume, Node::DcsIntro),
                 _ => edge(Act::Consume, Node::DcsStr),
             };
         }
@@ -1335,8 +1369,26 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             return match enc.gr_as_gl(b).raw_byte() {
                 b'q' | b't' | b'w' | b'p' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
-                0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
+                // Executed, as in `Node::Dcs`.
+                0x00..=0x17 | 0x19 | 0x1c..=0x1f => edge(c0(b), Node::DcsDollar),
+                0x7f => edge(Act::Consume, Node::DcsDollar),
+                0x20..=0x3f => edge(Act::Consume, Node::DcsIntro),
                 _ => edge(Act::Consume, Node::DcsStr),
+            };
+        }
+        // **`DcsStr`'s row, but a C0 is executed and `20-3F` keep the
+        // introducer going**: each byte is put as the body would put it, so
+        // what a handler reads is what it read when these led straight to
+        // the body, and only the C0 differs. `DEL` is ignored in place, as
+        // in `Dcs`. Under ISO 8859-1 a GR byte is read as its 7-bit byte to
+        // find the final, as in `Dcs`, and so `FF` is ignored as `DEL` is.
+        Node::DcsIntro => {
+            let e = string(Node::DcsStr, b);
+            return match enc.gr_as_gl(b).raw_byte() {
+                0x00..=0x17 | 0x19 | 0x1c..=0x1f => edge(c0(b), Node::DcsIntro),
+                0x20..=0x3f => edge(e.act, Node::DcsIntro),
+                0x7f => edge(Act::Consume, Node::DcsIntro),
+                _ => e,
             };
         }
         Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(enc, node, b),
@@ -1969,7 +2021,21 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // (Annex D, item 10). Decided by Jev, B_PUT_ALL, 0.99/0.99
         // (2026-10-19). The graph ignored the 22 and put `BEL` alone, so
         // `DCS $ q m BEL ST` answered invalid and a Sixel `BEL` rang nothing.
-        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => match node {
+        //
+        // **`SO` and `SI` shift, and the string reads as if they were not
+        // there**, in every string: `[[source: ecma48]]` §9, "SO and SI have
+        // no effect on the interpretation of a control sequence, a control
+        // string or the operand of a single-shift control function, but they
+        // may, indeed, affect the meanings of bit combinations following in
+        // the data stream" (PDF p. 89), and `[[source: dec-std-070]]` 3.5.1.4
+        // the same (PDF p. 126). So neither reaches a handler, and GL is G1
+        // or G0 for the text after the terminator, as in the ground. Jev
+        // leaned to it, 0.86/0.88 (2026-10-23), below the bar, taken as the
+        // lean; `[[source: williams]]` puts them in a DCS and ignores them
+        // elsewhere, and xterm ignores them, practice. Until then every
+        // string dropped them and the shift was lost.
+        0x0e | 0x0f => edge(c0(b), node),
+        0x00..=0x06 | 0x10..=0x17 | 0x19 | 0x1c..=0x1f => match node {
             Node::DcsStr => edge(Act::StrPut, node),
             _ => edge(Act::Consume, node),
         },
@@ -2600,11 +2666,19 @@ mod classes {
         // took `Consume`. Stride 1 does not move; 2,621 -> 2,634, 81,385 ->
         // 82,006 and 2,232,041 -> 2,257,008 at strides 2 to 4, +1.1% at
         // stride 4.
+        // **A C0 in a DCS introducer is executed, and `SO` and `SI` shift in
+        // every string** (2026-10-23): `00-17`, `19` and `1C-1F` in `Dcs`
+        // and `DcsDollar` take the ground's action where they took
+        // `Consume`, `20-3F` other than the parameters, `$` and `+` lead
+        // to the new `DcsIntro` where they led to the body, and `0E`/`0F`
+        // in the five string bodies take `ShiftOut`/`ShiftIn`. Stride 1 does
+        // not move; 2,634 -> 2,639, 82,006 -> 82,870 and 2,257,008 ->
+        // 2,307,363 at strides 2 to 4, +2.2% at stride 4.
         // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_634, "stride 2");
-        assert_eq!(three.len(), 82_006, "stride 3");
-        assert_eq!(four.len(), 2_257_008, "stride 4");
+        assert_eq!(two.len(), 2_639, "stride 2");
+        assert_eq!(three.len(), 82_870, "stride 3");
+        assert_eq!(four.len(), 2_307_363, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2931,9 +3005,12 @@ mod classes {
                     | Node::Vt52Utf8TwoAfterEd
                     | Node::Vt52Utf8ThreeAfterF0
                     | Node::Vt52Utf8ThreeAfterF4 => edge(Act::Resync, Node::Vt52Ground),
-                    Node::Dcs | Node::DcsDollar | Node::OscStr | Node::DcsStr | Node::SosStr => {
-                        edge(Act::Consume, Node::StrEsc)
-                    }
+                    Node::Dcs
+                    | Node::DcsDollar
+                    | Node::DcsIntro
+                    | Node::OscStr
+                    | Node::DcsStr
+                    | Node::SosStr => edge(Act::Consume, Node::StrEsc),
                     Node::StrEsc => edge(Act::Again, Node::Escape),
                     // A Sixel's: its `ESC` may begin `ST`, and after it the
                     // byte places the image first.
@@ -2990,6 +3067,7 @@ mod classes {
         for node in [
             Node::Dcs,
             Node::DcsDollar,
+            Node::DcsIntro,
             Node::OscStr,
             Node::DcsStr,
             Node::SosStr,
@@ -3005,8 +3083,11 @@ mod classes {
                     want,
                     "{node:?} Latin1 byte {v:#04x}"
                 );
+                // Under UTF-8 `80-9F` lead out of the introducer to the body,
+                // put by `DcsIntro`, as `DcsStr` puts them.
                 let kept = match node {
                     Node::Dcs | Node::DcsDollar => edge(Act::Consume, Node::DcsStr),
+                    Node::DcsIntro => edge(Act::StrPut, Node::DcsStr),
                     _ => edge(Act::StrPut, node),
                 };
                 assert_eq!(
@@ -3070,11 +3151,20 @@ mod classes {
                 edge(Act::StrEnd, Node::AfterControl),
                 "{enc:?}: OSC"
             );
-            for prefix in [b"\x1bP".as_slice(), b"\x1bP$", b"\x1bP1;2"] {
+            // In the prefix it rings and the prefix goes on (STD 070 3.5.5),
+            // after an intermediate or a marker too.
+            for prefix in [
+                b"\x1bP".as_slice(),
+                b"\x1bP$",
+                b"\x1bP1;2",
+                b"\x1bP+",
+                b"\x1bP=",
+                b"\x1bP0!",
+            ] {
                 let n = walk(prefix);
-                assert_eq!(bel(n), edge(Act::Consume, n), "{enc:?} {prefix:?}");
+                assert_eq!(bel(n), edge(Act::Bell, n), "{enc:?} {prefix:?}");
             }
-            for body in [b"\x1bP$q".as_slice(), b"\x1bPq", b"\x1bP|"] {
+            for body in [b"\x1bP$q".as_slice(), b"\x1bPq", b"\x1bP|", b"\x1bP+q"] {
                 let n = walk(body);
                 assert_eq!(bel(n), edge(Act::StrPut, n), "{enc:?} {body:?}");
             }
@@ -3097,13 +3187,16 @@ mod classes {
     /// without changing its content. The DCS body took the `osc string` row
     /// until 2026-10-10, ignoring the format effectors and putting the
     /// `DEL`, and until 2026-10-19 it ignored `00-06`, `0E-17`, `19` and
-    /// `1C-1F` and put `BEL` alone (Jev, B_PUT_ALL). Every C0 and `DEL` stay
-    /// ignored in the prefix (354-368).
+    /// `1C-1F` and put `BEL` alone (Jev, B_PUT_ALL). In the prefix, past an
+    /// intermediate or a marker too, a C0 is executed and `DEL` ignored
+    /// (STD 070 3.5.5), where williams ignores both (354-368).
     #[test]
     fn a_dcs_body_puts_the_format_effectors_and_ignores_del() {
+        // `SO` and `SI` shift in every string (`string`), so they are
+        // checked on their own below.
         let other_c0 = || {
             (0x00..=0x06usize)
-                .chain(0x0e..=0x17)
+                .chain(0x10..=0x17)
                 .chain([0x19])
                 .chain(0x1c..=0x1f)
         };
@@ -3121,14 +3214,27 @@ mod classes {
                 b"\x1bPq",
                 b"\x1bP1;2q",
                 b"\x1bP0;1|",
-                b"\x1bP1?"
+                b"\x1bP1?$q",
+                b"\x1bP+q",
+                b"\x1bP=1s"
             ];
             let mut others: Vec<&[u8]> = std::vec![b"\x1b]", b"\x1bX", b"\x1b^", b"\x1b_"];
-            let mut prefixes: Vec<&[u8]> = std::vec![b"\x1bP", b"\x1bP$", b"\x1bP1;2"];
+            let mut prefixes: Vec<&[u8]> = std::vec![
+                b"\x1bP",
+                b"\x1bP$",
+                b"\x1bP1;2",
+                b"\x1bP1?",
+                b"\x1bP1:",
+                b"\x1bP+",
+                b"\x1bP+!",
+                b"\x1bP=",
+                b"\x1bP0!",
+                b"\x1bP$1"
+            ];
             if matches!(enc, InputEncoding::Latin1) {
-                bodies.extend([b"\x90$q".as_slice(), b"\x90q"]);
+                bodies.extend([b"\x90$q".as_slice(), b"\x90q", b"\x90+q"]);
                 others.extend([b"\x9d".as_slice(), b"\x98", b"\x9e", b"\x9f"]);
-                prefixes.extend([b"\x90".as_slice(), b"\x90$"]);
+                prefixes.extend([b"\x90".as_slice(), b"\x90$", b"\x90+", b"\x1bP\xab"]);
             }
             // Positive control: each walk ends inside a string, where an
             // `ESC` is the first half of `ST`, and not back in ground.
@@ -3154,6 +3260,8 @@ mod classes {
                 for v in other_c0() {
                     assert_eq!(at(n, v), edge(Act::StrPut, n), "{enc:?} {body:?} {v:#04x}");
                 }
+                assert_eq!(at(n, 0x0e), edge(Act::ShiftOut, n), "{enc:?} {body:?} SO");
+                assert_eq!(at(n, 0x0f), edge(Act::ShiftIn, n), "{enc:?} {body:?} SI");
             }
             for body in &others {
                 let n = walk(body);
@@ -3161,16 +3269,21 @@ mod classes {
                     assert_eq!(at(n, v), edge(Act::Consume, n), "{enc:?} {body:?} {v:#04x}");
                 }
                 assert_eq!(at(n, 0x7f), edge(Act::StrPut, n), "{enc:?} {body:?} DEL");
+                assert_eq!(at(n, 0x0e), edge(Act::ShiftOut, n), "{enc:?} {body:?} SO");
+                assert_eq!(at(n, 0x0f), edge(Act::ShiftIn, n), "{enc:?} {body:?} SI");
             }
+            // A C0 in the prefix is executed as in ground and the prefix
+            // goes on (STD 070 3.5.5); `DEL` is ignored.
             for prefix in &prefixes {
                 let n = walk(prefix);
-                for v in (0x00..=0x17).chain([0x19]).chain(0x1c..=0x1f).chain([0x7f]) {
+                for v in (0x00..=0x17).chain([0x19]).chain(0x1c..=0x1f) {
                     assert_eq!(
                         at(n, v),
-                        edge(Act::Consume, n),
+                        edge(c0(StreamByte::ALL[v]), n),
                         "{enc:?} {prefix:?} {v:#04x}"
                     );
                 }
+                assert_eq!(at(n, 0x7f), edge(Act::Consume, n), "{enc:?} {prefix:?} DEL");
             }
         }
     }
@@ -3205,6 +3318,8 @@ mod classes {
                 (b"\x1bP1;2", Node::Dcs),
                 (b"\x1bP$", Node::DcsDollar),
                 (b"\x1bP1$", Node::DcsDollar),
+                (b"\x1bP+", Node::DcsIntro),
+                (b"\x1bP=", Node::DcsIntro),
             ];
             let latin1 = matches!(enc, InputEncoding::Latin1);
             if latin1 {
@@ -3213,6 +3328,8 @@ mod classes {
                     (b"\x90$", Node::DcsDollar),
                     (b"\x1bP\xb1\xbb\xb2", Node::Dcs),
                     (b"\x90\xa4", Node::DcsDollar),
+                    (b"\x90\xab", Node::DcsIntro),
+                    (b"\x90\xbd", Node::DcsIntro),
                 ]);
             }
             // Positive control: each introducer leaves the parser in the node
@@ -3229,13 +3346,25 @@ mod classes {
                     assert_eq!(at(node, v), want, "{enc:?} {node:?} {v:#04x}");
                 }
             }
+            // Past an intermediate or a marker the introducer puts its bytes
+            // as the body does; under UTF-8 a GR byte leads to the body.
+            for v in 0xa0..=0xffusize {
+                let want = match latin1 {
+                    true => at(Node::DcsIntro, v & 0x7f),
+                    false => edge(Act::StrPut, Node::DcsStr),
+                };
+                assert_eq!(at(Node::DcsIntro, v), want, "{enc:?} DcsIntro {v:#04x}");
+            }
             if latin1 {
+                assert_eq!(at(Node::DcsIntro, 0xa1), edge(Act::StrPut, Node::DcsIntro));
+                assert_eq!(at(Node::DcsIntro, 0xf1), edge(Act::StrPut, Node::DcsStr));
+                assert_eq!(at(Node::DcsIntro, 0xff), edge(Act::Consume, Node::DcsIntro));
                 assert_eq!(at(Node::Dcs, 0xa4), edge(Act::Inter, Node::DcsDollar));
                 for v in 0xb0..=0xb9 {
                     assert_eq!(at(Node::Dcs, v), edge(Act::Digit, Node::Dcs), "{v:#04x}");
                 }
                 assert_eq!(at(Node::Dcs, 0xbb), edge(Act::Sep, Node::Dcs));
-                assert_eq!(at(Node::Dcs, 0xba), edge(Act::Consume, Node::DcsStr));
+                assert_eq!(at(Node::Dcs, 0xba), edge(Act::Consume, Node::DcsIntro));
                 assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::SixelStr));
                 assert_eq!(at(Node::DcsDollar, 0xf1), edge(Act::DcsQuery, Node::DcsStr));
                 assert_eq!(at(Node::DcsDollar, 0xf0), edge(Act::DcsQuery, Node::DcsStr));

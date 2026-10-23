@@ -83,15 +83,17 @@ fn drawn(t: &Term) -> Drawn {
     (image, support::screen(t), t.cursor())
 }
 
-/// **A BEL inside a Sixel rings and draws nothing; one in its parameters is
-/// ignored.** Each program must leave what the same program without the
-/// BEL leaves -- the image pixel for pixel, the screen, the cursor -- at
-/// every read size, and ring once for a BEL in the body:
+/// **A BEL inside a Sixel rings and draws nothing, and one in its
+/// parameters rings and the introducer goes on** (`[[source: dec-std-070]]`
+/// 3.5.5, since 2026-10-23). Each program must leave what the same program
+/// without the BEL leaves -- the image pixel for pixel, the screen, the
+/// cursor -- at every read size, and ring once for a BEL in the body:
 /// `[[source: dec-std-070]]` 070-9 §9.1, "BEL - same action as in text
 /// mode" (PDF p. 926). It rang nothing until 2026-10-19.
 ///
 /// `[[source: williams]]` puts `00-17,19,1C-1F` in `dcs passthrough` (line
-/// 388) and ignores them in `dcs param` (361); `[[source: ecma48]]` 5.6 ends
+/// 388) and ignores them in `dcs param` (361), where STD 070 executes them;
+/// `[[source: ecma48]]` 5.6 ends
 /// a control string with ST alone, and `[[source: ctlseqs]]` lets BEL end an
 /// OSC (2023-2024) and nothing else. The body BEL is put, and the Sixel
 /// handler rings it and keeps it from the decoder; here it falls between two data
@@ -122,8 +124,7 @@ fn a_bel_inside_a_sixel_rings_and_draws_nothing() {
         for size in 1..=bytes.len() {
             run(bytes, size, budget, |t| {
                 assert_eq!(drawn(t), want, "{name}: read size {size}");
-                let rings = usize::from(name == "in the body");
-                assert_eq!(t.bells, rings, "{name}: bells, read size {size}");
+                assert_eq!(t.bells, 1, "{name}: bells, read size {size}");
             });
         }
     }

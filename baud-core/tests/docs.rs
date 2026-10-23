@@ -831,6 +831,13 @@ fn every_test_named_in_the_docs_exists() {
             "a historical name, deleted on 2026-10-23 with the CPU path's quad \
              for an effect; the record cites it where the driver ran one so",
         ),
+        (
+            "a_bel_before_a_dcs_body_is_ignored",
+            "a historical name, renamed on 2026-10-23 to \
+             `a_bel_before_a_dcs_body_rings_and_the_introducer_goes_on` when a \
+             C0 in a DCS introducer began to be executed; the record cites the \
+             old name where it pinned the BEL",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
