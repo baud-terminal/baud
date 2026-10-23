@@ -170,6 +170,20 @@ impl Timed {
         }
     }
 
+    /// **The config's trail and screen transition, read again**
+    /// (`reload.rs`): the pick's trail under the motion preference in
+    /// force, switched as a change of that preference switches it.
+    pub(crate) fn set_config(
+        &mut self,
+        pick: crate::config::TrailPick,
+        transition: ScreenTransition,
+        now: Instant,
+    ) -> Owes {
+        self.pick = pick;
+        self.transition = transition;
+        self.set_motion(self.motion, now)
+    }
+
     /// The trail drawn now.
     #[cfg(test)]
     fn trail(&self) -> CursorTrail {
@@ -618,6 +632,32 @@ mod tests {
                 Owes::Nothing
             );
         }
+    }
+
+    /// **A config read again switches the trail and the transition**, as
+    /// a change of the motion preference switches the trail: the new pick
+    /// under the motion in force, and a switch that fades from then on.
+    /// The control is the same switch before the reload.
+    #[test]
+    fn a_reload_switches_the_trail_and_the_transition() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let t = Term::new(s.storage(), &WS);
+        let mut fx = Timed::new(t0, TrailPick::Default, ScreenTransition::Off);
+        assert_eq!(fx.trail(), CursorTrail::default(), "the control: trailed");
+        fx.switched(t0);
+        let p = fx.plan(t0 + Duration::from_millis(50), &t, rect, CELL, widths());
+        assert_eq!(p.fade, None, "the control: no fade");
+        let _ = fx.set_config(
+            TrailPick::Named(CursorTrail::Off),
+            ScreenTransition::On,
+            t0 + Duration::from_millis(300),
+        );
+        assert_eq!(fx.trail(), CursorTrail::Off);
+        let t1 = t0 + Duration::from_millis(400);
+        fx.switched(t1);
+        let p = fx.plan(t1 + Duration::from_millis(50), &t, rect, CELL, widths());
+        assert!(p.fade.is_some(), "the switch fades now");
     }
 
     /// **The ghost sweeps on any move and lands.** The control is no move.

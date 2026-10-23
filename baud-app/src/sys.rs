@@ -793,6 +793,40 @@ pub const NOTE_FORK: c_uint = 0x4000_0000;
 #[cfg(target_os = "macos")]
 pub const NOTE_EXEC: c_uint = 0x2000_0000;
 
+/// `kevent`'s filter for a file or a directory, and the events the config
+/// watch asks for (`reload.rs`): "EVFILT_VNODE Takes a file descriptor as
+/// the identifier and the events to watch for in fflags" -- `NOTE_DELETE`
+/// "The unlink() system call was called on the file referenced by the
+/// descriptor", `NOTE_WRITE` "A write occurred on the file referenced by
+/// the descriptor", `NOTE_EXTEND`, `NOTE_ATTRIB`, `NOTE_LINK` "The link
+/// count on the file changed", `NOTE_RENAME` "The file referenced by the
+/// descriptor was renamed" and `NOTE_REVOKE` (`[[source:
+/// macos-man-kqueue]]` 310-334). A directory's entries are what its
+/// `NOTE_WRITE` reports: a file created, removed or renamed over in it.
+#[cfg(target_os = "macos")]
+pub const EVFILT_VNODE: i16 = -4;
+#[cfg(target_os = "macos")]
+pub const NOTE_DELETE: c_uint = 0x1;
+#[cfg(target_os = "macos")]
+pub const NOTE_WRITE: c_uint = 0x2;
+#[cfg(target_os = "macos")]
+pub const NOTE_EXTEND: c_uint = 0x4;
+#[cfg(target_os = "macos")]
+pub const NOTE_ATTRIB: c_uint = 0x8;
+#[cfg(target_os = "macos")]
+pub const NOTE_LINK: c_uint = 0x10;
+#[cfg(target_os = "macos")]
+pub const NOTE_RENAME: c_uint = 0x20;
+#[cfg(target_os = "macos")]
+pub const NOTE_REVOKE: c_uint = 0x40;
+
+/// `open`'s flag for a "descriptor requested for event notifications
+/// only" (`[[source: macos-sdk-sys-fcntl-h]]` 130): what the config watch
+/// opens each file and directory with, so a watched volume can still be
+/// unmounted. Darwin's alone.
+#[cfg(target_os = "macos")]
+pub const O_EVTONLY: c_int = 0x8000;
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     /// "private interfaces to obtain process information. These
@@ -826,6 +860,52 @@ unsafe extern "C" {
         timeout: *const Timespec,
     ) -> c_int;
 }
+
+// **The config watch on Linux** (`reload.rs`): "When a directory is
+// monitored, inotify will return events for the directory itself, and for
+// files inside the directory" (`[[source: linux-man-inotify-7]]` 15-16),
+// so each directory a config file sits in is one watch, and a file swapped
+// in by `rename(2)` is an `IN_MOVED_TO` in it. `inotify_init1` takes
+// `IN_NONBLOCK` and `IN_CLOEXEC`, which are `O_NONBLOCK` and `O_CLOEXEC`
+// (`[[source: linux-uapi-inotify-h]]` 72-73); the descriptor is read until
+// it would wait, and the records are not parsed: any one is a reason to
+// read the config's files again.
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    pub fn inotify_init1(flags: c_int) -> Fd;
+    pub fn inotify_add_watch(fd: Fd, path: *const c_char, mask: InotifyMask) -> c_int;
+    pub fn inotify_rm_watch(fd: Fd, wd: c_int) -> c_int;
+}
+
+/// The events an inotify watch asks for, `inotify_add_watch`'s `uint32_t`
+/// mask: the `IN_` bits below, or'd.
+#[cfg(target_os = "linux")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct InotifyMask(pub u32);
+
+/// The inotify events the watch asks for (`[[source: linux-uapi-inotify-h]]`
+/// 31-41): a file written and closed, moved in or out, created, deleted,
+/// its attributes changed, and the watched directory itself deleted or
+/// moved.
+#[cfg(target_os = "linux")]
+pub const IN_MODIFY: u32 = 0x2;
+#[cfg(target_os = "linux")]
+pub const IN_ATTRIB: u32 = 0x4;
+#[cfg(target_os = "linux")]
+pub const IN_CLOSE_WRITE: u32 = 0x8;
+#[cfg(target_os = "linux")]
+pub const IN_MOVED_FROM: u32 = 0x40;
+#[cfg(target_os = "linux")]
+pub const IN_MOVED_TO: u32 = 0x80;
+#[cfg(target_os = "linux")]
+pub const IN_CREATE: u32 = 0x100;
+#[cfg(target_os = "linux")]
+pub const IN_DELETE: u32 = 0x200;
+#[cfg(target_os = "linux")]
+pub const IN_DELETE_SELF: u32 = 0x400;
+#[cfg(target_os = "linux")]
+pub const IN_MOVE_SELF: u32 = 0x800;
 
 /// `struct timespec`, `kevent`'s timeout: seconds and nanoseconds.
 #[cfg(target_os = "macos")]
@@ -878,6 +958,7 @@ mod tests {
 #include <sys/sysctl.h>
 #else
 #include <locale.h>
+#include <sys/inotify.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -1026,12 +1107,32 @@ int main(void) {
     printf("NOTE_EXIT=%lld\n", (long long)NOTE_EXIT);
     printf("NOTE_FORK=%lld\n", (long long)NOTE_FORK);
     printf("NOTE_EXEC=%lld\n", (long long)NOTE_EXEC);
+    printf("EVFILT_VNODE=%lld\n", (long long)EVFILT_VNODE);
+    printf("NOTE_DELETE=%lld\n", (long long)NOTE_DELETE);
+    printf("NOTE_WRITE=%lld\n", (long long)NOTE_WRITE);
+    printf("NOTE_EXTEND=%lld\n", (long long)NOTE_EXTEND);
+    printf("NOTE_ATTRIB=%lld\n", (long long)NOTE_ATTRIB);
+    printf("NOTE_LINK=%lld\n", (long long)NOTE_LINK);
+    printf("NOTE_RENAME=%lld\n", (long long)NOTE_RENAME);
+    printf("NOTE_REVOKE=%lld\n", (long long)NOTE_REVOKE);
+    printf("O_EVTONLY=%lld\n", (long long)O_EVTONLY);
 #else
     printf("locale_t.size=%zu\n", sizeof(locale_t));
     printf("LC_ALL_MASK=%lld\n", (long long)LC_ALL_MASK);
     printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
     printf("O_PATH=%lld\n", (long long)O_PATH);
     printf("MADV_DONTNEED=%lld\n", (long long)MADV_DONTNEED);
+    printf("IN_NONBLOCK=%lld\n", (long long)IN_NONBLOCK);
+    printf("IN_CLOEXEC=%lld\n", (long long)IN_CLOEXEC);
+    printf("IN_MODIFY=%lld\n", (long long)IN_MODIFY);
+    printf("IN_ATTRIB=%lld\n", (long long)IN_ATTRIB);
+    printf("IN_CLOSE_WRITE=%lld\n", (long long)IN_CLOSE_WRITE);
+    printf("IN_MOVED_FROM=%lld\n", (long long)IN_MOVED_FROM);
+    printf("IN_MOVED_TO=%lld\n", (long long)IN_MOVED_TO);
+    printf("IN_CREATE=%lld\n", (long long)IN_CREATE);
+    printf("IN_DELETE=%lld\n", (long long)IN_DELETE);
+    printf("IN_DELETE_SELF=%lld\n", (long long)IN_DELETE_SELF);
+    printf("IN_MOVE_SELF=%lld\n", (long long)IN_MOVE_SELF);
 #endif
     return 0;
 }
@@ -1254,6 +1355,15 @@ int main(void) {
             assert_eq!(h["NOTE_EXIT"], i128::from(NOTE_EXIT));
             assert_eq!(h["NOTE_FORK"], i128::from(NOTE_FORK));
             assert_eq!(h["NOTE_EXEC"], i128::from(NOTE_EXEC));
+            assert_eq!(h["EVFILT_VNODE"], i128::from(EVFILT_VNODE));
+            assert_eq!(h["NOTE_DELETE"], i128::from(NOTE_DELETE));
+            assert_eq!(h["NOTE_WRITE"], i128::from(NOTE_WRITE));
+            assert_eq!(h["NOTE_EXTEND"], i128::from(NOTE_EXTEND));
+            assert_eq!(h["NOTE_ATTRIB"], i128::from(NOTE_ATTRIB));
+            assert_eq!(h["NOTE_LINK"], i128::from(NOTE_LINK));
+            assert_eq!(h["NOTE_RENAME"], i128::from(NOTE_RENAME));
+            assert_eq!(h["NOTE_REVOKE"], i128::from(NOTE_REVOKE));
+            assert_eq!(h["O_EVTONLY"], i128::from(O_EVTONLY));
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);
@@ -1263,5 +1373,19 @@ int main(void) {
         assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["O_PATH"], i128::from(O_PATH));
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(h["IN_NONBLOCK"], i128::from(O_NONBLOCK));
+            assert_eq!(h["IN_CLOEXEC"], i128::from(O_CLOEXEC));
+            assert_eq!(h["IN_MODIFY"], i128::from(IN_MODIFY));
+            assert_eq!(h["IN_ATTRIB"], i128::from(IN_ATTRIB));
+            assert_eq!(h["IN_CLOSE_WRITE"], i128::from(IN_CLOSE_WRITE));
+            assert_eq!(h["IN_MOVED_FROM"], i128::from(IN_MOVED_FROM));
+            assert_eq!(h["IN_MOVED_TO"], i128::from(IN_MOVED_TO));
+            assert_eq!(h["IN_CREATE"], i128::from(IN_CREATE));
+            assert_eq!(h["IN_DELETE"], i128::from(IN_DELETE));
+            assert_eq!(h["IN_DELETE_SELF"], i128::from(IN_DELETE_SELF));
+            assert_eq!(h["IN_MOVE_SELF"], i128::from(IN_MOVE_SELF));
+        }
     }
 }

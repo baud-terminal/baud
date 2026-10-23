@@ -293,6 +293,7 @@ impl Arms<'_, '_> {
         for (c, caret) in [
             (self.renderer.find_field(), true),
             (self.renderer.link_bar(), false),
+            (self.renderer.notice_bar(), false),
         ] {
             let Some(c) = c else { continue };
             self.exceptions.composed(
@@ -393,6 +394,15 @@ impl Arms<'_, '_> {
             rows + 1
         } else {
             rows
+        };
+        // The config's notice row after both, blank, as the app copies it.
+        let ring = match self.renderer.notice_bar() {
+            Some(_) => {
+                let at = ring * stride;
+                self.copy_mem[at..at + cols].fill(PackedCell::EMPTY);
+                ring + 1
+            }
+            None => ring,
         };
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
@@ -7217,6 +7227,66 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
         "{} letters draw differently across the arms: {split:#?}",
         split.len()
     );
+}
+
+/// **The config's notice on the cell path is the instance path's and the
+/// CPU path's**: a row of its own after the screen's, blank in the window
+/// copy and drawn over by the notice's field with baud's own overlays,
+/// pixel for pixel against both, with and without a status line above it.
+/// The arm that reads the core's grid in place is not compared: the app
+/// draws from the copy, and the notice's row is no line of the core's.
+#[test]
+fn the_cell_path_draws_the_notice_as_the_instance_path_does() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    scene(&mut t);
+    arms.renderer.fit(&t);
+    let (bare, _) = arms.draw(&mut t);
+    let notice: Vec<baud_domain::Codepoint> =
+        "~/.config/baud/config.toml line 12: \"font_size 15\" is not key = value"
+            .chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect();
+    let less = WinSize {
+        ws_col: WS.ws_col,
+        ws_row: WS.ws_row - 1,
+    };
+    let _ = t.resize(&less);
+    arms.renderer.set_notice(Some(notice));
+    for (open, name) in [
+        (b"".as_slice(), "the notice"),
+        (b"\x1b[1$~".as_slice(), "the notice under the indicator"),
+    ] {
+        feed(&mut t, open);
+        arms.renderer.fit(&t);
+        let (a, _) = arms.draw(&mut t);
+        let c = arms.draw_copied(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(a.len(), c.len(), "{name}");
+        assert_eq!(differing(&a, &c), 0, "{name}: the cell arm disagrees");
+        assert_eq!(differing(&a, &cpu), 0, "{name}: the CPU arm disagrees");
+        assert_ne!(a, bare, "{name}: the notice reached the pixels");
+    }
+    feed(&mut t, b"\x1b[0$~");
+    arms.renderer.set_notice(None);
+    let _ = t.resize(&WS);
+    arms.renderer.fit(&t);
+    let (after, _) = arms.draw(&mut t);
+    assert_eq!(after.len(), bare.len(), "the notice's row is gone");
 }
 
 /// **The status line on the cell path is the instance path's**: its row

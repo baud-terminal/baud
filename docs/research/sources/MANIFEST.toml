@@ -54,6 +54,7 @@
 #   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs; no note)
 #   AX  notifications and progress from programs: OSC 9, 777, 99, 9;4 and 1337, and where each platform shows them
 #   AZ  a window in the background: the unfocused cursor, the inactive selection, theme cursor colours
+#   CR  the config read again while baud runs: file-change notification, atomic saves, and how terminals reload (baud-app/src/reload.rs; no note)
 #
 # Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
 # no group of their own: what they cite is filed under C, and T's also under
@@ -32773,3 +32774,267 @@ sha256 = "8503a11fe722283ac38dfabf90cd14ee68b1e93ff2ac8273620935c1f580fd39"
 bytes  = 69599
 status = "external"
 group  = "AX"
+
+# Read 2026-10-22 (lane b163): the config watch (baud-app/src/reload.rs,
+# live.rs, the macOS and Linux drivers) -- the kernel interfaces it is
+# built on, the editor save it must see, and how five terminals reload.
+
+[sources.macos-sdk-sys-fcntl-h]
+key    = "macos-sdk-sys-fcntl-h"
+title  = "sys/fcntl.h -- O_EVTONLY 0x00008000, a 'descriptor requested for event notifications only'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/fcntl.h"
+file   = ""
+sha256 = "7b07ba67fe5eb48cd8af7b23f056ad125ab0a28411409a21874e223ccf1abaef"
+bytes  = 26238
+status = "external"
+group  = "CR"
+
+[sources.macos-sdk-dispatch-source-h]
+key    = "macos-sdk-dispatch-source-h"
+title  = "dispatch/source.h -- DISPATCH_SOURCE_TYPE_READ 'monitors a file descriptor for pending bytes available to be read'; dispatch_source_set_cancel_handler: a cancellation handler is 'required for file descriptor and mach port based sources in order to safely close the descriptor'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/dispatch/source.h"
+file   = ""
+sha256 = "c0a3c34828c40d761b421d1b595ce1da22110410412facc531b1ac16af12d5d2"
+bytes  = 29441
+status = "external"
+group  = "CR"
+
+[sources.linux-man-inotify-7]
+key    = "linux-man-inotify-7"
+title  = "inotify(7) -- 'When a directory is monitored, inotify will return events for the directory itself, and for files inside the directory'"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man7/inotify.7?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "63b8f75789236ad9e14184e4922b380361bca6b509420f0f1c03c138fabb2c87"
+bytes  = 28937
+status = "external"
+group  = "CR"
+
+[sources.linux-uapi-inotify-h]
+key    = "linux-uapi-inotify-h"
+title  = "Linux v6.17, include/uapi/linux/inotify.h -- the IN_ event bits, IN_CLOEXEC = O_CLOEXEC, IN_NONBLOCK = O_NONBLOCK"
+author = "The Linux kernel developers"
+year   = 2025
+venue  = "Linux kernel (GPL-2.0 WITH Linux-syscall-note)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.17/include/uapi/linux/inotify.h"
+file   = ""
+sha256 = "48c09a53335353490f94cd465c96f092d0b3a9736b42aae8691e41b9c6390370"
+bytes  = 3304
+status = "external"
+group  = "CR"
+
+[sources.posix-rename]
+key    = "posix-rename"
+title  = "rename -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: 'a directory entry named new shall remain visible to other threads throughout the renaming operation'"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html"
+file   = ""
+sha256 = "06671610134b0a52cdf4dcdaf382f72fef85ef51088b8a52b8679c7f03829318"
+bytes  = 26407
+status = "external"
+group  = "CR"
+
+[sources.vim-9-1-options]
+key    = "vim-9-1-options"
+title  = "Vim 9.1.0000, runtime/doc/options.txt -- 'backupcopy': 'no' renames the file and writes a new one, 'auto' the default"
+author = "Bram Moolenaar and the Vim contributors"
+year   = 2024
+venue  = "Vim (Vim licence)"
+url    = "https://raw.githubusercontent.com/vim/vim/v9.1.0000/runtime/doc/options.txt"
+file   = ""
+sha256 = "2f32dd248eee2c17ea0c7fe8d7e643c4c8f8bada8eac7c5f684153867e2ed28a"
+bytes  = 419384
+status = "external"
+group  = "CR"
+
+[sources.alacritty-0-15-1-monitor]
+key    = "alacritty-0-15-1-monitor"
+title  = "alacritty v0.15.1, alacritty/src/config/monitor.rs -- ConfigMonitor: parent directories watched, DEBOUNCE_DELAY 10 ms, Create or Modify of a watched path reloads"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/config/monitor.rs"
+file   = ""
+sha256 = "76f9eafd5928b9cc9d995f0d32c5d244e4b9ed4200f485a7f8d6053428266754"
+bytes  = 7231
+status = "external"
+group  = "CR"
+
+[sources.alacritty-0-15-1-event]
+key    = "alacritty-0-15-1-event"
+title  = "alacritty v0.15.1, alacritty/src/event.rs -- EventType::ConfigReload: the message bar cleared, a failed reload keeps the old config"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/event.rs"
+file   = ""
+sha256 = "5e1e38a93d8e8650c05f90ad4a3858be05246d2f4dafa85d304ae40bf0717407"
+bytes  = 72254
+status = "external"
+group  = "CR"
+
+[sources.alacritty-0-15-1-config]
+key    = "alacritty-0-15-1-config"
+title  = "alacritty v0.15.1, alacritty/src/config/mod.rs -- reload and load_from: a file not found is an error"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/config/mod.rs"
+file   = ""
+sha256 = "b32a3843f71054dce1f7009ca64fc7baa284d1f99e7d254bad987dec8290ee81"
+bytes  = 13548
+status = "external"
+group  = "CR"
+
+[sources.alacritty-0-15-1-window-context]
+key    = "alacritty-0-15-1-window-context"
+title  = "alacritty v0.15.1, alacritty/src/window_context.rs -- update_config: 'Do not update font size if it has been changed at runtime'"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/window_context.rs"
+file   = ""
+sha256 = "b180c29fe7d12359d3c1afbdfb7c4ec2051c73d5ccdf9c5129e534d24057181d"
+bytes  = 20218
+status = "external"
+group  = "CR"
+
+[sources.alacritty-0-15-1-man5]
+key    = "alacritty-0-15-1-man5"
+title  = "alacritty v0.15.1, extra/man/alacritty.5.scd -- live_config_reload, 'Default: true'"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/extra/man/alacritty.5.scd"
+file   = ""
+sha256 = "61ac5bad191ee18fdbe9c96d1fc9eca004410909ef26b412e26723b4d4bcde11"
+bytes  = 28413
+status = "external"
+group  = "CR"
+
+[sources.wezterm-20240203-config-lib]
+key    = "wezterm-20240203-config-lib"
+title  = "wezterm 20240203-110809-5046fc22, config/src/lib.rs -- watch_path (a 200 ms grace), reload: 'On failure, retain the existing configuration'"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/config/src/lib.rs"
+file   = ""
+sha256 = "bddf0adbb812cf00fb023bd54b05ca1decdf0b4d40a60bf756843d145cf16b9e"
+bytes  = 25592
+status = "external"
+group  = "CR"
+
+[sources.wezterm-20240203-config]
+key    = "wezterm-20240203-config"
+title  = "wezterm 20240203-110809-5046fc22, config/src/config.rs -- load_with_overrides: no file found falls through to try_default"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/config/src/config.rs"
+file   = ""
+sha256 = "c0e52a0648bba197acdc053b4efdbef5426c072fec1ae633070f91095a2c0134"
+bytes  = 67679
+status = "external"
+group  = "CR"
+
+[sources.wezterm-20240203-auto-reload]
+key    = "wezterm-20240203-auto-reload"
+title  = "wezterm 20240203-110809-5046fc22, docs/config/lua/config/automatically_reload_config.md -- 'When true (the default)'"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/docs/config/lua/config/automatically_reload_config.md"
+file   = ""
+sha256 = "cef0b10de67969093c234c33e6b9c3ee3c6f5f283706461d8ac654757c6920d0"
+bytes  = 462
+status = "external"
+group  = "CR"
+
+[sources.ghostty-d9840f3-binding]
+key    = "ghostty-d9840f3-binding"
+title  = "ghostty d9840f3, src/input/Binding.zig -- reload_config: 'Note that not all changes can be applied at runtime'"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/input/Binding.zig"
+file   = ""
+sha256 = "fe6a2f8c74315505d21cdd672353e770881a7bd747c16bd446326925c3e4ca67"
+bytes  = 167760
+status = "external"
+group  = "CR"
+
+[sources.ghostty-d9840f3-config-errors]
+key    = "ghostty-d9840f3-config-errors"
+title  = "ghostty d9840f3, macos/Sources/Features/Settings/ConfigurationErrorsView.swift -- the configuration errors window, Ignore and Reload Configuration"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/macos/Sources/Features/Settings/ConfigurationErrorsView.swift"
+file   = ""
+sha256 = "8c0e4106c6d7ef593ce9b053268358acd9bd06498340cbc5ddeac4564437ebd1"
+bytes  = 2291
+status = "external"
+group  = "CR"
+
+[sources.kitty-0-39-1-conf]
+key    = "kitty-0-39-1-conf"
+title  = "kitty v0.39.1, docs/conf.rst -- reload by reload_config_file or SIGUSR1"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/docs/conf.rst"
+file   = ""
+sha256 = "b555c569578aebb8e0c887a0a8f3b98347a64ff1c3dbb96efef9476ef3ebc281"
+bytes  = 3927
+status = "external"
+group  = "CR"
+
+[sources.kitty-0-39-1-boss]
+key    = "kitty-0-39-1-boss"
+title  = "kitty v0.39.1, kitty/boss.py -- load_config_file, apply_new_options, show_bad_config_lines"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/boss.py"
+file   = ""
+sha256 = "81393bc1a830e5dc8bdf5d324a205241c56986c4967e6793d658ac472e966dcf"
+bytes  = 133225
+status = "external"
+group  = "CR"
+
+[sources.kitty-0-39-1-definition]
+key    = "kitty-0-39-1-definition"
+title  = "kitty v0.39.1, kitty/options/definition.py -- 'a handful of options cannot be dynamically changed and require a full restart'"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/options/definition.py"
+file   = ""
+sha256 = "9201b5681744e9f7577392194073eef28151ca42b960a61e60d7eae283c22903"
+bytes  = 140415
+status = "external"
+group  = "CR"
+
+[sources.foot-1-25-0-man1]
+key    = "foot-1-25-0-man1"
+title  = "foot 1.25.0, doc/foot.1.scd -- SIGUSR1 and SIGUSR2 switch to [colors] and [colors2]; no reload"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.25.0/doc/foot.1.scd"
+file   = ""
+sha256 = "3151194826041bb40479bd9324b21b9983f5da4b7009a4694fafe671d8a31460"
+bytes  = 22478
+status = "external"
+group  = "CR"

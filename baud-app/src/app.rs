@@ -728,6 +728,11 @@ struct Boot {
     clipboard: crate::config::Clipboard,
     /// What a `BEL` does in a focused window, from `bell`.
     bell: crate::config::BellStyle,
+    /// What the window says about the config at launch (`live::Notice`).
+    notice: crate::live::Notice,
+    /// The config as read and the files it pulls in, for the watch, while
+    /// `config_reload` is on.
+    reload: Option<(crate::config::Config, crate::config::Watched)>,
 }
 
 impl Boot {
@@ -800,7 +805,13 @@ impl Boot {
             g
         });
         startup_mark("gpu probing");
-        let cfg = crate::config::Config::load();
+        let launched = crate::config::Config::launch();
+        let notice = crate::live::Notice::of(&launched.said);
+        let reload = match launched.config.config_reload {
+            crate::config::ConfigReload::On => Some((launched.read, launched.watched)),
+            crate::config::ConfigReload::Off => None,
+        };
+        let cfg = launched.config;
         startup_mark("config");
         match &cfg.source {
             Some(p) => crate::info!("config: {}", p.display()),
@@ -858,6 +869,8 @@ impl Boot {
         // The exit-status strip before any size is taken: the window's
         // arithmetic counts it as it counts the gutter.
         renderer.set_status_marks(cfg.exit_status);
+        // And the config's notice, whose row the grid gives up the same way.
+        renderer.set_notice(notice.codepoints());
         startup_mark("renderer");
         Boot {
             request,
@@ -896,6 +909,8 @@ impl Boot {
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
+            notice,
+            reload,
         }
     }
 
@@ -946,6 +961,9 @@ impl App {
             ambiguous_width,
             clipboard,
             bell: bell_style,
+            // `run` takes both off `boot` for the driver.
+            notice: _,
+            reload: _,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -1763,7 +1781,7 @@ impl App {
             self.term.window_back(),
             self.term.screen(),
             drawn,
-            self.term.status_rows(),
+            below_grid(&self.term, &self.renderer),
         ) && pan.value() > 0;
         let lift = if sliding { pan } else { Px::of(0) };
         self.renderer
@@ -1882,6 +1900,24 @@ impl App {
                         let n = vcols.min(line.cells.len());
                         cell.copies_mem[set][at..at + n].copy_from_slice(&line.cells[..n]);
                         1
+                    }
+                    None => 0,
+                };
+                // **The config's notice row, after the status line's**:
+                // blank cells, whose default background the shader draws,
+                // under the notice's field drawn with baud's own overlays
+                // below (`Renderer::notice_bar`). No slide runs while it is
+                // shown (`below_grid`).
+                let noticed = match self.renderer.notice_bar() {
+                    Some(_) => {
+                        let at = (vrows + lined) * stride;
+                        match cell.copies_mem[set].get_mut(at..at + vcols) {
+                            Some(row) => {
+                                row.fill(PackedCell::EMPTY);
+                                1
+                            }
+                            None => 0,
+                        }
                     }
                     None => 0,
                 };
@@ -2030,6 +2066,7 @@ impl App {
                 for (c, caret) in [
                     (self.renderer.find_field(), true),
                     (self.renderer.link_bar(), false),
+                    (self.renderer.notice_bar(), false),
                 ] {
                     let Some(c) = c else { continue };
                     cell.exceptions.composed(
@@ -2079,7 +2116,7 @@ impl App {
                     stride: self.term.stride(),
                     rotation: RowRot::NONE,
                     // One more row when sliding: the appended leaving row.
-                    ring: Rows::of_index(vrows + lined + usize::from(sliding)),
+                    ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
                     cursor,
                     highlight,
                     overlay: &cell.overlay[set],
@@ -3183,6 +3220,26 @@ struct Driver {
     icon_x: CGFloat,
     icon_size: CGFloat,
     icon_inset: CGFloat,
+    /// The config's files watched and the config as last read, while
+    /// `config_reload` is on (`reload.rs`).
+    reload: Option<Reloading>,
+    /// What the window says about the config, on a row of its own
+    /// (`live::Notice`).
+    notice: crate::live::Notice,
+    /// The `[glass]` settings the style observer applies on an appearance
+    /// change, shared with it so a reload reaches the next one.
+    glass_live: std::rc::Rc<std::cell::Cell<crate::config::Glass>>,
+}
+
+/// **The config's watch** (`reload.rs`): the kernel's events heard on the
+/// main queue, the files and the settle, and the config the window last
+/// took, as read, which a new reading is compared with (`live::between`).
+/// Dropping it cancels the source, and the kqueue closes once the source's
+/// cancel handler has run (`reload::Listening`).
+struct Reloading {
+    _heard: Option<crate::reload::Listening>,
+    watch: crate::reload::Watch<Instant>,
+    read: crate::config::Config,
 }
 
 /// Whether a read erased the primary's history -- `CSI 3 J` or `RIS`, from
@@ -7816,6 +7873,10 @@ impl Driver {
     /// on a wake only if a frame's worth of time has passed since the last
     /// commit, so a flood draws once a vsync and a keystroke draws now.
     fn pump(&mut self, trigger: Trigger) {
+        // The config's files, on every turn and not only on a tick: the
+        // display link pauses while the window is covered, which is when
+        // the config is edited in another app (`follow_config`).
+        self.follow_config();
         // A process the title watches forked, exec'd or exited.
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             self.derive.moved();
@@ -9000,7 +9061,10 @@ pub fn run() {
             NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
         }
     };
-    let boot = Boot::prepare(scale);
+    let mut boot = Boot::prepare(scale);
+    // The config's watch and notice, for the driver (`reload.rs`).
+    let reload_from = boot.reload.take();
+    let notice = boot.notice.clone();
     // The gutter in points: the grid floats inset from all four sides -- below
     // the titlebar and in from the left, right and bottom -- with the glass in
     // the margin. The pty and the renderer follow the inset area.
@@ -9026,13 +9090,18 @@ pub fn run() {
     let strip = boot.renderer.strip();
     let ws = grid.as_ref().map_or_else(
         || {
-            grid_for(
-                NSSize::new(
-                    (size.width - 2.0 * padding - f64::from(strip.value()) / scale).max(0.0),
-                    (size.height - inset - 2.0 * padding).max(0.0),
+            // The config's notice row, when the launch has one, is the
+            // window's, as the status line's is (`Driver::relayout`).
+            crate::width::less_status(
+                grid_for(
+                    NSSize::new(
+                        (size.width - 2.0 * padding - f64::from(strip.value()) / scale).max(0.0),
+                        (size.height - inset - 2.0 * padding).max(0.0),
+                    ),
+                    scale,
+                    (cw, ch),
                 ),
-                scale,
-                (cw, ch),
+                boot.renderer.notice_rows(),
             )
         },
         |ws| WinSize {
@@ -9287,7 +9356,27 @@ pub fn run() {
         icon_x,
         icon_size: icon_s,
         icon_inset: inset,
+        reload: None,
+        notice,
+        glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
     };
+    // **The config's watch, heard on the main queue** (`reload.rs`): the
+    // dispatch source's handler drains the kqueue and wakes the view, and
+    // `pump` takes the mark. No thread of baud's waits on it.
+    if let Some((read, watched)) = reload_from {
+        let watch = crate::reload::Watch::new(crate::reload::files(
+            &watched.lookup,
+            &watched.themes,
+            &watched.faces,
+        ));
+        let waker = view.waker();
+        let heard = watch.listen(dispatch2::DispatchQueue::main(), move || waker.wake());
+        driver.reload = Some(Reloading {
+            _heard: heard,
+            watch,
+            read,
+        });
+    }
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
     // draw. Its completion wakes the responder through the run loop, which
@@ -9352,11 +9441,12 @@ pub fn run() {
     {
         let glass_cb = glass.clone();
         let window_cb = window.clone();
+        let glass_now = std::rc::Rc::clone(&driver.glass_live);
         let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
             apply_glass(
                 &glass_cb,
                 &window_cb,
-                &glass_cfg,
+                &glass_now.get(),
                 glass_cb.appearance(&window_cb),
             );
         });
@@ -9805,7 +9895,7 @@ impl Driver {
                 self.app.term.window_back(),
                 screen,
                 drawn,
-                self.app.term.status_rows(),
+                below_grid(&self.app.term, &self.app.renderer),
             )
             || self.app.slide.pan().value() == 0
         {
@@ -9904,6 +9994,325 @@ impl Driver {
         if self.settings.take(Setting::DimFlashingLights) == Heard::Changed {
             self.app.flashing = baud_present_macos::settings::flashing();
             crate::info!("flashing: {:?}", self.app.flashing);
+        }
+    }
+
+    /// **The config's files, followed** (`reload.rs`): what the kernel said
+    /// since the last turn, a wake scheduled for the settle's end, and at
+    /// that end the files read and, when one reads differently, the config
+    /// read again. A reload that may restack waits, as a zoom does, for the
+    /// frame that reads the atlas: the settle stays due, and the frame's
+    /// completion wakes the next turn.
+    fn follow_config(&mut self) {
+        let Some(r) = self.reload.as_mut() else {
+            return;
+        };
+        let now = Instant::now();
+        let mut wake_at = None;
+        if r.watch.heard(now) == crate::reload::Heard::Moved {
+            wake_at = r.watch.deadline();
+        }
+        let due = r.watch.deadline().is_some_and(|d| d <= now);
+        if let Some(at) = wake_at {
+            self.wake_at(at);
+        }
+        if !due || self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
+            return;
+        }
+        let Some(r) = self.reload.as_mut() else {
+            return;
+        };
+        if r.watch.due(now) == crate::reload::Due::Changed {
+            self.reload_config(now);
+        }
+    }
+
+    /// A turn of `pump` at `at`, from the main queue: the settle's end,
+    /// reached whether or not the display link is running.
+    fn wake_at(&self, at: Instant) {
+        let waker = self.app.waker;
+        let after = at.saturating_duration_since(Instant::now());
+        if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
+            let _ = dispatch2::DispatchQueue::main().after(when, move || waker.wake());
+        }
+    }
+
+    /// **The config read again, and what it changed applied** (`live.rs`):
+    /// a file that does not parse, or the file in force gone, leaves the
+    /// window as it is and says so on the notice's row; a file that parses
+    /// is applied, part by part, its complaints on the row, and a setting a
+    /// running window cannot take is named in the log as waiting for the
+    /// next launch. The watch then follows the files the new config names.
+    fn reload_config(&mut self, now: Instant) {
+        let Some(r) = self.reload.as_ref() else {
+            return;
+        };
+        let in_force = r.read.source.clone();
+        let reading = match crate::config::Config::reread(in_force.as_deref()) {
+            crate::config::Reread::Read(reading) => reading,
+            crate::config::Reread::Broken(sentence) => {
+                crate::warn!("config: {sentence}");
+                self.show_notice(crate::live::Notice::broken(sentence));
+                return;
+            }
+            crate::config::Reread::Gone(path) => {
+                let sentence = crate::config::gone(&path);
+                crate::warn!("config: {sentence}");
+                self.show_notice(crate::live::Notice::broken(sentence));
+                return;
+            }
+        };
+        let crate::config::Reading {
+            config,
+            mut said,
+            watched,
+        } = *reading;
+        for s in &said {
+            crate::warn!("{s}");
+        }
+        let faces = r.watch.faces_moved();
+        let parts = crate::live::between(&r.read, &config, faces);
+        said.extend(self.apply_config(&config, &parts));
+        crate::info!(
+            "config: read again from {}",
+            config
+                .source
+                .as_deref()
+                .map_or("the defaults".to_string(), |p| p.display().to_string())
+        );
+        if let Some(line) = crate::live::later(&parts) {
+            crate::info!("{line}");
+        }
+        let off = config.config_reload == crate::config::ConfigReload::Off;
+        let mut again = None;
+        if let Some(r) = self.reload.as_mut() {
+            r.watch.rewatch(
+                crate::reload::files(&watched.lookup, &watched.themes, &watched.faces),
+                now,
+            );
+            r.read = config;
+            // A change between the reading and the new watch is due a settle
+            // after it, woken here: the display link may be paused.
+            again = r.watch.deadline();
+        }
+        if let Some(at) = again {
+            self.wake_at(at);
+        }
+        self.show_notice(crate::live::Notice::of(&said));
+        // **Off is applied, then nothing after it until the next launch**,
+        // as WezTerm stops watching when a reload says so (Jev's lean after
+        // a re-ask, OFF_AFTER_APPLY, 0.61 and 0.33).
+        if off {
+            crate::info!("config: config_reload is off; changes wait for the next launch");
+            self.reload = None;
+        }
+    }
+
+    /// **Each part of a config read again, applied to the window**: what
+    /// the core is told, the palette and the glass, the fonts and their
+    /// size, the cursor and its blink and trail, the bell, the scroll and
+    /// the transition. Returns what it could not act on: a font that does
+    /// not load, which leaves the fonts as they were.
+    fn apply_config(
+        &mut self,
+        c: &crate::config::Config,
+        parts: &[crate::live::Part],
+    ) -> Vec<String> {
+        use crate::live::Part;
+        let mut said = Vec::new();
+        let mut relayout = false;
+        for &p in parts {
+            match p {
+                Part::TermOptions => {
+                    crate::live::term_options(
+                        &mut self.app.term,
+                        c,
+                        crate::winops::mac_abilities(),
+                    );
+                    self.app.clipboard.osc52 = c.clipboard.osc52;
+                }
+                Part::Bell => self.app.bell_style = c.bell,
+                Part::Emoji => {
+                    self.app.renderer.set_emoji_default(c.emoji);
+                    self.app.next_damage = Damage::Full;
+                }
+                Part::Notifications => {
+                    self.app.notes.setting = c.notifications;
+                    self.app.term.set_notice_support(match self.app.center {
+                        Some(_) => {
+                            crate::notify::support(c.notifications, crate::notify::Platform::MacOs)
+                        }
+                        None => None,
+                    });
+                }
+                Part::CopyOnSelect => {
+                    self.app.clipboard.copy_on_select = c.clipboard.copy_on_select;
+                }
+                Part::AmbiguousWidth => self.app.term.set_ambiguous_width(c.ambiguous_width),
+                Part::Scroll => self.app.scroll = c.scroll,
+                Part::Transition => self.app.screen_transition = c.screen_transition,
+                Part::Trail => {
+                    self.app.trail_pick = c.cursor_trail;
+                    self.app.trail_scroll = c.trail_scroll;
+                    let next = c.cursor_trail.effective(self.app.motion);
+                    if next != self.app.cursor_trail {
+                        let owes = retrail(
+                            &mut self.app.chase,
+                            &mut self.app.trail,
+                            &mut self.app.last_cursor_cell,
+                            next,
+                            self.app.wanted,
+                            HostTime::of_secs(self.app.tick_target),
+                        );
+                        self.app.cursor_trail = next;
+                        if owes == Owes::Frame {
+                            self.app.pending = Pending::Dirty;
+                        }
+                    }
+                }
+                Part::CursorStyle => {
+                    self.app
+                        .term
+                        .reconfigure_cursor_style(baud_core::CursorStyle::of(
+                            c.cursor_shape,
+                            c.cursor_blink.power_on(),
+                        ));
+                }
+                Part::Caret => {
+                    self.app.blink_choice = c.cursor_blink;
+                    self.app.blink_animation = c.blink_animation;
+                    self.app.blink_interval = c.blink_interval;
+                    self.app.caret.set_stop(c.cursor_stop);
+                    self.app
+                        .caret
+                        .set_animation(c.blink_animation.effective(self.app.motion));
+                    self.read_caret_system();
+                }
+                Part::StatusMarks => {
+                    self.app.renderer.set_status_marks(c.exit_status);
+                    relayout = true;
+                }
+                Part::Padding => {
+                    self.app.padding = f64::from(c.padding);
+                    relayout = true;
+                }
+                Part::Palette => said.extend(self.reload_palette(c)),
+                // The fonts and their size together, below.
+                Part::Fonts | Part::FontSize => {}
+                Part::Reload => {}
+                Part::ColourSpace
+                | Part::GlassStyle
+                | Part::Images
+                | Part::Sixel
+                | Part::Vs16Width
+                | Part::Printing
+                | Part::ClipboardArea => {}
+            }
+        }
+        // **A size the user zoomed to stays**, as alacritty keeps one
+        // "changed at runtime" (Jev, KEEP_ZOOM, 0.94 and 0.94); Actual Size
+        // returns to the new configured size either way.
+        let points = crate::live::size_after(self.app.font_size, self.app.font_base, c.font_size);
+        self.app.font_base = c.font_size;
+        if parts.contains(&Part::Fonts) {
+            match self.reload_fonts(c, points) {
+                Ok(()) => relayout = true,
+                Err(e) => said.push(format!("config: {e}; the fonts stay as they were")),
+            }
+        } else if points != self.app.font_size {
+            self.zoom(points);
+        }
+        crate::host::tell_font(
+            &mut self.app.term,
+            &self.app.fonts,
+            self.app.font_size,
+            self.app.font_base,
+        );
+        if relayout {
+            self.app.next_damage = Damage::Full;
+            self.app.pending = Pending::Dirty;
+            if self.relayout(self.view.frame().size, self.app.scale) == Drew::No {
+                self.app.present(&self.view, Show::Event);
+            }
+        }
+        self.app.pending = Pending::Dirty;
+        said
+    }
+
+    /// **The palette and the glass from a config read again**: the theme
+    /// files read anew, both themes built, the glass's tint and shadow
+    /// applied, and the theme in force shown at full damage. Colours a
+    /// program set keep winning: the core is told the new defaults with its
+    /// overrides kept. Returns what the theme files could not act on.
+    fn reload_palette(&mut self, c: &crate::config::Config) -> Vec<String> {
+        let (mut halves, said) = crate::palette::load_halves(
+            c.palette_light.as_deref(),
+            c.palette_dark.as_deref(),
+            &crate::palette::Dirs::from_env(c.source.as_deref()),
+        );
+        halves.selection = c.selection;
+        halves.cursor = c.cursor;
+        self.theme_choice = c.theme;
+        self.glass_cfg = c.glass;
+        self.glass_live.set(c.glass);
+        self.themes = Themes::of(&c.glass, c.theme, c.floor, &halves);
+        let appearance = match c.theme {
+            crate::config::ThemeChoice::Dark => Appearance::Dark,
+            crate::config::ThemeChoice::Light => Appearance::Light,
+            crate::config::ThemeChoice::Auto => appearance_of(&self.window),
+        };
+        apply_glass(
+            &self.glass,
+            &self.window,
+            &self.glass_cfg,
+            self.glass.appearance(&self.window),
+        );
+        self.palette_for = (c.theme == crate::config::ThemeChoice::Auto).then_some(appearance);
+        self.show_theme(appearance);
+        crate::host::tell_defaults(
+            &mut self.app.term,
+            self.app.renderer.theme(),
+            baud_core::Overrides::Keep,
+        );
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        said
+    }
+
+    /// **The fonts a config read again names**, mapped, parsed and leading
+    /// the chain at `points`: the stack restacked as a program's `OSC 50`
+    /// restacks it, and a face a program led with dropped, its slot naming
+    /// nothing in the new list (Jev's lean, CONFIG_WINS_ON_CHANGE, 0.72 and
+    /// 0.62). A font that does not load leaves the fonts as they were.
+    fn reload_fonts(&mut self, c: &crate::config::Config, points: f32) -> Result<(), String> {
+        let resolved = c.clone().resolved();
+        let (data, faces) = crate::host::faces_again(&resolved)?;
+        let px = PxSize::of(points * self.app.scale as f32).ok_or("no size")?;
+        let fonts = crate::fonts::Fonts::new(&resolved, data, faces);
+        self.app
+            .renderer
+            .restack(crate::host::stack(&resolved, faces), px)
+            .ok_or_else(|| "the fonts do not make a stack".to_string())?;
+        self.app.fonts = fonts;
+        self.app.rescaled();
+        self.app.font_size = points;
+        Ok(())
+    }
+
+    /// **The config's notice on its row, or none**: the grid gives the row
+    /// up while one is shown and takes it back when it goes, the program
+    /// told each time (Jev's lean, ROWS).
+    fn show_notice(&mut self, notice: crate::live::Notice) {
+        if notice == self.notice {
+            return;
+        }
+        let rows_moved = notice.rows() != self.notice.rows();
+        self.app.renderer.set_notice(notice.codepoints());
+        self.notice = notice;
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        if rows_moved && self.relayout(self.view.frame().size, self.app.scale) == Drew::No {
+            self.app.present(&self.view, Show::Event);
         }
     }
 
@@ -10653,7 +11062,7 @@ impl Driver {
                 self.app.beside(bar),
                 (cw, ch),
             ),
-            self.app.term.status_rows(),
+            below_grid(&self.app.term, &self.app.renderer),
         );
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
@@ -11820,6 +12229,7 @@ mod tests {
     /// `palette_switch`, and the flip takes its theme from the prebuilt
     /// pair, building none; once in the Linux driver's, for a change of the
     /// desktop's, in `appearance::overrides`, behind `appearance::switch`.
+    /// A config read again keeps them, on both (`reload_palette`).
     #[test]
     fn only_the_appearance_switch_drops_program_colours() {
         // Everything before the file's own test module, which sits last --
@@ -11844,7 +12254,15 @@ mod tests {
         let at = appearance.find("fn overrides(").expect("overrides");
         let body = &appearance[at..at + appearance[at..].find("\n}\n").expect("its end")];
         assert!(body.contains("Origin::Changed => baud_core::Overrides::Drop"));
-        assert_eq!(linux.matches("self.show_half(").count(), 1);
+        // The other is a config read again, which keeps a program's
+        // colours as the macOS driver's `reload_palette` does.
+        assert_eq!(linux.matches("self.show_half(").count(), 2);
+        assert_eq!(
+            linux
+                .matches("self.show_half(half, baud_core::Overrides::Keep)")
+                .count(),
+            1
+        );
         assert!(linux.contains("crate::appearance::switch("));
         let at = app.find("fn apply_style(").expect("apply_style");
         let body = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
@@ -12986,6 +13404,12 @@ impl SlideDrawn {
             SlideDrawn::Other
         }
     }
+}
+
+/// The rows below the grid that are no line of the ring: the status
+/// line's and the config's notice's.
+fn below_grid(term: &Term<'_>, renderer: &Renderer<'_, '_>) -> Rows {
+    Rows::of_count(term.status_rows().index() + renderer.notice_rows().index())
 }
 
 /// **Whether the frame draws a smooth scroll's slide**: smooth scrolling,

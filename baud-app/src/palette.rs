@@ -80,7 +80,7 @@ pub struct Dirs {
 }
 
 impl Dirs {
-    /// `config` is the file `Config::load` read, if one was.
+    /// `config` is the file `Config::launch` read, if one was.
     pub fn from_env(config: Option<&Path>) -> Dirs {
         Dirs {
             config: config.map(Path::to_path_buf),

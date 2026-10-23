@@ -529,6 +529,11 @@ fn bar_on(l: &Option<LinkLook>, row: Row) -> Option<&crate::find::Field> {
     l.as_ref().map(|l| &l.bar).filter(|b| b.row == row)
 }
 
+/// The embedder's notice, when it is on `row`.
+fn field_at(f: &Option<crate::find::Field>, row: Row) -> Option<&crate::find::Field> {
+    f.as_ref().filter(|f| f.row == row)
+}
+
 /// The link preview's underlined runs on `row`.
 fn spans_on(l: &Option<LinkLook>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
     l.iter()
@@ -1528,6 +1533,11 @@ pub struct Renderer<'f, 'a> {
     /// under the find field.
     link: Option<LinkLook>,
     last_link: Option<LinkLook>,
+    /// The embedder's notice, its own row below the grid and the status
+    /// line ([`Renderer::set_notice`]), and the field the last frame drew
+    /// it as.
+    notice: Option<Vec<Codepoint>>,
+    last_notice: Option<crate::find::Field>,
     link_inst: Vec<Instance>,
     /// **baud's own fields over the images**: the find field's records and
     /// caret and the link preview's bar, which the instance and CPU paths
@@ -1813,6 +1823,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find_caret: Vec::new(),
             link: None,
             last_link: None,
+            notice: None,
+            last_notice: None,
             link_inst: Vec::new(),
             chrome_inst: Vec::new(),
             cursor_fill: Argb::default(),
@@ -2235,6 +2247,53 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The link preview's bar as the cell path draws it, or none.
     pub fn link_bar(&self) -> Option<Composition> {
         self.link.as_ref().map(|l| l.bar.composition())
+    }
+
+    /// **The embedder's notice for the next frames**, or none: `baud-app`'s
+    /// config reload says here what a file it read again could not act on.
+    /// A row of its own, below the main display and the status line, which
+    /// [`Renderer::fit`] adds while one is set -- the embedder gives the
+    /// terminal one row fewer -- and which every path draws as a field in
+    /// the selection's colours across the width: the instance and CPU paths
+    /// in their convert, the cell path through [`Renderer::notice_bar`] over
+    /// a blank row of its window copy.
+    pub fn set_notice(&mut self, text: Option<Vec<Codepoint>>) {
+        self.notice = text;
+    }
+
+    /// The rows the notice takes: one while it is set.
+    pub fn notice_rows(&self) -> Rows {
+        match self.notice {
+            Some(_) => Rows::of_index(1),
+            None => Rows::ZERO,
+        }
+    }
+
+    /// The notice as a field on the last row, padded or cut to the width,
+    /// once [`Renderer::fit`] has made that row; none otherwise.
+    fn notice_field(&self) -> Option<crate::find::Field> {
+        let text = self.notice.as_ref()?;
+        let row = self.rows.index().checked_sub(1)?;
+        if row < self.main.index() {
+            return None;
+        }
+        let cols = self.cols.index();
+        let mut text: Vec<Codepoint> = text.iter().copied().take(cols).collect();
+        text.resize(cols, Codepoint::from_char(' '));
+        Some(crate::find::Field {
+            row: Row::from_index(row),
+            col: Col::ZERO,
+            hints: vec![crate::overlay::Hints::SELECTION; cols],
+            caret: Col::at_index(cols),
+            text,
+        })
+    }
+
+    /// The notice as the cell path draws it, over the blank row the window
+    /// copy holds after the main display and the status line; none while
+    /// no notice is set.
+    pub fn notice_bar(&self) -> Option<Composition> {
+        self.notice_field().map(|f| f.composition())
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
@@ -4071,7 +4130,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// row below it while one is shown.
     pub fn fit(&mut self, term: &Term<'_>) {
         let (cols, main) = term.geometry();
-        let rows = Rows::of_index(main.index() + term.status_rows().index());
+        let rows =
+            Rows::of_index(main.index() + term.status_rows().index() + self.notice_rows().index());
         if cols.index() != self.cols.index() || rows.index() != self.rows.index() {
             self.resize(cols, rows);
         }
@@ -4170,6 +4230,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.cur[r * ncols..r * ncols + n].copy_from_slice(&line.cells[..n]);
                 self.cur_size[r] = line.rendition;
             }
+        }
+        // **The embedder's notice, on its own row below both**: blank cells
+        // in the default rendition, drawn over by its field below.
+        let notice = self.notice_field();
+        if let Some(f) = &notice {
+            let r = f.row.index();
+            self.cur[r * ncols..(r + 1) * ncols].fill(PackedCell::EMPTY);
+            self.cur_size[r] = LineRendition::Single;
         }
         // An input method's composition, on the live view: the cells under it
         // converted blank in their own renditions, so their backgrounds stay
@@ -4349,6 +4417,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let linked = link_changed
                 && (spans_on(&self.link, row).ne(spans_on(&self.last_link, row))
                     || bar_on(&self.link, row) != bar_on(&self.last_link, row));
+            // The notice come, gone or changed on this row.
+            let noticed = field_at(&notice, row) != field_at(&self.last_notice, row);
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -4369,6 +4439,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // it on.
             let fields = field_on(&self.find, row).is_some()
                 || bar_on(&self.link, row).is_some()
+                || field_at(&notice, row).is_some()
                 || self.fade.is_some();
             let chromed = images == ImageRows::Repainted
                 && self.image_places.iter().any(|p| {
@@ -4392,7 +4463,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || chromed
                 || composed
                 || found
-                || linked;
+                || linked
+                || noticed;
         }
         self.place_diff = diff;
         if images == ImageRows::Repainted {
@@ -4426,7 +4498,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The find field with its caret, then the link's bar with none.
         let carets = self.find_caret.len();
         let fields = field.iter().map(|c| (c, carets));
-        for (c, carets) in fields.chain(link_bar.iter().map(|c| (c, 0))) {
+        let notice_bar = notice.as_ref().map(crate::find::Field::composition);
+        for (c, carets) in fields
+            .chain(link_bar.iter().map(|c| (c, 0)))
+            .chain(notice_bar.iter().map(|c| (c, 0)))
+        {
             let styles = core::mem::take(&mut self.styles);
             let mut records = core::mem::take(&mut self.chrome_inst);
             crate::overlay::composition_records(
@@ -4493,6 +4569,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
+        self.last_notice = notice;
         Converted {
             rows_dirty,
             rows_partial,

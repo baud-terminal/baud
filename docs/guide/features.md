@@ -235,6 +235,7 @@ Where baud runs, and the one settings file.
 - **A clean environment** — Programs see baud with full colour, and nothing of the terminal you started it from. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **One optional settings file** — Keep only what you change in one file; baud never reads a stray file from the folder it started in. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **A typo never stops baud starting** — An unknown setting is skipped with a warning naming it, a bad value falls back and baud says so, and settings from older versions are explained rather than dropped. <sub>[proof](../../baud-app/src/config.rs)</sub>
+- **Saved settings show at once** — Save the settings file, or a theme or font file it names, and the open window follows: edited in place, saved by swapping in a new file, or created for the first time. A save baud cannot read keeps the settings you had, with a row at the bottom of the window saying what was wrong until a save fixes it. *macOS.* <sub>[proof](../../baud-app/src/reload.rs)</sub>
 - **An example file that does what it says** — The example settings file is checked by a test to do what its comments say. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **Quiet unless asked** — baud is quiet by default, and `BAUD_LOG` turns on its messages. <sub>[proof](../../baud-app/src/log.rs)</sub>
 

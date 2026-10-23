@@ -71,6 +71,12 @@ emoji = "font"
 # window comes forward or is marked as wanting attention.
 bell = "sound"
 
+# Saved changes to this file, and to the theme and font files it names,
+# show in the open window a moment after the save. A few settings wait
+# for the next launch (docs/guide/configuration.md, "When a change
+# shows"). "off" leaves every change for the next launch.
+config_reload = "on"
+
 
 # The fallback stack, first font first: a font supplies the glyphs the fonts
 # before it lack. Name each by its family, as other terminals take a font

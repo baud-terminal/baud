@@ -1431,7 +1431,7 @@ mod tests {
     }
 
     /// **What resolving the default stack costs at launch**: the scan of
-    /// the system's font directories and the picks, as `Config::load` runs
+    /// the system's font directories and the picks, as `Config::launch` runs
     /// them, eleven times in one process, each scan made afresh. Run by
     /// hand (`--ignored --nocapture`) for the record; it asserts only that
     /// every default name was found.

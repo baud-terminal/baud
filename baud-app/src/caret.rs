@@ -393,12 +393,20 @@ impl<M: Moment> Caret<M> {
         self.quiet_since = now;
     }
 
-    /// The system's rate and switch, read again. No restart: a blink that
-    /// resumes restarts at the next plan anyway.
-    #[cfg(any(target_os = "macos", test))]
+    /// The system's rate and switch, read again -- or on Linux, where no
+    /// system caret is read, the config's read again (`reload.rs`). No
+    /// restart: a blink that resumes restarts at the next plan anyway.
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub fn set_system(&mut self, cycle: Cycle, gate: Gate) {
         self.cycle = cycle;
         self.gate = gate;
+    }
+
+    /// `[cursor] stop_blinking_after`, read again with the config
+    /// (`reload.rs`): the next plan stops on the new time.
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
+    pub fn set_stop(&mut self, stop: StopAfter) {
+        self.stop = stop;
     }
 
     /// The animation, after the motion preference moved. The next plan

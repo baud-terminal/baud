@@ -301,3 +301,31 @@ fn both_resets_clear_twelve() {
         }
     }
 }
+
+// ---- A style changed under a running terminal ---------------------------
+
+/// **A reloaded cursor style reaches a cursor no program styled**: an
+/// embedder that reads its settings again changes the style in force, and
+/// the one `DECSCUSR 0` restores.
+#[test]
+fn a_reconfigured_style_reaches_a_cursor_no_program_styled() {
+    each_read_size(CursorStyle::BlinkingBlock, b"", |t| {
+        t.reconfigure_cursor_style(CursorStyle::SteadyBar);
+        assert_eq!(t.cursor_style(), CursorStyle::SteadyBar);
+        support::feed(t, b"\x1b[2 q\x1b[0 q");
+        assert_eq!(t.cursor_style(), CursorStyle::SteadyBar, "DECSCUSR 0");
+    });
+}
+
+/// **A style a program set stays the program's**, and a reset gives the
+/// reloaded one: helix's `5 q` survives a reload, its `0 q` at exit returns
+/// to the new configured style, not the launch's.
+#[test]
+fn a_program_styled_cursor_keeps_its_style_over_a_reconfigure() {
+    each_read_size(CursorStyle::BlinkingBlock, b"\x1b[4 q", |t| {
+        t.reconfigure_cursor_style(CursorStyle::SteadyBar);
+        assert_eq!(t.cursor_style(), CursorStyle::SteadyUnderline);
+        support::feed(t, b"\x1b[0 q");
+        assert_eq!(t.cursor_style(), CursorStyle::SteadyBar);
+    });
+}

@@ -19,16 +19,60 @@ baud looks in three places and reads the first file it finds:
 
 It does not read a config from the folder it was started in.
 
-- **baud reads the file when it starts.** Quit and reopen it after an edit.
+- **What you save shows at once.** baud watches the file, the theme files
+  it names and the fonts it names by path, and applies a save to the open
+  window a moment after it lands, whether you edit in place, your editor
+  saves to a new file and swaps it in, or you create the file for the first
+  time. A few settings wait for the next launch: see
+  [When a change shows](#when-a-change-shows). `config_reload = "off"`
+  turns this off.
 - **A mistake does not stop baud.** A key it does not know, or a value it
-  cannot use, is skipped with a warning and the default is kept. Warnings go
-  to the terminal baud was started from ([Installing](install.md#if-something-looks-wrong)).
+  cannot use, is skipped with a warning and the default is kept. A line it
+  cannot read at all, one that is not `key = value` or a list that is never
+  closed, is skipped when baud starts; when you save it later, baud keeps
+  the settings it had. Either way a row at the bottom of the window says
+  what was wrong, until a save fixes it. Warnings also go to the terminal
+  baud was started from ([Installing](install.md#if-something-looks-wrong)).
 - **Paths can be relative.** A font or theme path that does not start with
   `/` or `~/` is read from the folder the config file is in.
 
 The file is TOML: `key = value` lines, with `[section]` headings for the
 groups below. Text values go in double quotes; numbers and `true`/`false`
 do not.
+
+## When a change shows
+
+Almost every setting shows in the open window as soon as you save:
+colours, the theme and its files, the selection and cursor colours, fonts
+and their size, padding, the cursor's shape, blink and trail, the bell,
+emoji, scrolling, the screen transition, the exit-status marks, the glass's
+dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
+(`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
+`[screen]`'s logging, checksum, notifications and print choices,
+`[pointer]`).
+
+These keep their old value until baud is next started, because the open
+window was built with them: `colorspace`, `[glass] style`,
+`[images] pixels_mb` and `advertise_sixel`, `vs16_width`,
+`[screen] printing` and `[clipboard] body_kb`.
+baud opens one window each time it starts, so the next launch is quitting
+and reopening it.
+
+- **A new `ambiguous_width` measures the next character.** Text already
+  on the screen keeps the columns it was written with.
+- **On Linux, padding, the scroll mode and the glass's tint and shadow**
+  are not drawn, so a change to them shows nothing there.
+- **A size you zoomed to stays.** A new `font_size` shows only while the
+  window is at the old one; Actual Size then returns to the new one.
+- **Colours a program set stay** until it resets them, as they do when the
+  theme changes.
+- **A font a program chose is replaced** when you change `fonts`; a save
+  that leaves `fonts` alone keeps it.
+- **A deleted file keeps the settings in force**, and the row at the bottom
+  says so until the file is back.
+- **An empty file is the defaults**, as it is when baud starts with one.
+- **While the message row shows**, the window gives it the bottom line, and
+  programs are told the window is a line shorter until it goes.
 
 ## Top level
 
@@ -45,6 +89,7 @@ These keys go at the top of the file, before any `[section]`.
 | `bell` | `"sound"`, `"flash"`, `"none"` | `"sound"` | What happens when a program rings the bell while baud's window is in front: the alert sound, a brief flash of the screen, or nothing. |
 | `fonts` | list of font names, or font file paths | baud's built-in fonts | The fonts to draw with, first choice first, each named by its family, such as `"Fira Code"` or `"Menlo"`, in any letter case. A later font fills in characters the earlier ones lack. A single face can be named by its PostScript name, such as `"FiraCode-Bold"`, or its full name, such as `"Fira Code Bold"`; it is then the regular text's face and its family supplies bold and italic. baud looks the names up among the fonts installed on the machine once, when it starts (on Linux, in the folders your fontconfig configuration lists, `/etc/fonts/fonts.conf` or the file `FONTCONFIG_FILE` names and your own `~/.config/fontconfig/fonts.conf`, leaving out the fonts its `<selectfont>` rules reject); a name it cannot find is skipped with a warning, and if none is found the built-in fonts are used. A value with a `/` or ending in `.ttf`, `.otf`, `.ttc` or `.otc` is a font file instead, and a `.ttc` file can take `@N` to pick a font inside it. Bold and italic text uses the bold and italic faces of the first font in the list that is found; a style it has none for is drawn from its nearest face, never faked. baud's built-in fonts can be named too, and are used ahead of an installed copy: `"Proto Hebrew Mono C"`, the built-in text font's working name, with its bold and italic faces, `"Symbols Nerd Font Mono"` and `"STIX Two Math"`. |
 | `font_fallback` | `true`, `false` | `true` | Whether baud's built-in fonts stay behind a `fonts` list you set, so Hebrew, Nerd Font icons and maths symbols still draw when your fonts lack them. |
+| `config_reload` | `"on"`, `"off"` | `"on"` | Whether a saved change to this file, or to a theme or font file it names, shows in the open window. With `"off"`, changes wait for the next launch; the save that turns it off is the last one applied. |
 
 The built-in fonts are JetBrains Mono, with its ligatures and real bold and
 italic faces, baud's own Hebrew, and the Nerd Font icons, with the system's

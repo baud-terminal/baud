@@ -1940,6 +1940,17 @@ platform = "both"
 tests = ["baud-app/src/config.rs::a_value_outside_the_unit_range_is_clamped_and_a_word_is_refused", "baud-app/src/config.rs::font_smoothing_is_reported_gone"]
 
 [[feature]]
+id = "settings-reload"
+area = "platforms"
+name = "Saved settings show at once"
+does = "Save the settings file, or a theme or font file it names, and the open window follows: edited in place, saved by swapping in a new file, or created for the first time. A save baud cannot read keeps the settings you had, with a row at the bottom of the window saying what was wrong until a save fixes it."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/reload.rs::an_atomic_save_is_heard_through_the_directory", "baud-app/src/reload.rs::a_saved_config_is_read_again_and_its_settings_reach_the_core", "baud-app/src/reload.rs::a_file_that_does_not_parse_keeps_the_last_settings_until_a_good_save", "baud-app/src/reload.rs::a_saved_ambiguous_width_reaches_the_core_at_once", "baud-app/src/reload.rs::a_dropped_watch_keeps_its_kqueue_open_until_the_cancel_handler_has_run", "baud-present-macos/tests/cells.rs::the_cell_path_draws_the_notice_as_the_instance_path_does"]
+paths = ["baud-app/src/reload.rs", "baud-app/src/live.rs"]
+shipped = ["2026-10-22-saved-settings-show-at-once"]
+
+[[feature]]
 id = "settings-example"
 area = "platforms"
 name = "An example file that does what it says"

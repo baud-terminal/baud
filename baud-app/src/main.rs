@@ -150,6 +150,14 @@ mod reads;
 // paste.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod readline;
+// The config read again when its files change: the kernel's watch on both
+// platforms, the settle, and the reading that decides a change.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod reload;
+// What a config read again changes in the running window, and the notice
+// it shows: pure, so its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod live;
 // What a program's pointer shape (`OSC 22`) shows as among AppKit's
 // cursors: pure, so its tests run on every platform; the Linux driver's
 // shapes are `baud-present-wayland`'s.

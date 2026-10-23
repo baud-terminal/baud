@@ -926,3 +926,11 @@ status = "done"
 date = "2026-10-09"
 title = "Programs can clear the scrollback"
 summary = "Programs can clear scrollback from either screen, and a window scrolled into history returns to the live screen."
+
+[[item]]
+id = "2026-10-22-saved-settings-show-at-once"
+area = "platforms"
+status = "done"
+date = "2026-10-22"
+title = "Saved settings show at once"
+summary = "Save the settings file, or a theme or font file it names, and the open window follows a moment later: colours, fonts, the cursor, padding and the rest. Built for the Mac; the Linux driver has not been run with it. A save baud cannot read keeps the settings you had and says what was wrong on a row at the bottom of the window. config_reload = \"off\" turns it off."

@@ -4107,6 +4107,20 @@ impl<'b> Term<'b> {
         self.cold.cursor_style = s;
     }
 
+    /// **The initial cursor style, changed under a running terminal** -- an
+    /// embedder's settings read again: the style `DECSCUSR 0` and `7`,
+    /// `DECSTR` and `RIS` restore from now, and the style in force too
+    /// while it is still the old initial one. A style a program set with
+    /// `DECSCUSR` is the program's, and stays until the program or a reset
+    /// gives it back, as a colour a program set stays over a palette read
+    /// again.
+    pub fn reconfigure_cursor_style(&mut self, s: CursorStyle) {
+        if self.cold.cursor_style == self.cold.initial_cursor {
+            self.cold.cursor_style = s;
+        }
+        self.cold.initial_cursor = s;
+    }
+
     /// Whether a program has set one of the xterm resources
     /// (`baud_domain::Resource`): the embedder's to act on for `?1011` (a key
     /// sends the window live), `?1040` (a selection's text outlives its

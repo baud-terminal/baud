@@ -131,6 +131,18 @@ pub enum FontFallback {
     Off,
 }
 
+/// `config_reload`: whether a change to the config file, or to a theme or
+/// font file it names, is applied to the running window. **On by
+/// default**, as alacritty's `live_config_reload` and WezTerm's
+/// `automatically_reload_config` are (Jev's lean after a re-ask, ON, 0.88
+/// and 0.90); the name is Jev's lean, `config_reload`, 0.18 and 0.37.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConfigReload {
+    On,
+    Off,
+}
+
+#[derive(Clone)]
 pub struct Config {
     /// Where the file was found, so the startup log can say which config
     /// is in force -- a `baud` launched outside the checkout once fell back
@@ -322,6 +334,8 @@ pub struct Config {
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
     pub clipboard: Clipboard,
+    /// `config_reload`: whether the running window follows the file.
+    pub config_reload: ConfigReload,
 }
 
 /// `[clipboard] osc52`: whether a program may write the clipboard with
@@ -779,43 +793,187 @@ impl Config {
             emoji: baud_render::EmojiDefault::Font,
             bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
+            config_reload: ConfigReload::On,
             source: None,
         }
     }
 
-    /// The config from the first file that exists, over the defaults; the
-    /// defaults themselves when none is found; its family names resolved
-    /// to the installed faces ([`Config::resolve`]).
-    pub fn load() -> Config {
-        #[cfg_attr(
-            not(any(target_os = "macos", target_os = "linux")),
-            expect(unused_mut, reason = "no font directories to resolve against")
-        )]
-        let mut c = Config::read();
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        {
-            for said in c.resolve(crate::discover::Catalogue::system()) {
-                crate::warn!("{said}");
-            }
-            crate::host::startup_mark("fonts named");
+    /// The config from the first file that exists, over the defaults, as
+    /// written: a family name not yet resolved.
+    #[cfg(test)]
+    fn read() -> Config {
+        let (c, said) = Config::read_saying();
+        for said in said {
+            crate::warn!("{said}");
         }
         c
     }
 
-    /// The config from the first file that exists, over the defaults, as
-    /// written: a family name not yet resolved.
-    fn read() -> Config {
+    /// [`Config::read`], with what it could not act on returned rather
+    /// than logged: a line that is not `key = value`, skipped as it always
+    /// was (at launch no earlier config exists to keep), and each key
+    /// [`Config::apply`] could not act on.
+    fn read_saying() -> (Config, Vec<String>) {
         let mut c = Config::defaults();
+        let mut said = Vec::new();
         if let Some((path, text)) = read_first() {
-            for said in c.apply(&text) {
-                crate::warn!("{said}");
+            if let Some(broken) = syntax(&text) {
+                said.push(broken.said(&path, Fault::Skipped));
             }
-            if let Some(dir) = path.parent() {
-                c.faces_beside(dir, absolute_dir(std::env::var_os("HOME")).as_deref());
-            }
-            c.source = Some(path);
+            said.extend(c.apply(&text));
+            c.beside(&path);
         }
-        c
+        (c, said)
+    }
+
+    /// Resolve this config's family names to the installed faces, as
+    /// [`Config::launch`] does, logging what it could not find: for a
+    /// reload whose fonts changed.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub fn resolved(mut self) -> Config {
+        for s in self.resolve(crate::discover::Catalogue::system()) {
+            crate::warn!("{s}");
+        }
+        self
+    }
+
+    /// The paths in `self` made the file's at `path`: a relative font path
+    /// beside it, and the file itself as the config in force.
+    fn beside(&mut self, path: &std::path::Path) {
+        if let Some(dir) = path.parent() {
+            self.faces_beside(dir, absolute_dir(std::env::var_os("HOME")).as_deref());
+        }
+        self.source = Some(path.to_path_buf());
+    }
+
+    /// **The config at launch, and what it could not act on**: the config
+    /// from the first file that exists, over the defaults -- the defaults
+    /// themselves when none is found -- its family names resolved to the
+    /// installed faces ([`Config::resolve`]); the sentences it logged, for
+    /// the window to show (Jev's lean after a re-ask, LAUNCH_TOO, 0.78 and
+    /// 0.84); and the files it pulls in, for the watch.
+    pub fn launch() -> Launched {
+        let (mut c, said) = Config::read_saying();
+        for s in &said {
+            crate::warn!("{s}");
+        }
+        let watched = c.watched();
+        let read = c.clone();
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            for s in c.resolve(crate::discover::Catalogue::system()) {
+                crate::warn!("{s}");
+            }
+            crate::host::startup_mark("fonts named");
+        }
+        Launched {
+            config: c,
+            read,
+            said,
+            watched,
+        }
+    }
+
+    /// **The config read again, for a running window** (`reload.rs`), its
+    /// names not yet resolved. `in_force` is the file the window's config
+    /// was read from, if one was.
+    ///
+    /// * A file that does not read as UTF-8 text, or has a line that is not
+    ///   blank, a comment, a `[section]` header or `key = value`, or a list
+    ///   it never closes, is [`Reread::Broken`]: the window keeps the last
+    ///   good config (Jev's lean after a re-ask, SYNTAX_KEEPS, 0.82 and
+    ///   0.77; alacritty keeps its config on a TOML error, WezTerm on any).
+    /// * A key it cannot act on is applied as launch applies it, that key
+    ///   at its default, and said.
+    /// * The file in force gone, with none above it in the lookup, is
+    ///   [`Reread::Gone`]: the window keeps the last config, as alacritty's
+    ///   does. Jev leaned to running the lookup again (LOOKUP_AGAIN, 0.42
+    ///   and 0.88), below the 0.9 a fall back to the defaults was asked to
+    ///   carry.
+    /// * An empty file is the defaults, as at launch (Jev's lean,
+    ///   EMPTY_IS_DEFAULTS, 0.80 and 0.80): the watch's settle is what
+    ///   keeps a save in progress from being read.
+    /// * **The first file that exists is read**, where a launch reads the
+    ///   first that reads: a file above the one in force that is not UTF-8
+    ///   text, which a launch skips, is [`Reread::Broken`] here, and each
+    ///   save of the file in force shows that until it is fixed or gone.
+    pub fn reread(in_force: Option<&std::path::Path>) -> Reread {
+        Config::reread_at(&lookup(), in_force)
+    }
+
+    /// [`Config::reread`] over the lookup `paths`, in their order.
+    pub(crate) fn reread_at(
+        paths: &[std::path::PathBuf],
+        in_force: Option<&std::path::Path>,
+    ) -> Reread {
+        let first = paths.iter().position(|p| p.exists());
+        let place = |p: &std::path::Path| paths.iter().position(|q| q == p).unwrap_or(usize::MAX);
+        let gone = in_force.filter(|s| !s.exists() && first.is_none_or(|i| i > place(s)));
+        if let Some(s) = gone {
+            return Reread::Gone(s.to_path_buf());
+        }
+        let mut c = Config::defaults();
+        let Some(path) = first.map(|i| paths[i].clone()) else {
+            let watched = c.watched();
+            return Reread::Read(Box::new(Reading {
+                config: c,
+                said: Vec::new(),
+                watched,
+            }));
+        };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                return Reread::Broken(format!(
+                    "{} is not UTF-8 text; the last good settings stay",
+                    shown(&path)
+                ));
+            }
+            Err(e) => {
+                return Reread::Broken(format!(
+                    "{} cannot be read ({e}); the last good settings stay",
+                    shown(&path)
+                ));
+            }
+        };
+        if let Some(broken) = syntax(&text) {
+            return Reread::Broken(broken.said(&path, Fault::Kept));
+        }
+        let said = c.apply(&text);
+        c.beside(&path);
+        let watched = c.watched();
+        Reread::Read(Box::new(Reading {
+            config: c,
+            said,
+            watched,
+        }))
+    }
+
+    /// **The files this config pulls in, for the watch**: each place the
+    /// config is looked up, each path its theme names are tried at, and
+    /// each font it names by path. Before [`Config::resolve`], which turns
+    /// a family name into a file too.
+    fn watched(&self) -> Watched {
+        let dirs = crate::palette::Dirs::from_env(self.source.as_deref());
+        let themes = [&self.palette_light, &self.palette_dark]
+            .into_iter()
+            .flatten()
+            .flat_map(|spec| crate::palette::candidates(spec, &dirs))
+            .collect();
+        let faces = match self.stack {
+            StackFrom::Configured => self
+                .faces
+                .iter()
+                .filter(|f| f.from == FaceFrom::File)
+                .map(|f| std::path::PathBuf::from(&f.path))
+                .collect(),
+            StackFrom::Default => Vec::new(),
+        };
+        Watched {
+            lookup: lookup(),
+            themes,
+            faces,
+        }
     }
 
     /// **The stack's family names, made files**: each name the installed
@@ -1031,6 +1189,18 @@ impl Config {
                                 "config: emoji {other:?} is not font or system; using font"
                             ));
                             baud_render::EmojiDefault::Font
+                        }
+                    };
+                }
+                ("", "config_reload") => {
+                    self.config_reload = match value.trim().trim_matches('"') {
+                        "on" => ConfigReload::On,
+                        "off" => ConfigReload::Off,
+                        other => {
+                            said.push(format!(
+                                "config: config_reload {other:?} is not on or off; using on"
+                            ));
+                            ConfigReload::On
                         }
                     };
                 }
@@ -1836,8 +2006,146 @@ impl FaceSpec {
     }
 }
 
-/// The first config file that reads, by the path it was read at.
-fn read_first() -> Option<(std::path::PathBuf, String)> {
+/// The files a config pulls in: where it is looked up, where its themes
+/// are tried, and the fonts it names by path.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Watched {
+    pub lookup: Vec<std::path::PathBuf>,
+    pub themes: Vec<std::path::PathBuf>,
+    pub faces: Vec<std::path::PathBuf>,
+}
+
+/// The config at launch ([`Config::launch`]).
+pub struct Launched {
+    pub config: Config,
+    /// The config as read, before its family names are resolved: what a
+    /// reload compares its own reading with.
+    pub read: Config,
+    pub said: Vec<String>,
+    pub watched: Watched,
+}
+
+/// A config read again that can be applied: its names not yet resolved,
+/// what it could not act on, and the files it pulls in.
+pub struct Reading {
+    pub config: Config,
+    pub said: Vec<String>,
+    pub watched: Watched,
+}
+
+/// What reading the config again found ([`Config::reread`]).
+pub enum Reread {
+    /// A config to apply.
+    Read(Box<Reading>),
+    /// A file that does not parse: the sentence the window shows, and the
+    /// last good config stays.
+    Broken(String),
+    /// The file in force is gone, and none above it in the lookup is there.
+    Gone(std::path::PathBuf),
+}
+
+/// The sentence the window shows while the file in force is gone.
+pub fn gone(path: &std::path::Path) -> String {
+    format!(
+        "{} is gone; the last settings stay until it is back",
+        shown(path)
+    )
+}
+
+/// What a broken line costs: skipped, at launch, or the whole file kept
+/// out, on a reload.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fault {
+    Skipped,
+    Kept,
+}
+
+/// The first line of a file that is not a config line.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Broken {
+    /// The line's number, from one.
+    line: core::num::NonZeroUsize,
+    what: Bad,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Bad {
+    /// Not blank, a comment, a `[section]` header or `key = value`; the
+    /// line as written.
+    NotKeyValue(String),
+    /// A `key = value` with nothing before the `=`.
+    NoKey,
+    /// A list opened on this line and never closed.
+    Unclosed,
+}
+
+impl Broken {
+    fn said(&self, path: &std::path::Path, fault: Fault) -> String {
+        let rest = match fault {
+            Fault::Skipped => "it is skipped",
+            Fault::Kept => "the last good settings stay",
+        };
+        let what = match &self.what {
+            Bad::NotKeyValue(l) => format!("{l:?} is not key = value"),
+            Bad::NoKey => "a value with no key".to_string(),
+            Bad::Unclosed => "a list opened here is never closed".to_string(),
+        };
+        format!("{} line {}: {what}; {rest}", shown(path), self.line)
+    }
+}
+
+/// A path as a sentence names it: under the home folder as `~/`.
+fn shown(path: &std::path::Path) -> String {
+    let home = absolute_dir(std::env::var_os("HOME"));
+    match home.as_deref().and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// **The first line [`fields`] cannot read as a config line**, by the
+/// rules it reads with: blank and comment lines, a `[section]` header,
+/// and `key = value`, whose value may be a list that runs to its closing
+/// `]` however many lines that takes. [`fields`] skips such a line
+/// without a word, which is what a launch still does with it -- said now.
+fn syntax(text: &str) -> Option<Broken> {
+    let mut lines = text.lines().enumerate().peekable();
+    while let Some((n, line)) = lines.next() {
+        let trimmed = strip_comment(line).trim();
+        if trimmed.is_empty() || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
+            continue;
+        }
+        let Some((key, value)) = strip_comment(line).split_once('=') else {
+            return Some(Broken {
+                line: core::num::NonZeroUsize::MIN.saturating_add(n),
+                what: Bad::NotKeyValue(line.trim().to_string()),
+            });
+        };
+        if key.trim().is_empty() {
+            return Some(Broken {
+                line: core::num::NonZeroUsize::MIN.saturating_add(n),
+                what: Bad::NoKey,
+            });
+        }
+        let value = value.trim();
+        if value.starts_with('[') && !value.contains(']') {
+            let closed = lines
+                .by_ref()
+                .any(|(_, next)| strip_comment(next).contains(']'));
+            if !closed {
+                return Some(Broken {
+                    line: core::num::NonZeroUsize::MIN.saturating_add(n),
+                    what: Bad::Unclosed,
+                });
+            }
+        }
+    }
+    None
+}
+
+/// Where the config is looked for, in order, from the environment
+/// ([`config_paths`]).
+pub fn lookup() -> Vec<std::path::PathBuf> {
     let given = std::env::var_os("BAUD_CONFIG")
         .filter(|v| !v.is_empty())
         .map(std::path::PathBuf::from)
@@ -1847,8 +2155,13 @@ fn read_first() -> Option<(std::path::PathBuf, String)> {
         absolute_dir(std::env::var_os("XDG_CONFIG_HOME")),
         absolute_dir(std::env::var_os("HOME")),
     )
-    .into_iter()
-    .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
+}
+
+/// The first config file that reads, by the path it was read at.
+fn read_first() -> Option<(std::path::PathBuf, String)> {
+    lookup()
+        .into_iter()
+        .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
 }
 
 /// **Where a config file is looked for**, in order: `given`, from
@@ -4228,9 +4541,12 @@ shadow     = "never"
             "/../config.toml.example"
         ))
         .expect("config.toml.example");
+        // No line a reload would refuse, so a copy of it shows no notice.
+        assert_eq!(super::syntax(&text), None);
         let c = read(&text);
         assert_eq!(c.font_size, 13.0);
         assert_eq!(c.padding, 8.0);
+        assert_eq!(c.config_reload, ConfigReload::On);
         assert_eq!(c.theme, ThemeChoice::Auto);
         assert_eq!(c.colorspace, Space::Srgb);
         // Its `[glass]` section is written at the defaults it describes.
@@ -4413,7 +4729,7 @@ shadow     = "never"
 }
 
 /// **Where the config is looked for, and what the paths in it resolve
-/// against.** `Config::load` reads the environment and opens paths against
+/// against.** `Config::launch` reads the environment and opens paths against
 /// the working directory, and both are the whole process's: a test that set
 /// either would move every other test running beside it. So each case runs
 /// [`load_helper`] as a process of its own, with the directory and the

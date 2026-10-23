@@ -202,7 +202,7 @@ pub fn load_faces(cfg: &mut Config) -> &'static [Face<'static>] {
 }
 
 /// `cfg`'s family names resolved against the system's fonts, as
-/// `Config::load` resolves them, for a test that builds its config in place.
+/// `Config::launch` resolves them, for a test that builds its config in place.
 #[cfg(test)]
 pub fn resolved(cfg: &mut Config) {
     let said = cfg.resolve(crate::discover::Catalogue::system());
@@ -222,12 +222,40 @@ pub fn map_faces(cfg: &Config) -> Vec<&'static [u8]> {
                 startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
                 bytes
             }
-            // `Config::load` resolves every name before anything maps.
+            // `Config::launch` resolves every name before anything maps.
             crate::config::FaceFrom::Family => {
                 panic!("font family {:?}: the config was not resolved", f.path)
             }
         })
         .collect()
+}
+
+/// **Every face a config read again names, mapped and parsed, or why
+/// not** (`reload.rs`): [`map_faces`] and [`parse_faces`] for a running
+/// window, where a font that does not map or parse leaves the faces in
+/// use as they were rather than ending the process. The mapped bytes and
+/// the parsed faces live for the process, as the launch's do.
+pub fn faces_again(cfg: &Config) -> Result<(Vec<&'static [u8]>, &'static [Face<'static>]), String> {
+    let mut data = Vec::with_capacity(cfg.faces.len());
+    for f in &cfg.faces {
+        data.push(match f.from {
+            crate::config::FaceFrom::Embedded(bytes) => bytes,
+            crate::config::FaceFrom::File => {
+                crate::pty::map_readonly(&f.path).map_err(|e| format!("font {}: {e}", f.path))?
+            }
+            crate::config::FaceFrom::Family => {
+                return Err(format!("font family {:?} is not installed", f.path));
+            }
+        });
+    }
+    let mut faces = Vec::with_capacity(data.len());
+    for (d, f) in data.iter().zip(&cfg.faces) {
+        let mut face =
+            Face::parse_index(d, f.index).map_err(|e| format!("font {}: {e}", f.path))?;
+        face.set_variations(&f.variations);
+        faces.push(face);
+    }
+    Ok((data, Box::leak(faces.into_boxed_slice())))
 }
 
 /// `data`, which [`map_faces`] read from `cfg`, parsed in `cfg`'s order.
@@ -690,7 +718,7 @@ mod tests {
 
     /// **A configured font's own Bold, Italic and Bold Italic are its
     /// styled faces in the renderer's stack, for both drivers**, which
-    /// both load through `Config::load`, `load_faces`' path and `stack`:
+    /// both load through `Config::launch`, `load_faces`' path and `stack`:
     /// JetBrains Mono named by its Regular's path brings the three styles
     /// beside it, each style is drawn from its own face, the embedded
     /// styled faces are not among them, and a program's `OSC 50` that
