@@ -482,9 +482,10 @@ summary = "A drag step that cannot be shown yet is not drawn at all."
 [[item]]
 id = "X2-25"
 area = "speed"
-status = "planned"
+status = "done"
+date = "2026-10-23"
 title = "Faster emoji sequences"
-summary = "Emoji families, flags and other joined emoji are taken in faster."
+summary = "Emoji families, flags and other joined emoji are taken in faster, and many different ones on the screen at once no longer lose pieces."
 
 [[item]]
 id = "X2-30"

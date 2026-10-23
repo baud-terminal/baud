@@ -86,6 +86,8 @@ mod regis;
 mod scan;
 mod search;
 mod search_data;
+mod sequence;
+mod sequence_data;
 mod sixel;
 mod sixel_dump;
 mod source;

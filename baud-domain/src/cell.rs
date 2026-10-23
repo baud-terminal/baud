@@ -49,7 +49,12 @@ impl Content {
     const CLUSTERS: u32 = 0x0012_0000;
     /// The word a cell holds when its continuations live in slot `id`.
     pub fn cluster(id: ClusterId) -> Content {
-        Content(Content::CLUSTERS + u32::from(id.0))
+        Content(Content::cluster_word(id))
+    }
+    /// [`Content::cluster`]'s word, for a constant: the sequence table's
+    /// first word is checked against it at compile time (`sequence.rs`).
+    pub const fn cluster_word(id: ClusterId) -> u32 {
+        Content::CLUSTERS + id.0 as u32
     }
     /// The slot this cell names, if it names one: a word in the cluster
     /// range, which no codepoint and neither reserved state is.
@@ -778,6 +783,14 @@ pub struct ClusterId(u16);
 
 impl ClusterId {
     pub const NONE: ClusterId = ClusterId(0);
+    /// The first id of a named sequence's node (`sequence.rs`): above every
+    /// slot a store has, [`ClusterStore::SLOTS_MAX`], so a node's id never
+    /// names a slot of the store and a sweep never frees one.
+    pub const SEQUENCES: ClusterId = ClusterId(0x8000);
+    /// The id of the named sequence's node `node`.
+    pub(crate) const fn sequence(node: usize) -> ClusterId {
+        ClusterId(ClusterId::SEQUENCES.0 + node as u16)
+    }
     /// The id of slot `i - 1`. An index past what a `u16` names is none.
     pub fn from_index(i: usize) -> ClusterId {
         ClusterId(u16::try_from(i).unwrap_or(0))
@@ -827,11 +840,29 @@ impl ClusterSlot {
         cps: [0; ClusterSlot::CAPACITY],
     };
 
+    /// A slot of `seq`, a base and up to [`ClusterSlot::CAPACITY`]
+    /// continuations: a named sequence's node, built at compile time.
+    pub(crate) const fn named(seq: &[u32]) -> ClusterSlot {
+        let mut s = ClusterSlot::EMPTY;
+        s.base = Content(seq[0]);
+        let mut i = 1;
+        while i < seq.len() {
+            s.cps[i - 1] = seq[i];
+            i += 1;
+        }
+        s.len = (seq.len() - 1) as u8;
+        s
+    }
+
     pub fn is_empty(self) -> bool {
         self.len == 0
     }
     pub fn marks(&self) -> impl Iterator<Item = u32> + '_ {
         self.cps[..self.len as usize].iter().copied()
+    }
+    /// The continuations, as the slot holds them.
+    pub fn cps(&self) -> &[u32] {
+        &self.cps[..self.len as usize]
     }
     /// Whether this slot holds exactly these continuations under this base.
     fn is(&self, base: Content, cps: &[u32]) -> bool {
@@ -1020,9 +1051,14 @@ impl<'b> ClusterStore<'b> {
         self.slots.len().min(ClusterStore::SLOTS_MAX)
     }
 
-    /// The slot `content` names, if it names one that holds a cluster.
+    /// The slot `content` names, if it names one that holds a cluster: one
+    /// of the store's, or a named sequence's node's (`sequence.rs`), which
+    /// the binary holds and no store does.
     pub fn get(&self, content: Content) -> Option<&ClusterSlot> {
         let i = content.cluster_id()?.index().checked_sub(1)?;
+        if i >= self.len() {
+            return crate::sequence::slot(content);
+        }
         let s = self.slots.get(i)?;
         match s.is_empty() {
             true => None,
@@ -1058,6 +1094,28 @@ impl<'b> ClusterStore<'b> {
             (None, Some(m)) => Marks::Placeholder(m, 0),
             (None, None) => Marks::Slot([].iter()),
         }
+    }
+
+    /// **The cluster `cp` makes of a cell with content `content`, when it is
+    /// a prefix of a sequence the Unicode Standard names** (`sequence.rs`):
+    /// its node's id, which no slot of the store holds, and its slot. One
+    /// step of a trie built from the pinned data, so nothing is hashed over
+    /// the cluster, probed or written; `None` is every other cluster, which
+    /// the caller interns whole ([`ClusterStore::try_intern`]).
+    #[inline(always)]
+    pub fn named(
+        &self,
+        content: Content,
+        cp: Codepoint,
+    ) -> Option<(ClusterId, &'static ClusterSlot)> {
+        crate::sequence::step(content, cp)
+    }
+
+    /// Whether some named sequence continues with a codepoint of `cp`'s
+    /// block: one bit, so a caller can keep every other mark off the trie.
+    #[inline(always)]
+    pub fn may_name(&self, cp: Codepoint) -> bool {
+        crate::sequence::continues(cp)
     }
 
     /// Intern `base` plus `cps`, returning the id to write into the cell, or

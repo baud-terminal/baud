@@ -427,6 +427,16 @@ tests = ["baud-present-macos/tests/cells.rs::a_cursor_only_cell_frame_draws_its_
 shipped = ["X2-02"]
 
 [[feature]]
+id = "emoji-sequences-fast"
+area = "speed"
+name = "Faster emoji sequences"
+does = "A family emoji is taken in about three quarters of the time it took, and many different families, flags, keycaps and skin-toned emoji on the screen at once no longer lose pieces; on this Mac a recording of a pager over Chinese text with emoji is taken in about 5% faster."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/named_sequences.rs::every_named_sequence_is_kept_however_many_are_on_the_screen", "baud-core/tests/named_sequences.rs::a_cluster_that_goes_on_past_a_named_sequence_keeps_every_codepoint", "baud-domain/tests/named_sequences.rs::every_prefix_of_a_named_sequence_is_one_step", "baud-domain/tests/named_sequences.rs::nothing_but_a_listed_prefix_is_a_step"]
+shipped = ["X2-25"]
+
+[[feature]]
 id = "no-half-drawn"
 area = "speed"
 name = "No half-drawn screens"

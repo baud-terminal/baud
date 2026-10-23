@@ -1136,6 +1136,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             true => {}
             false => self.view.set_cluster(r, owner, id),
         }
+        self.widen_for(r, owner, cp, base, &cps[..n]);
+        self.marked(r);
+    }
+
+    /// What a continuation `cp` asks of the cell at `(r, owner)` once it
+    /// holds the cluster of `base` and `marks`, `cp` the last of them: a
+    /// `U+FE0F` may make it two cells, and under Unicode 8 a flag is.
+    #[inline(always)]
+    fn widen_for(&mut self, r: Row, owner: LeadCol, cp: Codepoint, base: Content, marks: &[u32]) {
+        let n = marks.len();
         // **A `U+FE0F` after a listed base makes it two cells** (`vs16.rs`).
         // The codepoint before it decides, as ghostty's `graphemeWidthEffect`
         // does: `U+2620 U+FE0F` inside a ZWJ family widens nothing, because
@@ -1144,7 +1154,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if cp.value() == 0xFE0F && self.cold.vs16 == Vs16Width::Two {
             let before = match n {
                 1 => base.as_codepoint(),
-                _ => Codepoint::new(cps[n - 2]),
+                _ => Codepoint::new(marks[n - 2]),
             };
             if before.is_some_and(vs16::widens) {
                 self.widen(r, owner.col());
@@ -1166,7 +1176,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         {
             self.widen(r, owner.col());
         }
-        self.marked(r);
     }
 
     /// **A mark joined a cell on row `r`, so its row is written**: told to
@@ -1302,7 +1311,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn attach(&mut self, cp: Codepoint) {
-        self.attach_before(cp, self.after_last_write())
+        let after = self.after_last_write();
+        match self.clusters.may_name(cp) {
+            true => self.attach_named(cp, after),
+            false => self.attach_before(cp, after),
+        }
     }
 
     /// The column after the character the last write put down: the cursor's,
@@ -1367,7 +1380,39 @@ impl<'a, 'b> Paint<'a, 'b> {
     // compiles that arm out.
     #[cfg(not(feature = "ceiling-no-classify"))]
     pub(crate) fn attach_continuing(&mut self, cp: Codepoint) {
-        self.attach_before(cp, self.after_last_write())
+        let after = self.after_last_write();
+        match self.clusters.may_name(cp) {
+            true => self.attach_named(cp, after),
+            false => self.attach_before(cp, after),
+        }
+    }
+
+    /// **A continuation that may make a sequence the Unicode Standard
+    /// names** (`ClusterStore::named`): one step of a trie built from the
+    /// pinned files, and the cell names the node it reaches -- no slot is
+    /// hashed for, probed or written. Every cluster in the emoji-dense
+    /// recordings is one. Anything else is `attach_before`'s, which interns
+    /// the cluster whole, a node's base and continuations read from its
+    /// slot as a store slot's are.
+    ///
+    /// **Ahead of `attach_before`, not in it**, behind one bit for `cp`'s
+    /// block: with the step inside it, the kana-and-mark shape, whose mark
+    /// never takes it, ran 37 to 74 instructions a pair more in every arm
+    /// tried, one of them because `try_intern` became a call
+    /// (docs/record.md, "A named emoji sequence is a trie step, not an
+    /// intern").
+    #[inline(never)]
+    fn attach_named(&mut self, cp: Codepoint, after: Col) {
+        if after != Col::ZERO {
+            let (r, owner) = (self.cy, self.view.lead(self.cy, after.before()));
+            let cell = self.view.cell_at(r, owner);
+            if let Some((id, s)) = self.clusters.named(cell.content, cp) {
+                self.view.set_cluster(r, owner, id);
+                self.widen_for(r, owner, cp, s.base, s.cps());
+                return self.marked(r);
+            }
+        }
+        self.attach_before(cp, after)
     }
 
     /// Make the narrow character at `(r, o)` two cells wide, as its `U+FE0F`
