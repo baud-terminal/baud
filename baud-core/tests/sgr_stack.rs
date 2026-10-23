@@ -75,9 +75,9 @@ fn a_list_push_restores_only_its_groups() {
 fn the_colour_groups_are_thirty_and_thirty_one() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[31;42m\x1b[30#{\x1b[32;41m\x1b[#}");
-        assert_eq!(sgr(t), b"0;38;5;1;48;5;1m");
+        assert_eq!(sgr(t), b"0;38:5:1;48:5:1m");
         support::feed(t, b"\x1b[0;31;42m\x1b[10;11#{\x1b[32;41m\x1b[#}");
-        assert_eq!(sgr(t), b"0;38;5;2;48;5;1m");
+        assert_eq!(sgr(t), b"0;38:5:2;48:5:1m");
     });
 }
 
@@ -102,15 +102,15 @@ fn the_stack_is_ten_deep() {
         support::feed(t, b"\x1b[0;7m\x1b[#}");
         assert_eq!(sgr(t), b"0;7m", "the eleventh level kept a rendition");
         support::feed(t, b"\x1b[#}");
-        assert_eq!(sgr(t), b"0;38;5;10m");
+        assert_eq!(sgr(t), b"0;38:5:10m");
         for _ in 0..9 {
             support::feed(t, b"\x1b[#}");
         }
-        assert_eq!(sgr(t), b"0;38;5;1m");
+        assert_eq!(sgr(t), b"0;38:5:1m");
         let before = t.unsupported_param;
         support::feed(t, b"\x1b[#}");
         assert_eq!(t.unsupported_param, before + 1);
-        assert_eq!(sgr(t), b"0;38;5;1m");
+        assert_eq!(sgr(t), b"0;38:5:1m");
     });
 }
 
@@ -171,9 +171,22 @@ fn ris_empties_the_rendition_stack_and_decstr_keeps_it() {
 fn xtreportsgr_answers_the_attributes_every_cell_shares() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[1;31mAB\x1b[32mC\x1b[0m");
-        assert_eq!(ask(t, b"\x1b[1;1;1;2#|"), b"\x1b[0;1;38;5;1m");
+        assert_eq!(ask(t, b"\x1b[1;1;1;2#|"), b"\x1b[0;1;38:5:1m");
         assert_eq!(ask(t, b"\x1b[1;1;1;3#|"), b"\x1b[0;1m");
         assert_eq!(ask(t, b"\x1b[1;1;1;4#|"), b"\x1b[0m");
+    });
+}
+
+/// **A direct colour is answered in T.416's form**, `48:2::r:g:b`, as
+/// DECRQSS answers it and as xterm's `xtermFormatSGR` writes both.
+#[test]
+fn xtreportsgr_answers_a_direct_colour_in_t416s_form() {
+    support::with_term(&WS, |t| {
+        support::feed(t, b"\x1b[48;2;1;2;3;58;2;4;5;6mAB\x1b[0m");
+        assert_eq!(
+            ask(t, b"\x1b[1;1;1;2#|"),
+            b"\x1b[0;58:2::4:5:6;48:2::1:2:3m"
+        );
     });
 }
 

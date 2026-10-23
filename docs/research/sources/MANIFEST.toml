@@ -33363,3 +33363,58 @@ sha256 = "bb179cf8fa965181eadd710d64b5b2e1cd6ceeb87ad61b1cd4f6afd244598484"
 bytes  = 13019
 status = "external"
 group  = "AX"
+
+# Lane b161 (2026-10-22): how an SGR report spells a colour. T.416 is the
+# text ECMA-48 8.3.117 points 38 and 48 at; the rest is how neovim asks and
+# how three terminals answer. foot's answer is [[source: foot-dcs-c]] 318-410.
+[sources.itu-t416]
+key    = "itu-t416"
+title  = "ITU-T T.416 | ISO/IEC 8613-6, 13.1.8 SGR -- 38 and 48 take a parameter sub-string of 03/10-separated elements: 2, a colour space id, r, g, b; 5, an index"
+author = "ITU-T"
+year   = 1993
+venue  = "ITU-T Recommendation T.416 (03/93), Open Document Architecture: character content architectures"
+url    = "https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.416-199303-I!!PDF-E&type=items"
+file   = ""
+sha256 = "3337680cb61970a39d753237738aa824325101ee57ee9eca972729d11fe7d97a"
+bytes  = 395442
+status = "external"
+group  = "AM"
+
+[sources.neovim-text-lua]
+key    = "neovim-text-lua"
+title  = "neovim fc3f004, runtime/lua/vim/text.lua -- hexencode writes upper-case hex"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/text.lua"
+file   = ""
+sha256 = "efef7209a25c442697548822cb59573253586c8a05115dcc97d7c54850359958"
+bytes  = 7510
+status = "external"
+group  = "AM"
+
+[sources.ghostty-d9840f3-terminal-zig]
+key    = "ghostty-d9840f3-terminal-zig"
+title  = "ghostty d9840f3, src/terminal/Terminal.zig -- printAttributes, its DECRQSS m: 38:2::r:g:b, 38:5:n from 16, 3n/9n below"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig"
+file   = ""
+sha256 = "7957a064b558d04ea3edf4881874963f914714d07c03745353bc24376a5c52b8"
+bytes  = 576602
+status = "external"
+group  = "AM"
+
+[sources.kitty-0431-line-c]
+key    = "kitty-0431-line-c"
+title  = "kitty 0.43.1, kitty/line.c -- color_as_sgr: 38:2:r:g:b with no colour space id, 38:5:n from 16, 3n/9n below"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/line.c"
+file   = ""
+sha256 = "04fe1b58eb84d9dec962d4424729338c8ff330a94ecbaf3cd94e9f52570fb83c"
+bytes  = 42398
+status = "external"
+group  = "AM"

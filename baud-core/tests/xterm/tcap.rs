@@ -142,6 +142,25 @@ fn xtgettcap_refuses_a_name_not_in_xterms_table() {
     });
 }
 
+/// **neovim's truecolor query is refused at its first name**, and that is
+/// the answer the text gives. Without `COLORTERM`, as over ssh, neovim asks
+/// `Tc;RGB;setrgbf;setrgbb` in one DCS (`[[source: neovim-core-defaults-lua]]`
+/// 1013-1027), each name in upper-case hex (`[[source: neovim-text-lua]]`
+/// 80-104, `[[source: neovim-tty-lua]]` 109-113). `Tc` is not in xterm's
+/// table, so the list ends there with `DCS 0 + r ST`, `RGB` unanswered;
+/// neovim finds truecolor from its DECRQSS probe instead
+/// (`neovims_truecolor_probe_is_answered_in_t416s_form`).
+#[test]
+fn neovims_truecolor_query_is_refused_at_tc() {
+    support::with_corpus(|t| {
+        let q = b"\x1bP+q5463;524742;73657472676266;73657472676262\x1b\\";
+        assert_eq!(q.to_vec(), ask(&["Tc", "RGB", "setrgbf", "setrgbb"]));
+        assert_eq!(reply(t, q), REFUSED);
+        // `RGB` alone answers, so the refusal is `Tc`'s.
+        assert_eq!(reply(t, &ask(&["RGB"])), valid(&[("RGB", b"8")]));
+    });
+}
+
 /// **One response, ending at the first name refused** (Jev, R1,
 /// 0.90/0.92): what came before it is answered, and nothing after it.
 #[test]

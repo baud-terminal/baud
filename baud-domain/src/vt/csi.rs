@@ -26,8 +26,9 @@ impl ParamIdx {
     ///
     /// **Derived, not chosen.** The longest parameter list baud has to accept
     /// is the one baud itself emits: the DECRQSS SGR reply is a leading `0`,
-    /// every attribute in [`Attrs::WIRE`], a font, and three colours in their
-    /// five-parameter direct form. DECRQSS answers with something the
+    /// every attribute in [`Attrs::WIRE`], a font, and three colours in
+    /// T.416's six-element direct form, `48:2::r:g:b`, each element a slot.
+    /// DECRQSS answers with something the
     /// application can send back verbatim, so a reply the parser cannot re-read
     /// is a reply that does not round-trip -- and at sixteen it could not.
     /// Bold plus a foreground, a background and an underline colour is already
@@ -42,11 +43,18 @@ impl ParamIdx {
     /// counting both would grow `Term::params` by a parameter no reply sends.
     /// Measured, the change with the array grown read `less-pager` 1.2% below
     /// the parent, ranges apart; with it held, the change overlaps the parent
-    /// on five recordings (the record, "SGR 6 blinks at its own rate"). The
-    /// underline family is still counted whole, as it was before it became
-    /// exclusive, which bounds the reply from above by four parameters.
-    pub const CAPACITY: usize =
-        1 + Attrs::WIRE.len() - (Attrs::wire_in(Attrs::BLINKS) - 1) + 1 + 3 * 5;
+    /// on five recordings (the record, "SGR 6 blinks at its own rate").
+    ///
+    /// **Nor are four of the five underline styles**, which replace each
+    /// other too ([`Attrs::UNDERLINES`]): a reply holds one, at most the two
+    /// slots of `4:n`. Counted whole until 2026-10-22, the family left the
+    /// three slots the colon colours took then, so the value stayed 39.
+    pub const CAPACITY: usize = 1 + Attrs::WIRE.len()
+        - (Attrs::wire_in(Attrs::BLINKS) - 1)
+        - Attrs::wire_in(Attrs::UNDERLINES)
+        + 2
+        + 1
+        + 3 * 6;
     /// One position past the last storable parameter.
     ///
     /// [`ParamIdx::next_capped`] saturates here rather than at `CAPACITY`, so

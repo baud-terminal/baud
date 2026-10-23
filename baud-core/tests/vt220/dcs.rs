@@ -69,13 +69,64 @@ fn decrqss_reports_sgr() {
     assert_eq!(replies(b"\x1b[1;4m\x1bP$qm\x1b\\"), b"\x1bP1$r0;1;4m\x1b\\");
     assert_eq!(
         replies(b"\x1b[31m\x1bP$qm\x1b\\"),
-        b"\x1bP1$r0;38;5;1m\x1b\\",
-        "an indexed colour reports as 38;5"
+        b"\x1bP1$r0;38:5:1m\x1b\\",
+        "an indexed colour reports as 38:5"
     );
     assert_eq!(
         replies(b"\x1b[38;2;10;20;30m\x1bP$qm\x1b\\"),
-        b"\x1bP1$r0;38;2;10;20;30m\x1b\\"
+        b"\x1bP1$r0;38:2::10:20:30m\x1b\\"
     );
+}
+
+/// **neovim over ssh turns truecolor on from this answer.** Without
+/// `COLORTERM` it writes `SGR 0`, `SGR 48;2;1;2;3` and DECRQSS `m` in one
+/// payload (`[[source: neovim-core-defaults-lua]]` 1037-1039), and turns
+/// `termguicolors` on only for an answer of one attribute, or `0` and one,
+/// that is `48:2:` and the three channels, with an empty fourth element
+/// first or none (1040-1076). The semicolon spelling, `0;48;2;1;2;3`, is
+/// six attributes to it, and it returned without deciding.
+#[test]
+fn neovims_truecolor_probe_is_answered_in_t416s_form() {
+    assert_eq!(
+        replies(b"\x1b[0m\x1b[48;2;1;2;3m\x1bP$qm\x1b\\"),
+        b"\x1bP1$r0;48:2::1:2:3m\x1b\\"
+    );
+}
+
+/// **Every colour is written as T.416 writes it** (`[[source: itu-t416]]`
+/// 13.1.8), whichever spelling set it: one parameter sub-string, `:`
+/// between its elements, `2`, the colour space left empty as "a default
+/// value", and the three channels, or `5` and the index. `58` takes the
+/// same form, as it "works exactly like" 38 and 48. xterm writes `38:2::`
+/// and `38:5:` (`[[source: xterm-misc]]` 3280-3299), foot and ghostty too
+/// (`[[source: foot-dcs-c]]` 318-410, `[[source: ghostty-d9840f3-terminal-zig]]`).
+#[test]
+fn every_colour_reports_in_t416s_form() {
+    for (set, want) in [
+        (&b"\x1b[38:2::1:2:3m"[..], &b"0;38:2::1:2:3m"[..]),
+        (b"\x1b[38:2:1:2:3m", b"0;38:2::1:2:3m"),
+        (b"\x1b[48;2;255;0;9m", b"0;48:2::255:0:9m"),
+        (b"\x1b[58;2;7;8;9m", b"0;58:2::7:8:9m"),
+        (b"\x1b[38;5;200m", b"0;38:5:200m"),
+        (b"\x1b[48:5:16m", b"0;48:5:16m"),
+        (b"\x1b[58:5:3m", b"0;58:5:3m"),
+        (b"\x1b[97;101m", b"0;38:5:15;48:5:9m"),
+    ] {
+        let r = replies(&[set, b"\x1bP$qm\x1b\\"].concat());
+        assert_eq!(
+            r,
+            [&b"\x1bP1$r"[..], want, b"\x1b\\"].concat(),
+            "{}",
+            String::from_utf8_lossy(set)
+        );
+        let body = &r[5..r.len() - 2];
+        assert_eq!(
+            grid(&[b"\x1b[", body, b"X"].concat()),
+            grid(&[set, b"X"].concat()),
+            "{} round-trips",
+            String::from_utf8_lossy(body)
+        );
+    }
 }
 
 /// The SGR reply round-trips: sending it back reproduces the rendition.
@@ -128,7 +179,7 @@ fn valid_is_one_and_invalid_is_zero() {
 
 /// Every SGR attribute this core reports, one underline style -- `4:3`, the
 /// longest spelling -- one blink rate, `5` (`6` is as long), a font, and all
-/// three colours as RGB at three digits a channel: a 111-byte reply.
+/// three colours as RGB at three digits a channel: a 114-byte reply.
 ///
 /// **No `21`.** It carried one while `21` set its bit beside the family, and
 /// then the rendition held curly *and* double and answered in the 114 bytes
@@ -154,18 +205,20 @@ fn decrqss_for_a_rich_rendition_is_sent_whole_or_not_at_all() {
 /// **The bound the answer is built in holds the richest rendition there is.**
 /// `RICH` sets every attribute an application can hold at once, at the widest
 /// spelling of each, so its reply is the longest the encoder can be driven to:
-/// 111 bytes. `DECRQSS_MAX` is 126 because it counts all five underline
+/// 114 bytes. `DECRQSS_MAX` is 129 because it counts all five underline
 /// spellings and both blink rates together, which no rendition holds -- the
 /// thirteen bytes of `;4`, `;21`, `;4:4` and `;4:5` that `4:3` excludes, and
 /// the two of `;6` that `5` does (124 and thirteen until 2026-10-14, when `6`
-/// took a bit of its own). It was 114 while `21` could be held beside `4:3`,
-/// and the slack ten.
+/// took a bit of its own). Each colour's `:2::` is three bytes longer than
+/// the `;2;` it replaced on 2026-10-22, when the reply was 111 and the
+/// bound 126; in that spelling it was 114 while `21` could be held beside
+/// `4:3`, and the slack ten.
 #[test]
 fn the_longest_decrqss_reply_is_within_its_bound() {
     let r = replies(&[RICH, b"\x1bP$qm\x1b\\"].concat());
-    assert_eq!(r.len(), 111, "the richest rendition answers in 111 bytes");
+    assert_eq!(r.len(), 114, "the richest rendition answers in 114 bytes");
     assert!(r.ends_with(b"m\x1b\\"), "and whole: {r:02x?}");
-    assert_eq!(DECRQSS_MAX, 126, "the number DECRQSS_MAX's doc derives");
+    assert_eq!(DECRQSS_MAX, 129, "the number DECRQSS_MAX's doc derives");
     assert_eq!(
         DECRQSS_MAX - r.len(),
         b";4;21;4:4;4:5".len() + b";6".len(),

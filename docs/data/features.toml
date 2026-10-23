@@ -155,6 +155,17 @@ rows = ["vt:`?1010`", "vt:`?1041`", "vt:`?30`", "vt:`CSI ? 1040 h/l`"]
 shipped = ["F1-56"]
 
 [[feature]]
+id = "terminal-answers"
+area = "programs"
+name = "Programs can ask what the terminal does"
+does = "Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is, and neovim run over ssh turns its 24-bit colour on from baud's answer."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/tcap.rs::xtgettcap_answers_a_key_as_it_would_be_sent_now", "baud-core/tests/xterm/tcap.rs::neovims_truecolor_query_is_refused_at_tc", "baud-core/tests/vt220/dcs.rs::neovims_truecolor_probe_is_answered_in_t416s_form", "baud-core/tests/vt220/dcs.rs::every_colour_reports_in_t416s_form"]
+rows = ["vt:`DCS + q Pt ST`", "vt:`DCS $ q Pt ST`"]
+shipped = ["SQ-v1.0-04"]
+
+[[feature]]
 id = "program-notifications"
 area = "programs"
 name = "Notifications and progress bars from programs"

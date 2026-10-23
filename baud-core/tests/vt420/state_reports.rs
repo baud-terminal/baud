@@ -176,6 +176,24 @@ fn decrsts_restores_what_every_tsi_control_reports() {
     });
 }
 
+/// **A restore replays a direct colour in every slot**, through the SGR
+/// DECRQSS answers with, `38:2::r:g:b` and its kin, which the parser reads
+/// back with the colour space left empty: `SGR 0`, then the same rendition.
+#[test]
+fn decrsts_restores_a_direct_colour_in_every_slot() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[38;2;10;20;30;48;2;40;50;60;58;2;70;80;90m");
+        let want = b"\x1bP1$r0;58:2::70:80:90;38:2::10:20:30;48:2::40:50:60m\x1b\\";
+        t.clear_reply();
+        assert_eq!(show(&reply(t, b"\x1bP$qm\x1b\\")), show(want));
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        support::feed(t, &restore(&report));
+        t.clear_reply();
+        assert_eq!(show(&reply(t, b"\x1bP$qm\x1b\\")), show(want));
+    });
+}
+
 /// **The level goes first**, since DECSCL soft-resets: a report taken at
 /// Level 2 restores Level 2, and the modes after it.
 #[test]

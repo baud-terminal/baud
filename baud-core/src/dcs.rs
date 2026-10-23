@@ -31,7 +31,7 @@ const fn colon_style(bit: Attrs) -> bool {
     )
 }
 
-/// The longest DECRQSS reply this encoder can write: **126 bytes**.
+/// The longest DECRQSS reply this encoder can write: **129 bytes**.
 ///
 /// Built from the encoder's own parts rather than measured off one rendition,
 /// so a new attribute in `Attrs::WIRE` grows it without anyone remembering to.
@@ -44,15 +44,16 @@ const fn colon_style(bit: Attrs) -> bool {
 ///   `4:5`, and thirteen of those bytes are never sent together; `5` and `6`
 ///   replace the blink family, so two more are not;
 /// * a font, `;19` at most, because `FontId::sgr` is `10..=19`;
-/// * three colours at their widest, `;58;2;255;255;255`, which is longer than
-///   any indexed `;58;5;255`;
+/// * three colours at their widest, `;58:2::255:255:255`, T.416's direct
+///   form with the colour space left empty, which is longer than any indexed
+///   `;58:5:255`;
 /// * the leading `0` and the final `m`.
 ///
 /// Around it, the seven-bit frame, the longer of the two C1 forms: `ESC P`,
 /// `1 $ r` and `ESC \`. A margin pair (`65535;65535r`, the widest `OneBased`),
 /// a cursor style and a protection flag are each far shorter.
 ///
-/// The richest rendition an application can set answers in 111 bytes, and
+/// The richest rendition an application can set answers in 114 bytes, and
 /// `the_longest_decrqss_reply_is_within_its_bound` drives it through the
 /// encoder against this. Note AG, section 1.2, measured 114 while `21` could
 /// be held beside `4:3`; the family is exclusive now and the two cannot meet.
@@ -75,7 +76,7 @@ pub const DECRQSS_MAX: usize = {
             };
         i += 1;
     }
-    let sgr = b"0".len() + attrs + b";19".len() + 3 * b";58;2;255;255;255".len() + b"m".len();
+    let sgr = b"0".len() + attrs + b";19".len() + 3 * b";58:2::255:255:255".len() + b"m".len();
     let others = [
         b"65535;65535r".len(),
         b"65535;65535s".len(),
@@ -634,18 +635,28 @@ impl Status {
         }
     }
 
+    /// A colour as T.416 writes one (`[[source: itu-t416]]` 13.1.8): one
+    /// parameter sub-string, its elements separated by `:` (03/10) -- `2`,
+    /// the colour space id left empty, "a default value", and the three
+    /// channels, or `5` and the index -- so `48:2::1:2:3`, as xterm's
+    /// `xtermFormatSGR` writes it, and not the semicolon spelling, whose
+    /// `2` ECMA-48 5.4.2 reads as a parameter of its own. neovim reads
+    /// truecolor from this answer and from no other spelling of ours
+    /// (`[[source: neovim-core-defaults-lua]]` 1040-1076). An index is
+    /// `5:n` below 16 too, a single spelling for every entry (Jev's lean
+    /// COLON_5, below the bar).
     fn colour(&mut self, c: ColorWord, base: WireByte) {
         if let Some((r, g, b)) = c.as_rgb() {
             self.dec(base);
-            self.push(b";2;");
+            self.push(b":2::");
             self.dec(WireByte::of(r));
-            self.push(b";");
+            self.push(b":");
             self.dec(WireByte::of(g));
-            self.push(b";");
+            self.push(b":");
             self.dec(WireByte::of(b));
         } else if let Some(i) = c.as_index() {
             self.dec(base);
-            self.push(b";5;");
+            self.push(b":5:");
             self.dec(WireByte::of(i));
         }
     }

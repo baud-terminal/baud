@@ -123,9 +123,10 @@ summary = "Hebrew and Arabic lines laid out right to left, with the cursor and s
 [[item]]
 id = "SQ-v1.0-04"
 area = "programs"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "Answer programs that ask what the terminal can do"
-summary = "Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is; the truecolor answer neovim asks for over ssh is left."
+summary = "Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is, and neovim run over ssh finds 24-bit colour from baud's answer."
 
 [[item]]
 id = "SQ-v1.0-05"
