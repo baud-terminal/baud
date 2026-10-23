@@ -103,7 +103,9 @@ impl Paint<'_, '_> {
     /// 12-13). The corner is where the image is placed: the cursor, or in
     /// display mode the screen's upper-left cell. A cursor past a margin
     /// fills to the screen's edge on that side. In device pixels, so zero
-    /// while the cell size is unknown.
+    /// while the cell size is unknown; with the cell's height, the step the
+    /// fill goes on by as the image scrolls past the rows left, zero in
+    /// display mode, where the image never scrolls the screen.
     fn sixel_fill_to_margins(&self) -> SixelFill {
         let display = self.cold.modes.is_set(ModeBit::SixelDisplay);
         let (col, row) = match display {
@@ -133,6 +135,10 @@ impl Paint<'_, '_> {
         SixelFill::Background {
             w: px(w_cells, self.cell_width),
             h: px(h_cells, self.cell_height),
+            cell: match display {
+                true => 0,
+                false => px(1, self.cell_height),
+            },
         }
     }
 

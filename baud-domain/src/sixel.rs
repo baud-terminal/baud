@@ -313,7 +313,12 @@ pub enum SixelFill {
     /// bottom margin" (PDF p. 926). Zero where the terminal does not know
     /// its cell size, and the fill then covers the data's reach on that
     /// side. Decided by Jev 2026-10-12, EXTENT_ELSE_MARGINS, 0.92 and 0.94.
-    Background { w: u32, h: u32 },
+    ///
+    /// `h` is also the rows left to the bottom margin, past which the image
+    /// scrolls the screen and the fill goes on, in whole cells of `cell`
+    /// device pixels ([`SixelStream::finish`]); `cell` is zero where the
+    /// terminal does not know it.
+    Background { w: u32, h: u32, cell: u32 },
 }
 
 /// How a terminal begins one Sixel: its aspect ratio, the colour an
@@ -1005,14 +1010,14 @@ impl Claim<'_, '_, '_> {
         self.gap.stride = to;
     }
 
-    /// **Set every clear position of the first `fw` columns of the first
-    /// `fh` rows to [`Pixel::FILL`]**: the background a `P2` of 0 or 2
-    /// asks for, once the claim reaches that far ([`Claim::grow`]).
-    fn fill(&mut self, fw: usize, fh: usize) {
+    /// **Set every clear position of the first `fw` columns of `rows` to
+    /// [`Pixel::FILL`]**: the background a `P2` of 0 or 2 asks for, once
+    /// the claim reaches that far ([`Claim::grow`]).
+    fn fill(&mut self, fw: usize, rows: core::ops::Range<usize>) {
         let Gap { stride, zeroed, .. } = *self.gap;
-        let (fw, fh) = (fw.min(stride), fh.min(zeroed));
+        let fw = fw.min(stride);
         let words = self.words();
-        for y in 0..fh {
+        for y in rows.start..rows.end.min(zeroed) {
             for px in &mut words[y * stride..y * stride + fw] {
                 if *px == Pixel::CLEAR {
                     *px = Pixel::FILL;
@@ -1267,7 +1272,7 @@ impl SixelStream {
         // executed in the Sixel printing" (PDF p. 928), not by the fill.
         let region = match self.fill {
             SixelFill::Keep => None,
-            SixelFill::Background { w: mw, h: mh } => {
+            SixelFill::Background { w: mw, h: mh, cell } => {
                 // A side neither the raster nor the margins say -- the cell
                 // size unknown -- is the data's reach, the image's own
                 // rectangle.
@@ -1280,16 +1285,43 @@ impl SixelStream {
                 let fw = side(ph, mw, u32::from(w.raw()));
                 let fh = side(pv, mh, u32::from(h.raw()));
                 let cap = u32::from(u16::MAX);
+                // **The fill goes on as the image scrolls**: data past the
+                // rows left to the bottom margin scrolls the screen (070-9
+                // §11.2.4), and the rows it scrolls in are filled from the
+                // top of the band that overran them to the data's last row
+                // rounded up to a whole cell, across the fill's width --
+                // the rows left counted as filled "even if it wasn't all
+                // filled to start with", so a raster extent shorter than
+                // them leaves the rows between as they were, and "a multiple
+                // of the cell height (this is to match the behavior of the
+                // original hardware terminals)": Windows Terminal's
+                // `_fillImageBackgroundWhenScrolled()`, whose Sixel was
+                // checked against a VT340 (`[[source: wt-sixel-parser]]`).
+                // The band's height is fixed once data begins. Nothing where
+                // the rows left or the cell is unmeasured, and nothing in
+                // display mode, whose floor keeps the data on the screen.
+                let data_h = u32::from(h.raw());
+                let scrolled = match (mh, cell) {
+                    (0, _) | (_, 0) => None,
+                    _ if data_h > mh => {
+                        let band = self.walk.band();
+                        let to = data_h.div_ceil(cell).saturating_mul(cell);
+                        Some((mh / band * band, to.min(self.gap.floor).min(cap)))
+                    }
+                    _ => None,
+                };
                 Some((
                     fw.min(self.gap.right).min(cap),
                     fh.min(self.gap.floor).min(cap),
+                    scrolled,
                 ))
             }
         };
-        let (fw, fh) = region.unwrap_or((0, 0));
+        let (fw, fh, scrolled) = region.unwrap_or((0, 0, None));
+        let below = scrolled.map_or(0, |(_, to)| to);
         let (iw, ih) = (
             ImagePx::of(w.raw().max(fw as u16)),
-            ImagePx::of(h.raw().max(fh as u16)),
+            ImagePx::of(h.raw().max(fh as u16).max(below as u16)),
         );
         if region.is_some() && self.gap.held != Held::Lost {
             let mut sink = Claim {
@@ -1298,7 +1330,10 @@ impl SixelStream {
             };
             sink.grow(u32::from(iw.raw()), u32::from(ih.raw()));
             if sink.gap.held != Held::Lost {
-                sink.fill(fw as usize, fh as usize);
+                sink.fill(fw as usize, 0..fh as usize);
+                if let Some((from, to)) = scrolled {
+                    sink.fill(fw as usize, from as usize..to as usize);
+                }
             }
         }
         if !store.has_free_slot() || self.gap.held == Held::Lost {

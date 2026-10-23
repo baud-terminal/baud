@@ -257,3 +257,70 @@ fn the_fill_is_the_same_at_every_read_size() {
         }
     }
 }
+
+/// Eleven bands of the 20-wide stripe at 1:1, 66 rows, at the screen's row
+/// 10 of 12: two rows of 20 pixels are left, so the image scrolls the
+/// screen. `ra` is the raster command, or none.
+fn tall(ra: &str) -> Vec<u8> {
+    let body = format!("{ra}#1;2;100;0;0#1{}!20A", "!20i-".repeat(10));
+    [
+        b"\x1b[11;1H\x1bP9;0;0q".as_slice(),
+        body.as_bytes(),
+        b"\x1b\\",
+    ]
+    .concat()
+}
+
+/// **The fill goes on as the image scrolls**: a VT340 fills the lines a
+/// Sixel that runs past the bottom margin scrolls in, from the band that
+/// overruns the rows left to the data's last row rounded up to a whole
+/// cell, across the fill's width, and counts the rows left as filled
+/// "even if it wasn't all filled to start with", so with a raster extent
+/// shorter than the rows left the rows between stay as they were
+/// (Windows Terminal's `_fillImageBackgroundWhenScrolled()`, written
+/// against the hardware, `[[source: wt-sixel-parser]]`). Here the rows
+/// left are 40 pixels, the band 6: the band at 36 overruns, and the data's
+/// 66 rows round up to 80.
+#[test]
+fn the_fill_goes_on_as_the_image_scrolls() {
+    let ra = tall("\"1;1;30;12");
+    let (w, h, ground, px) = with_fed(&ra, ra.len(), true, |t| placed(t)).unwrap();
+    assert_eq!((w, h), (30, 80), "Ph wide, to the cell the data ends in");
+    assert_eq!(ground, data(20, 66), "the data reached 20 by 66");
+    assert_eq!(at(&px, w, 25, 11), Pixel::FILL, "inside Ph x Pv");
+    assert_eq!(at(&px, w, 25, 12), Pixel::CLEAR, "below Pv, above the band");
+    assert_eq!(at(&px, w, 25, 35), Pixel::CLEAR, "the row above the band");
+    assert_eq!(at(&px, w, 25, 36), Pixel::FILL, "the band that overran");
+    assert_eq!(
+        at(&px, w, 0, 36),
+        Pixel::FILL,
+        "a zero bit of the data there"
+    );
+    assert_eq!(at(&px, w, 0, 37), red(), "its set bit");
+    assert_eq!(at(&px, w, 29, 79), Pixel::FILL, "the last row, rounded up");
+    // Without a raster the fill is the margins', and the scroll goes on
+    // from the same band across them.
+    let bare = tall("");
+    let (w, h, _, px) = with_fed(&bare, bare.len(), true, |t| placed(t)).unwrap();
+    assert_eq!((w, h), (400, 80), "the screen's width, to the cell");
+    assert!(!px.contains(&Pixel::CLEAR), "nothing stays clear");
+    // The controls: with no cell size, nothing measures the rows left and
+    // the fill is the data's reach; and the same image with room for it
+    // fills only Pv.
+    let (w, h, _, _) = with_fed(&ra, ra.len(), false, |t| placed(t)).unwrap();
+    assert_eq!((w, h), (30, 66), "no cell size, no scroll fill");
+    let roomy = [b"\x1b[1;1H".as_slice(), &ra[b"\x1b[11;1H".len()..]].concat();
+    let (w, h, _, px) = with_fed(&roomy, roomy.len(), true, |t| placed(t)).unwrap();
+    assert_eq!((w, h), (30, 66), "no scroll, no scroll fill");
+    assert_eq!(at(&px, w, 25, 40), Pixel::CLEAR, "past Pv, unfilled");
+    // Display mode never scrolls: data past a bottom margin stays on the
+    // screen, and no scroll fill follows it.
+    let shown = [b"\x1b[?80h\x1b[1;3r".as_slice(), &ra[b"\x1b[11;1H".len()..]].concat();
+    let (w, h, _, px) = with_fed(&shown, shown.len(), true, |t| placed(t)).unwrap();
+    assert_eq!((w, h), (30, 66), "display mode, no scroll fill");
+    assert_eq!(
+        at(&px, w, 25, 60),
+        Pixel::CLEAR,
+        "below the margin, unfilled"
+    );
+}

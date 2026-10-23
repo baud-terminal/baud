@@ -882,6 +882,17 @@ if the operation regressed.
   became `sixels_filled`. The record, "A Sixel's P2 fill is drawn, and on
   the see-through window it waits on the owner".
 
+  The fill goes on as the image scrolls, since the same day: rows the
+  data scrolls in past the rows left are filled from the band that
+  overran them to the data's last row rounded up to a cell, across the
+  fill's width, as Windows Terminal does (`[[source: wt-sixel-parser]]`);
+  the VT340 capture of `[[source: vt340test-p2effect-sh]]` never scrolls
+  and says nothing of it. Open: Windows Terminal goes on filling at every
+  graphics new line, an empty trailing band included, where baud fills
+  to the data's reach; and with the cursor below the bottom margin, the
+  fill reaches rows below the screen that never scroll in, where Windows
+  Terminal stops extending the image once no height is left.
+
   What follows is the history of the decision.
 
 * **`Pb`/`P2` opaque background: counted, not built (until 2026-10-22).** `P2` = 0 or 2 asks that

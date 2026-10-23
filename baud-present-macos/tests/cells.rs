@@ -5003,6 +5003,7 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         assert_eq!(arms.renderer.image_uploads().len(), 1, "one snapshot");
     }
     feed(t, b"\x1b]111\x1b\\");
+    sixel_scroll_fill(arms, t, fw);
     // The see-through window: the fill waits on the owner, so P2 0 draws
     // as P2 1 does.
     let glass = Theme {
@@ -5051,6 +5052,77 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         );
     }
     arms.renderer.set_theme(base);
+    feed(t, b"\x1bc");
+}
+
+/// **The fill goes on as the image scrolls**, on all three paths: a Sixel
+/// two rows from the bottom whose data runs past them scrolls the screen,
+/// and the rows it scrolls in are filled from the band that overran the
+/// rows left to the data's last row rounded up to a cell, across `Ph`,
+/// while the rows between `Pv` and that band show what was under them
+/// (`[[source: wt-sixel-parser]]`). The scrolled-in rows take the
+/// rendition's blue background, which the control, the same Sixel with
+/// `P2` 1, shows there. `fw` is the frame's width.
+fn sixel_scroll_fill(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, fw: usize) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let ch = usize::try_from(ch).unwrap();
+    // Two rows left; a band of 6; data past them by more than a cell.
+    let left = 2 * ch;
+    let bands = 3 * ch / 6 + 1;
+    let data_h = 6 * bands;
+    let (from, to) = (left / 6 * 6, data_h.div_ceil(ch) * ch);
+    let text: &[u8] = b"\x1bc\x1b[?25l\x1b[8;1HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\
+        \x1b[9;1HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\x1b[10;1HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\
+        \x1b[9;1H\x1b[44m";
+    let sixel = |p2: u8| {
+        format!(
+            "\x1bP9;{p2};0q\"1;1;40;12#1;2;100;0;0#1{}!20~\x1b\\\x1b[m",
+            "!20~-".repeat(bands - 1)
+        )
+    };
+    let bg = 0xFF00_0000 | (arms.renderer.theme().bg.0 & 0x00FF_FFFF);
+    let mut shot = |p2: u8| {
+        feed(t, text);
+        feed(t, sixel(p2).as_bytes());
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "one image on screen");
+        let p = places[0];
+        let at = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
+        ([a, b, c], at, usize::from(p.h))
+    };
+    let (control, at, h) = shot(1);
+    assert_eq!(h, data_h, "P2 1: the data's reach");
+    let (got, at0, h) = shot(0);
+    assert_eq!(at0, at, "the fill does not move the image");
+    let (x0, y0) = at;
+    let region = |rows: core::ops::Range<usize>| {
+        rows.flat_map(move |y| (20..40).map(move |x| (y0 + y) * fw + x0 + x))
+            .collect::<Vec<_>>()
+    };
+    let blue = |f: &[u32]| region(left..to).into_iter().filter(|&i| f[i] != bg).count();
+    assert!(
+        blue(&control[0]) > 0,
+        "the premise: P2 1 shows the blue rows"
+    );
+    for (arm, (f, c)) in ["instance", "cell", "cpu"]
+        .iter()
+        .zip(got.iter().zip(&control))
+    {
+        let unfilled = region(from..to).into_iter().filter(|&i| f[i] != bg).count();
+        assert_eq!(unfilled, 0, "{arm}: the scrolled-in rows are filled");
+        let between = region(12..from)
+            .into_iter()
+            .filter(|&i| f[i] != c[i])
+            .count();
+        assert_eq!(between, 0, "{arm}: between Pv and the band, what was under");
+    }
+    assert_eq!(h, to, "P2 0: to the cell the data ends in");
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }
 

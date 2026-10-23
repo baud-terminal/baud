@@ -23277,6 +23277,30 @@ group  = "C"
 # Black is the screen's background in this capture. The repository does not say what
 # took the capture; the script's own comment is the VT340 claim.
 
+[sources.wt-sixel-parser]
+key    = "wt-sixel-parser"
+title  = "Windows Terminal, SixelParser.cpp -- a P2 0 fill goes on as the image scrolls past the rows left, in whole cells"
+author = "Microsoft Corporation (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ 10630264"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/10630264af2c659ebfb25a1455eb5b6fe781d00f/src/terminal/adapter/SixelParser.cpp"
+file   = ""
+sha256 = "bd8018f0099d9911f1d734528c720c24487675b364e1f64eff3c8c1868f5c470"
+bytes  = 41019
+status = "external"
+group  = "C"
+# Read 2026-10-22 (lane b158) for the fill as a Sixel scrolls: 359-366 "If the
+# image ends up extending beyond the bottom of the page, we may need to perform
+# additional background filling as the screen is scrolled"; 685-705, the first
+# fill to Ph x Pv or the margins, and the area filled so far taken as "the
+# available height, even if it wasn't all filled to start with"; 721-735
+# `_fillImageBackgroundWhenScrolled()`, from the band that overruns it to the
+# image's height rounded up, "a multiple of the cell height (this is to match
+# the behavior of the original hardware terminals)", at the fill's width;
+# 240-256 and 397-402, where it is asked: at each graphics new line and raster
+# command. 388-389 "we know from testing on a VT340". Evidence of practice by an
+# implementer who tested against the hardware; no DEC text read says it.
+
 [sources.vt340test-textcursor-sh]
 key    = "vt340test-textcursor-sh"
 title  = "vt340test, sixeltests/textcursor.sh -- the text cursor after a Sixel on a VT340: the row of the last sixel position, the column unchanged"
