@@ -28,8 +28,9 @@ OUT = ROOT / "baud-domain/src/sequence_data.rs"
 # `ClusterSlot::CAPACITY`: continuations after the base.
 CAPACITY = 8
 # `Content::CLUSTERS` and `ClusterId::SEQUENCES`: a node's cell word is
-# CLUSTERS + SEQUENCES + node. `the_sequence_words_are_the_cell_words`
-# holds these to the Rust constants.
+# CLUSTERS + SEQUENCES + node. The const asserts at the foot of
+# baud-domain/src/sequence.rs (WORD0 == Content::cluster_word(
+# ClusterId::SEQUENCES), NODES <= 0x7FFF) hold these to the Rust constants.
 CLUSTERS = 0x0012_0000
 SEQUENCES = 0x8000
 WORD0 = CLUSTERS + SEQUENCES

@@ -228,9 +228,11 @@ pub enum Node {
     Printing,
     /// **A DCS introducer past an intermediate or a private marker**, up
     /// to its final byte: `[[source: williams]]`' `dcs intermediate`, and
-    /// its `dcs ignore` for an introducer that broke the grammar. Its bytes
-    /// `20-3F` and its final are put to the body, as `DcsStr` puts them;
-    /// a C0 is executed and the introducer goes on, `[[source:
+    /// its `dcs ignore` for an introducer that broke the grammar. The byte
+    /// that leads here from `Dcs` or `DcsDollar` is consumed, or read by
+    /// `DcsQuery` for a `+`, as it was when it led to `DcsStr`. The `20-3F`
+    /// bytes after it, and the final, are put to the body the way `DcsStr`
+    /// puts them; a C0 is executed and the introducer goes on, `[[source:
     /// dec-std-070]]` 3.5.5 ("All other C0 controls are immediately
     /// recognized within escape, control, or control string introducer
     /// sequences"), where `DcsStr` would put it. Last, so no other node's

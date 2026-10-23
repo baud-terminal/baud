@@ -416,11 +416,11 @@ fn a_parent_that_moves_takes_its_children() {
 
 /// **A delete naming a cell finds a relative placement where it is
 /// drawn**, the text's "Delete all placements that intersect a specific
-/// cell". kitty tests the cursor cell it was put at, which it is never
-/// drawn at: a departure from "intersect", which needs Jev at 0.9 in both
-/// orders, and the first ask chose PUT_CURSOR at 0.38 and 0.80 confidence
-/// and the re-ask split, RESOLVED at 0.24 and PUT_CURSOR at 0.04, so the
-/// text's reading is built.
+/// cell". kitty tests the cursor cell it was put at, which need not be
+/// where it is drawn: a departure from "intersect", which needs Jev at 0.9
+/// in both orders, and the first ask chose PUT_CURSOR at 0.38 and 0.80
+/// confidence and the re-ask split, RESOLVED at 0.24 and PUT_CURSOR at
+/// 0.04, so the text's reading is built.
 #[test]
 fn a_cell_delete_finds_a_relative_placement_where_it_is_drawn() {
     with(|t| {
@@ -503,8 +503,9 @@ fn under_virtual(t: &mut Term<'_>, y: usize, x: usize, size: &str) {
 /// the minimum of all the placeholder x positions and the y position is
 /// the minimum of all the placeholder y positions"), so a cell, a row or a
 /// column delete there takes it -- "Delete all placements that intersect
-/// a specific cell" -- and one at the cell it was put at, or the cursor's
-/// cell there, does not; at every read size. A double-width line's
+/// a specific cell" -- as a delete at the cursor's cell does with the
+/// cursor there, and one at the cell it was put at, or the cursor's cell
+/// there, does not; at every read size. A double-width line's
 /// placeholders begin at twice their column, where they are drawn.
 #[test]
 fn under_a_virtual_parent_a_delete_finds_it_where_it_is_drawn() {
@@ -528,6 +529,16 @@ fn under_a_virtual_parent_a_delete_finds_it_where_it_is_drawn() {
                 assert_eq!(at(t, 2).len(), want, "{cmd} by {n}");
             });
         }
+    }
+    // The cursor on the cell it is drawn at: a cursor delete takes it.
+    let bytes = apc("a=d,d=c");
+    for n in 1..=bytes.len() {
+        with(|t| {
+            under_virtual(t, 11, 21, "");
+            feed(t, b"\x1b[12;22H");
+            feed_by(t, &bytes, n);
+            assert!(at(t, 2).is_empty(), "the cursor at 12;22, by {n}");
+        });
     }
     // On a double-width line, placeholders at column 11 are drawn from
     // display column 21, the child at 22.

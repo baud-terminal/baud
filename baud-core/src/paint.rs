@@ -1451,10 +1451,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **A continuation that may make a sequence the Unicode Standard
     /// names** (`ClusterStore::named`): one step of a trie built from the
     /// pinned files, and the cell names the node it reaches -- no slot is
-    /// hashed for, probed or written. Every cluster in the emoji-dense
-    /// recordings is one. Anything else is `attach_before`'s, which interns
-    /// the cluster whole, a node's base and continuations read from its
-    /// slot as a store slot's are.
+    /// hashed for, probed or written. Every emoji cluster in the
+    /// emoji-dense recordings is one; their Devanagari signs and kana marks
+    /// still go to the store. Anything else is `attach_before`'s, which
+    /// interns the cluster whole, a node's base and continuations read from
+    /// its slot as a store slot's are.
     ///
     /// **Ahead of `attach_before`, not in it**, behind one bit for `cp`'s
     /// block: with the step inside it, the kana-and-mark shape, whose mark
