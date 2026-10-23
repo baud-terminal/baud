@@ -92,6 +92,41 @@ fn a_letter_with_a_combining_mark_is_part_of_its_word() {
     assert_eq!(s.text(&t, Scrolled::START), "cafe\u{301}");
 }
 
+/// **A mark stored alone is part of its word**: after a control a mark is
+/// a cluster of its own with no base (`Content::DEFECTIVE`), a character
+/// the program wrote, neither whitespace nor a delimiter, so a double click
+/// on the `e`, the mark or the `y` selects all three. The control is a
+/// space in that cell, which ends the word.
+#[test]
+fn a_mark_stored_alone_is_part_of_its_word() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "e\x1b[m\u{301}y z".as_bytes());
+    let row = t.viewport().row(Row::ZERO);
+    let line = Scrolled::START.line(Rows::ZERO, Row::ZERO);
+    for c in 0..3 {
+        let w = Span::word(&t, row, line, Col::at_index(c));
+        assert_eq!(
+            (w.start.col.index(), w.end.col.index()),
+            (0, 2),
+            "from column {c}"
+        );
+    }
+    let mut s = Selection::at(Span::word(&t, row, line, Col::ZERO), Grain::Word);
+    s.extend(Span::word(&t, row, line, Col::at_index(2)));
+    assert_eq!(s.text(&t, Scrolled::START), "e\u{301}y");
+    let mut owned = Owned::new(&WS);
+    let mut c = Term::new(owned.storage(), &WS);
+    feed(&mut c, b"e y z");
+    let row = c.viewport().row(Row::ZERO);
+    let w = Span::word(&c, row, line, Col::ZERO);
+    assert_eq!(
+        (w.start.col.index(), w.end.col.index()),
+        (0, 0),
+        "the control"
+    );
+}
+
 #[test]
 fn a_wrapped_row_joins_the_next_and_a_newline_ends_a_row() {
     let mut owned = Owned::new(&WS);

@@ -169,13 +169,14 @@ fn a_mark_attaches_to_a_base_in_the_last_column() {
     assert_eq!(marks_at(&t, 0, cols - 1), vec![0x301], "dropped={d}");
 }
 
-/// **Why the owning cell is resolved from the grid and not remembered.**
-/// Nothing here is adjacent in the stream: the cursor writes a wide
-/// character, leaves, comes back with `CUP`, and only then does a mark
-/// arrive. A base position cached at write time would have been overwritten
-/// by everything in between; the grid still knows which column holds a tail.
+/// **A mark after the cursor has been away is no longer the wide
+/// character's.** The cursor writes a wide character, leaves, comes back
+/// with `CUP`, and only then does a mark arrive: the `CUP` is a control, so
+/// `[[source: uax29]]` GB4/GB5 make the mark a cluster of its own, which
+/// takes the cursor's cell, column 2 (note AB, Q24 item 1). Until 2026-10-23
+/// it went to the wide character at column 0, found through its tail.
 #[test]
-fn a_mark_finds_its_base_after_the_cursor_has_been_away() {
+fn a_mark_after_the_cursor_has_been_away_takes_its_own_cell() {
     let ws = support::CORPUS;
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
@@ -184,8 +185,13 @@ fn a_mark_finds_its_base_after_the_cursor_has_been_away() {
     feed(&mut t, "\u{0301}");
     assert_eq!(
         marks_at(&t, 0, 0),
+        Vec::<u32>::new(),
+        "not the wide character's"
+    );
+    assert_eq!(
+        marks_at(&t, 0, 2),
         vec![0x301],
-        "the mark belongs to the wide character at column 0"
+        "a cell of its own at the cursor"
     );
 }
 

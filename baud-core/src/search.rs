@@ -19,7 +19,7 @@
 //! whole clusters.
 
 use baud_domain::{
-    ClusterKey, Codepoint, Col, LineIdx, Matcher, Needle, PackedCell, Row, Rows, Wrap,
+    ClusterKey, Codepoint, Col, Content, LineIdx, Matcher, Needle, PackedCell, Row, Rows, Wrap,
 };
 
 use crate::term::{Screen, SurfaceLine, Term};
@@ -150,8 +150,16 @@ impl Term<'_> {
                         col: Col::at_index(x + span),
                     },
                 );
-                let key = match self.base_of(*cell).as_codepoint() {
-                    Some(base) => ClusterKey::cluster(base, self.cluster_marks(*cell)),
+                // A mark stored alone reads as the mark, as a copy returns it
+                // (`Content::DEFECTIVE`), its marks after the first as marks.
+                let mut marks = self.cluster_marks(*cell);
+                let base = self.base_of(*cell);
+                let base = match base == Content::DEFECTIVE {
+                    true => marks.next().and_then(Codepoint::new),
+                    false => base.as_codepoint(),
+                };
+                let key = match base {
+                    Some(base) => ClusterKey::cluster(base, marks),
                     None => ClusterKey::cluster(SPACE, core::iter::empty()),
                 };
                 m.cluster(key.as_slice(), at, &mut found);

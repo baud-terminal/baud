@@ -299,9 +299,10 @@ impl ClusterBreak {
     /// and because every rule that reads `prev` looked closed:
     ///
     /// * a zero-width mark after ASCII attaches either way, because
-    ///   `Paint::glyph` routes `Width::ZERO` to `Paint::attach` whatever the
+    ///   `Paint::glyph` routed `Width::ZERO` to `Paint::attach` whatever the
     ///   break decision was (`baud-core2`'s `put_cp` routed it to
-    ///   `attach_mark`);
+    ///   `attach_mark`), until 2026-10-23, when one the machine breaks
+    ///   before, after a control, became a cell of its own;
     /// * a `ZWJ` after ASCII opens no GB11 lookback in either state, because
     ///   GB11 needs a pictographic *before* the joiner;
     /// * a regional indicator after ASCII starts with `RiParity::Even` in

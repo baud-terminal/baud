@@ -290,19 +290,71 @@ fn in_both_modes(before: &str, between: &str, tail: &str, want: &[(usize, usize,
     assert!(wrong.is_empty(), "want {want:x?}: {wrong:#?}");
 }
 
-/// **A zero-width codepoint the cluster machine does not join goes to the
-/// character just written**, which with `DECAWM` reset is under the cursor,
-/// as the joined case is (`a_mark_after_a_letter_in_the_last_column_joins_that_letter`).
-/// The policy path, `Paint::attach`, read `cx - 1`, so after a control that
-/// does not move the cursor -- an `SGR`, a `BEL`, a `DECSCA`, an `OSC` -- the
-/// mark went on the `x` left of the `e` with autowrap off and on the `e` with
-/// it on. Where a mark after a control belongs at all is note AB's Q24
-/// (GB4/GB5 end the cluster, D57's defective sequence); this holds only that
-/// `DECAWM` does not decide it.
+/// The cell a `z` lands in after `s`, on any of the four rows, at reads of
+/// `read`.
+fn where_a_character_lands(s: &str, read: usize) -> Option<(usize, usize)> {
+    let b = format!("{s}z");
+    support::with_term(&EIGHT, |t| {
+        for piece in b.as_bytes().chunks(read) {
+            t.write_at(BytePos::ZERO, piece);
+            t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+        }
+        (0..4)
+            .flat_map(|y| (0..8).map(move |x| (y, x)))
+            .find(|&(y, x)| {
+                let c = t.row(Row::from_index(y)).expect("a row")[x];
+                c.content
+                    .as_codepoint()
+                    .is_some_and(|cp| cp.value() == u32::from(b'z'))
+            })
+    })
+}
+
+/// **After a control, a combining mark is a cluster of its own and takes the
+/// cell a character would** (`[[source: uax29]]` GB4/GB5; TUS D57's
+/// defective combining character sequence; note AB, Q24 item 1, Jev
+/// OWN_CELL_MARK_ALONE, 0.96/0.99): for each of `s`, under both `DECAWM`
+/// modes after `prefix`, the only marked cell on the screen is where a `z`
+/// put in the mark's place lands, at every read size. Until 2026-10-23 the
+/// mark went to the cell before the cursor, the character the control had
+/// stepped past or the pin's; these tests probed the pin with it.
+fn as_a_character(prefix: &str, body: &str) {
+    let mut wrong = Vec::new();
+    for mode in ["\x1b[?7h", "\x1b[?7l"] {
+        let s = format!("{prefix}{mode}{body}");
+        as_a_character_after(&s, &mut wrong);
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+fn as_a_character_after(s: &str, wrong: &mut Vec<String>) {
+    let b = format!("{s}\u{301}");
+    for read in 1..=b.len() {
+        let want: Vec<(usize, usize, Vec<u32>)> = where_a_character_lands(s, read)
+            .filter(|&(y, _)| y < 2)
+            .map(|(y, x)| (y, x, vec![0x301]))
+            .into_iter()
+            .collect();
+        let got = marks(b.as_bytes(), read);
+        if got != want {
+            wrong.push(format!(
+                "{b:?} in {read}-byte reads: {got:x?}, not {want:x?}"
+            ));
+        }
+    }
+}
+
+/// **A zero-width codepoint the cluster machine does not join**, after a
+/// control that does not move the cursor -- an `SGR`, a `BEL`, a `DECSCA`,
+/// an `OSC` -- went on the character just written; since 2026-10-23 a
+/// combining mark there is a cluster of its own and takes the cell a
+/// character would ([`as_a_character`]): the next row's first column with
+/// autowrap set, the `e`'s with it reset. The name is from when `DECAWM`
+/// decided nothing here.
 #[test]
 fn a_mark_after_a_control_goes_where_it_goes_with_autowrap_set() {
     for between in ["\x1b[m", "\x07", "\x1b[1\"q", "\x1b]0;t\x07"] {
-        in_both_modes("", between, "\u{301}", &[(0, 7, &[0x301])]);
+        as_a_character("", &format!("xxxxxxxe{between}"));
     }
 }
 
@@ -313,42 +365,32 @@ fn a_zero_width_character_the_machine_breaks_before_goes_to_the_last_letter() {
     in_both_modes("", "", "\u{200b}", &[(0, 7, &[0x200b])]);
 }
 
-/// **Guard.** A wide character in the last two columns: the cursor is on its
-/// tail, and the mark goes to the character, which both of its columns
-/// report. Green before the change too, because `cx - 1` of the tail is the
-/// lead; reading the cell under a pinned cursor must resolve the tail to it.
+/// **A wide character in the last two columns, then a control**: the mark
+/// takes the cell a character would, the wide character's no more
+/// ([`as_a_character`]). It joined the character, which both of its columns
+/// reported, until 2026-10-23.
 #[test]
-fn a_mark_after_a_control_joins_a_wide_character_in_the_last_two_columns() {
-    let mut wrong = Vec::new();
-    for mode in ["\x1b[?7h", "\x1b[?7l"] {
-        let s = format!("{mode}xxxxxx\u{4e16}\x1b[m\u{301}");
-        let b = s.as_bytes();
-        for read in 1..=b.len() {
-            let got = marks(b, read);
-            if got != [(0, 6, vec![0x301]), (0, 7, vec![0x301])] {
-                wrong.push(format!("{s:?} in {read}-byte reads: {got:x?}"));
-            }
-        }
-    }
-    assert!(wrong.is_empty(), "{wrong:#?}");
+fn a_mark_after_a_control_beside_a_wide_character_in_the_last_two_columns_takes_its_own_cell() {
+    as_a_character("", "xxxxxx\u{4e16}\x1b[m");
 }
 
-/// **A vertical move keeps it**, as it keeps the pending-wrap column with
-/// `DECAWM` set: the mark goes to the last column of the row the cursor is
-/// on, which is where `cx - 1` of that column puts it.
+/// **A vertical move keeps the column**, and a mark after it takes the cell
+/// a character would ([`as_a_character`]); it went to the last column of
+/// the row the cursor was on until 2026-10-23.
 #[test]
 fn a_vertical_move_keeps_the_last_column() {
     let rows = "\x1b[2;1Hyyyyyyyy\x1b[1;1H";
-    in_both_modes(rows, "\x1b[B", "\u{301}", &[(1, 7, &[0x301])]);
-    in_both_modes(rows, "\n", "\u{301}", &[(1, 7, &[0x301])]);
-    in_both_modes(rows, "\x1b[B\x1b[A", "\u{301}", &[(0, 7, &[0x301])]);
+    for between in ["\x1b[B", "\n", "\x1b[B\x1b[A"] {
+        as_a_character(rows, &format!("xxxxxxxe{between}"));
+    }
 }
 
 /// **Guards: a horizontal move ends it.** The cursor is on a cell of its
-/// choosing and the mark goes to the one before it, under both modes, even
-/// where the move lands back on the last column: `CUF`, `CHA`, `CUP`, `HT`,
-/// `HPR`, `CUB` then `CUF`, and VT52's cursor right. Each is the only move in
-/// its stream, so each `Paint::set_col` call has a case of its own.
+/// choosing, and the mark takes it as a character would
+/// ([`as_a_character`]), even where the move lands back on the last column:
+/// `CUF`, `CHA`, `CUP`, `HT`, `HPR`, `CUB` then `CUF`, and VT52's cursor
+/// right. Each is the only move in its stream, so each `Paint::set_col` call
+/// has a case of its own. The mark went to the cell before until 2026-10-23.
 #[test]
 fn a_horizontal_move_ends_it() {
     for between in [
@@ -360,15 +402,14 @@ fn a_horizontal_move_ends_it() {
         "\x1b[D\x1b[C",
         "\x1b[?2l\x1bC\x1b<",
     ] {
-        in_both_modes("", between, "\u{301}", &[(0, 6, &[0x301])]);
+        as_a_character("", &format!("xxxxxxxe{between}"));
     }
 }
 
-/// And to column 0, where there is no cell before the cursor and the mark is
-/// refused: `CR`, `NEL`, `CNL`, `CPL`, `CBT`, `LF` under `LNM`, and `DECSLRM`,
-/// which homes the cursor. A pin left standing there would put the mark on
-/// column 0, of row 1 for the three that move down, which is why row 1 is
-/// written.
+/// And to column 0: `CR`, `NEL`, `CNL`, `CPL`, `CBT`, `LF` under `LNM`, and
+/// `DECSLRM`, which homes the cursor. The mark takes column 0 as a character
+/// would ([`as_a_character`]); it was refused there, with no cell before the
+/// cursor, until 2026-10-23.
 #[test]
 fn a_move_to_the_first_column_ends_it() {
     let rows = "\x1b[2;1Hyyyyyyyy\x1b[1;1H";
@@ -381,7 +422,7 @@ fn a_move_to_the_first_column_ends_it() {
         "\x1b[20h\n",
         "\x1b[?69h\x1b[1;8s",
     ] {
-        in_both_modes(rows, between, "\u{301}", &[]);
+        as_a_character(rows, &format!("xxxxxxxe{between}"));
     }
 }
 
@@ -393,54 +434,50 @@ fn a_move_to_the_first_column_ends_it() {
 /// `[[source: dec-std-070]]` 070-4, note c), so it is `?7h` here: the pin it
 /// leaves is not read while `DECAWM` is set, and the `?7l` ends it. It homed
 /// until then, and `abc` landed on row 0 with the mark on the `c` at 0;2.
+///
+/// Since 2026-10-23 the `SGR` before the mark makes it a cluster of its own,
+/// which takes the cell a character would, after the `c` at 1;3
+/// ([`as_a_character`]). The `?7l` is a control too, so no mark here joins
+/// the `c` any longer; the pin is held by the joined cases above.
 #[test]
 fn a_change_of_autowrap_ends_it() {
-    for (between, at) in [("\x1b[?7h", (1, 1)), ("\x1b[!p", (1, 1))] {
-        let s = format!("\x1b[?7lxxxxxxxe{between}abc\x1b[?7l\x1b[m\u{301}");
-        for read in 1..=s.len() {
-            assert_eq!(
-                marks(s.as_bytes(), read),
-                [(at.0, at.1, vec![0x301])],
-                "{s:?} in {read}-byte reads"
-            );
-        }
+    for between in ["\x1b[?7h", "\x1b[!p"] {
+        let mut wrong = Vec::new();
+        as_a_character_after(
+            &format!("\x1b[?7lxxxxxxxe{between}abc\x1b[?7l\x1b[m"),
+            &mut wrong,
+        );
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 }
 
 /// `BS`, `CUB` and VT52's cursor left too. With autowrap reset the cursor
-/// steps back onto column 6 and the mark goes to column 5. With it set, each
-/// steps back from the pending-wrap column onto column 7, so the mark goes to
-/// column 6: where the cursor lands differs between the modes, the rule for
-/// the mark does not.
+/// steps back onto column 6, with it set from the pending-wrap column onto
+/// column 7, and the mark takes that cell as a character would
+/// ([`as_a_character`]), where it joined the letter before it until
+/// 2026-10-23.
 #[test]
 fn a_step_back_ends_it() {
-    for (mode, at) in [("\x1b[?7l", 5), ("\x1b[?7h", 6)] {
-        for back in ["\x08", "\x1b[D", "\x1b[?2l\x1bD\x1b<"] {
-            let s = format!("{mode}xxxxxxxe{back}\u{301}");
-            for read in 1..=s.len() {
-                assert_eq!(
-                    marks(s.as_bytes(), read),
-                    [(0, at, vec![0x301])],
-                    "{s:?} in {read}-byte reads"
-                );
-            }
-        }
+    for back in ["\x08", "\x1b[D", "\x1b[?2l\x1bD\x1b<"] {
+        as_a_character("", &format!("xxxxxxxe{back}"));
     }
 }
 
 /// **A resize that clamps the cursor moves it**, so it ends the pin as any
 /// horizontal move does. The alternate screen does not reflow: `abcdefgh`
 /// cut to six columns leaves the cursor on the `f`, which was not written
-/// last, and a mark goes to the `e` before it under both modes, as `cx - 1`
-/// of the clamped column puts it with autowrap set: joined, through
-/// `attach_continuing`, and after a control, through `attach`.
+/// last, and a mark the machine joins goes to the `e` before it under both
+/// modes, as `cx - 1` of the clamped column puts it with autowrap set,
+/// through `attach_continuing`. After a control it is a cluster of its own
+/// and takes the cursor's cell, the `f`'s, as a character would (since
+/// 2026-10-23).
 #[test]
 fn a_resize_that_clamps_the_cursor_ends_it() {
     const SIX: WinSize = WinSize {
         ws_row: 4,
         ws_col: 6,
     };
-    for after in ["\u{301}", "\x1b[m\u{301}"] {
+    for (after, at) in [("\u{301}", 4), ("\x1b[m\u{301}", 5)] {
         for mode in ["\x1b[?7h", "\x1b[?7l"] {
             let s = format!("\x1b[?1049h{mode}abcdefgh");
             for read in (1..=s.len()).map(ReadLen::from_index) {
@@ -448,7 +485,7 @@ fn a_resize_that_clamps_the_cursor_ends_it() {
                     across_a_resize(&EIGHT, &SIX, s.as_bytes(), read, after.as_bytes());
                 assert_eq!(
                     marks,
-                    [(0, 4, vec![0x301])],
+                    [(0, at, vec![0x301])],
                     "{s:?} then {after:?}, in {}-byte reads",
                     read.index()
                 );

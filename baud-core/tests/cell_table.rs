@@ -148,11 +148,14 @@ fn the_cell_table_is_what_the_write_path_writes_at(a: AmbiguousWidth) {
             // not to advance. A builder that assumed every sequence yields a
             // cell is what the core2-era version of this caught, on `E0 A0 96`
             // (U+0816 SAMARITAN MARK IN).
+            // Since 2026-10-23 a combining mark there is a cluster of its
+            // own, a cell naming the cluster store (note AB, Q24 item 1),
+            // which the table, recording the character, is not.
             match got.flags.width_of().cells() {
-                0 => assert_eq!(
-                    want[k][0].content,
-                    Content::EMPTY,
-                    "{:02x} {:02x} {:02x} is zero-width; the write path should write no cell",
+                0 => assert!(
+                    want[k][0].content == Content::EMPTY || want[k][0].flags.is_marked(),
+                    "{:02x} {:02x} {:02x} is zero-width; the write path should write no cell \
+                     or a cluster of its own",
                     seq[0],
                     seq[1],
                     seq[2]

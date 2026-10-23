@@ -747,9 +747,12 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
 /// cell shows its background: Jev favoured BLANK over TUS 5.3's `.notdef`
 /// at 0.80 and 0.84, under the bar, so it is the interim choice and an
 /// open question. Every path that draws a glyph asks here; a copy asks
-/// [`Term::base_of`] and gets the character back.
+/// [`Term::base_of`] and gets the character back. **A combining mark stored
+/// alone draws on a no-break space** ([`Content::drawn`], TUS 5.13), so the
+/// mark sits in its own cell rather than over the one before.
 pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
     term.base_of(cell)
+        .drawn()
         .as_codepoint()
         .filter(|c| !baud_domain::is_placeholder(*c))
 }

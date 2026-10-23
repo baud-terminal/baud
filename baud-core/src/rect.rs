@@ -493,9 +493,20 @@ impl Paint<'_, '_> {
             for x in rect.left.index()..=right.index() {
                 let cell = self.view.get(r, Col::at_index(x));
                 let base = self.clusters.base_of(cell.content);
+                // A combining mark stored alone is summed as its own code,
+                // the character the program wrote there
+                // (`Content::DEFECTIVE`), its marks after the first as marks.
+                let mut marks = self.clusters.marks_of(cell.content);
+                let base = match base == Content::DEFECTIVE {
+                    true => marks
+                        .next()
+                        .and_then(Codepoint::new)
+                        .map_or(Content::EMPTY, Content::codepoint),
+                    false => base,
+                };
                 sum.add(base, cell.flags, self.word_of(cell.style).attrs());
                 if sum.wants_marks() {
-                    for m in self.clusters.marks_of(cell.content) {
+                    for m in marks {
                         sum.mark(m);
                     }
                 }

@@ -351,13 +351,20 @@ fn margins_off_leave_a_placed_cursor_a_column() {
     assert_eq!(x_at(&format!("{LRM}\x1b[3;11H")), (2, 10));
 }
 
-/// **A mark after a move attaches to the cell before the cursor**, there
-/// as anywhere else -- a placed cursor is not past the screen.
+/// **A mark after a move is a cluster of its own and takes the cursor's
+/// cell as a character would**, there as anywhere else -- a placed cursor
+/// is not past the screen. It attached to the cell before the cursor until
+/// 2026-10-23 (`[[source: uax29]]` GB4/GB5; note AB, Q24 item 1).
 #[test]
-fn a_mark_at_a_placed_cursor_attaches_before_it() {
+fn a_mark_at_a_placed_cursor_takes_the_cell_a_character_would() {
     let s = seen(&format!("{LRM}\x1b[3;11H\u{301}"));
+    let z = seen(&format!("{LRM}\x1b[3;11Hz"));
     let full = seen("\x1b[3;11H\u{301}");
-    assert_eq!((s.cursor, s.pending), ((2, 10), WrapPending::No));
+    assert_eq!(
+        (s.cursor, s.pending),
+        (z.cursor, z.pending),
+        "where a character leaves it"
+    );
     assert_eq!(s.screen, full.screen, "on column 10, as at full width");
 }
 

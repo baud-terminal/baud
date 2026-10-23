@@ -487,12 +487,17 @@ impl Paint<'_, '_> {
                     self.put_rendition(shown);
                     now = shown;
                 }
+                // A combining mark stored alone prints as the mark, as a
+                // copy returns it (`Content::DEFECTIVE`).
+                let defective = base == Content::DEFECTIVE;
                 match (hidden, base.as_codepoint()) {
-                    (false, Some(cp)) => {
+                    (false, cp) if cp.is_some() || defective => {
                         // Every stored codepoint is a `char`; a mark that
                         // were not would print as U+FFFD.
-                        let c = char::from_u32(cp.value());
-                        self.put_char(c.unwrap_or(char::REPLACEMENT_CHARACTER));
+                        if let Some(cp) = cp {
+                            let c = char::from_u32(cp.value());
+                            self.put_char(c.unwrap_or(char::REPLACEMENT_CHARACTER));
+                        }
                         let mut marks = [0u8; MARKS_BYTES];
                         let mut n = 0;
                         for m in self.clusters.marks_of(cell.content) {

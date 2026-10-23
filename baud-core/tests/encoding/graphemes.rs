@@ -207,11 +207,14 @@ fn marks_stack_and_do_not_leak_between_cells() {
     assert_eq!(at(1), Vec::<u32>::new(), "and none on the `b`");
 }
 
-/// A mark with no base character is dropped, and counted.
+/// **A mark with no base character takes a cell of its own.**
 ///
 /// `[[source: uax29]]` GB1 puts a boundary at start of text, so a leading mark
-/// is its own cluster and there is no cell for it to attach to. Dropping it is
-/// correct; dropping it *silently* would not be.
+/// is its own cluster, a defective combining character sequence (TUS D57,
+/// "at the start of a string"), stored alone and drawn on a no-break space
+/// (TUS 5.13; note AB, Q24 item 1, Jev OWN_CELL_MARK_ALONE). It was dropped
+/// and counted until 2026-10-23, which the name records: nothing is dropped
+/// now, and the `x` after it takes the next cell.
 #[test]
 fn a_leading_mark_has_no_base_and_is_counted() {
     let ws = support::CORPUS;
@@ -220,7 +223,20 @@ fn a_leading_mark_has_no_base_and_is_counted() {
     let bytes = "\u{301}x".as_bytes();
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index((bytes).len()));
-    assert_eq!(t.marks_dropped, 1, "the orphan mark is counted");
+    assert_eq!(t.marks_dropped, 0, "the mark is kept");
+    let row = t.row(Row::ZERO).expect("a row");
+    assert_eq!(
+        t.base_of(row[0]),
+        Content::DEFECTIVE,
+        "a cell of its own, with no base"
+    );
+    let marks: Vec<u32> = t.marks(Row::ZERO, Col::ZERO).collect();
+    assert_eq!(marks, vec![0x301], "holding the mark");
+    assert_eq!(
+        row[1].content.as_codepoint().map(|c| c.value()),
+        Some(0x78),
+        "the x after it"
+    );
 }
 
 // ── one cluster, one cell ───────────────────────────────────────────────────
@@ -344,6 +360,9 @@ enum Column {
     Blank,
     Tail,
     Glyph(Vec<Codepoint>),
+    /// A combining mark with no base, stored alone (`Content::DEFECTIVE`),
+    /// and what joined it.
+    Defective(Vec<Codepoint>),
 }
 
 /// `61+903` for a cell, `tail` and `_`, so a failure reads as a row.
@@ -355,6 +374,10 @@ impl std::fmt::Debug for Column {
             Column::Glyph(g) => {
                 let hex: Vec<String> = g.iter().map(|c| format!("{:X}", c.value())).collect();
                 f.write_str(&hex.join("+"))
+            }
+            Column::Defective(g) => {
+                let hex: Vec<String> = g.iter().map(|c| format!("{:X}", c.value())).collect();
+                write!(f, "()+{}", hex.join("+"))
             }
         }
     }
@@ -653,15 +676,17 @@ fn put_cell(screen: &mut [Vec<Column>], (r, c): (usize, usize), k: &[Codepoint])
 ///
 /// Every other cluster takes one cell, holding all its codepoints and taking
 /// its first one's width. **The policy is what happens to a cluster that
-/// starts with a zero-width codepoint**: such a codepoint never takes a cell
-/// (`Paint::glyph` routes `Width::ZERO` to `Paint::attach`), so it joins the
-/// written cell before the cursor on the cursor's row, and the rest of the
-/// cluster follows it there, since the machine says they continue it. At
-/// column 0 there is no cell before it, so it is dropped and counted
-/// (`a_leading_mark_has_no_base_and_is_counted`, GB1), and the first
-/// codepoint with a width takes a cell and the rest join that. Where the
-/// cell before the cursor is empty -- after a line feed -- `Paint::attach`
-/// finds no base, and the cluster is dropped and counted whole.
+/// starts with a zero-width codepoint.** A combining mark there, an Extend
+/// that is not default-ignorable, is a defective combining character
+/// sequence (TUS D57) and takes one cell with no base, the mark and the rest
+/// of the cluster in it (`Content::DEFECTIVE`; note AB, Q24 item 1). A
+/// default-ignorable Extend or ZWJ draws nothing and is dropped, and what
+/// follows it starts afresh, as after a control. Any other zero-width head,
+/// a Prepend, joins the written cell before the cursor on the cursor's row,
+/// and the rest of the cluster follows it there; at column 0 it is dropped
+/// and the first codepoint with a width takes a cell and the rest join that,
+/// and where the cell before the cursor is empty the cluster is dropped
+/// whole. Until 2026-10-23 every zero-width head went the Prepend's way.
 fn policy_screen(clusters: &[Vec<Codepoint>]) -> (Vec<Vec<Column>>, (Row, Col)) {
     let (rows, cols) = (usize::from(SUITE_WS.ws_row), usize::from(SUITE_WS.ws_col));
     let mut screen = vec![vec![Column::Blank; cols]; rows];
@@ -679,6 +704,39 @@ fn policy_screen(clusters: &[Vec<Codepoint>]) -> (Vec<Vec<Column>>, (Row, Col)) 
                     v => panic!("the suite holds no control U+{v:04X}"),
                 }
             }
+            continue;
+        }
+        // A combining mark heads a cell of its own; a default-ignorable
+        // head is dropped and the rest goes on as a cluster of its own. At
+        // column 0 any other zero-width head is dropped too, and what follows
+        // it starts again there, as `glyph` restarts the machine at column 0.
+        let mut k: &[Codepoint] = k;
+        while let Some(&head) = k.first() {
+            let extend = matches!(
+                GraphemeClass::of(head),
+                GraphemeClass::Extend | GraphemeClass::Zwj
+            );
+            let dropped = match extend {
+                true => baud_domain::is_default_ignorable(head),
+                false => c == 0,
+            };
+            if width_of(head) != Width::ZERO || !dropped {
+                break;
+            }
+            k = &k[1..];
+        }
+        let Some(&head) = k.first() else {
+            continue;
+        };
+        if width_of(head) == Width::ZERO
+            && matches!(
+                GraphemeClass::of(head),
+                GraphemeClass::Extend | GraphemeClass::Zwj
+            )
+        {
+            assert!(c < cols, "the model does not wrap");
+            screen[r][c] = Column::Defective(k.to_vec());
+            c += 1;
             continue;
         }
         let lead = k.iter().position(|cp| width_of(*cp) != Width::ZERO);
@@ -704,7 +762,7 @@ fn policy_screen(clusters: &[Vec<Codepoint>]) -> (Vec<Vec<Column>>, (Row, Col)) 
             // A zero-width head joins the written cell before, and the
             // cluster with it.
             (_, Some((j, true))) => {
-                if let Column::Glyph(g) = &mut screen[r][j] {
+                if let Column::Glyph(g) | Column::Defective(g) = &mut screen[r][j] {
                     g.extend(k);
                 }
             }
@@ -737,13 +795,16 @@ fn through_term(bytes: &[u8], read: ReadLen) -> (Vec<Vec<Column>>, (Row, Col), u
                         (true, _) => Column::Blank,
                         (_, true) => Column::Tail,
                         _ => {
+                            let marks = t
+                                .marks(y, Col::at_index(x))
+                                .map(|m| Codepoint::new(m).expect("a mark is a scalar value"));
+                            if t.base_of(*c) == Content::DEFECTIVE {
+                                return Column::Defective(marks.collect());
+                            }
                             let base = t
                                 .base_of(*c)
                                 .as_codepoint()
                                 .expect("a written cell holds one");
-                            let marks = t
-                                .marks(y, Col::at_index(x))
-                                .map(|m| Codepoint::new(m).expect("a mark is a scalar value"));
                             Column::Glyph(std::iter::once(base).chain(marks).collect())
                         }
                     },

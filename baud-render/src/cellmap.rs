@@ -69,7 +69,7 @@ pub fn copy_for_shader(term: &Term<'_>, src: &[PackedCell], dst: &mut [PackedCel
     for (d, s) in dst.iter_mut().zip(src) {
         *d = match s.flags.is_marked() {
             true => PackedCell {
-                content: term.base_of(*s),
+                content: term.base_of(*s).drawn(),
                 ..*s
             },
             false => *s,

@@ -274,3 +274,25 @@ fn a_query_too_long_or_empty_is_refused() {
     let fits = vec![Codepoint::from_char('a'); NEEDLE_MAX];
     assert!(Needle::new(&fits).is_ok());
 }
+
+/// **A mark stored alone is found as the mark and not as a space**: after
+/// a control it is a cluster of its own with no base (`Content::DEFECTIVE`,
+/// `[[source: uax29]]` GB4/GB5), and a copy returns the mark, so a search
+/// reads the mark there too. The control is the same line with a real
+/// space in that cell, which a space finds.
+#[test]
+fn a_mark_stored_alone_is_searched_as_the_mark_and_not_as_a_space() {
+    with_depth(50, |t| {
+        feed(t, "e\x1b[m\u{301}y".as_bytes());
+        let at = top(t);
+        assert!(all(t, " ").is_empty(), "no space was written");
+        assert_eq!(all(t, "\u{301}"), vec![(at, 1, at, 1)]);
+        assert_eq!(all(t, "\u{301}y"), vec![(at, 1, at, 2)]);
+        assert!(all(t, "ey").is_empty(), "the mark's cell is between them");
+    });
+    with_depth(50, |t| {
+        feed(t, b"e y");
+        let at = top(t);
+        assert_eq!(all(t, " "), vec![(at, 1, at, 1)], "the control");
+    });
+}

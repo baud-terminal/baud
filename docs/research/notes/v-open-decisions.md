@@ -3383,10 +3383,12 @@ How VS16 is handled:
 Already matching the draft: characters Unicode marks as emoji by default are
 two columns; VS15 (the "show as text" marker) changes no width; ZWJ families
 (emoji joined by U+200D ZERO WIDTH JOINER) form one cell. A mark sent after
-the cursor has moved away and back still finds its base
-(`a_mark_finds_its_base_after_the_cursor_has_been_away`); the draft is silent
-there, and ghostty does the same ([[source: ghostty-terminal-9bbb9b2]]
-Terminal.zig:1226-1265).
+the cursor has moved away and back takes its own cell since 2026-10-23, the
+move being a control that UAX #29 GB4/GB5 break after
+(`a_mark_after_the_cursor_has_been_away_takes_its_own_cell`; note AB, Q24
+item 1); until then it found its base. The draft is silent there, and
+ghostty finds the base ([[source: ghostty-terminal-9bbb9b2]]
+Terminal.zig:1226-1265), practice.
 
 Two existing problems the review found, both found by reading:
 - **A mark after the last column with autowrap off lands on the wrong cell.**

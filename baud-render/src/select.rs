@@ -602,12 +602,17 @@ fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
     if cell.content.is_wide_tail() {
         return;
     }
-    let Some(cp) = term.base_of(cell).as_codepoint() else {
-        out.push(' ');
-        return;
-    };
-    if let Some(ch) = char::from_u32(cp.value()) {
-        out.push(ch);
+    // A combining mark stored alone copies as the mark, the base it is
+    // drawn on being no character the program wrote (`Content::DEFECTIVE`).
+    let base = term.base_of(cell);
+    if base != Content::DEFECTIVE {
+        let Some(cp) = base.as_codepoint() else {
+            out.push(' ');
+            return;
+        };
+        if let Some(ch) = char::from_u32(cp.value()) {
+            out.push(ch);
+        }
     }
     for mark in term.cluster_marks(cell) {
         if let Some(ch) = char::from_u32(mark) {
@@ -625,7 +630,13 @@ fn is_word(term: &Term<'_>, row: &[PackedCell], at: Col) -> bool {
     if cell.content.is_wide_tail() {
         return i > 0 && is_word(term, row, Col::at_index(i - 1));
     }
-    let Some(cp) = term.base_of(cell).as_codepoint() else {
+    let base = term.base_of(cell);
+    // A mark stored alone is a character the program wrote, and no
+    // whitespace or delimiter (`Content::DEFECTIVE`).
+    if base == Content::DEFECTIVE {
+        return true;
+    }
+    let Some(cp) = base.as_codepoint() else {
         return false;
     };
     match char::from_u32(cp.value()) {

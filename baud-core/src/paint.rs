@@ -891,6 +891,64 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// **A zero-width codepoint the cluster machine broke before**.
+    ///
+    /// An Extend or a ZWJ follows a break only after a control, or with
+    /// nothing before it: `[[source: uax29]]` GB9 joins it to anything else,
+    /// and GB4 and GB5 break after Control, CR and LF, which introduce every
+    /// control function. That is a cluster of its own, a defective combining
+    /// character sequence (TUS D57, "a sequence of combining characters
+    /// appears at the start of a string or follows a control or format
+    /// character"), and it went to the cell before the cursor until
+    /// 2026-10-23: onto a letter the program did not put it on, or dropped
+    /// where that cell was empty (note AB, Q24 item 1).
+    ///
+    /// * **A combining mark takes the cursor's cell**, stored alone as a
+    ///   cluster with [`Content::DEFECTIVE`] for its base, so a copy returns
+    ///   what was written and a renderer draws it on a no-break space (TUS
+    ///   5.13). Jev, OWN_CELL_MARK_ALONE, 0.96/0.99. Copies of it by `REP`
+    ///   come back here, so each is one too.
+    /// * **A default-ignorable one draws nothing and has no cell to take**
+    ///   (TUS 5.21, for 17.0): it is dropped and counted, so it cannot change
+    ///   the character before it, as `U+2764 ESC[m U+FE0F` turned the heart
+    ///   into its emoji. Jev leaned to it, 0.22/0.48; keeping the join departs
+    ///   from GB4/GB5, which no answer decided.
+    ///
+    /// Any other zero-width codepoint, a Prepend or one of class Control
+    /// such as U+200B, joins the cell before the cursor as it did.
+    #[cold]
+    #[inline(never)]
+    fn zero_width(&mut self, cp: Codepoint, pen: Pen) {
+        let class = Classified::of(cp).class;
+        if !matches!(class, GraphemeClass::Extend | GraphemeClass::Zwj) {
+            return self.attach(cp);
+        }
+        if is_default_ignorable(cp) {
+            // Nothing is left for what follows to join, as after a control:
+            // a mark next starts a cluster of its own too.
+            self.clusters.refused += 1;
+            self.cluster = ClusterBreak::after_control();
+            return;
+        }
+        self.glyph_as(cp, Width::NARROW, pen);
+        self.last_cp = Some((cp, Width::ZERO, pen));
+        let (r, owner) = (
+            self.cy,
+            self.view.lead(self.cy, self.after_last_write().before()),
+        );
+        let id = match self
+            .clusters
+            .try_intern_cold(Content::DEFECTIVE, &[cp.value()])
+        {
+            Ok(id) => id,
+            Err(why) => self.refused(why, Content::DEFECTIVE, &[cp.value()]),
+        };
+        if !id.is_none() {
+            self.view.set_cluster(r, owner, id);
+        }
+        self.marked(r);
+    }
+
     /// The pen for a character that arrived decoded: [`Paint::flags`] with
     /// the national tag cleared, since no national set replaced such a
     /// character (`[[source: dec-std-070]]` p. 5-140 stores a code above 126
@@ -920,8 +978,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// it will not fit.
     #[inline(always)]
     pub(crate) fn glyph_as(&mut self, cp: Codepoint, w: Width, pen: Pen) {
-        // **A zero-width codepoint gets no cell, and that needs no cluster
-        // machine.** A combining mark, a ZWJ or a variation selector took a
+        // **A zero-width codepoint gets no cell of its own unless it starts a
+        // cluster** (`Paint::zero_width`: after a control, a combining mark
+        // takes one as a defective sequence, since 2026-10-23). The joined
+        // case never reaches here. A combining mark, a ZWJ or a variation
+        // selector took a
         // full cell here and advanced the cursor a column, so everything after
         // it on the row sat one place right of where `baud-core2` put it --
         // which was about a third of the pinned glyph divergence.
@@ -935,7 +996,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // It stores the codepoint too, since the cluster store landed:
         // `attach` puts it in `ClusterStore`, keyed on content, not position.
         if w == Width::ZERO {
-            self.attach(cp);
+            self.zero_width(cp, pen);
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);

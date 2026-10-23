@@ -64,3 +64,21 @@ impl WidthTable {
         ambiguous: AmbiguousWidth::Narrow,
     };
 }
+
+/// **Whether `c` is `Default_Ignorable_Code_Point`**
+/// (`[[source: dcp-data]]`): ZWJ, ZWNJ, the variation selectors, the tags
+/// and the like, which TUS 5.21 says are ignored for display when not
+/// supported -- drawn as nothing. The core asks it of a zero-width
+/// character that starts a cluster after a control: one that draws nothing
+/// has no cell to take (`Paint::glyph_as`). A binary search over the
+/// generated ranges, on that cold path alone. The ranges,
+/// `baud-domain/src/ignorable_data.rs`, are the same generated table byte
+/// for byte as `baud-font/src/ignorable.rs`: `scripts/gen-default-ignorable.py`
+/// writes each from the pinned `DerivedCoreProperties.txt`, and both
+/// regenerate to what is committed.
+pub fn is_default_ignorable(c: Codepoint) -> bool {
+    let v = c.value();
+    let ranges = crate::ignorable_data::DEFAULT_IGNORABLE;
+    let i = ranges.partition_point(|&(_, end)| end < v);
+    ranges.get(i).is_some_and(|&(start, _)| start <= v)
+}

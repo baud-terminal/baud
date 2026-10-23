@@ -180,12 +180,14 @@ fn a_selector_with_the_cursor_on_a_wide_tail_moves_nothing() {
 
 #[test]
 fn widening_overwrites_the_cell_after_and_repairs_a_wide_neighbour() {
-    // `❤` then a move back over the wide `水` written after it: the selector
-    // arrives with the cursor just past `❤`, so the tail lands on `水`'s lead
-    // and the orphaned `水` tail is blanked.
+    // `a` and the wide `水` after it, then `❤` written over the `a` and its
+    // selector at once: the tail lands on `水`'s lead and the orphaned `水`
+    // tail is blanked. A move between the `❤` and the selector made the
+    // selector its own cluster, dropped, until 2026-10-23 it widened the `❤`
+    // (note AB, Q24 item 1), so the `❤` is written after the move here.
     each_read_size(
         Vs16Width::Two,
-        "\u{2764}\u{6c34}\x1b[1;2H\u{fe0f}".as_bytes(),
+        "a\u{6c34}\x1b[1;1H\u{2764}\u{fe0f}".as_bytes(),
         |t| {
             assert_eq!(row(t, 0), "\u{2764}>......");
         },

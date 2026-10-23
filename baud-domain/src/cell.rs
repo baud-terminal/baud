@@ -18,6 +18,16 @@ impl Content {
     /// The right half of a double-width character. The renderer skips it; the
     /// glyph in the preceding cell covers both columns.
     pub const WIDE_TAIL: Content = Content(0x0011_0001);
+    /// **The base of a defective combining character sequence**: a
+    /// combining mark that follows a control, which `[[source: uax29]]`
+    /// GB4 and GB5 make a cluster of its own with no base. Never a cell's
+    /// word: only a [`ClusterSlot`]'s base, the mark its first mark, so
+    /// the mark is stored alone, as written (TUS D52 lets it be presented
+    /// "as if it were a base character"), and a copy returns the mark and
+    /// nothing else. What draws it is a no-break space, TUS 5.13's
+    /// "rendered as if they had a no-break space as a base character"
+    /// ([`Content::drawn`]).
+    pub const DEFECTIVE: Content = Content(0x0011_0002);
 
     /// A decoded codepoint. Full range — no truncation, so astral-plane
     /// characters survive. `U+1F680 & 0xffff` was `U+F680`, a private-use
@@ -27,6 +37,15 @@ impl Content {
     }
     pub fn as_codepoint(self) -> Option<Codepoint> {
         Codepoint::new(self.0)
+    }
+    /// The base a renderer draws for this one: U+00A0 for
+    /// [`Content::DEFECTIVE`] (TUS 5.13), and every other content as it
+    /// is.
+    pub fn drawn(self) -> Content {
+        match self == Content::DEFECTIVE {
+            true => Content(0x00A0),
+            false => self,
+        }
     }
     pub fn is_empty(self) -> bool {
         self == Content::EMPTY

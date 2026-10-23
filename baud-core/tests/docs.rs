@@ -838,6 +838,13 @@ fn every_test_named_in_the_docs_exists() {
              C0 in a DCS introducer began to be executed; the record cites the \
              old name where it pinned the BEL",
         ),
+        (
+            "a_mark_finds_its_base_after_the_cursor_has_been_away",
+            "a historical name, renamed on 2026-10-23 to \
+             `a_mark_after_the_cursor_has_been_away_takes_its_own_cell` when a \
+             mark after a control began to take its own cell (UAX #29 GB4/GB5); \
+             the record cites the old name where it describes finding the base",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

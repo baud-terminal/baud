@@ -63,6 +63,7 @@ mod grapheme;
 mod grapheme_data;
 mod grid;
 mod history;
+mod ignorable_data;
 mod image;
 mod input;
 mod interpolate;

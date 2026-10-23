@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Generate baud-font/src/ignorable.rs from the pinned DerivedCoreProperties.
+"""Generate baud-font/src/ignorable.rs and baud-domain/src/ignorable_data.rs
+from the pinned DerivedCoreProperties (run once for each output).
 
 `Default_Ignorable_Code_Point` (`[[source: dcp-data]]`)
 is the set a shaper skips while matching unless a pattern names the glyph
 itself -- ZWJ, ZWNJ, variation selectors, tags and the like. HarfBuzz's
 `may_skip` answers "maybe" for these, and baud-font's matcher does the same.
+baud-domain's copy tells the core which zero-width character after a
+control draws nothing and so takes no cell.
 
 The ranges are emitted as a sorted `&[(u32, u32)]` const, inclusive, so the
 lookup is a binary search over a table the generator wrote rather than a
