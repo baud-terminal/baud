@@ -13,8 +13,16 @@ devenv shell -- dev-test    # tests only
 ```
 
 `.github/workflows/ci.yml` runs `devenv test`, so a green gate here is the
-same task set CI runs. **Add a check by adding a task, never by adding a step
-to the workflow** ([CONTRIBUTING.md](../../CONTRIBUTING.md)).
+same task set CI runs. A red unit test does not hide the rest: the five
+checks after it (the bare-metal build, the Linux lint, the audit, the
+feature arms and the path check) still run, and the gate still fails, so
+one run lists every independent failure. A formatting or compile error
+skips the unit tests, and the five checks still run after it. Run the
+gate whole: a single later check run alone,
+`devenv tasks run test:features`, runs the checks before it and exits 0
+over a red unit test (the comment above `enterTest` in `devenv.nix`).
+**Add a check by adding a task, never by adding a step to the workflow**
+([CONTRIBUTING.md](../../CONTRIBUTING.md)).
 
 ## The terminal
 

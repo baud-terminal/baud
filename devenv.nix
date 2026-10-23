@@ -279,11 +279,22 @@ in
   # thing by construction — the workflow is a thin wrapper, and the two cannot
   # drift apart.
   #
-  # The `after` edges are load-bearing. devenv runs tasks with no edge between
-  # them concurrently, so without these, fmt, clippy, check and test all invoke
-  # cargo at once and block on the single lock over ./target. Serialised, they
-  # run cheapest-first — a formatting failure costs no compilation at all — and
-  # each later task reuses what the previous one compiled.
+  # The `after` edges are load-bearing, and they set two things that are
+  # separate. Order: devenv runs tasks with no edge between them
+  # concurrently, so without these, fmt, clippy, check and test all invoke
+  # cargo at once and block on the single lock over ./target. Serialised,
+  # they run cheapest-first — a formatting failure skips clippy, check and
+  # the test build — and each later task reuses what the previous one
+  # compiled.
+  # Failure: a plain `after` runs a task only if the one before it
+  # succeeded, and `@completed` runs it once that one has finished or been
+  # skipped, whatever its exit code. fmt, clippy, check and unit are chained
+  # by plain edges, so a formatting error skips clippy, check and unit, and
+  # a compile error skips unit, with no test build. The five gates after
+  # unit are chained by `@completed` (note V, V21 B), so they run after a
+  # red or a skipped unit and one push reports every independent failure;
+  # after a compile error, bare and linux can fail again on it. The run still
+  # exits non-zero: see the comment above `enterTest`.
   tasks = {
     "test:fmt" = {
       exec = "treefmt --fail-on-change";
@@ -312,10 +323,9 @@ in
       # first failing test binary, and a wall-clock flake once stopped this
       # run at 81 of 119 -- which read as one red test rather than a partial
       # run. One red binary must not hide the rest. nextest takes the same
-      # flag, and the doctests run whether or not it passed. It does not
-      # un-skip the gates chained after this task: the task still exits
-      # non-zero if either half failed, so a red run here still stops
-      # `test:bare` and everything `after` it.
+      # flag, and the doctests run whether or not it passed. The task exits
+      # non-zero if either half failed; `test:bare` and the gates after it
+      # run anyway, through their `@completed` edges.
       #
       # nextest rather than `cargo test`, the owner's call 2026-10-07; why is
       # at `pkgs.cargo-nextest` above. It builds the same test binaries,
@@ -331,14 +341,14 @@ in
     # in a crate header that nothing builds for a bare target is prose.
     "test:bare" = {
       exec = "cargo build --release --quiet -p baud-core --target ${bareTarget} && cargo build --release --quiet -p baud-font --target ${bareTarget}";
-      after = [ "test:unit" ];
+      after = [ "test:unit@completed" ];
     };
 
     # The Linux wiring, type-checked under clippy for a target this Mac
     # cannot run, so the driver cannot rot unbuilt between Linux sessions.
     "test:linux" = {
       exec = "cargo clippy --quiet -p baud-app --target ${linuxTarget} --all-targets -- -D warnings";
-      after = [ "test:bare" ];
+      after = [ "test:bare@completed" ];
     };
 
     # The source-provenance gate. A design claim that cites a paper nobody
@@ -353,7 +363,7 @@ in
     # reason for each live in audit_all.sh.
     "test:audit" = {
       exec = "sh ./audit_all.sh";
-      after = [ "test:linux" ];
+      after = [ "test:linux@completed" ];
     };
     # Every feature arm must build on its own. `--all-features` builds them all
     # at once, which masks per-arm rot and, on 5f1d5f0, did not compile under
@@ -362,7 +372,7 @@ in
     # checks; `test:feature-suites` runs the tests.
     "test:features" = {
       exec = "bash ./scripts/check-features.sh";
-      after = [ "test:audit" ];
+      after = [ "test:audit@completed" ];
     };
 
     # baud-core's suite under its arms, in five builds: the arms that
@@ -395,7 +405,7 @@ in
     # built on rather than leaving it to a failure somewhere else.
     "test:paths" = {
       exec = "bash ./scripts/check-paths.sh";
-      after = [ "test:features" ];
+      after = [ "test:features@completed" ];
     };
 
     # RustSec advisories, which SECURITY.md asks reporters for. Run by hand
@@ -419,5 +429,15 @@ in
   };
 
   # https://devenv.sh/tests/
+  #
+  # **Every gate must stay named here.** devenv (2.4.0, is_soft_failure()
+  # in devenv-tasks/src/tasks.rs) counts a failed task as soft, and leaves
+  # it out of the exit code, when it was not named on the command line, some
+  # task scheduled in the run comes after it, and every such edge is
+  # `@completed`. Named, each gate is a root and its failure is hard, so a
+  # red unit run fails `devenv test` after the later gates have run. Drop
+  # unit, bare, linux, audit or features from this list, or run one later
+  # gate alone (`devenv tasks run test:features` schedules the chain before
+  # it), and that gate's failure exits 0.
   enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
 }
