@@ -353,8 +353,8 @@ mod tests {
     /// **The default stack names its families, and each resolves to its
     /// own face**, in any ASCII case; a family baud has not loaded does
     /// not resolve, and neither does "JetBrains Mono", which no loaded
-    /// face's nameID 1, 4, 6 or 16 carries. The embedded faces are the
-    /// built font, whose `name` table says "Proto Hebrew Mono C"
+    /// face's nameID 1, 4, 6 or 16 carries. The four embedded text faces
+    /// are the built font, whose `name` table says "Proto Hebrew Mono C"
     /// (`fonts/built/FONTLOG.txt`), the stock Italic and Bold Italic too.
     #[test]
     fn the_default_stack_names_its_families() {
