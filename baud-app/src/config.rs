@@ -217,6 +217,11 @@ pub struct Config {
     /// `[cursor] blink_interval_ms`: the length of each phase, shown and
     /// hidden alike, if the config sets one; see [`BlinkInterval`].
     pub blink_interval: BlinkInterval,
+    /// `[cursor] guide`: whether the cursor's row is highlighted -- iTerm2's
+    /// cursor guide -- `"off"` by default, as iTerm2's profile has it, or
+    /// `"on"`. A program's `OSC 1337 ; HighlightCursorLine` overrides it
+    /// until a reset (`Term::cursor_guide`).
+    pub cursor_guide: baud_domain::CursorGuide,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
@@ -773,6 +778,7 @@ impl Config {
             cursor_stop: StopAfter::Never,
             blink_animation: BlinkAnimation::Plasma,
             blink_interval: BlinkInterval::Default,
+            cursor_guide: baud_domain::CursorGuide::Hidden,
             screen_transition: ScreenTransition::Off,
             exit_status: baud_render::StatusMarks::Off,
             checksum: baud_domain::ChecksumReport::On,
@@ -1361,6 +1367,18 @@ impl Config {
                                  fire, ufo or none; using the default, plasma"
                             ));
                             BlinkAnimation::Plasma
+                        }
+                    };
+                }
+                ("cursor", "guide") => {
+                    self.cursor_guide = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::CursorGuide::Shown,
+                        "off" => baud_domain::CursorGuide::Hidden,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] guide {other:?} is not on or off; using off"
+                            ));
+                            baud_domain::CursorGuide::Hidden
                         }
                     };
                 }
@@ -3760,6 +3778,27 @@ mod reader {
             PointerMode::UnlessTracking,
             "a top-level key is not the [pointer] one"
         );
+    }
+
+    /// **The cursor guide is off unless `[cursor] guide = "on"`**, quoted
+    /// or bare; any other value keeps it off and says so.
+    #[test]
+    fn the_cursor_guide_is_off_unless_turned_on() {
+        use baud_domain::CursorGuide;
+        assert_eq!(Config::defaults().cursor_guide, CursorGuide::Hidden);
+        for on in ["\"on\"", "on"] {
+            let text = format!("[cursor]\nguide = {on}\n");
+            assert_eq!(read(&text).cursor_guide, CursorGuide::Shown, "{on}");
+        }
+        assert_eq!(
+            read("[cursor]\nguide = \"off\"\n").cursor_guide,
+            CursorGuide::Hidden
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[cursor]\nguide = \"yes\"\n");
+        assert_eq!(c.cursor_guide, CursorGuide::Hidden);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("guide"), "{said:?}");
     }
 
     /// **Exit-status marks are off unless `[screen] exit_status = "on"`**,

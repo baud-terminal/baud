@@ -9,7 +9,7 @@ use baud_core::Term;
 use baud_domain::{Col, RegisPhase, Row, Rows};
 #[cfg(any(target_os = "linux", test))]
 use baud_render::Blinking;
-use baud_render::{Blink, BlinkPhases, Window};
+use baud_render::{Blink, BlinkPhases, GuideLook, Window};
 
 /// Half a slow blink cycle, milliseconds: text with `SGR 5` shows for this
 /// long, then hides for this long -- 75 blinks a minute. `[[source: ecma48]]`
@@ -96,6 +96,23 @@ pub(crate) fn next_flip(
         .reduce(f64::min)
 }
 
+/// **How the cursor guide is drawn**, `None` while it is hidden: iTerm2's
+/// default colour, and its one-point line as `scale` device pixels
+/// rounded, from one to four.
+pub(crate) fn guide_look(guide: baud_domain::CursorGuide, scale: f64) -> Option<GuideLook> {
+    let line = (1..=4u32)
+        .rev()
+        .find(|&n| f64::from(n) <= scale.round())
+        .unwrap_or(1);
+    match guide {
+        baud_domain::CursorGuide::Shown => Some(GuideLook {
+            colour: baud_render::CURSOR_GUIDE,
+            line: baud_font::Px::of(line),
+        }),
+        baud_domain::CursorGuide::Hidden => None,
+    }
+}
+
 /// The phase a ReGIS page's blinking pixels show: text blink's slow one,
 /// its faint off phase under dimmed flashing lights faint as the text's.
 pub(crate) fn regis_phase(slow: Blink) -> RegisPhase {
@@ -179,6 +196,46 @@ pub(crate) fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
 mod tests {
     use super::*;
     use crate::config::SystemMotion as M;
+
+    /// **The guide's look**: iTerm2's colour while shown, none while
+    /// hidden, and its one-point line one device pixel at a backing scale
+    /// of 1 and two at 2, from one to four.
+    #[test]
+    fn the_guide_line_is_a_point_in_device_pixels() {
+        use baud_domain::CursorGuide;
+        assert_eq!(guide_look(CursorGuide::Hidden, 2.0), None);
+        for (scale, line) in [(1.0, 1), (2.0, 2), (3.0, 3), (0.5, 1), (9.0, 4)] {
+            assert_eq!(
+                guide_look(CursorGuide::Shown, scale),
+                Some(GuideLook {
+                    colour: baud_render::CURSOR_GUIDE,
+                    line: baud_font::Px::of(line),
+                }),
+                "scale {scale}"
+            );
+        }
+    }
+
+    /// **Both apps draw a program's guide over the setting**: each frame
+    /// hands the renderer what `Term::cursor_guide` says, else `[cursor]
+    /// guide`, through `guide_look`.
+    #[test]
+    fn both_apps_draw_a_programs_guide_over_the_setting() {
+        let read = concat!("self.term.cursor_guide().", "unwrap_or(self.cursor_guide)");
+        for (name, src) in [
+            ("app.rs", include_str!("app.rs")),
+            ("linux.rs", include_str!("linux.rs")),
+        ] {
+            assert_eq!(src.matches(read).count(), 1, "{name}: {read}");
+            assert!(
+                src.contains(concat!(
+                    "set_cursor_guide(crate::effects::",
+                    "guide_look(guide"
+                )),
+                "{name}"
+            );
+        }
+    }
 
     /// **The wake for a flip reads the flipped phase**: from any moment,
     /// the deadline is ahead of it, the phase of each rate on screen has

@@ -33129,3 +33129,120 @@ sha256 = "3151194826041bb40479bd9324b21b9983f5da4b7009a4694fafe671d8a31460"
 bytes  = 22478
 status = "external"
 group  = "CR"
+
+[sources.iterm2-964a75d-cursor-guide-renderer]
+key    = "iterm2-964a75d-cursor-guide-renderer"
+title  = "iTerm2 964a75d, iTermCursorGuideRenderer.m -- the Metal guide: the viewport's width a cell high, its colour filled and a line of one point at its top and bottom filled again"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/Renderers/iTermCursorGuideRenderer.m"
+file   = ""
+sha256 = "05f3777595cac7128d7dae7990f13af15b6312c73a8fd7374dd8fdf12df96daf"
+bytes  = 6848
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-metal-driver]
+key    = "iterm2-964a75d-metal-driver"
+title  = "iTerm2 964a75d, iTermMetalDriver.m -- the draw order: backgrounds, images under the text, the badge, the cursor guide below the text, the cursor, the text; the guide's row from the cursor's coordinate"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/iTermMetalDriver.m"
+file   = ""
+sha256 = "d9f91dd403e83424b87f0aac759a6296eceb79de3744315eaf5aecdc75e55681"
+bytes  = 133702
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-metal-per-frame-state]
+key    = "iterm2-964a75d-metal-per-frame-state"
+title  = "iTerm2 964a75d, iTermMetalPerFrameState.m -- cursorGuideEnabled, shouldDrawCursorGuideBelowText, the badge's image and rectangle"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/MetalRenderer/Glue/iTermMetalPerFrameState.m"
+file   = ""
+sha256 = "91a4d16d6e3247bcfceb72533f7f697724d70933392b2b69ba20a83978da2b70"
+bytes  = 146926
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-profile-preferences]
+key    = "iterm2-964a75d-profile-preferences"
+title  = "iTerm2 964a75d, iTermProfilePreferences.m -- the profile defaults: the cursor guide off in calibrated (0.650, 0.910, 1.000) at 0.25, the badge red at 0.5, Powerline glyphs off"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermProfilePreferences.m"
+file   = ""
+sha256 = "7f95eb911287e961f64d6ab0ef06d35f4e639e894806b8082bbcf20838cfce1a"
+bytes  = 109289
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-preferences]
+key    = "iterm2-964a75d-preferences"
+title  = "iTerm2 964a75d, iTermPreferences.m -- UseMetal on by default, and off on battery and in low-power mode by default"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermPreferences.m"
+file   = ""
+sha256 = "07593ada9a05a33802fbfec28e7b9a250a9ba58857b2bdb558421185c104c8db"
+bytes  = 90096
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-ptytextview]
+key    = "iterm2-964a75d-ptytextview"
+title  = "iTerm2 964a75d, PTYTextView.m -- isCursorVisible from DECTCEM, the badge label's fill and background colours and the view's size"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/TerminalView/PTYTextView.m"
+file   = ""
+sha256 = "d14d3cde272c73115da3f043bf90381ab049dd0504b6e1ec574af835585ae15d"
+bytes  = 382024
+status = "external"
+group  = "AX"
+
+[sources.iterm2-doc-profiles-colors]
+key    = "iterm2-doc-profiles-colors"
+title  = "iTerm2 3.7 Settings > Profiles > Colors -- the cursor guide, 'a horizontal rule that indicates the vertical position of the cursor'"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2-website, source/_includes/3.7/documentation-preferences-profiles-colors.md"
+url    = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-preferences-profiles-colors.md"
+file   = ""
+sha256 = "3d6c88bee8e515831f6ea9f64bbf975d48304dda5d99d10974607940f2b8f9d0"
+bytes  = 3580
+status = "external"
+group  = "AX"
+
+[sources.swift-corelibs-28249ce-nsstring]
+key    = "swift-corelibs-28249ce-nsstring"
+title  = "swift-corelibs-foundation 28249ce, NSString.swift -- boolValue: white space skipped, t T y Y yes, an optional sign and zeroes, then a digit 1 to 9"
+author = "the Swift project authors"
+year   = 2026
+venue  = "swift-corelibs-foundation (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/Foundation/NSString.swift"
+file   = ""
+sha256 = "87f87d334af9e7750cef41a7df53a02aeff731f07d467c501359d68a85126ac7"
+bytes  = 76923
+status = "external"
+group  = "AX"
+
+[sources.swift-corelibs-28249ce-scanner]
+key    = "swift-corelibs-28249ce-scanner"
+title  = "swift-corelibs-foundation 28249ce, Scanner.swift -- charactersToBeSkipped defaults to whitespacesAndNewlines, skipped before each scan"
+author = "the Swift project authors"
+year   = 2026
+venue  = "swift-corelibs-foundation (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/Foundation/Scanner.swift"
+file   = ""
+sha256 = "b4575dbdee3d3c212aa51faa3b46e72366121938e6e89833b8facf1b51e7809e"
+bytes  = 26519
+status = "external"
+group  = "AX"

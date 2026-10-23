@@ -15,6 +15,7 @@ use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
+use crate::guide::{self, GuideLook};
 use crate::instance::{Instance, Screen};
 use crate::linked::LinkLook;
 use crate::metrics::{Metrics, PxSize};
@@ -488,6 +489,14 @@ const FLASH_CACHED: usize = 512;
 /// space, so its text colours are grounds too.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Inked {
+    Yes,
+    No,
+}
+
+/// Whether the cursor guide is drawn over a cell under a repeat pass: its
+/// background is then the guide over the page, at each of its alphas.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Guided {
     Yes,
     No,
 }
@@ -1601,6 +1610,13 @@ pub struct Renderer<'f, 'a> {
     glow: Option<(Row, Col, CursorStyle, CursorPhase)>,
     last_glow: Option<(Row, Col, CursorStyle, CursorPhase)>,
     glow_inst: Vec<Instance>,
+    /// iTerm2's cursor guide while it is shown ([`Renderer::set_cursor_guide`]),
+    /// where it lies on this frame and the last, and its records: a row
+    /// under either is dirty, as the glow's is.
+    guide: Option<GuideLook>,
+    guide_at: Option<guide::Placed>,
+    last_guide_at: Option<guide::Placed>,
+    guide_inst: Vec<Instance>,
     /// Whether this frame shows the other video, set by
     /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
     /// phase is.
@@ -1844,6 +1860,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             glow: None,
             last_glow: None,
             glow_inst: Vec::new(),
+            guide: None,
+            guide_at: None,
+            last_guide_at: None,
+            guide_inst: Vec::new(),
             flash: VideoFlash::default(),
             image_places: Vec::new(),
             place_rows: PlaceRows::default(),
@@ -2427,7 +2447,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .flatten()
             .map(|(r, c)| (r, c, term.cursor_style()))
             .filter(|&(_, _, style)| self.cursor_drawn(style));
-        let mut ids: Vec<(baud_domain::StyleId, Inked, Selected, Cursored)> = Vec::new();
+        let mut ids: Vec<(baud_domain::StyleId, Inked, Selected, Cursored, Guided)> = Vec::new();
+        // The guide's row and the block it leaves out, in cells.
+        let guide_row = self
+            .guide_at
+            .map(|g| (g.top / u32::try_from(ch).unwrap_or(1), g.hole));
         'walk: for r in &self.trail_inst {
             let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
             let (x1, y1) = (x + i32::from(r.w.0), y + i32::from(r.h.0));
@@ -2461,7 +2485,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         },
                         _ => Cursored::No,
                     };
-                    let id = (cell.style, inked, selected, cursored);
+                    let guided = match guide_row {
+                        Some((gr, hole))
+                            if usize::try_from(gr).ok() == Some(row.index())
+                                && !hole.is_some_and(|(hx, hw)| {
+                                    let x = u32::try_from((first + c) * cw).unwrap_or(u32::MAX);
+                                    x >= hx && x < hx.saturating_add(hw)
+                                }) =>
+                        {
+                            Guided::Yes
+                        }
+                        _ => Guided::No,
+                    };
+                    let id = (cell.style, inked, selected, cursored, guided);
                     if !ids.contains(&id) {
                         ids.push(id);
                         if ids.len() > FLASH_GROUNDS {
@@ -2501,7 +2537,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         };
-        for &(id, inked, selected, cursored) in &ids {
+        // The page a cell under the guide shows: the guide's colour over it
+        // at its middle's alpha and at its lines'.
+        let guides = |page: Argb| -> [Option<Argb>; 2] {
+            match self.guide {
+                Some(g) => [g.colour.a(), guide::twice(g.colour.a())]
+                    .map(|a| Some(opaque(g.colour).mix(page, a))),
+                None => [None, None],
+            }
+        };
+        for &(id, inked, selected, cursored, guided) in &ids {
             let word = term
                 .styles()
                 .get(id.index())
@@ -2532,6 +2577,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .take(n)
             {
                 ground(colour, res.bg, &mut triples);
+                if guided == Guided::Yes {
+                    for page in guides(res.bg).into_iter().flatten() {
+                        ground(page, page, &mut triples);
+                        ground(colour, page, &mut triples);
+                    }
+                }
             }
             if selected == Selected::No && cursored == Cursored::No {
                 continue;
@@ -2550,14 +2601,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 blink: self.blink,
                 cursor: cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
             });
-            ground(d.bg, d.bg, &mut triples);
-            if text {
-                for colour in [d.fg, d.rule(res.line), d.rule(rule)] {
-                    ground(colour, d.bg, &mut triples);
+            let pages = core::iter::once(Some(d.bg)).chain(match guided {
+                Guided::Yes => guides(d.bg),
+                Guided::No => [None, None],
+            });
+            for page in pages.flatten() {
+                ground(page, page, &mut triples);
+                if text {
+                    for colour in [d.fg, d.rule(res.line), d.rule(rule)] {
+                        ground(colour, page, &mut triples);
+                    }
                 }
-            }
-            if cursored == Cursored::Shape {
-                ground(self.shape_colour(d.bg, d.cursor_fg), d.bg, &mut triples);
+                if cursored == Cursored::Shape {
+                    ground(self.shape_colour(d.bg, d.cursor_fg), page, &mut triples);
+                }
             }
         }
         // **Bounded a frame, and sound while it is**: the repeat draws
@@ -2821,6 +2878,91 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 &mut self.glow_inst,
             );
         }
+    }
+
+    /// **iTerm2's cursor guide** for the frames to come, or none: drawn on
+    /// the cursor's row, over the backgrounds and the images under the
+    /// text and under the text and the cursor, on every path (`guide.rs`).
+    /// Its row is placed by [`Renderer::place_cursor_guide`].
+    pub fn set_cursor_guide(&mut self, look: Option<GuideLook>) {
+        self.guide = look;
+    }
+
+    /// **The cursor's line in a window `back` lines into the history**, for
+    /// the cursor guide: the live cursor's row lowered by the window's
+    /// offset while it is still inside the main display, the status line's
+    /// row while DECSASD puts the cursor there, since that line is in view
+    /// whatever the window looks back on, and none while DECTCEM hides the
+    /// cursor, as iTerm2's CPU path hides the guide (Jev's lean,
+    /// WITH_CURSOR). Both of iTerm2's paths draw the guide on the cursor's
+    /// line, shifted with the scroll, for as long as that line is in view:
+    /// `drawCursrGuideIfNeededInRect`, iTerm2's spelling (`[[source:
+    /// iterm2-7ce037e-text-drawing-helper]]`), and the Metal path's
+    /// `loadCursorInfoWithDrawingHelper` (`[[source:
+    /// iterm2-964a75d-metal-per-frame-state]]`).
+    pub fn cursor_line(term: &Term<'_>, back: Rows) -> Option<Row> {
+        let main = term.geometry().1;
+        if term.status_line().and_then(|l| l.cursor).is_some() {
+            return Some(Row::from_index(main.index()));
+        }
+        let back = term.looking_back(back);
+        let row = term.cursor().0.index() + back.index();
+        (term.cursor_visible() && row < main.index()).then(|| Row::from_index(row))
+    }
+
+    /// **The guide's place for this frame**, from the live cursor `at`
+    /// while the cursor is shown -- `None` while it is hidden, looked back
+    /// from or off the screen drawn -- and `line`, the cursor's line in the
+    /// window ([`Renderer::cursor_line`]): on `at`'s row, else on `line`
+    /// while the window looks back, leaving out the cell of a block the
+    /// phase draws. [`Renderer::convert`] calls this itself; a cell-path
+    /// driver calls it with the cursor it computed and draws
+    /// [`Renderer::cursor_guide`] before the glyphs.
+    pub fn place_cursor_guide(&mut self, at: Option<(Row, Col, CursorStyle)>, line: Option<Row>) {
+        let rows = self.rows.index();
+        self.guide_at = self.guide.and_then(|look| {
+            let drawn = at.filter(|(r, _, _)| r.index() < rows);
+            let r = drawn
+                .map(|(r, _, _)| r)
+                .or(line)
+                .filter(|r| r.index() < rows)?;
+            let hole = drawn.and_then(|(r, c, style)| {
+                let block = matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock);
+                (block && self.cursor_drawn(style)).then(|| {
+                    let (x, _, w, _) = self.cursor_px(r, c, style);
+                    (x.value(), w.value())
+                })
+            });
+            Some(guide::Placed {
+                top: self.band(r).top.value(),
+                hole,
+                look,
+            })
+        });
+        self.guide_inst.clear();
+        if let Some(p) = self.guide_at {
+            let width = self.frame_size().0.value();
+            guide::records(p, self.metrics.cell_h, Px::of(width), &mut self.guide_inst);
+        }
+    }
+
+    /// The guide's records, for a path that draws records of its own:
+    /// after the backgrounds and the images under the text, before the
+    /// glyphs, as [`Renderer::instances`] has them first.
+    pub fn cursor_guide(&self) -> &[Instance] {
+        &self.guide_inst
+    }
+
+    /// [`Renderer::cursor_guide`] into `out`, lowered `pan` pixels: what the
+    /// cell path draws while a smooth scroll slides its grid, so the guide
+    /// stays on the cursor's row as the row moves.
+    pub fn cursor_guide_lowered(&self, pan: Px, out: &mut Vec<Instance>) {
+        out.clear();
+        let down = i16::try_from(pan.value()).unwrap_or(i16::MAX);
+        out.extend(self.guide_inst.iter().map(|g| Instance {
+            y: Screen(g.y.0.saturating_add(down)),
+            ..*g
+        }));
     }
 
     /// The blink animation's solids, for a path that draws records of its
@@ -4338,6 +4480,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .map(|(r, c)| (r, c, term.cursor_style())),
         };
         self.set_cursor_glow_at(live);
+        self.place_cursor_guide(live, Self::cursor_line(term, back));
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
         let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
         // Every slot resolved again -- a theme, a video or a palette changed
@@ -4405,6 +4548,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let glow_moved =
                 (glow_row(self.glow) || glow_row(self.last_glow)) && self.glow != self.last_glow;
+            let guide_row = |g: Option<guide::Placed>| {
+                g.is_some_and(|g| g.top == self.band(Row::from_index(r)).top.value())
+            };
+            let guide_moved = (guide_row(self.guide_at) || guide_row(self.last_guide_at))
+                && self.guide_at != self.last_guide_at;
             let row = Row::from_index(r);
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
             let selection_moved = selected(self.highlight) != selected(self.last_highlight);
@@ -4471,6 +4619,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || changed
                 || cursor_moved
                 || glow_moved
+                || guide_moved
                 || selection_moved
                 || bar_moved
                 || trail_moved
@@ -4578,6 +4727,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_cursor = cursor;
         self.last_cursor_opacity = opacity;
         self.last_glow = self.glow;
+        self.last_guide_at = self.guide_at;
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
         self.last_trail = self.trail;
@@ -4673,6 +4823,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             let examined = under.paint(self, target, row, page);
             frame.places_examined.add(examined);
+            // The cursor guide over the backgrounds and the images under the
+            // text, before the glyphs: first in `instances()`.
+            for inst in &self.guide_inst {
+                target.over(inst, &self.atlas, self.blend, page, band);
+            }
             // In the order `instances()` hands the GPU instance path: the
             // glyphs of the rows above that reach down into this band, the
             // row's own glyphs and decorations, the glyphs of the rows below
@@ -4761,9 +4916,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Every instance of the current frame, row by row: what a GPU path
     /// uploads whole (D2: nobody uploads partial ranges).
     pub fn instances(&self) -> impl Iterator<Item = &Instance> + '_ {
-        self.per_row
+        self.guide_inst
             .iter()
-            .flatten()
+            .chain(self.per_row.iter().flatten())
             .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())
             .chain(self.glow_inst.iter())

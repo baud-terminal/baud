@@ -143,11 +143,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
         ItermKey::AddHiddenAnnotation,
         Unbuilt,
     ),
-    (
-        b"HighlightCursorLine",
-        ItermKey::HighlightCursorLine,
-        Unbuilt,
-    ),
+    (b"HighlightCursorLine", ItermKey::HighlightCursorLine, Acts),
     (
         b"ClearCapturedOutput",
         ItermKey::ClearCapturedOutput,
@@ -358,6 +354,11 @@ pub enum Osc1337<'a> {
     /// iTerm2 reads it with `intValue` ("Bogusly, non-numbers are treated
     /// as 0"; Jev, BLOCK, 0.92/0.98).
     CursorShape(CursorShape),
+    /// `HighlightCursorLine=[boolean]`: "This shows or hides the cursor
+    /// guide". The value is read as iTerm2 reads it, `value.length ?
+    /// [value boolValue] : YES` (`[[source: iterm2-964a75d-vt100terminal]]`):
+    /// none is yes, and any other is `NSString`'s `boolValue` ([`bool_value`]).
+    CursorGuide(CursorGuide),
     /// `ClearScrollback`: "To erase the scrollback history".
     ClearScrollback,
     /// `CurrentDir=dir`: the directory, as sent.
@@ -463,6 +464,12 @@ impl<'a> Osc1337<'a> {
                 2 => Osc1337::CursorShape(CursorShape::Underline),
                 _ => Osc1337::Malformed(key),
             },
+            ItermKey::HighlightCursorLine => {
+                Osc1337::CursorGuide(match value.is_empty() || bool_value(value) == Truth::Yes {
+                    true => CursorGuide::Shown,
+                    false => CursorGuide::Hidden,
+                })
+            }
             ItermKey::ClearScrollback => Osc1337::ClearScrollback,
             ItermKey::CurrentDir => Osc1337::CurrentDir(value),
             ItermKey::RemoteHost => {
@@ -842,6 +849,77 @@ impl<'a> CopyHeader<'a> {
             _ => CopyHeader::Malformed,
         }
     }
+}
+
+/// **Whether iTerm2's cursor guide is shown**, as `HighlightCursorLine`
+/// sets it: the band over the cursor's row ("a horizontal rule that
+/// indicates the vertical position of the cursor").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorGuide {
+    Shown,
+    Hidden,
+}
+
+/// What [`bool_value`] reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Truth {
+    Yes,
+    No,
+}
+
+/// **`NSString`'s `boolValue`**, as swift-corelibs-foundation spells it
+/// (`[[source: swift-corelibs-28249ce-nsstring]]`): white space and new
+/// lines skipped, `t`, `T`, `y` or `Y` is yes; else an optional `+` or
+/// `-`, any zeroes, and yes when a digit 1 to 9 follows. The scanner skips
+/// white space and new lines before each step, its default
+/// `charactersToBeSkipped` (`[[source: swift-corelibs-28249ce-scanner]]`).
+/// Anything else is no, and whatever follows is not read.
+pub fn bool_value(v: &[u8]) -> Truth {
+    let s = core::str::from_utf8(v).unwrap_or("");
+    let mut chars = s.chars().peekable();
+    let skip = |chars: &mut core::iter::Peekable<core::str::Chars<'_>>| {
+        while chars.peek().is_some_and(|&c| skipped(c)) {
+            chars.next();
+        }
+    };
+    skip(&mut chars);
+    if chars
+        .peek()
+        .is_some_and(|c| matches!(c, 't' | 'T' | 'y' | 'Y'))
+    {
+        return Truth::Yes;
+    }
+    if chars.peek().is_some_and(|&c| c == '+' || c == '-') {
+        chars.next();
+    }
+    skip(&mut chars);
+    while chars.peek() == Some(&'0') {
+        chars.next();
+    }
+    skip(&mut chars);
+    match chars.peek() {
+        Some('1'..='9') => Truth::Yes,
+        _ => Truth::No,
+    }
+}
+
+/// Foundation's `whitespacesAndNewlines`: Unicode's `Zs`, `Zl` and `Zp`,
+/// U+0009 to U+000D and U+0085.
+fn skipped(c: char) -> bool {
+    matches!(
+        c,
+        '\u{9}'..='\u{d}'
+            | ' '
+            | '\u{85}'
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200a}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+    )
 }
 
 /// `NSString`'s `intValue`, as iTerm2 reads `CursorShape`'s value: leading
@@ -1281,6 +1359,40 @@ pub fn points_hundredths(px: u32, scale: BackingScale) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **`boolValue` as swift-corelibs-foundation scans it**: white space
+    /// and new lines skipped before each step, `t`, `T`, `y`, `Y` yes, a
+    /// sign, zeroes, then a digit 1 to 9 yes, everything after unread.
+    #[test]
+    fn bool_value_reads_as_foundation_scans() {
+        for (v, want) in [
+            ("yes", Truth::Yes),
+            ("Y", Truth::Yes),
+            ("true", Truth::Yes),
+            ("T", Truth::Yes),
+            (" \n\tY", Truth::Yes),
+            ("\u{3000}t", Truth::Yes),
+            ("\u{a0}1", Truth::Yes),
+            ("1", Truth::Yes),
+            ("9x", Truth::Yes),
+            ("-0001", Truth::Yes),
+            ("+ 7", Truth::Yes),
+            ("0 5", Truth::Yes),
+            ("no", Truth::No),
+            ("n", Truth::No),
+            ("false", Truth::No),
+            ("on", Truth::No),
+            ("0", Truth::No),
+            ("00", Truth::No),
+            ("+", Truth::No),
+            ("--1", Truth::No),
+            ("", Truth::No),
+            ("\u{b}", Truth::No),
+        ] {
+            assert_eq!(bool_value(v.as_bytes()), want, "{v:?}");
+        }
+        assert_eq!(bool_value(b"\xffyes"), Truth::No, "not UTF-8");
+    }
 
     /// **Every key the pinned pages name and every key iTerm2's source
     /// compares has its row, and no row names a key neither lists**:

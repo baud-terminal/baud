@@ -1152,6 +1152,9 @@ pub struct Cold {
     /// without being told, and a shape parsed and dropped is worse than one
     /// not implemented.
     pub(crate) cursor_style: CursorStyle,
+    /// iTerm2's cursor guide as the last `HighlightCursorLine` set it, or
+    /// `None` for the embedder's setting ([`Term::cursor_guide`]).
+    pub(crate) cursor_guide: Option<baud_domain::CursorGuide>,
     /// `?12`, which blinks the cursor *or*-ed with the style's own blink --
     /// foot's rule -- and never stops it: [`Term::cursor_style`] draws a
     /// blink when either says so. What `DECRQM ?12` answers.
@@ -1924,6 +1927,7 @@ impl Cold {
             checksum_ext: baud_domain::ChecksumExtension::DEC,
             pointer: None,
             cursor_style: CursorStyle::BlinkingBlock,
+            cursor_guide: None,
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
             vs16: Vs16Width::Two,
@@ -4104,6 +4108,15 @@ impl<'b> Term<'b> {
     /// The window requests dropped because the queue was full.
     pub fn window_requests_dropped(&self) -> WindowRequestsDropped {
         self.store.strs.window_asks.dropped
+    }
+
+    /// **iTerm2's cursor guide as a program set it** with `OSC 1337 ;
+    /// HighlightCursorLine` (`[[source: iterm2-escape-codes]]`), or `None`
+    /// while none has since power-on or the last `RIS`: then the
+    /// embedder's own setting decides, as iTerm2's profile does. Drawn by
+    /// the embedder over the cursor's row while the cursor is shown.
+    pub fn cursor_guide(&self) -> Option<baud_domain::CursorGuide> {
+        self.cold.cursor_guide
     }
 
     /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,

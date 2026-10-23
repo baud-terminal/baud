@@ -102,6 +102,53 @@ fn cursor_shape_sets_the_shape_and_keeps_the_blink() {
     }
 }
 
+// ── HighlightCursorLine ─────────────────────────────────────────────────────
+
+/// "This shows or hides the cursor guide": `yes` shows it and `no` hides
+/// it, a value read as `NSString`'s `boolValue` and none at all as yes, as
+/// iTerm2's `value.length ? [value boolValue] : YES` reads it. Nothing set
+/// is the embedder's setting, `None`; `DECSTR` keeps what a program set and
+/// `RIS` returns it to the embedder's, as iTerm2's reset does. Nothing is
+/// counted: the key is acted on.
+#[test]
+fn highlight_cursor_line_shows_and_hides_the_guide() {
+    use baud_domain::CursorGuide::{Hidden, Shown};
+    for size in SIZES {
+        with(b"", size, |t| {
+            assert_eq!(t.cursor_guide(), None, "power-on")
+        });
+        for (value, want) in [
+            ("=yes", Shown),
+            ("=no", Hidden),
+            ("", Shown),
+            ("=", Shown),
+            ("=YES", Shown),
+            ("=true", Shown),
+            ("=1", Shown),
+            ("=0", Hidden),
+            ("=-007", Shown),
+            ("= y", Shown),
+            ("=on", Hidden),
+            ("=false", Hidden),
+        ] {
+            with(&osc(&format!("HighlightCursorLine{value}")), size, |t| {
+                assert_eq!(t.cursor_guide(), Some(want), "{value:?}, reads of {size}");
+                assert_eq!(t.strings_ignored, 0, "{value:?}");
+                assert_eq!(
+                    t.iterm_counts().of(ItermKey::HighlightCursorLine),
+                    Messages::NONE
+                );
+            });
+        }
+        with(&osc("HighlightCursorLine=yes"), size, |t| {
+            feed(t, b"\x1b[!p", size);
+            assert_eq!(t.cursor_guide(), Some(Shown), "DECSTR keeps it");
+            feed(t, b"\x1bc", size);
+            assert_eq!(t.cursor_guide(), None, "RIS returns the setting's");
+        });
+    }
+}
+
 // ── ClearScrollback ─────────────────────────────────────────────────────────
 
 fn lines(n: usize) -> Vec<u8> {

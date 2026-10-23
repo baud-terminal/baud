@@ -503,6 +503,7 @@ fn main() {
                         highlight: None,
                         overlay: &overlay,
                         records: &records,
+                        grounds: &[],
                         under: exceptions.under(),
                         chrome: Tally::default(),
                         slide: None,

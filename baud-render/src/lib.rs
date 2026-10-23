@@ -36,6 +36,7 @@ pub mod effect;
 mod find;
 pub mod fire;
 mod flash;
+mod guide;
 pub mod ice;
 mod instance;
 pub mod lightning;
@@ -77,6 +78,7 @@ pub use color::{
 pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
+pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};

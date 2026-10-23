@@ -208,6 +208,8 @@ struct CellMemory {
     overlay_mem: Vec<&'static mut [u8]>,
     exceptions: Overlay,
     records: Vec<Instance>,
+    /// The cursor guide's records, drawn under the glyphs.
+    grounds: Vec<Instance>,
     candidates: Vec<Candidate>,
     /// **The core's own grid, held and no longer bound.**
     ///
@@ -558,6 +560,8 @@ struct App {
     /// interval that wins over the system's keys at every read.
     blink_animation: crate::config::BlinkAnimation,
     blink_interval: crate::config::BlinkInterval,
+    /// `[cursor] guide`: the cursor guide while no program has set it.
+    cursor_guide: baud_domain::CursorGuide,
     /// Whether the first tick has read the system's caret yet.
     caret_read: Done,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
@@ -689,6 +693,8 @@ struct Boot {
     /// `[cursor] blink_animation` and `blink_interval_ms`.
     blink_animation: crate::config::BlinkAnimation,
     blink_interval: crate::config::BlinkInterval,
+    /// `[cursor] guide`.
+    cursor_guide: baud_domain::CursorGuide,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -893,6 +899,7 @@ impl Boot {
             cursor_stop: cfg.cursor_stop,
             blink_animation: cfg.blink_animation,
             blink_interval: cfg.blink_interval,
+            cursor_guide: cfg.cursor_guide,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
@@ -945,6 +952,7 @@ impl App {
             cursor_stop,
             blink_animation,
             blink_interval,
+            cursor_guide,
             screen_transition,
             scroll,
             trail_scroll,
@@ -1061,6 +1069,7 @@ impl App {
                         overlay_mem,
                         exceptions: Overlay::new(),
                         records: Vec::new(),
+                        grounds: Vec::new(),
                         candidates: Vec::new(),
                         grid,
                         alt,
@@ -1264,6 +1273,7 @@ impl App {
             ),
             blink_animation,
             blink_interval,
+            cursor_guide,
             focus: baud_core::Focus::Lost,
             blink_choice,
             warned_blink: Done::No,
@@ -1482,6 +1492,10 @@ impl App {
             }
         };
         self.renderer.set_highlight(highlight);
+        // iTerm2's cursor guide: what a program set, else `[cursor] guide`.
+        let guide = self.term.cursor_guide().unwrap_or(self.cursor_guide);
+        self.renderer
+            .set_cursor_guide(crate::effects::guide_look(guide, self.scale));
         // The find field and every match's mark, on the window drawn, and
         // the input manager's composition in the field while it is open.
         // AppKit hands no hints, and its selected range does not reach
@@ -2058,6 +2072,15 @@ impl App {
                 // while the cursor is not.
                 self.renderer.set_cursor_glow_at(cursor_at);
                 cell.records.extend_from_slice(self.renderer.cursor_glow());
+                // The cursor guide from the same cursor, else on the
+                // cursor's line while the window looks back, its records
+                // under the glyphs (`CellInput::grounds`).
+                self.renderer.place_cursor_guide(
+                    cursor_at,
+                    baud_render::Renderer::cursor_line(&self.term, back),
+                );
+                self.renderer
+                    .cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.grounds);
                 // baud's own overlays, drawn over the images over the text
                 // (`CellInput::chrome`): the find field over its cells,
                 // masked off the shader as a composition is, and its caret;
@@ -2121,6 +2144,7 @@ impl App {
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,
+                    grounds: &cell.grounds,
                     under: cell.exceptions.under(),
                     chrome,
                     slide: sliding.then_some(pan),
@@ -10189,6 +10213,7 @@ impl Driver {
                         .set_animation(c.blink_animation.effective(self.app.motion));
                     self.read_caret_system();
                 }
+                Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
                 Part::StatusMarks => {
                     self.app.renderer.set_status_marks(c.exit_status);
                     relayout = true;

@@ -112,6 +112,10 @@ struct Arms<'f, 'a> {
     overlay_mem: &'static mut [u8],
     exceptions: Overlay,
     records: Vec<Instance>,
+    /// The cursor guide's records, drawn under the glyphs.
+    grounds: Vec<Instance>,
+    /// The cursor guide both arms draw, or none.
+    guide: Option<baud_render::GuideLook>,
     candidates: Vec<Candidate>,
     /// Lines above the live screen both arms draw.
     back: Rows,
@@ -168,6 +172,7 @@ impl Arms<'_, '_> {
         // instance arm's `convert` would turn it in place.
         let view = t.view(self.back);
         self.renderer.set_highlight(self.highlight);
+        self.renderer.set_cursor_guide(self.guide);
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
@@ -286,6 +291,13 @@ impl Arms<'_, '_> {
         // filter, as the app builds it.
         self.renderer.set_cursor_glow_at(shown);
         self.records.extend_from_slice(self.renderer.cursor_glow());
+        // The cursor guide as the app draws it on the cell path: placed from
+        // the live cursor, else on the cursor's line while the window looks
+        // back, its records under the glyphs.
+        self.renderer
+            .place_cursor_guide(shown, Renderer::cursor_line(t, self.back));
+        self.renderer
+            .cursor_guide_lowered(self.slide.unwrap_or(Px::of(0)), &mut self.grounds);
         // baud's own overlays last, over the images, as the app draws
         // them: the find field's cells masked and its records and caret,
         // the link preview's bar the same way, the thumb, the fade.
@@ -328,6 +340,7 @@ impl Arms<'_, '_> {
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            grounds: &self.grounds,
             under: self.exceptions.under(),
             chrome: self.chrome,
             // In place: the shared ring holds the leaving row one row up
@@ -432,6 +445,7 @@ impl Arms<'_, '_> {
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            grounds: &self.grounds,
             under: self.exceptions.under(),
             chrome: self.chrome,
             slide: self.slide,
@@ -1299,6 +1313,8 @@ macro_rules! arms {
             overlay_mem,
             exceptions: Overlay::new(),
             records: Vec::new(),
+            grounds: Vec::new(),
+            guide: None,
             candidates: Vec::new(),
             back: Rows::ZERO,
             highlight: None,
@@ -1837,6 +1853,68 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     feed(&mut t, b"\x1b[?25l\x1b[3;60H\x1b[K");
     arms.renderer.set_blink(BlinkPhases::SHOWN);
     feed(&mut t, b"\x1b[?25h");
+    // **iTerm2's cursor guide** over the cursor's row, under its text and
+    // its cursor, a block's cell left out, for each cursor shape. The arms
+    // agree, and each draws it: the frame differs from the one without.
+    feed(&mut t, b"\x1b[3;60Hguide \x1b[44mblue\x1b[0m\x1b[3;62H");
+    let look = Some(baud_render::GuideLook {
+        colour: baud_render::CURSOR_GUIDE,
+        line: Px::of(2),
+    });
+    for (shape, name) in [
+        (b"\x1b[2 q", "block"),
+        (b"\x1b[4 q", "underline"),
+        (b"\x1b[6 q", "bar"),
+    ] {
+        feed(&mut t, shape);
+        arms.guide = None;
+        let (bare_a, bare_b) = arms.draw(&mut t);
+        arms.guide = look;
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on the guide, {name}"
+        );
+        assert_ne!(
+            differing(&a, &bare_a),
+            0,
+            "the instance arm drew no guide, {name}"
+        );
+        assert_ne!(
+            differing(&b, &bare_b),
+            0,
+            "the cell arm drew no guide, {name}"
+        );
+    }
+    // While a smooth scroll pans the cell arm's grid, the guide pans with
+    // the cursor's row: the pixel rows it changes are the resting ones
+    // lowered by the pan.
+    let width = usize::try_from(arms.renderer.whole_size().0.value() + arms.margin.0).unwrap();
+    let changed = |a: &[u32], b: &[u32]| -> Vec<usize> {
+        (0..a.len() / width)
+            .filter(|&y| a[y * width..(y + 1) * width] != b[y * width..(y + 1) * width])
+            .collect()
+    };
+    arms.guide = None;
+    let (_, rest_bare) = arms.draw(&mut t);
+    arms.guide = look;
+    let (_, rest) = arms.draw(&mut t);
+    arms.slide = Some(Px::of(5));
+    arms.guide = None;
+    let (_, slid_bare) = arms.draw(&mut t);
+    arms.guide = look;
+    let (_, slid) = arms.draw(&mut t);
+    arms.slide = None;
+    let resting = changed(&rest, &rest_bare);
+    assert!(!resting.is_empty(), "the control: the guide draws at rest");
+    assert_eq!(
+        changed(&slid, &slid_bare),
+        resting.iter().map(|y| y + 5).collect::<Vec<_>>(),
+        "the guide stays on the cursor's row through a slide"
+    );
+    arms.guide = None;
+    feed(&mut t, b"\x1b[2 q\x1b[3;60H\x1b[K");
     // `SGR 8` the same way, in either phase: concealed text with an underline
     // and a strike is the frame of its spaces, on each arm.
     feed(
@@ -1912,6 +1990,53 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&c, &live) > 0,
         "the copy three lines back is not the live screen"
     );
+    // The cursor guide three lines back: on the cursor's line while that
+    // line is in view, as iTerm2 draws it, the rows it changes the live
+    // screen's lowered three rows, both arms agreeing; and on neither arm
+    // once the line is below the window.
+    let look = Some(baud_render::GuideLook {
+        colour: baud_render::CURSOR_GUIDE,
+        line: Px::of(2),
+    });
+    let width = usize::try_from(arms.renderer.whole_size().0.value() + arms.margin.0).unwrap();
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let changed = |a: &[u32], b: &[u32]| -> Vec<usize> {
+        (0..a.len() / width)
+            .filter(|&y| a[y * width..(y + 1) * width] != b[y * width..(y + 1) * width])
+            .collect()
+    };
+    feed(&mut t, b"\x1b7\x1b[?25h\x1b[2;5H");
+    let guided = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, back: usize| {
+        arms.back = Rows::of_count(back);
+        arms.guide = None;
+        let (bare_a, bare_b) = arms.draw(t);
+        arms.guide = look;
+        let (a, b) = arms.draw(t);
+        arms.guide = None;
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on the guide {back} back"
+        );
+        (changed(&a, &bare_a), changed(&b, &bare_b))
+    };
+    let (rest, _) = guided(&mut arms, &mut t, 0);
+    assert!(
+        !rest.is_empty(),
+        "the control: the guide draws at the live screen"
+    );
+    let (ga, gb) = guided(&mut arms, &mut t, 3);
+    let lowered: Vec<usize> = rest.iter().map(|y| y + 3 * ch).collect();
+    assert_eq!(ga, lowered, "the instance arm's guide three lines back");
+    assert_eq!(gb, lowered, "the cell arm's guide three lines back");
+    feed(&mut t, b"\x1b[10;5H");
+    let (ga, gb) = guided(&mut arms, &mut t, 3);
+    assert!(
+        ga.is_empty() && gb.is_empty(),
+        "the cursor's line below the window"
+    );
+    feed(&mut t, b"\x1b8");
+    arms.back = Rows::of_count(3);
     // The scrollbar's thumb, three lines up a ring with history behind
     // it: solids on the instance list and on the cell path's records, equal
     // between the arms and a change to the pixels -- held at full, halfway

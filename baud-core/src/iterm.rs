@@ -127,6 +127,9 @@ impl Paint<'_, '_> {
             // `[[source: iterm2-964a75d-screen-terminal-delegate]]`), a
             // departure from the text Jev leaned to below 0.9 (0.50/0.48,
             // 0.46/0.54 asked again), so the text is followed.
+            // "This shows or hides the cursor guide": the embedder draws it
+            // (`Term::cursor_guide`), over its own setting until `RIS`.
+            Osc1337::CursorGuide(g) => self.cold.cursor_guide = Some(g),
             Osc1337::ClearScrollback => self.erase_saved_lines(),
             Osc1337::CurrentDir(dir) => self.current_dir(dir, body),
             Osc1337::RemoteHost(host) => self.remote_host(host, body),

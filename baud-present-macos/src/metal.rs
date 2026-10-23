@@ -417,6 +417,11 @@ pub struct CellInput<'a> {
     pub overlay: &'a OverlayBuffer,
     /// What draws the cells the overlay masks, in the instance layout.
     pub records: &'a [Instance],
+    /// What lies over the backgrounds and the images under the text and
+    /// under the glyphs -- the cursor guide (`Renderer::cursor_guide`) --
+    /// drawn after those images and before the glyph pass, as the instance
+    /// path draws them first.
+    pub grounds: &'a [Instance],
     /// How many of `records`, from the first, lie inside their own rows
     /// ([`baud_render::Overlay::under`]): drawn after the glyph pass and
     /// before the decoration pass, so each row's glyphs are under its
@@ -1976,8 +1981,10 @@ impl Gpu {
             // The records, written once and drawn in two places: those
             // inside their rows after the glyph pass, the rest after the
             // decoration pass.
-            let n = input.records.len();
-            let under = usize::try_from(input.under.value()).map_or(n, |u| u.min(n));
+            // The grounds first in the buffer, then the records.
+            let g = input.grounds.len();
+            let n = g + input.records.len();
+            let under = g + usize::try_from(input.under.value()).map_or(n - g, |u| u.min(n - g));
             // The exit-status marks after the records, drawn in the strip's
             // own pass.
             let marks = renderer.strip_records().len();
@@ -1996,7 +2003,13 @@ impl Gpu {
                     let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
                     for (i, (chunk, inst)) in dst
                         .chunks_exact_mut(Instance::BYTES)
-                        .zip(input.records.iter().chain(renderer.strip_records()))
+                        .zip(
+                            input
+                                .grounds
+                                .iter()
+                                .chain(input.records)
+                                .chain(renderer.strip_records()),
+                        )
                         .enumerate()
                     {
                         if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
@@ -2080,6 +2093,20 @@ impl Gpu {
                         );
                     }
                     self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
+                    // The grounds over them, under the glyphs.
+                    if let Some(slot) = records {
+                        self.draw_records(
+                            &enc,
+                            &self.instances[slot],
+                            At(0),
+                            At(g),
+                            trail_at,
+                            trail.as_ref(),
+                            &ru,
+                            &mask,
+                            &color,
+                        );
+                    }
                 }
                 // The records inside their rows, between the glyphs and the
                 // decorations.
@@ -2088,7 +2115,7 @@ impl Gpu {
                         self.draw_records(
                             &enc,
                             &self.instances[slot],
-                            At(0),
+                            At(g),
                             At(under),
                             trail_at,
                             trail.as_ref(),
@@ -2169,9 +2196,9 @@ impl Gpu {
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
         Some(Drawn::Frame(GpuFrame {
-            instances: Tally::of(
-                count.saturating_add(input.records.len() + renderer.strip_records().len()),
-            ),
+            instances: Tally::of(count.saturating_add(
+                input.grounds.len() + input.records.len() + renderer.strip_records().len(),
+            )),
             upload: upload_time,
             submit,
             gpu,

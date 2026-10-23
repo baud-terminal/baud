@@ -158,6 +158,7 @@ config file, then in `$XDG_CONFIG_HOME/baud/themes/` and
 | `stop_blinking_after` | number, seconds | `0` | Stop blinking, with the cursor shown, after this long without typing, clicking or pasting. `0` means never. |
 | `trail` | `"plasma"`, `"fire"`, `"lightning"`, `"ice"`, `"ufo"`, `"orb"`, `"liquid"`, `"quad"`, `"sweep"`, `"ghost"`, `"off"` (`true` also means the default) | `"plasma"` | The effect left behind when the cursor jumps. [The cursor gallery](../cursor.md) shows each one. |
 | `trail_scroll` | `"ride"`, `"stay"` | `"ride"` | Whether a trail in flight moves up with the text when output scrolls. |
+| `guide` | `"on"`, `"off"` | `"off"` | Whether the row the cursor is on is highlighted with a pale band the window's width, iTerm2's cursor guide. A program can turn it on or off for itself until the terminal is reset. |
 
 When Reduce Motion is on, or on Linux the desktop's reduced-motion
 setting, the blink animation is always `"none"` and the trail is off,

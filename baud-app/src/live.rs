@@ -50,6 +50,8 @@ pub enum Part {
     Scroll,
     /// `[screen] exit_status`.
     StatusMarks,
+    /// `[cursor] guide`.
+    CursorGuide,
     /// What the core is told: `[screen] checksum`, `logging` and
     /// `print_*`, `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
@@ -93,6 +95,7 @@ impl Part {
             | Part::Transition
             | Part::Scroll
             | Part::StatusMarks
+            | Part::CursorGuide
             | Part::TermOptions
             | Part::Bell
             | Part::Emoji
@@ -123,6 +126,7 @@ impl Part {
             Part::Transition => "[screen] transition",
             Part::Scroll => "[scroll] mode",
             Part::StatusMarks => "[screen] exit_status",
+            Part::CursorGuide => "[cursor] guide",
             Part::TermOptions => "the terminal's options",
             Part::Bell => "bell",
             Part::Emoji => "emoji",
@@ -196,6 +200,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         bell,
         clipboard,
         config_reload,
+        cursor_guide,
     } = new;
     let same_faces = old.faces.len() == new_faces.len()
         && old.faces.iter().zip(new_faces).all(|(a, b)| {
@@ -242,6 +247,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     );
     part(old.scroll != *scroll, Part::Scroll);
     part(old.exit_status != *exit_status, Part::StatusMarks);
+    part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
     part(
         old.checksum != *checksum
             || old.logging != *logging
@@ -425,6 +431,7 @@ mod tests {
             ("[screen]\ntransition = true\n", Part::Transition),
             ("[scroll]\nmode = \"normal\"\n", Part::Scroll),
             ("[screen]\nexit_status = \"on\"\n", Part::StatusMarks),
+            ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
             ("[screen]\nlogging = \"off\"\n", Part::TermOptions),
             ("[window]\noperations = \"off\"\n", Part::TermOptions),

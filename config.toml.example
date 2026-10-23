@@ -299,6 +299,11 @@ floor = 1.2
 # streams; "stay" draws it where the screen had it, as before the ride was
 # built, and may lie over part of a sliding cursor for up to 60 ms. It changes
 # nothing under `[scroll] mode = "normal"`.
+#
+# `guide`: "on" highlights the row the cursor is on with a pale blue band
+# the window's width, iTerm2's cursor guide, so the cursor's line is easy
+# to find. "off" by default. A program can turn it on or off for itself
+# (iTerm2's OSC 1337 ; HighlightCursorLine) until the terminal is reset.
 [cursor]
 shape = "block"
 blink = "auto"
@@ -307,6 +312,7 @@ blink_animation = "plasma"
 stop_blinking_after = 0
 trail_scroll = "ride"
 # trail = "plasma"
+guide = "off"
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the

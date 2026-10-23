@@ -893,3 +893,70 @@ fn a_repeat_pass_over_faint_blinking_text_is_capped_against_the_faint_colour() {
     assert!(full.get() < drawn.get(), "the control: the two caps differ");
     assert_eq!(caps[1], drawn, "the faint phase's cap");
 }
+
+/// **A repeat pass over the cursor guide is capped against it**: the guide
+/// over the page is a ground no cell names, at its middle's alpha and its
+/// lines'. Black never flashes on the page, `#101010`; the guide over it is
+/// lighter, and black over that takes a cap under 255. The control: with no
+/// guide the same pass takes the page's 255.
+#[test]
+fn a_repeat_pass_over_the_cursor_guide_is_capped_against_it() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let black = opaque(0, 0, 0);
+    let page = Theme::dark().bg.with_alpha(Chan::from_u8(0xFF));
+    let mut caps = Vec::new();
+    for guide in [false, true] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        // A bar cursor at row 5, column 25, out of the pass's columns.
+        feed(&mut t, b"\x1b]12;rgb:00/00/00\x07\x1b[6 q\x1b[6;26H");
+        let mut r = renderer(&faces);
+        r.set_cursor_guide(guide.then_some(baud_render::GuideLook {
+            colour: baud_render::CURSOR_GUIDE,
+            line: Px::of(1),
+        }));
+        let _ = paint(&mut r, &mut t);
+        let style = baud_core::CursorStyle::SteadyBlock;
+        let (a, b) = (
+            r.cursor_rect(Row::from_index(1), Col::at_index(0), style),
+            r.cursor_rect(Row::from_index(8), Col::at_index(15), style),
+        );
+        r.set_trail(Some(repeat(TrailLook::Smear(Smear {
+            corners: baud_render::Rect {
+                left: a.left,
+                top: a.top,
+                right: b.right,
+                bottom: b.bottom,
+            }
+            .corners(),
+            hole: r.cursor_rect(Row::from_index(5), Col::at_index(25), style),
+            shape: Shape::Quad,
+            strength: Strength::Full,
+        }))));
+        // Two new caps are scanned a frame: enough frames for them all.
+        for _ in 0..4 {
+            let _ = paint(&mut r, &mut t);
+        }
+        assert_eq!(r.flash_held(), Held::Capped, "guide {guide}");
+        caps.push(r.flash_cap());
+    }
+    assert_eq!(caps[0].get(), 0xFF, "the control: the page's cap");
+    let guide = baud_render::CURSOR_GUIDE.with_alpha(Chan::from_u8(0xFF));
+    let want = [64u8, 112]
+        .into_iter()
+        .map(|a| guide.mix(page, Chan::from_u8(a)))
+        .flat_map(|g| {
+            [
+                under_threshold_over(black, g, g),
+                under_threshold_over(black, page, g),
+            ]
+        })
+        .min_by_key(|c| c.get())
+        .unwrap();
+    assert!(
+        want.get() < 0xFF,
+        "the control: the guide is a ground black flashes on"
+    );
+    assert_eq!(caps[1], want, "the cap over the guide");
+}

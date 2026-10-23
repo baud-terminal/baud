@@ -474,6 +474,7 @@ fn main() {
                 highlight: None,
                 overlay: &self.overlay,
                 records: &self.records,
+                grounds: &[],
                 under: self.exceptions.under(),
                 chrome,
                 slide: None,

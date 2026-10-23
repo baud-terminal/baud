@@ -4194,6 +4194,11 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // iTerm2's cursor guide goes back to the embedder's setting: its
+        // reset sets the profile's again (`screenDidReset`, `[[source:
+        // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
+        // it, as iTerm2's `softReset` does not.
+        self.cold.cursor_guide = None;
         // The xterm resources a program set go back with the modes, as
         // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
         // state". `DECSTR` keeps them, as its list names none.
