@@ -2378,7 +2378,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// least [`flash::under_threshold`] of the cursor's colour over each
     /// colour those cells draw, made opaque -- every one's background, and
     /// the text colours of one that holds a character or sets an attribute
-    /// (its solid and glass text, its line and its underline) -- so a pass
+    /// (its solid and glass text, its line and its underline), each as this
+    /// frame draws it, a blinking cell's faint phase faint -- so a pass
     /// over a red cell is held under the red ground's thresholds, one over
     /// text under the text's, and one over the page under the page's. The
     /// records are rebuilt when it moves. Run where the frame's styles are
@@ -2510,9 +2511,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let res = self.resolve_slot(term, word);
             let text = inked == Inked::Yes || word.attrs() != baud_domain::Attrs::NONE;
             let n = if text { 5 } else { 1 };
-            for colour in [res.bg, res.fg, res.glass, res.line, res.underline]
-                .into_iter()
-                .take(n)
+            // The text in the colours this frame draws it: a blinking
+            // cell's faint phase half way to its page, as `drawn` mixes it.
+            let shown = |c: Argb| match res.text(self.blink) {
+                Text::Faint => c.faint_on(res.bg),
+                Text::Drawn | Text::Hidden => c,
+            };
+            let rule = match res.shapes.has(Shapes::UNDERLINE_FOLLOWS_FG) {
+                true => res.fg,
+                false => res.underline,
+            };
+            for colour in [
+                res.bg,
+                shown(res.fg),
+                shown(res.glass),
+                shown(res.line),
+                shown(rule),
+            ]
+            .into_iter()
+            .take(n)
             {
                 ground(colour, res.bg, &mut triples);
             }
@@ -2535,7 +2552,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
             ground(d.bg, d.bg, &mut triples);
             if text {
-                for colour in [d.fg, res.line, res.underline] {
+                for colour in [d.fg, d.rule(res.line), d.rule(rule)] {
                     ground(colour, d.bg, &mut triples);
                 }
             }

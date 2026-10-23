@@ -841,3 +841,55 @@ fn a_repeat_pass_says_when_the_bound_draws_nothing() {
     let _ = paint(&mut r, &mut t);
     assert_eq!(r.flash_held(), Held::Full, "a full pass after it");
 }
+
+/// **A blinking cell in its faint phase is capped against the colour it
+/// draws**: under Dim Flashing Lights an `SGR 5` cell's off phase draws its
+/// text half way to the page (`Blink::Faint`), and a repeat pass over it
+/// is held to that faint text over the page, not to the full text it
+/// draws in the other phase. The theme's `#D8D8D8` over `#101010` is
+/// `#74` grey faint, and a black cursor over that ground takes a cap well
+/// over the full text's. The controls: the shown phase takes the full
+/// text's cap, and the two caps differ.
+#[test]
+fn a_repeat_pass_over_faint_blinking_text_is_capped_against_the_faint_colour() {
+    use baud_render::{Blink, BlinkPhases};
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let black = opaque(0, 0, 0);
+    let page = Theme::dark().bg.with_alpha(Chan::from_u8(0xFF));
+    let text = Theme::dark().fg.with_alpha(Chan::from_u8(0xFF));
+    let half = |x: u8, y: u8| u8::try_from((u16::from(x) + u16::from(y)).div_ceil(2)).unwrap();
+    let faint = opaque(
+        half(text.r().get(), page.r().get()),
+        half(text.g().get(), page.g().get()),
+        half(text.b().get(), page.b().get()),
+    );
+    let mut caps = Vec::new();
+    for phase in [Blink::Shown, Blink::Faint] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?25l\x1b]12;rgb:00/00/00\x07");
+        for row in 1..9 {
+            feed(
+                &mut t,
+                format!("\x1b[{row};1H\x1b[5m{}\x1b[0m", "X".repeat(30)).as_bytes(),
+            );
+        }
+        let mut r = renderer(&faces);
+        r.set_blink(BlinkPhases {
+            slow: phase,
+            rapid: phase,
+        });
+        let _ = paint(&mut r, &mut t);
+        r.set_trail(Some(over_rows(&r)));
+        let _ = paint(&mut r, &mut t);
+        let _ = paint(&mut r, &mut t);
+        caps.push(r.flash_cap());
+    }
+    let full = under_threshold_over(black, text, page);
+    let drawn = under_threshold_over(black, faint, page);
+    assert_eq!(faint, opaque(0x74, 0x74, 0x74), "the faint colour");
+    assert_eq!(caps[0], full, "the control: the shown phase's cap");
+    assert!(full.get() < drawn.get(), "the control: the two caps differ");
+    assert_eq!(caps[1], drawn, "the faint phase's cap");
+}
