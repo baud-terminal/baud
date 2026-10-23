@@ -303,6 +303,7 @@ impl Paint<'_, '_> {
         if let Some(e) = r.encoding {
             let was = self.cold.strips();
             self.cold.encoding = e;
+            self.reselect();
             self.restrip_from(was, node);
         }
         let now = self.terminal_state();

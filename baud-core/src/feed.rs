@@ -496,9 +496,15 @@ fn step(
     // The stated precondition was checked against the UTF-8 half of the graph
     // and never against the half that produced it.
     #[cfg(feature = "probe-pinned-node")]
-    let mut e = Edge::of(*enc, Node::Ground, b);
+    let mut e = Edge::of_graph(p.graph, Node::Ground, b);
     #[cfg(not(feature = "probe-pinned-node"))]
-    let mut e = Edge::of(*enc, *node, b);
+    let mut e = Edge::of_graph(p.graph, *node, b);
+    // **The graph follows the encoding and the version**: a writer of either
+    // that did not `reselect` is caught here, in every debug run.
+    debug_assert!(core::ptr::eq(
+        p.graph,
+        crate::graph::graph_of(*enc, p.cold.widths.widths())
+    ));
     // **Whether a character fits is a property of the read, not of the byte**,
     // so the table cannot answer it and the loop does. A lead whose
     // continuations have not arrived becomes a `Begin`, which parks the

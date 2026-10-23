@@ -437,6 +437,83 @@ fn unicode_version_selects_the_width_tables() {
     }
 }
 
+/// **A run of characters is measured by the version as one character is.**
+/// The trigrams from U+2630, three bytes each and four to a vector step, and
+/// the ideographic symbols from U+16FE0, four bytes each, are wide since
+/// Unicode 9 and one column in East Asian Width 8.0, and their runs reach
+/// the run writers; U+231A to U+23EA are emoji and take the character path.
+/// Each is one column under 8 and two under 9 at every read size, and a
+/// resize keeps the version.
+#[test]
+fn unicode_version_measures_a_run_as_a_character() {
+    let trigrams = "\u{2630}\u{2631}\u{2632}\u{2633}\u{2634}\u{2635}";
+    let symbols = "\u{16FE0}\u{16FE1}\u{16FE2}\u{16FE3}";
+    let emoji = "\u{231A}\u{231B}\u{23E9}\u{23EA}";
+    for size in SIZES {
+        with(&osc("UnicodeVersion=8"), size, |t| {
+            assert_eq!(width_of(t, trigrams, size), 6, "reads of {size}");
+            assert_eq!(width_of(t, symbols, size), 4, "reads of {size}");
+            assert_eq!(width_of(t, emoji, size), 4, "reads of {size}");
+            let _ = t.resize(&WinSize {
+                ws_col: 50,
+                ws_row: 12,
+            });
+            assert_eq!(width_of(t, trigrams, size), 6, "resized, reads of {size}");
+            feed(t, &osc("UnicodeVersion=9"), size);
+            assert_eq!(width_of(t, trigrams, size), 12, "reads of {size}");
+            assert_eq!(width_of(t, symbols, size), 8, "reads of {size}");
+            assert_eq!(width_of(t, emoji, size), 8, "reads of {size}");
+        });
+    }
+}
+
+/// **A switch takes effect at the next character, in the same read.**
+/// Every control that changes the version or the encoding, followed in one
+/// buffer by an emoji Unicode 9 widened: `UnicodeVersion` itself, DECRC and
+/// SCORC restoring what DECSC and SCOSC saved, `?1048` and `?1049`
+/// restoring it with the cursor, and `ESC % @` then `ESC % G` returning to
+/// UTF-8 under Unicode 8. One column under 8, two under 9, from where the
+/// restore put the cursor, at every read size.
+#[test]
+fn unicode_version_switches_mid_read() {
+    let eight = "\x1b]1337;UnicodeVersion=8\x07";
+    let nine = "\x1b]1337;UnicodeVersion=9\x07";
+    let face = "\u{1F600}";
+    let cases: [(&str, String, usize); 7] = [
+        ("set", format!("{eight}{face}{nine}{face}"), 3),
+        ("DECRC", format!("{eight}\x1b7{nine}{face}\x1b8{face}"), 1),
+        ("DECRC to 9", format!("\x1b7{eight}{face}\x1b8{face}"), 2),
+        ("SCORC", format!("{eight}\x1b[s{nine}\x1b[u{face}"), 1),
+        (
+            "?1048",
+            format!("{eight}\x1b[?1048h{nine}\x1b[?1048l{face}"),
+            1,
+        ),
+        (
+            "?1049",
+            format!("{eight}\x1b[?1049h{nine}\x1b[?1049l{face}"),
+            1,
+        ),
+        ("ESC %", format!("{eight}\x1b%@\x1b%G{face}"), 1),
+    ];
+    for size in SIZES {
+        for (what, bytes, cols) in &cases {
+            with(bytes.as_bytes(), size, |t| {
+                assert_eq!(t.cursor().1.index(), *cols, "{what}, reads of {size}");
+            });
+        }
+        // ISO 8859-1 between: `E9` is one character there, not a lead.
+        let mut latin = format!("{eight}\x1b%@").into_bytes();
+        latin.push(0xe9);
+        latin.extend_from_slice(format!("\x1b%G{face}").as_bytes());
+        with(&latin, size, |t| {
+            let row = t.row(Row::from_index(0)).expect("a row on the grid");
+            assert_eq!(row[0].content.as_codepoint(), Codepoint::new(0xe9));
+            assert_eq!(t.cursor().1.index(), 2, "ESC % @, reads of {size}");
+        });
+    }
+}
+
 /// **The version is saved with the cursor and kept by `RIS`**, as iTerm2
 /// keeps both; a push past sixteen entries is refused and counted, and
 /// cells written under 8 keep their one column under 9.

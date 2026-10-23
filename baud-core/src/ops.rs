@@ -387,6 +387,7 @@ impl Paint<'_, '_> {
     pub(crate) fn restore(&mut self, s: Option<Saved>) {
         let Some(s) = s else { return };
         self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), s.widths);
+        self.reselect();
         // **The two flags DECSC saves that neither core restored.**
         // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
         // origin mode are two of them. Origin mode especially is not

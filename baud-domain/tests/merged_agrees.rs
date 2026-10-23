@@ -32,6 +32,10 @@ fn the_merged_table_agrees_with_both_tries() {
                 m.width(now).cells(),
                 Width::of(c, aw).cells()
             );
+            assert!(
+                m.width_current(WidthPolicy::of(aw, UnicodeWidths::Eight)) == Width::of(c, aw),
+                "the current width at U+{cp:04X} under {aw:?}, Unicode 8 named"
+            );
             let eight = WidthPolicy::of(aw, UnicodeWidths::Eight);
             assert!(
                 m.width(eight) == Width::of_unicode8(c, aw),

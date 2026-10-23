@@ -10,7 +10,7 @@
 //! is. That is the point of `Paint`: the `View` setup is paid once a read
 //! instead of once a run.
 
-use crate::graph::{Act, Node, waits_after};
+use crate::graph::{Act, Node, split, waits_after};
 use crate::osc::StrKind;
 use crate::paint::{Paint, Pen};
 use crate::storage::STRIDE_MAX;
@@ -404,6 +404,9 @@ pub(crate) fn act(
         Act::Char2 => chars(p, from, left, ByteLen::TWO),
         Act::Char3 => chars(p, from, left, ByteLen::THREE),
         Act::Char4 => chars(p, from, left, ByteLen::FOUR),
+        // **Under iTerm2's `UnicodeVersion=8` the graph names these two
+        // instead** (`graph_of`), so no arm above asks the version.
+        Act::Lead8 | Act::ContEnd8 => eight(p, a, from, left, node, utf8, min),
         // **The line ending was folded in here too, and it bought nothing.**
         // `cat-scroll.raw` was 48.8% `Text` and 50.6% `Return` -- perfectly
         // alternating -- so taking the `CR LF` in the same step took it from
@@ -1341,8 +1344,9 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     // character goes into (`[[source: ecma48]]` 7.2.10); the read wrote
     // over the character at the cursor.
     //
-    // **The table holds the current tables' widths**, so under iTerm2's
-    // `UnicodeVersion=8` the computing path writes the character.
+    // **Under iTerm2's `UnicodeVersion=8` no character reaches here**:
+    // that graph's `Lead8` sends each one to `eight`. The table holds the
+    // current tables' widths, so the width test stays as a guard.
     #[cfg(feature = "cell-table")]
     if len == 3
         && !p.cells3.is_empty()
@@ -1502,7 +1506,7 @@ fn put_run(
                 // 4096-byte reads and none at one-byte reads, the same bytes
                 // and two screens.
                 let c = Classified::of(*cp);
-                let cw = c.width(p.cold.widths);
+                let cw = c.width_current(p.cold.widths);
                 all_wide &= cw == Width::WIDE;
                 all_narrow &= cw == Width::NARROW;
                 all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -1568,7 +1572,7 @@ fn put_run(
             // every character gets the same answer. Rare by construction: a
             // run has to *contain* a zero-width character to take it.
             let c = Classified::of(cp);
-            let cw = c.width(p.cold.widths);
+            let cw = c.width_current(p.cold.widths);
             all_wide &= cw == Width::WIDE;
             all_narrow &= cw == Width::NARROW;
             all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -1721,7 +1725,92 @@ fn put_run(
 #[inline(never)]
 fn replace(p: &mut Paint<'_, '_>) {
     p.replacements += 1;
-    glyph(p, Codepoint::REPLACEMENT);
+    glyph_any(p, Codepoint::REPLACEMENT, Pen::Decoded);
+}
+
+/// **A step under iTerm2's `UnicodeVersion=8`**, out of line: no recording
+/// selects the version, and the text path's arms above stay as they were.
+/// `Act::Lead8` is a lead byte, one character at a time through
+/// [`glyph_eight`]: the run writers are the default's alone. The act is one
+/// byte wide, so a character the read cut is this step's to split, as
+/// `step` splits a `Char` act: the `Begin` arm's work from the node the
+/// split names, and `Act::ContEnd8` finishes it.
+#[cold]
+#[inline(never)]
+fn eight(
+    p: &mut Paint<'_, '_>,
+    a: Act,
+    from: BytePos,
+    left: ReadLen,
+    node: &mut Node,
+    utf8: &mut Utf8Acc,
+    min: &mut Utf8Min,
+) -> ReadLen {
+    let b = StreamByte::from_stream(p.arena[from.index()]);
+    if a == Act::ContEnd8 {
+        *utf8 = utf8.push(b.continuation_bits());
+        glyph_eight(p, utf8.finish(*min), Pen::Decoded);
+        return ReadLen::ONE;
+    }
+    let (act, len, floor) = match b.utf8_width() {
+        2 => (Act::Char2, ByteLen::TWO, Utf8Min::Two),
+        3 => (Act::Char3, ByteLen::THREE, Utf8Min::Three),
+        _ => (Act::Char4, ByteLen::FOUR, Utf8Min::Four),
+    };
+    if !left.holds(len) {
+        *node = split(act, *node).next;
+        *utf8 = Utf8Acc::lead(b.lead_bits(len.index()));
+        *min = floor;
+        if len != ByteLen::TWO {
+            *node = waits_after(*node, b);
+        }
+        return ReadLen::ONE;
+    }
+    let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
+    if !well_formed(s, len) {
+        let n = maximal_subpart(s, len);
+        replace(p);
+        return n;
+    }
+    let mut raw = s[0].lead_bits(len.index());
+    for c in &s[1..len.index()] {
+        raw = (raw << 6) | c.continuation_bits();
+    }
+    glyph_eight(p, Codepoint::decoded(raw), Pen::Decoded);
+    ReadLen::of_bytes(len)
+}
+
+/// [`glyph_with`] under the version the terminal measures by: for the
+/// writers outside the text path, a GR byte, a single shift, `DEL` in a
+/// 96-character set and a replacement.
+pub(crate) fn glyph_any(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+    match p.cold.widths.widths() {
+        UnicodeWidths::Current => glyph_with(p, cp, pen),
+        UnicodeWidths::Eight => glyph_eight(p, cp, pen),
+    }
+}
+
+/// [`glyph_with`] by Unicode 8's widths: the same cluster step, the width
+/// from the version's code ([`Classified::width`]).
+#[cold]
+#[inline(never)]
+fn glyph_eight(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+    #[cfg(feature = "ceiling-no-classify")]
+    let w = Width::NARROW;
+    #[cfg(not(feature = "ceiling-no-classify"))]
+    let w = {
+        let cl = Classified::of(cp);
+        let w = cl.width(p.cold.widths);
+        if !p.cluster.is_break_classified(cl.class, cl.lookback) {
+            if p.cx.raw() != Col::ZERO {
+                p.attach_continuing(cp);
+                return;
+            }
+            p.restart_cluster(cl);
+        }
+        w
+    };
+    p.glyph_as(cp, w, pen);
 }
 
 /// One codepoint at its own width.
@@ -1739,7 +1828,9 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
 
 /// [`glyph`] under the pen `pen` names: a character a GR byte or a single
 /// shift wrote keeps the set it was received under (`Pen::Kept`), as a GL
-/// code's does, so DECRQCRA counts its code and REP repeats it.
+/// code's does, so DECRQCRA counts its code and REP repeats it. By the
+/// current tables: the graph sends no character here under Unicode 8, and
+/// [`glyph_any`] asks the version for the writers it does not route.
 #[inline(always)]
 pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     #[cfg(feature = "ceiling-no-classify")]
@@ -1752,7 +1843,7 @@ pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
         // exactly the operands `is_break_classified` takes. So GB11 costs a
         // table index on a value already in a register, not a second lookup.
         let cl = Classified::of(cp);
-        let w = cl.width(p.cold.widths);
+        let w = cl.width_current(p.cold.widths);
         // **Does this codepoint continue the cluster before it?** If so it
         // belongs to the previous cell rather than to one of its own, which is
         // what makes `U+1F468 ZWJ U+1F469` one family instead of two people.
@@ -2427,6 +2518,7 @@ fn esc_final(
                 };
                 let was = p.cold.strips();
                 p.cold.encoding = want;
+                p.reselect();
                 *enc = want;
                 p.restrip_from(was, node);
             }

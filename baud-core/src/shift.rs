@@ -8,7 +8,7 @@
 //! 96-character set.
 
 use crate::paint::{Paint, Pen};
-use crate::write::glyph_with;
+use crate::write::glyph_any;
 use baud_domain::*;
 
 impl Paint<'_, '_> {
@@ -33,7 +33,7 @@ impl Paint<'_, '_> {
             (false, 0xff) => return,
             _ => PackedCell::translate(b.seven_bit(), set),
         };
-        glyph_with(self, cp, Pen::Kept(Received::of(set)));
+        glyph_any(self, cp, Pen::Kept(Received::of(set)));
     }
 
     /// The character after a single shift, from the slot the shift named,
@@ -57,7 +57,7 @@ impl Paint<'_, '_> {
             return ReadLen::ZERO;
         }
         self.cluster = ClusterBreak::after_control();
-        glyph_with(
+        glyph_any(
             self,
             PackedCell::translate(code, set),
             Pen::Kept(Received::of(set)),
@@ -72,6 +72,6 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn gl_del(&mut self) {
         let cp = PackedCell::translate(StreamByte::DEL, self.charset);
-        glyph_with(self, cp, Pen::Gl);
+        glyph_any(self, cp, Pen::Gl);
     }
 }

@@ -174,6 +174,23 @@ impl Classified {
         }
     }
 
+    /// The column count by the current tables, whatever version `p` names:
+    /// the code's low two bits, which the table load's own extraction
+    /// yields, so no shift by the version stands between the load and the
+    /// width.
+    #[inline(always)]
+    pub fn width_current(self, p: WidthPolicy) -> Width {
+        match self.code & 3 {
+            1 => Width::ZERO,
+            2 => Width::WIDE,
+            3 => match p.0 & 8 {
+                0 => Width::NARROW,
+                _ => Width::WIDE,
+            },
+            _ => Width::NARROW,
+        }
+    }
+
     /// The column count, under the terminal's policy: its version's code,
     /// then the embedder's ambiguous width.
     #[inline(always)]

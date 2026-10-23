@@ -233,7 +233,7 @@ pub(crate) const NNODE: usize = 38;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 45;
+pub(crate) const NACT: usize = 47;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -462,6 +462,14 @@ pub enum Act {
     /// `Node::Printing`'s every byte: the rest of the read is a printer
     /// controller run's, up to the `CSI 4 i` that ends it.
     Printer,
+    /// **A lead byte while iTerm2's `UnicodeVersion=8` is chosen**: the
+    /// `Char2`, `Char3` and `Char4` of the graph [`Edge::of_graph`] reads
+    /// then, whose step measures the characters by Unicode 8's widths. Its
+    /// own width is one byte, so the per-step test that a character fits is
+    /// the step's to make, and `width` reads as it did.
+    Lead8,
+    /// `ContEnd` under Unicode 8: the last byte of a character a read split.
+    ContEnd8,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -617,6 +625,8 @@ const fn act_name(a: Act) -> &'static str {
         Act::LineTab => "LineTab",
         Act::SixelCut => "SixelCut",
         Act::Printer => "Printer",
+        Act::Lead8 => "Lead8",
+        Act::ContEnd8 => "ContEnd8",
     }
 }
 
@@ -668,6 +678,8 @@ const ALL_ACTS: [Act; NACT] = [
     Act::LineTab,
     Act::SixelCut,
     Act::Printer,
+    Act::Lead8,
+    Act::ContEnd8,
 ];
 
 #[cfg(feature = "diag")]
@@ -782,6 +794,8 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::LineTab => 42,
         Act::SixelCut => 43,
         Act::Printer => 44,
+        Act::Lead8 => 45,
+        Act::ContEnd8 => 46,
     }] += 1;
 }
 
@@ -841,9 +855,50 @@ impl<T> Bytes<T> {
 /// an `E0`, `ED`, `F0` or `F4`.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
+static UTF8_EIGHT: Nodes<Bytes<Edge>> = eight(build(InputEncoding::Utf8));
+
+/// The graph a step reads: the encoding's, and under iTerm2's
+/// `UnicodeVersion=8` the UTF-8 graph whose character acts measure by
+/// Unicode 8's widths (`[[source: iterm2-escape-codes]]`). **Chosen when
+/// the encoding or the version changes, never by a step**, so the default
+/// text path asks no version: the record, "Unicode 8's widths cost the
+/// default nothing".
+pub(crate) type Graph = Nodes<Bytes<Edge>>;
+
+pub(crate) fn graph_of(enc: InputEncoding, widths: UnicodeWidths) -> &'static Graph {
+    match (enc, widths) {
+        (InputEncoding::Latin1, _) => &LATIN1,
+        (InputEncoding::Utf8, UnicodeWidths::Current) => &UTF8,
+        (InputEncoding::Utf8, UnicodeWidths::Eight) => &UTF8_EIGHT,
+    }
+}
+
+/// `g` with every character act taken by its Unicode 8 twin: a lead's
+/// `Char2`, `Char3` or `Char4` by `Lead8`, a split character's `ContEnd`
+/// by `ContEnd8`. Every node and every other act is `g`'s.
+const fn eight(mut g: Graph) -> Graph {
+    let mut n = 0usize;
+    while n < NNODE {
+        let mut i = 0usize;
+        while i < 256 {
+            let e = g.0[n].0[i];
+            g.0[n].0[i].act = match e.act {
+                Act::Char2 | Act::Char3 | Act::Char4 => Act::Lead8,
+                Act::ContEnd => Act::ContEnd8,
+                a => a,
+            };
+            i += 1;
+        }
+        n += 1;
+    }
+    g
+}
 
 impl Edge {
-    /// The edge one byte takes out of one node. **This is the lookup.**
+    /// The edge one byte takes out of one node, in the encoding's graph
+    /// under the current Unicode tables: what the tests ask. A step asks
+    /// [`Edge::of_graph`], **the lookup**, in the graph [`graph_of`] chose.
+    #[cfg(test)]
     #[inline(always)]
     pub(crate) fn of(enc: InputEncoding, from: Node, b: StreamByte) -> Edge {
         // The encoding selects a *table* rather than an index: a byte protocol
@@ -852,6 +907,13 @@ impl Edge {
             InputEncoding::Utf8 => &UTF8,
             InputEncoding::Latin1 => &LATIN1,
         };
+        *g.at(from).at(b)
+    }
+
+    /// The edge out of `from` on `b` in the graph `g`, which [`graph_of`]
+    /// chose for the encoding and the Unicode version.
+    #[inline(always)]
+    pub(crate) fn of_graph(g: &Graph, from: Node, b: StreamByte) -> Edge {
         *g.at(from).at(b)
     }
 }
@@ -3677,6 +3739,43 @@ mod classes {
                     split(act, ground).act,
                     want,
                     "{act:?} from {ground:?} must owe its own continuations"
+                );
+            }
+        }
+    }
+
+    /// **A character split under Unicode 8 resumes where it would have under
+    /// the current tables.** `step` splits a `Char` act from the node before
+    /// the step; the `Lead8` step splits from the node the edge left it in.
+    /// The two agree for every node and byte, so the split's family is the
+    /// same; and the Unicode 8 graph is the UTF-8 graph with its `Char` acts
+    /// taken by `Lead8` and its `ContEnd` by `ContEnd8`, every node the same.
+    #[test]
+    fn a_split_from_the_edge_s_node_is_the_split_from_its_source() {
+        let eight = graph_of(InputEncoding::Utf8, UnicodeWidths::Eight);
+        for node in Node::FROM_INDEX {
+            for b in StreamByte::ALL {
+                let e = Edge::of(InputEncoding::Utf8, node, b);
+                let e8 = Edge::of_graph(eight, node, b);
+                if e.act == Act::ContEnd {
+                    assert_eq!(
+                        e8,
+                        edge(Act::ContEnd8, e.next),
+                        "{node:?} {:#04x}",
+                        b.index()
+                    );
+                    continue;
+                }
+                if !matches!(e.act, Act::Char2 | Act::Char3 | Act::Char4) {
+                    assert_eq!(e8, e, "{node:?} {:#04x}", b.index());
+                    continue;
+                }
+                assert_eq!(e8, edge(Act::Lead8, e.next), "{node:?} {:#04x}", b.index());
+                assert_eq!(
+                    split(e.act, e.next),
+                    split(e.act, node),
+                    "{node:?} {:#04x}",
+                    b.index()
                 );
             }
         }

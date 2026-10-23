@@ -216,6 +216,10 @@ pub(crate) struct Paint<'a, 'b> {
     /// carrying all of that; an indirection costs one load on a path taken
     /// once a control sequence.
     pub(crate) cold: &'a mut crate::term::Cold,
+    /// **The parse graph a step reads**, [`crate::graph::graph_of`] the
+    /// encoding and the Unicode version: chosen here and by
+    /// [`Paint::reselect`] when either changes, so no step asks them.
+    pub(crate) graph: &'static crate::graph::Graph,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
     /// work, whatever their timings say.
@@ -454,6 +458,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             style_log,
             strs,
             images,
+            graph: crate::graph::graph_of(cold.encoding, cold.widths.widths()),
             cold,
             view,
             cy,
@@ -895,6 +900,14 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     pub(crate) fn decoded_pen(&self) -> CellFlags {
         self.flags.with_received(None)
+    }
+
+    /// **The graph again, after the encoding or the Unicode version
+    /// changed**: `ESC %`, DECRSTS, `UnicodeVersion`, and a restore of the
+    /// saved cursor (DECRC, SCORC, `?1048`, `?1049`), which carries the
+    /// version DECSC saved. `step` asserts the two agree in debug builds.
+    pub(crate) fn reselect(&mut self) {
+        self.graph = crate::graph::graph_of(self.cold.encoding, self.cold.widths.widths());
     }
 
     /// One glyph received as a GL code, under the pen that names GL's set.

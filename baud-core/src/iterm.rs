@@ -447,6 +447,7 @@ impl Paint<'_, '_> {
         };
         if let Some(v) = set {
             self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), v);
+            self.reselect();
         }
     }
 
