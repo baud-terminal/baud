@@ -39,9 +39,10 @@ summary = "Hebrew points sit on their letters in the fonts tested but a few: Cou
 [[item]]
 id = "B2-03"
 area = "window"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "Blinking text follows Dim Flashing Lights"
-summary = "macOS's Dim Flashing Lights setting will calm blinking text too."
+summary = "With macOS's Dim Flashing Lights on, blinking text keeps its rates but dims in its off phase instead of vanishing, and switching the setting shows at once."
 
 [[item]]
 id = "B2-23"

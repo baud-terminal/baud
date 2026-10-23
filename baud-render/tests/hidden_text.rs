@@ -458,3 +458,149 @@ fn a_hidden_cells_records_are_not_drawn() {
         "concealed text's records were drawn"
     );
 }
+
+/// **A faint cell's records are drawn, faint**: the cell path's records --
+/// a mark, a ligature window, and a double-width line's glyphs and its
+/// underline in its own `SGR 58` colour -- are all there in the faint off
+/// phase, one for one with the shown phase's, and each in a colour of its
+/// own: the faint one. A record skipped as hidden, or drawn in full, fails.
+#[test]
+fn a_faint_cells_records_are_drawn_faint() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let mut r = renderer(&faces, Theme::dark());
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut backing = GlyphMap::backing();
+    let mut map = GlyphMap::over(&mut backing);
+    let mut styles = vec![Resolved::default(); t.styles().len()];
+    let mut overlay = Overlay::new();
+    let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
+    let mut candidates = Vec::new();
+    let mut drawn = |bytes: &[u8], phase: BlinkPhases, r: &mut Renderer<'_, '_>| {
+        let mut records = Vec::new();
+        feed(&mut t, b"\x1b[H\x1b[2J");
+        feed(&mut t, bytes);
+        r.set_blink(phase);
+        r.resolve_styles_into(&t, &mut styles);
+        map.ensure(&t, t.view(Rows::ZERO), &styles, r, &mut candidates);
+        overlay.ensure(
+            &Scene {
+                term: &t,
+                view: t.view(Rows::ZERO),
+                styles: &styles,
+                cursor: None,
+                highlight: None,
+                map: &map,
+                candidates: &candidates,
+                pan: Px::of(0),
+                composition: None,
+            },
+            r,
+            &mut mask,
+            &mut records,
+        );
+        records
+    };
+    for (text, phase) in [
+        ("\x1b[5;31me\u{301} a -> b", slow(Blink::Faint)),
+        ("\x1b[6;31me\u{301} a -> b", rapid(Blink::Faint)),
+        ("\x1b#6\x1b[5;4;31;58;5;3mWIDE", slow(Blink::Faint)),
+    ] {
+        let shown = drawn(text.as_bytes(), BlinkPhases::SHOWN, &mut r);
+        let faint = drawn(text.as_bytes(), phase, &mut r);
+        assert!(
+            !shown.is_empty(),
+            "the control: {text:?} goes to the records"
+        );
+        assert_eq!(
+            faint.len(),
+            shown.len(),
+            "{text:?}: a faint record was dropped"
+        );
+        for (s, f) in shown.iter().zip(&faint) {
+            assert_ne!(s.color, f.color, "{text:?}: a record drawn in full");
+        }
+    }
+}
+
+/// One full CPU frame of `bytes` in `phase`, its pixels.
+fn pixels(bytes: &[u8], theme: Theme, phase: BlinkPhases) -> Vec<u32> {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let mut r = renderer(&faces, theme);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, bytes);
+    r.set_blink(phase);
+    let mut c = Canvas::for_renderer(&r);
+    paint(&mut r, &mut t, &mut c, Damage::Full);
+    c.pixels
+}
+
+/// **A faint off phase draws the text half way to its page**: every pixel
+/// of the glyphs, the underline in its own `SGR 58` colour and the strike
+/// is half as far from the page as in the on phase -- each channel within
+/// rounding of half the on phase's distance, as `SGR 2` mixes -- in each
+/// rate's off phase. Hidden would be the page and shown the full distance,
+/// so the control is that both differ from it.
+#[test]
+fn a_faint_off_phase_draws_the_text_half_way_to_its_page() {
+    let theme = Theme::dark;
+    for (text, spaces, phase) in [
+        (
+            &b"\x1b[5;4;9;31;58;5;3mBLINK\x1b[0m\x1b[?25l"[..],
+            &b"     \x1b[?25l"[..],
+            slow(Blink::Faint),
+        ),
+        (
+            &b"\x1b[6;4;9;32;58;5;5mBLINK\x1b[0m\x1b[?25l"[..],
+            &b"     \x1b[?25l"[..],
+            rapid(Blink::Faint),
+        ),
+    ] {
+        let page = pixels(spaces, theme(), BlinkPhases::SHOWN);
+        let on = pixels(text, theme(), BlinkPhases::SHOWN);
+        let faint = pixels(text, theme(), phase);
+        assert_ne!(faint, on, "the faint phase drew the text in full");
+        assert_ne!(faint, page, "the faint phase hid the text");
+        let mut inked = 0;
+        for ((&p, &s), &f) in page.iter().zip(&on).zip(&faint) {
+            for shift in [0, 8, 16] {
+                let ch = |w: u32| i32::try_from((w >> shift) & 0xff).unwrap();
+                let (full, half) = (ch(s) - ch(p), ch(f) - ch(p));
+                assert!(
+                    (2 * half - full).abs() <= 3,
+                    "{phase:?}: page {p:08x}, on {s:08x}, faint {f:08x}"
+                );
+                inked += usize::from(full.abs() > 32);
+            }
+        }
+        assert!(inked > 100, "the control: the text inked {inked} channels");
+    }
+}
+
+/// **The faint phase owes frames as the hidden one does**: a rate going
+/// faint, coming back, or going from hidden to faint -- the setting
+/// switched mid-phase -- changes what its text draws, and staying faint
+/// changes nothing. `BlinkPhases::dimmed` turns only hidden phases faint.
+#[test]
+fn a_faint_phase_flips_frames_and_dims_only_hidden_phases() {
+    let (shown, faint, hidden) = (BlinkPhases::SHOWN, slow(Blink::Faint), slow(Blink::Hidden));
+    assert!(Blinking::SLOW.flips(shown, faint), "going faint");
+    assert!(Blinking::SLOW.flips(faint, shown), "coming back");
+    assert!(Blinking::SLOW.flips(hidden, faint), "hidden to faint");
+    assert!(
+        !Blinking::SLOW.flips(faint, faint),
+        "the control: no change"
+    );
+    assert!(
+        !Blinking::RAPID.flips(shown, faint),
+        "rapid text owes no slow change"
+    );
+    assert_eq!(hidden.dimmed(), faint);
+    assert_eq!(shown.dimmed(), shown);
+    assert_eq!(rapid(Blink::Hidden).dimmed(), rapid(Blink::Faint));
+    assert_eq!(faint.hidden(), Default::default());
+    assert_eq!(hidden.faint(), Default::default());
+}

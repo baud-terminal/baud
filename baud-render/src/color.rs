@@ -66,7 +66,7 @@ impl Argb {
     /// Mixed in linear light instead, faint default text on the light page
     /// reads at 1.86:1 where the dark page gets 7.19:1; encoded, 2.96:1 and
     /// 4.07:1.
-    fn faint_on(self, other: Argb) -> Argb {
+    pub(crate) fn faint_on(self, other: Argb) -> Argb {
         let [a, r, g, b] = self.channels();
         let [_, or, og, ob] = other.channels();
         let half = |x: u8, y: u8| {

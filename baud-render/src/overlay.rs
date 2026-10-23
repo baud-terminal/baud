@@ -19,7 +19,7 @@
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
 use crate::cellmap::{
-    BlockCursor, BlockPaint, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps, Text,
+    BlockCursor, BlockPaint, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps,
 };
 use crate::color::Argb;
 use crate::instance::{Instance, Screen};
@@ -1251,7 +1251,7 @@ impl Overlay {
             blink: paint.blink,
             cursor: paint.cursor,
         });
-        if d.text == Text::Hidden {
+        if !d.text.draws() {
             return;
         }
         let color = d.fg;
@@ -1719,7 +1719,7 @@ pub(crate) fn composition_records(
             if look.selected == Selected::Yes {
                 pages.push(bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg));
             }
-            if d.text == Text::Hidden {
+            if !d.text.draws() {
                 continue;
             }
             let place = RuleAt {
@@ -1731,7 +1731,9 @@ pub(crate) fn composition_records(
                 under: px(m.underline),
                 strike: px(m.strike),
             };
-            place.push(look.rule, d.fg, one[0].underline, &mut |i| rules.push(i));
+            place.push(look.rule, d.fg, d.rule(one[0].underline), &mut |i| {
+                rules.push(i)
+            });
         }
     }
     records.append(&mut pages);
@@ -1917,7 +1919,7 @@ fn sized_composition(
                     band,
                 ));
             }
-            if d.text == Text::Hidden {
+            if !d.text.draws() {
                 continue;
             }
             let place = RuleAt {
@@ -1929,12 +1931,12 @@ fn sized_composition(
                 under: px(m.underline),
                 strike: px(m.strike),
             };
-            place.push(look.rule, d.fg, rendition.underline, &mut |i| {
+            place.push(look.rule, d.fg, d.rule(rendition.underline), &mut |i| {
                 rules.extend(stretched(i, size, band));
             });
         }
         let d = drawn(p.col.index(), Line::of(Content::codepoint(p.cps[0])));
-        if d.text == Text::Hidden {
+        if !d.text.draws() {
             continue;
         }
         let glyphs = r.cluster_at(&p.cps, rendition.shapes.face(), p.span, st);

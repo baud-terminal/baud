@@ -970,11 +970,15 @@ impl Resolved {
     /// for `BLINK` off and `INVISIBLE`), over a background that is opaque.
     ///
     /// A blinking cell is hidden in its own rate's off phase: `SGR 5` in the
-    /// slow one, `SGR 6` in the rapid one ([`BlinkPhases::hidden`]).
+    /// slow one, `SGR 6` in the rapid one ([`BlinkPhases::hidden`]); or
+    /// faint, where the frame draws that off phase faint
+    /// ([`BlinkPhases::faint`]). `SGR 8` hides it in every phase.
     pub fn text(self, blink: BlinkPhases) -> Text {
         let off = self.shapes.0 & blink.hidden().0 != 0;
         if off || self.shapes.has(Shapes::CONCEAL) {
             Text::Hidden
+        } else if self.shapes.0 & blink.faint().0 != 0 {
+            Text::Faint
         } else {
             Text::Drawn
         }
@@ -1005,7 +1009,10 @@ impl Resolved {
     ///   colour when the application set one.
     /// * **Hiding comes last**, after the swaps, as xterm's does: hidden
     ///   first, a block cursor would paint its block in the colour the text
-    ///   vanished into and disappear with it.
+    ///   vanished into and disappear with it. **A faint off phase takes the
+    ///   same place**: the text as the swaps leave it, half way to the page
+    ///   they leave it on, as `SGR 2` mixes (`Argb::faint_on`), so under a
+    ///   block cursor the glyph dims toward the block.
     ///
     /// **Inlined always**: CPU instructions a 200x50 glass frame of herdr,
     /// before the glass text 20.26M as compiled and 19.91M inlined, with it
@@ -1074,11 +1081,17 @@ impl Resolved {
         } else {
             self.curves
         };
+        // A faint off phase, after every swap: the glyph half way to the
+        // page it is left on. The cell shader's `colors` ends the same way.
+        let text = self.text(s.blink);
+        if text == Text::Faint {
+            fg = fg.faint_on(bg);
+        }
         Drawn {
             fg,
             bg,
             cursor_fg,
-            text: self.text(s.blink),
+            text,
             curve: self.hilite_curve(s).unwrap_or_else(|| curves.row(side)),
         }
     }
@@ -1173,12 +1186,27 @@ impl Resolved {
     }
 }
 
-/// Whether a cell's own text -- its glyph, underline and strike -- draws.
+/// Whether a cell's own text -- its glyph, underline and strike -- draws,
+/// and how.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Text {
     #[default]
     Drawn,
     Hidden,
+    /// Drawn faint: a blinking cell's off phase under dimmed flashing
+    /// lights ([`crate::Blink::Faint`]). Its colours are already faint in
+    /// [`Drawn`]; a rule in a colour of its own takes [`Drawn::rule`].
+    Faint,
+}
+
+impl Text {
+    /// Whether the cell's own text draws at all: a faint one does.
+    pub fn draws(self) -> bool {
+        match self {
+            Text::Drawn | Text::Faint => true,
+            Text::Hidden => false,
+        }
+    }
 }
 
 /// Whether the selection covers a cell.
@@ -1325,4 +1353,15 @@ pub struct Drawn {
     /// The contrast curve row the glyph takes: the slot's row for the side
     /// the swaps leave the glyph's colour on.
     pub curve: CurveRow,
+}
+
+impl Drawn {
+    /// An underline in a colour of its own (`SGR 58`) as this frame draws
+    /// it: faint with the text, half way to the page.
+    pub fn rule(self, colour: Argb) -> Argb {
+        match self.text {
+            Text::Faint => colour.faint_on(self.bg),
+            Text::Drawn | Text::Hidden => colour,
+        }
+    }
 }

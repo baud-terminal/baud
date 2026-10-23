@@ -164,7 +164,9 @@ impl From<Blink> for CursorPhase {
     fn from(b: Blink) -> CursorPhase {
         match b {
             Blink::Shown => CursorPhase::SHOWN,
-            Blink::Hidden => CursorPhase::HIDDEN,
+            // The caret's off phase has no faint look: the system's caret
+            // settings, not Dim Flashing Lights, are what it follows.
+            Blink::Hidden | Blink::Faint => CursorPhase::HIDDEN,
         }
     }
 }

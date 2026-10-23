@@ -396,6 +396,48 @@ fn an_input_methods_hints_draw_as_the_renditions_they_name() {
     }
 }
 
+/// **Over blinking text in a faint off phase**, as Dim Flashing Lights
+/// draws it, a composition the input method marks misspelt -- its glyphs
+/// and its curly line in the hint's `SGR 58` red -- is drawn faint, equal
+/// to the same text written blinking in that rendition, on a single-width
+/// line and on each sized one; and it differs from the shown phase.
+#[test]
+fn a_composition_over_faint_blinking_text_draws_faint() {
+    use baud_render::{Blink, BlinkPhases};
+    let data = jbm();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let spelling = vec![Hints::SPELLING_ERROR.with(Hints::WHOLE); 3];
+    let faint = BlinkPhases {
+        slow: Blink::Faint,
+        rapid: Blink::Shown,
+    };
+    for set in ["", "\x1b#6", "\x1b#3"] {
+        let base = format!("\x1b[3;1H{set}\x1b[5mabcdef\x1b[m\x1b[5D");
+        let written = format!("{base}\x1b[5;4:3;58:5:1mxyz\x1b[m");
+        r.set_blink(faint);
+        let got = hinted(
+            &mut r,
+            base.as_bytes(),
+            Some(("xyz", spelling.clone())),
+            None,
+        );
+        let want = hinted(&mut r, written.as_bytes(), None, None);
+        r.set_blink(BlinkPhases::SHOWN);
+        let shown = hinted(
+            &mut r,
+            base.as_bytes(),
+            Some(("xyz", spelling.clone())),
+            None,
+        );
+        assert!(got == want, "{set:?}: as written, faint");
+        assert!(
+            got != shown,
+            "{set:?}: the faint phase drew the composition in full"
+        );
+    }
+}
+
 /// **On a dimmed page too** -- the Linux driver draws its theme's dim --
 /// a selected cluster's page and the faint, struck and curly ones equal
 /// the same text written selected and in their renditions, though every

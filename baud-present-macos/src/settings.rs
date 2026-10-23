@@ -16,15 +16,30 @@
 //!   +preferredScrollerStyle method when this notification is received, or
 //!   thereafter" (`[[source: macos-sdk-nsscroller-h]]` 92-94): so the mark
 //!   carries no value, and the tick asks.
+//! * **Dim Flashing Lights**: "Check the value of the Dim Flashing Lights
+//!   setting at any time by using" `MADimFlashingLightsEnabled()`
+//!   (`[[source: apple-mediaaccessibility-flashing-lights]]`,
+//!   `[[source: apple-madimflashinglightsenabled]]`), and
+//!   `kMADimFlashingLightsChangedNotification` "posts when a person changes
+//!   the flashing lights setting"
+//!   (`[[source: apple-kmadimflashinglightschangednotification]]`). The
+//!   header calls it a "CFNotification sent to local notification center"
+//!   (`[[source: macos-sdk-mavideoaccommodations-h]]` 27) and Apple's sample
+//!   observes it on `NotificationCenter.default`
+//!   (`[[source: apple-responding-to-flashing-lights-setting]]`): one centre,
+//!   as `a_local_centre_post_reaches_the_default_centre` shows by posting
+//!   on the first and hearing it on the second. Both exist from macOS
+//!   13.3, under the app's floor of 26, so both are linked.
 //!
 //! **Observed on the default centre with no queue**, so the block runs on
 //! the thread that posts, and does nothing there but set the mark: no
 //! AppKit call is made from it, whichever thread that is.
 //!
-//! `unsafe` is allowed here for the two calls the bindings mark so: the
+//! `unsafe` is allowed here for the calls the bindings mark so -- the
 //! observer's registration, whose block is `Send` and `Sync` because it
-//! only stores to an atomic, and the extern static naming the
-//! notification.
+//! only stores to an atomic, and the extern statics naming the
+//! notifications -- and for MediaAccessibility's two symbols, which no
+//! binding among this crate's dependencies declares.
 #![allow(unsafe_code)]
 
 use std::ptr::NonNull;
@@ -44,6 +59,43 @@ use macos_liquid_glass::objc2_foundation::{
 pub enum Setting {
     /// "Show scroll bars": `NSScroller`'s preferred style.
     Scroller,
+    /// Accessibility's Dim Flashing Lights.
+    DimFlashingLights,
+}
+
+/// What the system asks of flashing on screen: Dim Flashing Lights on is
+/// [`Flashing::Dimmed`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Flashing {
+    Full,
+    Dimmed,
+}
+
+#[link(name = "MediaAccessibility", kind = "framework")]
+unsafe extern "C" {
+    /// `bool MADimFlashingLightsEnabled(void)`, `MAVideoAccommodations.h`
+    /// 23.
+    fn MADimFlashingLightsEnabled() -> bool;
+    /// `const CFStringRef kMADimFlashingLightsChangedNotification`, 30: a
+    /// `CFString`, which is the `NSString` a notification name is.
+    static kMADimFlashingLightsChangedNotification: &'static NSNotificationName;
+}
+
+/// Whether Dim Flashing Lights is on, asked now: read at launch and when
+/// its notification arrives, as Apple's sample reads it.
+pub fn flashing() -> Flashing {
+    // SAFETY: a function of no arguments the framework exports from macOS
+    // 13.3, below the app's floor.
+    match unsafe { MADimFlashingLightsEnabled() } {
+        true => Flashing::Dimmed,
+        false => Flashing::Full,
+    }
+}
+
+/// The name Dim Flashing Lights' change is posted under.
+fn flashing_name() -> &'static NSNotificationName {
+    // SAFETY: a framework constant, a valid string for the process's life.
+    unsafe { kMADimFlashingLightsChangedNotification }
 }
 
 /// Whether a setting's notification arrived since it was last taken.
@@ -57,12 +109,14 @@ pub enum Heard {
 #[derive(Default)]
 struct Marks {
     scroller: AtomicBool,
+    flashing: AtomicBool,
 }
 
 impl Marks {
     fn of(&self, s: Setting) -> &AtomicBool {
         match s {
             Setting::Scroller => &self.scroller,
+            Setting::DimFlashingLights => &self.flashing,
         }
     }
 }
@@ -82,7 +136,10 @@ impl Watch {
         // SAFETY: an AppKit constant, a valid `NSString` for the process's
         // life.
         let scroller = unsafe { NSPreferredScrollerStyleDidChangeNotification };
-        let observers = vec![observe(&center, scroller, &marks, Setting::Scroller)];
+        let observers = vec![
+            observe(&center, scroller, &marks, Setting::Scroller),
+            observe(&center, flashing_name(), &marks, Setting::DimFlashingLights),
+        ];
         Watch { marks, observers }
     }
 
@@ -129,6 +186,18 @@ fn observe(
 mod tests {
     use super::*;
     use macos_liquid_glass::objc2_foundation::NSString;
+    use std::sync::Mutex;
+
+    /// The tests share the process's default centre, so a post one makes
+    /// could land in another's watch under a threaded runner: one at a
+    /// time.
+    static CENTRE: Mutex<()> = Mutex::new(());
+
+    fn alone() -> std::sync::MutexGuard<'static, ()> {
+        CENTRE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     /// Post `name` on the default centre, as AppKit does when the setting
     /// moves.
@@ -149,6 +218,7 @@ mod tests {
     /// filters by name.
     #[test]
     fn the_scroller_notification_is_heard_once_a_tick() {
+        let _one = alone();
         let watch = Watch::start();
         assert_eq!(watch.take(Setting::Scroller), Heard::Unchanged);
         post(&NSString::from_str("BaudNotTheScrollerStyle"));
@@ -171,10 +241,67 @@ mod tests {
     /// starts unmarked.
     #[test]
     fn a_dropped_watch_stops_observing() {
+        let _one = alone();
         let watch = Watch::start();
         let marks = Arc::clone(&watch.marks);
         drop(watch);
         post(scroller_name());
+        post(flashing_name());
         assert!(!marks.scroller.load(Ordering::Acquire));
+        assert!(!marks.flashing.load(Ordering::Acquire));
+    }
+
+    /// **Dim Flashing Lights' notification is heard apart from the
+    /// scroller's**: each marks its own setting and not the other.
+    #[test]
+    fn the_flashing_lights_notification_marks_its_own_setting() {
+        let _one = alone();
+        let watch = Watch::start();
+        post(flashing_name());
+        assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Changed);
+        assert_eq!(
+            watch.take(Setting::Scroller),
+            Heard::Unchanged,
+            "the control: the scroller's mark is its own"
+        );
+        post(scroller_name());
+        assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Unchanged);
+        assert_eq!(watch.take(Setting::Scroller), Heard::Changed);
+    }
+
+    /// **The header's local centre is the default centre the observer is
+    /// on**: the name posted through `CFNotificationCenterGetLocalCenter`,
+    /// as the header says MediaAccessibility posts it, reaches the observer
+    /// Apple's sample registers on `NotificationCenter.default`. Posted on
+    /// a centre of this test's own instead -- the control -- it does not,
+    /// so the observer hears one centre only.
+    #[test]
+    fn a_local_centre_post_reaches_the_default_centre() {
+        use objc2_core_foundation::{CFNotificationCenter, CFString};
+        let _one = alone();
+        let watch = Watch::start();
+        // SAFETY: no object; the centre is this test's, which nothing
+        // observes.
+        unsafe { NSNotificationCenter::new().postNotificationName_object(flashing_name(), None) };
+        assert_eq!(
+            watch.take(Setting::DimFlashingLights),
+            Heard::Unchanged,
+            "the control: another centre's post is not heard"
+        );
+        // SAFETY: the name is a `CFString` toll-free bridged as an
+        // `NSString`, so the pointer is one to the other type.
+        let name = unsafe { &*(flashing_name() as *const NSNotificationName).cast::<CFString>() };
+        let local = CFNotificationCenter::local_center().expect("the local centre");
+        // SAFETY: as above.
+        unsafe { local.post_notification(Some(name), core::ptr::null(), None, true) };
+        assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Changed);
+    }
+
+    /// **The setting reads**: a link check -- the framework loads and the
+    /// call returns, whichever value this machine is set to; the value is
+    /// the owner's setting, so nothing is asserted of it.
+    #[test]
+    fn the_flashing_lights_setting_reads() {
+        let _ = flashing();
     }
 }

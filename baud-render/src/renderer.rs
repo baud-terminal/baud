@@ -62,6 +62,11 @@ pub enum Blink {
     #[default]
     Shown,
     Hidden,
+    /// The off phase drawn faint rather than hidden: the text half way to
+    /// the page it is drawn on, as `SGR 2` mixes it (`Resolved::drawn`).
+    /// Blinking text's off phase while the system asks for dimmed flashing
+    /// lights; the rates are unchanged.
+    Faint,
 }
 
 /// A frame's phase for each blink rate: `slow` for `SGR 5`
@@ -86,13 +91,38 @@ impl BlinkPhases {
     /// phase, [`Shapes::RAPID_BLINK`] in the rapid one. The cell shader's
     /// `blink_hidden` is this mask, so the GPU and CPU test one thing.
     pub fn hidden(self) -> Shapes {
-        let slow = match self.slow {
-            Blink::Shown => Shapes::default(),
-            Blink::Hidden => Shapes::BLINK,
+        self.in_phase(Blink::Hidden)
+    }
+
+    /// The blink shapes this frame draws faint, [`Blink::Faint`]'s rates:
+    /// the cell shader's `blink_faint`.
+    pub fn faint(self) -> Shapes {
+        self.in_phase(Blink::Faint)
+    }
+
+    /// These phases with each hidden off phase drawn faint instead: what a
+    /// driver draws while the system asks for dimmed flashing lights. A
+    /// shown phase stays shown, so phases held shown stay steady.
+    pub fn dimmed(self) -> BlinkPhases {
+        let dim = |b: Blink| match b {
+            Blink::Hidden => Blink::Faint,
+            Blink::Shown | Blink::Faint => b,
         };
-        match self.rapid {
-            Blink::Shown => slow,
-            Blink::Hidden => slow.with(Shapes::RAPID_BLINK),
+        BlinkPhases {
+            slow: dim(self.slow),
+            rapid: dim(self.rapid),
+        }
+    }
+
+    /// The blink shapes of the rates whose phase is `phase`.
+    fn in_phase(self, phase: Blink) -> Shapes {
+        let slow = match self.slow == phase {
+            true => Shapes::BLINK,
+            false => Shapes::default(),
+        };
+        match self.rapid == phase {
+            true => slow.with(Shapes::RAPID_BLINK),
+            false => slow,
         }
     }
 }
@@ -194,9 +224,11 @@ impl Blinking {
     }
 
     /// Whether going from `from` to `to` changes what a cell on screen
-    /// draws: a rate whose phase flipped and whose text is on screen.
+    /// draws: a rate whose phase changed -- shown, hidden or faint -- and
+    /// whose text is on screen.
     pub fn flips(self, from: BlinkPhases, to: BlinkPhases) -> bool {
-        (from.hidden().0 ^ to.hidden().0) & self.0.0 != 0
+        let moved = (from.hidden().0 ^ to.hidden().0) | (from.faint().0 ^ to.faint().0);
+        moved & self.0.0 != 0
     }
 }
 
@@ -716,7 +748,7 @@ pub(crate) fn carries_on(
 ) -> bool {
     at.and_then(|c| row.get(c.index()))
         .and_then(|n| styles.get(n.style.index()))
-        .is_some_and(|n| n.shapes.has(shape) && n.text(blink) == Text::Drawn)
+        .is_some_and(|n| n.shapes.has(shape) && n.text(blink).draws())
 }
 
 /// Which end of its encircled run (`SGR 52`) the cell at `col` of `row`
@@ -5366,7 +5398,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 blink: self.blink,
                 cursor: here.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
             });
-            let (fg, hidden) = (d.fg, d.text == Text::Hidden);
+            let (fg, hidden) = (d.fg, !d.text.draws());
             self.fg[range.start + c] = fg;
             self.curve[range.start + c] = d.curve;
             self.text[range.start + c] = d.text;
@@ -5381,7 +5413,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let ul_color = if res.shapes.has(Shapes::UNDERLINE_FOLLOWS_FG) {
                 fg
             } else {
-                res.underline
+                d.rule(res.underline)
             };
             // The three colon styles, `[[source: kitty-underlines]]`, drawn as
             // runs of solid quads so they need no texel and composite exactly
@@ -6054,7 +6086,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let top = box_top(size, self.band(r));
         let range = self.row_cells(r);
         // A hidden cell draws nothing of its own (`Resolved::text`).
-        if self.text.get(range.start + col.index()) == Some(&Text::Hidden) {
+        if self
+            .text
+            .get(range.start + col.index())
+            .is_some_and(|t| !t.draws())
+        {
             return;
         }
         let color = self
@@ -6112,7 +6148,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // A glyph belongs to the cell it is placed at; a hidden cell's
             // are dropped here rather than kept out of the run, so a run
             // shapes the same in both blink phases.
-            if self.text.get(range.start + col) == Some(&Text::Hidden) {
+            if self.text.get(range.start + col).is_some_and(|t| !t.draws()) {
                 continue;
             }
             let color = self

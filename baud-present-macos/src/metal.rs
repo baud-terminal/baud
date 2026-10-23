@@ -285,7 +285,7 @@ impl Uni {
     }
 }
 
-/// The cell path's uniforms as the shader's `CU` reads them, 36 words, 144
+/// The cell path's uniforms as the shader's `CU` reads them, 38 words, 152
 /// bytes, `repr(C)`. Each field says what it counts; `sel_on` to
 /// `sel_to_row` are the selection, a flag and its two inclusive corners,
 /// and `sel_bg` to `sel_fg_curve` its colours.
@@ -353,9 +353,15 @@ struct CellUniforms {
     /// struct stays a multiple of eight bytes.
     cursor_text: Uni,
     cursor_text_curve: Uni,
+    /// The blink shapes this frame draws faint rather than hides,
+    /// `BlinkPhases::faint`: each rate's off phase while the system asks
+    /// for dimmed flashing lights. With a pad, so the struct stays a
+    /// multiple of eight bytes.
+    blink_faint: Uni,
+    faint_pad: Uni,
 }
 
-const _: () = assert!(core::mem::size_of::<CellUniforms>() == 144);
+const _: () = assert!(core::mem::size_of::<CellUniforms>() == 152);
 
 /// The shader's word for the cell's own text, and for its page: never an
 /// opaque colour, whose alpha byte is `0xFF`.
@@ -1949,6 +1955,8 @@ impl Gpu {
                     .map_or(0xFF, |(_, _, style)| renderer.cursor_opacity(style).get()),
             )),
             blink_hidden: Uni(renderer.blink().hidden().0),
+            blink_faint: Uni(renderer.blink().faint().0),
+            faint_pad: Uni(0),
             sel_bg: paint_word(hilite.bg, None, |(c, _)| c),
             sel_fg: paint_word(hilite.fg, None, |(c, _)| c),
             sel_bg_curve: Uni(curve_of(hilite.bg)),

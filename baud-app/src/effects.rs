@@ -97,10 +97,12 @@ pub(crate) fn next_flip(
 }
 
 /// The phase a ReGIS page's blinking pixels show: text blink's slow one.
+/// A faint off phase hides them: the core paints a ReGIS page's pixels
+/// shown or hidden, and has no faint ones to draw.
 pub(crate) fn regis_phase(slow: Blink) -> RegisPhase {
     match slow {
         Blink::Shown => RegisPhase::Shown,
-        Blink::Hidden => RegisPhase::Hidden,
+        Blink::Hidden | Blink::Faint => RegisPhase::Hidden,
     }
 }
 

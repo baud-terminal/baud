@@ -32,7 +32,7 @@ use baud_domain::{
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
-use baud_present_macos::settings::{Heard, Setting};
+use baud_present_macos::settings::{Flashing, Heard, Setting};
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer, SurfaceSpace,
@@ -584,6 +584,10 @@ struct App {
     trail_pick: crate::config::TrailPick,
     motion: crate::config::SystemMotion,
     motion_source: MotionSource,
+    /// Whether Dim Flashing Lights is on: blinking text's off phase is
+    /// drawn faint while it is (`dim_off_phases`). Read at launch and when
+    /// its notification arrives (`follow_settings`).
+    flashing: Flashing,
     trail: Option<TrailState>,
     /// The quad or sweep trail's state between frames (`trail.rs`), and
     /// the one ledger of full passes every trail weighs against, the
@@ -951,6 +955,7 @@ impl App {
         // answer invalidated.
         let motion_source = motion_override(std::env::var("BAUD_MOTION").ok().as_deref());
         let motion = system_motion(motion_source, reduce_motion);
+        let flashing = baud_present_macos::settings::flashing();
         startup_mark("reduce motion");
         let trail_pick = cursor_trail;
         let cursor_trail = trail_pick.effective(motion);
@@ -1250,6 +1255,7 @@ impl App {
             trail_pick,
             motion,
             motion_source,
+            flashing,
             trail: None,
             chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
             last_cursor_cell: None,
@@ -6869,6 +6875,28 @@ mod motion_tests {
             1,
             "the driver starts its watch"
         );
+        // Dim Flashing Lights: read at launch, and again when heard.
+        assert_eq!(
+            SRC.matches(concat!(
+                "let flashing = baud_present_macos::settings::",
+                "flashing();"
+            ))
+            .count(),
+            1,
+            "the launch reads Dim Flashing Lights"
+        );
+        let follow = SRC
+            .split_once(concat!("fn follow_", "settings(&mut self) {"))
+            .map(|(_, rest)| rest.split_once("\n    }\n").map_or(rest, |(body, _)| body))
+            .expect("follow_settings");
+        assert!(
+            follow.contains("self.settings.take(Setting::DimFlashingLights)")
+                && follow.contains(concat!(
+                    "self.app.flashing = baud_present_macos::settings::",
+                    "flashing();"
+                )),
+            "{follow}"
+        );
     }
 
     /// **The pump rings a read's bells before anything can return**, and
@@ -7075,6 +7103,51 @@ mod motion_tests {
         }
     }
 
+    /// **Dim Flashing Lights draws each off phase faint, at the same rates**:
+    /// across ten seconds of the clock every rate's phase is the one it has
+    /// without the setting, a hidden phase drawn faint instead -- ECMA-48's
+    /// rates hold and the page changes less at each flip -- and under Reduce
+    /// Motion with it the text is steady. Off, the phases are the clock's.
+    #[test]
+    fn dim_flashing_lights_draws_the_off_phase_faint_at_the_same_rates() {
+        use super::dim_off_phases;
+        use crate::effects::{BLINK_HALF, text_blink};
+        use baud_present_macos::settings::Flashing;
+        use baud_render::{Blink, BlinkPhases};
+        let mut faint = (0, 0);
+        for i in 0..800 {
+            let t = f64::from(i) * BLINK_HALF / 8.0;
+            let full = text_blink(t, M::Full);
+            let dim = dim_off_phases(full, Flashing::Dimmed);
+            for (rate, (was, now)) in [(full.slow, dim.slow), (full.rapid, dim.rapid)]
+                .into_iter()
+                .enumerate()
+            {
+                let want = match was {
+                    Blink::Shown => Blink::Shown,
+                    Blink::Hidden | Blink::Faint => Blink::Faint,
+                };
+                assert_eq!(now, want, "at {t}");
+                if now == Blink::Faint {
+                    match rate {
+                        0 => faint.0 += 1,
+                        _ => faint.1 += 1,
+                    }
+                }
+            }
+            assert_eq!(dim_off_phases(full, Flashing::Full), full, "at {t}");
+            assert_eq!(
+                dim_off_phases(text_blink(t, M::Reduced), Flashing::Dimmed),
+                BlinkPhases::SHOWN,
+                "at {t}"
+            );
+        }
+        assert!(
+            faint.0 > 0 && faint.1 > 0,
+            "the control: both rates went faint"
+        );
+    }
+
     /// **Each rate blinks at its own rate**: across a minute of the display
     /// link's clock, sampled every millisecond, `SGR 5` hides 75 times and
     /// `SGR 6` 150 -- `[[source: ecma48]]` § 8.3.117's "less then 150 per
@@ -7113,7 +7186,10 @@ mod motion_tests {
     fn the_tick_takes_the_blink_phase_under_the_motion_preference() {
         const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test does not match its own source.
-        let call = concat!("let phase = text_", "blink(target, self.app.motion);");
+        let call = concat!(
+            "let phase = dim_off_phases(text_",
+            "blink(target, self.app.motion), self.app.flashing);"
+        );
         assert_eq!(SRC.matches(call).count(), 1, "{call}");
         // And a flip owes a frame through the rates on screen, so a slow-only
         // screen does not repaint at the rapid flips.
@@ -8600,8 +8676,9 @@ impl Responder for Driver {
         // blinks at that rate, so a slow-only screen draws no frame at the
         // rapid flips. Under Reduce Motion both are held shown, so a change
         // of the preference to reduced flips a hidden phase back once and
-        // then nothing flips.
-        let phase = text_blink(target, self.app.motion);
+        // then nothing flips. Under Dim Flashing Lights each off phase is
+        // drawn faint rather than hidden, at the same flips.
+        let phase = dim_off_phases(text_blink(target, self.app.motion), self.app.flashing);
         if phase != self.app.blink {
             if self.app.blink_present.flips(self.app.blink, phase) {
                 self.app.next_damage = Damage::Full;
@@ -9784,11 +9861,19 @@ impl Driver {
     /// window out again at once when the style it asks for is not the one
     /// drawn, so the legacy strip comes or goes, and the grid's columns
     /// with it, without waiting for the next wheel or resize.
+    ///
+    /// A change of Dim Flashing Lights is read here too, and the next
+    /// tick's phases take it (`dim_off_phases`): a blinking cell's off
+    /// phase goes faint or hidden on the frame the phase change owes.
     fn follow_settings(&mut self) {
         let heard = self.settings.take(Setting::Scroller);
         if scroller_change(heard, self.app.scroller, scroller_style) == Relayout::Now {
             crate::info!("scroller: {:?}", scroller_style());
             let _ = self.relayout(self.view.frame().size, self.app.scale);
+        }
+        if self.settings.take(Setting::DimFlashingLights) == Heard::Changed {
+            self.app.flashing = baud_present_macos::settings::flashing();
+            crate::info!("flashing: {:?}", self.app.flashing);
         }
     }
 
@@ -13040,6 +13125,19 @@ fn scroller_style() -> Scroller {
     match NSScroller::preferredScrollerStyle(mtm) {
         NSScrollerStyle::Legacy => Scroller::Legacy,
         _ => Scroller::Overlay,
+    }
+}
+
+/// **Blinking text's phases as Dim Flashing Lights asks them drawn**: each
+/// off phase faint rather than hidden while it is on, the rates unchanged
+/// -- ECMA-48's two rates hold, and the page shows less change at each
+/// flip. Jev's lean, below the bar (the record, "Blinking text dims under
+/// Dim Flashing Lights"). Phases Reduce Motion held shown stay shown, so
+/// with both settings on the text is steady.
+fn dim_off_phases(phases: BlinkPhases, flashing: Flashing) -> BlinkPhases {
+    match flashing {
+        Flashing::Full => phases,
+        Flashing::Dimmed => phases.dimmed(),
     }
 }
 

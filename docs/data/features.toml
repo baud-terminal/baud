@@ -897,10 +897,11 @@ tests = ["baud-render/tests/underline_styles.rs::every_style_paints_the_band_and
 id = "blinking-text"
 area = "text"
 name = "Blinking text"
-does = "Slow and fast blinking text, each at its own rate, held steady under Reduce Motion."
+does = "Slow and fast blinking text, each at its own rate, held steady under Reduce Motion; with Dim Flashing Lights on it keeps blinking but dims rather than vanishes."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/app.rs::each_blink_rate_flips_at_its_own_rate", "baud-app/src/app.rs::reduce_motion_holds_blinking_text_shown"]
+tests = ["baud-app/src/app.rs::each_blink_rate_flips_at_its_own_rate", "baud-app/src/app.rs::reduce_motion_holds_blinking_text_shown", "baud-app/src/app.rs::dim_flashing_lights_draws_the_off_phase_faint_at_the_same_rates", "baud-render/tests/hidden_text.rs::a_faint_off_phase_draws_the_text_half_way_to_its_page", "baud-present-macos/src/settings.rs::the_flashing_lights_notification_marks_its_own_setting"]
+shipped = ["B2-03"]
 
 
 [[feature]]

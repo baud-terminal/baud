@@ -1130,6 +1130,10 @@ struct CU {
     // the cell's own text, or 0 for none -- the cell's page -- and the curve
     // row a glyph in a colour takes. 144 bytes with these.
     uint cursor_text; uint cursor_text_curve;
+    // The blink shapes this frame draws faint rather than hides, under
+    // dimmed flashing lights: `BlinkPhases::faint`. And a pad, so the struct
+    // stays a multiple of eight bytes: 152.
+    uint blink_faint; uint faint_pad;
 };
 
 // A paint word: 0 none, the cell's text or page by name, else an opaque
@@ -1832,6 +1836,14 @@ static bool hidden(constant CU& u, uint shapes) {
     return (shapes & (SHAPE_CONCEAL | blinks)) != 0u;
 }
 
+// Whether the cell's own text draws faint: `SGR 5` or `SGR 6` in its own
+// rate's off phase while the frame draws that phase faint, `blink_faint`.
+// Concealed text is hidden first. Must match `Resolved::text`.
+static bool faint(constant CU& u, uint shapes) {
+    uint blinks = u.blink_faint & (SHAPE_BLINK | SHAPE_RAPID_BLINK);
+    return !hidden(u, shapes) && (shapes & blinks) != 0u;
+}
+
 // Whether the cell beside column `col` of draw row `dr` -- to its left or
 // its right -- carries a run of `shape` on: it has the shape and its text
 // draws, since a hidden cell draws nothing of its own and the run's
@@ -1881,6 +1893,23 @@ static uint mix_level(uint w, uint other, uint level) {
 static uint scaled(uint w, uint level) {
     uint a = ((w >> 24) * level + 127u) / 255u;
     return (w & 0x00ffffffu) | (a << 24);
+}
+
+// `w` half way to `other`, each colour channel rounded half up, `w`'s alpha
+// kept: `Argb::faint_on`, `SGR 2`'s mix.
+static uint faint_on(uint w, uint other) {
+    uint out = w & 0xff000000u;
+    for (uint s = 0u; s < 24u; s += 8u) {
+        uint x = (w >> s) & 0xffu, y = (other >> s) & 0xffu;
+        out |= ((x + y + 1u) / 2u) << s;
+    }
+    return out;
+}
+
+// An underline in a colour of its own as this frame draws it: faint with
+// the text. `Drawn::rule`.
+static uint rule(constant CU& u, Style s, uint bgw) {
+    return faint(u, s.shapes) ? faint_on(s.ul, bgw) : s.ul;
 }
 
 // Whether the cell's page is drawn solid under the dim: its rendition's
@@ -2006,6 +2035,9 @@ static void colors(constant CU& u, device const Style* styles,
             bgw = mix_level(bgw, b0, u.cursor_alpha);
         }
     }
+    // A faint off phase, after every swap: the glyph half way to the page
+    // it is left on, `Resolved::drawn`.
+    if (faint(u, s.shapes)) fgw = faint_on(fgw, bgw);
 }
 
 // Whether the cell draws a background that is not the default one: its
@@ -2171,7 +2203,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         if ((s.shapes & 1u) == 0u) return o;
         at = float2(float(col * u.cell.x), rowy + float(u.underline));
         wh = float2(u.cell.x, u.thickness);
-        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
+        colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
     } else if (which == 1u) {
         if ((s.shapes & 2u) == 0u) return o;
         at = float2(float(col * u.cell.x), rowy + float(u.strike));
@@ -2187,7 +2219,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         float y = min(float(u.underline) + gap, max(low, float(u.underline)));
         at = float2(float(col * u.cell.x), rowy + y);
         wh = float2(u.cell.x, u.thickness);
-        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
+        colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
     } else if (which == 3u) {
         if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u) return o;
         if (u.cursor_kind == 2u) {
@@ -2298,7 +2330,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         float y = min(float(u.underline) + dy, max(low, float(u.underline)));
         at = float2(float(col * u.cell.x) + dx, rowy + y);
         wh = float2(th, th);
-        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
+        colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
     }
     float2 c = float2(vid & 1u, vid >> 1u);
     o.pos = clip(at + c * wh, u);

@@ -1767,6 +1767,65 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "the control: the words draw"
     );
+    // **A faint off phase**, as Dim Flashing Lights draws it: each rate's
+    // text half way to its page -- the glyphs, an underline in its own
+    // `SGR 58` colour, a strike and a framed run -- and under a block
+    // cursor on a faint cell. The arms agree, and faint is neither the
+    // shown frame nor the hidden one.
+    let faint_words =
+        b"\x1b[3;60H\x1b[5;4;9;51;31;58;5;3mSLOW\x1b[0m \x1b[6;4;9;32;58;5;5mFAST\x1b[0m";
+    let mut shown_faint = None;
+    for (phase, why) in [
+        (BlinkPhases::SHOWN, "the shown phase"),
+        (
+            BlinkPhases {
+                slow: Blink::Faint,
+                rapid: Blink::Faint,
+            },
+            "both rates faint",
+        ),
+        (
+            BlinkPhases {
+                slow: Blink::Hidden,
+                rapid: Blink::Hidden,
+            },
+            "both rates hidden",
+        ),
+    ] {
+        arms.renderer.set_blink(phase);
+        feed(&mut t, faint_words);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree on {why}");
+        feed(&mut t, b"\x1b[3;60H\x1b[K");
+        match shown_faint {
+            None => shown_faint = Some((a, None)),
+            Some((ref on, None)) => {
+                assert_ne!(
+                    differing(on, &a),
+                    0,
+                    "the faint phase drew the text in full"
+                );
+                shown_faint = Some((on.clone(), Some(a)));
+            }
+            Some((_, Some(ref faint))) => {
+                assert_ne!(differing(faint, &a), 0, "the faint phase hid the text");
+            }
+        }
+    }
+    arms.renderer.set_blink(BlinkPhases {
+        slow: Blink::Faint,
+        rapid: Blink::Shown,
+    });
+    feed(&mut t, faint_words);
+    feed(&mut t, b"\x1b[?25h\x1b[2 q\x1b[3;61H");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree on a block cursor over faint text"
+    );
+    feed(&mut t, b"\x1b[?25l\x1b[3;60H\x1b[K");
+    arms.renderer.set_blink(BlinkPhases::SHOWN);
     feed(&mut t, b"\x1b[?25h");
     // `SGR 8` the same way, in either phase: concealed text with an underline
     // and a strike is the frame of its spaces, on each arm.
