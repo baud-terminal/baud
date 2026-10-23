@@ -202,9 +202,10 @@ fn report_cell_size_answers_in_points() {
 
 // ── ReportVariable ──────────────────────────────────────────────────────────
 
-/// Every variable is answered with iTerm2's empty value, its shape for one
-/// not reported (Jev's lean, NONE), ended as the query was; a name that is
-/// not base64 gets no reply, as in iTerm2, and is counted.
+/// Every variable is answered with iTerm2's empty value while reports are
+/// off, its shape for one not reported (Jev's lean, EMPTY_AS_DENIED), ended
+/// as the query was; a name that is not base64 gets no reply, as in iTerm2,
+/// and is counted.
 #[test]
 fn report_variable_answers_with_the_empty_value() {
     for size in SIZES {
@@ -226,6 +227,96 @@ fn report_variable_answers_with_the_empty_value() {
             feed(t, &osc("ReportVariable=no!"), size);
             assert_eq!(t.reply(), b"", "reads of {size}");
             assert_eq!(t.iterm_counts().of(ItermKey::ReportVariable), ONE);
+        });
+    }
+}
+
+// ── SetUserVar ──────────────────────────────────────────────────────────────
+
+/// **"Sets the value of a user-defined variable"**: `user.<name>` keeps the
+/// decoded value, which the embedder reads, and `ReportVariable` answers it
+/// with the empty value, as iTerm2 answers a variable the user has not
+/// allowed; a bare name, or a value that is not base64, unsets it, and a
+/// name with a `.` is refused, as iTerm2's `UserVariableAssignment` has it.
+#[test]
+fn set_user_var_is_kept_and_reported_empty() {
+    let ask = |name: &str| osc(&format!("ReportVariable={}", b64(name.as_bytes())));
+    for size in SIZES {
+        let set = osc(&format!("SetUserVar=gitBranch={}", b64(b"main")));
+        with(&set, size, |t| {
+            assert_eq!(
+                t.user_var(b"gitBranch"),
+                Some(&b"main"[..]),
+                "reads of {size}"
+            );
+            feed(t, &ask("user.gitBranch"), size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;ReportVariable=\x07",
+                "set, reads of {size}"
+            );
+            t.clear_reply();
+            // Only the `user.` name: the bare name is another variable.
+            feed(t, &ask("gitBranch"), size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;ReportVariable=\x07",
+                "reads of {size}"
+            );
+            t.clear_reply();
+            // A second set keeps the slot; a bare name unsets it.
+            feed(
+                t,
+                &osc(&format!("SetUserVar=gitBranch={}", b64(b"dev"))),
+                size,
+            );
+            assert_eq!(t.user_var(b"gitBranch"), Some(&b"dev"[..]));
+            feed(t, &osc("SetUserVar=gitBranch"), size);
+            assert_eq!(t.user_var(b"gitBranch"), None, "reads of {size}");
+            feed(t, &ask("user.gitBranch"), size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;ReportVariable=\x07",
+                "reads of {size}"
+            );
+            t.clear_reply();
+            // A value that is not base64 unsets too.
+            feed(t, &osc(&format!("SetUserVar=host={}", b64(b"box"))), size);
+            feed(t, &osc("SetUserVar=host=not base64!"), size);
+            assert_eq!(t.user_var(b"host"), None, "reads of {size}");
+            // "key contains a ., which is not allowed".
+            feed(t, &osc(&format!("SetUserVar=a.b={}", b64(b"x"))), size);
+            assert_eq!(t.user_var(b"a.b"), None);
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::SetUserVar),
+                ONE,
+                "reads of {size}"
+            );
+        });
+    }
+}
+
+/// **The table is bounded, and refuses rather than evicts**: the
+/// seventeenth name and a name past 64 bytes are counted and kept nowhere,
+/// and the sixteen set before are all still read back.
+#[test]
+fn user_vars_past_the_table_are_refused_and_counted() {
+    let mut bytes = Vec::new();
+    for i in 0..17 {
+        bytes.extend(osc(&format!("SetUserVar=v{i}={}", b64(b"x"))));
+    }
+    bytes.extend(osc(&format!("SetUserVar={}={}", "n".repeat(65), b64(b"x"))));
+    for size in SIZES {
+        with(&bytes, size, |t| {
+            for i in 0..16 {
+                assert_eq!(t.user_var(format!("v{i}").as_bytes()), Some(&b"x"[..]));
+            }
+            assert_eq!(t.user_var(b"v16"), None, "reads of {size}");
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::SetUserVar),
+                Messages::of(2),
+                "reads of {size}"
+            );
         });
     }
 }

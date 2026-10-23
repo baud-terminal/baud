@@ -5657,6 +5657,13 @@ impl<'b> Term<'b> {
         self.store.strs.iterm.scale = scale;
     }
 
+    /// **The value a program gave `user.<name>`** with iTerm2's
+    /// `SetUserVar`, decoded: what an embedder shows where iTerm2 would
+    /// substitute the variable. `None` for a name no program set.
+    pub fn user_var(&self, name: &[u8]) -> Option<&[u8]> {
+        user_var(self.store.strs.user_vars, name)
+    }
+
     /// The icon name. `OSC 1` sets this, and `OSC 0` sets both.
     pub fn icon_name(&self) -> &[u8] {
         &self.store.strs.icon[..self.icon_len.index()]

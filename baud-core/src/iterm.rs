@@ -112,6 +112,7 @@ impl Paint<'_, '_> {
             Osc1337::ReportCellSize => self.report_cell_size(term),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
             Osc1337::SetColors(list) => self.set_colors(list),
+            Osc1337::SetUserVar { name, value } => self.set_user_var(name, value, body),
             Osc1337::Copy(data) => self.copy_whole(data),
             Osc1337::CopyBegin(uid) => self.segment_begin(uid),
             Osc1337::CopySegment { uid, data } => self.segment_whole(uid, data),
@@ -224,39 +225,53 @@ impl Paint<'_, '_> {
         self.push_reply(&parts);
     }
 
-    /// **`ReportVariable=base64`: answered with iTerm2's empty value**,
-    /// `ESC ] 1337 ; ReportVariable=` -- the shape `reportVariableNamed:`
-    /// gives a variable not reported (`[[source:
-    /// iterm2-964a75d-vt100output]]`) -- for every name: baud keeps no
-    /// variables a program may read (Jev's lean, NONE, 0.56/0.30 and
-    /// 0.24/0.18 asked again), ended as the query was (Jev's lean,
-    /// QUERY_TERMINATOR). A name that is not base64 of UTF-8 gets no reply,
-    /// as iTerm2 sends none, and is counted.
+    /// **`ReportVariable=base64`: answered in iTerm2's shape**, `ESC ] 1337
+    /// ; ReportVariable=base64(value)` (`[[source:
+    /// iterm2-964a75d-vt100output]]`), every name with the empty value, the
+    /// answer iTerm2 gives a variable the user has not allowed, a `user.`
+    /// variable a program set included: it is kept for the embedder alone
+    /// (`Term::user_var`), since the answer goes to whatever reads the
+    /// terminal then (Jev's lean, EMPTY_AS_DENIED, 0.84/0.62 and 0.70/0.84
+    /// asked again with the variables built). Ended as the query was
+    /// (Jev's lean, QUERY_TERMINATOR). A name that is not base64 of UTF-8
+    /// gets no reply, as iTerm2 sends none, and is counted.
     fn report_variable(&mut self, name: &[u8], term: StringTerm) {
         let mut out = [0u8; OSC_MAX];
-        let mut n = 0;
-        let mut b64 = Base64::NEW;
-        let mut keep = |o: Octets, n: &mut usize| {
-            for &x in o.as_slice() {
-                out[*n] = x;
-                *n += 1;
-            }
+        let Some(n) = decode_whole(name, &mut out).map(ByteLen::index) else {
+            return self.not_acted(ItermKey::ReportVariable);
         };
-        for &b in name {
-            match b64.push(b) {
-                Base64Step::Octets(o) => keep(o, &mut n),
-                Base64Step::Need => {}
-                Base64Step::Invalid => return self.not_acted(ItermKey::ReportVariable),
-            }
-        }
-        match b64.finish() {
-            Ok(tail) => keep(tail, &mut n),
-            Err(_) => return self.not_acted(ItermKey::ReportVariable),
-        }
         if core::str::from_utf8(&out[..n]).is_err() {
             return self.not_acted(ItermKey::ReportVariable);
         }
         self.push_reply(&[b"\x1b]1337;ReportVariable=", terminator(term)]);
+    }
+
+    /// **`SetUserVar=name=base64`: `user.<name>` set to the decoded value,
+    /// or unset** by a bare name or a value that is not base64 of UTF-8, as
+    /// iTerm2's `UserVariableAssignment` reads a value that does not decode
+    /// as none (`[[source: iterm2-964a75d-user-variable]]`). A message cut
+    /// at `OSC_MAX`, a name past [`USER_VAR_NAME_MAX`] and a new name with
+    /// every slot taken are refused and counted: a cut value is a wrong one.
+    fn set_user_var(&mut self, name: &[u8], value: Option<&[u8]>, body: Body) {
+        if body == Body::Cut {
+            return self.not_acted(ItermKey::SetUserVar);
+        }
+        let mut out = [0u8; OSC_MAX];
+        let decoded = value
+            .and_then(|v| decode_whole(v, &mut out))
+            .map(ByteLen::index)
+            .filter(|&n| core::str::from_utf8(&out[..n]).is_ok());
+        let mut vars = UserVars(self.strs.user_vars);
+        let kept = match decoded {
+            Some(n) => vars.set(name, &out[..n]),
+            None => {
+                vars.unset(name);
+                Ok(())
+            }
+        };
+        if kept.is_err() {
+            self.not_acted(ItermKey::SetUserVar);
+        }
     }
 
     /// **`SetColors`: each `key=value` sets the colour baud keeps for that
@@ -328,6 +343,29 @@ impl Paint<'_, '_> {
         self.clip_end();
         self.cold.str_kind = kind;
     }
+}
+
+/// `data`, base64, decoded whole into `out`: its length, or `None` for data
+/// that is not base64 or does not fit.
+fn decode_whole(data: &[u8], out: &mut [u8]) -> Option<ByteLen> {
+    let mut n = 0;
+    let mut b64 = Base64::NEW;
+    let mut keep = |o: Octets, n: &mut usize| -> Option<()> {
+        for &x in o.as_slice() {
+            *out.get_mut(*n)? = x;
+            *n += 1;
+        }
+        Some(())
+    };
+    for &b in data {
+        match b64.push(b) {
+            Base64Step::Octets(o) => keep(o, &mut n)?,
+            Base64Step::Need => {}
+            Base64Step::Invalid => return None,
+        }
+    }
+    keep(b64.finish().ok()?, &mut n)?;
+    Some(ByteLen::from_index(n))
 }
 
 fn terminator(term: StringTerm) -> &'static [u8] {

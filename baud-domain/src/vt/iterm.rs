@@ -174,7 +174,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
         Refuses(RewritesSettings),
     ),
     (b"SetBadgeFormat", ItermKey::SetBadgeFormat, Unbuilt),
-    (b"SetUserVar", ItermKey::SetUserVar, Unbuilt),
+    (b"SetUserVar", ItermKey::SetUserVar, Acts),
     (b"ReportCellSize", ItermKey::ReportCellSize, Acts),
     (b"SetWindowFrame", ItermKey::SetWindowFrame, Unbuilt),
     (b"ReportWindowFrame", ItermKey::ReportWindowFrame, Unbuilt),
@@ -362,6 +362,15 @@ pub enum Osc1337<'a> {
     ReportCellSize,
     /// `ReportVariable=base64`: the encoded name.
     ReportVariable(&'a [u8]),
+    /// `SetUserVar=name=base64`, or a bare `name`: the variable
+    /// `user.<name>` set to the decoded value, or unset. `value` is the
+    /// base64 as sent, `None` for a bare name, which iTerm2's
+    /// `UserVariableAssignment` reads as "unset it" (`[[source:
+    /// iterm2-964a75d-user-variable]]`).
+    SetUserVar {
+        name: &'a [u8],
+        value: Option<&'a [u8]>,
+    },
     /// `SetColors=key=value[,key=value...]`: [`ColorSettings`].
     SetColors(ColorSettings<'a>),
     /// `Copy=:base64`, whole: the base64 after the `:`. The core streams a
@@ -426,6 +435,18 @@ impl<'a> Osc1337<'a> {
             ItermKey::ReportCellSize => Osc1337::ReportCellSize,
             ItermKey::ReportVariable => Osc1337::ReportVariable(value),
             ItermKey::SetColors => Osc1337::SetColors(ColorSettings(value)),
+            // "name=base64 to set a user variable or just name to unset it";
+            // a name with a `.` is refused, "which is not allowed".
+            ItermKey::SetUserVar => {
+                let (name, value) = match value.iter().position(|&b| b == b'=') {
+                    Some(i) => (&value[..i], Some(&value[i + 1..])),
+                    None => (value, None),
+                };
+                match name.contains(&b'.') {
+                    true => Osc1337::Malformed(key),
+                    false => Osc1337::SetUserVar { name, value },
+                }
+            }
             ItermKey::Copy => {
                 let (header, data) = match value.iter().position(|&b| b == b':') {
                     Some(i) => (&value[..i], Some(&value[i + 1..])),
@@ -705,6 +726,123 @@ fn color_value(target: ColorTarget, v: &[u8]) -> ColorValue<'_> {
     }
 }
 
+// ---------------------------------------------------------------- variables
+
+/// The longest name a user variable keeps, in bytes: a longer one is
+/// refused and counted. iTerm2 names no limit; 64 holds every name its
+/// shell integration sets.
+pub const USER_VAR_NAME_MAX: usize = 64;
+
+/// The longest value a user variable keeps, in bytes: the most an `OSC`
+/// body of 512 bytes can carry once its base64 is decoded, so a whole
+/// `SetUserVar` always fits.
+pub const USER_VAR_VALUE_MAX: usize = 384;
+
+/// How many user variables a terminal keeps; the next new name is refused
+/// and counted. A table, not an eviction: a variable a program set and
+/// later reads back must not have been dropped for another's.
+pub const USER_VARS: usize = 16;
+
+/// Whether a slot of the table holds a variable.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum VarSlot {
+    Free,
+    Taken,
+}
+
+/// **One user variable**, `user.<name>`, as `SetUserVar` sets it: the name
+/// without its `user.`, and the value decoded.
+#[derive(Clone, Copy)]
+pub struct UserVar {
+    slot: VarSlot,
+    name: [u8; USER_VAR_NAME_MAX],
+    name_len: ByteLen,
+    value: [u8; USER_VAR_VALUE_MAX],
+    value_len: ByteLen,
+}
+
+impl UserVar {
+    /// A free slot.
+    pub const FREE: UserVar = UserVar {
+        slot: VarSlot::Free,
+        name: [0; USER_VAR_NAME_MAX],
+        name_len: ByteLen::ZERO,
+        value: [0; USER_VAR_VALUE_MAX],
+        value_len: ByteLen::ZERO,
+    };
+
+    /// The name, without `user.`.
+    pub fn name(&self) -> &[u8] {
+        &self.name[..self.name_len.index()]
+    }
+
+    /// The value, decoded.
+    pub fn value(&self) -> &[u8] {
+        &self.value[..self.value_len.index()]
+    }
+}
+
+/// Why a `SetUserVar` was not kept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UserVarRefusal {
+    /// The name passes [`USER_VAR_NAME_MAX`].
+    NameTooLong,
+    /// Every slot holds another name.
+    Full,
+}
+
+/// **The user variables, over a slice the embedder lends**: one slot a
+/// variable, found by its name. At most [`USER_VARS`] slots, read only by an
+/// `OSC 1337` and an embedder, so a walk over them is never on the per-byte
+/// path.
+pub struct UserVars<'b>(pub &'b mut [UserVar]);
+
+/// The value of `user.<name>` in `vars`, if a program set it.
+pub fn user_var<'a>(vars: &'a [UserVar], name: &[u8]) -> Option<&'a [u8]> {
+    vars.iter()
+        .find(|v| v.slot == VarSlot::Taken && v.name() == name)
+        .map(UserVar::value)
+}
+
+impl UserVars<'_> {
+    fn find(&self, name: &[u8]) -> Option<usize> {
+        self.0
+            .iter()
+            .position(|v| v.slot == VarSlot::Taken && v.name() == name)
+    }
+
+    /// Set `user.<name>` to `value`, which [`USER_VAR_VALUE_MAX`] already
+    /// bounds; a name already set keeps its slot.
+    pub fn set(&mut self, name: &[u8], value: &[u8]) -> Result<(), UserVarRefusal> {
+        if name.len() > USER_VAR_NAME_MAX {
+            return Err(UserVarRefusal::NameTooLong);
+        }
+        let at = match self.find(name) {
+            Some(i) => i,
+            None => self
+                .0
+                .iter()
+                .position(|v| v.slot == VarSlot::Free)
+                .ok_or(UserVarRefusal::Full)?,
+        };
+        let v = &mut self.0[at];
+        let n = value.len().min(USER_VAR_VALUE_MAX);
+        v.slot = VarSlot::Taken;
+        v.name[..name.len()].copy_from_slice(name);
+        v.name_len = ByteLen::from_index(name.len());
+        v.value[..n].copy_from_slice(&value[..n]);
+        v.value_len = ByteLen::from_index(n);
+        Ok(())
+    }
+
+    /// Unset `user.<name>`: nothing if it is not set.
+    pub fn unset(&mut self, name: &[u8]) {
+        if let Some(i) = self.find(name) {
+            self.0[i] = UserVar::FREE;
+        }
+    }
+}
+
 // ---------------------------------------------------------------- numbers
 
 /// A count of messages, as the core keeps one a key.
@@ -904,6 +1042,24 @@ mod tests {
         assert_eq!(
             Osc1337::parse(b"SetMark"),
             Osc1337::Ignored(ItermKey::SetMark)
+        );
+        assert_eq!(
+            Osc1337::parse(b"SetUserVar=gitBranch=bWFpbg=="),
+            Osc1337::SetUserVar {
+                name: b"gitBranch",
+                value: Some(b"bWFpbg==")
+            }
+        );
+        assert_eq!(
+            Osc1337::parse(b"SetUserVar=gitBranch"),
+            Osc1337::SetUserVar {
+                name: b"gitBranch",
+                value: None
+            }
+        );
+        assert_eq!(
+            Osc1337::parse(b"SetUserVar=a.b=eA=="),
+            Osc1337::Malformed(ItermKey::SetUserVar)
         );
         assert_eq!(Osc1337::parse(b"Nonsense=1"), Osc1337::Unknown);
     }

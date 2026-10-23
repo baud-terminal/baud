@@ -983,6 +983,35 @@ mod tests {
         );
     }
 
+    /// **A user variable is never read back**, whatever the config says:
+    /// `ReportVariable` answers `user.<name>` with the empty value, as
+    /// iTerm2 answers a variable the user has not allowed, and the value
+    /// stays for the embedder alone (`Term::user_var`). There is no
+    /// `[screen] user_variables`, so a config naming one is told so.
+    #[test]
+    fn a_user_variable_is_never_read_back() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        // `user.host` is "box": `dXNlci5ob3N0` and `Ym94` in base64.
+        let bytes = b"\x1b]1337;SetUserVar=host=Ym94\x07\x1b]1337;ReportVariable=dXNlci5ob3N0\x07";
+        for (text, said_n) in [("", 0), ("[screen]\nuser_variables = \"on\"\n", 1)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert_eq!(said.len(), said_n, "{said:?}");
+            assert!(
+                said.iter().all(|m| m.contains("user_variables")),
+                "{said:?}"
+            );
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, bytes);
+            assert_eq!(t.user_var(b"host"), Some(&b"box"[..]), "{text:?}");
+            assert_eq!(t.reply(), b"\x1b]1337;ReportVariable=\x07", "{text:?}");
+        }
+    }
+
     /// **`[window] operations` reaches the core, from both drivers.** The
     /// config text read into a `Config`, handed to `set_window_ops`,
     /// decides whether `CSI 2 t` reaches the driver: by default as a

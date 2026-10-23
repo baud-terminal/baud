@@ -568,6 +568,10 @@ pub struct StrBuf<'b> {
     /// backing scale and the counts (`crate::iterm`). Here for the reason
     /// `window_asks` is: only an `OSC 1337` reaches it.
     pub(crate) iterm: crate::iterm::Iterm,
+    /// **iTerm2's user variables** (`SetUserVar`), a slot each: [`Owned`]'s
+    /// [`USER_VARS`]; none through [`StrBuf::new`], under which every one
+    /// is refused and counted. A slice for the reason `clip_area` is.
+    pub(crate) user_vars: &'b mut [UserVar],
 }
 
 impl<'b> StrBuf<'b> {
@@ -649,6 +653,7 @@ impl<'b> StrBuf<'b> {
             attention: None,
             attention_requests: crate::notice::ReportCount::FIRST,
             iterm: crate::iterm::Iterm::NEW,
+            user_vars: &mut [],
         }
     }
 }
@@ -687,6 +692,7 @@ pub struct Owned {
     title: alloc::vec::Vec<u8>,
     icon: alloc::vec::Vec<u8>,
     cwd: alloc::vec::Vec<u8>,
+    user_vars: alloc::vec::Vec<UserVar>,
     titles: alloc::vec::Vec<u8>,
     palette: alloc::vec::Vec<ColorWord>,
     links: alloc::vec::Vec<u8>,
@@ -779,6 +785,7 @@ impl Owned {
             title: vec![0u8; OSC_MAX],
             icon: vec![0u8; OSC_MAX],
             cwd: vec![0u8; OSC_MAX],
+            user_vars: vec![UserVar::FREE; USER_VARS],
             titles: vec![0u8; TITLE_STACK],
             palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
@@ -986,6 +993,7 @@ impl Owned {
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
+                user_vars: &mut self.user_vars,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -1073,6 +1081,7 @@ impl Owned {
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
                 iterm: crate::iterm::Iterm::NEW,
+                user_vars: &mut self.user_vars,
             },
             ImageStore::new(
                 &mut self.img_pixels,
