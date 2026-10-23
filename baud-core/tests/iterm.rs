@@ -4,8 +4,9 @@
 
 use baud_core::*;
 use baud_domain::{
-    BackingScale, ClipboardBudget, ClipboardContent, CursorStyle, DynamicColor, ExitStatus,
-    FileHost, ItermDoes, ItermKey, Messages, Selection, SpecialColor, UnicodeWidths,
+    AmbiguousWidth, BackingScale, ClipboardBudget, ClipboardContent, CursorStyle, DynamicColor,
+    ExitStatus, FileHost, ImageBudget, ItermDoes, ItermKey, Messages, Osc52Writes, Selection,
+    SixelClaim, SpecialColor, UnicodeWidths,
 };
 
 const ONE: Messages = Messages::of(1);
@@ -350,6 +351,78 @@ fn unicode_version_is_saved_with_the_cursor_and_kept_by_ris() {
                 "reads of {size}"
             );
         });
+    }
+}
+
+// ── Capabilities ────────────────────────────────────────────────────────────
+
+/// **"OSC 1337 ; Capabilities = {FeatureString} ST"**, each feature claimed
+/// only while baud does it: the always-on set, then clipboard writes off,
+/// ambiguous width wide, Unicode 8's widths, Level 3, where DECSLRM is not
+/// executed, notifications delivered and Sixel claimed each moving its
+/// code. `UNICODE_BASIC` and `UNICODE_WIDTHS` go while ISO 8859-1 is the
+/// input, where UTF-8 is not accepted, and come back with UTF-8. `FILE` is
+/// never claimed. Ended with `ST`, `ESC \`, as the feature-reporting page
+/// defines it.
+#[test]
+fn capabilities_report_what_baud_does_now() {
+    let ask = osc("Capabilities");
+    for size in SIZES {
+        with(&ask, size, |t| {
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;Capabilities=T3CwLrMSc7UUw17Ts3BFGsGoSyHP\x1b\\",
+                "reads of {size}"
+            );
+            t.clear_reply();
+            feed(t, b"\x1b%@", size);
+            feed(t, &ask, size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;Capabilities=T3CwLrMSc7Ts3BFGsGoSyHP\x1b\\",
+                "Latin-1, reads of {size}"
+            );
+            t.clear_reply();
+            feed(t, b"\x1b%G", size);
+            feed(t, &ask, size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;Capabilities=T3CwLrMSc7UUw17Ts3BFGsGoSyHP\x1b\\",
+                "UTF-8 again, reads of {size}"
+            );
+            t.clear_reply();
+            t.set_osc52_writes(Osc52Writes::Off);
+            t.set_ambiguous_width(AmbiguousWidth::Wide);
+            feed(t, &osc("UnicodeVersion=8"), size);
+            feed(t, b"\x1b[63;1\"p", size);
+            feed(t, &ask, size);
+            assert_eq!(
+                t.reply(),
+                b"\x1b]1337;Capabilities=T3MSc7UAwUw8Ts3BFGsGoSyHP\x1b\\",
+                "reads of {size}"
+            );
+        });
+        let mut owned = Owned::new(&WS)
+            .with_images(ImageBudget::of(1 << 12))
+            .with_notices(NoticeBudget::with_icon(4096));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_sixel_claim(SixelClaim::Yes);
+        t.set_notice_support(Some(NoticeSupport {
+            actions: Activation::FOCUS,
+            close_events: CloseEvents::Tracked,
+            occasions: Occasions::UnfocusedAndInvisible,
+            urgencies: Urgencies::All,
+            sounds: Sounds::Standard,
+            expiry: ExpirySupport::Expires,
+            icons: IconSupport::NamesAndImages,
+            buttons: ButtonSupport::Shown,
+        }));
+        feed(&mut t, &ask, size);
+        assert_eq!(
+            t.reply(),
+            b"\x1b]1337;Capabilities=T3LrMSc7UUw17Ts3BFGsGoSyHNoSxP\x1b\\",
+            "reads of {size}"
+        );
     }
 }
 

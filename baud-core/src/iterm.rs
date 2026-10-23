@@ -131,6 +131,7 @@ impl Paint<'_, '_> {
             Osc1337::CurrentDir(dir) => self.current_dir(dir, body),
             Osc1337::RemoteHost(host) => self.remote_host(host, body),
             Osc1337::ReportCellSize => self.report_cell_size(term),
+            Osc1337::Capabilities => self.capabilities(),
             Osc1337::SetMark(at) => self.set_mark(at),
             Osc1337::UnicodeVersion(op) => self.unicode_version(op),
             Osc1337::Notification(pairs) => self.notification(pairs),
@@ -409,6 +410,73 @@ impl Paint<'_, '_> {
         if let Some(v) = set {
             self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), v);
         }
+    }
+
+    /// **`Capabilities`: "OSC 1337 ; Capabilities = {FeatureString} ST"**
+    /// (`[[source: iterm2-feature-reporting]]`), each feature claimed only
+    /// where baud does it now, ended with `ESC \`: that page defines `ST`
+    /// as "a synonym for `ESC 0x5c`", where the escape-codes page's notation
+    /// lets "ST" be BEL as well (`[[source: iterm2-escape-codes]]`) and
+    /// iTerm2's source ends this report with BEL; `ESC \` is the one ending
+    /// both pages allow. Both 24-bit forms, the mouse modes with
+    /// `?1006`, DECSCUSR 1 to 6 and 0 for the configured style, title
+    /// stacks and titles, bracketed paste, focus reports, strikethrough and
+    /// overline drawn, synchronised output, hyperlinks and progress always;
+    /// `UNICODE_BASIC`, which "Indicates if UTF-8 is accepted", and the
+    /// Unicode version while UTF-8 is the input, neither under ISO 8859-1,
+    /// whose 0 is "No unicode support is claimed"; DECSLRM at Level 4 alone,
+    /// where it is executed (Jev, LEVEL_GATED, 0.98/0.96); clipboard writes
+    /// while `OSC 52` writes reach a clipboard; notifications while the
+    /// embedder delivers them; Sixel while the Primary DA claims it;
+    /// ambiguous-wide and the Unicode version as they are set. `FILE` is
+    /// not claimed: it says "including those using lossy compression", and
+    /// baud draws PNG alone and refuses downloads (Jev, NOT_CLAIMED,
+    /// 0.90/0.92).
+    fn capabilities(&mut self) {
+        let clip =
+            self.strs.window_asks.clipboard == Osc52Writes::On && !self.strs.clip_area.is_empty();
+        // `24BIT` both forms (1 | 2), `DECSCUSR` 1-4, 5-6 and 0 (1 | 2 | 4),
+        // `TITLES` stacks and setting (1 | 2).
+        let utf8 = self.cold.encoding == InputEncoding::Utf8;
+        let version = match utf8 {
+            true => self.cold.widths.widths().version(),
+            false => 0,
+        };
+        let f = Features::of(3, 7, version, 3)
+            .with(Feature::ClipboardWritable, Claim::of(clip))
+            .with(
+                Feature::Decslrm,
+                Claim::of(self.cold.level == ConformanceLevel::Four),
+            )
+            .with(Feature::Mouse, Claim::Yes)
+            .with(Feature::UnicodeBasic, Claim::of(utf8))
+            .with(
+                Feature::AmbiguousWide,
+                Claim::of(self.cold.widths.ambiguous() == AmbiguousWidth::Wide),
+            )
+            .with(Feature::BracketedPaste, Claim::Yes)
+            .with(Feature::FocusReporting, Claim::Yes)
+            .with(Feature::Strikethrough, Claim::Yes)
+            .with(Feature::Overline, Claim::Yes)
+            .with(Feature::Sync, Claim::Yes)
+            .with(Feature::Hyperlinks, Claim::Yes)
+            .with(
+                Feature::Notifications,
+                Claim::of(
+                    self.strs.notices.support().is_some() && !self.strs.notice_area.is_empty(),
+                ),
+            )
+            .with(
+                Feature::Sixel,
+                Claim::of(self.sixel_claim() == SixelClaim::Yes),
+            )
+            .with(Feature::Progress, Claim::Yes);
+        let mut out = [0u8; 64];
+        let codes = f.encode(&mut out);
+        let mut buf = [0u8; 64];
+        let n = codes.len();
+        buf[..n].copy_from_slice(codes);
+        self.push_reply(&[b"\x1b]1337;Capabilities=", &buf[..n], b"\x1b\\"]);
     }
 
     /// **`SetMark`: a line to jump back to**, "record a location and then

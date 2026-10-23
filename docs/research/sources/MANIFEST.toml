@@ -31400,7 +31400,7 @@ bytes  = 47344
 status = "external"
 group  = "AX"
 # NOTIFICATIONS: "{text} will be displayed to the user outside the normal UI". Capabilities
-# is unbuilt: its answer claims every feature in the table at once.
+# is built (2026-10-22): each feature claimed only while baud does it; FILE is not claimed.
 
 [sources.conemu-ansi-escape-codes]
 key    = "conemu-ansi-escape-codes"

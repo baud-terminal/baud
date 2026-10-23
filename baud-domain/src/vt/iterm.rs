@@ -196,7 +196,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
     (b"ReportVariable", ItermKey::ReportVariable, Acts),
     (b"Custom", ItermKey::Custom, NoCounterpart),
     (b"Notification", ItermKey::Notification, Acts),
-    (b"Capabilities", ItermKey::Capabilities, Unbuilt),
+    (b"Capabilities", ItermKey::Capabilities, Acts),
     (b"Env", ItermKey::Env, NoCounterpart),
     (b"it2ssh", ItermKey::It2ssh, NoCounterpart),
     (b"SendConductor", ItermKey::SendConductor, NoCounterpart),
@@ -368,6 +368,8 @@ pub enum Osc1337<'a> {
     RemoteHost(&'a [u8]),
     /// `ReportCellSize`.
     ReportCellSize,
+    /// `Capabilities`: the feature string ([`Features`]).
+    Capabilities,
     /// `File=args:base64`, whole: the arguments and the base64, `None`
     /// without the `:`. The core streams a body past its `:` as it arrives,
     /// so a whole one reaches here only from a test or an embedder without
@@ -470,6 +472,7 @@ impl<'a> Osc1337<'a> {
                 })
             }
             ItermKey::ReportCellSize => Osc1337::ReportCellSize,
+            ItermKey::Capabilities => Osc1337::Capabilities,
             ItermKey::File => match value.iter().position(|&b| b == b':') {
                 Some(i) => Osc1337::File {
                     args: &value[..i],
@@ -633,6 +636,157 @@ impl<'a> UnicodeOp<'a> {
             8 => UnicodeOp::Set(UnicodeWidths::Eight),
             9 => UnicodeOp::Set(UnicodeWidths::Current),
             _ => UnicodeOp::Malformed,
+        }
+    }
+}
+
+/// One boolean feature of the feature-reporting spec's table
+/// (`[[source: iterm2-feature-reporting]]`), a bit of [`Features`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Feature {
+    ClipboardWritable,
+    Decslrm,
+    Mouse,
+    UnicodeBasic,
+    AmbiguousWide,
+    BracketedPaste,
+    FocusReporting,
+    Strikethrough,
+    Overline,
+    Sync,
+    Hyperlinks,
+    Notifications,
+    Sixel,
+    File,
+    Progress,
+}
+
+/// **A terminal's features, as `Capabilities` reports them**: the boolean
+/// ones a bit each, and the four numbers -- `24BIT`, `DECSCUSR`,
+/// `UNICODE_WIDTHS`, `TITLES` -- each its value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Features {
+    bits: u32,
+    pub twenty_four_bit: u8,
+    pub decscusr: u8,
+    pub unicode_widths: u8,
+    pub titles: u8,
+}
+
+impl Features {
+    pub const NONE: Features = Features {
+        bits: 0,
+        twenty_four_bit: 0,
+        decscusr: 0,
+        unicode_widths: 0,
+        titles: 0,
+    };
+
+    /// The four numbers, no boolean claimed yet.
+    pub fn of(twenty_four_bit: u8, decscusr: u8, unicode_widths: u8, titles: u8) -> Features {
+        Features {
+            bits: 0,
+            twenty_four_bit,
+            decscusr,
+            unicode_widths,
+            titles,
+        }
+    }
+
+    /// With `f` claimed or not.
+    pub fn with(mut self, f: Feature, claimed: Claim) -> Features {
+        let bit = 1u32 << (f as u32);
+        match claimed {
+            Claim::Yes => self.bits |= bit,
+            Claim::No => self.bits &= !bit,
+        }
+        self
+    }
+
+    fn has(self, f: Feature) -> bool {
+        self.bits & (1u32 << (f as u32)) != 0
+    }
+
+    /// **The `{FeatureString}`**, the codes in the order iTerm2's
+    /// `encodedTermFeaturesForCapabilities:` writes the table's
+    /// (`[[source: iterm2-964a75d-vt100output]]`): a boolean's code when it
+    /// is claimed, a number's code and value when it is not 0. `FILE` and
+    /// `FOCUS_REPORTING` share the table's code `F`, and iTerm2 writes it
+    /// for either.
+    pub fn encode(self, out: &mut [u8; 64]) -> &[u8] {
+        fn put(out: &mut [u8; 64], n: &mut usize, b: &[u8]) {
+            out[*n..*n + b.len()].copy_from_slice(b);
+            *n += b.len();
+        }
+        fn num(out: &mut [u8; 64], n: &mut usize, code: &[u8], v: u8) {
+            if v == 0 {
+                return;
+            }
+            put(out, n, code);
+            let digits = [v / 100, v / 10 % 10, v % 10];
+            let first = match v {
+                100.. => 0,
+                10.. => 1,
+                _ => 2,
+            };
+            for &d in &digits[first..] {
+                put(out, n, &[b'0' + d]);
+            }
+        }
+        let mut n = 0;
+        num(out, &mut n, b"T", self.twenty_four_bit);
+        for (f, code) in [
+            (Feature::ClipboardWritable, &b"Cw"[..]),
+            (Feature::Decslrm, b"Lr"),
+            (Feature::Mouse, b"M"),
+        ] {
+            if self.has(f) {
+                put(out, &mut n, code);
+            }
+        }
+        num(out, &mut n, b"Sc", self.decscusr);
+        for (f, code) in [
+            (Feature::UnicodeBasic, &b"U"[..]),
+            (Feature::AmbiguousWide, b"Aw"),
+        ] {
+            if self.has(f) {
+                put(out, &mut n, code);
+            }
+        }
+        num(out, &mut n, b"Uw", self.unicode_widths);
+        num(out, &mut n, b"Ts", self.titles);
+        for (f, code) in [
+            (Feature::BracketedPaste, &b"B"[..]),
+            (Feature::FocusReporting, b"F"),
+            (Feature::Strikethrough, b"Gs"),
+            (Feature::Overline, b"Go"),
+            (Feature::Sync, b"Sy"),
+            (Feature::Hyperlinks, b"H"),
+            (Feature::Notifications, b"No"),
+            (Feature::Sixel, b"Sx"),
+            (Feature::File, b"F"),
+            (Feature::Progress, b"P"),
+        ] {
+            if self.has(f) {
+                put(out, &mut n, code);
+            }
+        }
+        &out[..n]
+    }
+}
+
+/// Whether a feature is claimed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Claim {
+    Yes,
+    No,
+}
+
+impl Claim {
+    pub fn of(yes: bool) -> Claim {
+        match yes {
+            true => Claim::Yes,
+            false => Claim::No,
         }
     }
 }
@@ -1310,6 +1464,7 @@ mod tests {
         );
         assert_eq!(Osc1337::parse(b"FilePart=aGk="), Osc1337::FilePart(b"aGk="));
         assert_eq!(Osc1337::parse(b"FileEnd"), Osc1337::FileEnd);
+        assert_eq!(Osc1337::parse(b"Capabilities"), Osc1337::Capabilities);
         assert_eq!(Osc1337::parse(b"Nonsense=1"), Osc1337::Unknown);
     }
 
@@ -1366,6 +1521,27 @@ mod tests {
             color_value(ColorTarget::Bold, b"ggg"),
             ColorValue::Malformed
         );
+    }
+
+    /// The spec's example order and encoding: numbers with their values,
+    /// a zero number left out, booleans by code, in iTerm2's order.
+    #[test]
+    fn features_encode_in_iterm2s_order() {
+        let f = Features {
+            twenty_four_bit: 3,
+            decscusr: 7,
+            unicode_widths: 17,
+            titles: 0,
+            ..Features::NONE
+        }
+        .with(Feature::Mouse, Claim::Yes)
+        .with(Feature::ClipboardWritable, Claim::Yes)
+        .with(Feature::Progress, Claim::Yes)
+        .with(Feature::FocusReporting, Claim::Yes);
+        let mut out = [0u8; 64];
+        assert_eq!(f.encode(&mut out), b"T3CwMSc7Uw17FP");
+        let mut out = [0u8; 64];
+        assert_eq!(Features::NONE.encode(&mut out), b"");
     }
 
     #[test]
