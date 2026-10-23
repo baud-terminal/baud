@@ -5,6 +5,9 @@ mod dcs;
 mod esc;
 mod file_uri;
 mod font_ops;
+mod iterm;
+#[cfg(test)]
+mod iterm_keys;
 mod key;
 mod kitty_color;
 mod level;
@@ -38,6 +41,7 @@ pub use dcs::*;
 pub use esc::*;
 pub use file_uri::*;
 pub use font_ops::*;
+pub use iterm::*;
 pub use key::*;
 pub use kitty_color::*;
 pub use level::*;

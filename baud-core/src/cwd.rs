@@ -99,15 +99,44 @@ impl Paint<'_, '_> {
             (DirectoryReport::File(uri), Body::Whole) => keep(self.strs.cwd, uri),
             _ => None,
         };
-        self.strs.cwd_at.kept = match kept {
-            Some(k) => k,
-            None => {
-                self.strs.cwd_at.refused = self.strs.cwd_at.refused.next();
-                self.unsupported_total += 1;
-                Kept::Nothing
-            }
-        };
+        match kept {
+            Some(k) => self.strs.cwd_at.kept = k,
+            None => self.refuse_directory(),
+        }
     }
+
+    /// A report that cannot be read: it replaces the directory known
+    /// before it, leaving none, and is counted.
+    pub(crate) fn refuse_directory(&mut self) {
+        self.strs.cwd_at.refused = self.strs.cwd_at.refused.next();
+        self.unsupported_total += 1;
+        self.strs.cwd_at.kept = Kept::Nothing;
+    }
+
+    /// The directory is no longer known, which is no refusal: an `OSC 1337 ;
+    /// RemoteHost` moved the shell to a host whose directory has not been
+    /// said.
+    pub(crate) fn forget_directory(&mut self) {
+        self.strs.cwd_at.kept = Kept::Nothing;
+    }
+}
+
+/// `host` (none: this machine) and `path` written into `out` as sent, as
+/// `OSC 1337 ; CurrentDir` gives them: `None` when the two do not fit.
+pub(crate) fn keep_as_sent(out: &mut [u8], host: Option<&[u8]>, path: &[u8]) -> Option<Kept> {
+    let h = host.map_or(0, <[u8]>::len);
+    let all = out.get_mut(..h + path.len())?;
+    let (dst, rest) = all.split_at_mut(h);
+    dst.copy_from_slice(host.unwrap_or(b""));
+    rest.copy_from_slice(path);
+    let path = ByteLen::from_index(path.len());
+    Some(match host {
+        None => Kept::Local(path),
+        Some(_) => Kept::Named {
+            host: ByteLen::from_index(h),
+            path,
+        },
+    })
 }
 
 /// Write `uri`'s host and decoded path into `out`, and say where they are;

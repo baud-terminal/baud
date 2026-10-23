@@ -1100,6 +1100,8 @@ impl App {
         // The core advances the cursor past a Sixel by cell rows, so it needs
         // the cell height in pixels; re-set on every `rescale`.
         term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
+        // `OSC 1337 ; ReportCellSize` answers in points: the cell over this.
+        term.set_backing_scale(baud_domain::BackingScale::of(scale));
         term.set_sixel_claim(sixel);
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
@@ -2286,6 +2288,10 @@ impl App {
             cell_px(self.renderer.metrics().cell_w),
             cell_px(self.renderer.metrics().cell_h),
         );
+        // A rescale is a move to a display of another scale as often as a
+        // zoom: the points `ReportCellSize` answers in follow it.
+        self.term
+            .set_backing_scale(baud_domain::BackingScale::of(self.scale));
         if let Some(cell) = self.cell.as_mut() {
             cell.maps.rescaled();
         }
@@ -13084,6 +13090,38 @@ mod host_tests {
         let mut derive = crate::title::Derive::new();
         assert_eq!(derive.title(Some(d), &hosts, None).as_deref(), Some("/tmp"));
         assert_eq!(derive.refused, crate::title::Refused(0));
+    }
+
+    /// **A shell integrated for iTerm2 keeps its folder in the title**: it
+    /// sends `RemoteHost=$USER@$(hostname -f)` and then `CurrentDir` at each
+    /// prompt (`[[source: iterm2-escape-codes]]`), so the directory the core
+    /// keeps names this machine by its fully qualified name, which must be
+    /// one of the names the title takes as local; another host's is not.
+    #[test]
+    fn an_iterm2_shell_on_this_machine_titles_its_folder() {
+        let out = std::process::Command::new("/bin/hostname")
+            .arg("-f")
+            .output()
+            .expect("hostname runs");
+        let name = String::from_utf8(out.stdout).expect("a UTF-8 name");
+        let hosts = machine_names();
+        let ws = baud_core::WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (host, want) in [(name.trim(), Some("/tmp")), ("build-box.example", None)] {
+            let mut owned = baud_core::Owned::new(&ws);
+            let mut t = baud_core::Term::new(owned.storage(), &ws);
+            let bytes = format!("\x1b]1337;RemoteHost=me@{host}\x07\x1b]1337;CurrentDir=/tmp\x07");
+            t.write_at(baud_core::BytePos::ZERO, bytes.as_bytes());
+            t.feed(
+                baud_core::BytePos::ZERO,
+                baud_core::ReadLen::from_index(bytes.len()),
+            );
+            let mut derive = crate::title::Derive::new();
+            let got = derive.title(t.working_directory(), &hosts, None);
+            assert_eq!(got.as_deref(), want, "{host:?} against {hosts:?}");
+        }
     }
 }
 

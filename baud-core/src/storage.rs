@@ -564,6 +564,10 @@ pub struct StrBuf<'b> {
     /// The last `OSC 1337 ; RequestAttention`, and how many have come.
     pub(crate) attention: Option<Attention>,
     pub(crate) attention_requests: crate::notice::ReportCount,
+    /// iTerm2's `OSC 1337` messages: the host `RemoteHost` named, the
+    /// backing scale and the counts (`crate::iterm`). Here for the reason
+    /// `window_asks` is: only an `OSC 1337` reaches it.
+    pub(crate) iterm: crate::iterm::Iterm,
 }
 
 impl<'b> StrBuf<'b> {
@@ -644,6 +648,7 @@ impl<'b> StrBuf<'b> {
             progress_reports: crate::notice::ReportCount::FIRST,
             attention: None,
             attention_requests: crate::notice::ReportCount::FIRST,
+            iterm: crate::iterm::Iterm::NEW,
         }
     }
 }
@@ -980,6 +985,7 @@ impl Owned {
                 progress_reports: crate::notice::ReportCount::FIRST,
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
+                iterm: crate::iterm::Iterm::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -1066,6 +1072,7 @@ impl Owned {
                 progress_reports: crate::notice::ReportCount::FIRST,
                 attention: None,
                 attention_requests: crate::notice::ReportCount::FIRST,
+                iterm: crate::iterm::Iterm::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,

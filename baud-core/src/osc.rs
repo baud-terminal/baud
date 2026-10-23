@@ -359,6 +359,16 @@ impl Paint<'_, '_> {
             if n == 2 && self.cold.str_kind == StrKind::Osc && self.strs.pending[..3] == *b"52;" {
                 self.clip_start();
             }
+            // **`1337;Copy=` routes the rest the same way at its `:`**:
+            // iTerm2's copy, whose base64 is as unbounded as `OSC 52`'s, and
+            // the pieces of its segmented copy (`crate::clip`).
+            if b.raw_byte() == b':'
+                && n >= 10
+                && self.cold.str_kind == StrKind::Osc
+                && self.strs.pending[..10] == *b"1337;Copy="
+            {
+                self.copy_route(ByteLen::from_index(n));
+            }
             // **`21;` routes the rest to kitty's colour control**, read a
             // record at a time, so a sequence of any length is honoured
             // (`colour.rs`).
@@ -862,7 +872,14 @@ impl Paint<'_, '_> {
             Osc::Notify9(o) => self.osc9(o),
             Osc::Notify777(o) => self.osc777(o),
             Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload),
-            Osc::Iterm(o) => self.osc1337(o),
+            Osc::Iterm(o) => self.osc1337(
+                o,
+                match n >= OSC_MAX {
+                    true => crate::logging::Body::Cut,
+                    false => crate::logging::Body::Whole,
+                },
+                term,
+            ),
             Osc::ColorControl(rest) => self.colour_whole(rest),
             Osc::KittyNotifyMalformed | Osc::Unsupported => {
                 self.strings_ignored += 1;

@@ -415,6 +415,9 @@ pub fn run() {
         cell_px(renderer.metrics().cell_w),
         cell_px(renderer.metrics().cell_h),
     );
+    // The window binds no fractional-scale global, so a point is a pixel:
+    // what `OSC 1337 ; ReportCellSize` divides by.
+    term.set_backing_scale(baud_domain::BackingScale::of(1.0));
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);

@@ -97,6 +97,15 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
         "OSC 1337 ; RequestAttention=Pv",
         b"\x1b]1337;RequestAttention=once\x1b\\",
     ),
+    // A variable's name in base64, `user.x`, and one colour set.
+    (
+        "OSC 1337 ; ReportVariable=base64",
+        b"\x1b]1337;ReportVariable=dXNlci54\x1b\\",
+    ),
+    (
+        "OSC 1337 ; SetColors=key=value",
+        b"\x1b]1337;SetColors=fg=fff\x1b\\",
+    ),
 ];
 
 /// **A placeholder the table writes for a parameter** -- `Ps`, `Pn`,

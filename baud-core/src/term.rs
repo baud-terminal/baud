@@ -5627,6 +5627,22 @@ impl<'b> Term<'b> {
         self.store.strs.attention_requests
     }
 
+    /// **iTerm2's messages not acted on**, a key at a time, and those whose
+    /// key iTerm2 does not know (`crate::iterm`).
+    pub fn iterm_counts(&self) -> crate::iterm::ItermCounts {
+        self.store.strs.iterm.counts
+    }
+
+    /// **Tell the core the backing scale**, device pixels a point, which
+    /// `OSC 1337 ; ReportCellSize` answers with and divides the cell size
+    /// by ([`Term::set_cell_size`]): "1.0 means non-retina, 2.0 means
+    /// retina" (`[[source: iterm2-escape-codes]]`). Until it is told, that
+    /// report is answered with silence and counted. The embedder re-tells
+    /// it whenever the window moves to a display of another scale.
+    pub fn set_backing_scale(&mut self, scale: BackingScale) {
+        self.store.strs.iterm.scale = scale;
+    }
+
     /// The icon name. `OSC 1` sets this, and `OSC 0` sets both.
     pub fn icon_name(&self) -> &[u8] {
         &self.store.strs.icon[..self.icon_len.index()]

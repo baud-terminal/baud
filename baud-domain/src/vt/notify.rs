@@ -298,34 +298,6 @@ pub enum Attention {
     No,
 }
 
-/// What an `OSC 1337` body is, as far as baud reads it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Osc1337 {
-    Attention(Attention),
-    /// `RequestAttention=fireworks`: "fireworks explode at the cursor's
-    /// location", a drawn effect not built, counted.
-    Fireworks,
-    /// `RequestAttention` with a value the text does not define.
-    AttentionMalformed,
-    /// Every other subcommand: each has its row in `docs/vt-coverage.md`,
-    /// and none is built yet. Counted.
-    Other,
-}
-
-impl Osc1337 {
-    /// The body after `1337;`.
-    pub fn parse(pt: &[u8]) -> Osc1337 {
-        match pt.strip_prefix(b"RequestAttention=") {
-            Some(b"yes") => Osc1337::Attention(Attention::Yes),
-            Some(b"once") => Osc1337::Attention(Attention::Once),
-            Some(b"no") => Osc1337::Attention(Attention::No),
-            Some(b"fireworks") => Osc1337::Fireworks,
-            Some(_) => Osc1337::AttentionMalformed,
-            None => Osc1337::Other,
-        }
-    }
-}
-
 // ---------------------------------------------------------------- OSC 99
 
 /// What a chunk's payload is: `p`, "One of title, body, close, icon, ?,
@@ -2150,31 +2122,6 @@ mod tests {
         assert_eq!(Osc777::parse(b"notify"), Osc777::Malformed);
         assert_eq!(Osc777::parse(b"precmd"), Osc777::Extension);
         assert_eq!(Osc777::parse(b"notifyx;a"), Osc777::Extension);
-    }
-
-    #[test]
-    fn osc1337_reads_request_attention_only() {
-        assert_eq!(
-            Osc1337::parse(b"RequestAttention=yes"),
-            Osc1337::Attention(Attention::Yes)
-        );
-        assert_eq!(
-            Osc1337::parse(b"RequestAttention=once"),
-            Osc1337::Attention(Attention::Once)
-        );
-        assert_eq!(
-            Osc1337::parse(b"RequestAttention=no"),
-            Osc1337::Attention(Attention::No)
-        );
-        assert_eq!(
-            Osc1337::parse(b"RequestAttention=fireworks"),
-            Osc1337::Fireworks
-        );
-        assert_eq!(
-            Osc1337::parse(b"RequestAttention=maybe"),
-            Osc1337::AttentionMalformed
-        );
-        assert_eq!(Osc1337::parse(b"SetMark"), Osc1337::Other);
     }
 
     #[test]

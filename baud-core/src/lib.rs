@@ -59,6 +59,7 @@ mod feed;
 mod font;
 mod graph;
 mod hardcopy;
+mod iterm;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
 mod kitty;
@@ -206,6 +207,7 @@ pub use cwd::{DirectoriesRefused, WorkingDirectory};
 pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
+pub use iterm::ItermCounts;
 pub use logging::LogsRefused;
 pub use notice::ReportCount;
 pub use search::{Found, SearchLines, Spot};

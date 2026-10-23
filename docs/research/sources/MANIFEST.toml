@@ -32591,3 +32591,133 @@ sha256 = "4512e91c660b43bda06a52955f9604b134205a7c28efdcb689faf83ab1325a42"
 bytes  = 574744
 status = "external"
 group  = "C"
+
+[sources.iterm2-964a75d-vt100terminal]
+key    = "iterm2-964a75d-vt100terminal"
+title  = "iTerm2 964a75d, sources/VT100/VT100Terminal.m -- executeXtermSetKvp: every OSC 1337 key iTerm2 compares, and what each does"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m"
+file   = ""
+sha256 = "37fd1636c907eb9350fe32297eb7386cccf9836be3d9a90510dd6fa6c1157abe"
+bytes  = 268079
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-xtermparser]
+key    = "iterm2-964a75d-xtermparser"
+title  = "iTerm2 964a75d, sources/VT100/VT100XtermParser.m -- an OSC 1337 key/value split at the first '='; File= and Copy= end their header at ':' and stream the rest"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100XtermParser.m"
+file   = ""
+sha256 = "9856a236a59e0276e4ca8294183ea97d34ebb6483a950949ad720e513602420c"
+bytes  = 21765
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-screen-terminal-delegate]
+key    = "iterm2-964a75d-screen-terminal-delegate"
+title  = "iTerm2 964a75d, VT100ScreenMutableState+TerminalDelegate.m -- ClearScrollback's clearBufferSavingPrompt, SetColors' names and colour spaces, the cell size in points and the backing scale"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100Screen/VT100ScreenMutableState%2BTerminalDelegate.m"
+file   = ""
+sha256 = "525f99710a06cff224906131bdb6d584eed4116b31c0503d1c828ce4fa271e99"
+bytes  = 184460
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-screen-mutable-state]
+key    = "iterm2-964a75d-screen-mutable-state"
+title  = "iTerm2 964a75d, VT100ScreenMutableState.m -- clearBufferSavingPrompt, RemoteHost split at the last '@', an empty CurrentDir read from the process"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100Screen/VT100ScreenMutableState.m"
+file   = ""
+sha256 = "4ee5e8ea14cb929ac7a4f57c2f097a595dd5d90a473ac71c9c71d8f14d016324"
+bytes  = 402446
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-ptysession]
+key    = "iterm2-964a75d-ptysession"
+title  = "iTerm2 964a75d, PTYSession.m -- screenReportVariableNamed, screenSetCursorType, StealFocus behind a prompt, the pasteboard's copy"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/PTYSession/PTYSession.m"
+file   = ""
+sha256 = "3c83bf3b7ccb37ac4e76a156f38c84f690199e554830aa9529c15b5bf3898e00"
+bytes  = 1178556
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-vt100output]
+key    = "iterm2-964a75d-vt100output"
+title  = "iTerm2 964a75d, VT100Output.m -- reportVariableNamed: ESC ] 1337 ; ReportVariable= base64 BEL, empty for a variable not reported"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Output.m"
+file   = ""
+sha256 = "0cdb20e69996ef61ba0928039db86e5131ff679ea94f76cd037ea6750fbde703"
+bytes  = 61706
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-nsstringiterm]
+key    = "iterm2-964a75d-nsstringiterm"
+title  = "iTerm2 964a75d, NSStringITerm.m -- stringByCompactingFloatingPointString: trailing zeros trimmed, one kept after the point"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Categories/NSStringITerm.m"
+file   = ""
+sha256 = "10650c7876807cdb86886529b83dd0ab4d537f9a16da30749165253a417f5a9e"
+bytes  = 129352
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-nagging]
+key    = "iterm2-964a75d-nagging"
+title  = "iTerm2 964a75d, iTermNaggingController.m -- permissionToReportVariableNamed: a variable is denied until the user allows it"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/PTYSession/iTermNaggingController.m"
+file   = ""
+sha256 = "30bc201dc1055d357b48850dfd2ea040d0debb8084e753f9959ca6ce9a5fff4e"
+bytes  = 65876
+status = "external"
+group  = "AX"
+
+[sources.iterm2-964a75d-user-variable]
+key    = "iterm2-964a75d-user-variable"
+title  = "iTerm2 964a75d, UserVariableAssignment.swift -- SetUserVar: name=base64 sets user.<name>, a bare name or a value not base64 unsets it, a '.' is refused"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/UserVariableAssignment.swift"
+file   = ""
+sha256 = "beadb3198ad8c22376d63b5da382da37585633d162d303ab2c0e5ec0ff083b3a"
+bytes  = 1055
+status = "external"
+group  = "AX"
+
+[sources.wezterm-e2a98e1-iterm-osc]
+key    = "wezterm-e2a98e1-iterm-osc"
+title  = "WezTerm e2a98e1, wezterm-escape-parser/src/osc.rs -- ITermProprietary: the keys parsed, ReportCellSize written with one place and ST"
+author = "Wez Furlong"
+year   = 2026
+venue  = "WezTerm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-escape-parser/src/osc.rs"
+file   = ""
+sha256 = "8503a11fe722283ac38dfabf90cd14ee68b1e93ff2ac8273620935c1f580fd39"
+bytes  = 69599
+status = "external"
+group  = "AX"

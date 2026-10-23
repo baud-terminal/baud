@@ -152,21 +152,6 @@ impl Paint<'_, '_> {
             }
         }
     }
-
-    /// `OSC 1337`: `RequestAttention`'s three values kept for the embedder;
-    /// fireworks and every other subcommand refused.
-    pub(crate) fn osc1337(&mut self, o: Osc1337) {
-        match o {
-            Osc1337::Attention(a) => {
-                self.strs.attention = Some(a);
-                self.strs.attention_requests = self.strs.attention_requests.next();
-            }
-            Osc1337::Fireworks | Osc1337::AttentionMalformed | Osc1337::Other => {
-                self.strings_ignored += 1;
-                self.unsupported_total += 1;
-            }
-        }
-    }
 }
 
 /// A count of the reports a terminal has taken, as a reading to compare: an

@@ -98,8 +98,8 @@ pub enum Osc<'a> {
     /// `OSC 99` with no second `;`: "The two semi-colons *must* always be
     /// present even when no metadata is present."
     KittyNotifyMalformed,
-    /// `OSC 1337 ; Pt`: iTerm2's subcommands, [`Osc1337`].
-    Iterm(Osc1337),
+    /// `OSC 1337 ; Pt`: iTerm2's messages, [`Osc1337`].
+    Iterm(Osc1337<'a>),
     /// `OSC 21 ; key=value ; ...`: kitty's colour control, the records
     /// after the `21;`, each a [`KittyRecord`] (`[[source:
     /// kitty-6d5d0c4-color-stack]]`). Not DECSWT, the VT520's title under
