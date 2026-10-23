@@ -29,11 +29,26 @@ use crate::*;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct PromptSeq(u64);
 
-/// One prompt: the line its first row is on and how its command ended.
+/// What an entry of the log is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EntryKind {
+    /// A shell's prompt, which a command's `D` reports on.
+    Prompt,
+    /// A line a program marked to jump back to, iTerm2's `SetMark`
+    /// (`[[source: iterm2-escape-codes]]`): no command, no status.
+    Mark,
+}
+
+/// One prompt, or one mark: the line its first row is on and how its
+/// command ended.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PromptEntry {
     line: LineIdx,
+    /// A prompt's own number. **A mark takes the number of the entry
+    /// before it** (0 at the front), so the numbers stay in order and a
+    /// prompt is the first entry with its number, which `find` bisects to.
     seq: PromptSeq,
+    kind: EntryKind,
     status: ExitStatus,
     /// Where a reflow in progress put its line, rows from the oldest
     /// retained one: kept beside the line, which the walk bisects on and so
@@ -51,6 +66,7 @@ impl PromptEntry {
     pub const EMPTY: PromptEntry = PromptEntry {
         line: LineIdx::FIRST,
         seq: PromptSeq(0),
+        kind: EntryKind::Prompt,
         status: ExitStatus::Unreported,
         landed: Landed::Unvisited,
     };
@@ -59,6 +75,9 @@ impl PromptEntry {
     }
     pub fn status(self) -> ExitStatus {
         self.status
+    }
+    pub fn kind(self) -> EntryKind {
+        self.kind
     }
 }
 
@@ -206,6 +225,7 @@ impl<'b> PromptLog<'b> {
         let entry = PromptEntry {
             line,
             seq,
+            kind: EntryKind::Prompt,
             status: ExitStatus::Unreported,
             landed: Landed::Unvisited,
         };
@@ -216,14 +236,66 @@ impl<'b> PromptLog<'b> {
 
     /// The shell redrew the newest prompt with its first row on `line`: a
     /// redraw mark, after which the block may begin on an earlier line.
+    ///
+    /// The newest *prompt*: a mark after it is on a row of its block, which
+    /// the redraw erases, and goes with the rows.
     pub fn redrawn(&mut self, line: LineIdx) {
-        if self.len == 0 {
+        let Some(k) = (0..self.len)
+            .rev()
+            .find(|&i| self.at(i).kind == EntryKind::Prompt)
+        else {
             return;
-        }
-        let newest = self.at(self.len - 1);
-        self.len -= 1;
+        };
+        let newest = self.at(k);
+        self.len = k;
         self.erased_from(line);
         *self.at_mut(self.len) = PromptEntry { line, ..newest };
+        self.len += 1;
+    }
+
+    /// **A mark on `line`**, iTerm2's `SetMark`, put in line order among the
+    /// prompts, erasing none: the cursor can be above the newest prompt. A
+    /// line that already has an entry is already one a jump stops at, and
+    /// is left as it is. Past the slice the oldest entry is forgotten, as a
+    /// prompt's push forgets it.
+    pub fn mark(&mut self, line: LineIdx) {
+        let at = self.first_from(line);
+        if at < self.len && self.at(at).line == line {
+            return;
+        }
+        if self.slots.is_empty() {
+            self.forgotten.0 += 1;
+            return;
+        }
+        let mut at = at;
+        if self.len == self.slots.len() {
+            self.forgotten.0 += 1;
+            if at == 0 {
+                // The mark is older than every entry kept: it is the one
+                // forgotten.
+                return;
+            }
+            self.head = (self.head + 1) % self.slots.len();
+            self.len -= 1;
+            at -= 1;
+        }
+        let seq = match at {
+            0 => PromptSeq(0),
+            _ => self.at(at - 1).seq,
+        };
+        let mut i = self.len;
+        while i > at {
+            let e = self.at(i - 1);
+            *self.at_mut(i) = e;
+            i -= 1;
+        }
+        *self.at_mut(at) = PromptEntry {
+            line,
+            seq,
+            kind: EntryKind::Mark,
+            status: ExitStatus::Unreported,
+            landed: Landed::Unvisited,
+        };
         self.len += 1;
     }
 
@@ -263,18 +335,20 @@ impl<'b> PromptLog<'b> {
         self.open[..self.depth].iter().rposition(|o| o.aid == aid)
     }
 
-    /// The entry of prompt `seq`: the entries are in `seq` order too.
+    /// The entry of prompt `seq`: the entries are in `seq` order too, and
+    /// the prompt is the first with its number, the marks after it sharing
+    /// it.
     fn find(&self, seq: PromptSeq) -> Option<usize> {
         let (mut lo, mut hi) = (0, self.len);
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.at(mid).seq.cmp(&seq) {
-                core::cmp::Ordering::Less => lo = mid + 1,
-                core::cmp::Ordering::Greater => hi = mid,
-                core::cmp::Ordering::Equal => return Some(mid),
+            match self.at(mid).seq < seq {
+                true => lo = mid + 1,
+                false => hi = mid,
             }
         }
-        None
+        (lo < self.len && self.at(lo).seq == seq && self.at(lo).kind == EntryKind::Prompt)
+            .then_some(lo)
     }
 
     /// The first entry whose line is at or after `line`, by bisection: the
@@ -467,6 +541,73 @@ mod tests {
         });
         assert_eq!(log.at(2).status(), ExitStatus::Cancelled, "a D with no C");
         assert_eq!(log.depth, 0);
+    }
+
+    /// **A mark goes in line order and erases nothing**: above the newest
+    /// prompt as below it, a jump stops at it, a `D` still reports on its
+    /// command's prompt past a mark with the prompt's number, a line already
+    /// in the log keeps its entry, and a redraw takes the marks on the rows
+    /// it erases.
+    #[test]
+    fn a_mark_goes_in_line_order_and_reports_nothing() {
+        let mut slots = [PromptEntry::EMPTY; 8];
+        let mut log = PromptLog::new(&mut slots);
+        log.open_bare(line(2));
+        log.output_began();
+        log.mark(line(4));
+        log.open_bare(line(10));
+        log.mark(line(7));
+        log.mark(line(10));
+        assert_eq!(lines(&log), [2, 4, 7, 10]);
+        let kinds: Vec<_> = log.entries().map(|e| e.kind()).collect();
+        assert_eq!(
+            kinds,
+            [
+                EntryKind::Prompt,
+                EntryKind::Mark,
+                EntryKind::Mark,
+                EntryKind::Prompt
+            ]
+        );
+        assert_eq!(
+            log.before(line(10), line(0)).map(|e| e.line()),
+            Some(line(7))
+        );
+        assert_eq!(log.after(line(4)).map(|e| e.line()), Some(line(7)));
+        log.output_began();
+        log.close(Done {
+            code: Some(ExitCode::of(3)),
+            err: None,
+            aid: Aid::EMPTY,
+        });
+        assert_eq!(log.at(3).status(), ExitStatus::Exited(ExitCode::of(3)));
+        assert_eq!(log.at(2).status(), ExitStatus::Unreported, "the mark");
+        log.mark(line(12));
+        log.redrawn(line(10));
+        assert_eq!(
+            lines(&log),
+            [2, 4, 7, 10],
+            "the redraw erased the mark at 12"
+        );
+        assert_eq!(log.at(3).kind(), EntryKind::Prompt);
+        log.mark(line(0));
+        assert_eq!(lines(&log), [0, 2, 4, 7, 10]);
+    }
+
+    /// **A full log forgets its oldest entry for a mark too**, and a mark
+    /// older than every entry kept is the one forgotten.
+    #[test]
+    fn a_mark_in_a_full_log_forgets_the_oldest() {
+        let mut slots = [PromptEntry::EMPTY; 3];
+        let mut log = PromptLog::new(&mut slots);
+        for n in [2, 5, 9] {
+            log.open_bare(line(n));
+        }
+        log.mark(line(7));
+        assert_eq!(lines(&log), [5, 7, 9]);
+        log.mark(line(1));
+        assert_eq!(lines(&log), [5, 7, 9]);
+        assert_eq!(log.forgotten().index(), 2);
     }
 
     /// A prompt drawn above prompts the screen held -- after a clear --

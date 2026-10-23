@@ -4,8 +4,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    BackingScale, ClipboardBudget, ClipboardContent, CursorStyle, DynamicColor, FileHost,
-    ItermDoes, ItermKey, Messages, Selection, SpecialColor,
+    BackingScale, ClipboardBudget, ClipboardContent, CursorStyle, DynamicColor, ExitStatus,
+    FileHost, ItermDoes, ItermKey, Messages, Selection, SpecialColor,
 };
 
 const ONE: Messages = Messages::of(1);
@@ -227,6 +227,56 @@ fn report_variable_answers_with_the_empty_value() {
             feed(t, &osc("ReportVariable=no!"), size);
             assert_eq!(t.reply(), b"", "reads of {size}");
             assert_eq!(t.iterm_counts().of(ItermKey::ReportVariable), ONE);
+        });
+    }
+}
+
+// ── SetMark ─────────────────────────────────────────────────────────────────
+
+/// **"Record a location and then jump back to it later"**: the cursor's line
+/// is a stop for Cmd-Up and Cmd-Down, beside the shell's prompts, with no
+/// exit status; `saveScrollPosition` marks the window's top line; on the
+/// alternate screen it is counted and marks nothing.
+#[test]
+fn set_mark_is_a_line_the_prompt_jumps_stop_at() {
+    for size in SIZES {
+        // The mark goes on the line `line 3` is written on, the fourth.
+        let mut bytes = lines(3);
+        bytes.extend(osc("SetMark"));
+        bytes.extend(lines(30));
+        with(&bytes, size, |t| {
+            let marks: Vec<PromptMark> = t.prompts().collect();
+            assert_eq!(marks.len(), 1, "reads of {size}");
+            assert_eq!(marks[0].status, ExitStatus::Unreported);
+            // 33 lines and the cursor's empty one on a 10-row screen: the
+            // screen's top is line 24, the mark line 3, 21 back.
+            assert_eq!(
+                marks[0].line,
+                PromptLine::Back(Rows::of_count(21)),
+                "reads of {size}"
+            );
+            assert!(t.jump_to_prompt(PromptJump::Previous), "reads of {size}");
+            assert_eq!(t.window_back(), Rows::of_count(21), "reads of {size}");
+            assert!(!t.jump_to_prompt(PromptJump::Previous), "nothing older");
+            assert!(!t.jump_to_prompt(PromptJump::Next), "nothing newer");
+            t.window_live();
+            // `saveScrollPosition`: the window's top, three lines back.
+            t.set_window_back(Rows::of_count(3));
+            feed(t, &osc("SetMark=saveScrollPosition"), size);
+            t.window_live();
+            assert!(t.jump_to_prompt(PromptJump::Previous), "reads of {size}");
+            assert_eq!(t.window_back(), Rows::of_count(3), "reads of {size}");
+            t.window_live();
+            // The alternate screen keeps no history: counted, no mark.
+            feed(t, b"\x1b[?1049h", size);
+            feed(t, &osc("SetMark"), size);
+            feed(t, b"\x1b[?1049l", size);
+            assert_eq!(t.prompts().count(), 2, "reads of {size}");
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::SetMark),
+                ONE,
+                "reads of {size}"
+            );
         });
     }
 }

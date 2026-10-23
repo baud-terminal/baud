@@ -110,6 +110,7 @@ impl Paint<'_, '_> {
             Osc1337::CurrentDir(dir) => self.current_dir(dir, body),
             Osc1337::RemoteHost(host) => self.remote_host(host, body),
             Osc1337::ReportCellSize => self.report_cell_size(term),
+            Osc1337::SetMark(at) => self.set_mark(at),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
             Osc1337::SetColors(list) => self.set_colors(list),
             Osc1337::SetUserVar { name, value } => self.set_user_var(name, value, body),
@@ -272,6 +273,27 @@ impl Paint<'_, '_> {
         if kept.is_err() {
             self.not_acted(ItermKey::SetUserVar);
         }
+    }
+
+    /// **`SetMark`: a line to jump back to**, "record a location and then
+    /// jump back to it later" (`[[source: iterm2-escape-codes]]`), in the
+    /// prompt log Cmd-Up and Cmd-Down already walk: the cursor's line, or
+    /// with `saveScrollPosition` the window's top line. On the alternate
+    /// screen, which keeps no history and where a jump does nothing, it is
+    /// counted under its key (Jev, COUNTED, 0.96/0.96).
+    fn set_mark(&mut self, at: MarkAt) {
+        if self.cold.screen != crate::term::Screen::Normal {
+            return self.not_acted(ItermKey::SetMark);
+        }
+        let line = match at {
+            MarkAt::CursorLine => self.book.top.plus(Rows::of_count(self.cy.index())),
+            MarkAt::WindowTop => self
+                .book
+                .top
+                .minus(self.book.window_back())
+                .unwrap_or(LineIdx::FIRST),
+        };
+        self.strs.prompts.mark(line);
     }
 
     /// **`SetColors`: each `key=value` sets the colour baud keeps for that

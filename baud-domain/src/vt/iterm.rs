@@ -122,7 +122,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
         NoCounterpart,
     ),
     (b"RemoteHost", ItermKey::RemoteHost, Acts),
-    (b"SetMark", ItermKey::SetMark, Unbuilt),
+    (b"SetMark", ItermKey::SetMark, Acts),
     (b"StealFocus", ItermKey::StealFocus, Refuses(StealsFocus)),
     (b"ClearScrollback", ItermKey::ClearScrollback, Acts),
     (b"CurrentDir", ItermKey::CurrentDir, Acts),
@@ -360,6 +360,9 @@ pub enum Osc1337<'a> {
     RemoteHost(&'a [u8]),
     /// `ReportCellSize`.
     ReportCellSize,
+    /// `SetMark`: "record a location and then jump back to it later", the
+    /// line [`MarkAt`] names.
+    SetMark(MarkAt),
     /// `ReportVariable=base64`: the encoded name.
     ReportVariable(&'a [u8]),
     /// `SetUserVar=name=base64`, or a bare `name`: the variable
@@ -433,6 +436,13 @@ impl<'a> Osc1337<'a> {
                 })
             }
             ItermKey::ReportCellSize => Osc1337::ReportCellSize,
+            // iTerm2's source: `saveScrollPosition` records "the entire
+            // region of visible lines"; anything else, "implicitly
+            // saveCursorLine" (`terminalSaveScrollPositionWithArgument:`).
+            ItermKey::SetMark => Osc1337::SetMark(match value {
+                b"saveScrollPosition" => MarkAt::WindowTop,
+                _ => MarkAt::CursorLine,
+            }),
             ItermKey::ReportVariable => Osc1337::ReportVariable(value),
             ItermKey::SetColors => Osc1337::SetColors(ColorSettings(value)),
             // "name=base64 to set a user variable or just name to unset it";
@@ -467,6 +477,18 @@ impl<'a> Osc1337<'a> {
             _ => Osc1337::Ignored(key),
         }
     }
+}
+
+/// **The line a `SetMark` marks**, as iTerm2's source reads its argument
+/// (`[[source: iterm2-964a75d-screen-terminal-delegate]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MarkAt {
+    /// The cursor's line: no argument, or any but `saveScrollPosition`.
+    CursorLine,
+    /// `saveScrollPosition`: the line at the window's top, so a jump, which
+    /// puts a mark at the window's top, shows the region as it was (Jev,
+    /// WINDOW_TOP, 0.90/0.94).
+    WindowTop,
 }
 
 /// **What a `Copy=` asks, from the value before its `:`**, as iTerm2's
@@ -1041,7 +1063,15 @@ mod tests {
         );
         assert_eq!(
             Osc1337::parse(b"SetMark"),
-            Osc1337::Ignored(ItermKey::SetMark)
+            Osc1337::SetMark(MarkAt::CursorLine)
+        );
+        assert_eq!(
+            Osc1337::parse(b"SetMark=saveScrollPosition"),
+            Osc1337::SetMark(MarkAt::WindowTop)
+        );
+        assert_eq!(
+            Osc1337::parse(b"SetMark=saveCursorLine"),
+            Osc1337::SetMark(MarkAt::CursorLine)
         );
         assert_eq!(
             Osc1337::parse(b"SetUserVar=gitBranch=bWFpbg=="),
