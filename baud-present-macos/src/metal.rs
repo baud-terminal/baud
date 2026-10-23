@@ -1834,10 +1834,10 @@ impl Gpu {
     /// [`Gpu::draw`] into a target that holds an earlier frame and lacks
     /// `missing` of the last one committed ([`crate::redraw::Ages`]). When
     /// this frame and those changed only rows -- the cursor, its blink
-    /// animation or its trail ([`Renderer::redraw`]), and nothing an image,
-    /// the exit-status strip or the frame's size draws -- the target is
-    /// loaded and only those rows are drawn, each band the whole pass held
-    /// to its scissor; otherwise the whole frame is.
+    /// animation, its trail or the cursor guide ([`Renderer::redraw`]), and
+    /// nothing an image, the exit-status strip or the frame's size draws --
+    /// the target is loaded and only those rows are drawn, each band the
+    /// whole pass held to its scissor; otherwise the whole frame is.
     pub fn draw_since(
         &mut self,
         renderer: &mut Renderer<'_, '_>,
@@ -2125,9 +2125,10 @@ impl Gpu {
     /// the grounds -- the cursor guide and the badge -- differ, its change
     /// is the rows of the old and the new cursor, each with the rows its
     /// glyph can reach ([`CellInput::reach`]), and the rows those records
-    /// and the grounds that changed cover. Then the target is loaded and each band of
-    /// changed rows drawn alone: the cell passes over its rows and the rows
-    /// whose glyphs can reach it, every record, all held to its scissor.
+    /// and the grounds that changed cover.
+    /// Then the target is loaded and each band of changed rows drawn alone:
+    /// the cell passes over its rows and the rows whose glyphs can reach
+    /// it, every record, all held to its scissor.
     pub fn draw_cells_since(
         &mut self,
         renderer: &mut Renderer<'_, '_>,

@@ -1712,10 +1712,10 @@ pub struct Renderer<'f, 'a> {
     dirty: Vec<bool>,
     /// **What every convert since the last [`Renderer::take_redraw`]
     /// changed**, for a GPU path that draws into surfaces it keeps: the
-    /// rows dirty only for the cursor, its blink animation or its trail,
-    /// else [`Redraw::Whole`]. Gathered across converts, so a frame
-    /// converted and never drawn -- a draw refused while one is in flight
-    /// -- still names its rows to the frame that is.
+    /// rows dirty only for the cursor, its blink animation, its trail or
+    /// the cursor guide, else [`Redraw::Whole`]. Gathered across converts,
+    /// so a frame converted and never drawn -- a draw refused while one is
+    /// in flight -- still names its rows to the frame that is.
     redraw: crate::Redraw,
     storage: Vec<Glyph>,
     /// The shaper's scratch for a varied face's glyph boxes, grown to the
@@ -5154,10 +5154,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **What the converts since the last [`Renderer::take_redraw`]
     /// changed**: the rows dirty for the cursor, its blink animation, its
-    /// trail or the cursor guide alone, or [`Redraw::Whole`] once any frame among them changed
-    /// anything else. What changed only *in the converted rows*: images,
-    /// the exit-status strip and a frame's size are the drawing path's to
-    /// compare.
+    /// trail or the cursor guide alone, or [`Redraw::Whole`] once any
+    /// frame among them changed anything else. What changed only *in the
+    /// converted rows*: images, the exit-status strip and a frame's size
+    /// are the drawing path's to compare.
     pub fn redraw(&self) -> crate::Redraw {
         self.redraw
     }
