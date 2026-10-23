@@ -136,9 +136,9 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Platforms and settings
 
-- [ ] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and the plain cursor trail work on Linux; the fire, plasma and other trail effects are drawn there as the plain trail so far. *In progress.*
 - [ ] **Check Linux on a real screen** — The Linux version has run only headless; next is looking at what it draws on a real display.
 - [ ] **GPU drawing on Linux** — Draw the Linux version on the GPU with Vulkan, as the macOS app draws with Metal.
+- [x] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, with the same pixels as on a Mac. (2026-10-23)
 - [x] **Saved settings show at once** — Save the settings file, or a theme or font file it names, and the open window follows a moment later: colours, fonts, the cursor, padding and the rest. Built for the Mac; the Linux driver has not been run with it. A save baud cannot read keeps the settings you had and says what was wrong on a row at the bottom of the window. config_reload = "off" turns it off. (2026-10-22)
 - [x] **Clipboard and middle-click paste on Linux** — Copy and paste through the desktop's clipboard, the primary selection and middle-click paste. (2026-10-21)
 - [x] **Compose key, dead keys and input methods on Linux** — Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method. (2026-10-21)

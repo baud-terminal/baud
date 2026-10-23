@@ -561,7 +561,7 @@ pub enum ThemeChoice {
 
 /// Which trail a cursor move leaves, from `[cursor] trail`: a plasma over
 /// kitty's quad -- the default, the owner's call of 2026-09-29, replacing
-/// the fire of 2026-09-25, and drawn as the quad on the CPU path -- a fire
+/// the fire of 2026-09-25 -- a fire
 /// rising off the quad and the rest of the effect family, kitty's quad,
 /// whose four corners chase the cursor's, sfte's sweep, a box swept from a
 /// tail chasing the cursor and fading out toward it, baud's first trail, a

@@ -4,7 +4,7 @@
 //! lace holds with one soft glint moving tail to head, then sublimates tail
 //! first, shedding hexagonal platelets -- diamond dust -- that pop up and
 //! drift down. Designed in the effect-trail research (the ice spec), in the
-//! cursor's colour with intensity as opacity, GPU only.
+//! cursor's colour with intensity as opacity.
 //!
 //! **The frost is laid on the path, not on the quad.** A point of the path
 //! is inside kitty's quad for 10-40 ms at mid-path, too short for a crystal
@@ -23,6 +23,7 @@
 //! plate, which the unit tests hold to their properties and the pixel
 //! oracle's reference calls.
 
+use crate::det::Det;
 use crate::effect::{self, Hash, Ignition, Particle, Vfx};
 use crate::trail::{Pt, TAU_FAST};
 
@@ -83,34 +84,10 @@ fn length(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()
 }
 
-/// A lattice point of the rime's noise.
-struct Lattice(i32, i32);
-
-/// `fx_lattice`.
-fn lattice(at: Lattice, seed: Hash) -> f32 {
-    let inner = Hash(at.1.cast_unsigned().wrapping_add(seed.0)).next().0;
-    Hash(at.0.cast_unsigned().wrapping_add(inner)).next().unit()
-}
-
-/// `fx_noise`: value noise on the hash's lattice, with the quintic fade.
-fn noise(x: f32, y: f32, seed: Hash) -> f32 {
-    let (fx, fy) = (x.floor(), y.floor());
-    let (ix, iy) = (fx as i32, fy as i32);
-    let (u, v) = (x - fx, y - fy);
-    let fade = |t: f32| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    let (wx, wy) = (fade(u), fade(v));
-    let a = lattice(Lattice(ix, iy), seed);
-    let b = lattice(Lattice(ix + 1, iy), seed);
-    let c = lattice(Lattice(ix, iy + 1), seed);
-    let d = lattice(Lattice(ix + 1, iy + 1), seed);
-    let mix = |p: f32, q: f32, t: f32| p + (q - p) * t;
-    mix(mix(a, b, wx), mix(c, d, wx), wy)
-}
-
 /// When the frost reaches `u` of the path, 0 at the tail and 1 at the head:
 /// kitty's leading-corner closed form, inverted.
 fn deposit(u: f32) -> f32 {
-    -LEAD * (1.0 - 0.999 * u).max(1e-3).log2()
+    -LEAD * (1.0 - 0.999 * u).max(1e-3).det_log2()
 }
 
 fn line(d: f32, w: f32, aa: f32) -> f32 {
@@ -219,7 +196,7 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
         let gp = (f.age - 0.4 * HOLD) / (0.6 * HOLD) * (fr.lu + 2.0 * SPACING) - SPACING;
         frost = sat(frost * (1.0 + 0.3 * (1.0 - smoothstep(0.0, SPACING, (along - gp).abs()))));
         let u = sat(along / fr.lu);
-        let front = (fr.lu + 0.6) * (1.0 - (-f.age / LEAD).exp2()) - 0.3;
+        let front = (fr.lu + 0.6) * (1.0 - (-f.age / LEAD).det_exp2()) - 0.3;
         let dep = 1.0 - smoothstep(front - 0.3, front + 0.3, along);
         let mr = HOLD + SPREAD * u;
         let rfade = 1.0 - smoothstep(mr, mr + MELT, f.age);
@@ -228,8 +205,8 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
             0.8 * fr.rel.0 - 0.6 * fr.rel.1,
             0.6 * fr.rel.0 + 0.8 * fr.rel.1,
         );
-        let n = 0.65 * noise(fr.rel.0 * 2.3, fr.rel.1 * 2.3, Hash(s2))
-            + 0.35 * noise(qx * 6.7, qy * 6.7, Hash(s2.wrapping_add(0x9E37_79B9)));
+        let n = 0.65 * effect::noise(fr.rel.0 * 2.3, fr.rel.1 * 2.3, Hash(s2))
+            + 0.35 * effect::noise(qx * 6.7, qy * 6.7, Hash(s2.wrapping_add(0x9E37_79B9)));
         let rime =
             0.24 * (1.0 - smoothstep(0.15, 0.6, dseg)) * smoothstep(0.35, 0.75, n) * dep * rfade;
         a = a.max(frost.max(rime));
@@ -308,12 +285,12 @@ impl Shard {
             x: (h3.unit() - 0.5) * 1.2 * c,
             y: -(0.2 + 0.6 * h4.unit()) * c,
         };
-        let s = (1.0 - (-DRAG * a).exp()) / DRAG;
+        let s = (1.0 - (-DRAG * a).det_exp()) / DRAG;
         let phase = core::f32::consts::TAU * Hash(h1.0 ^ 0x5bd1_e995).unit();
         let heat = 1.0 - a / self.life;
         Some(Particle {
             centre: Pt {
-                x: p0.x + v0.x * s + 0.10 * c * (9.0 * a + phase).sin(),
+                x: p0.x + v0.x * s + 0.10 * c * (9.0 * a + phase).det_sin(),
                 y: p0.y + v0.y * s + GRAVITY * c / DRAG * (a - s),
             },
             radius: (c * (0.12 + 0.10 * h2.unit()) * (0.6 + 0.4 * heat)).max(2.0),
@@ -388,8 +365,8 @@ mod tests {
                 for t in 0..12 {
                     let th = t as f32 * 0.52;
                     let at = |a: f32| Pt {
-                        x: o.x + r * f.unit * a.cos(),
-                        y: o.y + r * f.unit * a.sin(),
+                        x: o.x + r * f.unit * a.det_cos(),
+                        y: o.y + r * f.unit * a.det_sin(),
                     };
                     let (a, b) = (at(th), at(th + core::f32::consts::FRAC_PI_3));
                     let (fa, fb) = (crystal_only(&v, a, k as f32), crystal_only(&v, b, k as f32));
@@ -460,7 +437,7 @@ mod tests {
     fn the_deposit_time_is_kittys_leading_edge() {
         for u in [0.1f32, 0.5, 0.9] {
             let t = deposit(u);
-            let closed = 1.0 - (-10.0 * t / TAU_FAST).exp2();
+            let closed = 1.0 - (-10.0 * t / TAU_FAST).det_exp2();
             assert!((closed - 0.999 * u).abs() < 1e-4, "{u}: {closed}");
         }
     }

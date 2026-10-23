@@ -2404,7 +2404,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The cursor trail for the next frame, or none: a fading ghost
     /// sweeping from where the cursor was to where it is, the quad whose
-    /// corners chase the cursor's, or the box swept from a tail chasing it. Every path draws it -- the CPU compositor
+    /// corners chase the cursor's, the box swept from a tail chasing it, or
+    /// an effect riding the quad. Every path draws it -- the CPU compositor
     /// in `paint`, the instance path from the instance list, the cell path
     /// from [`Renderer::trail`] appended to its records. The driver hands a
     /// ghost's `progress` or a smear's corners, each computed from the display
@@ -2445,13 +2446,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 for inst in &self.trail_inst {
                     lo = lo.min(i32::from(inst.y.0));
                     hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
-                }
-                // The CPU path paints the emitter's quad, which an effect's
-                // records need not cover: the ufo's bands hold only its
-                // saucer, beam and wake.
-                for p in v.emitter.corners.0 {
-                    lo = lo.min(p.y.floor() as i32);
-                    hi = hi.max(p.y.ceil() as i32 + 1);
                 }
                 let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
                 (*top, *bottom) = if lo < hi {
@@ -5368,9 +5362,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in &self.compose_inst {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
-            // On the CPU an effect is its emitter, the quad it rides: the
-            // effect is the GPU's.
-            // A repeat pass's quad carries the cap, as its record does.
+            // A repeat pass's quad carries the cap, as its record does; an
+            // effect's records carry it in their colour.
             let fill = match self.strength() {
                 Strength::Full => self.cursor_fill,
                 Strength::UnderThreshold => self
@@ -5382,7 +5375,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     target.quad(&s, fill, self.blend, page, band);
                 }
                 Some(Drawn::Vfx(v, ..)) => {
-                    target.quad(&v.emitter, fill, self.blend, page, band);
+                    target.effect(&v, &self.trail_inst, self.blend, page, band);
                 }
                 _ => {
                     for inst in &self.trail_inst {

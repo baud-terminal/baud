@@ -6,7 +6,7 @@
 //! from it. Its shape never changes during its life: no flicker, no
 //! re-strike, so every pixel it crosses sees one rise and one fall.
 //! Designed in the effect-trail research (the lightning spec), in the
-//! cursor's colour with intensity as opacity, GPU only.
+//! cursor's colour with intensity as opacity.
 //!
 //! **Its emitter is not kitty's quad but a box along the path**
 //! ([`region`]), fixed for the ignition: a bolt's tail would be cut off by
@@ -20,6 +20,7 @@
 //! and the shading both, which the unit tests hold to their properties and
 //! the pixel oracle's reference calls.
 
+use crate::det::Det;
 use crate::effect::{self, Hash, Ignition, Particle, Vfx};
 use crate::trail::{Corners, Pt, Rect};
 
@@ -292,13 +293,13 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     let gw = W_GLOW * c;
     let km = (dm / w) * (dm / w);
     let kf = (df / (0.7 * w)) * (df / (0.7 * w));
-    let core = (-km * km).exp().max(0.7 * (-kf * kf).exp());
+    let core = (-km * km).det_exp().max(0.7 * (-kf * kf).det_exp());
     let (gm, gf) = (dm / gw, df / (0.75 * gw));
-    let glow = G_MAX * (-gm * gm).exp().max(0.6 * (-gf * gf).exp());
+    let glow = G_MAX * (-gm * gm).det_exp().max(0.6 * (-gf * gf).det_exp());
     let gc = dh / (W_CORONA * c);
     // No gate of its own: every corona pixel is where the leader arrives
     // last, so the pixel's own rise gates it already.
-    let corona = CORONA * (-gc * gc).exp();
+    let corona = CORONA * (-gc * gc).det_exp();
     (core * fall * fall + (glow + corona) * fall).clamp(0.0, 1.0) * rise
 }
 
@@ -326,11 +327,11 @@ pub fn sparks(f: &Ignition) -> impl Iterator<Item = Particle> + '_ {
             return None;
         }
         let c = f.unit;
-        let theta = f.dir.y.atan2(f.dir.x) + (h1.unit() - 0.5) * 1.6 * core::f32::consts::PI;
-        let (s, co) = theta.sin_cos();
+        let theta = f.dir.y.det_atan2(f.dir.x) + (h1.unit() - 0.5) * 1.6 * core::f32::consts::PI;
+        let (s, co) = theta.det_sin_cos();
         let speed = (5.0 + 5.0 * h2.unit()) * c;
         let head = head(f);
-        let go = (1.0 - (-DRAG * a).exp()) / DRAG;
+        let go = (1.0 - (-DRAG * a).det_exp()) / DRAG;
         let fade = 1.0 - a / life;
         Some(Particle {
             centre: Pt {
@@ -406,8 +407,8 @@ mod tests {
                     (w[1].x - w[0].x, w[1].y - w[0].y),
                     (w[2].x - w[1].x, w[2].y - w[1].y),
                 );
-                let cos = (a.0 * b.0 + a.1 * b.1) / (a.0.hypot(a.1) * b.0.hypot(b.1));
-                kinks += f64::from(cos.clamp(-1.0, 1.0).acos().to_degrees());
+                let cos = (a.0 * b.0 + a.1 * b.1) / (a.0.det_hypot(a.1) * b.0.det_hypot(b.1));
+                kinks += f64::from(cos.clamp(-1.0, 1.0).det_acos().to_degrees());
                 n += 1;
             }
         }
@@ -534,7 +535,7 @@ mod tests {
         for t in 1..20 {
             let now: Vec<Particle> = sparks(&f.at(T_LEAD + t as f32 * 0.01)).collect();
             for s in &now {
-                let d = (s.centre.x - head.x).hypot(s.centre.y - head.y);
+                let d = (s.centre.x - head.x).det_hypot(s.centre.y - head.y);
                 assert!(d <= 1.6 * f.unit, "{d} from the head");
             }
             if now.len() == prev.len() {

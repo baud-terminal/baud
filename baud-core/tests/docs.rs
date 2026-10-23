@@ -819,6 +819,18 @@ fn every_test_named_in_the_docs_exists() {
              `a_band_past_the_old_edge_is_not_content_after_a_width_growth`, for \
              the same change",
         ),
+        (
+            "the_cpu_path_draws_an_effect_as_its_emitter",
+            "a historical name, replaced on 2026-10-23 by \
+             `the_cpu_path_draws_every_effect_by_its_light` when the CPU path \
+             began to draw every effect; the record and note X cite it where \
+             the CPU path drew an effect as its quad",
+        ),
+        (
+            "an_effect_on_the_cpu_path_runs_as_the_quad",
+            "a historical name, deleted on 2026-10-23 with the CPU path's quad \
+             for an effect; the record cites it where the driver ran one so",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

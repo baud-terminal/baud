@@ -18,11 +18,19 @@
 //! **Every effect is the cursor's colour** -- the one the quad trail is drawn
 //! in, the owner's call -- and its intensity is its opacity. Premultiplied,
 //! that is valid over a glass window and dark over a light theme, whose
-//! cursor is dark, so one rule serves every ground. GPU only: the CPU path
-//! draws the emitter as the quad it is.
+//! cursor is dark, so one rule serves every ground.
+//!
+//! **Every path draws every effect.** The GPU's fragment functions and the
+//! CPU compositor read one Rust model of each -- [`Vfx::light`] over a band,
+//! [`Vfx::particle`] over a particle -- and the CPU path, which the Linux
+//! driver and the macOS app's `BAUD_GPU=0` draw with, composites the records
+//! by it (`Target::effect`); the macOS pixel oracle holds the GPU arms and
+//! the CPU arm to the same composite. The models' math is
+//! [`crate::det`]'s, so a frame has the same bits on every OS.
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
+use crate::det::Det;
 use crate::fire;
 use crate::ice;
 use crate::instance::{Instance, Screen};
@@ -162,6 +170,45 @@ impl Hash {
     }
 }
 
+/// A lattice point of an effect's noise.
+struct Lattice(i32, i32);
+
+/// `fx_lattice`.
+fn lattice(at: Lattice, seed: Hash) -> f32 {
+    let inner = Hash(at.1.cast_unsigned().wrapping_add(seed.0)).next().0;
+    Hash(at.0.cast_unsigned().wrapping_add(inner)).next().unit()
+}
+
+/// `fx_noise`: value noise on the hash's lattice, with the quintic fade --
+/// the fire's flame and the ice's rime.
+pub(crate) fn noise(x: f32, y: f32, seed: Hash) -> f32 {
+    let (fx, fy) = (x.floor(), y.floor());
+    let (ix, iy) = (fx as i32, fy as i32);
+    let (u, v) = (x - fx, y - fy);
+    let fade = |t: f32| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    let (wx, wy) = (fade(u), fade(v));
+    let a = lattice(Lattice(ix, iy), seed);
+    let b = lattice(Lattice(ix + 1, iy), seed);
+    let c = lattice(Lattice(ix, iy + 1), seed);
+    let d = lattice(Lattice(ix + 1, iy + 1), seed);
+    let mix = |p: f32, q: f32, t: f32| p + (q - p) * t;
+    mix(mix(a, b, wx), mix(c, d, wx), wy)
+}
+
+/// MSL's `smoothstep`.
+pub(crate) fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// **A particle's soft disc**, `fx_particle`: its opacity at `uv`, -1 to 1
+/// on each axis of its record, before the record's alpha -- an ember, an
+/// ion, a spark.
+pub fn disc(uv: Pt) -> f32 {
+    let a = 1.0 - smoothstep(0.15, 1.0, (uv.x * uv.x + uv.y * uv.y).sqrt());
+    a * a
+}
+
 /// **One ignition of an effect**, as a frame sees it: the path the move took
 /// -- from the centre of where the cursor was to the centre of where it
 /// went -- the seconds since the ignition, its seed, and the effect's unit,
@@ -190,7 +237,7 @@ impl Ignition {
     pub fn ignite(tail: Pt, to: Rect, seed: Seed, unit: f32) -> Ignition {
         let head = to.center();
         let (dx, dy) = (head.x - tail.x, head.y - tail.y);
-        let len = dx.hypot(dy).max(1.0);
+        let len = dx.det_hypot(dy).max(1.0);
         Ignition {
             tail,
             dir: Pt {
@@ -449,6 +496,35 @@ impl Vfx {
             Effect::Ufo => each(ufo::region(self)),
             Effect::Orb => each(orb::line(self)),
             Effect::Liquid => liquid::support(self, each),
+        }
+    }
+
+    /// **The effect's light at `p`**, a pixel centre in frame pixels: the
+    /// opacity a band's record draws the cursor's colour at there, before
+    /// the record's alpha -- the effect's fragment function over a band,
+    /// which the CPU path evaluates and the pixel oracle holds the GPU's to.
+    pub fn light(&self, p: Pt) -> f32 {
+        match self.effect {
+            Effect::Fire => fire::light(self, p),
+            Effect::Plasma => plasma::light(self, p),
+            Effect::Lightning => lightning::light(self, p),
+            Effect::Ice => ice::light(self, p),
+            Effect::Ufo => ufo::light(self, p),
+            Effect::Orb => orb::light(self, p),
+            Effect::Liquid => liquid::light(self, p),
+        }
+    }
+
+    /// **A particle's opacity at `uv`**, -1 to 1 on each axis of its
+    /// record, before the record's alpha: the ice's hexagonal shard, the
+    /// ufo's exhaust ring, every other effect's soft disc.
+    pub fn particle(&self, uv: Pt) -> f32 {
+        match self.effect {
+            Effect::Ice => ice::shard(uv),
+            Effect::Ufo => ufo::ring(uv),
+            Effect::Fire | Effect::Plasma | Effect::Lightning | Effect::Orb | Effect::Liquid => {
+                disc(uv)
+            }
         }
     }
 

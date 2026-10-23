@@ -21,9 +21,11 @@
 //!   341x256 window, so a braid that stays inside the quad cannot exceed it
 //!   whatever the move's length, and the spec's length cap never engaged.
 //!
-//! In the cursor's colour, intensity its opacity; GPU only, as every effect.
+//! In the cursor's colour, intensity its opacity; [`light`] is
+//! `plasma_tube` in Rust, which the CPU path draws by.
 
-use crate::effect::{self, Hash, Ignition, Particle, Vfx};
+use crate::det::Det;
+use crate::effect::{self, Hash, Ignition, Particle, Vfx, smoothstep};
 use crate::trail::Pt;
 
 /// Seconds the body lasts: the envelope `(1 - k)^2` is zero here, so the
@@ -58,6 +60,100 @@ pub fn params(vfx: &Vfx) -> [f32; effect::PARAMS] {
     let unit = vfx.ignition.unit.max(1.0);
     let half = 0.5 * (a.y.abs() * (h.right - h.left) + a.x.abs() * (h.bottom - h.top)) / unit;
     [half, a.x, a.y, TUBE, SHEATH, DECAY, FILAMENT, KNOT]
+}
+
+/// `px_wave`: sin(2 pi x) with the argument folded into [-1, 1) first, by
+/// MSL's `fract` -- `x - floor(x)`, below one -- which `f32::fract` is not
+/// for a negative `x`.
+fn wave(x: f32) -> f32 {
+    let f = (x + 0.5 - (x + 0.5).floor()).min(1.0 - f32::EPSILON / 2.0);
+    (core::f32::consts::PI * (2.0 * f - 1.0)).det_sin()
+}
+
+/// The filaments' table, spelled as the shader spells it: cycles a cell and
+/// a second of each wave and harmonic, the harmonic's share, the width in
+/// cells and the gain.
+const PX_K: [f32; 3] = [0.23, 0.31, 0.17];
+const PX_F: [f32; 3] = [1.10, 1.35, 0.80];
+const PX_K2: [f32; 3] = [0.71, 0.93, 0.53];
+const PX_F2: [f32; 3] = [-0.85, -1.05, -1.20];
+const PX_M: [f32; 3] = [0.22, 0.20, 0.25];
+const PX_W: [f32; 3] = [0.040, 0.034, 0.050];
+const PX_G: [f32; 3] = [1.00, 0.85, 0.65];
+
+/// **The plasma's parts at a pixel**, `plasma_tube`'s: the envelope, the
+/// tube with its sheath, the filaments, and how far behind the head the
+/// pixel is along the axis, in cells.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Parts {
+    pub env: f32,
+    pub tube: f32,
+    pub filaments: f32,
+    pub behind: f32,
+}
+
+/// The plasma's parts at `p`, or none where its fragment function draws
+/// nothing.
+pub fn parts(vfx: &Vfx, p: Pt) -> Option<Parts> {
+    let (e, f) = (vfx.emitter, vfx.ignition);
+    if e.hole.contains(p) {
+        return None;
+    }
+    let k = f.age / LIFE;
+    if k >= 1.0 {
+        return None;
+    }
+    let c = f.unit;
+    let d0 = effect::distance(p, &e.corners) / c;
+    if d0 > REACH {
+        return None;
+    }
+    let q = params(vfx);
+    let env = (1.0 - k) * (1.0 - k);
+    let inside = 1.0 - smoothstep(-0.03, 0.03, d0);
+    let tube = q[3] * inside + q[4] * (-q[5] * (1.0 + 1.5 * k) * d0.max(0.0)).det_exp();
+    let (ax, ay) = (q[1], q[2]);
+    let (rx, ry) = (
+        p.x - 0.5 * (e.hole.left + e.hole.right),
+        p.y - 0.5 * (e.hole.top + e.hole.bottom),
+    );
+    let s = -(rx * ax + ry * ay) / c;
+    let mut fil = 0.0f32;
+    if d0 < 0.15 {
+        let w = (ax * ry - ay * rx) / c;
+        let amp = q[0] * 0.62 * smoothstep(0.0, 2.0, s);
+        let salt = f.seed.0 ^ 0xA511_E9B3;
+        let hashed = |n: u32| Hash(salt.wrapping_add(n)).next().unit();
+        let kn = hashed(8);
+        for (i, n) in [0u32, 1, 2].into_iter().enumerate() {
+            let (ph, ph2) = (hashed(n), hashed(16 + n));
+            let along = amp
+                * ((1.0 - PX_M[i]) * wave(PX_K[i] * s + ph + PX_F[i] * f.age)
+                    + PX_M[i] * wave(PX_K2[i] * s + ph2 + PX_F2[i] * f.age));
+            let wid = (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c);
+            let x = (w - along) / wid;
+            let knot = 0.72 + 0.28 * wave(0.45 * s + kn + n as f32 / 3.0 + q[7] * f.age);
+            fil += PX_G[i] * (-x * x).det_exp() * knot;
+        }
+        fil = fil.clamp(0.0, 1.0)
+            * q[6]
+            * (1.0 - smoothstep(-0.02, 0.15, d0))
+            * smoothstep(0.0, 0.3, s);
+    }
+    Some(Parts {
+        env,
+        tube,
+        filaments: fil,
+        behind: s,
+    })
+}
+
+/// **The plasma's light at `p`**, `plasma_tube`: the tube and its sheath
+/// dimming together and the braid over them, before the record's alpha.
+pub fn light(vfx: &Vfx, p: Pt) -> f32 {
+    parts(vfx, p).map_or(0.0, |q| {
+        (q.env * (q.tube + (1.0 - q.tube) * q.filaments)).clamp(0.0, 1.0)
+    })
 }
 
 /// Ions a unit of path, and the least and most an ignition sheds.
@@ -134,7 +230,7 @@ impl Ion {
         let q = self.charge();
         let speed = (1.8 + 2.4 * h4.unit()) * u;
         let turn = (h5.unit() - 0.5) * core::f32::consts::FRAC_PI_2;
-        let (s, c) = turn.sin_cos();
+        let (s, c) = turn.det_sin_cos();
         let (dx, dy) = (q * perp.x, q * perp.y);
         let carry = (f.len / SWEEP).min(40.0 * u) * 0.03;
         let v0 = Pt {
@@ -150,8 +246,8 @@ impl Ion {
     fn centre(&self, f: &Ignition, a: f32) -> Pt {
         let (p0, v0) = self.launch(f);
         let w = self.charge() * TURN;
-        let e = (-DRAG * a).exp();
-        let (s, c) = (w * a).sin_cos();
+        let e = (-DRAG * a).det_exp();
+        let (s, c) = (w * a).det_sin_cos();
         let den = DRAG * DRAG + w * w;
         let mr = (DRAG * (1.0 - e * c) + w * e * s) / den;
         let mi = (w * (1.0 - e * c) - DRAG * e * s) / den;
@@ -204,7 +300,10 @@ mod tests {
             let dt = f64::from(ion.life) / f64::from(steps);
             for i in 0..steps {
                 let t = (f64::from(i) + 0.5) * dt;
-                let (e, (s, c)) = ((-f64::from(DRAG) * t).exp(), (f64::from(w) * t).sin_cos());
+                let (e, (s, c)) = (
+                    (-f64::from(DRAG) * t).det_exp(),
+                    (f64::from(w) * t).det_sin_cos(),
+                );
                 x += (f64::from(v0.x) * c - f64::from(v0.y) * s) * e * dt;
                 y += (f64::from(v0.x) * s + f64::from(v0.y) * c) * e * dt;
             }
@@ -304,6 +403,6 @@ mod tests {
     /// fragment function may reject a pixel past it.
     #[test]
     fn the_sheath_is_gone_at_the_reach() {
-        assert!(SHEATH * (-DECAY * REACH).exp() < 0.5 / 255.0);
+        assert!(SHEATH * (-DECAY * REACH).det_exp() < 0.5 / 255.0);
     }
 }

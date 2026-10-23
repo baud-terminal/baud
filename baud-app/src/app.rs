@@ -136,16 +136,6 @@ enum Path {
     Cells,
 }
 
-/// The trail the driver runs on `path`: an effect is the GPU's, so on the
-/// CPU path it rides the quad and runs as one -- no frames are owed for an
-/// effect nothing draws.
-fn chase_style(style: crate::trail::Style, path: Path) -> crate::trail::Style {
-    match path {
-        Path::Cpu => crate::trail::on_cpu(style),
-        Path::Instances | Path::Cells => style,
-    }
-}
-
 /// What `BAUD_GPU` asks for.
 ///
 /// **Unset is `Auto`: probe once and take the fastest path the machine
@@ -1481,7 +1471,7 @@ impl App {
             motion_source,
             flashing,
             trail: None,
-            chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
+            chase: crate::trail::Chase::new(cursor_trail.style()),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -6548,7 +6538,6 @@ mod trail_cursor_tests {
     /// flame out.
     #[test]
     fn a_wheel_scroll_back_in_helix_moves_every_trail_only_down() {
-        use super::{Path, chase_style};
         use crate::config::CursorTrail;
         const RAW: &[u8] = include_bytes!("../../tests/trail/helix-wheel.raw");
         const HIDE: &[u8] = b"\x1b[?25l";
@@ -6584,11 +6573,11 @@ mod trail_cursor_tests {
             CursorTrail::Liquid,
         ];
         for trail in trails {
-            for path in [Path::Cpu, Path::Instances, Path::Cells] {
-                let case = format!("{trail:?} on {path:?}");
+            {
+                let case = format!("{trail:?}");
                 let mut owned = Owned::new(&ws);
                 let mut t = Term::new(owned.storage(), &ws);
-                let mut chase: Chase<Instant> = Chase::new(chase_style(trail.style(), path));
+                let mut chase: Chase<Instant> = Chase::new(trail.style());
                 let t0 = Instant::now();
                 let (mut rows, mut wheel, mut from_landed) = (Vec::new(), false, 0);
                 let mut last: Option<(TrailLook, Rect)> = None;
@@ -6640,7 +6629,7 @@ mod trail_cursor_tests {
                     [0, 0, 16, 16, 16, 5, 8, 8, 11, 14, 16, 16, 16],
                     "{case}: the capture's placements -- the start, ge, gt, then the wheel"
                 );
-                if trail == CursorTrail::Fire && path != Path::Cpu {
+                if trail == CursorTrail::Fire {
                     assert!(
                         from_landed >= 1,
                         "{case}: {from_landed} steps began from a landed flame"
@@ -6850,10 +6839,7 @@ mod motion_tests {
     //! one", and blinking text held shown. The decisions are pure and gated
     //! here; `poll_motion`, the tick and the launch read are AppKit-bound,
     //! held by the source gates at the end.
-    use super::{
-        MotionSource, Owes, Path, chase_style, motion_change, motion_override, retrail,
-        system_motion,
-    };
+    use super::{MotionSource, Owes, motion_change, motion_override, retrail, system_motion};
     use crate::config::{CursorTrail as T, SystemMotion as M, TrailPick as P};
     use crate::trail::Chase;
     use baud_domain::{Col, HostTime, Row};
@@ -6922,7 +6908,7 @@ mod motion_tests {
     /// the off trail's owes nothing over ten seconds of ticks.
     #[test]
     fn a_switch_mid_fire_owes_one_frame_and_then_none() {
-        let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
+        let mut chase: Chase<HostTime> = Chase::new(T::Fire.style());
         chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
         chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), PT);
         assert!(
@@ -6932,14 +6918,7 @@ mod motion_tests {
             "the control: a fire is lit"
         );
         let (mut ghost, mut last) = (None, Some((Row::ZERO, Col::ZERO)));
-        let owes = retrail(
-            &mut chase,
-            &mut ghost,
-            &mut last,
-            T::Off,
-            Path::Cells,
-            Some(at(1.021)),
-        );
+        let owes = retrail(&mut chase, &mut ghost, &mut last, T::Off, Some(at(1.021)));
         assert_eq!(owes, Owes::Frame, "one frame to clear the fire");
         assert_eq!(last, None, "the cursor's last cell is forgotten");
         for k in 0..1200u32 {
@@ -6990,8 +6969,7 @@ mod motion_tests {
             (ABOVE, 2.1, Full),
             (PT, 1.3, Full),
         ] {
-            let mut chase: Chase<HostTime> =
-                Chase::new(chase_style(T::Plasma.style(), Path::Cells));
+            let mut chase: Chase<HostTime> = Chase::new(T::Plasma.style());
             chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), pt);
             chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), pt);
             let lit = chase.frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0), pt);
@@ -7002,14 +6980,7 @@ mod motion_tests {
             };
             assert_eq!(strength(lit), Some(Full), "the control: a full plasma");
             let (mut ghost, mut last) = (None, None);
-            let _ = retrail(
-                &mut chase,
-                &mut ghost,
-                &mut last,
-                T::Ghost,
-                Path::Cells,
-                None,
-            );
+            let _ = retrail(&mut chase, &mut ghost, &mut last, T::Ghost, None);
             let back = sweep(chase.ledger(), ((3, 60), (3, 5)), t, pt);
             assert_eq!(
                 back,
@@ -7017,17 +6988,10 @@ mod motion_tests {
                 "the ghost after the plasma, {pt:?} at {t}"
             );
 
-            let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Ghost.style(), Path::Cells));
+            let mut chase: Chase<HostTime> = Chase::new(T::Ghost.style());
             let first = sweep(chase.ledger(), ((3, 5), (3, 60)), 1.0, pt);
             assert_eq!(first, Some(Full), "the control: a full ghost");
-            let _ = retrail(
-                &mut chase,
-                &mut ghost,
-                &mut last,
-                T::Plasma,
-                Path::Cells,
-                None,
-            );
+            let _ = retrail(&mut chase, &mut ghost, &mut last, T::Plasma, None);
             chase.frame(Some(cell(60.0, 3.0)), at(t - 0.02), (10.0, 20.0), pt);
             chase.frame(Some(cell(5.0, 3.0)), at(t - 0.012), (10.0, 20.0), pt);
             let moved = chase.frame(Some(cell(5.0, 3.0)), at(t), (10.0, 20.0), pt);
@@ -7066,17 +7030,10 @@ mod motion_tests {
     /// A switch at rest owes no frame: nothing was drawn.
     #[test]
     fn a_switch_at_rest_owes_no_frame() {
-        let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
+        let mut chase: Chase<HostTime> = Chase::new(T::Fire.style());
         chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
         let (mut ghost, mut last) = (None, None);
-        let owes = retrail(
-            &mut chase,
-            &mut ghost,
-            &mut last,
-            T::Off,
-            Path::Cells,
-            Some(at(2.0)),
-        );
+        let owes = retrail(&mut chase, &mut ghost, &mut last, T::Off, Some(at(2.0)));
         assert_eq!(owes, Owes::Nothing);
     }
 
@@ -10299,7 +10256,6 @@ impl Driver {
             &mut self.app.trail,
             &mut self.app.last_cursor_cell,
             next,
-            self.app.wanted,
             HostTime::of_secs(self.app.tick_target),
         );
         self.app.cursor_trail = next;
@@ -10522,7 +10478,6 @@ impl Driver {
                             &mut self.app.trail,
                             &mut self.app.last_cursor_cell,
                             next,
-                            self.app.wanted,
                             HostTime::of_secs(self.app.tick_target),
                         );
                         self.app.cursor_trail = next;
@@ -12639,30 +12594,6 @@ mod tests {
         assert!(!body.contains("theme_for("), "the flip builds no theme");
     }
 
-    /// **An effect on the CPU path runs as the quad**, which is what that
-    /// path draws of it, so the tick owes no frames for an effect nothing
-    /// draws; on either GPU path it is itself, and so is every other trail.
-    #[test]
-    fn an_effect_on_the_cpu_path_runs_as_the_quad() {
-        use crate::trail::Style;
-        use baud_render::Shape;
-        use baud_render::effect::Effect;
-        for e in Effect::ALL {
-            let fx = Style::Effect(e);
-            assert_eq!(
-                chase_style(fx, Path::Cpu),
-                Style::Smear(Shape::Quad),
-                "{e:?}"
-            );
-            assert_eq!(chase_style(fx, Path::Cells), fx, "{e:?}");
-            assert_eq!(chase_style(fx, Path::Instances), fx, "{e:?}");
-        }
-        for path in [Path::Cpu, Path::Cells] {
-            let sweep = Style::Smear(Shape::Sweep);
-            assert_eq!(chase_style(sweep, path), sweep);
-        }
-    }
-
     /// Every keypad key code of `[[source: macos-sdk-events-h]]` (lines
     /// 244-261) and the keypad key it names. The codes skip `0x5A`, F20's,
     /// between `kVK_ANSI_Keypad7` and `kVK_ANSI_Keypad8`.
@@ -13927,11 +13858,10 @@ fn retrail(
     ghost: &mut Option<TrailState>,
     last_cell: &mut Option<(Row, Col)>,
     next: crate::config::CursorTrail,
-    path: Path,
     now: Option<HostTime>,
 ) -> Owes {
     let drawn = now.is_some_and(|t| chase.owes(t) == Owes::Frame) || ghost.is_some();
-    chase.restyle(chase_style(next.style(), path));
+    chase.restyle(next.style());
     *ghost = None;
     *last_cell = None;
     match drawn {

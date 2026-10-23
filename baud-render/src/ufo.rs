@@ -4,7 +4,7 @@
 //! cell above the cursor with a small bob, lowers a translucent tractor beam
 //! onto it with rings travelling down, then climbs away, shrinking and
 //! fading. Designed in the effect-trail research (the ufo spec), in the
-//! cursor's colour with intensity as opacity, GPU only.
+//! cursor's colour with intensity as opacity.
 //!
 //! **The flight is a spring onto the quad's centroid.** A critically damped
 //! spring from rest (neovide's form) gives the S-curve an object is seen to
@@ -20,6 +20,7 @@
 //! This module is the Rust model of the shader, `ufo_light`, which the unit
 //! tests hold to its properties and the pixel oracle's reference calls.
 
+use crate::det::Det;
 use crate::effect::{self, Hash, Ignition, Particle, Seed, Vfx};
 use crate::trail::{Corners, Pt, Rect};
 
@@ -86,11 +87,11 @@ fn fract(x: f32) -> f32 {
 }
 
 fn sinpi(x: f32) -> f32 {
-    (core::f32::consts::PI * x).sin()
+    (core::f32::consts::PI * x).det_sin()
 }
 
 fn cospi(x: f32) -> f32 {
-    (core::f32::consts::PI * x).cos()
+    (core::f32::consts::PI * x).det_cos()
 }
 
 /// **What a flight is flown from**: the path, the quad's centroid the
@@ -175,7 +176,7 @@ fn omega(len: f32, c: f32) -> f32 {
 pub fn pose(fl: &Flight, a: f32) -> Pose {
     let c = fl.unit;
     let w = omega(fl.len, c);
-    let sig = 1.0 - (1.0 + w * a) * (-w * a).exp();
+    let sig = 1.0 - (1.0 + w * a) * (-w * a).det_exp();
     let on = Pt {
         x: fl.tail.x + (fl.cq.x - fl.tail.x) * sig,
         y: fl.tail.y + (fl.cq.y - fl.tail.y) * sig,
@@ -218,8 +219,8 @@ pub fn pose(fl: &Flight, a: f32) -> Pose {
     let ext = smoothstep(1.3 * t, 1.3 * t + 0.1, a) * (1.0 - smoothstep(dep - 0.08, dep, a));
     Pose {
         c: centre,
-        cs: th.cos(),
-        sn: th.sin(),
+        cs: th.det_cos(),
+        sn: th.det_sin(),
         s: SIZE * (0.5 + 0.5 * grow) * (1.0 - 0.6 * kk * kk),
         vis: grow * (1.0 - smoothstep(0.0, 1.0, kk)),
         cr: cospi(rho),
@@ -464,7 +465,7 @@ pub fn puffs(f: &Ignition) -> impl Iterator<Item = Particle> + '_ {
         let sp = (1.2 + 1.0 * h2.unit()) * c;
         let off = (h3.unit() - 0.5) * c;
         let (v0x, v0y) = (bx * sp - by * off, by * sp + bx * off);
-        let go = (1.0 - (-5.0 * a).exp()) / 5.0;
+        let go = (1.0 - (-5.0 * a).det_exp()) / 5.0;
         let k = 1.0 - a / life;
         Some(Particle {
             centre: Pt {

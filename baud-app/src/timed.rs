@@ -14,9 +14,10 @@
 //!   owes the next frame on each turn and presents it once the last one is
 //!   done, so a frame in flight never spins the wait.
 //!
-//! Every trail style runs as the CPU path draws it (`trail::on_cpu`): an
-//! effect -- the fire and its family -- is the GPU's, so here it rides the
-//! quad. The motion is the desktop's preference, as the driver hears it
+//! Every trail style runs as it does on macOS: an effect -- the fire and
+//! its family -- is drawn by the CPU path from its light
+//! (`baud_render::effect`), the pixels the macOS app's CPU path draws. The
+//! motion is the desktop's preference, as the driver hears it
 //! from the Settings portal (`bus.rs`) or `BAUD_MOTION` fixes it, and
 //! full until then: reduced, text blink is held shown and the default
 //! trail is none, as under macOS's Reduce Motion ([`Timed::set_motion`]).
@@ -137,7 +138,7 @@ impl Timed {
             regis: RegisBlink::Off,
             pick: trail,
             trail: effective,
-            chase: Chase::new(crate::trail::on_cpu(effective.style())),
+            chase: Chase::new(effective.style()),
             ghost: None,
             last_cell: None,
             transition,
@@ -161,7 +162,7 @@ impl Timed {
         let host = self.clock.host(now);
         let drawn = self.chase.owes(host) == crate::caret::Owes::Frame || self.ghost.is_some();
         self.trail = next;
-        self.chase.restyle(crate::trail::on_cpu(next.style()));
+        self.chase.restyle(next.style());
         self.ghost = None;
         self.last_cell = None;
         match drawn {
@@ -573,13 +574,13 @@ mod tests {
 
     /// **A long cursor move trails: the dwell is a deadline, the flight
     /// owes every frame, and the landing frees the wait.** The default
-    /// trail is an effect, which the CPU path draws as the quad. The
-    /// control is a one-cell move, which snaps and owes nothing.
-    /// Perturbation: build the chase from the style itself rather than
-    /// `on_cpu` -- the fire is drawn as a `Vfx` and the quad assertion
-    /// fails.
+    /// trail is an effect, the plasma, which the CPU path draws as itself;
+    /// it owes frames until it is out, after its quad lands. The control
+    /// is a one-cell move, which snaps and owes nothing. Perturbation:
+    /// build the chase from the quad the effect rides -- the plasma
+    /// assertion fails.
     #[test]
-    fn a_long_move_trails_as_the_quad_and_lands() {
+    fn a_long_move_trails_as_the_effect_and_lands() {
         let t0 = Instant::now();
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
@@ -595,7 +596,10 @@ mod tests {
         assert_eq!(fx.turn(dwell, &mut t), Owes::Frame, "the dwell ran out");
         let p = fx.plan(dwell, &t, rect, CELL, widths());
         assert!(
-            matches!(p.trail, Some(TrailLook::Smear(_))),
+            matches!(
+                p.trail,
+                Some(TrailLook::Vfx(v)) if v.effect == baud_render::effect::Effect::Plasma
+            ),
             "{:?}",
             p.trail
         );

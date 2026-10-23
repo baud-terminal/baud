@@ -34,6 +34,16 @@
 //! cost, rows and instances a frame. Frames a cycle are `caret.rs`'s
 //! `frames_a_cycle_for_each_animation`; the two multiply.
 //!
+//! `FRAME_TRAIL=none|quad|fire|plasma|lightning|ice|ufo|orb|liquid` prices
+//! instead what a cursor trail costs the CPU path a frame: over the
+//! recording's last screen, 600 incremental frames 1/120 s apart of a
+//! 30-column move down three rows (`FRAME_TRAIL_MOVE` sets another), the
+//! trail drawn from its start until it
+//! is out and then again -- the quad's chase, or an effect riding it --
+//! reporting the cost, rows and trail records a frame. The instructions
+//! the whole run retires, `/usr/bin/time -l`, less those of `none`'s, over
+//! 600, are the trail's a frame.
+//!
 //! `FRAME_IMAGE=<keys>|none` prices instead what an image on screen costs a
 //! frame: over the recording's last screen a 256x192 kitty image placed at
 //! row 6, column 11 with the `a=p` keys given (`c=40`, `z=-1`, ...), or none,
@@ -288,6 +298,85 @@ fn main() {
             rows as f64 / f64::from(n),
             inst as f64 / f64::from(n),
             glow as f64 / f64::from(n),
+        );
+        return;
+    }
+    if let Ok(kind) = std::env::var("FRAME_TRAIL") {
+        use baud_render::effect::{Effect, Ignition, Seed, Vfx};
+        use baud_render::{Pt, Segment, Shape, Smear, Strength, TrailLook};
+        let effect = match kind.as_str() {
+            "fire" => Some(Effect::Fire),
+            "plasma" => Some(Effect::Plasma),
+            "lightning" => Some(Effect::Lightning),
+            "ice" => Some(Effect::Ice),
+            "ufo" => Some(Effect::Ufo),
+            "orb" => Some(Effect::Orb),
+            "liquid" => Some(Effect::Liquid),
+            _ => None,
+        };
+        let mut rt = fresh();
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.write_at(BytePos::ZERO, &data);
+        t.feed(BytePos::ZERO, ReadLen::from_index(data.len()));
+        let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+        rt.render(&mut t, &mut target, Damage::Full);
+        let style = baud_core::CursorStyle::SteadyBlock;
+        let cell = |row: usize, col: usize| {
+            rt.cursor_rect(
+                baud_domain::Row::from_index(row),
+                baud_domain::Col::at_index(col),
+                style,
+            )
+        };
+        // `FRAME_TRAIL_MOVE=<row>,<col>,<row>,<col>` moves elsewhere: the
+        // screen's diagonal is `0,0,49,199`.
+        let mv: Vec<usize> = std::env::var("FRAME_TRAIL_MOVE")
+            .ok()
+            .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
+            .filter(|v: &Vec<usize>| v.len() == 4)
+            .unwrap_or_else(|| vec![10, 40, 13, 70]);
+        let (from, to) = (cell(mv[0], mv[1]), cell(mv[2], mv[3]));
+        let seg = Segment::new(from.corners(), to);
+        let unit = rt.metrics().cell_h.value() as f32;
+        let tail = Pt {
+            x: (from.left + from.right) * 0.5,
+            y: (from.top + from.bottom) * 0.5,
+        };
+        let ignition = Ignition::ignite(tail, to, Seed(7), unit);
+        let life = effect.map_or(seg.lasts(), |e| e.end(&ignition));
+        let per = u32::try_from((life * 120.0).ceil().max(1.0) as i64).unwrap_or(1);
+        let n = 600u32;
+        let (mut rows, mut records) = (0u64, 0u64);
+        let start = std::time::Instant::now();
+        for i in 0..n {
+            let age = (i % per) as f32 / 120.0;
+            let emitter = Smear {
+                corners: seg.at(age),
+                hole: to,
+                shape: Shape::Quad,
+                strength: Strength::Full,
+            };
+            let look = match (kind.as_str(), effect) {
+                ("none", _) => None,
+                (_, Some(e)) => Some(TrailLook::Vfx(Vfx {
+                    effect: e,
+                    emitter,
+                    ignition: ignition.at(age),
+                    axis: Pt { x: 0.995, y: 0.1 },
+                })),
+                (_, None) => Some(TrailLook::Smear(emitter)),
+            };
+            rt.set_trail(look);
+            let f = rt.render(&mut t, &mut target, Damage::Incremental);
+            rows += f.rows_dirty.value();
+            records += u64::try_from(rt.trail().len()).unwrap_or(0);
+        }
+        let us = start.elapsed().as_secs_f64() * 1e6 / f64::from(n);
+        println!(
+            "trail {kind} over {which}: {us:.1} us/frame, {:.2} rows/frame, {:.1} records/frame, {per} frames a life",
+            rows as f64 / f64::from(n),
+            records as f64 / f64::from(n),
         );
         return;
     }

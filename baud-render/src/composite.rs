@@ -10,6 +10,7 @@
 
 use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
+use crate::effect::Vfx;
 use crate::instance::Instance;
 use crate::renderer::ImageComposite;
 use crate::trail::{Pt, Smear};
@@ -305,8 +306,8 @@ impl<'p> Target<'p> {
                     Kind::Solid => mix(color, dst, Coverage(255)),
                     // A quad's record is only its bounds; the pixels come
                     // from its corners, which `Target::quad` is handed. An
-                    // effect's records are the GPU's alone: on the CPU an
-                    // effect is its emitter, drawn as a quad.
+                    // effect's come from its light, which `Target::effect`
+                    // is handed.
                     Kind::Quad | Kind::Band | Kind::Particle => continue,
                     Kind::Color => {
                         let src = Argb(atlas.argb()[(v + my) * color_side + u + mx]);
@@ -361,6 +362,62 @@ impl<'p> Target<'p> {
                 let c = u8::try_from((cover * 255.0).round() as i64).unwrap_or(u8::MAX);
                 let a = baud_domain::premultiply_chan(Chan::from_u8(c), fa).get();
                 row[x] = mix(fill, Argb(row[x]), Coverage(a)).0;
+            }
+        }
+    }
+
+    /// **Paints an effect's records over the pixels**, each clipped to the
+    /// buffer and the rows of `band`, as the GPU's viewport and its effect
+    /// pipeline draw them: a band's pixel at the effect's light at the
+    /// pixel's centre ([`Vfx::light`]), a particle's at its shape where the
+    /// pixel sits in its record, -1 to 1 on each axis ([`Vfx::particle`]),
+    /// each times the record's alpha -- which carries a particle's glow and
+    /// a repeat pass's flash cap -- in the record's colour, in order, so a
+    /// particle lands over the band under it.
+    pub fn effect(
+        &mut self,
+        vfx: &Vfx,
+        records: &[Instance],
+        blend: Blend,
+        page: Page,
+        band: Band,
+    ) {
+        let rows = self.rows_of(band);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        let at = |v: i16| usize::try_from(v.max(0)).unwrap_or(0);
+        for r in records
+            .iter()
+            .filter(|r| matches!(r.kind, Kind::Band | Kind::Particle))
+        {
+            let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+            let (w, h) = (f32::from(r.w.0), f32::from(r.h.0));
+            let ys = at(r.y.0).max(rows.start)
+                ..usize::try_from(y0 + i32::from(r.h.0))
+                    .unwrap_or(0)
+                    .min(rows.end);
+            let xs = at(r.x.0)
+                ..usize::try_from(x0 + i32::from(r.w.0))
+                    .unwrap_or(0)
+                    .min(width);
+            let alpha = f32::from(r.color.a().get()) / 255.0;
+            let color = r.color.with_alpha(Chan::from_u8(0xFF));
+            for y in ys {
+                let row = &mut self.pixels[y * stride..y * stride + width];
+                let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
+                for x in xs.clone() {
+                    let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
+                    let v = match r.kind {
+                        Kind::Particle => vfx.particle(Pt {
+                            x: (cx - x0 as f32) / w * 2.0 - 1.0,
+                            y: (cy - y0 as f32) / h * 2.0 - 1.0,
+                        }),
+                        _ => vfx.light(Pt { x: cx, y: cy }),
+                    };
+                    let a = alpha * v;
+                    if a > 0.0 {
+                        row[x] = blend.over_unit(color, Argb(row[x]), a, page).0;
+                    }
+                }
             }
         }
     }
@@ -694,6 +751,51 @@ impl Blend {
             mix(src.b(), dst.b()),
         )
         .with_alpha(Chan::from_u8(alpha))
+    }
+
+    /// **`src`'s colour over `dst` at the source alpha `a`, a fraction**:
+    /// an effect's pixel, whose alpha is its light times its record's, a
+    /// float as the GPU's fragment function forms it. `Native` blends as
+    /// the GPU's `One, OneMinusSourceAlpha` does over its 8-bit
+    /// premultiplied target, `co = Cs a + cb (1 - a)` and `ao = a + ab (1 -
+    /// a)` rounded to bytes -- `over` in `baud-present-macos/tests/cells.rs`
+    /// -- over the backdrop as the presenter premultiplies it, and keeps the
+    /// straight byte that premultiplies back to `co`, as [`Blend::over_glass`]
+    /// does; over an opaque page that is `co` itself. `Linear`, which has no
+    /// GPU counterpart, takes `a` as a coverage byte through `over`.
+    fn over_unit(self, src: Argb, dst: Argb, a: f32, page: Page) -> Argb {
+        let byte =
+            |v: f32| u32::try_from((v * 255.0).round().clamp(0.0, 255.0) as i64).unwrap_or(0);
+        match self {
+            Blend::Native => {
+                let ab = dst.a();
+                let unit = |c: Chan| f32::from(c.get()) / 255.0;
+                let ao = byte(a + unit(ab) * (1.0 - a));
+                if ao == 0 {
+                    return Argb(0);
+                }
+                let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
+                let mix = |s: Chan, d: Chan| -> Chan {
+                    let pb = baud_domain::premultiply_chan(d, ab);
+                    let co = byte(unit(s) * a + unit(pb) * (1.0 - a));
+                    let v = (u64::from(co * 255 + ao / 2) * m) >> 24;
+                    Chan::from_u8(u8::try_from(v).unwrap_or(255))
+                };
+                Argb::rgb(
+                    mix(src.r(), dst.r()),
+                    mix(src.g(), dst.g()),
+                    mix(src.b(), dst.b()),
+                )
+                .with_alpha(Chan::from_u8(u8::try_from(ao).unwrap_or(255)))
+            }
+            Blend::Linear => {
+                let cov = Coverage(u8::try_from(byte(a)).unwrap_or(255));
+                match page {
+                    Page::Opaque => self.over(src, dst, cov),
+                    Page::Glass => self.over_glass(src, dst, cov),
+                }
+            }
+        }
     }
 
     /// `src` over `dst` with `cov` scaling the source alpha, where `dst`

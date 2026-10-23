@@ -296,6 +296,56 @@ fn a_repeat_quad_on_the_cpu_path_makes_no_transition() {
     assert_eq!(transitions(&repeated), 0, "a repeat quad's pixel flashes");
 }
 
+/// **Every effect on the CPU path carries the cap**, as the quad does: the
+/// CPU path paints an effect's records by its light, each at its record's
+/// alpha, so a repeat pass's pixels are the capped records'. No pixel of
+/// a repeat pass of any effect over the page is a general transition from
+/// the frame without it; the controls: every effect's full pass makes
+/// them, 45 to 224 pixels, and its repeat pass still draws.
+/// Perturbation: paint the records at full alpha -- the repeat passes
+/// flash.
+#[test]
+fn a_repeat_effect_on_the_cpu_path_makes_no_transition() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    let mut r = renderer(&faces);
+    let bare = paint(&mut r, &mut t);
+    let transitions = |frame: &[u32]| {
+        frame
+            .iter()
+            .zip(&bare)
+            .filter(|&(&p, &q)| {
+                let (a, b) = (lum(p), lum(q));
+                (a - b).abs() >= 0.10 && a.min(b) < 0.80
+            })
+            .count()
+    };
+    for effect in Effect::ALL {
+        let full = TrailLook::Vfx(vfx(&r, effect, 0.05));
+        r.set_trail(Some(full));
+        assert!(
+            transitions(&paint(&mut r, &mut t)) > 0,
+            "{effect:?}: the control: the full pass flashes"
+        );
+        r.set_trail(Some(repeat(full)));
+        // The cap is scanned over the frames that follow the first.
+        let _ = paint(&mut r, &mut t);
+        let repeated = paint(&mut r, &mut t);
+        assert!(
+            repeated.iter().zip(&bare).any(|(p, q)| p != q),
+            "{effect:?}: the control: the repeat pass draws"
+        );
+        assert_eq!(
+            transitions(&repeated),
+            0,
+            "{effect:?}: a repeat pass's pixel flashes"
+        );
+    }
+}
+
 /// **The cap's work is bounded a frame, and the bound stays sound while it
 /// is** (Jev, decisions 728/729): over more than 64 distinct grounds -- a
 /// row of cells in 70 background colours -- a repeat pass draws nothing, a

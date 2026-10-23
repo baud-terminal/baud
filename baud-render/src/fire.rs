@@ -14,7 +14,8 @@
 //! uniform's own numbers ([`PARAMS`]), so the shader and the embers built
 //! here read one spelling of each.
 
-use crate::effect::{self, Hash, Ignition, Particle};
+use crate::det::Det;
+use crate::effect::{self, Hash, Ignition, Particle, Vfx, smoothstep};
 use crate::trail::Pt;
 
 /// Seconds the flame burns, from ignition: the tail burns out first and the
@@ -41,6 +42,61 @@ pub const DRIFT: f32 = 0.6;
 /// smooth scroll ([`Ignition::rode`]), which the noise is anchored on.
 pub fn params(ig: &Ignition) -> [f32; effect::PARAMS] {
     [HEIGHT, RISE, DRIFT, ig.rode, 0.0, 0.0, 0.0, 0.0]
+}
+
+/// `fx_fbm`: four octaves of [`effect::noise`], each rotated and at a
+/// detuned double of the last's scale.
+fn fbm(mut x: f32, mut y: f32, seed: Hash) -> f32 {
+    let (mut t, mut a) = (0.0f32, 0.5f32);
+    for o in 0..4u32 {
+        t += a * effect::noise(x, y, Hash(seed.0.wrapping_add(o.wrapping_mul(0x9E37_79B9))));
+        (x, y) = ((0.8 * x - 0.6 * y) * 2.02, (0.6 * x + 0.8 * y) * 2.02);
+        a *= 0.5;
+    }
+    t
+}
+
+/// **The flame's light at `p`**, `fire_flame`: tongues where noise lifts a
+/// sample down into the quad, cooling with distance from it and burning out
+/// from the tail, and a halo on the page -- the opacity the cursor's colour
+/// is drawn at, before the record's alpha.
+pub fn light(vfx: &Vfx, p: Pt) -> f32 {
+    let (e, f) = (vfx.emitter, vfx.ignition);
+    if e.hole.contains(p) {
+        return 0.0;
+    }
+    let k = f.age / LIFE;
+    if k >= 1.0 {
+        return 0.0;
+    }
+    let c = f.unit;
+    let d0 = effect::distance(p, &e.corners) / c;
+    if d0 > REACH {
+        return 0.0;
+    }
+    // The noise is anchored on the ride, `k[3]`, as the shader reads it.
+    let rode = params(&f)[3];
+    let n = fbm(
+        p.x / c * 2.6 - f.dir.x * (f.age * DRIFT),
+        ((p.y - rode) / c + f.age * RISE) * 0.7 - f.dir.y * (f.age * DRIFT),
+        Hash(f.seed.0),
+    );
+    let lift = HEIGHT * c * smoothstep(0.25, 0.85, n);
+    let d = effect::distance(
+        Pt {
+            x: p.x,
+            y: p.y + lift,
+        },
+        &e.corners,
+    ) / c;
+    let body = (1.0 - smoothstep(-0.10, 0.20, d)).max(0.8 * (1.0 - smoothstep(-0.25, 0.05, d0)));
+    let cool = (d0.max(0.0) / HEIGHT).clamp(0.0, 1.0);
+    let u = (((p.x - f.tail.x) * f.dir.x + (p.y - f.tail.y) * f.dir.y) / f.len.max(1.0))
+        .clamp(0.0, 1.0);
+    let burn = smoothstep(k - 0.15, k + 0.35, u) * (1.0 - k * k);
+    let heat = (body * (1.0 - 0.85 * cool) * (0.50 + 0.60 * n) * burn).clamp(0.0, 1.0);
+    let halo = 0.12 * (-2.5 * d0.max(0.0)).det_exp() * burn;
+    (smoothstep(0.05, 0.95, heat) + halo).clamp(0.0, 1.0)
 }
 
 /// **Seconds from ignition to when the fire is out**: the flame's life, or
@@ -138,13 +194,13 @@ impl Ember {
             x: (h3.unit() - 0.5) * 2.0 * u + flame.dir.x * carry,
             y: -(3.0 + 5.0 * h4.unit()) * u + flame.dir.y * carry,
         };
-        let s = (1.0 - (-DRAG * a).exp()) / DRAG;
+        let s = (1.0 - (-DRAG * a).det_exp()) / DRAG;
         let lift = BUOYANCY * u / DRAG * (a - s);
         let phase = core::f32::consts::TAU * Hash(h1.0 ^ 0x5bd1_e995).unit();
         let heat = 1.0 - a / self.life;
         Some(Particle {
             centre: Pt {
-                x: p0.x + v0.x * s + 0.35 * u * (11.0 * a + phase).sin(),
+                x: p0.x + v0.x * s + 0.35 * u * (11.0 * a + phase).det_sin(),
                 y: p0.y + v0.y * s - lift,
             },
             radius: u * (0.05 + 0.06 * h2.unit()) * (0.6 + 0.4 * heat),

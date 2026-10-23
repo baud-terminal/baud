@@ -2,7 +2,7 @@
 //! from the cell the cursor left to the one it reached, a comet's tail behind
 //! it and a soft halo round it, and bursts into sparks as it lands in the
 //! cursor. Designed here rather than in the effect-trail research, which had
-//! no orb spec; in the cursor's colour with intensity as opacity, GPU only.
+//! no orb spec; in the cursor's colour with intensity as opacity.
 //!
 //! **The flight is a smootherstep over a fixed time, not kitty's corners.**
 //! kitty's leading corners cover 87% of a move in 30 ms, too fast to see an
@@ -29,6 +29,7 @@
 //! This module is the Rust model of the shader, `orb_light`, which the unit
 //! tests hold to its properties and the pixel oracle's reference calls.
 
+use crate::det::Det;
 use crate::effect::{self, Hash, Ignition, Particle, Vfx};
 use crate::trail::{Corners, Pt};
 
@@ -157,9 +158,9 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     let k = (d / r).min(1.0);
     let (hx, hy) = (o.x - 0.35 * r, o.y - 0.35 * r);
     let hs = length(p.x - hx, p.y - hy) / (0.30 * r);
-    let body = (0.45 + 0.30 * (1.0 - k * k) + 0.25 * (-hs * hs).exp()) * cov;
+    let body = (0.45 + 0.30 * (1.0 - k * k) + 0.25 * (-hs * hs).det_exp()) * cov;
     let hd = (d - r).max(0.0) / (HALO_W * c);
-    let halo = HALO * (-hd * hd).exp();
+    let halo = HALO * (-hd * hd).det_exp();
     let q = centre(vfx, (f.age - COMET_S).max(0.0));
     let (bx, by) = (q.x - o.x, q.y - o.y);
     let (px, py) = (p.x - o.x, p.y - o.y);
@@ -167,7 +168,7 @@ pub fn light(vfx: &Vfx, p: Pt) -> f32 {
     let ds = length(px - bx * h, py - by * h);
     let cw = r * (0.8 - 0.6 * h);
     let cd = ds / cw;
-    let comet = COMET * (1.0 - h) * (1.0 - h) * (-cd * cd).exp();
+    let comet = COMET * (1.0 - h) * (1.0 - h) * (-cd * cd).det_exp();
     (body.max(halo).max(comet) * env).clamp(0.0, 1.0)
 }
 
@@ -225,9 +226,9 @@ pub fn sparks(vfx: &Vfx) -> impl Iterator<Item = Particle> + '_ {
         let c = f.unit;
         let [_, _, h2, h3] = s.h;
         let th = core::f32::consts::TAU * h2.unit();
-        let (sn, cs) = th.sin_cos();
+        let (sn, cs) = th.det_sin_cos();
         let speed = (2.5 + 3.0 * h3.unit()) * c;
-        let go = (1.0 - (-DRAG * a).exp()) / DRAG;
+        let go = (1.0 - (-DRAG * a).det_exp()) / DRAG;
         let start = RADIUS * c;
         let head = centre(vfx, s.born);
         let fade = 1.0 - a / s.life;
@@ -312,7 +313,7 @@ mod tests {
     ];
 
     fn far(a: Pt, b: Pt) -> f32 {
-        (a.x - b.x).hypot(a.y - b.y)
+        (a.x - b.x).det_hypot(a.y - b.y)
     }
 
     /// **The sparks burst from the orb as it lands, not ahead of it**: at

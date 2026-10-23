@@ -33,6 +33,7 @@ mod caret;
 mod cellmap;
 mod color;
 mod composite;
+pub mod det;
 pub mod effect;
 mod find;
 pub mod fire;

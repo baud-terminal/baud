@@ -10,8 +10,8 @@ use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{
-    Blend, Damage, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Target, Theme, Trail,
-    TrailLook, Transition, quad_coverage,
+    Blend, Damage, Instance, Kind, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Target,
+    Theme, Trail, TrailLook, Transition, quad_coverage,
 };
 use support::font;
 
@@ -429,70 +429,425 @@ fn moving_smear(faces: &[Face<'_>], t: &mut Term<'_>, shape: Shape) {
     assert!(drew, "the {shape:?} move drew nothing");
 }
 
-/// **On the CPU an effect is its emitter**, for every effect: the effect is
-/// the GPU's, so the CPU path paints exactly the quad the effect rides --
-/// the same pixels as a quad trail with those corners -- and an effect
-/// moving between frames repaints incrementally what a full frame paints,
-/// its damage being the reach of its records.
+/// `src`, premultiplied and in channels 0 to 1, over the premultiplied
+/// pixel `dst`, rounded to bytes as the GPU's blend unit stores them:
+/// `over` in `baud-present-macos/tests/cells.rs`, the rule the GPU arms are
+/// held to.
+fn over_premultiplied(src: [f32; 4], dst: u32) -> u32 {
+    let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap()) / 255.0;
+    let mix = |s: f32, d: f32| {
+        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
+        u32::try_from(v as i64).unwrap()
+    };
+    (mix(src[3], ch(24)) << 24)
+        | (mix(src[0], ch(16)) << 16)
+        | (mix(src[1], ch(8)) << 8)
+        | mix(src[2], ch(0))
+}
+
+/// **An effect's frame by its rules**, independent of the compositor: each
+/// record over the premultiplied `bare` frame in order, a band's pixel at
+/// the effect's light at its centre and a particle's at its shape, times
+/// the record's alpha, in its colour -- the GPU's effect pipeline -- and
+/// clipped to the frame as its viewport is.
+fn effect_reference(vfx: &Vfx, records: &[Instance], bare: &[u32], width: usize) -> Vec<u32> {
+    let mut out: Vec<u32> = bare.iter().map(|&p| baud_domain::premultiply(p)).collect();
+    let height = out.len() / width;
+    for r in records {
+        let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+        let (w, h) = (i32::from(r.w.0), i32::from(r.h.0));
+        let unit = |v: u32| f32::from(u8::try_from(v & 0xff).unwrap()) / 255.0;
+        let c = r.color.0;
+        let color = [unit(c >> 16), unit(c >> 8), unit(c), unit(c >> 24)];
+        for y in y0.max(0)..(y0 + h).min(i32::try_from(height).unwrap()) {
+            for x in x0.max(0)..(x0 + w).min(i32::try_from(width).unwrap()) {
+                let centre = Pt {
+                    x: x as f32 + 0.5,
+                    y: y as f32 + 0.5,
+                };
+                let v = if r.kind == Kind::Particle {
+                    vfx.particle(Pt {
+                        x: (centre.x - x0 as f32) / w as f32 * 2.0 - 1.0,
+                        y: (centre.y - y0 as f32) / h as f32 * 2.0 - 1.0,
+                    })
+                } else {
+                    vfx.light(centre)
+                };
+                let a = color[3] * v;
+                let at = usize::try_from(y).unwrap() * width + usize::try_from(x).unwrap();
+                out[at] =
+                    over_premultiplied([color[0] * a, color[1] * a, color[2] * a, a], out[at]);
+            }
+        }
+    }
+    out
+}
+
+/// **The CPU path draws every effect by its light**, as the GPU's effect
+/// pipeline does: over text, on an opaque page and on the glass at alpha
+/// 56, each effect at four ages -- the body burning, particles born, the
+/// fade -- the frame, premultiplied as the presenter premultiplies it, is
+/// the records composited by the effect's rules over the frame without it
+/// ([`effect_reference`]), every pixel, and some hundreds of pixels are
+/// lit; and an effect moving between frames repaints incrementally what a
+/// full frame paints, its damage being the reach of its records. Red
+/// against a CPU path that paints the emitter's quad, as it did before
+/// every effect was drawn there.
 #[test]
-fn the_cpu_path_draws_an_effect_as_its_emitter() {
+fn the_cpu_path_draws_every_effect_by_its_light() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     for effect in Effect::ALL {
-        with_text(|t| {
-            let mut r = renderer(&faces);
-            let (w, h) = r.pixel_size();
-            let (width, height) = (px(w), px(h));
-            let vfx = |r: &Renderer<'_, '_>, t: f32| {
-                let emitter = smear(r, Shape::Quad, (1, 2), (7, 20), t);
-                let from = emitter.corners.0;
-                let tail = Pt {
-                    x: (from[2].x + from[0].x) * 0.5,
-                    y: (from[0].y + from[1].y) * 0.5,
-                };
+        for alpha in [0xFF, 56] {
+            with_text(|t| {
+                let mut r = renderer(&faces);
+                r.set_theme(Theme {
+                    bg_alpha: baud_domain::Chan::from_u8(alpha),
+                    ..Theme::dark()
+                });
+                let (w, h) = r.pixel_size();
+                let (width, height) = (px(w), px(h));
                 let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
-                Vfx {
-                    effect,
-                    emitter,
-                    ignition: Ignition::ignite(tail, emitter.hole, Seed(5), unit).at(t),
-                    axis: Pt { x: 1.0, y: 0.0 },
+                let vfx = |r: &Renderer<'_, '_>, t: f32| {
+                    let emitter = smear(r, Shape::Quad, (1, 2), (7, 20), t);
+                    let from = emitter.corners.0;
+                    let tail = Pt {
+                        x: (from[2].x + from[0].x) * 0.5,
+                        y: (from[0].y + from[1].y) * 0.5,
+                    };
+                    Vfx {
+                        effect,
+                        emitter,
+                        ignition: Ignition::ignite(tail, emitter.hole, Seed(5), unit).at(t),
+                        axis: Pt { x: 0.95, y: 0.31 },
+                    }
+                };
+                let mut bare = vec![0u32; width * height];
+                r.set_trail(None);
+                paint(&mut r, t, &mut bare, Damage::Full);
+                let end = vfx(&r, 0.0).end();
+                for age in [0.08f32, 0.2, 0.4, 0.7].map(|k| k * end) {
+                    let f = vfx(&r, age);
+                    r.set_trail(Some(TrailLook::Vfx(f)));
+                    let mut burning = vec![0u32; width * height];
+                    paint(&mut r, t, &mut burning, Damage::Full);
+                    let want = effect_reference(&f, r.trail(), &bare, width);
+                    let got: Vec<u32> = burning
+                        .iter()
+                        .map(|&p| baud_domain::premultiply(p))
+                        .collect();
+                    assert!(
+                        got == want,
+                        "{effect:?} at {age}, alpha {alpha}: off its rules at {:?}",
+                        diff_box(&got, &want, width)
+                    );
+                    let lit = burning.iter().zip(&bare).filter(|(a, b)| a != b).count();
+                    // The ufo is a saucer a couple of cells wide early on,
+                    // the oracle's least; every effect is fading by the last.
+                    let least = match (age < 0.5 * end, effect) {
+                        (false, _) => 0,
+                        (true, Effect::Ufo) => 60,
+                        (true, _) => 100,
+                    };
+                    assert!(
+                        lit > least,
+                        "{effect:?} at {age}, alpha {alpha}: only {lit} pixels lit"
+                    );
                 }
-            };
-            let mut quad = vec![0u32; width * height];
-            let mut burning = vec![0u32; width * height];
-            let f = vfx(&r, 0.05);
-            r.set_trail(Some(TrailLook::Smear(f.emitter)));
-            paint(&mut r, t, &mut quad, Damage::Full);
-            r.set_trail(Some(TrailLook::Vfx(f)));
-            paint(&mut r, t, &mut burning, Damage::Full);
-            assert!(
-                quad.iter().zip(&burning).all(|(a, b)| a == b),
-                "{effect:?}: the frame is its emitter's, off at {:?}",
-                diff_box(&quad, &burning, width)
-            );
-            let mut bare = vec![0u32; width * height];
-            r.set_trail(None);
-            paint(&mut r, t, &mut bare, Damage::Full);
-            assert!(
-                bare != burning,
-                "{effect:?}: the emitter reached the pixels"
-            );
-            // Moving, frame by frame: incremental equals full.
-            let mut inc = bare.clone();
-            for step in [0.02f32, 0.06, 0.12, 0.3] {
-                r.set_trail(Some(TrailLook::Vfx(vfx(&r, step))));
+                // Moving, frame by frame: incremental equals full.
+                let mut inc = bare.clone();
+                for step in [0.02f32, 0.06, 0.12, 0.3] {
+                    r.set_trail(Some(TrailLook::Vfx(vfx(&r, step))));
+                    paint(&mut r, t, &mut inc, Damage::Incremental);
+                    let mut full = vec![0u32; width * height];
+                    paint(&mut r, t, &mut full, Damage::Full);
+                    assert!(
+                        inc == full,
+                        "{effect:?} at {step}: incremental off at {:?}",
+                        diff_box(&inc, &full, width)
+                    );
+                }
+                r.set_trail(None);
                 paint(&mut r, t, &mut inc, Damage::Incremental);
-                let mut full = vec![0u32; width * height];
-                paint(&mut r, t, &mut full, Damage::Full);
-                assert!(
-                    inc == full,
-                    "{effect:?} at {step}: incremental off at {:?}",
-                    diff_box(&inc, &full, width)
-                );
-            }
-            r.set_trail(None);
-            paint(&mut r, t, &mut inc, Damage::Incremental);
-            assert!(inc == bare, "{effect:?}: gone, it leaves nothing");
-        });
+                assert!(inc == bare, "{effect:?}: gone, it leaves nothing");
+            });
+        }
     }
+}
+
+/// FNV-1a over a frame's pixel words.
+fn digest(frame: &[u32]) -> u64 {
+    frame.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
+        p.to_le_bytes()
+            .iter()
+            .fold(h, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    })
+}
+
+/// **Every trail draws the same pixels on every OS**: each effect, the
+/// quad it rides and a repeat pass under the flash cap, at three ages, on
+/// an opaque page and on the glass at alpha 56, over a blank screen --
+/// no glyph, so what is pinned is the trail's -- is the frame pinned here,
+/// taken on macOS and required of every other target: the Linux driver
+/// draws with this path. The trails' math is `baud_render::det`'s, whose
+/// bits are the same on every machine; std's `exp`, `sin` and the rest are
+/// the platform's libm, which differ between macOS and glibc
+/// (`the_trails_call_no_platform_math` bars them). A change to an effect's
+/// look changes its line, which the failure prints whole.
+#[test]
+fn every_trail_draws_the_same_pixels_on_every_os() {
+    // Per page, opaque then the glass: per look, the fire to the liquid and
+    // then the quad, three ages, each full and then a repeat.
+    const PINNED: &[u64] = &[
+        0xf56c8c32c26a3e36,
+        0xc403d556fa165993,
+        0x68ddddd60eb6b418,
+        0x02d3249ca1d07e9b,
+        0x03a4ebaf7644f693,
+        0x3f5557cec5984125,
+        0x489ae9c1097f6b7a,
+        0x6213cc38583220f2,
+        0xcf880d1ec37f7905,
+        0xe549399b59e72e5f,
+        0x06cd19070d21c4eb,
+        0x63db963104c87d49,
+        0x86ef489d68c1ef29,
+        0xbd4c7c7ba5eeddcc,
+        0x935d233c101e13bf,
+        0xf224b21974cdbbc6,
+        0x1591f11bf5bded02,
+        0x09861eec3576f348,
+        0xb9fb934af3b8cd31,
+        0x05d80a583d7df93d,
+        0xe08b09ebbabd6ad3,
+        0x58857444a5c01621,
+        0x928fff2328b760f3,
+        0x3a6dd8f3dca3166f,
+        0x0660a1150fb4f9ed,
+        0x9b92d15c9945fe4b,
+        0x0e7f56b3d4c6abad,
+        0xfff51c49794ef959,
+        0x9b448c009de2e719,
+        0xe4de842b7e365414,
+        0x383f8736b19d3f0b,
+        0x6382ccdd7408c52d,
+        0xc812661c24ddf637,
+        0xa713e9aed3bd58e1,
+        0x84bdfe10e6c475c4,
+        0xb372389989e70b96,
+        0x405695f7b46f0fc2,
+        0x0120ec2aca7ae993,
+        0x65329b6b384f8277,
+        0xe26985d9d2a8cfc6,
+        0x13242428bd0226bb,
+        0xe3f7c7774879be26,
+        0x0f7d06e3d5cb348b,
+        0x5e2c445029f79d6c,
+        0x286c57d418516037,
+        0x7e42929b370c3fc2,
+        0x3bd155c1f52a073e,
+        0xd8119fc5b499e2c5,
+        0x67ad799a9379d4a9,
+        0x48b2d42d76073f25,
+        0xeac547e974ca9e50,
+        0xc23ed95cb177ad43,
+        0x4b433baa58e7d182,
+        0x48b2d42d76073f25,
+        0xbd006b7e1e77fad2,
+        0xb9e5a6b900fc8556,
+        0xb4f34ca63a6c08b4,
+        0xba8c1649b9d1f4b6,
+        0xe40ce2c317e46fdd,
+        0x356894ef77d8907a,
+        0xc85efbcf18a7bbbc,
+        0xfa9dde9f546aff53,
+        0x5f2b7b434ee24e44,
+        0xda66ec730038c7c5,
+        0xba378454948f253d,
+        0xe106f6a6561fd8c8,
+        0x7f394b4628340691,
+        0x595be2d692c43da9,
+        0x2161038c98929ac0,
+        0x5f437ad5d024a045,
+        0x099416b70b772c93,
+        0x97ce0fd89d43b648,
+        0x4d76dac7f139583d,
+        0xb30279a97d69b34f,
+        0x8bacaf059b2607f2,
+        0xaf7b8538bb332bab,
+        0x55fcfece8b9f0fba,
+        0xebdf9c1d6a77342a,
+        0x87eeaaa58ad0e157,
+        0xc6462a6c4d5c5eb1,
+        0x115c8f4682999d77,
+        0xfaf5c98421ae0845,
+        0xf6cbd84292f8e200,
+        0x535bfd7d8a144b9d,
+        0x3061ba28d724e0db,
+        0x327779c65404529b,
+        0xd7714b636fa1669a,
+        0xb64537ae009c8987,
+        0x2e3ba393de1b3184,
+        0x7da31270767a328f,
+        0x9296cf73e8f193a7,
+        0xc91032c84880644c,
+        0x57e214a50c6c79c2,
+        0x3adc60386f7ce68b,
+        0x69b01a8d27054f00,
+        0xb3478f0a7ff37d35,
+    ];
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    let mut got = Vec::new();
+    for alpha in [0xFF, 56] {
+        let mut r = renderer(&faces);
+        r.set_theme(Theme {
+            bg_alpha: baud_domain::Chan::from_u8(alpha),
+            ..Theme::dark()
+        });
+        let (w, h) = r.pixel_size();
+        let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+        let mut frame = vec![0u32; px(w) * px(h)];
+        let looks = |r: &Renderer<'_, '_>, effect: Option<Effect>, k: f32| {
+            let start = smear(r, Shape::Quad, (1, 2), (7, 20), 0.0).corners.0;
+            let tail = Pt {
+                x: (start[2].x + start[0].x) * 0.5,
+                y: (start[0].y + start[1].y) * 0.5,
+            };
+            let to = smear(r, Shape::Quad, (1, 2), (7, 20), 0.0).hole;
+            let end = Ignition::ignite(tail, to, Seed(9), unit);
+            let age = k * effect.unwrap_or(Effect::Fire).end(&end);
+            let emitter = smear(r, Shape::Quad, (1, 2), (7, 20), age);
+            let repeat = Smear {
+                strength: baud_render::Strength::UnderThreshold,
+                ..emitter
+            };
+            let vfx = |e: Effect, s: Smear| Vfx {
+                effect: e,
+                emitter: s,
+                ignition: Ignition::ignite(tail, s.hole, Seed(9), unit).at(age),
+                axis: Pt { x: 0.95, y: 0.31 },
+            };
+            match effect {
+                Some(e) => [
+                    TrailLook::Vfx(vfx(e, emitter)),
+                    TrailLook::Vfx(vfx(e, repeat)),
+                ],
+                None => [TrailLook::Smear(emitter), TrailLook::Smear(repeat)],
+            }
+        };
+        for effect in Effect::ALL.map(Some).into_iter().chain([None]) {
+            for k in [0.1f32, 0.3, 0.6] {
+                for look in looks(&r, effect, k) {
+                    r.set_trail(Some(look));
+                    paint(&mut r, &mut t, &mut frame, Damage::Full);
+                    got.push(digest(&frame));
+                }
+            }
+        }
+    }
+    let table: String = got
+        .iter()
+        .map(|d| format!("        0x{d:016x},\n"))
+        .collect();
+    assert!(
+        got == PINNED,
+        "the trails' frames moved; the table this target draws:\n{table}"
+    );
+}
+
+/// **Every effect's light is the same bits on every OS**, which the frames
+/// above cannot show alone: a byte rounds away most one-ulp differences,
+/// and std's libm put every one of those frames on the same bytes on macOS
+/// and on glibc. Here each effect at three ages is its light's `f32` bits
+/// at every pixel centre of the frame, its particles' centres, radii and
+/// glows, and the quad's corners it rides, folded into one digest pinned
+/// from macOS and required of every target. With std's functions in place
+/// of `det`'s, 12 of these 21 digests differ between macOS and glibc 2.36;
+/// with `det`'s, none does.
+#[test]
+fn every_effect_lights_the_same_bits_on_every_os() {
+    // Per effect, the fire to the liquid: three ages.
+    const PINNED: &[u64] = &[
+        0xd2f9cd061225cc9c,
+        0x9fe4ea707cada082,
+        0xf658669247387018,
+        0x27409749ff8bb9c4,
+        0x400095ff6130f1c8,
+        0xee1831ad8fb50ec2,
+        0x82f006dc2494b89f,
+        0x7291ae525b93e1d6,
+        0xd7bf31dde8df5836,
+        0x527c6a7a798f7386,
+        0xf2d9328e89e576b0,
+        0xde8a9600149871f9,
+        0x7400831d1a3c47c2,
+        0x72f0fcdd5cb50277,
+        0x29855f3695078bb5,
+        0xad1d86e2eacc5844,
+        0xfb277c62189575c0,
+        0xe72326daace212d1,
+        0x306d1c5b031247c1,
+        0xb33147d642fffad0,
+        0x8d34fd38f3850e2b,
+    ];
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let r = renderer(&faces);
+    let (w, h) = r.pixel_size();
+    let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+    let fold = |h: u64, bits: u32| {
+        bits.to_le_bytes()
+            .iter()
+            .fold(h, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    };
+    let start = smear(&r, Shape::Quad, (1, 2), (7, 20), 0.0);
+    let tail = Pt {
+        x: (start.corners.0[2].x + start.corners.0[0].x) * 0.5,
+        y: (start.corners.0[0].y + start.corners.0[1].y) * 0.5,
+    };
+    let mut got = Vec::new();
+    for effect in Effect::ALL {
+        let end = effect.end(&Ignition::ignite(tail, start.hole, Seed(9), unit));
+        for k in [0.1f32, 0.3, 0.6] {
+            let age = k * end;
+            let emitter = smear(&r, Shape::Quad, (1, 2), (7, 20), age);
+            let vfx = Vfx {
+                effect,
+                emitter,
+                ignition: Ignition::ignite(tail, emitter.hole, Seed(9), unit).at(age),
+                axis: Pt { x: 0.95, y: 0.31 },
+            };
+            let mut d = 0xcbf2_9ce4_8422_2325u64;
+            for c in emitter.corners.0 {
+                d = fold(fold(d, c.x.to_bits()), c.y.to_bits());
+            }
+            for y in 0..px(h) {
+                for x in 0..px(w) {
+                    let p = Pt {
+                        x: f32::from(u16::try_from(x).unwrap()) + 0.5,
+                        y: f32::from(u16::try_from(y).unwrap()) + 0.5,
+                    };
+                    d = fold(d, vfx.light(p).to_bits());
+                }
+            }
+            vfx.particles(|q| {
+                for v in [q.centre.x, q.centre.y, q.radius, q.glow] {
+                    d = fold(d, v.to_bits());
+                }
+            });
+            got.push(d);
+        }
+    }
+    let table: String = got
+        .iter()
+        .map(|d| format!("        0x{d:016x},\n"))
+        .collect();
+    assert!(
+        got == PINNED,
+        "the effects' lights moved; the table this target computes:\n{table}"
+    );
 }

@@ -46,11 +46,12 @@ a dark theme and dark on a light one.
 
 A move within a third of a second of the last ignition retargets the quad and
 keeps the flame already burning, so a fire lights at most three times a second.
-It is drawn on the GPU. The CPU path -- `BAUD_GPU=0`, a Mac with no Metal
-device, or Linux -- draws the quad alone. Both GPU paths run one shader, so they agree
-about any flame, a wrong one included; what holds the shader is a port of the
-flame to Rust, which the pixel oracle requires both paths to match to within
-one step of 255.
+It looks the same everywhere: on the GPU, on the CPU path -- `BAUD_GPU=0`, a
+Mac with no Metal device, or Linux -- and on every OS. The GPU's shader and
+the CPU path both follow one Rust model of the flame; the pixel oracle holds
+both GPU paths to it within one step of 255 and the CPU path to it exactly,
+and its math gives the same bits on macOS and on Linux. Every effect below is
+drawn and held the same way.
 
 ## plasma, the default
 
@@ -68,8 +69,7 @@ cursor. It is the cursor's colour, with intensity as opacity.
 The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it
-to one line. GPU only, like the fire, and held to a Rust port of its shader
-the same way. The owner chose it as the default on 2026-09-29, over the
+to one line. The owner chose it as the default on 2026-09-29, over the
 fire, which was the default before it; it has shipped as the default since
 2026-10-10.
 
@@ -91,8 +91,7 @@ It is not drawn over kitty's quad but over a box along the path, fixed for the
 bolt's life, so the chase does not cut its tail off. Because a bolt is out
 before the third of a second between ignitions is up, the guard is when the
 last one was lit, not whether it still burns: a long move inside that window
-throws no second bolt, so it flashes at most three times a second. GPU only;
-the CPU path draws kitty's quad.
+throws no second bolt, so it flashes at most three times a second.
 
 ## ice
 
@@ -110,8 +109,7 @@ and drift down. Gone by 0.70 s, the last platelet by about 0.87 s.
 The frost is laid over the path as well as the quad: a point of the path is
 inside kitty's quad for a few tens of milliseconds, too short for a crystal to
 grow. Each crystal is one arm folded into six by two mirrors, with side
-branches at 60 degrees and a hexagonal plate, turned by a hashed angle. GPU
-only, and held to a Rust port of its shader.
+branches at 60 degrees and a hexagonal plate, turned by a hashed angle.
 
 ## ufo
 
@@ -128,8 +126,7 @@ after it came. Three to five rim lights crawl round its hull.
 
 Its flight is a spring onto the middle of kitty's quad, so a second long move
 re-flies the same saucer without a jump. It is drawn only where the saucer,
-the beam and the wake are, not over the quad. GPU only; the CPU path draws the
-quad.
+the beam and the wake are, not over the quad.
 
 ## orb
 
@@ -149,7 +146,7 @@ move.
 It flies toward the cursor through kitty's quad: the corners facing the move,
 which reach the cursor by the time the orb lands. So a second long move
 re-flies it without a jump. It was designed for baud rather than taken from
-the research, which had no orb. GPU only; the CPU path draws the quad.
+the research, which had no orb.
 
 ## liquid
 
@@ -173,7 +170,7 @@ need a second render pass a frame and still could not bend the wallpaper
 behind a glass window. Its back rides kitty's corners along the first move, so
 a long move back against it within a third of a second collapses the gel onto
 the cursor rather than trailing it. A bar or underline cursor carries the tube
-a block does. GPU only; the CPU path draws the quad.
+a block does.
 
 ## quad
 
@@ -247,17 +244,15 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   "stay"` keeps the trail where it was drawn.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
-- Under macOS's Reduce Motion (System Settings, Accessibility, Display) the
-  default trail is off. A trail named in the config is kept -- `trail =
-  "plasma"` included -- and `trail = true` means the default, so it goes off
-  too. Turning the setting on cuts a trail in flight.
+- Every trail is drawn on Linux too, with the same pixels as on a Mac.
+- Under macOS's Reduce Motion (System Settings, Accessibility, Display), or
+  the Linux desktop's reduced-motion setting, the default trail is off. A
+  trail named in the config is kept -- `trail = "plasma"` included -- and
+  `trail = true` means the default, so it goes off too. Turning the setting
+  on cuts a trail in flight.
 
 ## Not built
 
-- **Linux** draws every trail on the CPU, so the fire, the plasma and the
-  rest of the effects run there as the quad, and the ghost and the sweep as
-  on a Mac. It reads no desktop motion preference yet, so the default trail
-  runs whatever the desktop says.
 - A trail rides only a smooth scroll on the GPU's cell path: under `[scroll]
   mode = "normal"`, on the CPU path and on the alternate screen, the screen
   jumps and the trail stays where it was drawn.

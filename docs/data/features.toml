@@ -1748,7 +1748,7 @@ shipped = ["2026-10-15-fire-and-ufo-cursor-blinks", "2026-10-15-the-cursor-blink
 id = "trails"
 area = "cursor"
 name = "Trails"
-does = "When the cursor jumps it can leave a short trail of plasma, fire, lightning, ice, a flying saucer and more; typing never leaves one, the fiery ones never strobe, and a trail follows helix even when helix hides its cursor, on its text as output scrolls. Each is shown in [the cursor gallery](../cursor.md)."
+does = "When the cursor jumps it can leave a short trail of plasma, fire, lightning, ice, a flying saucer and more; typing never leaves one, the fiery ones never strobe, and a trail follows helix even when helix hides its cursor, on its text as output scrolls. Each is shown in [the cursor gallery](../cursor.md), and Linux draws every one too (Trails and fades on Linux)."
 status = "built"
 platform = "macos"
 tests = ["baud-app/src/trail.rs::two_cells_or_fewer_from_rest_snap", "baud-app/src/config.rs::the_cursor_page_shows_every_trail", "baud-app/src/app.rs::helix_trails_on_ge_and_gg", "baud-core/tests/placed_cursor.rs::a_placed_cursor_rides_output_that_scrolls_the_screen"]
@@ -1758,11 +1758,10 @@ shipped = ["F1-16"]
 id = "trails-cpu"
 area = "cursor"
 name = "Trails on the CPU path"
-does = "When the Mac's GPU can't be used, the CPU path still draws a trail, in the same shades as the GPU."
-status = "partial"
-gap = "every trail style is drawn as the plain stretching one there."
+does = "When the Mac's GPU can't be used, the CPU path still draws every trail -- the fire, the plasma and the rest -- as the GPU draws it."
+status = "built"
 platform = "macos"
-tests = ["baud-app/src/app.rs::an_effect_on_the_cpu_path_runs_as_the_quad", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_trail"]
+tests = ["baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_every_effect_by_its_light", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_trail"]
 shipped = ["2026-10-16-the-cursor-trail-and-see-through"]
 
 
@@ -1770,11 +1769,11 @@ shipped = ["2026-10-16-the-cursor-trail-and-see-through"]
 id = "trails-linux"
 area = "cursor"
 name = "Trails and fades on Linux"
-does = "The cursor trails when it jumps and the full-screen fade plays when a program switches screens, as on a Mac."
-status = "partial"
-gap = "the fire, plasma and other effects are drawn as the plain stretching trail."
+does = "The cursor trails when it jumps -- every trail a Mac draws, the fire, the plasma and the rest, with the same pixels -- and the full-screen fade plays when a program switches screens, as on a Mac."
+status = "built"
 platform = "linux"
-tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_quad_and_lands", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
+tests = ["baud-app/src/timed.rs::reduced_motion_holds_text_shown_and_turns_the_default_trail_off", "baud-app/src/timed.rs::a_long_move_trails_as_the_effect_and_lands", "baud-render/tests/cpu_overlays.rs::every_trail_draws_the_same_pixels_on_every_os", "baud-app/src/timed.rs::a_switch_fades_in_only_when_the_transition_is_on", "baud-app/src/timed.rs::the_ghost_sweeps_on_a_move_and_lands"]
+shipped = ["F2-05"]
 
 # --- Pictures -----------------------------------------------------------------
 

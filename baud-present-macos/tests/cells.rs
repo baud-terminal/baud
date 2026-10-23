@@ -525,208 +525,25 @@ impl Arms<'_, '_> {
     }
 }
 
-/// A hash word, for the effects' references below: the same PCG output
-/// permutation `fx_hash` is, spelled a third time on purpose -- a reference
-/// that called the renderer's would agree with it by construction.
-#[derive(Clone, Copy)]
-struct Word(u32);
-
-impl Word {
-    fn hash(self) -> Word {
-        let s = self.0.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
-        let w = ((s >> ((s >> 28) + 4)) ^ s).wrapping_mul(277_803_737);
-        Word((w >> 22) ^ w)
-    }
-
-    fn unit(self) -> f32 {
-        f32::from_bits((self.0 >> 9) | 0x3f80_0000) - 1.0
-    }
-
-    fn plus(self, o: Word) -> Word {
-        Word(self.0.wrapping_add(o.0))
-    }
-}
-
-/// `fx_lattice` at the lattice point `(x, y)`, whole numbers as floats.
-fn fx_lattice(x: f32, y: f32, seed: Word) -> f32 {
-    let (ix, iy) = (
-        Word((x as i32).cast_unsigned()),
-        Word((y as i32).cast_unsigned()),
-    );
-    ix.plus(iy.plus(seed).hash()).hash().unit()
-}
-
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-fn mix(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
-/// `fx_noise`: value noise with the quintic fade.
-fn fx_noise(p: Pt, seed: Word) -> f32 {
-    let (fx, fy) = (p.x.floor(), p.y.floor());
-    let (x, y) = (p.x - fx, p.y - fy);
-    let fade = |v: f32| v * v * v * (v * (v * 6.0 - 15.0) + 10.0);
-    let (wx, wy) = (fade(x), fade(y));
-    let a = fx_lattice(fx, fy, seed);
-    let b = fx_lattice(fx + 1.0, fy, seed);
-    let c = fx_lattice(fx, fy + 1.0, seed);
-    let d = fx_lattice(fx + 1.0, fy + 1.0, seed);
-    mix(mix(a, b, wx), mix(c, d, wx), wy)
-}
-
-/// `fx_fbm`: four rotated octaves.
-fn fx_fbm(mut p: Pt, seed: Word) -> f32 {
-    let (mut t, mut a) = (0.0f32, 0.5f32);
-    for o in 0..4u32 {
-        t += a * fx_noise(p, seed.plus(Word(o.wrapping_mul(0x9E37_79B9))));
-        p = Pt {
-            x: (0.8 * p.x - 0.6 * p.y) * 2.02,
-            y: (0.6 * p.x + 0.8 * p.y) * 2.02,
-        };
-        a *= 0.5;
-    }
-    t
-}
-
-/// `fx_distance`: the signed distance to the quad by the non-zero rule.
-fn fx_distance(p: Pt, c: &Corners) -> f32 {
-    let q = c.0;
-    let (mut d, mut winding) = (f32::INFINITY, 0i32);
-    for i in 0..4 {
-        let (a, b) = (q[i], q[(i + 1) % 4]);
-        let (bx, by) = (b.x - a.x, b.y - a.y);
-        let (px, py) = (p.x - a.x, p.y - a.y);
-        let h = ((px * bx + py * by) / (bx * bx + by * by).max(1e-6)).clamp(0.0, 1.0);
-        let (dx, dy) = (px - bx * h, py - by * h);
-        d = d.min((dx * dx + dy * dy).sqrt());
-        let side = bx * py - by * px;
-        if a.y <= p.y {
-            if b.y > p.y && side > 0.0 {
-                winding += 1;
-            }
-        } else if b.y <= p.y && side < 0.0 {
-            winding -= 1;
-        }
-    }
-    if winding != 0 { -d } else { d }
-}
-
-/// **The fire's reference**: `fire_flame` for the pixel centred at `p` in
-/// frame pixels, premultiplied, in `color`'s channels 0 to 1.
+/// **The fire's reference**: `fire_flame`, through the renderer's own Rust
+/// model of it, `fire::light` -- which the CPU path draws by, so the oracle
+/// ties the shader and the CPU arm to one model.
 fn fire_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
-    let (e, f) = (vfx.emitter, vfx.ignition);
-    if e.hole.contains(p) {
-        return [0.0; 4];
-    }
-    let k = f.age / fire::LIFE;
-    if k >= 1.0 {
-        return [0.0; 4];
-    }
-    let c = f.unit;
-    let d0 = fx_distance(p, &e.corners) / c;
-    if d0 > fire::REACH {
-        return [0.0; 4];
-    }
-    // The noise is anchored on the ride, `k[3]`, as the shader reads it.
-    let rode = vfx.params()[3];
-    let s = Pt {
-        x: p.x / c * 2.6 - f.dir.x * (f.age * fire::DRIFT),
-        y: ((p.y - rode) / c + f.age * fire::RISE) * 0.7 - f.dir.y * (f.age * fire::DRIFT),
-    };
-    let n = fx_fbm(s, Word(f.seed.0));
-    let lift = fire::HEIGHT * c * smoothstep(0.25, 0.85, n);
-    let d = fx_distance(
-        Pt {
-            x: p.x,
-            y: p.y + lift,
-        },
-        &e.corners,
-    ) / c;
-    let body = (1.0 - smoothstep(-0.10, 0.20, d)).max(0.8 * (1.0 - smoothstep(-0.25, 0.05, d0)));
-    let cool = (d0.max(0.0) / fire::HEIGHT).clamp(0.0, 1.0);
-    let u = (((p.x - f.tail.x) * f.dir.x + (p.y - f.tail.y) * f.dir.y) / f.len.max(1.0))
-        .clamp(0.0, 1.0);
-    let burn = smoothstep(k - 0.15, k + 0.35, u) * (1.0 - k * k);
-    let heat = (body * (1.0 - 0.85 * cool) * (0.50 + 0.60 * n) * burn).clamp(0.0, 1.0);
-    let halo = 0.12 * (-2.5 * d0.max(0.0)).exp() * burn;
-    let a = color[3] * (smoothstep(0.05, 0.95, heat) + halo).clamp(0.0, 1.0);
+    let a = color[3] * fire::light(vfx, p);
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
-/// `px_wave`: sin(2 pi x) with the argument folded into [-1, 1) first, by
-/// MSL's `fract` -- `x - floor(x)`, below one -- which `f32::fract` is not
-/// for a negative `x`.
-fn px_wave(x: f32) -> f32 {
-    let f = (x + 0.5 - (x + 0.5).floor()).min(1.0 - f32::EPSILON / 2.0);
-    (core::f32::consts::PI * (2.0 * f - 1.0)).sin()
-}
-
-/// The filaments' table, spelled as the shader spells it: cycles a cell and
-/// a second of each wave and harmonic, the harmonic's share, the width in
-/// cells and the gain.
-const PX_K: [f32; 3] = [0.23, 0.31, 0.17];
-const PX_F: [f32; 3] = [1.10, 1.35, 0.80];
-const PX_K2: [f32; 3] = [0.71, 0.93, 0.53];
-const PX_F2: [f32; 3] = [-0.85, -1.05, -1.20];
-const PX_M: [f32; 3] = [0.22, 0.20, 0.25];
-const PX_W: [f32; 3] = [0.040, 0.034, 0.050];
-const PX_G: [f32; 3] = [1.00, 0.85, 0.65];
-
-/// The plasma's parts at `p`: the envelope, the tube with its sheath, the
-/// filaments, and how far behind the head the pixel is along the axis in
-/// cells -- `None` where the fragment function draws nothing.
+/// The plasma's parts at `p`, through `plasma::parts`: the envelope, the
+/// tube with its sheath, the filaments, and how far behind the head the
+/// pixel is along the axis in cells -- `None` where the fragment function
+/// draws nothing.
 fn plasma_parts(vfx: &Vfx, p: Pt) -> Option<(f32, f32, f32, f32)> {
-    let (e, f) = (vfx.emitter, vfx.ignition);
-    if e.hole.contains(p) {
-        return None;
-    }
-    let k = f.age / plasma::LIFE;
-    if k >= 1.0 {
-        return None;
-    }
-    let c = f.unit;
-    let d0 = fx_distance(p, &e.corners) / c;
-    if d0 > plasma::REACH {
-        return None;
-    }
-    let q = vfx.params();
-    let env = (1.0 - k) * (1.0 - k);
-    let inside = 1.0 - smoothstep(-0.03, 0.03, d0);
-    let tube = q[3] * inside + q[4] * (-q[5] * (1.0 + 1.5 * k) * d0.max(0.0)).exp();
-    let (ax, ay) = (q[1], q[2]);
-    let (rx, ry) = (
-        p.x - 0.5 * (e.hole.left + e.hole.right),
-        p.y - 0.5 * (e.hole.top + e.hole.bottom),
-    );
-    let s = -(rx * ax + ry * ay) / c;
-    let mut fil = 0.0f32;
-    if d0 < 0.15 {
-        let w = (ax * ry - ay * rx) / c;
-        let amp = q[0] * 0.62 * smoothstep(0.0, 2.0, s);
-        let salt = Word(f.seed.0 ^ 0xA511_E9B3);
-        let kn = salt.plus(Word(8)).hash().unit();
-        for i in 0..3usize {
-            let n = u32::try_from(i).unwrap();
-            let ph = salt.plus(Word(n)).hash().unit();
-            let ph2 = salt.plus(Word(16 + n)).hash().unit();
-            let along = amp
-                * ((1.0 - PX_M[i]) * px_wave(PX_K[i] * s + ph + PX_F[i] * f.age)
-                    + PX_M[i] * px_wave(PX_K2[i] * s + ph2 + PX_F2[i] * f.age));
-            let wid = (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c);
-            let x = (w - along) / wid;
-            let knot = 0.72 + 0.28 * px_wave(0.45 * s + kn + n as f32 / 3.0 + q[7] * f.age);
-            fil += PX_G[i] * (-x * x).exp() * knot;
-        }
-        fil = fil.clamp(0.0, 1.0)
-            * q[6]
-            * (1.0 - smoothstep(-0.02, 0.15, d0))
-            * smoothstep(0.0, 0.3, s);
-    }
-    Some((env, tube, fil, s))
+    plasma::parts(vfx, p).map(|q| (q.env, q.tube, q.filaments, q.behind))
 }
 
 /// The plasma's tube and sheath without its filaments: what must be all
@@ -1148,8 +965,20 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 }
                 let at = format!("{effect:?} {name} at {age}");
                 assert_eq!(differing(&a, &b), 0, "the arms disagree under {at}");
-                let records = arms.renderer.trail();
+                let records = arms.renderer.trail().to_vec();
+                let records = &records[..];
                 let (want, ties) = effect_frame(&vfx, records, &plain, width, origin);
+                // The CPU arm, which the Linux driver draws with: the same
+                // records by the same models over its own frame, which is
+                // the GPU's plain frame -- so every pixel the reference's.
+                let cpu = cpu_frame(arms, t);
+                let fw = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+                let cpu_off = cpu
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, &p)| p != want[(i / fw + origin.1) * tw + i % fw + origin.0])
+                    .count();
+                assert_eq!(cpu_off, 0, "{at}: the CPU arm is off the reference");
                 let mut off = 0usize;
                 let mut lit = 0usize;
                 let inside = |i: usize| {

@@ -20,8 +20,9 @@
 //!
 //! **The timed effects are the macOS app's, on the CPU path** (`timed.rs`):
 //! `SGR 5` and `SGR 6` text blink at their own rates, the cursor trail --
-//! an effect such as the fire riding the quad, as the CPU path draws it --
-//! the alternate screen's fade under `[screen] transition`, and the
+//! every one the macOS app draws, the fire, the plasma and the rest of the
+//! effects included, with the pixels its CPU path draws, under the same
+//! flash cap -- the alternate screen's fade under `[screen] transition`, and the
 //! scrollbar's thumb, AppKit's overlay style, with its hover, drag and jump
 //! (`bar.rs`) and `?30`. A change on the clock with no event to bring it
 //! bounds the one wait; motion in flight owes a frame on each turn, which

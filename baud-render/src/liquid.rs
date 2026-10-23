@@ -5,8 +5,7 @@
 //! satellite beads that are sucked back into the head and merge with it
 //! through a smooth union; a meniscus round the cursor wobbles as the back
 //! arrives, and it fades. Designed in the effect-trail research (the liquid
-//! spec's design (a)), in the cursor's colour with intensity as opacity, GPU
-//! only.
+//! spec's design (a)), in the cursor's colour with intensity as opacity.
 //!
 //! **It reads nothing underneath.** The spec's design (b) bends the text
 //! under the gel -- a second render pass a frame over the whole target, and
@@ -27,6 +26,7 @@
 //! quad: early in a move kitty's leading corners have not reached the
 //! cursor, so the meniscus is outside the quad.
 
+use crate::det::Det;
 use crate::effect::{self, Hash, Ignition, Vfx};
 use crate::trail::{Corners, Pt, TAU_SLOW};
 
@@ -118,7 +118,7 @@ pub struct State {
 /// The age the back of kitty's quad comes within the head's reach, and the
 /// wobble's amplitude, for a move `len` pixels long on cells `c` tall.
 fn contact(len: f32, c: f32, radius: f32) -> (f32, f32) {
-    let t = TRAIL * (len / (radius + GAP * c)).max(1.0).log2();
+    let t = TRAIL * (len / (radius + GAP * c)).max(1.0).det_log2();
     (t, WOBBLE * c * smoothstep(3.0, 12.0, len / c))
 }
 
@@ -127,7 +127,7 @@ fn contact(len: f32, c: f32, radius: f32) -> (f32, f32) {
 pub fn end(f: &Ignition, radius: f32) -> f32 {
     let (t, a) = contact(f.len, f.unit, radius);
     let tw = if a > 0.5 {
-        (a / 0.5).ln() / (ZETA * OMEGA)
+        (a / 0.5).det_ln() / (ZETA * OMEGA)
     } else {
         0.0
     };
@@ -195,7 +195,7 @@ pub fn state(vfx: &Vfx) -> State {
     let sw = f.age - tc;
     let wob = if sw > 0.0 {
         let wd = OMEGA * (1.0 - ZETA * ZETA).sqrt();
-        amp * (-ZETA * OMEGA * sw).exp() * (wd * sw).sin()
+        amp * (-ZETA * OMEGA * sw).det_exp() * (wd * sw).det_sin()
     } else {
         0.0
     };
@@ -207,7 +207,7 @@ pub fn state(vfx: &Vfx) -> State {
     };
     let mut bead = [(Pt { x: 0.0, y: 0.0 }, 0.0f32); 3];
     if neck_max > 1.0 {
-        let xp = 0.5 - ((1.0 - 2.0 / neck_max).asin() / 3.0).sin();
+        let xp = 0.5 - ((1.0 - 2.0 / neck_max).det_asin() / 3.0).det_sin();
         let tp = 0.03 + 0.11 * xp;
         let sg = f.age - tp;
         let count = if Hash(f.seed.0 ^ COUNT_SALT).next().0 & 1 == 0 {
@@ -226,13 +226,13 @@ pub fn state(vfx: &Vfx) -> State {
                 let h3 = h2.next();
                 let u0 = 0.5 + (h0.unit() - 0.5) * 0.16;
                 let tau = 0.045 + 0.04 * h2.unit();
-                let u = u0 + (1.0 - u0) * (1.0 - (-sg / tau).exp());
+                let u = u0 + (1.0 - u0) * (1.0 - (-sg / tau).det_exp());
                 let rj = r
                     * (0.30 - 0.07 * jf)
                     * (0.85 + 0.3 * h1.unit())
                     * (1.0 - smoothstep(0.85, 0.99, u))
                     * smoothstep(0.0, BEAD_IN, sg);
-                let o = (h3.unit() - 0.5) * 0.25 * r * (-sg / 0.06).exp();
+                let o = (h3.unit() - 0.5) * 0.25 * r * (-sg / 0.06).det_exp();
                 *slot = (
                     Pt {
                         x: b.x + (h.x - b.x) * u + nx * o,
@@ -251,15 +251,15 @@ pub fn state(vfx: &Vfx) -> State {
     // time instead passes through nothing for a move opposite the rest light
     // and turned the glint across the drop in a frame; the start itself is
     // never nothing, LEAN_AT being more than one.
-    let rest = REST.1.atan2(REST.0);
-    let lean = (REST.1 + LEAN_AT * d.y).atan2(REST.0 + LEAN_AT * d.x);
+    let rest = REST.1.det_atan2(REST.0);
+    let lean = (REST.1 + LEAN_AT * d.y).det_atan2(REST.0 + LEAN_AT * d.x);
     let mut turn = lean - rest;
     if turn > core::f32::consts::PI {
         turn -= core::f32::consts::TAU;
     } else if turn <= -core::f32::consts::PI {
         turn += core::f32::consts::TAU;
     }
-    let (ly, lx) = (rest + turn * (-f.age / LEAN).exp()).sin_cos();
+    let (ly, lx) = (rest + turn * (-f.age / LEAN).det_exp()).det_sin_cos();
     let end = end(f, nominal);
     State {
         b,
@@ -751,7 +751,8 @@ mod tests {
         );
         let down = state(&vfx(cell(20.0, 1.0), cell(20.0, 13.0), 0.0));
         assert!(down.light.y > 0.3, "leaning down: {:?}", down.light);
-        let off_rest = |p: Pt| p.y.atan2(p.x).to_degrees() - REST.1.atan2(REST.0).to_degrees();
+        let off_rest =
+            |p: Pt| p.y.det_atan2(p.x).to_degrees() - REST.1.det_atan2(REST.0).to_degrees();
         let start = off_rest(s0.light);
         let turned = off_rest(state(&vfx(from, to, LEAN)).light);
         let want = start / core::f32::consts::E;
@@ -807,7 +808,7 @@ mod tests {
         let wd = OMEGA * (1.0 - ZETA * ZETA).sqrt();
         for s in [0.01f32, 0.025, 0.04, 0.06, 0.09, 0.12] {
             let st = state(&vfx(from, to, tc + s));
-            let want = amp * (-ZETA * OMEGA * s).exp() * (wd * s).sin();
+            let want = amp * (-ZETA * OMEGA * s).det_exp() * (wd * s).det_sin();
             assert!((st.half.x - rest.0 - want).abs() < 0.01, "along at {s}");
             assert!(
                 (st.half.y - rest.1 + CROSS * want).abs() < 0.01,
@@ -910,15 +911,15 @@ mod tests {
         for deg in 0..360 {
             let a = (deg as f32).to_radians();
             let to = cell(
-                (c.x + 500.0 * a.cos()) / CELL.0 - 0.5,
-                (c.y + 500.0 * a.sin()) / CELL.1 - 0.5,
+                (c.x + 500.0 * a.det_cos()) / CELL.0 - 0.5,
+                (c.y + 500.0 * a.det_sin()) / CELL.1 - 0.5,
             );
             let mut last: Option<Pt> = None;
             for k in 0..60 {
                 let s = state(&vfx(from, to, k as f32 / 120.0));
                 if let Some(l) = last {
                     let cos = (l.x * s.light.x + l.y * s.light.y).clamp(-1.0, 1.0);
-                    let turn = cos.acos().to_degrees();
+                    let turn = cos.det_acos().to_degrees();
                     assert!(
                         turn <= 20.0,
                         "{turn} degrees in a frame, moving at {deg} degrees, frame {k}"

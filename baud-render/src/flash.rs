@@ -39,6 +39,7 @@
 //! each other by the triangle inequality.
 
 use crate::color::Argb;
+use crate::det::Det;
 use baud_domain::Chan;
 
 /// **How a trail's frame is drawn**: as the trail draws it, or with each
@@ -122,7 +123,7 @@ fn lin(c: Chan) -> f64 {
             if c <= 0.04045 {
                 c / 12.92
             } else {
-                ((c + 0.055) / 1.055).powf(2.4)
+                ((c + 0.055) / 1.055).det_powf(2.4)
             }
         })
     });
@@ -164,7 +165,8 @@ fn transition(c: &Seen, g: &Seen, rule: Rule) -> bool {
     match rule {
         Rule::General => (c.lum - g.lum).abs() >= CHANGE && c.lum.min(g.lum) < DARKER,
         Rule::Red(bound) => {
-            (c.red == Redness::Red || g.red == Redness::Red) && (c.u - g.u).hypot(c.v - g.v) > bound
+            (c.red == Redness::Red || g.red == Redness::Red)
+                && (c.u - g.u).det_hypot(c.v - g.v) > bound
         }
     }
 }

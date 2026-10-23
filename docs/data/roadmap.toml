@@ -70,9 +70,10 @@ summary = "The mouse in programs, the wheel, selecting text, the scrollbar and p
 [[item]]
 id = "F2-05"
 area = "platforms"
-status = "in_progress"
+status = "done"
+date = "2026-10-23"
 title = "Cursor trails, blinking text, fades and the scrollbar on Linux"
-summary = "Blinking text, fades, the scrollbar and the plain cursor trail work on Linux; the fire, plasma and other trail effects are drawn there as the plain trail so far."
+summary = "Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, with the same pixels as on a Mac."
 
 [[item]]
 id = "F2-06"
