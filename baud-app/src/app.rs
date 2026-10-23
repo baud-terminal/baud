@@ -3870,7 +3870,9 @@ mod alt_window_tests {
     /// it writes, and one on another row keeps it** -- the owner's answer A
     /// to B23. An erase on row 0 and an `IL` on row 9 in one read drop a
     /// selection on row 0, which the move does not reach, read whole, at
-    /// every read size and cut into two reads at every byte.
+    /// every read size and cut into two reads at every byte. `ICH`, `DCH`,
+    /// `DECIC` and `DECDC` drop it with `?1040` set, the power-on state,
+    /// where xterm shifts it: the owner's answer A of 2026-10-22.
     #[test]
     fn a_write_or_an_erase_on_a_selected_row_drops_it() {
         let setup: &[u8] = b"\x1b[1;1Hhello\x1b[5;1Hworld\x1b[3;1H";
@@ -3898,6 +3900,9 @@ mod alt_window_tests {
             (b"\x1b[1;1Hhello", "the same text"),
             (b"\x1b[1;1H\x1b[@", "ICH"),
             (b"\x1b[1;1H\x1b[P", "DCH"),
+            // In a region of rows 1-3, so row 5 is out of their reach.
+            (b"\x1b[1;3r\x1b[1;1H\x1b['}\x1b[r", "DECIC"),
+            (b"\x1b[1;3r\x1b[1;1H\x1b['~\x1b[r", "DECDC"),
         ] {
             assert!(drops(setup, &[read], first), "{what}");
             assert!(!drops(setup, &[read], other), "{what}: another row");
@@ -3905,6 +3910,10 @@ mod alt_window_tests {
         assert!(
             !drops(setup, &[b"\x1b[5;1HXY\x1b[2K\x1b[1;1H"], first),
             "a write and an erase on another row, and a visit"
+        );
+        assert!(
+            !drops(setup, &[b"\x1b[1;3r\x1b[1;1H\x1b[r"], first),
+            "the control: the region set and reset, and no column edit"
         );
     }
 

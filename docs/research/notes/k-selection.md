@@ -68,7 +68,11 @@ is at absolute line `scrolled - back + y`. So a selection:
   the selection is up; a click that makes no selection leaves it, as
   xterm's press takes the highlight and its release disowns nothing; and
   reset, output that takes the selection gives up what SELECT offered on
-  Linux, as xterm's `DisownSelection` does.
+  Linux, as xterm's `DisownSelection` does. Set, `ICH`, `DCH`, `DECIC` and
+  `DECDC` on a selected row take the highlight away where xterm shifts it:
+  the owner's answer A of 2026-10-22 to "When a program inserts
+  characters before your selection, should its highlight move with the
+  text?".
 
 The alternative -- keying on physical rows and a generation -- is what the
 position-keyed marks table was, and CLAUDE.md records what that cost. An
