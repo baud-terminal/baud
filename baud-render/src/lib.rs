@@ -69,9 +69,9 @@ pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{
-    BlockCursor, BlockPaint, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ground, Hilite,
-    Ink, Line, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Reach, Resolved,
-    Selected, Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
+    BlockCursor, BlockPaint, Candidate, CellKey, CellSpan, CursorLook, Curves, Drawn, GlyphMap,
+    Ground, Hilite, Ink, Line, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
+    Reach, Resolved, Selected, Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
     AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, dark_palette,

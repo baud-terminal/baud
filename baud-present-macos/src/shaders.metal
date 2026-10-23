@@ -2221,7 +2221,8 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         wh = float2(u.cell.x, u.thickness);
         colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
     } else if (which == 3u) {
-        if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u) return o;
+        if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u
+            || u.cursor_kind > 3u) return o;
         if (u.cursor_kind == 2u) {
             at = float2(float(col * u.cell.x), rowy + float(u.cell.y) - thick);
             wh = float2(u.cell.x, thick);
@@ -2332,6 +2333,49 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         wh = float2(th, th);
         colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
     }
+    float2 c = float2(vid & 1u, vid >> 1u);
+    o.pos = clip(at + c * wh, u);
+    o.color = unpack(colw);
+    return o;
+}
+
+// The hollow cursor, `cursor_kind` 4 (`CursorKind::Hollow`): four solids
+// round the cursor's cell, instance 0 its top and 1 its bottom across the
+// cell, 2 and 3 its sides between them, each the bar's line thick and at
+// most half the cell's narrower side, in the bar's colour -- the four
+// `Renderer::hollow` gives the CPU and the instance path. No colour swaps
+// (`colors` swaps only for kind 1). A sized line's cursor is its records'.
+vertex GOut cell_ring_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                             device const uint2* cells [[buffer(0)]],
+                             device const Style* styles [[buffer(1)]],
+                             constant CU& u [[buffer(2)]],
+                             device const Entry* entries [[buffer(3)]],
+                             device const uchar* overlay [[buffer(4)]]) {
+    GOut o;
+    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u; o.curve = 0u;
+    if (u.cursor_kind != 4u || u.cursor.x >= u.grid.x) return o;
+    uint col = u.cursor.x;
+    int lrow = int(u.cursor.y);
+    if ((sized_bits(u, overlay, col, lrow) & MASK_SIZED) != 0u) return o;
+    uint dr = uint(lrow + int(u.slide_rows));
+    float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
+    uint2 cell = cell_at(u, cells, col, dr);
+    uint fgw, bgw, curw;
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
+    uint t = min(max(u.thickness, 2u), min(u.cell.x, u.cell.y) / 2u);
+    float x = float(col * u.cell.x), w = float(u.cell.x), h = float(u.cell.y), ft = float(t);
+    float side = float(u.cell.y - min(2u * t, u.cell.y));
+    float2 at; float2 wh;
+    if (iid == 0u) {
+        at = float2(x, rowy); wh = float2(w, ft);
+    } else if (iid == 1u) {
+        at = float2(x, rowy + h - ft); wh = float2(w, ft);
+    } else if (iid == 2u) {
+        at = float2(x, rowy + ft); wh = float2(ft, side);
+    } else {
+        at = float2(x + w - ft, rowy + ft); wh = float2(ft, side);
+    }
+    uint colw = scaled(paint(u.cursor_color, curw, curw, bgw | 0xff000000u), u.cursor_alpha);
     float2 c = float2(vid & 1u, vid >> 1u);
     o.pos = clip(at + c * wh, u);
     o.color = unpack(colw);

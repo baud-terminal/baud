@@ -60,9 +60,9 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, Dirty, Generation, Ground, Highlight, ImageLayer, ImagePlacement, Instance, Kind,
-    MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex,
-    TexRect,
+    Argb, Atlas, CursorLook, Dirty, Generation, Ground, Highlight, ImageLayer, ImagePlacement,
+    Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen,
+    Side, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -447,12 +447,17 @@ enum CursorKind {
     Block,
     Underline,
     Bar,
+    /// A hollow box round the cell whatever the shape
+    /// ([`baud_render::CursorLook::Hollow`]): drawn by `cell_ring_vertex`,
+    /// with no swap.
+    Hollow,
 }
 
 impl CursorKind {
-    fn of(cursor: Option<(Row, Col, CursorStyle)>) -> CursorKind {
+    fn of(cursor: Option<(Row, Col, CursorStyle)>, look: CursorLook) -> CursorKind {
         match cursor.map(|(_, _, s)| s) {
             None => CursorKind::None,
+            Some(_) if look == CursorLook::Hollow => CursorKind::Hollow,
             Some(CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock) => CursorKind::Block,
             Some(CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline) => {
                 CursorKind::Underline
@@ -468,6 +473,7 @@ impl CursorKind {
             CursorKind::Block => 1,
             CursorKind::Underline => 2,
             CursorKind::Bar => 3,
+            CursorKind::Hollow => 4,
         })
     }
 }
@@ -565,6 +571,10 @@ pub struct Gpu {
     /// `cell_bg_vertex` and `flat_fragment`, blending: the cell path's
     /// non-default backgrounds again over that image. Built with it.
     cell_bg_over_pipe: LatePipe,
+    /// `cell_ring_vertex` and `glyph_fragment`, blending: the cell path's
+    /// hollow cursor, after the decorations. Built the first time one is
+    /// drawn.
+    cell_ring_pipe: LatePipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     /// The text-contrast curves, `baud_domain::contrast::CURVES`, copied
     /// once: `glyph_fragment` reads a mask's coverage through the row its
@@ -935,6 +945,7 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             image_pipe: LatePipe::Unbuilt,
+            cell_ring_pipe: LatePipe::Unbuilt,
             bg_ground_pipe: LatePipe::Unbuilt,
             bg_set_pipe: LatePipe::Unbuilt,
             cell_bg_over_pipe: LatePipe::Unbuilt,
@@ -1901,6 +1912,17 @@ impl Gpu {
         let strip = renderer.strip();
         let (viewport, pad, strip_vp) = letterbox_whole(target, renderer.whole_size(), strip);
         let trail = self.trail_draw(renderer, pad);
+        let kind = CursorKind::of(input.cursor, renderer.cursor_look());
+        // The hollow box's pipeline, built the first frame one is drawn.
+        let ring = match kind {
+            CursorKind::Hollow => Some(self.cell_ring_pipe.get_as(
+                &self.device,
+                &self.library,
+                ("cell_ring_vertex", "glyph_fragment"),
+                Blend::Over,
+            )?),
+            _ => None,
+        };
         let (cursor_row, cursor_col) = input
             .cursor
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
@@ -1923,7 +1945,7 @@ impl Gpu {
             color_side: Px::of(self.color.as_ref()?.side.value()),
             cursor_col,
             cursor_row,
-            cursor: CursorKind::of(input.cursor).code(),
+            cursor: kind.code(),
             baseline: metrics.baseline,
             underline: metrics.underline,
             strike: metrics.strike,
@@ -2149,6 +2171,17 @@ impl Gpu {
                     4,
                     instances,
                 );
+                // The hollow cursor over the decorations, on the bindings
+                // the decoration pass left: its four sides.
+                if let (2, Some(ring)) = (k, &ring) {
+                    enc.setRenderPipelineState(ring);
+                    enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                        MTLPrimitiveType::TriangleStrip,
+                        0,
+                        4,
+                        4,
+                    );
+                }
             }
             // The rest of the records after every cell pass: the parts of
             // glyphs above their rows, then what the caller appended -- a

@@ -103,7 +103,7 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## The cursor
 
-- [ ] **A hollow cursor when the window is in the background** — The cursor shows as an outline while another window has the keyboard.
+- [x] **A hollow cursor when the window is in the background** — With the setting on, the cursor shows as an outline while another window has the keyboard. (2026-10-22)
 - [x] **The cursor trail and see-through text match on CPU and GPU** — The cursor trail and text in a semi-transparent colour could be one shade apart between the CPU and GPU drawing paths; both now round the same way and the pixel comparison checks them. Drawing over the see-through window got about half a percent cheaper. (2026-10-16)
 - [x] **Fire and UFO cursor blinks** — Two more blink animations: the cursor burns down into embers and relights, or a little beam lifts it away and sets it back. Set [cursor] blink_animation to "fire" or "ufo"; plasma stays the default. (2026-10-15)
 - [x] **The cursor blinks evenly, with a plasma glow** — 333 ms on and 333 ms off, glowing like the plasma trail while it is off. [cursor] blink_animation picks fade or a plain blink, blink_interval_ms sets the speed, and Reduce Motion always uses the plain blink. (2026-10-15)

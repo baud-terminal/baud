@@ -32,11 +32,11 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorPhase, Damage,
-    FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
-    Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
-    StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition, VideoFlash,
-    Widths, Window, copy_for_shader, quad_coverage,
+    Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
+    CursorPhase, Damage, FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look,
+    Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape,
+    Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
+    VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -3827,6 +3827,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
     partial_image_gate(&mut arms, &mut t);
     sixel_fill_gate(&mut arms, &mut t);
+    hollow_cursor_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
@@ -5256,6 +5257,126 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "{arm}: a fill word in an embedder's image is itself"
         );
     }
+    arms.renderer.set_theme(base);
+    feed(t, b"\x1bc");
+}
+
+/// **The hollow cursor on all three paths** (`[cursor] unfocused_hollow`,
+/// while another window has the keyboard): each shape, over a bold glyph
+/// on a single-width line and on a double-width one, opaque and on the
+/// glass, drawn by the instance arm, the cell arm and the CPU arm alike,
+/// and not the cursor drawn in its shape. On a single-width line the
+/// cell's middle is the frame without a cursor's, and the box's top
+/// middle is the text's colour: the cell shader's `cell_ring_vertex` was
+/// reached, and swapped nothing.
+fn hollow_cursor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let base = arms.renderer.theme().clone();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let opaque = Theme {
+        bg_alpha: Chan::from_u8(0xFF),
+        ..base.clone()
+    };
+    for (page, theme) in [("opaque", opaque), ("glass", base.clone())] {
+        arms.renderer.set_theme(theme);
+        for (what, style) in [("block", 2), ("underline", 4), ("bar", 6)] {
+            for (line, rendition) in [("single", ""), ("double width", "\x1b#6")] {
+                let scene =
+                    format!("\x1bc\x1b[2;1H{rendition}\x1b[1mstatus\x1b[0m\x1b[{style} q\x1b[2;3H");
+                feed(t, scene.as_bytes());
+                feed(t, b"\x1b[?25l");
+                let (none, _) = arms.draw(t);
+                feed(t, b"\x1b[?25h");
+                arms.renderer.set_cursor_look(CursorLook::Shaped);
+                let (shaped, _) = arms.draw(t);
+                arms.renderer.set_cursor_look(CursorLook::Hollow);
+                let (a, b) = arms.draw(t);
+                let c = cpu_frame(arms, t);
+                let at = format!("{page}, {what}, {line}");
+                assert_eq!(differing(&a, &b), 0, "{at}: the cell arm differs");
+                let cpu = channel_diff(&c, &a, |_| true);
+                assert_eq!(cpu.0, 0, "{at}: the CPU arm differs by up to {}", cpu.1);
+                assert!(differing(&a, &shaped) > 0, "{at}: hollow is not the shape");
+                if line == "single" {
+                    let (x, y) = (2 * cw, ch);
+                    let mid = (y + ch / 2) * fw + x + cw / 2;
+                    assert_eq!(a[mid], none[mid], "{at}: the cell's middle is its own");
+                    let top = y * fw + x + cw / 2;
+                    assert_ne!(a[top], none[top], "{at}: the box's top is drawn");
+                }
+            }
+        }
+    }
+    // A cell a record draws -- a mark joined to its letter -- and an input
+    // method's composition with its cursor inside it, each under a hollow
+    // block: the records swap nothing, on every arm.
+    arms.renderer.set_theme(Theme {
+        bg_alpha: Chan::from_u8(0xFF),
+        ..base.clone()
+    });
+    let composing = Composition {
+        row: Row::from_index(1),
+        col: Col::at_index(1),
+        text: "ime"
+            .chars()
+            .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
+            .collect(),
+        ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        hints: Vec::new(),
+        caret: Caret::At(1),
+    };
+    let line = usize::try_from(m.thickness.value().max(2)).unwrap();
+    let hidden = Composition {
+        caret: Caret::Hidden,
+        ..composing.clone()
+    };
+    for (what, scene, comp, without) in [
+        (
+            "a mark",
+            "\x1bc\x1b[2 q\x1b[2;1Hxe\u{301}yz\x1b[2;2H",
+            None,
+            None,
+        ),
+        (
+            "a composition",
+            "\x1bc\x1b[2 q\x1b[2;1Hxyzw\x1b[2;2H",
+            Some(composing),
+            Some(hidden),
+        ),
+    ] {
+        feed(t, scene.as_bytes());
+        // The frame without a cursor: hidden, or the composition's hidden.
+        arms.composition = without;
+        feed(t, b"\x1b[?25l");
+        let (none, _) = arms.draw(t);
+        feed(t, b"\x1b[?25h");
+        arms.composition = comp;
+        arms.renderer.set_cursor_look(CursorLook::Shaped);
+        let (shaped, _) = arms.draw(t);
+        arms.renderer.set_cursor_look(CursorLook::Hollow);
+        let (a, b) = arms.draw(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        let cpu = channel_diff(&c, &a, |_| true);
+        assert_eq!(cpu.0, 0, "{what}: the CPU arm differs by up to {}", cpu.1);
+        assert!(
+            differing(&a, &shaped) > 0,
+            "{what}: hollow is not the shape"
+        );
+        // Inside the box, column 2 of row 1, the cell is the frame without
+        // a cursor's: nothing swapped.
+        let inside = (ch + line..2 * ch - line)
+            .flat_map(|y| (2 * cw + line..3 * cw - line).map(move |x| y * fw + x))
+            .filter(|&i| a[i] != none[i])
+            .count();
+        assert_eq!(inside, 0, "{what}: the cell inside the box is its own");
+    }
+    arms.composition = None;
+    arms.renderer.set_cursor_look(CursorLook::Shaped);
     arms.renderer.set_theme(base);
     feed(t, b"\x1bc");
 }

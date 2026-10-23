@@ -50,6 +50,8 @@ pub enum Part {
     Scroll,
     /// `[screen] exit_status`.
     StatusMarks,
+    /// `[cursor] unfocused_hollow`.
+    Hollow,
     /// `[screen] badge`.
     Badge,
     /// `[cursor] guide`.
@@ -97,6 +99,7 @@ impl Part {
             | Part::Transition
             | Part::Scroll
             | Part::StatusMarks
+            | Part::Hollow
             | Part::Badge
             | Part::CursorGuide
             | Part::TermOptions
@@ -129,6 +132,7 @@ impl Part {
             Part::Transition => "[screen] transition",
             Part::Scroll => "[scroll] mode",
             Part::StatusMarks => "[screen] exit_status",
+            Part::Hollow => "[cursor] unfocused_hollow",
             Part::Badge => "[screen] badge",
             Part::CursorGuide => "[cursor] guide",
             Part::TermOptions => "the terminal's options",
@@ -204,6 +208,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         bell,
         clipboard,
         config_reload,
+        unfocused_cursor,
         badge,
         cursor_guide,
     } = new;
@@ -252,6 +257,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     );
     part(old.scroll != *scroll, Part::Scroll);
     part(old.exit_status != *exit_status, Part::StatusMarks);
+    part(old.unfocused_cursor != *unfocused_cursor, Part::Hollow);
     part(old.badge != *badge, Part::Badge);
     part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
     part(
@@ -437,6 +443,7 @@ mod tests {
             ("[screen]\ntransition = true\n", Part::Transition),
             ("[scroll]\nmode = \"normal\"\n", Part::Scroll),
             ("[screen]\nexit_status = \"on\"\n", Part::StatusMarks),
+            ("[cursor]\nunfocused_hollow = \"on\"\n", Part::Hollow),
             ("[screen]\nbadge = \"off\"\n", Part::Badge),
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),

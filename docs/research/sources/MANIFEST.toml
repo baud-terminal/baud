@@ -33418,3 +33418,87 @@ sha256 = "04fe1b58eb84d9dec962d4424729338c8ff330a94ecbaf3cd94e9f52570fb83c"
 bytes  = 42398
 status = "external"
 group  = "AM"
+
+[sources.kitty-decorations-851cb80]
+key    = "kitty-decorations-851cb80"
+title  = "kitty 851cb80, kitty/decorations.c -- vert and horz: a line round(pt x dpi / 72) px, at least 1 (194-212); add_hollow_cursor, the four sides at 1.0 pt (231-238)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/decorations.c"
+file   = ""
+sha256 = "acc40e55854d8240179cada95a912ecd9ab5496c1067b7078b04c60e84b1caba"
+bytes  = 110848
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162) for the hollow cursor's thickness; read as practice, not copied (GPL).
+
+[sources.alacritty-display-cursor]
+key    = "alacritty-display-cursor"
+title  = "alacritty d692748, display/cursor.rs -- a cursor's thickness round(thickness x cell width), at least 1, shared by beam, underline and hollow (20-32); hollow, four rects, top and bottom across, the sides between (73-90)"
+author = "The Alacritty contributors"
+year   = 2026
+venue  = "alacritty/alacritty @ d692748 (Apache-2.0/MIT)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/display/cursor.rs"
+file   = ""
+sha256 = "2456a311ce2a858258d491d813d0bd0d9796ddce93944ed006cc33ed05dafb59"
+bytes  = 3097
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162) for the hollow cursor's layout and thickness.
+
+[sources.alacritty-config-cursor]
+key    = "alacritty-config-cursor"
+title  = "alacritty d692748, config/cursor.rs -- cursor thickness defaults to 0.15 (23-44)"
+author = "The Alacritty contributors"
+year   = 2026
+venue  = "alacritty/alacritty @ d692748 (Apache-2.0/MIT)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/config/cursor.rs"
+file   = ""
+sha256 = "7d1ceb3023515038b0aa708f88e5410a1894c2ad5c9384339a3086d68dbafc91"
+bytes  = 4116
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162): the default cursor thickness.
+
+[sources.ghostty-special-9bbb9b2]
+key    = "ghostty-special-9bbb9b2"
+title  = "ghostty 9bbb9b2, src/font/sprite/draw/special.zig -- cursor_hollow_rect: the cell filled, the inside cleared at cursor_thickness (300-324)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty @ 9bbb9b2 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/sprite/draw/special.zig"
+file   = ""
+sha256 = "5eb6fe01aef16401888891080e1574ff4374603fc15910e8659fcf7c21dbf05f"
+bytes  = 10691
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162) for the hollow cursor's thickness.
+
+[sources.ghostty-metrics-9bbb9b2]
+key    = "ghostty-metrics-9bbb9b2"
+title  = "ghostty 9bbb9b2, src/font/Metrics.zig -- cursor_thickness, 1 px by default, set by configuration rather than the font (31-34)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty @ 9bbb9b2 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/Metrics.zig"
+file   = ""
+sha256 = "ddbdfc6d1fd76f98e2cf5109e72320546dd8ccf9741f76b4298cd08a18e1a596"
+bytes  = 31639
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162): the default cursor thickness.
+
+[sources.wezterm-e2a98e1-customglyph]
+key    = "wezterm-e2a98e1-customglyph"
+title  = "WezTerm e2a98e1, wezterm-gui/src/customglyph.rs -- cursor_sprite: the block's outline and the bar both PolyStyle::OutlineHeavy (5051-5125), a stroke 3.01 times the underline height (654-676)"
+author = "Wez Furlong"
+year   = 2026
+venue  = "WezTerm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-gui/src/customglyph.rs"
+file   = ""
+sha256 = "0a88973910b6a21c01dffbefa4415f67448befbbeefb669e27155a0156705386"
+bytes  = 280840
+status = "external"
+group  = "AZ"
+# Read 2026-10-22 (lane b162) for the hollow cursor's thickness.

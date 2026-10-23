@@ -19,7 +19,8 @@
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
 use crate::cellmap::{
-    BlockCursor, BlockPaint, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps,
+    BlockCursor, BlockPaint, Candidate, CursorLook, GlyphMap, Hilite, Line, Resolved, Selected,
+    Swaps,
 };
 use crate::color::Argb;
 use crate::instance::{Instance, Screen};
@@ -445,8 +446,10 @@ impl Overlay {
             cols: view.cols(),
             pan: scene.pan,
         };
-        let block = cursor
-            .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
+        let block = cursor.filter(|(_, _, s)| {
+            r.cursor_look() == CursorLook::Shaped
+                && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
+        });
         let covered = Covered::of(
             scene.composition,
             scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
@@ -1649,8 +1652,10 @@ pub(crate) fn composition_records(
 ) {
     // Only a block swaps a cell's colours; a bar or an underline the input
     // method put inside the composition is drawn over its row as anywhere.
-    let block = block
-        .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
+    let block = block.filter(|(_, _, s)| {
+        r.cursor_look() == CursorLook::Shaped
+            && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
+    });
     if size.is_double() {
         return sized_composition(r, term, c, under, styles, block, cols, size, pan, records);
     }

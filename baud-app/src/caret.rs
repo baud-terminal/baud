@@ -51,7 +51,7 @@ use core::time::Duration;
 
 use baud_core::{CursorStyle, Focus};
 use baud_domain::Chan;
-use baud_render::CursorPhase;
+use baud_render::{CursorLook, CursorPhase};
 
 use crate::bell::Moment;
 pub use crate::config::BlinkAnimation;
@@ -326,6 +326,17 @@ pub fn blinks<T>(style: CursorStyle, focus: Focus, cursor: Option<T>) -> Blinks 
     }
 }
 
+/// **How the cursor is drawn in a window with `focus`**: in its shape while
+/// the window has the keyboard, and `unfocused` -- `[cursor]
+/// unfocused_hollow`'s look -- while another window has it. The one
+/// spelling both drivers hand the renderer.
+pub fn look(focus: Focus, unfocused: CursorLook) -> CursorLook {
+    match focus {
+        Focus::Gained => CursorLook::Shaped,
+        Focus::Lost => unfocused,
+    }
+}
+
 /// Whether the blink owes a frame: what a frame drawn now would show is
 /// not what the last drawn one showed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -523,6 +534,20 @@ mod tests {
         on: Phase(Duration::from_millis(650)),
         off: Phase(Duration::from_millis(350)),
     };
+
+    /// **A hollow cursor only without the keyboard, and only when asked**:
+    /// in front the shape, behind it the setting's look.
+    #[test]
+    fn the_cursor_is_hollow_only_behind_another_window_and_only_when_asked() {
+        for unfocused in [CursorLook::Shaped, CursorLook::Hollow] {
+            assert_eq!(
+                look(Focus::Gained, unfocused),
+                CursorLook::Shaped,
+                "{unfocused:?}"
+            );
+            assert_eq!(look(Focus::Lost, unfocused), unfocused, "{unfocused:?}");
+        }
+    }
 
     fn caret(t0: Instant) -> Caret<Instant> {
         Caret::new(t0, SET, Gate::Free, StopAfter::Never, BlinkAnimation::None)

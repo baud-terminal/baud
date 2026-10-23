@@ -304,6 +304,11 @@ floor = 1.2
 # the window's width, iTerm2's cursor guide, so the cursor's line is easy
 # to find. "off" by default. A program can turn it on or off for itself
 # (iTerm2's OSC 1337 ; HighlightCursorLine) until the terminal is reset.
+#
+# `unfocused_hollow`: "on" draws the cursor as a hollow box round its cell,
+# whatever its shape, while another window has the keyboard, so you can
+# tell at a glance which window your typing goes to. "off", the default,
+# draws it as it is drawn in front.
 [cursor]
 shape = "block"
 blink = "auto"
@@ -311,6 +316,7 @@ blink_animation = "plasma"
 # blink_interval_ms = 333
 stop_blinking_after = 0
 trail_scroll = "ride"
+unfocused_hollow = "off"
 # trail = "plasma"
 guide = "off"
 

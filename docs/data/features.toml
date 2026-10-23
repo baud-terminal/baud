@@ -1705,6 +1705,16 @@ platform = "macos"
 tests = ["baud-app/src/config.rs::blink_interval_reads_milliseconds_and_refuses_the_rest", "baud-app/src/config.rs::stop_blinking_after_reads_seconds_and_zero_is_never"]
 
 [[feature]]
+id = "cursor-hollow"
+area = "cursor"
+name = "A hollow cursor in the background"
+does = "Turn on one setting and the cursor becomes a hollow box while another window has the keyboard, whatever its shape, so you can see at a glance which window you are typing in. Off by default."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hollow_cursor.rs::every_shape_is_a_box_round_its_cell", "baud-app/src/config.rs::the_cursor_is_hollow_in_the_background_only_when_turned_on", "baud-app/src/caret.rs::the_cursor_is_hollow_only_behind_another_window_and_only_when_asked", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws"]
+shipped = ["F1-17"]
+
+[[feature]]
 id = "vim-blink"
 area = "cursor"
 name = "vim can't stop your blink"

@@ -8,8 +8,8 @@ use crate::cache::{
 };
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{
-    BlockCursor, BlockPaint, CellSpan, Curves, Ground, Hilite, Line, Resolved, Selected, Shapes,
-    Swaps, Text, takes_stress_mark,
+    BlockCursor, BlockPaint, CellSpan, CursorLook, Curves, Ground, Hilite, Line, Resolved,
+    Selected, Shapes, Swaps, Text, takes_stress_mark,
 };
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
@@ -848,6 +848,7 @@ struct SizedKey {
     cells: Vec<PackedCell>,
     size: LineRendition,
     cursor: Option<(Col, CursorStyle, Chan)>,
+    look: CursorLook,
     selection: Option<Highlight>,
     blink: BlinkPhases,
     video: Video,
@@ -1487,6 +1488,11 @@ pub struct Renderer<'f, 'a> {
     /// that moves the cursor's opacity and nothing else still dirties its
     /// row.
     last_cursor_opacity: Chan,
+    /// How the cursor is drawn ([`Renderer::set_cursor_look`]), and how
+    /// the last converted frame drew it, so a flip with nothing else
+    /// changed still dirties the cursor's row.
+    cursor_look: CursorLook,
+    last_cursor_look: CursorLook,
     /// The selection on this frame's view, set by [`Renderer::set_highlight`]
     /// before a convert, and the one the last convert drew -- a row whose
     /// share of it changed is dirty, the cursor's own rule.
@@ -1836,6 +1842,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             reach_was: Vec::new(),
             last_cursor: None,
             last_cursor_opacity: Chan::from_u8(0xFF),
+            cursor_look: CursorLook::Shaped,
+            last_cursor_look: CursorLook::Shaped,
             highlight: None,
             last_highlight: None,
             hilite: Hilite::REVERSE,
@@ -2518,12 +2526,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         false => Selected::No,
                     };
                     let cursored = match cursor {
-                        Some((cr, cc, style)) if cr == row && cc == col => match style {
-                            CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock => {
-                                Cursored::Block
+                        Some((cr, cc, style)) if cr == row && cc == col => {
+                            match self.swaps(style) {
+                                true => Cursored::Block,
+                                false => Cursored::Shape,
                             }
-                            _ => Cursored::Shape,
-                        },
+                        }
                         _ => Cursored::No,
                     };
                     let guided = match guide_row {
@@ -2758,7 +2766,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// that rectangle is spelled** -- `convert_row` draws the cursor from
     /// it and a quad trail chases and spares it, so the two cannot differ
     /// by the pixel that would leave the landed trail a fringe.
+    ///
+    /// A hollow cursor ([`CursorLook::Hollow`]) fills its cell's box,
+    /// whatever its shape: the box the outline is drawn round, which a
+    /// trail chases.
     pub fn cursor_rect(&self, row: Row, col: Col, style: CursorStyle) -> Rect {
+        let style = match self.cursor_look {
+            CursorLook::Shaped => style,
+            CursorLook::Hollow => CursorStyle::SteadyBlock,
+        };
         let (left, top, w, h) = self.cursor_px(row, col, style);
         let f = |v: u32| f32::from(u16::try_from(v).unwrap_or(u16::MAX));
         Rect {
@@ -2767,6 +2783,56 @@ impl<'f, 'a> Renderer<'f, 'a> {
             right: f(left.value() + w.value()),
             bottom: f(top.value() + h.value()),
         }
+    }
+
+    /// **How the cursor is drawn from the next convert or resolve on**: in
+    /// its shape, or hollow whatever its shape. The driver sets
+    /// [`CursorLook::Hollow`] while another window has the keyboard and
+    /// `[cursor] unfocused_hollow` is on, and [`CursorLook::Shaped`]
+    /// otherwise; a flip repaints the cursor's row.
+    pub fn set_cursor_look(&mut self, look: CursorLook) {
+        self.cursor_look = look;
+    }
+
+    /// What [`Renderer::set_cursor_look`] last set: the cell path draws a
+    /// hollow cursor from it.
+    pub fn cursor_look(&self) -> CursorLook {
+        self.cursor_look
+    }
+
+    /// Whether a cursor of `style` swaps its cell's colours: a block drawn
+    /// in its shape. A hollow cursor swaps nothing.
+    fn swaps(&self, style: CursorStyle) -> bool {
+        self.cursor_look == CursorLook::Shaped
+            && matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
+    }
+
+    /// **The hollow cursor's four solids** at `(r, col)`, in `colour`: round
+    /// the box a block cursor fills there ([`Renderer::cursor_px`], on the
+    /// line's geometry), its top and bottom across the box and its sides
+    /// between them, as alacritty's `hollow` lays them out
+    /// (`[[source: alacritty-display-cursor]]` 73-90). Each is the bar's
+    /// line thick, `max(thickness, 2)`: one point at the default size on a
+    /// 2x display, kitty's 1pt (`[[source: kitty-decorations-851cb80]]`
+    /// 231-238) and foot's one logical pixel (`[[source:
+    /// foot-render-cb27717]]` 342-356), at most half the box's narrower
+    /// side. The cell shader's `cell_ring_vertex` draws the same four.
+    /// Out of line, so a window in front pays nothing for it in
+    /// `convert_row`.
+    #[cold]
+    #[inline(never)]
+    fn hollow(&self, r: Row, col: Col, colour: Argb) -> [Instance; 4] {
+        let (left, top, w, h) = self.cursor_px(r, col, CursorStyle::SteadyBlock);
+        let (x, y, w, h) = (left.value(), top.value(), w.value(), h.value());
+        let t = self.metrics.thickness.value().max(2).min(w.min(h) / 2);
+        let i = |v: u32| screen(i32::try_from(v).unwrap_or(i32::MAX));
+        let side = h.saturating_sub(2 * t);
+        [
+            solid(i(x), i(y), Px::of(w), Px::of(t), colour),
+            solid(i(x), i(y + h - t), Px::of(w), Px::of(t), colour),
+            solid(i(x), i(y + t), Px::of(t), Px::of(side), colour),
+            solid(i(x + w - t), i(y + t), Px::of(t), Px::of(side), colour),
+        ]
     }
 
     /// [`Renderer::cursor_rect`] in whole pixels: left, top, width, height.
@@ -4343,9 +4409,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             false => Selected::No,
         };
         let block = match self.last_cursor {
-            Some((r, cc, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock))
-                if r == row && cc == col =>
-            {
+            Some((r, cc, style)) if r == row && cc == col && self.swaps(style) => {
                 BlockCursor::Yes(BlockPaint::SWAP)
             }
             _ => BlockCursor::No,
@@ -4431,6 +4495,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 cursor: cursor
                     .filter(|&(cr, _, _)| cr == r)
                     .map(|(_, c, s)| (c, s, self.cursor_opacity(s))),
+                look: self.cursor_look,
                 selection: self.highlight.filter(|h| h.covers_row(r)),
                 blink: self.blink,
                 video: self.video,
@@ -4797,7 +4862,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved = cursor_here != cursor_was
                 || (cursor_here
-                    && (cursor != self.last_cursor || opacity != self.last_cursor_opacity));
+                    && (cursor != self.last_cursor
+                        || opacity != self.last_cursor_opacity
+                        || self.cursor_look != self.last_cursor_look));
             let glow_row = |g: Option<(Row, Col, CursorStyle, CursorPhase)>| {
                 g.is_some_and(|(gr, _, _, _)| gr.index() == r)
             };
@@ -4988,6 +5055,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.known = Prev::Known;
         self.last_cursor = cursor;
         self.last_cursor_opacity = opacity;
+        self.last_cursor_look = self.cursor_look;
         self.last_glow = self.glow;
         self.last_guide_at = self.guide_at;
         self.last_badge_rect = self.badge_rect;
@@ -5899,9 +5967,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == col);
             let block = match here {
-                Some((_, _, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)) => {
-                    BlockCursor::Yes(block_paint)
-                }
+                Some((_, _, style)) if self.swaps(style) => BlockCursor::Yes(block_paint),
                 _ => BlockCursor::No,
             };
             let d = res.drawn(Swaps {
@@ -6005,23 +6071,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if !hidden && res.shapes.any(Shapes::EDGES) {
                 self.edges(term, r, col, &row, res, d, &mut shapes, &mut rings);
             }
-            if let Some((
-                _,
-                _,
-                style @ (CursorStyle::BlinkingUnderline
-                | CursorStyle::SteadyUnderline
-                | CursorStyle::BlinkingBar
-                | CursorStyle::SteadyBar),
-            )) = here
-            {
-                // The bar or underline cursor draws in the cursor colour if
-                // one is set, else the cell's foreground, at its opacity.
+            if let Some((_, _, style)) = here.filter(|&(_, _, s)| !self.swaps(s)) {
+                // The bar or underline cursor, or the hollow box, draws in
+                // the cursor colour if one is set, else the cell's
+                // foreground, at its opacity.
                 let cur = self
                     .shape_colour(d.bg, d.cursor_fg)
                     .scaled(self.cursor_opacity(style));
-                // Already on the line's geometry (`Renderer::cursor_px`).
-                let (left, y, w, h) = self.cursor_px(r, col, style);
-                cursor_shapes.push(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));
+                match self.cursor_look {
+                    CursorLook::Shaped => {
+                        // Already on the line's geometry (`Renderer::cursor_px`).
+                        let (left, y, w, h) = self.cursor_px(r, col, style);
+                        cursor_shapes.push(solid(
+                            screen(px_i32(left)),
+                            screen(px_i32(y)),
+                            w,
+                            h,
+                            cur,
+                        ));
+                    }
+                    CursorLook::Hollow => cursor_shapes.extend(self.hollow(r, col, cur)),
+                }
             }
         }
         if size.is_double() {

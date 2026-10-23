@@ -1216,6 +1216,19 @@ pub enum Selected {
     Yes,
 }
 
+/// **How the cursor is drawn this frame**: in its own shape, or as a
+/// hollow box round its cell whatever its shape -- the `[cursor]
+/// unfocused_hollow` setting, while another window has the keyboard. A
+/// hollow cursor swaps no colours: the cell keeps its text and page, and
+/// the box is drawn over them in the bar's colour, as kitty, ghostty,
+/// foot, alacritty and WezTerm draw an unfocused cursor (note AZ).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorLook {
+    #[default]
+    Shaped,
+    Hollow,
+}
+
 /// Whether a block cursor sits on a cell, and what it is drawn in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BlockCursor {

@@ -72,6 +72,24 @@ Jev's confidence:
   "then the owner's call", and Jev leaned to leaving it unchanged in two
   rounds: 0.83/0.77, and 0.59/0.61 after the HIG text and the survey were
   added. It goes to the owner.
+  **The owner, 2026-10-22**, asked "Should the cursor turn hollow when
+  baud is in the background?": "i think hollow should be an option in
+  config". Built that day as `[cursor] unfocused_hollow`, `"on"` or
+  `"off"`, off by default, today's look; on, every shape is the hollow
+  box, the lean below, a trail runs and `?1004` changes nothing, the two
+  conditional decisions below.
+- **How thick the box's sides are**: the bar's line, `max(thickness, 2)`
+  pixels, one point at the default size on a 2x display. kitty draws its
+  box at 1pt (`[[source: kitty-decorations-851cb80]]` 231-238), foot at
+  one logical pixel, iTerm2 at one point; alacritty
+  (`[[source: alacritty-display-cursor]]` 20-32) and WezTerm
+  (`[[source: wezterm-e2a98e1-customglyph]]` 654-676, 5051-5125) at
+  their bar's thickness; xterm and ghostty at one device pixel
+  (`[[source: ghostty-metrics-9bbb9b2]]` 31-34,
+  `[[source: ghostty-special-9bbb9b2]]` 300-324). Jev's lean, with
+  baud's own renders of 1 px, the bar's line and 15% of the cell:
+  0.72/0.70, and 0.77/0.82 once WezTerm's stroke was read; under the
+  bar, taken as the lean.
 - **If a hollow cursor is approved, every shape hollow** is Jev's lean,
   0.50/0.68, against a block alone (xterm, iTerm2). The lane's task named
   the other rule, "a bar or underline cursor keeps its shape", as xterm's

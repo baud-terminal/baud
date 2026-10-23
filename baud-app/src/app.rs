@@ -615,6 +615,10 @@ struct App {
     /// Whether a trail in flight rides a smooth scroll, from `[cursor]
     /// trail_scroll`.
     trail_scroll: crate::config::TrailScroll,
+    /// How the cursor is drawn while another window has the keyboard, from
+    /// `[cursor] unfocused_hollow`: [`App::show_focus`] hands it to the
+    /// renderer on a focus loss.
+    unfocused_cursor: baud_render::CursorLook,
     slide: Slide,
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
@@ -706,6 +710,9 @@ struct Boot {
     /// Whether a trail in flight rides a smooth scroll, from `[cursor]
     /// trail_scroll`.
     trail_scroll: crate::config::TrailScroll,
+    /// How the cursor is drawn while another window has the keyboard,
+    /// from `[cursor] unfocused_hollow`.
+    unfocused_cursor: baud_render::CursorLook,
     /// How much caller memory the image store is given, from `[images]`.
     images: baud_domain::ImageBudget,
     /// Whether the DA claims Sixel, from `[images] advertise_sixel`.
@@ -908,6 +915,7 @@ impl Boot {
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
+            unfocused_cursor: cfg.unfocused_cursor,
             images: cfg.images,
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
@@ -962,6 +970,7 @@ impl App {
             screen_transition,
             scroll,
             trail_scroll,
+            unfocused_cursor,
             images,
             sixel,
             vs16_width,
@@ -1299,6 +1308,7 @@ impl App {
             transition: None,
             scroll,
             trail_scroll,
+            unfocused_cursor,
             slide: Slide::new(cell_h),
             latency: Latency::from_env(),
             images,
@@ -1316,6 +1326,22 @@ impl App {
             printer_list: PrinterList::new(waker),
             prints: crate::print::Prints::new(),
             panel: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(PANEL_IDLE)),
+        }
+    }
+
+    /// **The cursor as the focus has it**: `[cursor] unfocused_hollow`'s
+    /// look while another window has the keyboard, its shape while this one
+    /// has it.
+    ///
+    /// A frame is owed on a change, as nothing else on screen moved.
+    /// Nothing else reads the focus for the cursor: a trail runs as it
+    /// does in front, and `?1004` reports the focus and changes nothing
+    /// drawn.
+    fn show_focus(&mut self, f: baud_core::Focus) {
+        let look = crate::caret::look(f, self.unfocused_cursor);
+        if look != self.renderer.cursor_look() {
+            self.renderer.set_cursor_look(look);
+            self.pending = Pending::Dirty;
         }
     }
 
@@ -6859,6 +6885,30 @@ mod motion_tests {
         assert!(poll < feed, "the poll comes before the feed");
     }
 
+    /// **The cursor follows the window's key state on every poll**:
+    /// `set_focus` hands the focus to `show_focus` before the early return
+    /// a window that never had the keyboard would stop at, so one that
+    /// starts behind another draws the setting's look. AppKit-bound, so the
+    /// source is what can fail.
+    #[test]
+    fn the_cursor_look_follows_the_key_state_on_every_poll() {
+        const SRC: &str = include_str!("app.rs");
+        let focus = SRC
+            .split_once(concat!(
+                "fn set_",
+                "focus(&mut self, f: baud_core::Focus) {"
+            ))
+            .map(|(_, rest)| rest)
+            .expect("set_focus");
+        let shown = focus
+            .find(concat!("self.app.show_", "focus(f);"))
+            .expect("set_focus shows the focus");
+        let early = focus
+            .find(concat!("if self.app.focus == ", "f {"))
+            .expect("the early return");
+        assert!(shown < early, "shown before the early return");
+    }
+
     /// **The selection follows the window's key state and its
     /// appearance**: `set_focus` checks the unemphasized pair on every
     /// poll, before the early return a window that never had the keyboard
@@ -10229,6 +10279,11 @@ impl Driver {
                 }
                 Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
                 Part::Badge => self.app.badge = c.badge,
+                Part::Hollow => {
+                    self.app.unfocused_cursor = c.unfocused_cursor;
+                    let f = self.app.focus;
+                    self.app.show_focus(f);
+                }
                 Part::StatusMarks => {
                     self.app.renderer.set_status_marks(c.exit_status);
                     relayout = true;
@@ -10373,6 +10428,7 @@ impl Driver {
         if (f == baud_core::Focus::Lost) != self.app.renderer.inactive_selection().is_some() {
             self.inactive_selection(f);
         }
+        self.app.show_focus(f);
         if self.app.focus == f {
             return;
         }

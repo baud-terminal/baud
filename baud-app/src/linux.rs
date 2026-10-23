@@ -174,6 +174,10 @@ struct Driver {
     /// without it.
     caret: Caret<Instant>,
     focus: Focus,
+    /// How the cursor is drawn while the keyboard is another window's,
+    /// from `[cursor] unfocused_hollow`, handed to the renderer at each
+    /// `wl_keyboard.leave` and taken back at each enter.
+    unfocused_cursor: baud_render::CursorLook,
     /// The title the toplevel was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than every read.
     titles: crate::title::Shown,
@@ -448,6 +452,8 @@ pub fn run() {
     renderer.set_status_marks(cfg.exit_status);
     // And the config's notice, whose row the grid gives up below it.
     renderer.set_notice(notice.codepoints());
+    // The window starts without the keyboard, until `wl_keyboard.enter`.
+    renderer.set_cursor_look(crate::caret::look(Focus::Lost, cfg.unfocused_cursor));
     crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
     // The cell height for the Sixel cursor advance, before the first feed;
     // re-set on every `configure`.
@@ -547,6 +553,7 @@ pub fn run() {
         // Until `wl_keyboard.enter`: a window the compositor has not given
         // the keyboard holds a steady cursor.
         focus: Focus::Lost,
+        unfocused_cursor: cfg.unfocused_cursor,
         conn,
         window,
         term,
@@ -851,6 +858,8 @@ pub fn run() {
                     crate::reads::input(&mut d.term, |t| t.focus(f), |b| d.outbox.push(b));
                     d.focus = f;
                     d.seat.focused(f);
+                    d.renderer
+                        .set_cursor_look(crate::caret::look(f, d.unfocused_cursor));
                     if f == Focus::Gained {
                         d.caret.input(Instant::now());
                     } else {
@@ -1724,6 +1733,11 @@ impl Driver {
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
                 Part::Badge => self.badge = c.badge,
+                Part::Hollow => {
+                    self.unfocused_cursor = c.unfocused_cursor;
+                    self.renderer
+                        .set_cursor_look(crate::caret::look(self.focus, self.unfocused_cursor));
+                }
                 Part::StatusMarks => {
                     self.renderer.set_status_marks(c.exit_status);
                     reconfigure = true;

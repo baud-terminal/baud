@@ -229,6 +229,12 @@ pub struct Config {
     /// `"on"`. A program's `OSC 1337 ; HighlightCursorLine` overrides it
     /// until a reset (`Term::cursor_guide`).
     pub cursor_guide: baud_domain::CursorGuide,
+    /// `[cursor] unfocused_hollow`: how the cursor is drawn while another
+    /// window has the keyboard -- in its shape, as when focused, by default
+    /// (`"off"`), or with `"on"` as a hollow box round its cell whatever
+    /// its shape, as kitty, ghostty, foot, alacritty and WezTerm draw it
+    /// (the owner's call of 2026-10-22, note AZ).
+    pub unfocused_cursor: baud_render::CursorLook,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
@@ -791,6 +797,7 @@ impl Config {
             blink_animation: BlinkAnimation::Plasma,
             blink_interval: BlinkInterval::Default,
             cursor_guide: baud_domain::CursorGuide::Hidden,
+            unfocused_cursor: baud_render::CursorLook::Shaped,
             screen_transition: ScreenTransition::Off,
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
@@ -1438,6 +1445,19 @@ impl Config {
                                 "config: [screen] badge {other:?} is not on or off; using on"
                             ));
                             BadgeShown::On
+                        }
+                    };
+                }
+                ("cursor", "unfocused_hollow") => {
+                    self.unfocused_cursor = match value.trim().trim_matches('"') {
+                        "on" => baud_render::CursorLook::Hollow,
+                        "off" => baud_render::CursorLook::Shaped,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] unfocused_hollow {other:?} is not on or off; \
+                                 using off"
+                            ));
+                            baud_render::CursorLook::Shaped
                         }
                     };
                 }
@@ -3877,6 +3897,34 @@ mod reader {
         assert!(said[0].contains("guide"), "{said:?}");
     }
 
+    /// **The cursor keeps its shape in the background unless `[cursor]
+    /// unfocused_hollow = "on"`**, quoted or bare; any other value keeps it
+    /// and says so, and the key is the `[cursor]` section's.
+    #[test]
+    fn the_cursor_is_hollow_in_the_background_only_when_turned_on() {
+        use baud_render::CursorLook;
+        assert_eq!(Config::defaults().unfocused_cursor, CursorLook::Shaped);
+        assert_eq!(read("").unfocused_cursor, CursorLook::Shaped);
+        for on in ["\"on\"", "on"] {
+            let text = format!("[cursor]\nunfocused_hollow = {on}\n");
+            assert_eq!(read(&text).unfocused_cursor, CursorLook::Hollow, "{on}");
+        }
+        assert_eq!(
+            read("[cursor]\nunfocused_hollow = \"off\"\n").unfocused_cursor,
+            CursorLook::Shaped
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[cursor]\nunfocused_hollow = true\n");
+        assert_eq!(c.unfocused_cursor, CursorLook::Shaped);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("unfocused_hollow"), "{said:?}");
+        assert_eq!(
+            read("unfocused_hollow = \"on\"\n").unfocused_cursor,
+            CursorLook::Shaped,
+            "not a top-level key"
+        );
+    }
+
     /// **Exit-status marks are off unless `[screen] exit_status = "on"`**,
     /// quoted or bare; any other value keeps them off and says so, and the
     /// key is the `[screen]` section's.
@@ -4720,13 +4768,15 @@ shadow     = "never"
                 c.cursor_shape,
                 c.cursor_blink,
                 c.cursor_stop,
-                c.trail_scroll
+                c.trail_scroll,
+                c.unfocused_cursor
             ),
             (
                 CursorShape::Block,
                 BlinkChoice::Auto,
                 StopAfter::Never,
-                TrailScroll::Ride
+                TrailScroll::Ride,
+                baud_render::CursorLook::Shaped
             )
         );
         assert_eq!(

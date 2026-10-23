@@ -230,9 +230,10 @@ summary = "A cursor a program hid and placed stays on its text while output scro
 [[item]]
 id = "F1-17"
 area = "cursor"
-status = "planned"
+status = "done"
+date = "2026-10-22"
 title = "A hollow cursor when the window is in the background"
-summary = "The cursor shows as an outline while another window has the keyboard."
+summary = "With the setting on, the cursor shows as an outline while another window has the keyboard."
 
 [[item]]
 id = "F1-19"
