@@ -272,11 +272,12 @@ sha256  = "f17613282ac66e6b65fa49a4d1a6379d2139a3aa19284cb1d9eae8f57a82d699"
 
 [text."Unicode-3.0.txt"]
 licence = "Unicode-3.0"
-# Unversioned. On 2026-10-11 no versioned URL was found serving these bytes:
-# none under unicode.org/Public/, and the unicode-org repositories' LICENSE
-# files differ. A Wayback Machine snapshot dated 2026-10-09 exists, but its
-# fetch returned HTTP 429, so it is unchecked; the sha256 is the pin.
-from    = "https://www.unicode.org/license.txt"
+# https://www.unicode.org/license.txt has no versioned URL of its own: none
+# under unicode.org/Public/ serves these bytes, and the unicode-org
+# repositories' LICENSE files differ. The Wayback Machine's raw snapshot of
+# 2026-10-09 serves them (checked 2026-10-23, as did the live url), and the
+# manifest pins it as `unicode-license-txt-20261009`.
+from    = "https://web.archive.org/web/20261009185036id_/https://www.unicode.org/license.txt"
 how     = "fetched"
 sha256  = "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
 
@@ -770,7 +771,7 @@ files   = [
 ]
 
 [upstream.williams-parser]
-name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0; a footer commented out of the page names CC BY 4.0. The two conflict, and the RDF, the only notice the page declares, is the one followed."
+name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0, and it sits in the inline SVG's metadata with dc:type StillImage and the diagram's title, so it describes the state diagram. The footer naming CC BY 4.0 is inside an HTML comment in this copy, and vt100.net's other pages carry a copyright line and no licence. The same footer was visible on 2023-09-06 and 2023-09-24 over a body line for line this copy's (manifest `williams-dec-ansi-parser-20230924`), and CC BY 4.0 calls its grant irrevocable (2(a)(1)) and says stopping distribution does not end it (6(c); `cc-by-4-0-legalcode`). The whole file is kept under the stricter BY-NC-SA 3.0."
 licence = "CC-BY-NC-SA-3.0"
 notice  = "uri"
 status  = "nc"
@@ -2032,7 +2033,7 @@ upstream = "https://github.com/stipub/stixfonts/tree/v2.13b171"
 status   = "kept"
 
 [[tree]]
-what     = "Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
+what     = "Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
 paths    = ["baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf", "baud-app/fonts/symbols-nerd-font/README.md", "baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE"]
 licence  = "MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense"
 notice   = "baud-app/fonts/symbols-nerd-font/LICENSE"

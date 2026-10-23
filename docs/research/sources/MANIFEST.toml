@@ -33536,3 +33536,53 @@ bytes  = 280840
 status = "external"
 group  = "AZ"
 # Read 2026-10-22 (lane b162) for the hollow cursor's thickness.
+
+[sources.unicode-license-txt-20261009]
+key    = "unicode-license-txt-20261009"
+title  = "Unicode License v3 (license.txt), as unicode.org served it on 2026-10-09 -- the text of LICENSES/Unicode-3.0.txt"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode.org (via the Internet Archive)"
+url    = "https://web.archive.org/web/20261009185036id_/https://www.unicode.org/license.txt"
+file   = ""
+sha256 = "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+bytes  = 1995
+status = "external"
+group  = "G"
+# The versioned copy of https://www.unicode.org/license.txt, which has no
+# versioned URL of its own. Committed not here but as LICENSES/Unicode-3.0.txt,
+# whose [text] entry in docs/research/third-party.toml names this url. Fetched
+# 2026-10-23: the snapshot serves these bytes uncompressed, and the live url
+# served the same bytes that day.
+
+[sources.williams-dec-ansi-parser-20230924]
+key    = "williams-dec-ansi-parser-20230924"
+title  = "A parser for DEC's ANSI-compatible video terminals, as vt100.net served it on 2023-09-24 -- the footer then visible: 'This work is licensed under a Creative Commons Attribution 4.0 International License'"
+author = "Paul Flo Williams"
+year   = 2023
+venue  = "vt100.net (via the Internet Archive)"
+url    = "https://web.archive.org/web/20230924222212id_/https://vt100.net/emu/dec_ansi_parser"
+file   = ""
+sha256 = "a40e3235e79520ce34978e6a477c179912e3171cd107fa6d7ce74c2262869fcc"
+bytes  = 89912
+status = "external"
+group  = "C"
+# Read 2026-10-23 (lane b173) for the licence of the committed copy, `williams`.
+# Its body, prose and the inline SVG with its BY-NC-SA 3.0 RDF, is line for
+# line the committed copy's; the two differ in head metadata (title, icon, a
+# schema.org block) and in the footer, which the committed copy wraps in an
+# HTML comment. The 2023-09-06 snapshot shows the same footer.
+
+[sources.cc-by-4-0-legalcode]
+key    = "cc-by-4-0-legalcode"
+title  = "Creative Commons Attribution 4.0 International Public License, legal code (plain text) -- section 2(a)(1) the irrevocable grant, section 6(c) stopping distribution does not terminate it"
+author = "Creative Commons"
+year   = 2013
+venue  = "creativecommons.org"
+url    = "https://creativecommons.org/licenses/by/4.0/legalcode.txt"
+file   = ""
+sha256 = "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411"
+bytes  = 18657
+status = "external"
+group  = "C"
+# Read 2026-10-23 (lane b173) for what the 2023 notice on `williams` grants.

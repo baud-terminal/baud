@@ -73,7 +73,7 @@ they were built from.
 | [tinted-home-MIT.txt](LICENSES/tinted-home-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE | 4e287e2ce0ff0679 |
 | [tinted-shell-MIT.txt](LICENSES/tinted-shell-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE | f17613282ac66e6b |
 | [tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md | f22c838ab1f27f24 |
-| [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://www.unicode.org/license.txt | e7a93b009565cfce |
+| [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://web.archive.org/web/20261009185036id_/https://www.unicode.org/license.txt | e7a93b009565cfce |
 | [vma-MIT.txt](LICENSES/vma-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt | 52df2c03d6cfc9ff |
 | [vttest-COPYING.txt](LICENSES/vttest-COPYING.txt) | MIT | fetched: https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/COPYING | cc6c4b5fc68b6c26 |
 | [W3C-software-and-document-license-2023.txt](LICENSES/W3C-software-and-document-license-2023.txt) | LicenseRef-W3C-Software-and-Document-2023 | built: https://www.w3.org/copyright/software-license/ | 15c2b580995ed692 |
@@ -194,7 +194,7 @@ they were built from.
 - **From:** https://github.com/stipub/stixfonts/tree/v2.13b171
 - **Files:** [baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf](baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf)
 
-### Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)
+### Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense
@@ -940,7 +940,7 @@ notice is, and the URL each file was copied from.
 | [xnu-tty_dev.c](docs/research/sources/xnu-tty_dev.c) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_dev.c |
 | [xnu-tty_subr.c](docs/research/sources/xnu-tty_subr.c) | https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_subr.c |
 
-### vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0; a footer commented out of the page names CC BY 4.0. The two conflict, and the RDF, the only notice the page declares, is the one followed.
+### vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0, and it sits in the inline SVG's metadata with dc:type StillImage and the diagram's title, so it describes the state diagram. The footer naming CC BY 4.0 is inside an HTML comment in this copy, and vt100.net's other pages carry a copyright line and no licence. The same footer was visible on 2023-09-06 and 2023-09-24 over a body line for line this copy's (manifest `williams-dec-ansi-parser-20230924`), and CC BY 4.0 calls its grant irrevocable (2(a)(1)) and says stopping distribution does not end it (6(c); `cc-by-4-0-legalcode`). The whole file is kept under the stricter BY-NC-SA 3.0.
 
 - **Status:** nc -- kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence
 - **Licence:** CC-BY-NC-SA-3.0 (https://creativecommons.org/licenses/by-nc-sa/3.0/)

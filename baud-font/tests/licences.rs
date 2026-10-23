@@ -228,8 +228,9 @@ fn every_font_listed_as_bauds_own_exists_with_its_generator() {
 const ICON_LICENCES: &str = "baud-app/fonts/symbols-nerd-font/icon-licences";
 
 /// The texts `icon-licences/` must hold: the eight upstream ships under
-/// `src/glyphs/` at v3.5.1, and the Apache 2.0 text the Material Design
-/// notice names only by URL.
+/// `src/glyphs/` at v3.5.1, the Apache 2.0 text the Material Design
+/// notice names only by URL, and the six notices of the MIT sets that
+/// nerd-fonts ships none for, each from its own project.
 const ICON_TEXTS: &[&str] = &[
     "pomicons/LICENSE",
     "weather-icons/OFL.txt",
@@ -240,6 +241,12 @@ const ICON_TEXTS: &[&str] = &[
     "powerline-extra/LICENSE",
     "powerline-symbols/LICENSE.txt",
     "Apache-2.0.txt",
+    "devicons/LICENSE",
+    "devicons/vorillaz/README.txt",
+    "extraglyphs/LICENSE.md",
+    "font-awesome-extension/LICENCE",
+    "seti-ui/LICENSE.md",
+    "power-symbols-iec/LICENSE.txt",
 ];
 
 fn files_under(dir: &Path, base: &Path, out: &mut Vec<String>) {
