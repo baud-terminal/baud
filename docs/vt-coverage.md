@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-eight rows carry it: `OSC 22`, kitty's `OSC 21` and `OSC 99`, `OSC 1337 ; RequestAttention`, `SetBadgeFormat`, `Notification` and `File`, DECSC, DECRC, DECNCSM, DECSCPP, DECSWBV, DECSMBV, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p` and file mediums, SGR 10-19, 20, 26 and 50, and ReGIS |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-seven rows carry it: `OSC 22`, kitty's `OSC 21` and `OSC 99`, `OSC 1337 ; RequestAttention`, `SetBadgeFormat`, `Notification` and `File`, DECSC, DECRC, DECNCSM, DECSCPP, DECSWBV, DECSMBV, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p`, SGR 10-19, 20, 26 and 50, and ReGIS |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,8 +53,13 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Twenty-eight carry `**partial**`, and
+**No row carries `parsed` or `todo`. Twenty-seven carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
+Since 2026-10-23 `the_vt_coverage_partial_counts_equal_its_partial_rows`
+counts them: the legend's number and this one must equal the rows whose
+status is `partial`, bold or bare, so a row that gains or loses the status
+moves both or the test fails. Until then the legend read twenty-eight, and
+named kitty graphics' file mediums, done since 2026-10-16.
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
 and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
@@ -93,7 +98,7 @@ confined. SGR 6's rapid blink carried it from 2026-10-10 to 2026-10-14,
 while it blinked at 5's slow rate. GR bytes under `ESC % @`, the `escape` and
 `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`
 carried it from 2026-10-10 to 2026-10-11. A check that saw them
-would fail on all twenty-three, and that is
+would fail on all twenty-seven, and that is
 the right answer: each row names work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a

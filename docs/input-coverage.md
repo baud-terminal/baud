@@ -13,6 +13,8 @@ implemented in full: all five flags, the per-screen stack, and the `CSI ? u`
 query answered -- which is the protocol's support claim, made only once every
 enhancement is honoured. `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
+Two rows carry `**partial**`: what Command or Ctrl held over a link does,
+and find in the scrollback.
 A `todo` row here has neither because it has no code.
 
 ## Why this file is not a section of `vt-coverage.md`
