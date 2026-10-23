@@ -34,9 +34,9 @@ use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
-    CursorPhase, Damage, FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look,
-    Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape,
-    SixelBg, Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
+    CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight, Hover, Instance, Kind,
+    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
+    Shape, SixelBg, Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
     Transition, VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
 };
 
@@ -4081,6 +4081,85 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     reach_gate(arms, t);
     overlap_gate(arms, t);
     composed_decoration_gate(arms, t);
+}
+
+/// **`SGR 11`-`19` draw from their fonts alike on all three arms**: the
+/// cell arm through the font bits in its glyph-map key, the instance and
+/// CPU arms through the stack. Font 1 is JetBrains Mono Italic and font 9
+/// its Bold Italic, each named alone, with font 1's Bold beside it; the
+/// scene draws each named font over text, a ligature, a wide character, a
+/// marked cluster (a record of its own) and a Nerd Fonts icon no text face
+/// carries, which comes from the chain behind the font, bold in font 1,
+/// and font 2, which no face is named for and which draws the primary.
+/// The premise that the fonts reached the pixels: the same text in font
+/// 10 paints otherwise, and font 2's line paints what font 10's does.
+#[test]
+fn alternative_fonts_draw_alike_on_every_arm() {
+    let app_font = |p: &str| {
+        std::fs::read(format!(
+            "{}/../baud-app/fonts/{p}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("face")
+    };
+    let regular = app_font("jetbrains-mono/JetBrainsMono-Regular.ttf");
+    let symbols = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let italic = app_font("jetbrains-mono/JetBrainsMono-Italic.ttf");
+    let bold = app_font("jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let bold_italic = app_font("jetbrains-mono/JetBrainsMono-BoldItalic.ttf");
+    let faces = [
+        Face::parse(&regular).expect("parse"),
+        Face::parse(&symbols).expect("parse"),
+        Face::parse(&italic).expect("parse"),
+        Face::parse(&bold).expect("parse"),
+        Face::parse(&bold_italic).expect("parse"),
+    ];
+    let font = |n: u16| FontSlot::alternative(baud_domain::FontId::from_sgr(10 + n).unwrap());
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Font(font(1), FaceStyle::Regular),
+        FaceRole::Font(font(1), FaceStyle::Bold),
+        FaceRole::Font(font(9), FaceStyle::Regular),
+    ];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let body = "ab->x \u{4e2d}\u{6587} e\u{301}q \u{f07b} WiW the quick brown fox jumps 0123";
+    let lines = |sgr: [&str; 4]| {
+        format!(
+            "\x1bc\x1b[?25l\x1b[{}m{body}\x1b[0m\r\n\x1b[{}m{body}\x1b[0m\r\n\
+             \x1b[{}m{body}\x1b[0m\r\n\x1b[{}m{body}\x1b[0m",
+            sgr[0], sgr[1], sgr[2], sgr[3]
+        )
+    };
+    feed(&mut t, lines(["10", "10", "1;10", "10"]).as_bytes());
+    let (plain, _) = arms.draw(&mut t);
+    feed(&mut t, lines(["11", "19", "1;11", "12"]).as_bytes());
+    let (a, b) = arms.draw(&mut t);
+    let cpu = cpu_frame(&mut arms, &mut t);
+    assert!(
+        differing(&plain, &a) > 0,
+        "the alternative fonts never reached the instance arm's pixels"
+    );
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the fonts");
+    assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on the fonts");
+    // Font 2, named no face, paints the primary's row.
+    feed(&mut t, lines(["12", "12", "1;12", "12"]).as_bytes());
+    let (unnamed, unnamed_cell) = arms.draw(&mut t);
+    assert_eq!(differing(&plain, &unnamed), 0, "font 2 left the primary");
+    assert_eq!(
+        differing(&unnamed, &unnamed_cell),
+        0,
+        "the arms disagree on font 2"
+    );
 }
 
 /// **`SGR 26` draws at the cell pitch on all three arms**: the text that

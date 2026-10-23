@@ -160,6 +160,11 @@ pub struct Config {
     pub faces: Vec<FaceSpec>,
     /// Whether `faces` is the built-in stack or a config's.
     pub stack: StackFrom,
+    /// The faces `[font] alternatives` names for `SGR 11`-`19`, each with
+    /// its [`baud_render::FaceRole::Font`], until [`Config::resolve`] finds
+    /// each and its family's styles and puts them behind `faces`. Empty by
+    /// default: a font no face is named for draws the primary.
+    pub font_slots: Vec<FaceSpec>,
     /// Whether the embedded Regular, the icon face and STIX Two Math follow
     /// a `fonts` stack the config names, already folded into `faces` by the
     /// time the config is read.
@@ -788,6 +793,7 @@ impl Config {
         Config {
             faces: default_faces(),
             stack: StackFrom::Default,
+            font_slots: Vec::new(),
             font_fallback: FontFallback::Embedded,
             font_size: 13.0,
             padding: 8.0,
@@ -994,15 +1000,16 @@ impl Config {
             .flatten()
             .flat_map(|spec| crate::palette::candidates(spec, &dirs))
             .collect();
-        let faces = match self.stack {
-            StackFrom::Configured => self
-                .faces
-                .iter()
-                .filter(|f| f.from == FaceFrom::File)
-                .map(|f| std::path::PathBuf::from(&f.path))
-                .collect(),
-            StackFrom::Default => Vec::new(),
+        let stack = match self.stack {
+            StackFrom::Configured => self.faces.as_slice(),
+            StackFrom::Default => &[],
         };
+        let faces = stack
+            .iter()
+            .chain(&self.font_slots)
+            .filter(|f| f.from == FaceFrom::File)
+            .map(|f| std::path::PathBuf::from(&f.path))
+            .collect();
         Watched {
             lookup: lookup(),
             themes,
@@ -1044,18 +1051,7 @@ impl Config {
         // other styles: CSS 5.2's pick of each in the family it names.
         let mut styled: Option<Vec<FaceSpec>> = None;
         let styles_of = |family: &[&crate::discover::Known], regular: &Picked| {
-            use baud_render::FaceStyle;
-            [
-                (Want::BOLD, FaceStyle::Bold),
-                (Want::ITALIC, FaceStyle::Italic),
-                (Want::BOLD_ITALIC, FaceStyle::BoldItalic),
-            ]
-            .into_iter()
-            .filter_map(|(want, style)| {
-                let p = pick(family, want).filter(|p| p != regular)?;
-                Some(FaceSpec::picked(&p, baud_render::FaceRole::Style(style)))
-            })
-            .collect::<Vec<_>>()
+            styled_picks(family, regular, baud_render::FaceRole::Style)
         };
         for mut f in std::mem::take(&mut self.faces) {
             match f.from {
@@ -1129,7 +1125,90 @@ impl Config {
         }
         kept.extend(styled.unwrap_or_default());
         self.faces = kept;
+        let fonts = self.resolve_fonts(cat, &mut said);
+        self.faces.extend(fonts);
         said
+    }
+
+    /// **The faces `SGR 11`-`19` draw from**: each font `[font]
+    /// alternatives` names, found as a `fonts` entry is -- an installed
+    /// family's regular face, or a file -- with its family's Bold, Italic
+    /// and Bold Italic picked by the same CSS Fonts search, each given its
+    /// [`baud_render::FaceRole::Font`]. A name no installed font has, or a
+    /// path that is no file, is left out and said: that font then draws the
+    /// primary, as an unnamed one does. Behind the stack, never in its
+    /// chain, so what a font's face lacks comes from the chain: configured,
+    /// then embedded, then the system's.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn resolve_fonts(
+        &mut self,
+        cat: &crate::discover::Catalogue,
+        said: &mut Vec<String>,
+    ) -> Vec<FaceSpec> {
+        use crate::discover::{Named, Picked, Want, pick};
+        let mut out = Vec::new();
+        for f in std::mem::take(&mut self.font_slots) {
+            let baud_render::FaceRole::Font(font, _) = f.role else {
+                continue;
+            };
+            let (key, sgr) = font_key(font);
+            let role = |style| baud_render::FaceRole::Font(font, style);
+            let found = match f.from {
+                FaceFrom::Embedded(_) => {
+                    out.push(f);
+                    continue;
+                }
+                FaceFrom::File if std::fs::metadata(&f.path).is_ok_and(|m| m.is_file()) => {
+                    let beside = cat.beside(&f.path, f.index);
+                    let regular = Picked {
+                        path: f.path.clone(),
+                        origin: crate::discover::Origin::File,
+                        index: f.index,
+                        variations: beside
+                            .regular()
+                            .map(|p| p.variations.clone())
+                            .unwrap_or_default(),
+                    };
+                    out.push(FaceSpec::picked(
+                        &regular,
+                        role(baud_render::FaceStyle::Regular),
+                    ));
+                    out.extend(styled_picks(&beside.faces(), &regular, role));
+                    None
+                }
+                FaceFrom::File => {
+                    said.push(format!(
+                        "config: [font] {key} font {:?} is not a file; SGR {sgr} draws the primary font",
+                        f.path
+                    ));
+                    None
+                }
+                FaceFrom::Family => {
+                    let (regular, family) = match cat.lookup(&f.path) {
+                        Named::Face(k) => (pick(&[k], Want::REGULAR), cat.family_of(k)),
+                        Named::Family(fam) => (pick(&fam, Want::REGULAR), fam),
+                        Named::Nothing => (None, Vec::new()),
+                    };
+                    if regular.is_none() {
+                        said.push(format!(
+                            "config: [font] {key} names {:?}, which no installed font is; \
+                             SGR {sgr} draws the primary font",
+                            f.path
+                        ));
+                    }
+                    regular.map(|p| (p, family))
+                }
+            };
+            let Some((regular, family)) = found else {
+                continue;
+            };
+            out.push(FaceSpec::picked(
+                &regular,
+                role(baud_render::FaceStyle::Regular),
+            ));
+            out.extend(styled_picks(&family, &regular, role));
+        }
+        out
     }
 
     /// **A relative font path names a file beside the config**, in `dir`,
@@ -1146,7 +1225,7 @@ impl Config {
     /// read, so only the path is joined. A path that `dir` would make
     /// unreadable as UTF-8 is kept as written.
     fn faces_beside(&mut self, dir: &std::path::Path, home: Option<&std::path::Path>) {
-        for f in &mut self.faces {
+        for f in self.faces.iter_mut().chain(self.font_slots.iter_mut()) {
             if f.from != FaceFrom::File || !std::path::Path::new(&f.path).is_relative() {
                 continue;
             }
@@ -1571,6 +1650,32 @@ impl Config {
                             baud_domain::WindowOps::On
                         }
                     };
+                }
+                ("font", "alternatives") => {
+                    let names = strings(&value);
+                    if names.len() > 9 {
+                        said.push(format!(
+                            "config: [font] alternatives names {} fonts; SGR 11-19 select nine, \
+                             and the rest are ignored",
+                            names.len()
+                        ));
+                    }
+                    self.font_slots.retain(|f| {
+                        matches!(f.role, baud_render::FaceRole::Font(font, _) if font.has_fraktur())
+                    });
+                    for (n, name) in (1u16..=9).zip(names.iter()) {
+                        let Some(id) = baud_domain::FontId::from_sgr(10 + n) else {
+                            continue;
+                        };
+                        if name.trim().is_empty() {
+                            continue;
+                        }
+                        let font = baud_render::FontSlot::alternative(id);
+                        self.font_slots.push(FaceSpec {
+                            role: baud_render::FaceRole::Font(font, baud_render::FaceStyle::Regular),
+                            ..FaceSpec::parse(name)
+                        });
+                    }
                 }
                 ("font", "changes") => {
                     self.font_changes = match value.trim().trim_matches('"') {
@@ -2428,6 +2533,43 @@ fn default_faces() -> Vec<FaceSpec> {
     .collect()
 }
 
+/// **A family's Bold, Italic and Bold Italic**, each the face CSS Fonts'
+/// style search picks in `family` ([`crate::discover::pick`]), with the role
+/// `role` gives its style; a style whose pick is `regular` itself is left
+/// out, so it draws from the regular face and is never synthesised.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn styled_picks(
+    family: &[&crate::discover::Known],
+    regular: &crate::discover::Picked,
+    role: impl Fn(baud_render::FaceStyle) -> baud_render::FaceRole,
+) -> Vec<FaceSpec> {
+    use crate::discover::{Want, pick};
+    use baud_render::FaceStyle;
+    [
+        (Want::BOLD, FaceStyle::Bold),
+        (Want::ITALIC, FaceStyle::Italic),
+        (Want::BOLD_ITALIC, FaceStyle::BoldItalic),
+    ]
+    .into_iter()
+    .filter_map(|(want, style)| {
+        let p = pick(family, want).filter(|p| p != regular)?;
+        Some(FaceSpec::picked(&p, role(style)))
+    })
+    .collect()
+}
+
+/// The `[font]` key that names `font`'s face and the `SGR` that selects it,
+/// for what the config says when the face is not found.
+fn font_key(font: baud_render::FontSlot) -> (&'static str, String) {
+    (11u16..=19)
+        .find(|&n| {
+            baud_domain::FontId::from_sgr(n).map(baud_render::FontSlot::alternative) == Some(font)
+        })
+        .map_or(("fraktur", "20".to_string()), |n| {
+            ("alternatives", n.to_string())
+        })
+}
+
 /// The embedded Bold -- JetBrains Mono Bold with baud's Hebrew -- and
 /// JetBrains Mono's stock Italic and Bold Italic, each the face its style is
 /// drawn from: never synthesised while a real face exists. The italics map
@@ -2736,12 +2878,122 @@ mod named {
                         .find(|v| v.tag == wght)
                         .map(|v| v.value.to_f32()),
                 )),
-                baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
+                baud_render::FaceRole::Fallback
+                | baud_render::FaceRole::Badge
+                | baud_render::FaceRole::Font(..) => None,
             })
             .collect()
     }
 
     use baud_render::FaceStyle::{Bold, BoldItalic, Italic};
+
+    /// Each face a stack holds for a font of `SGR 11`-`20`: its font, its
+    /// style and its file's name.
+    fn font_faces(c: &Config) -> Vec<(baud_render::FontSlot, baud_render::FaceStyle, String)> {
+        c.faces
+            .iter()
+            .filter_map(|f| match f.role {
+                baud_render::FaceRole::Font(font, style) => Some((
+                    font,
+                    style,
+                    f.path.rsplit('/').next().unwrap_or("").to_string(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The font of each `SGR 10`-`19`, by its distance from 10.
+    fn alternatives() -> [baud_render::FontSlot; 10] {
+        let mut out = [baud_render::FontSlot::PRIMARY; 10];
+        for (slot, sgr) in out.iter_mut().zip(10..) {
+            *slot = baud_render::FontSlot::alternative(baud_domain::FontId::from_sgr(sgr).unwrap());
+        }
+        out
+    }
+
+    /// **`[font] alternatives` names the faces of `SGR 11`-`19`, in order**:
+    /// none by default; an empty name leaves its font unnamed, so it draws
+    /// the primary; each name found brings its family's styles, by name or
+    /// by path, behind the stack.
+    #[test]
+    fn the_alternatives_name_the_faces_of_sgr_11_to_19() {
+        assert!(Config::defaults().font_slots.is_empty());
+        let path = format!("{ROOT}/baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf");
+        let mut c = read(&format!(
+            "[font]\nalternatives = [\"JetBrains Mono\", \"\", \"{path}\"]\n"
+        ));
+        assert_eq!(c.font_slots.len(), 2, "two fonts named, one left empty");
+        assert!(c.resolve(&jetbrains()).is_empty());
+        let got = font_faces(&c);
+        let regular_of = |n: usize| {
+            got.iter()
+                .find(|f| (f.0, f.1) == (alternatives()[n], baud_render::FaceStyle::Regular))
+                .map(|f| f.2.clone())
+        };
+        assert_eq!(regular_of(1).as_deref(), Some("JetBrainsMono-Regular.ttf"));
+        assert_eq!(regular_of(2), None, "font 2 is unnamed");
+        assert_eq!(regular_of(3).as_deref(), Some("JetBrainsMono-Italic.ttf"));
+        for style in [Bold, Italic, BoldItalic] {
+            assert!(
+                got.iter().any(|f| (f.0, f.1) == (alternatives()[1], style)),
+                "font 1 lacks its family's {style:?}: {got:?}"
+            );
+        }
+        // Behind the stack: the chain and its styles come first, as before.
+        let first_font = c
+            .faces
+            .iter()
+            .position(|f| matches!(f.role, baud_render::FaceRole::Font(..)))
+            .unwrap();
+        assert!(
+            c.faces[first_font..]
+                .iter()
+                .all(|f| matches!(f.role, baud_render::FaceRole::Font(..))),
+            "a font's face sits among the stack's"
+        );
+        let roles: Vec<_> = c.faces.iter().map(|f| f.role).collect();
+        let parsed: Vec<Vec<u8>> = c
+            .faces
+            .iter()
+            .map(|f| match f.from {
+                FaceFrom::Embedded(b) => b.to_vec(),
+                _ => std::fs::read(&f.path).unwrap(),
+            })
+            .collect();
+        let faces: Vec<_> = parsed
+            .iter()
+            .zip(&c.faces)
+            .map(|(d, f)| baud_font::Face::parse_index(d, f.index).unwrap())
+            .collect();
+        assert!(baud_render::Stack::with_roles(&faces, &roles).is_some());
+    }
+
+    /// **A font not found is said, and draws the primary**: a name no
+    /// installed font has, a path that is no file, and a tenth name.
+    #[test]
+    fn an_alternative_not_found_is_said() {
+        let mut c = Config::defaults();
+        let said = c.apply(
+            "[font]\nalternatives = [\"No Such Font\", \"/no/such.ttf\", \"a\", \"b\", \
+             \"c\", \"d\", \"e\", \"f\", \"g\", \"h\"]\n",
+        );
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("names 10 fonts"), "{said:?}");
+        assert_eq!(c.font_slots.len(), 9);
+        c.font_slots.truncate(2);
+        let said = c.resolve(&jetbrains());
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!(
+            said[0].contains("No Such Font") && said[0].contains("SGR 11"),
+            "{said:?}"
+        );
+        assert!(
+            said[1].contains("/no/such.ttf") && said[1].contains("SGR 12"),
+            "{said:?}"
+        );
+        assert!(font_faces(&c).is_empty());
+    }
 
     /// **A configured family's own Bold, Italic and Bold Italic are its
     /// styled faces** (the owner, 2026-09-29: "if there is bold font, baud
@@ -3068,7 +3320,9 @@ mod named {
                 .iter()
                 .filter_map(|f| match f.role {
                     baud_render::FaceRole::Style(s) => Some((s, full(f))),
-                    baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
+                    baud_render::FaceRole::Fallback
+                    | baud_render::FaceRole::Badge
+                    | baud_render::FaceRole::Font(..) => None,
                 })
                 .collect();
             assert_eq!(
@@ -3164,7 +3418,9 @@ mod named {
                     baud_render::FaceRole::Style(s) => {
                         Some((s, format!("{}@{:?}", f.path, f.index)))
                     }
-                    baud_render::FaceRole::Fallback | baud_render::FaceRole::Badge => None,
+                    baud_render::FaceRole::Fallback
+                    | baud_render::FaceRole::Badge
+                    | baud_render::FaceRole::Font(..) => None,
                 })
                 .collect()
         };

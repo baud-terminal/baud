@@ -106,7 +106,9 @@ pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, char_col,
     row_of,
 };
-pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
+pub use stack::{
+    EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, FontSlot, Presentation, Stack, TextFace,
+};
 pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
 pub use trail::{

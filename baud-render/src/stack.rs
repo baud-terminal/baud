@@ -2,7 +2,7 @@
 
 use crate::atlas::{Code, VAR_POINTS_MAX};
 use crate::units::Tally;
-use baud_domain::{Attrs, Codepoint, GlyphId};
+use baud_domain::{Attrs, Codepoint, FontId, GlyphId};
 use baud_font::bytes::Count;
 use baud_font::{Face, Normalised};
 
@@ -65,6 +65,87 @@ impl FaceStyle {
             1 => FaceStyle::Bold,
             2 => FaceStyle::Italic,
             _ => FaceStyle::BoldItalic,
+        }
+    }
+}
+
+/// **Which font a rendition's text is drawn in**: `SGR 10`'s primary --
+/// the fallback chain -- or one of `SGR 11`-`19`'s nine alternatives,
+/// and over either `SGR 20`'s Fraktur face (`[[source: ecma48]]`
+/// § 8.3.117). Five bits: the alternative in the low four, Fraktur above.
+/// A slot the stack has no face for is never named
+/// ([`Stack::font_of`]), so a rendition that selects an unconfigured font
+/// resolves to the primary and keys the glyph map as it always has.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct FontSlot(u8);
+
+impl FontSlot {
+    /// `SGR 10`, the chain itself.
+    pub const PRIMARY: FontSlot = FontSlot(0);
+    /// `SGR 20`'s Fraktur face over the primary.
+    pub const FRAKTUR: FontSlot = FontSlot(FontSlot::FRAKTUR_BIT);
+    const FRAKTUR_BIT: u8 = 16;
+    const ALTERNATIVE: u8 = 15;
+
+    /// The font `SGR 10`-`19` selected: the primary for 10, else its
+    /// alternative.
+    pub fn alternative(id: FontId) -> FontSlot {
+        FontSlot(u8::try_from(id.index()).unwrap_or(0) & FontSlot::ALTERNATIVE)
+    }
+
+    /// This font with the Fraktur face over it.
+    pub fn with_fraktur(self) -> FontSlot {
+        FontSlot(self.0 | FontSlot::FRAKTUR_BIT)
+    }
+
+    /// Whether the Fraktur face is over it.
+    pub fn has_fraktur(self) -> bool {
+        self.0 & FontSlot::FRAKTUR_BIT != 0
+    }
+
+    /// The alternative alone, the primary for none, without Fraktur.
+    pub fn alternative_only(self) -> FontSlot {
+        FontSlot(self.0 & FontSlot::ALTERNATIVE)
+    }
+
+    /// Five bits, as a resolved slot's shapes carry them.
+    pub fn code(self) -> Code {
+        Code(u32::from(self.0))
+    }
+
+    /// The font five bits name; the bits above them are ignored.
+    pub fn from_code(code: Code) -> FontSlot {
+        FontSlot(u8::try_from(code.0 & 31).unwrap_or(0))
+    }
+
+    /// One face a role can name: an alternative alone, or Fraktur alone.
+    fn is_one(self) -> bool {
+        self == FontSlot::FRAKTUR || (self.0 != 0 && self.0 & FontSlot::FRAKTUR_BIT == 0)
+    }
+}
+
+/// **What a cell's glyph is looked up by**: the face style and the font.
+/// A rendition in the primary font is its style alone, so every key a
+/// default stack builds is the one it built before fonts were drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub struct TextFace {
+    pub style: FaceStyle,
+    pub font: FontSlot,
+}
+
+impl TextFace {
+    /// The style's two bits with the font's five above them: a style's own
+    /// code in the primary font.
+    pub fn code(self) -> Code {
+        Code(self.style.code().0 | (self.font.code().0 << 2))
+    }
+}
+
+impl From<FaceStyle> for TextFace {
+    fn from(style: FaceStyle) -> TextFace {
+        TextFace {
+            style,
+            font: FontSlot::PRIMARY,
         }
     }
 }
@@ -256,13 +337,15 @@ struct RowId(u16);
 struct Filled(usize);
 
 /// What a face is for in a [`Stack`]: part of the fallback chain every
-/// character tries in order, the face one style tries first, or the face
-/// iTerm2's badge is drawn in, whatever face the text is ([`Stack::badge`]).
+/// character tries in order, the face one style tries first, the face iTerm2's
+/// badge is drawn in, whatever face the text is ([`Stack::badge`]), or one
+/// style of an alternative font or of the Fraktur face ([`FontSlot`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FaceRole {
     Fallback,
     Style(FaceStyle),
     Badge,
+    Font(FontSlot, FaceStyle),
 }
 
 /// An ordered list of faces: the primary first, then the fallbacks tried
@@ -274,6 +357,10 @@ pub struct Stack<'f, 'a> {
     /// and the badge's. Neither is ever in the fallback chain: a character
     /// the regular faces lack is not looked for in a bold one.
     styled: Styled,
+    /// The alternative fonts' and the Fraktur face's styles, each a font
+    /// alone ([`FontSlot`]), a style and its face: kept out of the chain as
+    /// the styled faces are.
+    fonts: Vec<(FontSlot, FaceStyle, FaceIx)>,
 }
 
 /// One optional face per style; regular has none, being the chain. And
@@ -316,13 +403,15 @@ impl<'f, 'a> Stack<'f, 'a> {
         (!faces.is_empty() && faces.len() <= usize::from(u8::MAX)).then_some(Stack {
             faces,
             styled: Styled::default(),
+            fonts: Vec::new(),
         })
     }
 
     /// A stack whose faces each carry a role. `None` when the lengths
-    /// differ, the primary is not a fallback face, a style or the badge is
-    /// named twice, or a face is given the regular style, which is the
-    /// chain itself.
+    /// differ, the primary is not a fallback face, a style, the badge or a
+    /// font's style is named twice, a face is given the regular style,
+    /// which is the chain itself, or a font role names the primary or an
+    /// alternative and Fraktur at once.
     pub fn with_roles(faces: &'f [Face<'a>], roles: &[FaceRole]) -> Option<Stack<'f, 'a>> {
         if roles.len() != faces.len() || roles.first() != Some(&FaceRole::Fallback) {
             return None;
@@ -334,6 +423,14 @@ impl<'f, 'a> Stack<'f, 'a> {
                 FaceRole::Fallback => continue,
                 FaceRole::Style(style) => stack.styled.slot(*style)?,
                 FaceRole::Badge => &mut stack.styled.badge,
+                FaceRole::Font(font, style) => {
+                    let named = stack.fonts.iter().any(|f| (f.0, f.1) == (*font, *style));
+                    if !font.is_one() || named {
+                        return None;
+                    }
+                    stack.fonts.push((*font, *style, ix));
+                    continue;
+                }
             };
             if slot.is_some() {
                 return None;
@@ -375,9 +472,87 @@ impl<'f, 'a> Stack<'f, 'a> {
         }
     }
 
-    /// Whether `ix` is a styled face rather than one of the chain.
+    /// Whether `ix` is a styled face or a font's rather than one of the
+    /// chain.
     pub fn is_styled(&self, ix: FaceIx) -> bool {
-        self.styled.holds(ix)
+        self.styled.holds(ix) || self.fonts.iter().any(|f| f.2 == ix)
+    }
+
+    /// Whether the stack has a face for `font`, an alternative alone or
+    /// Fraktur alone.
+    pub fn has_font(&self, font: FontSlot) -> bool {
+        self.fonts.iter().any(|f| f.0 == font)
+    }
+
+    /// **The font a rendition's text is drawn in**: its alternative
+    /// (`SGR 11`-`19`) where the stack has a face for it, and the Fraktur
+    /// face over that where `SGR 20` is set and the stack has one; the
+    /// primary for what it has no face for, so an unconfigured selection
+    /// draws as `SGR 10` does. Fraktur is first and the alternative behind
+    /// it when both are set: 20 names a look the text defines, 11-19 a
+    /// slot it leaves undefined (Jev, FRAKTUR_FIRST, 0.94 and 0.96).
+    pub fn font_of(&self, id: FontId, attrs: Attrs) -> FontSlot {
+        let alt = FontSlot::alternative(id);
+        let alt = match alt != FontSlot::PRIMARY && self.has_font(alt) {
+            true => alt,
+            false => FontSlot::PRIMARY,
+        };
+        match attrs.has(Attrs::FRAKTUR) && self.has_font(FontSlot::FRAKTUR) {
+            true => alt.with_fraktur(),
+            false => alt,
+        }
+    }
+
+    /// The face `font` (one alone) draws `style` from: its own face for the
+    /// style, else its regular face -- a style the font's family has no
+    /// face for was left out by the caller, which picks the nearest by CSS
+    /// Fonts' search, and is never synthesised.
+    fn font_face(&self, font: FontSlot, style: FaceStyle) -> Option<FaceIx> {
+        let find = |s: FaceStyle| {
+            self.fonts
+                .iter()
+                .find(|f| (f.0, f.1) == (font, s))
+                .map(|f| f.2)
+        };
+        find(style).or_else(|| find(FaceStyle::Regular))
+    }
+
+    /// **The face a character in an alternative font or under Fraktur is
+    /// drawn from**, given `chain`, the face the primary would draw it from
+    /// ([`Stack::select_presented`]): the font's own faces first -- Fraktur's,
+    /// then the alternative's -- and then the chain, configured before
+    /// embedded before system, as for every other face. The presentation
+    /// is honoured in [`Stack::select_presented`]'s order: a face that
+    /// draws `c` as asked, the font's before the chain's, then one that
+    /// draws it at all.
+    pub fn select_font(
+        &self,
+        c: Codepoint,
+        face: TextFace,
+        p: Presentation,
+        chain: FaceIx,
+    ) -> FaceIx {
+        let want = match p {
+            Presentation::Text => Draws::Text,
+            Presentation::Colour => Draws::Colour,
+        };
+        let fraktur = face
+            .font
+            .has_fraktur()
+            .then(|| self.font_face(FontSlot::FRAKTUR, face.style))
+            .flatten();
+        let alt = face.font.alternative_only();
+        let alt = (alt != FontSlot::PRIMARY)
+            .then(|| self.font_face(alt, face.style))
+            .flatten();
+        let own = [fraktur, alt];
+        let draws = |ix: FaceIx| self.carries(ix, c);
+        own.into_iter()
+            .flatten()
+            .find(|ix| draws(*ix) == want)
+            .or_else(|| (draws(chain) == want).then_some(chain))
+            .or_else(|| own.into_iter().flatten().find(|ix| draws(*ix) != Draws::No))
+            .unwrap_or(chain)
     }
 
     pub fn primary(&self) -> &'f Face<'a> {
@@ -468,7 +643,7 @@ impl<'f, 'a> Stack<'f, 'a> {
         };
         let wants = |ix: FaceIx| self.carries(ix, c) == want;
         let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
-        own.or_else(|| self.each().find(|ix| !self.styled.holds(*ix) && wants(*ix)))
+        own.or_else(|| self.each().find(|ix| !self.is_styled(*ix) && wants(*ix)))
             .unwrap_or_else(|| self.select_styled(c, style))
     }
 
@@ -483,10 +658,8 @@ impl<'f, 'a> Stack<'f, 'a> {
             Presentation::Colour => Draws::Colour,
         };
         let at = |ix: FaceIx| draws.get(ix.index()).copied().unwrap_or(Draws::No);
-        let chain = |ok: &dyn Fn(Draws) -> bool| {
-            self.each()
-                .find(|ix| !self.styled.holds(*ix) && ok(at(*ix)))
-        };
+        let chain =
+            |ok: &dyn Fn(Draws) -> bool| self.each().find(|ix| !self.is_styled(*ix) && ok(at(*ix)));
         let own = self.styled.get(self.effective(style));
         own.filter(|f| at(*f) == want)
             .or_else(|| chain(&|d| d == want))
@@ -656,7 +829,7 @@ impl<'f, 'a> Stack<'f, 'a> {
             return first;
         }
         self.each()
-            .filter(|ix| *ix != first && !self.styled.holds(*ix))
+            .filter(|ix| *ix != first && !self.is_styled(*ix))
             .find(|ix| covers(*ix))
             .unwrap_or(first)
     }
@@ -668,7 +841,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// `.notdef` in its place (`Atlas::slot`).
     pub fn select(&self, c: Codepoint) -> FaceIx {
         self.each()
-            .find(|ix| !self.styled.holds(*ix) && self.carries(*ix, c) != Draws::No)
+            .find(|ix| !self.is_styled(*ix) && self.carries(*ix, c) != Draws::No)
             .unwrap_or(FaceIx::PRIMARY)
     }
 }

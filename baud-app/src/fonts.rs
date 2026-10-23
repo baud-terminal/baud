@@ -255,7 +255,9 @@ impl Fonts {
             let same = family.is_some() && self.families[i] == family;
             match role {
                 _ if i == slot.0 => {}
-                FaceRole::Fallback | FaceRole::Badge => order.push(i),
+                // The alternative fonts and the Fraktur face stay what
+                // they are whatever leads the chain.
+                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => order.push(i),
                 FaceRole::Style(_) if same => order.push(i),
                 FaceRole::Style(_) => {}
             }
@@ -485,7 +487,7 @@ mod tests {
             .iter()
             .filter_map(|r| match r {
                 FaceRole::Style(s) => Some(*s),
-                FaceRole::Fallback | FaceRole::Badge => None,
+                FaceRole::Fallback | FaceRole::Badge | FaceRole::Font(..) => None,
             })
             .collect();
         assert_eq!(styles, [Italic, BoldItalic], "no {Bold:?} beside itself");

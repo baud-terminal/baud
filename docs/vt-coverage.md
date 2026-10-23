@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-six rows carry it: `OSC 22`, kitty's `OSC 21` and `OSC 99`, `OSC 1337 ; RequestAttention`, `SetBadgeFormat`, `Notification` and `File`, DECSC, DECRC, DECNCSM, DECSCPP, DECSWBV, DECSMBV, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p`, SGR 10-19 and 20, and ReGIS |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-five rows carry it: `OSC 22`, kitty's `OSC 21` and `OSC 99`, `OSC 1337 ; RequestAttention`, `SetBadgeFormat`, `Notification` and `File`, DECSC, DECRC, DECNCSM, DECSCPP, DECSWBV, DECSMBV, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p`, SGR 20, and ReGIS |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,7 +53,7 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Twenty-six carry `**partial**`, and
+**No row carries `parsed` or `todo`. Twenty-five carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 Since 2026-10-23 `the_vt_coverage_partial_counts_equal_its_partial_rows`
 counts them: the legend's number and this one must equal the rows whose
@@ -928,7 +928,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 90-97, 100-107 aixterm bright | done — palette indices 8..15 |
 | 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done — **a cell keeps its rendition while the cells name no more renditions than the table has slots** (65,536 at the app's provisioning): `[[source: dec-std-070]]`'s SGR, page 5-104, "In no way does the selection of current rendition affect the rendition of characters already entered into the display". Since 2026-10-14 the rendition table sweeps -- at 7/8 load and before an eviction, at most once a sixteenth of its writes -- freeing every slot no cell of either screen or the history names, slot 0 never, and the renderer repaints a frame whose slots were reclaimed (`live_cells_keep_their_renditions_through_five_tables_of_churn`, `the_other_screens_cells_are_marked`, `the_historys_cells_are_marked`, `the_primarys_history_is_marked_from_the_alternate_screen`, `an_erased_rows_rendition_is_marked`, `a_churned_table_sweeps_before_it_fills`, `a_full_table_sweeps_before_it_evicts`, `a_sweep_is_chunk_invariant`, `a_swept_slot_reused_in_place_is_repainted`). Until then a session that had minted more renditions than slots evicted a named slot and recoloured its cells: yazi's chafa previews left 191 of 7,110 final cells differing from alacritty, 0 of 7,093 now. **Open**: with more distinct renditions named at once than slots it still evicts and recolours, as chafa printing into the shell does (81 cells of 7,199 differ); and a full table evicts without sweeping within a sixteenth of its writes of the last sweep, which happens only where the cells name more than 15/16 of the slots (`a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes`; options in the record, "A full rendition table sweeps before it evicts") |
 | 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
-| 10-19 fonts | **partial** — **a font selection changes nothing on screen**: recorded in `StyleWord`'s spare bits, answered by DECRQSS and readable through `Term::style_of`, and drawn by no path. `[[source: ecma48]]` § 8.3.117 names "primary (default) font" and nine alternatives and says nothing of what each is, so drawing one needs a configured face per slot, which baud has no setting for. The gap is that setting and its drawing |
+| 10-19 fonts | done — **text in `SGR 11` to `19` draws in the font `[font] alternatives` names for it**, on all three paths, and in the primary font for `SGR 10` and for a font no face is named for. `[[source: ecma48]]` § 8.3.117 names "primary (default) font" and nine alternatives and says nothing of what any looks like; FNT (§ 8.3.53) would name each "according to a register which is to be established", so the setting is where they are named, empty by default. A font's bold and italic are its family's own faces, picked by the search the first of `fonts` takes, never synthesised, and a character the font lacks comes from the fallback chain, configured before embedded before the system's. The font is a rendition in `StyleWord`'s spare bits, so the eight-byte cell is unchanged, answered by DECRQSS and readable through `Term::style_of`; the renderer resolves it once a slot to a font the stack has faces for, so a stack with none keys every glyph as it did before. `each_alternative_font_draws_from_its_own_face`, `an_alternative_font_with_no_face_draws_the_primary`, `an_alternative_font_draws_its_own_styles`, `a_restack_that_names_a_font_redraws_its_text`, `the_alternatives_name_the_faces_of_sgr_11_to_19`, and the pixel oracle's `alternative_fonts_draw_alike_on_every_arm` |
 | 58/59 underline colour | done — `StyleWord` grew to sixteen bytes; the *cell* holds a `StyleId` index and did not change |
 | 20 Fraktur | **partial** — **recorded in `Attrs` and drawn as plain text**: § 8.3.117's "Fraktur (Gothic)" needs a Fraktur face, and baud has neither an embedded one nor a setting for one. 23 clears italic **and** fraktur, as "not italicized, not fraktur" says. The gap is the face |
 | 26, 50 proportional spacing | done — **text under `SGR 26` draws at the cell pitch, exactly as it draws without it**, on all three paths. `[[source: ecma48]]` § 8.3.117 reserves 26 "for proportional spacing as specified in CCITT Recommendation T.61" and 50 for its cancel; `[[source: itu-t61]]` defines 26 as "proportional spacing character pitch may be used", and its Note 1 leaves the choice to the receiving terminal: "the text that follows may be presented with proportional spacing at the recipient's option". baud is the recipient and keeps the cell pitch, the case the same note provides for: "For interworking with devices not capable of proportional spacing, no line or part of a line of text should contain more characters than are permitted by the current pitch value". Laying the run out at a proportional face's own advances would part the glyphs from the cells the cursor and a selection count, and a proportional face drawn a glyph a cell changes the face and not the spacing; Jev chose the cell pitch at 0.98 and 0.95 over both. 26 is recorded, answered by DECRQSS and cleared by 50 and by 0. `sgr_26_is_recorded_but_changes_no_geometry`, `the_shared_reset_parameters_clear_both_attributes`, and the pixel oracle's `proportional_gate` |
@@ -944,19 +944,21 @@ rendition lives in `StyleWord` -- which carried sixteen bits of explicit
 padding, put there because zerocopy rejects implicit padding. `PackedCell`
 never had to grow, and the eight-byte cell was never the constraint. "A bit set
 and never read" resolved the way it did for charset designations: baud records
-the selection and `Term::style_of` is where a renderer reads it. No renderer
-does yet, and since 2026-10-18 the row says so.
+the selection and `Term::style_of` is where a renderer reads it. Since
+2026-10-23 the renderer does, and draws the font `[font] alternatives` names.
 
-Every SGR parameter above is **done** or **out** but two rows at **partial**:
-10-19 and 20, which read `done` until 2026-10-18 while no path drew them.
+Every SGR parameter above is **done** or **out** but one row at **partial**,
+20, which read `done` until 2026-10-18 while no path drew it. 10-19 were
+**partial** from that day to 2026-10-23, until `[font] alternatives` named
+their faces.
 26 and 50 were **partial** from that day to 2026-10-23, until T.61 was read:
-its Note 1 leaves proportional spacing to the recipient. 51, 53 and 60-64 read `done` over the same gap and are drawn since
-that day, and 52, **partial** for part of it, since the same day. 6 was **partial** from 2026-10-10 to 2026-10-14, while it blinked at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
+its Note 1 leaves proportional spacing to the recipient. 51, 53 and 60-64 read `done` over that gap too and are drawn since
+2026-10-18, and 52, **partial** for part of it, since the same day. 6 was **partial** from 2026-10-10 to 2026-10-14, while it blinked at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
 to be listed as `partial` on the strength of that last row, which conflated two
 different things. `out` is a scope decision with a reason; `partial` is a row
 that names what it does not do yet. A font selection that no renderer reads is
-that second case, and the 10-19 row says so. The two SGR rows above say what
-they do not do; the 5, 6 row did until 2026-10-14.
+that second case, and the 10-19 row said so until its fonts were drawn. The
+SGR row above says what it does not do; the 5, 6 row did until 2026-10-14.
 
 **This was the largest `parsed` gap in the codebase and the table did not show
 it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no

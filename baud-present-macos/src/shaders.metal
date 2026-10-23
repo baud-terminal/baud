@@ -1838,6 +1838,16 @@ static bool takes_stress_mark(uint content, bool bare) {
 // its wide tail: its glyph is centred in them, a slot of its own. Must
 // match `CellKey::SPAN_SHIFT`.
 #define KEY_SPAN_SHIFT 26u
+// The font a resolved slot's text is drawn in (`Shapes::FONT_SHIFT`,
+// `FontSlot`): the alternative font of SGR 11-19 in its low four bits and
+// SGR 20's Fraktur above. In a key the Fraktur bit sits between the
+// style and the span and the alternative in the top four bits, clear of
+// RING_KEY's bit; the primary font adds nothing, so its keys are the ones
+// a stack with no fonts builds. Pinned by
+// `the_face_style_bits_match_the_shader`.
+#define FONT_SHIFT 19u
+#define KEY_FRAKTUR_SHIFT 23u
+#define KEY_FONT_SHIFT 28u
 
 // Whether the cell's own text -- its glyph, underline and strike -- is
 // hidden: `SGR 8`, or `SGR 5` or `SGR 6` in its own rate's off phase, which
@@ -2145,7 +2155,9 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     // the width there (`CellSpan::at`), not the cell's flags.
     uint two = (col + 1u < u.grid.x && cell_at(u, cells, col + 1u, dr).x == WIDE_TAIL) ? 1u : 0u;
     uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT)
-                       | (two << KEY_SPAN_SHIFT);
+                       | (((shapes >> (FONT_SHIFT + 4u)) & 1u) << KEY_FRAKTUR_SHIFT)
+                       | (two << KEY_SPAN_SHIFT)
+                       | (((shapes >> FONT_SHIFT) & 15u) << KEY_FONT_SHIFT);
     uint mask = u.map_slots - 1u;
     uint i = (key * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;

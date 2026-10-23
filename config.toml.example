@@ -483,6 +483,14 @@ hide_while_typing = "on"
 [font]
 changes = "on"
 
+# The fonts a program can switch its text to: SGR 11 to SGR 19 ask for
+# the first to the ninth alternative font, and SGR 10 for your ordinary
+# one. Name each as in `fonts`, by family or by file; an empty name leaves
+# that font unset, and text in an unset font draws in your ordinary font.
+# Bold and italic come from each family's own faces, and a character the
+# font lacks from your ordinary fonts. None by default.
+# alternatives = ["Fira Code", "", "Menlo"]
+
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
 # content both its examples draw, and what was built as "glassterm". The

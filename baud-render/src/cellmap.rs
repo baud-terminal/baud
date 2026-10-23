@@ -44,13 +44,14 @@ pub struct Candidate {
 pub const MAP_BITS: u32 = 14;
 pub const MAP_SLOTS: usize = 1 << MAP_BITS;
 
-/// The face style a cell's text is drawn from, read from the resolved table
-/// the frame draws with -- the one spelling of that read on the CPU, as the
-/// shader's `(shapes >> FACE_SHIFT) & 3` is on the GPU.
-pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::FaceStyle {
+/// The face style and font a cell's text is drawn from, read from the
+/// resolved table the frame draws with -- the one spelling of that read on
+/// the CPU, as the shader's `(shapes >> FACE_SHIFT) & 3` and `(shapes >>
+/// FONT_SHIFT)` are on the GPU.
+pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::TextFace {
     styles
         .get(cell.style.index())
-        .map_or(crate::FaceStyle::Regular, |s| s.shapes.face())
+        .map_or(crate::TextFace::default(), |s| s.shapes.text_face())
 }
 
 /// **A row copied for the cell shader to draw from the map alone**: each
@@ -139,7 +140,11 @@ impl CellSpan {
 /// span above that, or [`CellKey::EMPTY`]. A codepoint is 21 bits, so the
 /// style's two bits and the span's one fit above it and the key stays one
 /// word; the cell shader composes the
-/// same key from the cell and its resolved slot (`KEY_STYLE_SHIFT`).
+/// same key from the cell and its resolved slot (`KEY_STYLE_SHIFT`). The
+/// font ([`crate::FontSlot`]) takes the bits left: its Fraktur bit between
+/// the style and the span, its alternative in the top four, clear of
+/// [`crate::boxes::Ring::KEY`]'s bit 27, so a primary-font key is the word
+/// it was before fonts were drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct CellKey(pub u32);
@@ -150,14 +155,24 @@ impl CellKey {
     /// One bit: set when the character spans two cells, whose glyph is
     /// centred in them (`Renderer::phase_in`) and so is another slot.
     pub const SPAN_SHIFT: u32 = 26;
+    /// One bit: `SGR 20`'s Fraktur face is over the font.
+    pub const FRAKTUR_SHIFT: u32 = 23;
+    /// Four bits: the alternative font, `SGR 11`-`19`, or none.
+    pub const FONT_SHIFT: u32 = 28;
 
-    pub fn of(cp: Codepoint, style: crate::FaceStyle, span: CellSpan) -> CellKey {
+    pub fn of(cp: Codepoint, face: impl Into<crate::TextFace>, span: CellSpan) -> CellKey {
+        let face = face.into();
         let two = match span {
             CellSpan::One => 0,
             CellSpan::Two => 1,
         };
+        let font = face.font.code().0;
         CellKey(
-            cp.value() | (style.code().0 << CellKey::STYLE_SHIFT) | (two << CellKey::SPAN_SHIFT),
+            cp.value()
+                | (face.style.code().0 << CellKey::STYLE_SHIFT)
+                | ((font >> 4) << CellKey::FRAKTUR_SHIFT)
+                | (two << CellKey::SPAN_SHIFT)
+                | ((font & 15) << CellKey::FONT_SHIFT),
         )
     }
 }
@@ -485,15 +500,15 @@ impl<'m> GlyphMap<'m> {
         self.generation = MapGeneration(self.generation.0.wrapping_add(1));
     }
 
-    /// The entry for `cp` drawn in `style`, if the map holds one: linear
+    /// The entry for `cp` drawn in `face`, if the map holds one: linear
     /// probing from its home slot to the first empty one.
     pub fn probe(
         &self,
         cp: Codepoint,
-        style: crate::FaceStyle,
+        face: impl Into<crate::TextFace>,
         span: CellSpan,
     ) -> Option<&MapEntry> {
-        self.probe_key(CellKey::of(cp, style, span))
+        self.probe_key(CellKey::of(cp, face, span))
     }
 
     /// The entry under `key`, if the map holds one.
@@ -654,7 +669,7 @@ impl<'m> GlyphMap<'m> {
         &mut self,
         r: &mut Renderer<'_, '_>,
         cp: Codepoint,
-        style: crate::FaceStyle,
+        style: crate::TextFace,
         span: CellSpan,
     ) -> MapEntry {
         self.stats.misses.bump();
@@ -856,12 +871,35 @@ impl Shapes {
         Shapes(self.0 | s.0)
     }
 
+    /// Where the font's five bits sit ([`crate::FontSlot`]): the
+    /// alternative in the low four and Fraktur above, already resolved by
+    /// [`crate::Stack::font_of`] to what the stack has faces for.
+    /// `FONT_SHIFT` in the cell shader, pinned by
+    /// `the_face_style_bits_match_the_shader`.
+    pub const FONT_SHIFT: u32 = 19;
+
     pub fn with_face(self, style: crate::FaceStyle) -> Shapes {
         Shapes((self.0 & !(3 << Shapes::FACE_SHIFT)) | (style.code().0 << Shapes::FACE_SHIFT))
     }
 
     pub fn face(self) -> crate::FaceStyle {
         crate::FaceStyle::from_code(Code(self.0 >> Shapes::FACE_SHIFT))
+    }
+
+    pub fn with_font(self, font: crate::FontSlot) -> Shapes {
+        Shapes((self.0 & !(31 << Shapes::FONT_SHIFT)) | (font.code().0 << Shapes::FONT_SHIFT))
+    }
+
+    pub fn font(self) -> crate::FontSlot {
+        crate::FontSlot::from_code(Code(self.0 >> Shapes::FONT_SHIFT))
+    }
+
+    /// The style and the font together, what a glyph is looked up by.
+    pub fn text_face(self) -> crate::TextFace {
+        crate::TextFace {
+            style: self.face(),
+            font: self.font(),
+        }
     }
 
     /// Whether every bit of `s` is set.

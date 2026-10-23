@@ -487,6 +487,11 @@ fn the_face_style_bits_match_the_shader() {
         // The two-cell span: a drift probes a key the walk never inserted,
         // and every wide character draws nothing on the cell path.
         ("KEY_SPAN_SHIFT", baud_render::CellKey::SPAN_SHIFT),
+        // The font: a drift keys every alternative-font and Fraktur cell
+        // on an entry the walk never inserted, or on the primary's.
+        ("FONT_SHIFT", baud_render::Shapes::FONT_SHIFT),
+        ("KEY_FRAKTUR_SHIFT", baud_render::CellKey::FRAKTUR_SHIFT),
+        ("KEY_FONT_SHIFT", baud_render::CellKey::FONT_SHIFT),
     ] {
         let prefix = format!("#define {name} ");
         let line = src

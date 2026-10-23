@@ -171,6 +171,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         source: _,
         faces: new_faces,
         stack,
+        font_slots,
         font_fallback,
         font_size,
         padding,
@@ -212,14 +213,17 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         badge,
         cursor_guide,
     } = new;
-    let same_faces = old.faces.len() == new_faces.len()
-        && old.faces.iter().zip(new_faces).all(|(a, b)| {
-            a.path == b.path
-                && a.index == b.index
-                && a.from == b.from
-                && a.role == b.role
-                && a.variations == b.variations
-        });
+    let same = |old: &[crate::config::FaceSpec], new: &[crate::config::FaceSpec]| {
+        old.len() == new.len()
+            && old.iter().zip(new).all(|(a, b)| {
+                a.path == b.path
+                    && a.index == b.index
+                    && a.from == b.from
+                    && a.role == b.role
+                    && a.variations == b.variations
+            })
+    };
+    let same_faces = same(&old.faces, new_faces) && same(&old.font_slots, font_slots);
     let mut out = Vec::new();
     let mut part = |differs: bool, p: Part| {
         if differs && !out.contains(&p) {

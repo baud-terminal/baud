@@ -948,12 +948,11 @@ tests = ["baud-app/src/timed.rs::blinking_text_wakes_at_its_own_flips_and_repain
 id = "rare-styles"
 area = "text"
 name = "Rare text styles"
-does = "Overline, framed and encircled text, Fraktur, alternate fonts and ideogram marks are remembered and reported back to programs."
+does = "Overline, framed and encircled text, ideogram marks and the nine alternative fonts a program can switch to are drawn, the fonts the ones you name in your settings, and all of them are reported back to programs."
 status = "partial"
-gap = "they are not drawn yet."
+gap = "Fraktur text is drawn in your ordinary font."
 platform = "both"
-tests = ["baud-core/tests/sgr/ideogram.rs::sgr_65_cancels_all_five", "baud-core/tests/sgr/fonts.rs::sgr_11_to_19_select_the_alternates"]
-behind = "ghostty and wezterm draw overlined text."
+tests = ["baud-core/tests/sgr/ideogram.rs::sgr_65_cancels_all_five", "baud-core/tests/sgr/fonts.rs::sgr_11_to_19_select_the_alternates", "baud-render/tests/alternative_fonts.rs::each_alternative_font_draws_from_its_own_face", "baud-render/tests/decorations.rs::an_overline_is_a_line_across_the_top_of_its_cells"]
 
 [[feature]]
 id = "text-art"

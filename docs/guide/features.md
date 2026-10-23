@@ -110,7 +110,7 @@ Text that lines up, in any script, with fonts that work out of the box.
 - **Five underline styles** — Single, double, curly, dotted and dashed underlines, each in its own colour if a program asks. <sub>[proof](../../baud-render/tests/underline_styles.rs)</sub>
 - **Blinking text** — Slow and fast blinking text, each at its own rate, held steady under Reduce Motion; with Dim Flashing Lights on it keeps blinking but dims rather than vanishes. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **Blinking text on Linux** — Slow and fast blinking text, each at its own rate, held steady when the desktop asks for reduced motion, and an idle window with nothing blinking never wakes for it. The desktop's motion setting arrives just after launch, so text can blink in the frames before it does, where a Mac reads the setting before its first frame. *Linux, headless so far.* <sub>[proof](../../baud-app/src/timed.rs)</sub>
-- **Rare text styles** — Overline, framed and encircled text, Fraktur, alternate fonts and ideogram marks are remembered and reported back to programs. **Partly:** they are not drawn yet. <sub>[proof](../../baud-core/tests/sgr/ideogram.rs)</sub>
+- **Rare text styles** — Overline, framed and encircled text, ideogram marks and the nine alternative fonts a program can switch to are drawn, the fonts the ones you name in your settings, and all of them are reported back to programs. **Partly:** Fraktur text is drawn in your ordinary font. <sub>[proof](../../baud-core/tests/sgr/ideogram.rs)</sub>
 - **Text art keeps its colours** — Colourful text art and photo previews drawn with characters keep every cell's colour, up to one distinct colour per cell of the screen. <sub>[proof](../../baud-core/tests/marks.rs)</sub>
 
 ## Keyboard, mouse and clipboard
@@ -279,7 +279,6 @@ link where the [roadmap](../roadmap.md) plans it.
 
 - **A fixed list of fallback fonts** — most terminals search every installed font for a character the others lack; baud searches a fixed list.
 - **Layered colour fonts** — kitty and wezterm draw the gradient form of layered colour fonts.
-- **Rare text styles** — ghostty and wezterm draw overlined text.
 - **Key releases** — the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **Links open safely** — the pointer keeps its shape over a link, where iTerm2 and WezTerm show a pointing hand.
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)

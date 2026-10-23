@@ -24,8 +24,8 @@ use crate::overlay::Composition;
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
-use crate::stack::FaceStyle;
 use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
+use crate::stack::{FaceStyle, FontSlot, Presentation, TextFace};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
@@ -472,6 +472,14 @@ fn video_of(term: &Term<'_>, flash: VideoFlash) -> Video {
 fn px_i32(p: Px) -> i32 {
     i32::try_from(p.value()).unwrap_or(i32::MAX)
 }
+
+/// **The most faces [`Renderer`] remembers for text in an alternative font
+/// or under Fraktur**, after which the memo starts again: its key is a
+/// codepoint a program prints, so it is bounded as every table keyed on
+/// what a program sends is. 4,096 codepoints a font and style cover a
+/// screen of text in every font at once; a miss asks the stack again
+/// (`Stack::select_font`), a few `cmap` lookups.
+const FONT_FACES_MAX: usize = 4096;
 
 /// **The most grounds a repeat pass's cap is read from**: more under it,
 /// and it draws nothing. A cap over a text colour costs every mixture a
@@ -1398,6 +1406,11 @@ pub struct Renderer<'f, 'a> {
     /// Which face draws each marked cluster (`Stack::select_cluster`),
     /// remembered, so `face_for` stays a lookup for a cell with marks too.
     cluster_faces: ClusterMemo<FaceIx>,
+    /// Which face draws a codepoint in an alternative font or under
+    /// Fraktur (`Stack::select_font`), by codepoint and by the style, font
+    /// and presentation's code, remembered up to `FONT_FACES_MAX`: empty on
+    /// a stack with no font faces, whose cells never ask.
+    font_faces: std::collections::HashMap<(u32, u32), FaceIx>,
     /// Whether a face draws all of a marked cluster, remembered, so a run
     /// the cache misses asks `shape` a lookup per marked cell too.
     cluster_covers: ClusterMemo<Cover>,
@@ -1483,7 +1496,10 @@ pub struct Renderer<'f, 'a> {
     sized_rows: Vec<Option<SizedRow>>,
     /// How many of those conversions were made rather than reused.
     sized_converted: Tally,
-    /// Moves on every [`Renderer::set_theme`].
+    /// Moves on every [`Renderer::set_theme`], and on every
+    /// [`Renderer::restack`]: a resolved slot names the face style and the
+    /// font its stack has faces for, so a copy resolved against the old
+    /// stack is resolved again.
     theme_gen: ThemeGen,
     bg: Vec<Argb>,
     fg: Vec<Argb>,
@@ -1832,6 +1848,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut r = Renderer {
             faces_of: stack.table(),
             cluster_faces: ClusterMemo::new(Question::Face, FaceIx::PRIMARY),
+            font_faces: std::collections::HashMap::new(),
             cluster_covers: ClusterMemo::new(Question::Cover, Cover::Whole),
             stack,
             scales,
@@ -2024,6 +2041,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } = PerFace::of(&stack, size);
         self.faces_of = stack.table();
         self.stack = stack;
+        self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
         self.scales = scales;
         self.digests = digests;
         #[cfg(feature = "exceptions")]
@@ -2036,6 +2054,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.selections = selections;
         self.faces = faces;
         self.cluster_faces = ClusterMemo::new(Question::Face, FaceIx::PRIMARY);
+        self.font_faces.clear();
         self.cluster_covers = ClusterMemo::new(Question::Cover, Cover::Whole);
         self.cache = RunCache::new();
         self.metrics = metrics;
@@ -2082,17 +2101,76 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// marks stops at the table, as it always has: the cluster half is out
     /// of line (`Renderer::cluster_face`) so the table lookup is all a
     /// caller inlines.
+    ///
+    /// **A cell in an alternative font or under Fraktur** takes the font's
+    /// faces first and then the face the table gives
+    /// ([`Stack::select_font`]), remembered per codepoint, style, font and
+    /// presentation (`Renderer::font_face`); a cell in the primary font
+    /// never reaches it.
     #[inline]
-    pub fn face_for(&mut self, cps: &[Codepoint], style: FaceStyle) -> FaceIx {
+    pub fn face_for(&mut self, cps: &[Codepoint], face: impl Into<TextFace>) -> FaceIx {
+        let look = face.into();
+        if look.font != FontSlot::PRIMARY {
+            return self.font_face_for(cps, look);
+        }
         let Some(&base) = cps.first() else {
             return FaceIx::PRIMARY;
         };
         let p = self.emoji.presentation(base, cps.get(1).copied());
-        let face = self.faces_of.face(&self.stack, base, style, p);
+        let face = self.faces_of.face(&self.stack, base, look.style, p);
         match cps {
             [_] => face,
             _ => self.cluster_face(cps, face),
         }
+    }
+
+    /// [`Renderer::face_for`] for a cell in an alternative font or under
+    /// Fraktur: out of line, so a cell in the primary font pays one test.
+    #[cold]
+    #[inline(never)]
+    fn font_face_for(&mut self, cps: &[Codepoint], look: TextFace) -> FaceIx {
+        let Some(&base) = cps.first() else {
+            return FaceIx::PRIMARY;
+        };
+        let p = self.emoji.presentation(base, cps.get(1).copied());
+        let chain = self.faces_of.face(&self.stack, base, look.style, p);
+        let face = self.font_face(base, look, p, chain);
+        match cps {
+            [_] => face,
+            _ => self.cluster_face(cps, face),
+        }
+    }
+
+    /// [`Renderer::face_for`]'s base in an alternative font or under
+    /// Fraktur, given `chain`, the table's face for it.
+    #[inline(never)]
+    fn font_face(
+        &mut self,
+        base: Codepoint,
+        look: TextFace,
+        p: Presentation,
+        chain: FaceIx,
+    ) -> FaceIx {
+        let colour = match p {
+            Presentation::Text => 0,
+            Presentation::Colour => 1,
+        };
+        let key = (base.value(), look.code().0 * 2 + colour);
+        if let Some(&face) = self.font_faces.get(&key) {
+            return face;
+        }
+        let face = self.stack.select_font(base, look, p, chain);
+        if self.font_faces.len() >= FONT_FACES_MAX {
+            self.font_faces.clear();
+        }
+        self.font_faces.insert(key, face);
+        face
+    }
+
+    /// How many faces for text in an alternative font or under Fraktur
+    /// are remembered: at most `FONT_FACES_MAX`.
+    pub fn font_faces_held(&self) -> Tally {
+        Tally::of(self.font_faces.len())
     }
 
     /// [`Renderer::face_for`] for a cell with marks, given `face`, its
@@ -5465,9 +5543,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub fn cluster(
         &mut self,
         cps: &[Codepoint],
-        style: FaceStyle,
+        style: impl Into<TextFace>,
         span: CellSpan,
     ) -> Vec<ClusterGlyph> {
+        let style = style.into();
         let Some(&base) = cps.first() else {
             return Vec::new();
         };
@@ -5516,7 +5595,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     pub(crate) fn cluster_at(
         &mut self,
         cps: &[Codepoint],
-        style: FaceStyle,
+        style: TextFace,
         span: CellSpan,
         stretch: Stretch,
     ) -> Vec<ClusterGlyph> {
@@ -5565,7 +5644,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// applies, its atlas slot with the shaper's offsets folded into the
     /// placement. `None` when it draws nothing. What the cell path's map
     /// holds.
-    pub fn single(&mut self, cp: Codepoint, style: FaceStyle, span: CellSpan) -> Option<Single> {
+    pub fn single(
+        &mut self,
+        cp: Codepoint,
+        style: impl Into<TextFace>,
+        span: CellSpan,
+    ) -> Option<Single> {
+        let style = style.into();
         if crate::boxes::covers(cp) {
             // `PairRole::Neither` is load-bearing: with both pair bits clear
             // the cell is never a ligature candidate, never gathered into a
@@ -5952,7 +6037,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // rendition's are made solid by `Resolved::drawn`.
         let bg = bg.with_alpha(self.theme.bg_alpha);
         let attrs = style.attrs();
-        let mut shapes = Shapes::default().with_face(self.stack.effective(FaceStyle::of(attrs)));
+        // The font the text is drawn in (`Stack::font_of`): the primary,
+        // whose style is the one the chain has a face for, or an
+        // alternative or Fraktur, whose style is the one asked for, since
+        // the font's own family may have a face the primary lacks.
+        let font = self.stack.font_of(style.font(), attrs);
+        let face_style = match font == FontSlot::PRIMARY {
+            true => self.stack.effective(FaceStyle::of(attrs)),
+            false => FaceStyle::of(attrs),
+        };
+        let mut shapes = Shapes::default().with_face(face_style).with_font(font);
         if opaque_bg {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
@@ -6034,8 +6128,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// The face style a cell's text is drawn from, from its resolved slot.
-    fn face_style(&self, cell: PackedCell) -> FaceStyle {
+    /// The face style and font a cell's text is drawn from, from its
+    /// resolved slot.
+    fn face_style(&self, cell: PackedCell) -> TextFace {
         crate::cellmap::face_of(&self.styles, cell)
     }
 

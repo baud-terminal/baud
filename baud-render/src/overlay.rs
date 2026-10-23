@@ -1696,7 +1696,7 @@ pub(crate) fn composition_records(
                 cursor,
             })
         };
-        let glyphs = r.cluster(&p.cps, one[0].shapes.face(), p.span);
+        let glyphs = r.cluster(&p.cps, one[0].shapes.text_face(), p.span);
         let cell = PackedCell {
             content: Content::codepoint(p.cps[0]),
             style: baud_domain::StyleId::DEFAULT,
@@ -1953,7 +1953,7 @@ fn sized_composition(
         if !d.text.draws() {
             continue;
         }
-        let glyphs = r.cluster_at(&p.cps, rendition.shapes.face(), p.span, st);
+        let glyphs = r.cluster_at(&p.cps, rendition.shapes.text_face(), p.span, st);
         let ox = i32::try_from(p.col.index()).unwrap_or(0) * cell_w * st.x();
         let oy = top + px(m.baseline) * st.y();
         for g in glyphs {
