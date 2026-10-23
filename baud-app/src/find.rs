@@ -329,7 +329,7 @@ pub(crate) enum Moved {
 }
 
 fn zero_width(c: Codepoint) -> bool {
-    baud_domain::Classified::of(c).width(baud_domain::AmbiguousWidth::Narrow)
+    baud_domain::Classified::of(c).width(baud_domain::WidthPolicy::DEFAULT)
         == baud_domain::Width::ZERO
 }
 

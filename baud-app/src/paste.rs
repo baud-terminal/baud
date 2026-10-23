@@ -177,7 +177,8 @@ pub fn latin1(text: &str, ambiguous: AmbiguousWidth) -> Vec<u8> {
             Some(b) => out.push(b.0),
             None => out.push(DEFAULT_STRING),
         }
-        if Classified::of(Codepoint::from_char(ch)).width(ambiguous) == Width::WIDE {
+        let policy = baud_domain::WidthPolicy::of(ambiguous, baud_domain::UnicodeWidths::Current);
+        if Classified::of(Codepoint::from_char(ch)).width(policy) == Width::WIDE {
             out.push(b' ');
         }
     }

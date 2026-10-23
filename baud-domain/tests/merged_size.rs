@@ -83,6 +83,28 @@ fn report_merged_trie_size() {
     println!("  merged, 1 B leaf  : {packed:>7} bytes   (needs class+lookback+width in 8 bits)");
 }
 
+/// **A codepoint's two width codes**: the current tables' in bits 0-1 and
+/// Unicode 8's in bits 2-3, each 0 narrow, 1 zero, 2 wide, 3 East Asian
+/// Ambiguous. The *code*, not a resolved width: East Asian Ambiguous depends
+/// on a runtime setting the embedder owns, so it is detected by asking both
+/// ways -- a codepoint whose width changes with the policy is the ambiguous
+/// one.
+fn width_codes(c: Codepoint) -> u8 {
+    let code = |of: fn(Codepoint, AmbiguousWidth) -> Width| {
+        let (n, w) = (of(c, AmbiguousWidth::Narrow), of(c, AmbiguousWidth::Wide));
+        if n != w {
+            3
+        } else if n == Width::ZERO {
+            1
+        } else if n == Width::WIDE {
+            2
+        } else {
+            0
+        }
+    };
+    code(Width::of) | code(Width::of_unicode8) << 2
+}
+
 /// The merged table as `scripts/gen-merged-table.py` reads it. Palette and
 /// block ids are numbered in codepoint order of first use; the maps are only
 /// looked up, never iterated, so the bytes do not depend on a hash seed.
@@ -91,27 +113,10 @@ fn merged_table_bytes() -> Vec<u8> {
     let mut pal_of: HashMap<(u8, u8, u8), u8> = HashMap::new();
     let mut leaf = vec![0u8; 0x110000];
     for cp in 0..0x110000u32 {
-        // The *code*, not a resolved width: East Asian Ambiguous depends on a
-        // runtime setting the embedder owns, so the table cannot bake it in.
-        // Detected by asking both ways -- a codepoint whose width changes with
-        // the policy is the ambiguous one.
         let t = match Codepoint::new(cp) {
             Some(c) => {
                 let (cl, lb) = GraphemeClass::of_with_lookback(c);
-                let (n, w) = (
-                    Width::of(c, AmbiguousWidth::Narrow),
-                    Width::of(c, AmbiguousWidth::Wide),
-                );
-                let code = if n != w {
-                    3
-                } else if n == Width::ZERO {
-                    1
-                } else if n == Width::WIDE {
-                    2
-                } else {
-                    0
-                };
-                (cl as u8, lb.bits(), code)
+                (cl as u8, lb.bits(), width_codes(c))
             }
             None => (GraphemeClass::Other as u8, 0, 0),
         };
@@ -169,19 +174,7 @@ fn merged_table_bytes() -> Vec<u8> {
         let v = match Codepoint::new(cp) {
             Some(c) => {
                 let (cl, lb) = GraphemeClass::of_with_lookback(c);
-                let (n, w) = (
-                    Width::of(c, AmbiguousWidth::Narrow),
-                    Width::of(c, AmbiguousWidth::Wide),
-                );
-                let code: u16 = if n != w {
-                    3
-                } else if n == Width::ZERO {
-                    1
-                } else if n == Width::WIDE {
-                    2
-                } else {
-                    0
-                };
+                let code = u16::from(width_codes(c));
                 u16::from(cl as u8) | (u16::from(lb.bits()) << 4) | (code << 8)
             }
             None => 0,

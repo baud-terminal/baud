@@ -52,6 +52,22 @@ impl ItermCounts {
     }
 }
 
+/// How deep `UnicodeVersion=push` goes: a push past it is refused and
+/// counted. iTerm2's stack has no bound; sixteen holds a shell, an editor and
+/// the programs nested in them.
+pub(crate) const UNICODE_STACK: usize = 16;
+
+/// The longest label a push keeps, in bytes; a longer one is refused.
+pub(crate) const UNICODE_LABEL_MAX: usize = 32;
+
+/// One entry of the `UnicodeVersion` stack: its label and the version.
+#[derive(Clone, Copy)]
+pub(crate) struct Pushed {
+    label: [u8; UNICODE_LABEL_MAX],
+    len: ByteLen,
+    widths: UnicodeWidths,
+}
+
 /// The host the last `RemoteHost` named.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Host {
@@ -71,6 +87,10 @@ pub(crate) struct Iterm {
     host: [u8; HOST_MAX],
     host_at: Host,
     pub(crate) scale: BackingScale,
+    /// `UnicodeVersion`'s stack, its entries from the front, the first
+    /// `None` its top. `RIS` keeps it, as iTerm2's reset does (Jev, KEPT,
+    /// 1.00/1.00).
+    pushed: [Option<Pushed>; UNICODE_STACK],
     pub(crate) counts: ItermCounts,
 }
 
@@ -79,6 +99,7 @@ impl Iterm {
         host: [0; HOST_MAX],
         host_at: Host::Local,
         scale: BackingScale::UNTOLD,
+        pushed: [None; UNICODE_STACK],
         counts: ItermCounts::NONE,
     };
 }
@@ -111,6 +132,7 @@ impl Paint<'_, '_> {
             Osc1337::RemoteHost(host) => self.remote_host(host, body),
             Osc1337::ReportCellSize => self.report_cell_size(term),
             Osc1337::SetMark(at) => self.set_mark(at),
+            Osc1337::UnicodeVersion(op) => self.unicode_version(op),
             Osc1337::Notification(pairs) => self.notification(pairs),
             Osc1337::RequestUpload(_) => self.request_upload(),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
@@ -331,6 +353,58 @@ impl Paint<'_, '_> {
     /// the refusals.
     fn request_upload(&mut self) {
         self.not_acted(ItermKey::RequestUpload);
+    }
+
+    /// **`UnicodeVersion`: which Unicode version's widths the next character
+    /// is measured by** -- "8 or 9", 0 the default, `push` and `pop` with an
+    /// optional label (`[[source: iterm2-escape-codes]]`). Nine is the
+    /// current tables; eight Unicode 8's (Jev's lean, BUILD_UNICODE8,
+    /// 0.40/0.36 and 0.76/0.82 asked again). A push keeps the version and
+    /// its label; a pop takes entries off until one has its label, or the
+    /// top one with none, and restores that one's version, as iTerm2's
+    /// `popUnicodeVersion:` does -- a label no entry has empties the stack
+    /// and changes nothing. Cells already written keep their widths. A
+    /// number iTerm2 does not take, a push past the stack and a label past
+    /// its bound are counted under the key.
+    fn unicode_version(&mut self, op: UnicodeOp<'_>) {
+        let it = &mut self.strs.iterm;
+        let depth = it
+            .pushed
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(UNICODE_STACK);
+        let set = match op {
+            UnicodeOp::Set(v) => Some(v),
+            UnicodeOp::Default => Some(UnicodeWidths::Current),
+            UnicodeOp::Push(label) => {
+                if depth == UNICODE_STACK || label.len() > UNICODE_LABEL_MAX {
+                    return self.not_acted(ItermKey::UnicodeVersion);
+                }
+                let mut e = Pushed {
+                    label: [0; UNICODE_LABEL_MAX],
+                    len: ByteLen::from_index(label.len()),
+                    widths: self.cold.widths.widths(),
+                };
+                e.label[..label.len()].copy_from_slice(label);
+                it.pushed[depth] = Some(e);
+                None
+            }
+            UnicodeOp::Pop(label) => {
+                let mut found = None;
+                for slot in it.pushed[..depth].iter_mut().rev() {
+                    let Some(e) = slot.take() else { continue };
+                    if label.is_empty() || &e.label[..e.len.index()] == label {
+                        found = Some(e.widths);
+                        break;
+                    }
+                }
+                found
+            }
+            UnicodeOp::Malformed => return self.not_acted(ItermKey::UnicodeVersion),
+        };
+        if let Some(v) = set {
+            self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), v);
+        }
     }
 
     /// **`SetMark`: a line to jump back to**, "record a location and then

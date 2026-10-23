@@ -187,7 +187,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
     (b"SetWindowFrame", ItermKey::SetWindowFrame, Unbuilt),
     (b"ReportWindowFrame", ItermKey::ReportWindowFrame, Unbuilt),
     (b"ReportScreenFrames", ItermKey::ReportScreenFrames, Unbuilt),
-    (b"UnicodeVersion", ItermKey::UnicodeVersion, Unbuilt),
+    (b"UnicodeVersion", ItermKey::UnicodeVersion, Acts),
     (b"SetColors", ItermKey::SetColors, Acts),
     (b"SetKeyLabel", ItermKey::SetKeyLabel, Unbuilt),
     (b"PushKeyLabels", ItermKey::PushKeyLabels, Unbuilt),
@@ -371,6 +371,8 @@ pub enum Osc1337<'a> {
     /// `SetMark`: "record a location and then jump back to it later", the
     /// line [`MarkAt`] names.
     SetMark(MarkAt),
+    /// `UnicodeVersion=n`, `push [label]` or `pop [label]`: [`UnicodeOp`].
+    UnicodeVersion(UnicodeOp<'a>),
     /// `ReportVariable=base64`: the encoded name.
     ReportVariable(&'a [u8]),
     /// `SetUserVar=name=base64`, or a bare `name`: the variable
@@ -457,6 +459,7 @@ impl<'a> Osc1337<'a> {
             // iTerm2's source: `saveScrollPosition` records "the entire
             // region of visible lines"; anything else, "implicitly
             // saveCursorLine" (`terminalSaveScrollPositionWithArgument:`).
+            ItermKey::UnicodeVersion => Osc1337::UnicodeVersion(UnicodeOp::of(value)),
             ItermKey::SetMark => Osc1337::SetMark(match value {
                 b"saveScrollPosition" => MarkAt::WindowTop,
                 _ => MarkAt::CursorLine,
@@ -564,6 +567,46 @@ impl<'a> NoticePairs<'a> {
                 };
                 (part, v)
             })
+    }
+}
+
+/// **What a `UnicodeVersion` asks**, as iTerm2's source reads its value
+/// (`[[source: iterm2-964a75d-vt100terminal]]`): a value beginning `push` or
+/// `pop` works the stack, its label the text after the first space, none
+/// without one; a number sets the version, "8 or 9", 0 being the default; any
+/// other number iTerm2 leaves as it was, as it does a value that is neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnicodeOp<'a> {
+    Set(UnicodeWidths),
+    /// 0: the default, the current tables.
+    Default,
+    Push(&'a [u8]),
+    Pop(&'a [u8]),
+    /// A number other than 0, 8 and 9, or no number.
+    Malformed,
+}
+
+impl<'a> UnicodeOp<'a> {
+    fn of(value: &'a [u8]) -> UnicodeOp<'a> {
+        let label = || match value.iter().position(|&b| b == b' ') {
+            Some(i) => &value[i + 1..],
+            None => &value[value.len()..],
+        };
+        if value.starts_with(b"push") {
+            return UnicodeOp::Push(label());
+        }
+        if value.starts_with(b"pop") {
+            return UnicodeOp::Pop(label());
+        }
+        if value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
+            return UnicodeOp::Malformed;
+        }
+        match int_value(value) {
+            0 => UnicodeOp::Default,
+            8 => UnicodeOp::Set(UnicodeWidths::Eight),
+            9 => UnicodeOp::Set(UnicodeWidths::Current),
+            _ => UnicodeOp::Malformed,
+        }
     }
 }
 
@@ -1209,6 +1252,24 @@ mod tests {
                 (NoticePart::Other, &b"1"[..]),
             ]
         );
+        let uv = |v: &'static [u8]| match Osc1337::parse(v) {
+            Osc1337::UnicodeVersion(op) => op,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            uv(b"UnicodeVersion=8"),
+            UnicodeOp::Set(UnicodeWidths::Eight)
+        );
+        assert_eq!(
+            uv(b"UnicodeVersion=9"),
+            UnicodeOp::Set(UnicodeWidths::Current)
+        );
+        assert_eq!(uv(b"UnicodeVersion=0"), UnicodeOp::Default);
+        assert_eq!(uv(b"UnicodeVersion=10"), UnicodeOp::Malformed);
+        assert_eq!(uv(b"UnicodeVersion=8x"), UnicodeOp::Malformed);
+        assert_eq!(uv(b"UnicodeVersion=push"), UnicodeOp::Push(b""));
+        assert_eq!(uv(b"UnicodeVersion=push vim"), UnicodeOp::Push(b"vim"));
+        assert_eq!(uv(b"UnicodeVersion=pop vim"), UnicodeOp::Pop(b"vim"));
         assert_eq!(Osc1337::parse(b"Nonsense=1"), Osc1337::Unknown);
     }
 

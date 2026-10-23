@@ -11,6 +11,7 @@ import re, sys, pathlib
 
 SRC = pathlib.Path(__file__).resolve().parent.parent / "docs/research/sources"
 EAW = SRC / "unicode-eastasianwidth.txt"
+EAW8 = SRC / "unicode-eastasianwidth-8.0.0.txt"
 DGC = SRC / "unicode-derivedgeneralcategory.txt"
 
 
@@ -73,6 +74,37 @@ wide = coalesce(
     + [(lo, hi) for lo, hi, v in emoji if v == "Emoji_Presentation"]
 )
 ambiguous = coalesce([(lo, hi) for lo, hi, v in eaw if v == "A"])
+# **Unicode 8's widths, which iTerm2's `UnicodeVersion=8` selects**: East
+# Asian Width 8.0's W and F, and its header's unassigned code points that
+# "default to W", which the data lines do not list; no Emoji_Presentation,
+# which Unicode 9 folded into Wide. A regional indicator is 8.0's `N`, one
+# column; a flag, two of them, is widened to two columns where they join, as
+# iTerm2 draws every flag and leaves a lone indicator at its version's width
+# (`Paint::attach_before`). Zero width is the same under both: iTerm2's
+# version chooses the wide and ambiguous sets only.
+eaw8 = parse(EAW8)
+DEFAULT_W8 = [(0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF),
+              (0x20000, 0x2FFFD), (0x30000, 0x3FFFD)]
+listed8 = coalesce([(lo, hi) for lo, hi, v in eaw8])
+def unlisted(ranges, listed):
+    out = []
+    for lo, hi in ranges:
+        cur = lo
+        for a, b in listed:
+            if b < cur or a > hi:
+                continue
+            if a > cur:
+                out.append((cur, a - 1))
+            cur = max(cur, b + 1)
+        if cur <= hi:
+            out.append((cur, hi))
+    return out
+wide8 = coalesce(
+    [(lo, hi) for lo, hi, v in eaw8 if v in ("W", "F")]
+    + unlisted(DEFAULT_W8, listed8)
+)
+ambiguous8 = coalesce([(lo, hi) for lo, hi, v in eaw8 if v == "A"])
+
 # Mn (nonspacing mark), Me (enclosing mark), Cf (format) are zero-width.
 zero = coalesce([(lo, hi) for lo, hi, v in dgc if v in ("Mn", "Me", "Cf")])
 # U+00AD SOFT HYPHEN is Cf but every terminal renders it in a column.
@@ -167,7 +199,23 @@ def as_bytestring(name, data, doc):
     )
 
 
-def emit_trie(index, packed, nblocks):
+def emit_trie(index, packed, nblocks, prefix="WIDTH", unicode8=False):
+    if unicode8:
+        doc8 = "\n".join(
+            [
+                "/// Stage 1 of the **Unicode 8** width trie, which iTerm2's",
+                "/// `UnicodeVersion=8` selects: the four values as [`WIDTH_INDEX`]'s,",
+                "/// wide from East Asian Width 8.0's `W` and `F` and the unassigned",
+                "/// code points its header defaults to `W`, with no",
+                "/// `Emoji_Presentation` -- which Unicode 9 folded into Wide -- so a",
+                "/// regional indicator is one column, and a flag is widened where its",
+                "/// two join. Zero is the same as under the current tables.",
+            ]
+        )
+        doc8b = f"/// Stage 2: {nblocks} distinct {BLOCK}-codepoint blocks, as [`WIDTH_BLOCKS`]."
+        return as_bytestring(prefix + "_INDEX", index, doc8) + "\n\n" + as_bytestring(
+            prefix + "_BLOCKS", packed, doc8b
+        )
     doc1 = "\n".join(
         [
             "/// Stage 1 of the width trie: codepoint >> 8 to a block number.",
@@ -239,6 +287,8 @@ parts = [header.rstrip("\n")]
 
 index, packed, nblocks = build_trie(zero, wide, ambiguous)
 parts.append(emit_trie(index, packed, nblocks))
+index8, packed8, nblocks8 = build_trie(zero, wide8, ambiguous8)
+parts.append(emit_trie(index8, packed8, nblocks8, "WIDTH8", True))
 out = "\n\n".join(parts) + "\n"
 
 if "--check" in sys.argv:

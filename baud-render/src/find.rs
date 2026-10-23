@@ -26,7 +26,9 @@ use baud_core::{
     Found, HistoryErasures, HistoryWipes, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines,
     SurfaceLine, Term,
 };
-use baud_domain::{AmbiguousWidth, Classified, Codepoint, Col, Cols, LineIdx, Row, Rows, Width};
+use baud_domain::{
+    AmbiguousWidth, Classified, Codepoint, Col, Cols, LineIdx, Row, Rows, Width, WidthPolicy,
+};
 
 use crate::overlay::{Caret, Composition, Hints};
 use crate::units::Tally;
@@ -105,7 +107,7 @@ pub struct FindLook {
 
 /// The columns `cp` takes in the field, as the grid would write it.
 fn columns(cp: Codepoint) -> Cols {
-    Cols::of_index(match Classified::of(cp).width(AmbiguousWidth::Narrow) {
+    Cols::of_index(match Classified::of(cp).width(WidthPolicy::DEFAULT) {
         w if w == Width::ZERO => 0,
         w if w == Width::WIDE => 2,
         _ => 1,

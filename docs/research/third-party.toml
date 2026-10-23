@@ -1435,6 +1435,7 @@ files   = [
   "unicode-derivedcoreproperties.txt",
   "unicode-derivedgeneralcategory.txt",
   "unicode-derivednormalizationprops.txt",
+  "unicode-eastasianwidth-8.0.0.txt",
   "unicode-eastasianwidth.txt",
   "unicode-emoji-data.txt",
   "unicode-emoji-variation-sequences.txt",

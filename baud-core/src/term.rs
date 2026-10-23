@@ -148,6 +148,12 @@ pub struct Saved {
     /// padding, `size_of::<Saved>()` 56 with it and without; GR and the four
     /// designations took it to 72.
     pub(crate) pending: ModeChange,
+    /// **The Unicode version `UnicodeVersion` selected**, saved and restored
+    /// with the cursor as iTerm2's source saves it (`savedCursor->
+    /// unicodeVersion`, `[[source: iterm2-964a75d-vt100terminal]]`; Jev's
+    /// lean, SAVED_WITH_CURSOR, 0.30/0.54 asked again with wezterm's, which
+    /// does not, read).
+    pub(crate) widths: UnicodeWidths,
 }
 
 /// How many `SGR` sequences the byte-keyed table holds.
@@ -1121,7 +1127,12 @@ pub struct Cold {
     /// and baud answers it `1` or `2` from this, as xterm does. Private use
     /// stays one column under either (`Codepoint::is_private_use`), which
     /// `?1023` reports set.
-    pub(crate) ambiguous: AmbiguousWidth,
+    ///
+    /// **Beside it, in the same byte, the Unicode version iTerm2's
+    /// `UnicodeVersion` selects** ([`WidthPolicy`]): the shift that picks a
+    /// width code's version, so the write path reads one byte as it read
+    /// one before.
+    pub(crate) widths: WidthPolicy,
     /// Whether the Primary DA may claim Sixel. `No` until the embedder opts
     /// in, whatever the store holds: an application that reads the claim stops
     /// drawing its text fallback, so the claim is the embedder's to make.
@@ -1907,7 +1918,7 @@ impl Cold {
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
             fence: Col::at_index(cols.index() - 1),
-            ambiguous: AmbiguousWidth::Narrow,
+            widths: WidthPolicy::DEFAULT,
             sixel_claim: SixelClaim::No,
             checksum_report: ChecksumReport::On,
             checksum_ext: baud_domain::ChecksumExtension::DEC,
@@ -2345,7 +2356,10 @@ impl<'b> Term<'b> {
                     store.cells3[row + b2] = PackedCell::glyph(
                         cp,
                         StyleId::DEFAULT,
-                        CellFlags::of_entry(c.width(a), &c),
+                        CellFlags::of_entry(
+                            c.width(WidthPolicy::of(a, UnicodeWidths::Current)),
+                            &c,
+                        ),
                     );
                 }
             }
@@ -3746,15 +3760,22 @@ impl<'b> Term<'b> {
     /// `cell-table` read writes the width the computing path does; with none
     /// provisioned, the default, this is the store alone.
     pub fn set_ambiguous_width(&mut self, a: AmbiguousWidth) {
-        if self.cold.ambiguous != a {
+        if self.cold.widths.ambiguous() != a {
             Term::fill_cells3(&mut self.store, a);
         }
-        self.cold.ambiguous = a;
+        self.cold.widths = WidthPolicy::of(a, self.cold.widths.widths());
     }
 
     /// What [`Term::set_ambiguous_width`] last selected.
     pub fn ambiguous_width(&self) -> AmbiguousWidth {
-        self.cold.ambiguous
+        self.cold.widths.ambiguous()
+    }
+
+    /// **Which Unicode version's widths the next character is measured by**:
+    /// the current tables, or Unicode 8's while a program has asked for them
+    /// with iTerm2's `UnicodeVersion=8`.
+    pub fn unicode_widths(&self) -> UnicodeWidths {
+        self.cold.widths.widths()
     }
 
     /// Let the Primary DA advertise Sixel (attribute `4`). Off by default: the

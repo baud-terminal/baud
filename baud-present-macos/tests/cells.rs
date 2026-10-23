@@ -6888,7 +6888,7 @@ fn precomposed_letters() -> Vec<char> {
     .filter(|c| c.is_alphabetic())
     .filter(|&c| {
         let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
-        baud_domain::Classified::of(cp).width(baud_domain::AmbiguousWidth::Narrow)
+        baud_domain::Classified::of(cp).width(baud_domain::WidthPolicy::DEFAULT)
             == baud_domain::Width::NARROW
     })
     .collect()

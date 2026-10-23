@@ -5,7 +5,7 @@
 use baud_core::*;
 use baud_domain::{
     BackingScale, ClipboardBudget, ClipboardContent, CursorStyle, DynamicColor, ExitStatus,
-    FileHost, ItermDoes, ItermKey, Messages, Selection, SpecialColor,
+    FileHost, ItermDoes, ItermKey, Messages, Selection, SpecialColor, UnicodeWidths,
 };
 
 const ONE: Messages = Messages::of(1);
@@ -227,6 +227,128 @@ fn report_variable_answers_with_the_empty_value() {
             feed(t, &osc("ReportVariable=no!"), size);
             assert_eq!(t.reply(), b"", "reads of {size}");
             assert_eq!(t.iterm_counts().of(ItermKey::ReportVariable), ONE);
+        });
+    }
+}
+
+// ── UnicodeVersion ──────────────────────────────────────────────────────────
+
+/// The column the cursor stands at after `text` is written from column 0.
+fn width_of(t: &mut Term<'_>, text: &str, size: usize) -> usize {
+    feed(t, b"\r\x1b[2K", size);
+    feed(t, text.as_bytes(), size);
+    t.cursor().1.index()
+}
+
+/// **"8 or 9"**: under 8 an emoji Unicode 9 made wide, U+1F600 and U+231A,
+/// takes one column, CJK still two and a flag still two, the pair widened as
+/// iTerm2 widens it, where a lone regional indicator is East Asian Width
+/// 8.0's one column; a flag that reaches the right margin wraps whole. 9 and
+/// 0 are the current tables. `push` keeps the version under a label and
+/// `pop` restores it; a label no entry has empties the stack and changes
+/// nothing. Cells already written keep their width.
+#[test]
+fn unicode_version_selects_the_width_tables() {
+    for size in SIZES {
+        with(&osc("UnicodeVersion=8"), size, |t| {
+            assert_eq!(t.unicode_widths(), UnicodeWidths::Eight, "reads of {size}");
+            assert_eq!(width_of(t, "\u{1F600}", size), 1, "reads of {size}");
+            assert_eq!(width_of(t, "\u{231A}", size), 1);
+            assert_eq!(width_of(t, "\u{4E2D}", size), 2);
+            assert_eq!(width_of(t, "\u{1F1EF}\u{1F1F5}", size), 2, "a flag");
+            assert_eq!(width_of(t, "\u{1F1EF}", size), 1, "a lone indicator");
+            assert_eq!(
+                width_of(t, "\u{1F1EF}\u{1F1F5}\u{1F1EF}", size),
+                3,
+                "a flag and a lone indicator"
+            );
+            // The flag's first indicator in the last column: the pair goes
+            // to the next row whole, the last column left blank.
+            let edge = format!(
+                "{}{}",
+                "a".repeat(usize::from(WS.ws_col) - 1),
+                "\u{1F1EF}\u{1F1F5}"
+            );
+            feed(t, b"\x1b[H\x1b[2J", size);
+            feed(t, edge.as_bytes(), size);
+            assert_eq!(
+                t.cursor(),
+                (Row::from_index(1), Col::at_index(2)),
+                "reads of {size}"
+            );
+            feed(t, &osc("UnicodeVersion=9"), size);
+            assert_eq!(width_of(t, "\u{1F1EF}", size), 2, "a lone indicator, 9");
+            assert_eq!(width_of(t, "\u{1F600}", size), 2, "reads of {size}");
+            assert_eq!(width_of(t, "\u{231A}", size), 2);
+            // push under a label, change, pop the label back.
+            feed(t, &osc("UnicodeVersion=push vim"), size);
+            feed(t, &osc("UnicodeVersion=8"), size);
+            feed(t, &osc("UnicodeVersion=push"), size);
+            feed(t, &osc("UnicodeVersion=9"), size);
+            feed(t, &osc("UnicodeVersion=pop vim"), size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Current,
+                "reads of {size}"
+            );
+            feed(t, &osc("UnicodeVersion=push a"), size);
+            feed(t, &osc("UnicodeVersion=8"), size);
+            feed(t, &osc("UnicodeVersion=pop nobody"), size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Eight,
+                "no entry has the label"
+            );
+            feed(t, &osc("UnicodeVersion=pop"), size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Eight,
+                "the stack was emptied"
+            );
+            feed(t, &osc("UnicodeVersion=0"), size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Current,
+                "0 is the default"
+            );
+            feed(t, &osc("UnicodeVersion=10"), size);
+            assert_eq!(t.iterm_counts().of(ItermKey::UnicodeVersion), ONE);
+        });
+    }
+}
+
+/// **The version is saved with the cursor and kept by `RIS`**, as iTerm2
+/// keeps both; a push past sixteen entries is refused and counted, and
+/// cells written under 8 keep their one column under 9.
+#[test]
+fn unicode_version_is_saved_with_the_cursor_and_kept_by_ris() {
+    for size in SIZES {
+        with(&osc("UnicodeVersion=8"), size, |t| {
+            feed(t, "\x1b7".as_bytes(), size);
+            feed(t, &osc("UnicodeVersion=9"), size);
+            feed(t, "\x1b8".as_bytes(), size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Eight,
+                "DECRC, reads of {size}"
+            );
+            feed(t, b"\x1bc", size);
+            assert_eq!(
+                t.unicode_widths(),
+                UnicodeWidths::Eight,
+                "RIS, reads of {size}"
+            );
+            feed(t, "\u{1F600}".as_bytes(), size);
+            feed(t, &osc("UnicodeVersion=9"), size);
+            assert_eq!(t.cursor().1.index(), 1, "the cell written under 8 stays");
+            for _ in 0..17 {
+                feed(t, &osc("UnicodeVersion=push"), size);
+            }
+            assert_eq!(
+                t.iterm_counts().of(ItermKey::UnicodeVersion),
+                ONE,
+                "reads of {size}"
+            );
         });
     }
 }

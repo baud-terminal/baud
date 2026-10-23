@@ -250,7 +250,7 @@ impl Paint<'_, '_> {
                 CursorStyle::BlinkingBar | CursorStyle::SteadyBar
             )),
             XResource::PointerMode => XValue::Int(cold.initial_pointer_mode.code()),
-            XResource::CjkWidth => XValue::of(cold.ambiguous == AmbiguousWidth::Wide),
+            XResource::CjkWidth => XValue::of(cold.widths.ambiguous() == AmbiguousWidth::Wide),
         };
         let mut out = [0u8; XTGETXRES_MAX];
         match encode_xres_reply(list, cold.replies.c1(), value, &mut out) {

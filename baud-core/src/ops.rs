@@ -356,6 +356,7 @@ impl Paint<'_, '_> {
             pending: ModeChange::of(
                 !self.cx.is_placed() && self.cx.col().index() == self.line_fence().index() + 1,
             ),
+            widths: self.cold.widths.widths(),
         }
     }
 
@@ -385,6 +386,7 @@ impl Paint<'_, '_> {
     /// clamp it.
     pub(crate) fn restore(&mut self, s: Option<Saved>) {
         let Some(s) = s else { return };
+        self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), s.widths);
         // **The two flags DECSC saves that neither core restored.**
         // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
         // origin mode are two of them. Origin mode especially is not
@@ -4733,7 +4735,7 @@ impl Paint<'_, '_> {
             // which baud always holds: private use is one column under
             // either policy (the owner, 2026-10-15). `?1022`, `emojiWidth`,
             // has no switch here and falls to `0` below (Jev, 0.98 and 1.00).
-            PrivateMode::CjkWidthResource => match self.cold.ambiguous {
+            PrivateMode::CjkWidthResource => match self.cold.widths.ambiguous() {
                 AmbiguousWidth::Wide => ModeState::Set,
                 AmbiguousWidth::Narrow => ModeState::Reset,
             },

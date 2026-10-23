@@ -11,7 +11,7 @@
 //! its base's cell, so the fixture and the shaper agree on what a cluster
 //! is without translation.
 
-use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};
+use baud_domain::{Classified, Codepoint, GlyphId, GraphemeClass, Width};
 use baud_font::{
     Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Script,
     Shaper, Unresolved, resolve,
@@ -80,7 +80,7 @@ fn shape_with<'b>(
         let boundary = i == cps.len() || {
             let c = cps[i];
             let cl = Classified::of(c);
-            let zero = cl.width(AmbiguousWidth::Narrow) == Width::ZERO;
+            let zero = cl.width(baud_domain::WidthPolicy::DEFAULT) == Width::ZERO;
             // GB9: extenders, joiners and spacing marks continue the
             // cluster; GB11: a pictograph after a joiner does too; GB12:
             // regional indicators pair up. That is the cell the core's

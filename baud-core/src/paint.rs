@@ -1137,6 +1137,22 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.widen(r, owner.col());
             }
         }
+        // **Under Unicode 8 a flag is widened where its two indicators
+        // join**: East Asian Width 8.0 gives a regional indicator one column
+        // (`[[source: eaw-data-8]]`), and iTerm2 draws a flag in two under
+        // every version while a lone indicator keeps its version's width
+        // (`[[source: iterm2-964a75d-screenchar]]`). The current tables make
+        // the first indicator wide already, so the version is asked only
+        // after the codepoint is one.
+        if cp.is_regional_indicator()
+            && n == 1
+            && self.cold.widths.widths() == UnicodeWidths::Eight
+            && base
+                .as_codepoint()
+                .is_some_and(Codepoint::is_regional_indicator)
+        {
+            self.widen(r, owner.col());
+        }
         self.marked(r);
     }
 

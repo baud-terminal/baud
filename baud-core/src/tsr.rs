@@ -481,6 +481,7 @@ impl Paint<'_, '_> {
             autowrap: s.autowrap,
             origin: s.origin,
             pending: s.pending,
+            widths: self.cold.widths.widths(),
         });
     }
 

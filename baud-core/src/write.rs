@@ -1340,8 +1340,15 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     // **Under IRM the computing path writes it**, which opens the gap the
     // character goes into (`[[source: ecma48]]` 7.2.10); the read wrote
     // over the character at the cursor.
+    //
+    // **The table holds the current tables' widths**, so under iTerm2's
+    // `UnicodeVersion=8` the computing path writes the character.
     #[cfg(feature = "cell-table")]
-    if len == 3 && !p.cells3.is_empty() && !p.inserting() {
+    if len == 3
+        && !p.cells3.is_empty()
+        && !p.inserting()
+        && p.cold.widths.widths() == UnicodeWidths::Current
+    {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);
         let row = (s[0].index() - 0xE0) * 64 * 256 + (s[1].index() - 0x80) * 256;
         let e = p.cells3[row + s[2].index()];
@@ -1495,7 +1502,7 @@ fn put_run(
                 // 4096-byte reads and none at one-byte reads, the same bytes
                 // and two screens.
                 let c = Classified::of(*cp);
-                let cw = c.width(p.cold.ambiguous);
+                let cw = c.width(p.cold.widths);
                 all_wide &= cw == Width::WIDE;
                 all_narrow &= cw == Width::NARROW;
                 all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -1561,7 +1568,7 @@ fn put_run(
             // every character gets the same answer. Rare by construction: a
             // run has to *contain* a zero-width character to take it.
             let c = Classified::of(cp);
-            let cw = c.width(p.cold.ambiguous);
+            let cw = c.width(p.cold.widths);
             all_wide &= cw == Width::WIDE;
             all_narrow &= cw == Width::NARROW;
             all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -1745,7 +1752,7 @@ pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
         // exactly the operands `is_break_classified` takes. So GB11 costs a
         // table index on a value already in a register, not a second lookup.
         let cl = Classified::of(cp);
-        let w = cl.width(p.cold.ambiguous);
+        let w = cl.width(p.cold.widths);
         // **Does this codepoint continue the cluster before it?** If so it
         // belongs to the previous cell rather than to one of its own, which is
         // what makes `U+1F468 ZWJ U+1F469` one family instead of two people.

@@ -9,7 +9,9 @@
 //! Exhaustive rather than sampled, because a trie is exactly the shape where a
 //! sampled test passes and one block is wrong.
 
-use baud_domain::{AmbiguousWidth, Classified, Codepoint, GraphemeClass, Width};
+use baud_domain::{
+    AmbiguousWidth, Classified, Codepoint, GraphemeClass, UnicodeWidths, Width, WidthPolicy,
+};
 
 #[test]
 fn the_merged_table_agrees_with_both_tries() {
@@ -23,11 +25,19 @@ fn the_merged_table_agrees_with_both_tries() {
         assert_eq!(m.class, cl, "class at U+{cp:04X}");
         assert_eq!(m.lookback, lb, "lookback at U+{cp:04X}");
         for aw in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+            let now = WidthPolicy::of(aw, UnicodeWidths::Current);
             assert!(
-                m.width(aw) == Width::of(c, aw),
+                m.width(now) == Width::of(c, aw),
                 "width at U+{cp:04X} under {aw:?}: merged {} tries {}",
-                m.width(aw).cells(),
+                m.width(now).cells(),
                 Width::of(c, aw).cells()
+            );
+            let eight = WidthPolicy::of(aw, UnicodeWidths::Eight);
+            assert!(
+                m.width(eight) == Width::of_unicode8(c, aw),
+                "Unicode 8 width at U+{cp:04X} under {aw:?}: merged {} tries {}",
+                m.width(eight).cells(),
+                Width::of_unicode8(c, aw).cells()
             );
         }
         checked += 1;
@@ -46,7 +56,7 @@ fn the_palette_is_small_enough_to_stay_resident() {
             seen.insert((
                 m.class as u8,
                 m.lookback.bits(),
-                m.width(AmbiguousWidth::Narrow).cells(),
+                m.width(WidthPolicy::DEFAULT).cells(),
             ));
         }
     }
@@ -80,7 +90,7 @@ fn the_byte_indexed_form_agrees_for_every_three_byte_sequence() {
                     "lookback for {b0:02x} {b1:02x} {b2:02x}"
                 );
                 assert!(
-                    a.width(AmbiguousWidth::Narrow) == b.width(AmbiguousWidth::Narrow),
+                    a.width(WidthPolicy::DEFAULT) == b.width(WidthPolicy::DEFAULT),
                     "width for {b0:02x} {b1:02x} {b2:02x}"
                 );
                 n += 1;

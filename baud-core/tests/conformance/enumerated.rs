@@ -106,6 +106,11 @@ const REPRESENTATIVE: &[(&str, &[u8])] = &[
         "OSC 1337 ; SetColors=key=value",
         b"\x1b]1337;SetColors=fg=fff\x1b\\",
     ),
+    // The version `n` names: 9, the current tables.
+    (
+        "OSC 1337 ; UnicodeVersion=n",
+        b"\x1b]1337;UnicodeVersion=9\x1b\\",
+    ),
 ];
 
 /// **A placeholder the table writes for a parameter** -- `Ps`, `Pn`,

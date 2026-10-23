@@ -621,6 +621,26 @@ impl Width {
             _ => Width::NARROW,
         }
     }
+
+    /// **The width under Unicode 8's tables**, which iTerm2's
+    /// `UnicodeVersion=8` selects (`[[source: iterm2-escape-codes]]`): East
+    /// Asian Width 8.0's wide and ambiguous sets (`[[source: eaw-data-8]]`),
+    /// zero width as [`Width::of`]. Not on the write path, which reads
+    /// [`crate::Classified`], generated from this and [`Width::of`].
+    pub fn of_unicode8(c: Codepoint, ambiguous: AmbiguousWidth) -> Width {
+        let cp = c.value();
+        if cp < 0x80 {
+            return if cp == 0 { Width::ZERO } else { Width::NARROW };
+        }
+        let block = width_data::WIDTH8_INDEX[(cp >> 8) as usize] as usize;
+        let byte = width_data::WIDTH8_BLOCKS[block * 64 + ((cp as usize & 0xff) >> 2)];
+        match (byte >> ((cp & 3) * 2)) & 3 {
+            1 => Width::ZERO,
+            2 => Width::WIDE,
+            3 if ambiguous == AmbiguousWidth::Wide && !c.is_private_use() => Width::WIDE,
+            _ => Width::NARROW,
+        }
+    }
 }
 
 impl Cols {

@@ -25,12 +25,78 @@
 use crate::merged_data::{BMP_DIRECT, MERGED_BLOCKS, MERGED_INDEX, MERGED_PALETTE};
 use crate::{AmbiguousWidth, Codepoint, GraphemeClass, Lookback, Width};
 
+/// **Which Unicode version's widths a terminal measures by**: iTerm2's
+/// `UnicodeVersion`, "8 or 9" (`[[source: iterm2-escape-codes]]`). Nine is
+/// baud's own tables, Unicode 17's, which iTerm2's "9" tables are generated
+/// from too; eight is Unicode 8's East Asian Width.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnicodeWidths {
+    /// Unicode 8's: no emoji widened by Unicode 9.
+    Eight,
+    /// The current tables, Unicode 17: what `UnicodeVersion=9` selects.
+    Current,
+}
+
+impl UnicodeWidths {
+    /// The version the feature-reporting spec's `UNICODE_WIDTHS` reports: 8,
+    /// or 17, "the Unicode version equal to the value".
+    pub fn version(self) -> u8 {
+        match self {
+            UnicodeWidths::Eight => 8,
+            UnicodeWidths::Current => 17,
+        }
+    }
+}
+
+/// **The two width policies in one byte**, as the write path reads them: the
+/// shift that picks a [`Classified`] width code's version -- 0 for the
+/// current tables, 2 for Unicode 8 -- in the low bits, and whether East Asian
+/// Ambiguous is wide in bit 3. One byte where [`AmbiguousWidth`] was one, so
+/// the state the write path carries keeps its size, and the version costs a
+/// shift.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub struct WidthPolicy(u8);
+
+impl WidthPolicy {
+    /// Narrow ambiguous, the current tables.
+    pub const DEFAULT: WidthPolicy = WidthPolicy(0);
+
+    pub const fn of(ambiguous: AmbiguousWidth, widths: UnicodeWidths) -> WidthPolicy {
+        let a = match ambiguous {
+            AmbiguousWidth::Narrow => 0,
+            AmbiguousWidth::Wide => 8,
+        };
+        let v = match widths {
+            UnicodeWidths::Current => 0,
+            UnicodeWidths::Eight => 2,
+        };
+        WidthPolicy(a | v)
+    }
+
+    pub fn ambiguous(self) -> AmbiguousWidth {
+        match self.0 & 8 {
+            0 => AmbiguousWidth::Narrow,
+            _ => AmbiguousWidth::Wide,
+        }
+    }
+
+    pub fn widths(self) -> UnicodeWidths {
+        match self.0 & 7 {
+            0 => UnicodeWidths::Current,
+            _ => UnicodeWidths::Eight,
+        }
+    }
+}
+
 /// Everything the per-character path needs to know about one codepoint.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Classified {
     pub class: GraphemeClass,
     pub lookback: Lookback,
-    /// 0 narrow, 1 zero, 2 wide, 3 East Asian Ambiguous outside private use.
+    /// Two width codes, the current tables' in bits 0-1 and Unicode 8's in
+    /// bits 2-3, each 0 narrow, 1 zero, 2 wide, 3 East Asian Ambiguous
+    /// outside private use.
     code: u8,
 }
 
@@ -108,15 +174,16 @@ impl Classified {
         }
     }
 
-    /// The column count, once the embedder's ambiguous-width policy is known.
+    /// The column count, under the terminal's policy: its version's code,
+    /// then the embedder's ambiguous width.
     #[inline(always)]
-    pub fn width(self, aw: AmbiguousWidth) -> Width {
-        match self.code {
+    pub fn width(self, p: WidthPolicy) -> Width {
+        match (self.code >> (p.0 & 7)) & 3 {
             1 => Width::ZERO,
             2 => Width::WIDE,
-            3 => match aw {
-                AmbiguousWidth::Wide => Width::WIDE,
-                AmbiguousWidth::Narrow => Width::NARROW,
+            3 => match p.0 & 8 {
+                0 => Width::NARROW,
+                _ => Width::WIDE,
             },
             _ => Width::NARROW,
         }

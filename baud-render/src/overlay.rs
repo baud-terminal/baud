@@ -31,7 +31,7 @@ use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
     AmbiguousWidth, Attrs, Chan, Classified, Codepoint, Col, ColorWord, Cols, Content, CursorStyle,
-    LineRendition, PackedCell, Row, Rows, StyleWord, Viewport, Width,
+    LineRendition, PackedCell, Row, Rows, StyleWord, UnicodeWidths, Viewport, Width, WidthPolicy,
 };
 use baud_font::Px;
 use std::collections::HashMap;
@@ -1468,7 +1468,8 @@ impl Composition {
             Caret::End | Caret::At(_) | Caret::Hidden => false,
         };
         for (i, (&cp, hints)) in self.text.iter().zip(self.hints_each()).enumerate() {
-            let w = Classified::of(cp).width(self.ambiguous);
+            let w =
+                Classified::of(cp).width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current));
             if w == Width::ZERO {
                 if let Some(last) = out.last_mut() {
                     last.cps.push(cp);
@@ -1551,7 +1552,11 @@ impl Composition {
                 let lead = self
                     .text
                     .iter()
-                    .take_while(|&&cp| Classified::of(cp).width(self.ambiguous) == Width::ZERO)
+                    .take_while(|&&cp| {
+                        Classified::of(cp)
+                            .width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current))
+                            == Width::ZERO
+                    })
                     .count();
                 if i < lead {
                     return Some((self.row, self.col));
@@ -1593,7 +1598,11 @@ impl Composition {
                 let lead = self
                     .text
                     .iter()
-                    .take_while(|&&cp| Classified::of(cp).width(self.ambiguous) == Width::ZERO)
+                    .take_while(|&&cp| {
+                        Classified::of(cp)
+                            .width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current))
+                            == Width::ZERO
+                    })
                     .count();
                 let mut first = lead;
                 let mut cells: Option<(Col, usize)> = None;

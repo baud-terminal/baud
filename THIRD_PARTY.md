@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 300 | 28 | redistributable, and its notice is satisfied |
+| kept | 301 | 28 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 851 | 39 | |
+| total | 852 | 39 | |
 
 ## Licence texts in LICENSES/
 
@@ -1689,7 +1689,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **Files:** 27
+- **Files:** 28
 
 | file | copied from |
 |---|---|
@@ -1710,6 +1710,7 @@ notice is, and the URL each file was copied from.
 | [unicode-derivedcoreproperties.txt](docs/research/sources/unicode-derivedcoreproperties.txt) | https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt |
 | [unicode-derivedgeneralcategory.txt](docs/research/sources/unicode-derivedgeneralcategory.txt) | https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedGeneralCategory.txt |
 | [unicode-derivednormalizationprops.txt](docs/research/sources/unicode-derivednormalizationprops.txt) | https://www.unicode.org/Public/17.0.0/ucd/DerivedNormalizationProps.txt |
+| [unicode-eastasianwidth-8.0.0.txt](docs/research/sources/unicode-eastasianwidth-8.0.0.txt) | https://www.unicode.org/Public/8.0.0/ucd/EastAsianWidth.txt |
 | [unicode-eastasianwidth.txt](docs/research/sources/unicode-eastasianwidth.txt) | https://www.unicode.org/Public/17.0.0/ucd/EastAsianWidth.txt |
 | [unicode-emoji-data.txt](docs/research/sources/unicode-emoji-data.txt) | https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt |
 | [unicode-emoji-variation-sequences.txt](docs/research/sources/unicode-emoji-variation-sequences.txt) | https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-variation-sequences.txt |

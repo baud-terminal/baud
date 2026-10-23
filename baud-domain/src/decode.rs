@@ -508,6 +508,13 @@ impl Codepoint {
         self.0 < 0x80
     }
 
+    /// Is this codepoint a regional indicator, U+1F1E6 to U+1F1FF, two of
+    /// which make a flag (UAX #29's GB12 and GB13)?
+    #[inline(always)]
+    pub fn is_regional_indicator(self) -> bool {
+        self.0.wrapping_sub(0x1F1E6) < 26
+    }
+
     /// How many bytes this codepoint occupies in UTF-8.
     ///
     /// **Derivable because the decoder rejects overlong forms.**
