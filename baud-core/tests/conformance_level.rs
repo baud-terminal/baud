@@ -441,6 +441,87 @@ fn the_level_one_keyboard() {
     assert_eq!(press(one, f(13)), (true, b"\n".to_vec()));
     assert_eq!(press(one, f(1)), (true, b"\x1bOP".to_vec()));
     assert_eq!(press(one, KeyCode::Up), (true, b"\x1b[A".to_vec()));
+    // **Shift and Control as DEC STD 070 has them** (070-6): G11 to G13
+    // "transmit nothing ... if either the shift key or control key are
+    // depressed" (§6.11); a keypad key, PF1 to PF4 among them, is "not
+    // effected in any way by the depression of the Control, Shift or Lock
+    // keys" (§6.9); Shift "has no effect" on a cursor key (§6.13.2), which
+    // is "dead" with Control (§6.13.1 Note 1). Alt, which no DEC keyboard
+    // has, is dropped from them as well (§6.2.1 b; Jev's lean).
+    let held = |pre: &[u8], code: KeyCode, mods: Modifiers| {
+        support::with_term(&WS, |t| {
+            support::feed(t, pre);
+            t.clear_reply();
+            let sent = t.key(KeyEvent::press(code, mods));
+            (sent, t.reply().to_vec())
+        })
+    };
+    let (shift, ctrl) = (Modifiers::SHIFT, Modifiers::CTRL);
+    let both = ctrl.with(shift);
+    for (n, mods) in [(11, shift), (12, ctrl), (13, both), (11, ctrl)] {
+        assert_eq!(held(one, f(n), mods), (false, vec![]), "F{n} {mods:?}");
+    }
+    assert_eq!(held(b"", f(11), shift), (true, b"\x1b[23;2~".to_vec()));
+    for (n, fin) in [(1, b'P'), (4, b'S')] {
+        for mods in [shift, ctrl, both] {
+            let want = vec![0x1b, b'O', fin];
+            assert_eq!(held(one, f(n), mods), (true, want), "F{n} {mods:?}");
+        }
+    }
+    assert_eq!(held(b"", f(1), shift), (true, b"\x1b[1;2P".to_vec()));
+    let alt = Modifiers::ALT;
+    assert_eq!(held(one, f(1), alt), (true, b"\x1bOP".to_vec()), "Alt");
+    assert_eq!(held(one, KeyCode::Up, alt), (true, b"\x1b[A".to_vec()));
+    assert_eq!(
+        held(b"", f(1), alt),
+        (true, b"\x1b[1;3P".to_vec()),
+        "Alt, 4"
+    );
+    let pf1 = KeyCode::Keypad(KeypadKey::Pf1);
+    assert_eq!(held(one, pf1, ctrl), (true, b"\x1bOP".to_vec()), "PF1");
+    assert_eq!(held(one, KeyCode::Up, shift), (true, b"\x1b[A".to_vec()));
+    assert_eq!(
+        held(b"\x1b[61\"p\x1b[?1h", KeyCode::Left, shift),
+        (true, b"\x1bOD".to_vec()),
+        "DECCKM"
+    );
+    assert_eq!(held(b"", KeyCode::Up, shift), (true, b"\x1b[1;2A".to_vec()));
+    for mods in [ctrl, both] {
+        assert_eq!(held(one, KeyCode::Down, mods), (false, vec![]), "{mods:?}");
+    }
+    assert!(held(b"", KeyCode::Down, ctrl).0, "Ctrl-Down at Level 4");
+    let app = b"\x1b[61\"p\x1b=";
+    for k in [KeypadKey::Digit5, KeypadKey::Enter, KeypadKey::Minus] {
+        let alone = held(app, KeyCode::Keypad(k), Modifiers::NONE);
+        for mods in [shift, ctrl, both] {
+            let got = held(app, KeyCode::Keypad(k), mods);
+            assert_eq!(got, alone, "{k:?} {mods:?}");
+        }
+    }
+    // A keypad navigation key that duplicates an arrow sends the arrow's
+    // code in both keypad modes, so it is that arrow, dead with Control
+    // (Jev's lean, INOPERATIVE).
+    for k in [KeypadKey::Up, KeypadKey::Left] {
+        let kp = KeyCode::Keypad(k);
+        for (pre, mode) in [(&one[..], "DECKPNM"), (&app[..], "DECKPAM")] {
+            for mods in [ctrl, both] {
+                assert_eq!(
+                    held(pre, kp, mods),
+                    (false, vec![]),
+                    "{k:?} {mode} {mods:?}"
+                );
+            }
+            assert_eq!(
+                held(pre, kp, shift),
+                held(pre, kp, Modifiers::NONE),
+                "{k:?} {mode}"
+            );
+            assert!(held(pre, kp, Modifiers::NONE).0, "{k:?} {mode}");
+        }
+    }
+    let kp_up = KeyCode::Keypad(KeypadKey::Up);
+    assert_eq!(held(one, kp_up, shift), (true, b"\x1b[A".to_vec()), "KP Up");
+    assert!(held(b"", kp_up, ctrl).0, "Ctrl-KP Up at Level 4");
     let e = KeyCode::Char(Codepoint::from_char('\u{e9}'));
     assert_eq!(press(b"\x1b%@\x1b[61\"p", e), (false, vec![]), "Latin-1");
     assert_eq!(press(b"\x1b%@", e), (true, vec![0xe9]), "Latin-1, Level 4");

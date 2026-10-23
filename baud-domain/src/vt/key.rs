@@ -1082,6 +1082,9 @@ fn ansi(
     if let Some(sent) = level_one_key(o, code, mods, s) {
         return sent;
     }
+    let Some(mods) = level_one_mods(code, mods, s) else {
+        return false;
+    };
     // **A resource at 4 takes its keys before anything else**, as xterm's
     // `Input` checks `mfkExtended` first (`[[source: xterm-input-c]]`).
     extended(o, code, mods, s) || ansi_key(o, code, mods, text, s)
@@ -1099,17 +1102,21 @@ fn ansi(
 /// "inoperative means that the key shall not transmit anything". F1 to F4
 /// stay PF1 to PF4, and the arrows and the keypad their VT100 forms.
 ///
+/// **F11, F12 and F13 send nothing with Shift or Control held**, §6.11
+/// (p. 6-70): "In Level 1 operation G11, G12 and G13 transmit nothing and
+/// do not click if either the shift key or control key are depressed".
+///
 /// A function key that modifyFunctionKeys -1 remaps under Shift or
 /// Control is left to [`remapped_function_key`], which rules the key it
-/// becomes: Shift-F11 is F21, past F20.
+/// becomes: Shift-F11 is F21, past F20, and Shift-F1 is F11, unmodified
+/// (Jev's lean, REMAPPED_KEY, 0.83/0.94 on a second ask).
 fn level_one_key(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> Option<bool> {
     if s.level != ConformanceLevel::One {
         return None;
     }
-    let remapped = s.keys.modify(KeyResource::Function) == ModifyValue::DISABLED
-        && (mods.has(Modifiers::SHIFT) || mods.has(Modifiers::CTRL));
+    let held = mods.has(Modifiers::SHIFT) || mods.has(Modifiers::CTRL);
     match code {
-        KeyCode::Function(_) if remapped => None,
+        KeyCode::Function(_) if remaps(mods, s) => None,
         KeyCode::Insert
         | KeyCode::Delete
         | KeyCode::PageUp
@@ -1118,6 +1125,7 @@ fn level_one_key(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) 
         | KeyCode::End => Some(false),
         KeyCode::Function(f) => match f.number() {
             5..=10 | 14..=20 => Some(false),
+            11..=13 if held => Some(false),
             11 => {
                 o.push(0x1b);
                 Some(true)
@@ -1133,6 +1141,62 @@ fn level_one_key(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) 
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// Whether modifyFunctionKeys -1 makes a function key pressed with
+/// `mods` a higher-numbered one ([`function_key`]).
+fn remaps(mods: Modifiers, s: KeyState) -> bool {
+    s.keys.modify(KeyResource::Function) == ModifyValue::DISABLED
+        && (mods.has(Modifiers::SHIFT) || mods.has(Modifiers::CTRL))
+}
+
+/// **The modifiers a Level 1 key is sent with, or `None` for a key Level 1
+/// makes dead**, `[[source: dec-std-070]]` 070-6: a keypad key -- PF1 to
+/// PF4, which are F1 to F4 here, among them -- is "not effected in any way
+/// by the depression of the Control, Shift or Lock keys" (§6.9, p. 6-63;
+/// §6.13.1 Note 2, "The CTRL key is ignored when used with the numeric
+/// keypad keys"), so it sends its VT100 code (Jev, DEC_UNMODIFIED,
+/// 0.97/0.95 for the keypad and 0.91/0.91 for PF1 to PF4); a cursor key
+/// takes no Shift, "Shift has no effect on the codes transmitted by the
+/// Numeric Keypad keys and the Cursor Keys" (§6.13.2; Jev,
+/// DEC_UNMODIFIED, 0.97/0.91), and is "dead when used with the CTRL key"
+/// (§6.13.1 Note 1; Jev's lean, INOPERATIVE, 0.82/0.86 on a second ask).
+/// Alt and Meta, which no DEC keyboard has, are dropped from these keys
+/// too, §6.2.1 b's "Shall neither implement additional keys nor make
+/// operative keys that are not part of Level 1 Operation" (Jev's lean,
+/// DEC_UNMODIFIED, 0.31/0.30 on a second ask, where the first leaned to
+/// xterm's parameter at 0.33/0.41). A keypad navigation key that
+/// duplicates an arrow sends a cursor key's code in both keypad modes,
+/// §6.8.1's, never one of §6.9.1's keypad codes, so it is that arrow and
+/// Control makes it dead too (Jev's lean, INOPERATIVE, 0.40/0.30 on a
+/// corrected re-ask, where the first leaned to its unmodified code at
+/// 0.02/0.44). Any other keypad key that duplicates another key is that
+/// key once its modifiers are gone. xterm sends its
+/// parameter at DECSCL 61, its `allowModifierParm` dropping it in VT52
+/// mode alone (`[[source: xterm-input-c]]`). A key modifyFunctionKeys -1
+/// remaps keeps its modifiers for the remap.
+fn level_one_mods(code: KeyCode, mods: Modifiers, s: KeyState) -> Option<Modifiers> {
+    if s.level != ConformanceLevel::One {
+        return Some(mods);
+    }
+    // Every modifier the parameter carries: Shift, Alt, Control, Meta.
+    let wire = Modifiers::ALL;
+    match code {
+        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+            match mods.has(Modifiers::CTRL) {
+                true => None,
+                false => Some(mods.without(wire)),
+            }
+        }
+        KeyCode::Function(f) if f.number() <= 4 && !remaps(mods, s) => Some(mods.without(wire)),
+        KeyCode::Keypad(k) => match k.duplicates() {
+            Some(arrow @ (KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right)) => {
+                level_one_mods(arrow, mods, s)
+            }
+            _ => Some(mods.without(wire)),
+        },
+        _ => Some(mods),
     }
 }
 
