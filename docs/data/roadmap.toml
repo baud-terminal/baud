@@ -47,7 +47,8 @@ summary = "With macOS's Dim Flashing Lights on, blinking text keeps its rates bu
 [[item]]
 id = "B2-23"
 area = "images"
-status = "in_progress"
+status = "done"
+date = "2026-10-22"
 title = "Solid backgrounds for Sixel images"
 summary = "A Sixel image that asks for a solid background gets one, including under reverse video and on the see-through window."
 

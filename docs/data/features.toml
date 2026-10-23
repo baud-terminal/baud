@@ -1784,13 +1784,11 @@ shipped = ["2026-10-15-images-can-be-partly-transparent-and", "2026-10-14-large-
 id = "sixel-background"
 area = "images"
 name = "Solid image backgrounds"
-does = "A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too."
-status = "partial"
-gap = "on the see-through window the solid background is not drawn yet."
+does = "A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too. On the see-through window it is solid by default, and a setting can draw it see-through over the text instead, or clear what is under it."
+status = "built"
 platform = "both"
-tests = ["baud-core/tests/sixel_fill.rs::a_raster_extent_is_filled_where_the_data_left_zero", "baud-core/tests/sixel_fill.rs::without_a_raster_the_fill_reaches_the_margins", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws"]
-behind = "foot draws the solid background on its see-through window too."
-roadmap = ["B2-23"]
+tests = ["baud-core/tests/sixel_fill.rs::a_raster_extent_is_filled_where_the_data_left_zero", "baud-core/tests/sixel_fill.rs::without_a_raster_the_fill_reaches_the_margins", "baud-present-macos/tests/cells.rs::the_cell_arm_draws_what_the_instance_arm_draws", "baud-render/tests/sixel_glass.rs::each_fill_on_the_glass_draws_incrementally_as_a_full_repaint", "baud-app/src/config.rs::sixel_backgrounds_are_opaque_unless_asked_for_dim_or_clear"]
+shipped = ["B2-23"]
 
 [[feature]]
 id = "sixel-options"

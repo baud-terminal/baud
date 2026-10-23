@@ -60,9 +60,9 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, CursorLook, Dirty, Generation, Ground, Highlight, ImageLayer, ImagePlacement,
-    Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen,
-    Side, Tally, Tex, TexRect,
+    Argb, Atlas, CursorLook, Dirty, Generation, Ground, Highlight, ImageComposite, ImageLayer,
+    ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced,
+    Resolved, Screen, Side, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -560,6 +560,10 @@ pub struct Gpu {
     /// `glyph_vertex` and `image_fragment`: an image placement read
     /// through its tables. Built the first time an image is drawn.
     image_pipe: LatePipe,
+    /// `glyph_vertex` and `image_replace_fragment`, replacing: a placement
+    /// whose Sixel fill draws as [`baud_render::SixelBg::Cleared`] on the
+    /// glass. Built the first time one is drawn.
+    image_replace_pipe: LatePipe,
     /// `bg_vertex` and `bg_ground_fragment`, replacing: the instance path's
     /// background pass on a frame with a kitty image below `INT32_MIN/2`,
     /// the non-default backgrounds cleared. Built the first time one is
@@ -945,6 +949,7 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             image_pipe: LatePipe::Unbuilt,
+            image_replace_pipe: LatePipe::Unbuilt,
             cell_ring_pipe: LatePipe::Unbuilt,
             bg_ground_pipe: LatePipe::Unbuilt,
             bg_set_pipe: LatePipe::Unbuilt,
@@ -1305,6 +1310,7 @@ impl Gpu {
                     tex: tex.clone(),
                     layer: p.layer,
                     map,
+                    composite: p.composite,
                 });
             }
         }
@@ -1395,6 +1401,19 @@ impl Gpu {
         let pipe = self
             .image_pipe
             .get(&self.device, &self.library, "image_fragment")?;
+        // A replacing placement's pipeline, built only on a frame with one.
+        let replace = match draws
+            .iter()
+            .any(|d| d.layer == layer && d.composite == ImageComposite::Replace)
+        {
+            true => Some(self.image_replace_pipe.get_as(
+                &self.device,
+                &self.library,
+                ("glyph_vertex", "image_replace_fragment"),
+                Blend::Replace,
+            )?),
+            false => None,
+        };
         let buffer = &self.instances[staged.slot.0];
         // Only `viewport` (0,1) and `color` (8,9) are read by `glyph_vertex`;
         // a `color` of one makes the uv the drawn pixel's position.
@@ -1420,10 +1439,13 @@ impl Gpu {
         // `glyph_vertex` and `image_fragment`, which reads no table entry
         // past the quad's own width and height.
         unsafe {
-            enc.setRenderPipelineState(&pipe);
             for (i, (d, &(xs, ys))) in draws.iter().zip(&staged.maps).enumerate() {
                 if d.layer != layer {
                     continue;
+                }
+                match (d.composite, &replace) {
+                    (ImageComposite::Replace, Some(r)) => enc.setRenderPipelineState(r),
+                    _ => enc.setRenderPipelineState(&pipe),
                 }
                 enc.setVertexBuffer_offset_atIndex(
                     Some(buffer),
@@ -2285,6 +2307,9 @@ struct ImageDraw {
     tex: Texture,
     layer: ImageLayer,
     map: Vec<u32>,
+    /// Blended over what is under it, or written in its place
+    /// ([`ImageComposite`]).
+    composite: ImageComposite,
 }
 
 /// The ring buffer [`Gpu::stage_images`] wrote, and each draw's tables in

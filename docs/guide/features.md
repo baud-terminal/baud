@@ -215,7 +215,7 @@ Your shape and blink, and an optional trail when it jumps.
 Image viewers and file-manager previews show real pictures.
 
 - **Inline images** — Images from img2sixel, chafa, yazi and gnuplot show inline, partly transparent where they ask, at any length, decoded as they arrive. <sub>[Sixel](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/sixel.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **Solid image backgrounds** — A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too. **Partly:** on the see-through window the solid background is not drawn yet. <sub>[proof](../../baud-core/tests/sixel_fill.rs)</sub>
+- **Solid image backgrounds** — A Sixel image that asks for a solid background gets one, in your background colour, under reverse video too. On the see-through window it is solid by default, and a setting can draw it see-through over the text instead, or clear what is under it. <sub>[proof](../../baud-core/tests/sixel_fill.rs)</sub>
 - **Image scrolling and colour options** — Images that scroll or stay put, the cursor left beside the image, private colours per image, and a colour query. <sub>[proof](../../baud-core/tests/sixel_modes.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **Images announced only when you say so** — baud tells programs it draws Sixel only once you turn on `advertise_sixel`, so file managers keep their text previews until then. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **Pictures from imgcat** — PNG pictures from imgcat and other tools written for iTerm2 show inline at their own size or the size asked, sent whole or in parts, and text typed over one cell clears only that cell. **Partly:** Pictures in formats other than PNG, such as JPEG and GIF, show a placeholder box, and file downloads are refused. <sub>[proof](../../baud-core/tests/iterm_file.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
@@ -279,7 +279,6 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Key releases** — the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **Links open safely** — the pointer keeps its shape over a link, where iTerm2 and WezTerm show a pointing hand.
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
-- **Solid image backgrounds** — foot draws the solid background on its see-through window too. [Roadmap](../roadmap.md#pictures)
 - **Linux** — the Linux version has run only headless, with no GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
 - **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **More than one window** — baud opens one window; Cmd-N for another is not built yet. [Roadmap](../roadmap.md#window-colours-and-bell)

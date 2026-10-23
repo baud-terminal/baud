@@ -35,8 +35,8 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
     CursorPhase, Damage, FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look,
     Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape,
-    Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
-    VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
+    SixelBg, Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
+    Transition, VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -5210,28 +5210,125 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     feed(t, b"\x1b]111\x1b\\");
     sixel_scroll_fill(arms, t, fw);
-    // The see-through window: the fill waits on the owner, so P2 0 draws
-    // as P2 1 does.
-    let glass = Theme {
-        bg_alpha: Chan::from_u8(56),
-        ..base.clone()
-    };
-    arms.renderer.set_theme(glass);
+    // **The see-through window, as `[glass] sixel_backgrounds` says** (the
+    // owner's call of 2026-10-22): opaque, the default, as on an opaque
+    // window; dim, the background at the window's dim over the text, which
+    // shows through it; clear, in its place, the erased cell's pixel. All
+    // three arms agree on each, and the data stays red.
+    let dim = Chan::from_u8(56);
     let mut seen = Vec::new();
-    for p2 in [1, 0] {
+    for mode in [SixelBg::Opaque, SixelBg::Dimmed, SixelBg::Cleared] {
+        arms.renderer.set_theme(Theme {
+            bg_alpha: dim,
+            sixel_bg: mode,
+            ..base.clone()
+        });
         feed(t, text);
-        feed(t, sixel(p2).as_bytes());
-        let (f, _, ground) = frames(arms, t);
-        assert_eq!(ground, Pixel::CLEAR, "glass, P2 {p2}: no fill drawn");
-        seen.push(f);
-    }
-    for (arm, i) in [("instance", 0), ("cell", 1), ("cpu", 2)] {
+        feed(t, sixel(0).as_bytes());
+        let (got, at, ground) = frames(arms, t);
+        let what = format!("glass, {mode:?}");
+        let want = match mode {
+            SixelBg::Opaque => bg,
+            _ => (u32::from(dim.get()) << 24) | (opaque.bg.0 & 0x00FF_FFFF),
+        };
+        assert_eq!(ground.bits(), want, "{what}: the fill's word");
         assert_eq!(
-            differing(&seen[0][i], &seen[1][i]),
+            differing(&got[0], &got[1]),
             0,
-            "glass, {arm}: P2 0 draws as P2 1"
+            "{what}: the cell arm differs"
+        );
+        let cpu = channel_diff(&got[2], &got[0], |_| true);
+        assert_eq!(cpu.0, 0, "{what}: the CPU arm differs by up to {}", cpu.1);
+        let (x0, y0) = at;
+        let px = |f: &[u32], x: usize, y: usize| f[(y0 + y) * fw + x0 + x];
+        // The extent past the data, columns 20-39, rows 0-39.
+        let region: Vec<u32> = (0..40)
+            .flat_map(|y| (20..40).map(move |x| (x, y)))
+            .map(|(x, y)| px(&got[0], x, y))
+            .collect();
+        let m = arms.renderer.metrics();
+        let (cw, ch) = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        // Row 8, column 30: a blank cell, the glass's erased pixel.
+        let blank = got[0][(8 * ch + ch / 2) * fw + 30 * cw + cw / 2];
+        for (arm, f) in ["instance", "cell", "cpu"].iter().zip(&got) {
+            assert_eq!(px(f, 0, 1), red, "{what}, {arm}: a set position");
+        }
+        match mode {
+            SixelBg::Opaque => assert!(region.iter().all(|&p| p == bg), "{what}: solid"),
+            SixelBg::Cleared => {
+                assert!(
+                    region.iter().all(|&p| p == blank),
+                    "{what}: the erased pixel"
+                );
+            }
+            SixelBg::Dimmed => {
+                assert!(region.iter().all(|&p| p != blank), "{what}: dimmed over");
+                let mut distinct = region.clone();
+                distinct.sort_unstable();
+                distinct.dedup();
+                assert!(distinct.len() > 1, "{what}: the text shows through");
+            }
+        }
+        seen.push(region);
+        // Data past a raster extent narrower than it: its zero positions
+        // there are not filled, and stay clear -- the cell under them
+        // shows, on every arm, and a replacing draw does not write them.
+        feed(t, text);
+        feed(t, b"\x1bP9;0;0q\"1;1;10;12#1;2;100;0;0#1!20i\x1b\\");
+        let (got, (x0, y0), _) = frames(arms, t);
+        assert_eq!(
+            differing(&got[0], &got[1]),
+            0,
+            "{what}, narrow: the cell arm differs"
+        );
+        let cpu = channel_diff(&got[2], &got[0], |_| true);
+        assert_eq!(
+            cpu.0, 0,
+            "{what}, narrow: the CPU arm differs by up to {}",
+            cpu.1
+        );
+        let clear = got[0][y0 * fw + x0 + 15];
+        assert_ne!(clear, 0, "{what}, narrow: a clear position shows the cell");
+        assert_eq!(
+            got[0][(y0 + 1) * fw + x0 + 15],
+            red,
+            "{what}, narrow: the data"
         );
     }
+    assert_ne!(seen[1], seen[2], "glass: dim is not clear");
+    // Under `?5` the fill at the window's dim keeps the colour the opaque
+    // fill keeps, the background unreversed (Jev, UNREVERSED, 0.98/0.96).
+    for mode in [SixelBg::Dimmed, SixelBg::Cleared] {
+        arms.renderer.set_theme(Theme {
+            bg_alpha: dim,
+            sixel_bg: mode,
+            ..base.clone()
+        });
+        feed(t, text);
+        feed(t, b"\x1b[?5h");
+        feed(t, sixel(0).as_bytes());
+        let (got, _, ground) = frames(arms, t);
+        let want = (u32::from(dim.get()) << 24) | (opaque.bg.0 & 0x00FF_FFFF);
+        assert_eq!(ground.bits(), want, "glass, {mode:?}, ?5: unreversed");
+        assert_eq!(
+            differing(&got[0], &got[1]),
+            0,
+            "glass, {mode:?}, ?5: the cell arm"
+        );
+        let cpu = channel_diff(&got[2], &got[0], |_| true);
+        assert_eq!(
+            cpu.0, 0,
+            "glass, {mode:?}, ?5: the CPU arm by up to {}",
+            cpu.1
+        );
+    }
+    arms.renderer.set_theme(Theme {
+        bg_alpha: dim,
+        ..base.clone()
+    });
     // An embedder's image of fill words, no fill asked: drawn as they are.
     arms.renderer.set_theme(opaque);
     feed(t, text);

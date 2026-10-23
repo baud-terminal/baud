@@ -620,6 +620,7 @@ pub fn half_theme(
     });
     theme.app_bg = glass.app_backgrounds;
     theme.picture_bg = glass.pictures;
+    theme.sixel_bg = glass.sixel_backgrounds;
     theme.floor = floor;
     theme
 }
@@ -1204,7 +1205,12 @@ mod tests {
     /// theme on Linux dims by `dim_light` as macOS does.
     #[test]
     fn a_half_is_its_file_over_its_own_and_dims_as_itself() {
-        let glass = crate::config::Glass::defaults();
+        // A Sixel background other than the default, so the half shows it
+        // carried and not defaulted.
+        let glass = crate::config::Glass {
+            sixel_backgrounds: baud_render::SixelBg::Cleared,
+            ..crate::config::Glass::defaults()
+        };
         let floor = baud_render::Floor::DEFAULT;
         let day = themefile::base16(&std::fs::read(fixtures().join("day.yaml")).unwrap()).unwrap();
         let halves = Halves {
@@ -1232,8 +1238,13 @@ mod tests {
         );
         assert_eq!(dark.bg_alpha, baud_domain::Chan::from_unit(glass.dim_dark));
         assert_eq!(
-            (dark.floor, dark.app_bg, dark.picture_bg),
-            (floor, glass.app_backgrounds, glass.pictures)
+            (dark.floor, dark.app_bg, dark.picture_bg, dark.sixel_bg),
+            (
+                floor,
+                glass.app_backgrounds,
+                glass.pictures,
+                glass.sixel_backgrounds
+            )
         );
     }
 

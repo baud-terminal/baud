@@ -868,19 +868,25 @@ if the operation regressed.
   the fill is register 0 "including in light background mode" on the VT340,
   and no reverse video in `graphics.c`), opaque, on all three paths. Text on
   the fill alone clears it in its cells, as on a VT340's one bitmap; text on
-  the data frees the image. **On the see-through window it is not drawn
-  yet**, the owner's question: Jev leaned to opaque image pixels at 0.77
-  and 0.79 after foot was read, which draws an opaque Sixel with
-  `PIXMAN_OP_SRC` over its translucent window (`[[source: foot-sixel-c]]`,
-  `[[source: foot-render]]`). Not drawn there, the fill is still stored: a
-  Sixel with `P2` 0 and no raster command grows to the margins, 5.78
-  million words on a 200x50 grid of 17x34 cells against the app's 95 MiB
-  arena, and every write on that region clears cells and moves the store's
-  epoch, so on the default macOS window the fill costs arena and uploads
-  and shows nothing. No committed recording takes this path: img2sixel,
+  the data frees the image. **On the see-through window it was not drawn
+  until the owner answered**, 2026-10-22: "i would say b is default with
+  config option to change it". `[glass] sixel_backgrounds` draws it opaque
+  by default, as foot does, which fills with register 0 at full alpha and
+  draws an opaque Sixel with `PIXMAN_OP_SRC` over its translucent window
+  (`[[source: foot-sixel-c]]`, `[[source: foot-render]]`); `"dim"` draws
+  the same colour at the window's alpha over what is under it, and
+  `"clear"` at that alpha in its place, as erased cells look. Under `?5`
+  each keeps the colour unreversed: foot fills with register 0, which
+  reverse video does not reach (Jev, UNREVERSED, 0.84/0.82, then
+  0.98/0.96 once foot's fill word was read). The fill is stored whatever
+  the window: a Sixel with `P2` 0 and no raster command grows to the
+  margins, 5.78 million words on a 200x50 grid of 17x34 cells against the
+  app's 95 MiB arena, and every write on that region clears cells and
+  moves the store's epoch. No committed recording takes this path: img2sixel,
   swirl and the yazi walk all send a raster command. `sixel_p2_ignored`
   became `sixels_filled`. The record, "A Sixel's P2 fill is drawn, and on
-  the see-through window it waits on the owner".
+  the see-through window it waits on the owner", and "A Sixel's solid
+  background on the see-through window, as you set it".
 
   The fill goes on as the image scrolls, since the same day: rows the
   data scrolls in past the rows left are filled from the band that

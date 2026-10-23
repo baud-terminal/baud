@@ -74,7 +74,7 @@ pub use cellmap::{
     Reach, Resolved, Selected, Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
-    AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, dark_palette,
+    AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, dark_palette,
     light_palette, xterm_palette,
 };
 pub use composite::{Blend, Blit, Page, Target, Texels};
@@ -91,8 +91,8 @@ pub use overlay::{
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame,
-    GlyphSource, Glyphs, ImageLayer, ImagePlacement, ImageScale, ImageUpload, PairRole, Pairs,
-    Pass, Renderer, Single, StyleStamp, StyleSync, VideoFlash,
+    GlyphSource, Glyphs, ImageComposite, ImageLayer, ImagePlacement, ImageScale, ImageUpload,
+    PairRole, Pairs, Pass, Renderer, Single, StyleStamp, StyleSync, VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{

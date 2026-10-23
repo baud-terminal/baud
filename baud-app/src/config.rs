@@ -486,6 +486,13 @@ pub struct Glass {
     /// `"dim"` dims them like every other background. See
     /// `baud_render::PictureBg` for the measurement behind the threshold.
     pub pictures: baud_render::PictureBg,
+    /// `[glass] sixel_backgrounds`: how a Sixel image's solid background
+    /// (its `P2` of 0 or 2) draws on the see-through window. `"opaque"`
+    /// by default, as on an opaque window, the owner's call of 2026-10-22;
+    /// `"dim"` at the window's dim over what is under it; `"clear"` in its
+    /// place, at the window's dim, as erased cells look. See
+    /// `baud_render::SixelBg`.
+    pub sixel_backgrounds: baud_render::SixelBg,
 }
 
 /// Which material the window's body is: the see-through standard
@@ -537,6 +544,7 @@ impl Glass {
             shadow: Shadow::Auto,
             app_backgrounds: baud_render::AppBg::Dimmed,
             pictures: baud_render::PictureBg::Opaque,
+            sixel_backgrounds: baud_render::SixelBg::Opaque,
         }
     }
 }
@@ -1775,6 +1783,9 @@ impl Config {
                     self.glass.app_backgrounds = app_backgrounds(&value, "images", &mut said);
                 }
                 ("glass", "pictures") => self.glass.pictures = pictures(&value, &mut said),
+                ("glass", "sixel_backgrounds") => {
+                    self.glass.sixel_backgrounds = sixel_backgrounds(&value, &mut said);
+                }
                 ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark", &mut said),
                 ("glass", "dim_light") => {
                     self.glass.dim_light = unit(&value, "dim_light", &mut said)
@@ -1861,6 +1872,23 @@ fn pictures(value: &str, said: &mut Vec<String>) -> baud_render::PictureBg {
                 "config: glass pictures {other:?} is not opaque or dim; using opaque"
             ));
             baud_render::PictureBg::Opaque
+        }
+    }
+}
+
+/// `[glass] sixel_backgrounds`: `"opaque"`, `"dim"` or `"clear"`, quoted or
+/// bare; anything else keeps the default and says so.
+fn sixel_backgrounds(value: &str, said: &mut Vec<String>) -> baud_render::SixelBg {
+    match value.trim().trim_matches('"') {
+        "opaque" => baud_render::SixelBg::Opaque,
+        "dim" => baud_render::SixelBg::Dimmed,
+        "clear" => baud_render::SixelBg::Cleared,
+        other => {
+            said.push(format!(
+                "config: glass sixel_backgrounds {other:?} is not opaque, dim or clear; \
+                 using opaque"
+            ));
+            baud_render::SixelBg::Opaque
         }
     }
 }
@@ -4181,6 +4209,40 @@ shadow     = "never"
         assert_eq!(get("[glass]\npictures = \"opaque\"\n"), PictureBg::Opaque);
         assert_eq!(get("[glass]\npictures = \"solid\"\n"), PictureBg::Opaque);
         assert_eq!(get("pictures = \"dim\"\n"), PictureBg::Opaque);
+    }
+
+    /// **A Sixel's solid background is opaque on the glass unless asked
+    /// otherwise**: `"dim"` and `"clear"`, quoted or bare; anything else
+    /// keeps opaque and says so; and the key is `[glass]`'s.
+    #[test]
+    fn sixel_backgrounds_are_opaque_unless_asked_for_dim_or_clear() {
+        use baud_render::SixelBg;
+        let get = |t: &str| read(t).glass.sixel_backgrounds;
+        assert_eq!(Config::defaults().glass.sixel_backgrounds, SixelBg::Opaque);
+        assert_eq!(get(""), SixelBg::Opaque);
+        for (v, want) in [
+            ("\"opaque\"", SixelBg::Opaque),
+            ("\"dim\"", SixelBg::Dimmed),
+            ("dim", SixelBg::Dimmed),
+            ("\"clear\"", SixelBg::Cleared),
+            ("clear", SixelBg::Cleared),
+        ] {
+            assert_eq!(
+                get(&format!("[glass]\nsixel_backgrounds = {v}\n")),
+                want,
+                "{v}"
+            );
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[glass]\nsixel_backgrounds = \"tint\"\n");
+        assert_eq!(c.glass.sixel_backgrounds, SixelBg::Opaque);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("sixel_backgrounds"), "{said:?}");
+        assert_eq!(
+            get("sixel_backgrounds = \"dim\"\n"),
+            SixelBg::Opaque,
+            "not top-level"
+        );
     }
 
     /// `[palette] floor`: a trigger from 1 to 21 or "off"; the target is the

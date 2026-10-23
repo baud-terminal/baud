@@ -784,6 +784,8 @@ pub struct Theme {
     /// Whether a picture drawn in text keeps its backgrounds solid under
     /// [`AppBg::Dimmed`]. See [`PictureBg`].
     pub picture_bg: PictureBg,
+    /// How a Sixel's background fill draws on the glass. See [`SixelBg`].
+    pub sixel_bg: SixelBg,
     /// The contrast floor, [`Floor::DEFAULT`] on both built-in themes.
     pub floor: Floor,
     /// What the window's material can show under a page drawn below full
@@ -860,6 +862,31 @@ pub enum PictureBg {
     Dimmed,
 }
 
+/// **How a Sixel's background fill draws on the see-through window**:
+/// `[glass] sixel_backgrounds`, the owner's call of 2026-10-22, "i would
+/// say b is default with config option to change it". A Sixel with `P2` 0
+/// or 2 sets the positions its data leaves at zero to the background
+/// (`[[source: vt3xx-sixel]]`); no DEC text knows a see-through window,
+/// so how that background meets the glass is this setting. On an opaque
+/// window, or under Reduce Transparency, every choice draws as
+/// [`SixelBg::Opaque`] does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SixelBg {
+    /// The fill solid, as on an opaque window: foot's practice, which
+    /// fills with register 0 at full alpha and draws the image with
+    /// `PIXMAN_OP_SRC` (`[[source: foot-sixel-c]]`,
+    /// `[[source: foot-render]]`).
+    #[default]
+    Opaque,
+    /// The fill at the window's dim, over what is under it: the text and
+    /// any earlier image show through it, dimmed.
+    Dimmed,
+    /// The fill replaces what is under it with the background at the
+    /// window's dim: the text and any earlier image under it are gone, as
+    /// erased cells look.
+    Cleared,
+}
+
 /// Whether the screen is drawn in reverse video: `?5`, DECSCNM -- baud-domain's
 /// [`baud_domain::Video`], the one spelling of the per-cell exchange the core
 /// reads too, so the colour `OSC 10`/`11` set under `?5` is the one drawn in
@@ -887,6 +914,7 @@ impl Theme {
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
+            sixel_bg: SixelBg::Opaque,
             floor: Floor::DEFAULT,
             backdrop: Backdrop::any(),
             palette: dark_palette(),
@@ -920,6 +948,7 @@ impl Theme {
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
+            sixel_bg: SixelBg::Opaque,
             floor: Floor::DEFAULT,
             backdrop: Backdrop::any(),
             palette: light_palette(),

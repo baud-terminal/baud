@@ -144,6 +144,20 @@ fragment float4 image_fragment(GOut in [[stage_in]],
     return float4(c.rgb * c.a, c.a);
 }
 
+// A replacing placement's pixel (`ImageComposite::Replace`): the texel
+// `image_fragment` reads, written in place of what is under it by a
+// pipeline with blending off -- but a clear texel is discarded, leaving
+// what is under it, as the CPU's store skips it (`Target::blit_replacing`).
+fragment float4 image_replace_fragment(GOut in [[stage_in]],
+                                       texture2d<float, access::read> img [[texture(1)]],
+                                       device const uint* xs [[buffer(0)]],
+                                       device const uint* ys [[buffer(1)]]) {
+    uint2 d = uint2(in.uv);
+    float4 c = img.read(uint2(xs[d.x], ys[d.y]));
+    if (c.a == 0.0) discard_fragment();
+    return float4(c.rgb * c.a, c.a);
+}
+
 // ---- The cursor trail's quad: `trail::coverage` in `baud-render`, the
 // same rule. The record is the quad's bounds, drawn by `glyph_vertex`; this
 // covers the pixels inside the corners by the non-zero winding rule, a pixel

@@ -533,6 +533,13 @@ app_backgrounds = "dim"
 # vim's diff mode, has 8) -- and draws only those solid. "dim" dims them too.
 pictures = "opaque"
 
+# How a Sixel image's solid background draws on the see-through window
+# (an image that asks for one, P2 0 or 2). "opaque", the default, draws it
+# solid, as on an opaque window. "dim" draws it see-through at the body dim
+# over the text, which shows through it, faded. "clear" clears what is
+# under it to the see-through background, as erased cells look.
+sixel_backgrounds = "opaque"
+
 # The glass darkening, applied to the material itself rather than as a
 # layer over it, so the titlebar strip and the body are one surface. 0 turns
 # it off. It and the hue and saturation below darken Liquid Glass only;

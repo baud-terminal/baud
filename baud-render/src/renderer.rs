@@ -1253,6 +1253,19 @@ pub enum ImageScale {
 #[derive(Clone, Copy, Debug)]
 pub struct MapAt(usize);
 
+/// **How a placement's pixels meet what is under them**: source-over, every
+/// image's, or replacing it, a Sixel's whose background fill draws as
+/// [`crate::SixelBg::Cleared`] on the glass. A replacing image holds only
+/// opaque words and its fill (its data's colours are opaque, and every
+/// position it leaves at zero is a fill word), so replacing is source-over
+/// for its data and leaves the fill's own alpha where it lands. The CPU
+/// stores those words; the GPU draws it with blending off.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum ImageComposite {
+    Over,
+    Replace,
+}
+
 /// One visible image to draw: which image (and the store epoch it was seen
 /// at, the GPU texture-cache key), where on screen at what size, in device
 /// pixels -- the part of its drawn rectangle on the frame -- and in which
@@ -1295,6 +1308,8 @@ pub struct ImagePlacement {
     /// ([`Renderer::fill_pixel`]): a Sixel's background fill, and
     /// [`Pixel::CLEAR`] for every image without one.
     pub ground: Pixel,
+    /// Over what is under it, or replacing it.
+    pub composite: ImageComposite,
 }
 
 /// Two placements are one when they draw the same: everything but where
@@ -1325,7 +1340,7 @@ impl ImagePlacement {
         KittyId,
         ImageDraw,
         ImageScale,
-        u32,
+        (u32, ImageComposite),
     ) {
         (
             self.id,
@@ -1339,7 +1354,7 @@ impl ImagePlacement {
             self.tie,
             self.draw,
             self.scale,
-            self.ground.bits(),
+            (self.ground.bits(), self.composite),
         )
     }
 }
@@ -4128,6 +4143,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ImageGround::Clear => Pixel::CLEAR,
             ImageGround::Filled { .. } => self.image_fill,
         };
+        // A fill drawn at the window's dim: over what is under it, a
+        // partial image that is blended, and repainted under each blit; or
+        // replacing it, which a second blit leaves as the first did.
+        let (alpha, composite) = match (view.ground, self.page(), self.theme.sixel_bg) {
+            (ImageGround::Filled { .. }, Page::Glass, crate::SixelBg::Dimmed) => {
+                (ImageAlpha::Partial, ImageComposite::Over)
+            }
+            (ImageGround::Filled { .. }, Page::Glass, crate::SixelBg::Cleared) => {
+                (view.alpha, ImageComposite::Replace)
+            }
+            _ => (view.alpha, ImageComposite::Over),
+        };
         self.image_places.push(ImagePlacement {
             id,
             epoch,
@@ -4135,7 +4162,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             y: clamp16(y0 + j0),
             w: side(i1 - i0),
             h: side(j1 - j0),
-            alpha: view.alpha,
+            alpha,
             z,
             layer: ImageLayer::of(z),
             tie: imgs.kitty_names(id).map_or(KittyId::NONE, |(k, _)| k),
@@ -4143,6 +4170,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             scale,
             map: at,
             ground,
+            composite,
         });
         // Snapshot the pixels once per referenced `(id, epoch, ground)`:
         // the GPU reads this to upload, the CPU reads the term itself. The
@@ -4191,24 +4219,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// frame, as a VT340 looks its map up at every refresh (Jev 2026-10-12,
     /// DEFAULT_BG_EACH_FRAME, 0.97 and 0.94).
     ///
-    /// **On the see-through window the fill is not drawn**, as before it
-    /// was built: how a filled position draws there is the owner's to
-    /// answer (Jev leaned to opaque at 0.77 and 0.79, under the bar).
+    /// **On the see-through window as `[glass] sixel_backgrounds` says**
+    /// ([`crate::SixelBg`], the owner's call of 2026-10-22): opaque, the
+    /// default, as on an opaque window; or the same colour at the window's
+    /// dim, the alpha an erased cell's background has there, which the
+    /// placement draws over what is under it or in its place
+    /// ([`ImageComposite`]).
     ///
     /// Read from `term` itself, as the placements are built, and not from
     /// the defaults the frame's convert refreshes after them: from those,
     /// the frame after an `OSC 11` drew the fill in the colour before.
     pub fn fill_pixel(&self, term: &Term<'_>) -> Pixel {
-        match self.page() {
-            Page::Opaque => {
-                let bg = self
-                    .theme
-                    .defaults(Video::Normal, |d| term.dynamic_color(d))
-                    .1;
-                let [_, r, g, b] = bg.0.to_be_bytes();
-                Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+        let bg = self
+            .theme
+            .defaults(Video::Normal, |d| term.dynamic_color(d))
+            .1;
+        let [_, r, g, b] = bg.0.to_be_bytes();
+        let (r, g, b) = (Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+        match (self.page(), self.theme.sixel_bg) {
+            (Page::Opaque, _) | (Page::Glass, crate::SixelBg::Opaque) => Pixel::opaque(r, g, b),
+            (Page::Glass, crate::SixelBg::Dimmed | crate::SixelBg::Cleared) => {
+                Pixel::straight(self.theme.bg_alpha, r, g, b)
             }
-            Page::Glass => Pixel::CLEAR,
         }
     }
 
@@ -4275,7 +4307,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
-            target.blit_image(&self.blit_of(p, all), &view, p.ground, self.blend, page);
+            target.blit_image(
+                &self.blit_of(p, all),
+                &view,
+                (p.ground, p.composite),
+                self.blend,
+                page,
+            );
         }
     }
 
@@ -4334,7 +4372,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.clear_set(target, row, page, set);
                 below = true;
             }
-            target.blit_image(&self.blit_of(p, band), &view, p.ground, self.blend, page);
+            target.blit_image(
+                &self.blit_of(p, band),
+                &view,
+                (p.ground, p.composite),
+                self.blend,
+                page,
+            );
         }
         if below {
             self.cover_set(target, row, page, set);
@@ -6846,6 +6890,7 @@ mod place_diff {
                 },
                 map: MapAt(usize::try_from(n).unwrap()),
                 ground: Pixel::CLEAR,
+                composite: ImageComposite::Over,
             }
         };
         (0..40u32).map(placement_of).collect()

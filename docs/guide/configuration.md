@@ -233,6 +233,7 @@ darkening that suits a dark desktop is far too much over a light one.
 | `dim_light` | 0 to 1 | `0.60` | The same, under the light appearance, where the default keeps text readable over a black window behind. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |
 | `pictures` | `"opaque"`, `"dim"` | `"opaque"` | Whether a picture drawn with text characters, such as a file manager's photo preview, is kept solid so it reads as a picture. |
+| `sixel_backgrounds` | `"opaque"`, `"dim"`, `"clear"` | `"opaque"` | How a Sixel image's solid background draws: solid, as on an opaque window; see-through over the text, which shows through it faded (`"dim"`); or clearing what is under it to the see-through background (`"clear"`). |
 | `tint_dark` | 0 to 1 | `0.54` | How much Liquid Glass itself is darkened under the dark appearance. `0` turns it off. This and the next three keys change Liquid Glass only. |
 | `tint_light` | 0 to 1 | `0.14` | The same, under the light appearance. |
 | `hue` | 0 to 1 | `0.60` | The colour of that darkening; `0.60` is a blue. |
