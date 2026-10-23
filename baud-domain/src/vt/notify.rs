@@ -704,6 +704,8 @@ pub enum NoticeFrom {
     Osc9,
     Osc777,
     Kitty,
+    /// iTerm2's `OSC 1337 ; Notification`.
+    Iterm,
 }
 
 /// A notification's handle, the embedder's to keep beside its own: the

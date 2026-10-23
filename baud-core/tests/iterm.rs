@@ -231,6 +231,27 @@ fn report_variable_answers_with_the_empty_value() {
     }
 }
 
+// ── RequestUpload ───────────────────────────────────────────────────────────
+
+/// **Refused with silence**, baud's refusal where an answer is unsafe:
+/// neither "abort" and a newline, which would reach a shell as an entered
+/// command, nor iTerm2's Control-C, which is not a status the page names;
+/// any format alike. Counted among the refusals.
+#[test]
+fn request_upload_is_refused_with_silence() {
+    for size in SIZES {
+        with(&osc("RequestUpload=format=tgz;version=eA=="), size, |t| {
+            assert_eq!(t.reply(), b"", "reads of {size}");
+            t.clear_reply();
+            feed(t, &osc("RequestUpload=format=zip"), size);
+            assert_eq!(t.reply(), b"", "reads of {size}");
+            let n = t.iterm_counts().of(ItermKey::RequestUpload);
+            assert_eq!(n, Messages::of(2), "reads of {size}");
+            assert_eq!(t.iterm_counts().refused(), Messages::of(2));
+        });
+    }
+}
+
 // ── SetMark ─────────────────────────────────────────────────────────────────
 
 /// **"Record a location and then jump back to it later"**: the cursor's line

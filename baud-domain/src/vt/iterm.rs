@@ -85,6 +85,10 @@ pub enum ItermUnsafe {
     StealsFocus,
     /// It switches or rewrites the settings the user chose.
     RewritesSettings,
+    /// It hands files from the user's machine to the program that asked,
+    /// a remote one over ssh included, through a chooser the program opens:
+    /// baud opens none for a program, as it writes no file a program sends.
+    UploadsFiles,
 }
 
 /// What baud does with a key.
@@ -107,7 +111,7 @@ pub enum ItermDoes {
 }
 
 use ItermDoes::{Acts, NoCounterpart, Refuses, Retired, Unbuilt};
-use ItermUnsafe::{RewritesSettings, StealsFocus};
+use ItermUnsafe::{RewritesSettings, StealsFocus, UploadsFiles};
 
 /// How many keys iTerm2 knows.
 pub const ITERM_KEYS: usize = 54;
@@ -158,7 +162,11 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
     (b"FilePart", ItermKey::FilePart, Unbuilt),
     (b"FileEnd", ItermKey::FileEnd, Unbuilt),
     (b"Copy", ItermKey::Copy, Acts),
-    (b"RequestUpload", ItermKey::RequestUpload, Unbuilt),
+    (
+        b"RequestUpload",
+        ItermKey::RequestUpload,
+        Refuses(UploadsFiles),
+    ),
     (b"BeginFile", ItermKey::BeginFile, Retired),
     (b"EndFile", ItermKey::EndFile, Retired),
     (b"EndCopy", ItermKey::EndCopy, Unbuilt),
@@ -187,7 +195,7 @@ const ROWS: [(&[u8], ItermKey, ItermDoes); ITERM_KEYS] = [
     (b"Disinter", ItermKey::Disinter, NoCounterpart),
     (b"ReportVariable", ItermKey::ReportVariable, Acts),
     (b"Custom", ItermKey::Custom, NoCounterpart),
-    (b"Notification", ItermKey::Notification, Unbuilt),
+    (b"Notification", ItermKey::Notification, Acts),
     (b"Capabilities", ItermKey::Capabilities, Unbuilt),
     (b"Env", ItermKey::Env, NoCounterpart),
     (b"it2ssh", ItermKey::It2ssh, NoCounterpart),
@@ -374,6 +382,13 @@ pub enum Osc1337<'a> {
         name: &'a [u8],
         value: Option<&'a [u8]>,
     },
+    /// `Notification=key=base64;...`: a notification, as iTerm2's source
+    /// posts one "rich" ([`NoticePairs`]). The pages do not name the key.
+    Notification(NoticePairs<'a>),
+    /// `RequestUpload=format=tgz`, which baud refuses: with `tgz` or no
+    /// format the program waits for an answer; with another iTerm2 sends
+    /// none.
+    RequestUpload(UploadFormat),
     /// `SetColors=key=value[,key=value...]`: [`ColorSettings`].
     SetColors(ColorSettings<'a>),
     /// `Copy=:base64`, whole: the base64 after the `:`. The core streams a
@@ -410,6 +425,9 @@ impl<'a> Osc1337<'a> {
         let Some(key) = ItermKey::of(name) else {
             return Osc1337::Unknown;
         };
+        if key == ItermKey::RequestUpload {
+            return Osc1337::RequestUpload(UploadFormat::of(value));
+        }
         if key.does() != Acts {
             return Osc1337::Ignored(key);
         }
@@ -445,6 +463,7 @@ impl<'a> Osc1337<'a> {
             }),
             ItermKey::ReportVariable => Osc1337::ReportVariable(value),
             ItermKey::SetColors => Osc1337::SetColors(ColorSettings(value)),
+            ItermKey::Notification => Osc1337::Notification(NoticePairs(value)),
             // "name=base64 to set a user variable or just name to unset it";
             // a name with a `.` is refused, "which is not allowed".
             ItermKey::SetUserVar => {
@@ -476,6 +495,75 @@ impl<'a> Osc1337<'a> {
             }
             _ => Osc1337::Ignored(key),
         }
+    }
+}
+
+/// **What a `RequestUpload` asks for**, as iTerm2's source reads its
+/// `;`-separated `key=value` arguments (`requestUploadWithFormat:`,
+/// `[[source: iterm2-964a75d-ptysession]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UploadFormat {
+    /// `format=tgz`, or no `format`, which iTerm2 takes as `tgz`: the
+    /// program waits for `ok` or for the cancel.
+    Tgz,
+    /// Any other format: iTerm2 shows a warning and sends nothing.
+    Other,
+}
+
+impl UploadFormat {
+    fn of(value: &[u8]) -> UploadFormat {
+        let format = value
+            .split(|&b| b == b';')
+            .filter_map(|part| part.strip_prefix(b"format="))
+            .next_back();
+        match format {
+            None | Some(b"tgz") => UploadFormat::Tgz,
+            Some(_) => UploadFormat::Other,
+        }
+    }
+}
+
+/// What a `Notification` names: iTerm2's source decodes each value of its
+/// `key=base64` pairs, split on `;`, and posts `title`, `subtitle` and
+/// `message` -- the body, empty when absent -- and an `image`
+/// (`screenPostUserNotification:rich:`, `[[source:
+/// iterm2-964a75d-ptysession]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticePart {
+    Title,
+    Subtitle,
+    Message,
+    Image,
+    /// A key iTerm2 does not read.
+    Other,
+}
+
+/// `Notification`'s value: its `key=base64` pairs, in order, each with the
+/// part its key names and the base64 as sent; a part with no `=` is a key
+/// with an empty value, as iTerm2's split makes it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NoticePairs<'a>(&'a [u8]);
+
+impl<'a> NoticePairs<'a> {
+    /// Each pair: the part and its base64.
+    pub fn pairs(self) -> impl Iterator<Item = (NoticePart, &'a [u8])> {
+        self.0
+            .split(|&b| b == b';')
+            .filter(|p| !p.is_empty())
+            .map(|p| {
+                let (k, v) = match p.iter().position(|&b| b == b'=') {
+                    Some(i) => (&p[..i], &p[i + 1..]),
+                    None => (p, &p[p.len()..]),
+                };
+                let part = match k {
+                    b"title" => NoticePart::Title,
+                    b"subtitle" => NoticePart::Subtitle,
+                    b"message" => NoticePart::Message,
+                    b"image" => NoticePart::Image,
+                    _ => NoticePart::Other,
+                };
+                (part, v)
+            })
     }
 }
 
@@ -1090,6 +1178,36 @@ mod tests {
         assert_eq!(
             Osc1337::parse(b"SetUserVar=a.b=eA=="),
             Osc1337::Malformed(ItermKey::SetUserVar)
+        );
+        assert_eq!(
+            Osc1337::parse(b"RequestUpload=format=tgz;version=eA=="),
+            Osc1337::RequestUpload(UploadFormat::Tgz)
+        );
+        assert_eq!(
+            Osc1337::parse(b"RequestUpload"),
+            Osc1337::RequestUpload(UploadFormat::Tgz)
+        );
+        assert_eq!(
+            Osc1337::parse(b"RequestUpload=format=zip"),
+            Osc1337::RequestUpload(UploadFormat::Other)
+        );
+        let Osc1337::Notification(n) =
+            Osc1337::parse(b"Notification=title=aGk=;message=eA==;x;z=1")
+        else {
+            panic!("a notification");
+        };
+        let parts: [(NoticePart, &[u8]); 4] = {
+            let mut it = n.pairs();
+            core::array::from_fn(|_| it.next().unwrap())
+        };
+        assert_eq!(
+            parts,
+            [
+                (NoticePart::Title, &b"aGk="[..]),
+                (NoticePart::Message, &b"eA=="[..]),
+                (NoticePart::Other, &b""[..]),
+                (NoticePart::Other, &b"1"[..]),
+            ]
         );
         assert_eq!(Osc1337::parse(b"Nonsense=1"), Osc1337::Unknown);
     }

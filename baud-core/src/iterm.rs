@@ -111,6 +111,8 @@ impl Paint<'_, '_> {
             Osc1337::RemoteHost(host) => self.remote_host(host, body),
             Osc1337::ReportCellSize => self.report_cell_size(term),
             Osc1337::SetMark(at) => self.set_mark(at),
+            Osc1337::Notification(pairs) => self.notification(pairs),
+            Osc1337::RequestUpload(_) => self.request_upload(),
             Osc1337::ReportVariable(name) => self.report_variable(name, term),
             Osc1337::SetColors(list) => self.set_colors(list),
             Osc1337::SetUserVar { name, value } => self.set_user_var(name, value, body),
@@ -273,6 +275,62 @@ impl Paint<'_, '_> {
         if kept.is_err() {
             self.not_acted(ItermKey::SetUserVar);
         }
+    }
+
+    /// **`Notification`: posted as an `OSC 9` notification is, under the
+    /// same rules** -- the user's setting, the window's focus, the desk's
+    /// bounds -- its `title` and `message`, each decoded from base64, as
+    /// iTerm2's source posts it "rich" (`[[source:
+    /// iterm2-964a75d-ptysession]]`); a value that does not decode is none,
+    /// as there. baud's notification has no subtitle, so a `subtitle` is
+    /// dropped and counted (Jev's lean, DROPPED_COUNTED, 0.88/0.88), and so
+    /// is an `image`, which names a picture for the system to load and
+    /// which baud would have to read from wherever the program says.
+    fn notification(&mut self, pairs: NoticePairs<'_>) {
+        let (mut title, mut body) = ([0u8; OSC_MAX], [0u8; OSC_MAX]);
+        let (mut tl, mut bl) = (0, 0);
+        for (part, coded) in pairs.pairs() {
+            let mut out = [0u8; OSC_MAX];
+            let n = decode_whole(coded, &mut out)
+                .map(ByteLen::index)
+                .filter(|&n| core::str::from_utf8(&out[..n]).is_ok());
+            match (part, n) {
+                (NoticePart::Title, Some(n)) => {
+                    title[..n].copy_from_slice(&out[..n]);
+                    tl = n;
+                }
+                (NoticePart::Message, Some(n)) => {
+                    body[..n].copy_from_slice(&out[..n]);
+                    bl = n;
+                }
+                (NoticePart::Subtitle | NoticePart::Image, Some(n)) if n > 0 => {
+                    self.unsupported_total += 1;
+                }
+                _ => {}
+            }
+        }
+        let end = self.strs.notices.simple(
+            self.strs.notice_area,
+            NoticeFrom::Iterm,
+            &title[..tl],
+            &body[..bl],
+        );
+        self.notice_outcome(end);
+    }
+
+    /// **`RequestUpload`: refused with silence**: baud opens no chooser for
+    /// a program to take the user's files through. The page has the
+    /// terminal "respond with a status of ok or abort followed by a newline"
+    /// (`[[source: iterm2-escape-codes]]`), and iTerm2's own source names the
+    /// risk in that -- "The protocol calls to send \"abort\\n\" but this
+    /// introduces a security risk because reports must not contain
+    /// newlines" -- and sends Control-C instead (`[[source:
+    /// iterm2-964a75d-ptysession]]`), which is no status the page names. An
+    /// answer that is unsafe is not sent and one of another shape is never
+    /// sent, so neither goes, for any format. Counted under its key, among
+    /// the refusals.
+    fn request_upload(&mut self) {
+        self.not_acted(ItermKey::RequestUpload);
     }
 
     /// **`SetMark`: a line to jump back to**, "record a location and then

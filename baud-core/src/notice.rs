@@ -62,7 +62,7 @@ impl Paint<'_, '_> {
     }
 
     /// What a desk's step did, counted or answered.
-    fn notice_outcome(&mut self, end: ChunkEnd) {
+    pub(crate) fn notice_outcome(&mut self, end: ChunkEnd) {
         match end {
             ChunkEnd::Kept | ChunkEnd::Published => {}
             ChunkEnd::Replied => {

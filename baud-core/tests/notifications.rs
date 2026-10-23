@@ -761,6 +761,58 @@ fn request_attention_reaches_the_embedder() {
     );
 }
 
+/// **iTerm2's `Notification`, posted as an `OSC 9` notification is**: its
+/// `title` and `message` decoded from base64, at every read size; a
+/// `subtitle` and an `image` dropped and counted; a value that does not
+/// decode is none; with the user's notifications off it is refused as an
+/// `OSC 9` is.
+#[test]
+fn iterm2_notification_posts_its_title_and_message() {
+    let mut body = b"\x1b]1337;Notification=title=".to_vec();
+    body.extend(b64(b"Build"));
+    body.extend(b";subtitle=");
+    body.extend(b64(b"main"));
+    body.extend(b";message=");
+    body.extend(b64(b"finished in 3 s"));
+    body.extend(b";image=");
+    body.extend(b64(b"/tmp/x.png"));
+    body.extend(b"\x07");
+    for n in [1, 3, 7, 4096] {
+        with(Some(all()), &body, Reads(n), |t| {
+            let s = seen(t);
+            assert_eq!(s.len(), 1, "reads of {n}");
+            assert_eq!(s[0].from, NoticeFrom::Iterm);
+            assert_eq!(s[0].title, b"Build", "reads of {n}");
+            assert_eq!(s[0].body, b"finished in 3 s", "reads of {n}");
+            assert_eq!(s[0].occasion, Occasion::Unfocused);
+            assert_eq!(t.unsupported, 2, "the subtitle and the image");
+        });
+    }
+    // A message alone stands as the title, as an `OSC 9`'s text does; a
+    // value that is not base64 is none, and with nothing left the
+    // notification is refused as empty.
+    let alone = [
+        b"\x1b]1337;Notification=message=".as_slice(),
+        &b64(b"done"),
+        b"\x07",
+    ]
+    .concat();
+    with(Some(all()), &alone, Reads(4096), |t| {
+        assert_eq!(seen(t)[0].title, b"done");
+    });
+    with(
+        Some(all()),
+        b"\x1b]1337;Notification=title=no!\x07",
+        Reads(4096),
+        |t| {
+            assert_eq!(t.notices().count(), 0);
+        },
+    );
+    with(None, &alone, Reads(4096), |t| {
+        assert_eq!(t.notices().count(), 0, "notifications off");
+    });
+}
+
 /// A notification the embedder did not show is forgotten: not alive, and
 /// no report when it is closed.
 #[test]
