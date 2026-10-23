@@ -51,7 +51,7 @@ emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
 `[screen]`'s logging, checksum, notifications and print choices,
-`[pointer]`).
+`[pointer]`), and `[images] animation`.
 
 These keep their old value until baud is next started, because the open
 window was built with them: `colorspace`, `[glass] style`,
@@ -194,6 +194,7 @@ unless you name a trail here.
 | key | values | default | what it changes |
 |---|---|---|---|
 | `pixels_mb` | number, MiB | `95` | How much memory pictures shown in the terminal may use. The default holds three full 4K screens. A picture that does not fit is refused with a warning rather than shown in part. |
+| `animation` | `"os"`, `"on"`, `"off"` | `"os"` | Whether animated pictures play. `"os"` plays them unless Reduce Motion is on or "Auto-play animated images" is off in macOS's Accessibility settings, or on Linux the desktop's reduced-motion setting is on. `"on"` always plays them, and `"off"` keeps each one still at the frame it shows. A change shows at once, and so does a change to either macOS setting. |
 | `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. Plain `kitten icat` does not accept baud's default answer to its terminal question, so without this setting it waits ten seconds and gives up: turn it on, or run `kitten icat --transfer-mode=stream`, which skips the check. |
 
 ## [clipboard]

@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 311 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 314 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 303 | 28 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 855 | 39 | |
+| total | 858 | 39 | |
 
 ## Licence texts in LICENSES/
 
@@ -413,11 +413,14 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 139
+- **Files:** 142
 
 | file | copied from |
 |---|---|
+| [apple-accessibility-animated-images.json](docs/research/sources/apple-accessibility-animated-images.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/animated-images.json |
 | [apple-audioservicesplaysystemsound.json](docs/research/sources/apple-audioservicesplaysystemsound.json) | https://developer.apple.com/tutorials/data/documentation/audiotoolbox/audioservicesplaysystemsound(_:).json |
+| [apple-axanimatedimagesenabled.json](docs/research/sources/apple-axanimatedimagesenabled.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenabled().json |
+| [apple-axanimatedimagesenableddidchangenotification.json](docs/research/sources/apple-axanimatedimagesenableddidchangenotification.json) | https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenableddidchangenotification.json |
 | [apple-cacurrentmediatime.json](docs/research/sources/apple-cacurrentmediatime.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cacurrentmediatime().json |
 | [apple-cadisplaylink-duration.json](docs/research/sources/apple-cadisplaylink-duration.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/duration.json |
 | [apple-cadisplaylink-targettimestamp.json](docs/research/sources/apple-cadisplaylink-targettimestamp.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/targettimestamp.json |

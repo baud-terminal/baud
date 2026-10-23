@@ -380,7 +380,10 @@ licence = "LicenseRef-NoGrant"
 notice  = "none"
 status  = "no-grant"
 files   = [
+  "apple-accessibility-animated-images.json",
   "apple-audioservicesplaysystemsound.json",
+  "apple-axanimatedimagesenabled.json",
+  "apple-axanimatedimagesenableddidchangenotification.json",
   "apple-cacurrentmediatime.json",
   "apple-cadisplaylink-duration.json",
   "apple-cadisplaylink-targettimestamp.json",

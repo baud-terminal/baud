@@ -91,6 +91,19 @@ pub enum StackFrom {
     Configured,
 }
 
+/// `[images] animation`: whether a kitty animation plays. **`Os` by
+/// default**, the owner's call of 2026-10-23 ("i would say A but also a
+/// config and default is OS or On"): it holds while Reduce Motion is on or
+/// Animated Images is off, and on Linux while the desktop's
+/// `reduced-motion` is on (`access::image_motion`). `On` plays whatever
+/// the system says, and `Off` holds every animation at the frame it shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageAnimation {
+    Os,
+    On,
+    Off,
+}
+
 /// `[screen] badge`: whether a program's badge is drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BadgeShown {
@@ -337,6 +350,10 @@ pub struct Config {
     /// strokes and coloured spaces, for yazi -- and the claim is the reader's
     /// to make rather than baud's to guess.
     pub sixel: baud_domain::SixelClaim,
+    /// `[images] animation`: whether a kitty animation plays -- as the
+    /// system's motion and Animated Images settings say, by default, or
+    /// always, or never ([`ImageAnimation`]).
+    pub image_animation: ImageAnimation,
     /// `vs16_width`: whether a `U+FE0F` makes a text-default emoji two cells,
     /// `"two"` by default (owner, 2026-10-01), or one for a session whose
     /// programs measure with a legacy `wcwidth`. `DECRQM ?2027` reports it.
@@ -829,6 +846,7 @@ impl Config {
             glass: Glass::defaults(),
             images: crate::host::IMAGE_BUDGET,
             sixel: baud_domain::SixelClaim::No,
+            image_animation: ImageAnimation::Os,
             vs16_width: baud_domain::Vs16Width::Two,
             ambiguous_width: baud_domain::AmbiguousWidth::Narrow,
             emoji: baud_render::EmojiDefault::Font,
@@ -1775,6 +1793,19 @@ impl Config {
                                 "config: [images] advertise_sixel = {other:?} is not true or false; it stays off"
                             ));
                             baud_domain::SixelClaim::No
+                        }
+                    };
+                }
+                ("images", "animation") => {
+                    self.image_animation = match value.trim().trim_matches('"') {
+                        "os" => ImageAnimation::Os,
+                        "on" => ImageAnimation::On,
+                        "off" => ImageAnimation::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [images] animation {other:?} is not os, on or off; using os"
+                            ));
+                            ImageAnimation::Os
                         }
                     };
                 }
@@ -4350,6 +4381,38 @@ mod reader {
         );
         // A top-level key of the same name is not the images section's.
         assert_eq!(read("advertise_sixel = true\n").sixel, SixelClaim::No);
+    }
+
+    /// **`[images] animation` follows the system unless it says on or
+    /// off**, the owner's call of 2026-10-23: `os`, `on` and `off` read,
+    /// quoted or not; anything else is said and follows the system; the key
+    /// is the images section's only. Perturbation: default it to `On` --
+    /// the first assertion fails.
+    #[test]
+    fn image_animation_follows_the_system_unless_it_says_on_or_off() {
+        assert_eq!(Config::defaults().image_animation, ImageAnimation::Os);
+        for (text, want) in [
+            ("os", ImageAnimation::Os),
+            ("\"os\"", ImageAnimation::Os),
+            ("\"on\"", ImageAnimation::On),
+            ("\"off\"", ImageAnimation::Off),
+            ("off", ImageAnimation::Off),
+        ] {
+            let c = read(&format!("[images]\nanimation = {text}\n"));
+            assert_eq!(c.image_animation, want, "{text}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[images]\nanimation = \"sometimes\"\n");
+        assert_eq!(c.image_animation, ImageAnimation::Os);
+        assert!(
+            said.iter().any(|l| l.contains("[images] animation")),
+            "{said:?}"
+        );
+        assert_eq!(
+            read("animation = \"off\"\n").image_animation,
+            ImageAnimation::Os,
+            "a top-level key of the same name is not the images section's"
+        );
     }
 
     /// **`[clipboard] copy_on_select` is on unless it says off**, the

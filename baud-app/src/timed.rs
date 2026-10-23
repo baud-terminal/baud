@@ -103,6 +103,9 @@ pub(crate) struct Cell {
 pub(crate) struct Timed {
     pub(crate) clock: Clock,
     motion: SystemMotion,
+    /// `[images] animation`: whether a kitty animation plays, with the
+    /// motion preference (`access::image_motion`).
+    animation: crate::config::ImageAnimation,
     /// The phases the last frame drew with, and the rates it found on
     /// screen (`Renderer::blink_seen`).
     blink: BlinkPhases,
@@ -133,6 +136,7 @@ impl Timed {
         Timed {
             clock: Clock::new(epoch),
             motion,
+            animation: crate::config::ImageAnimation::Os,
             blink: BlinkPhases::SHOWN,
             seen: Blinking::UNSEEN,
             regis: RegisBlink::Off,
@@ -185,6 +189,12 @@ impl Timed {
         self.set_motion(self.motion, now)
     }
 
+    /// **`[images] animation`, from the config read at launch or again**:
+    /// the next turn steps or holds a kitty animation as it says.
+    pub(crate) fn set_image_animation(&mut self, a: crate::config::ImageAnimation) {
+        self.animation = a;
+    }
+
     /// The trail drawn now.
     #[cfg(test)]
     fn trail(&self) -> CursorTrail {
@@ -231,9 +241,12 @@ impl Timed {
             owes = Owes::Full;
         }
         let host = self.clock.host(now);
-        // A kitty animation's next frame, on this clock and held under
-        // reduced motion, as on macOS (`access::image_motion`).
-        let motion = crate::access::image_motion(self.motion);
+        // A kitty animation's next frame, on this clock and held as
+        // `[images] animation` and reduced motion say, as on macOS
+        // (`access::image_motion`); the desktop has no Animated Images
+        // setting.
+        let motion =
+            crate::access::image_motion(self.animation, self.motion, crate::access::AutoPlay::On);
         if term.animate_images(host, motion) == baud_domain::Animated::Changed {
             owes = Owes::Full;
         }
@@ -533,6 +546,59 @@ mod tests {
         assert_eq!(fx.turn(later, &mut t), Owes::Nothing, "held");
         assert_eq!(fx.frame_deadline(later, &t), None, "nothing to wake for");
         assert_eq!(shown(&t), FrameNo::ROOT, "held where it was");
+    }
+
+    /// **`[images] animation` decides over the motion preference**:
+    /// `"on"` plays a kitty animation under reduced motion and `"off"`
+    /// holds it under full motion, at the frame it shows, and `"os"` gives
+    /// the motion preference back. Perturbations: leave `animation` out of
+    /// `turn`'s call -- `"on"` holds under reduced motion; leave
+    /// `set_image_animation` unstored -- the same.
+    #[test]
+    fn the_animation_setting_plays_or_holds_whatever_the_motion() {
+        use crate::config::ImageAnimation;
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4 << 20));
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b_Ga=T,f=24,s=1,v=1,i=1,q=2;AAAA\x1b\\");
+        feed(&mut t, b"\x1b_Ga=f,f=24,s=1,v=1,i=1,z=100,q=2;////\x1b\\");
+        feed(
+            &mut t,
+            b"\x1b_Ga=a,i=1,r=1,z=100\x1b\\\x1b_Ga=a,i=1,s=3\x1b\\",
+        );
+        let off = TrailPick::Named(CursorTrail::Off);
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off);
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        let shown = |t: &Term<'_>| {
+            let img = t.images().kitty_image(KittyId::of(1)).expect("stored");
+            t.images().kitty_frames(img).expect("frames").1
+        };
+        let _ = fx.set_motion(SystemMotion::Reduced, t0);
+        fx.set_image_animation(ImageAnimation::On);
+        assert_eq!(fx.turn(t0, &mut t), Owes::Nothing, "stamped, not yet due");
+        let wake = fx
+            .frame_deadline(t0, &t)
+            .expect("plays under reduced motion");
+        assert_eq!(fx.turn(wake, &mut t), Owes::Full, "the second frame");
+        assert_eq!(shown(&t), FrameNo::of(2));
+        let _ = fx.set_motion(SystemMotion::Full, wake);
+        fx.set_image_animation(ImageAnimation::Off);
+        let later = wake + Duration::from_millis(500);
+        assert_eq!(
+            fx.turn(later, &mut t),
+            Owes::Nothing,
+            "held under full motion"
+        );
+        assert_eq!(fx.frame_deadline(later, &t), None, "nothing to wake for");
+        assert_eq!(shown(&t), FrameNo::of(2), "held at the frame it showed");
+        fx.set_image_animation(ImageAnimation::Os);
+        let next = later + Duration::from_millis(1);
+        let _ = fx.turn(next, &mut t);
+        let wake = fx
+            .frame_deadline(next, &t)
+            .expect("full motion plays again");
+        assert_eq!(fx.turn(wake, &mut t), Owes::Full, "the first again");
+        assert_eq!(shown(&t), FrameNo::ROOT);
     }
 
     /// **A ReGIS page's blinking pixels wake the wait at the slow flips and

@@ -30,6 +30,20 @@
 //!   as `a_local_centre_post_reaches_the_default_centre` shows by posting
 //!   on the first and hearing it on the second. Both exist from macOS
 //!   13.3, under the app's floor of 26, so both are linked.
+//! * **Animated Images** (System Settings, Accessibility, Display,
+//!   "Auto-play animated images"): `AXAnimatedImagesEnabled()` "Returns a
+//!   Boolean value that indicates whether the system setting for Animated
+//!   Images is on" (`[[source: apple-axanimatedimagesenabled]]`), and the
+//!   header pairs it with `AXAnimatedImagesEnabledDidChangeNotification`
+//!   (`[[source: macos-sdk-axsettings-h]]` 17-19). Both are in the
+//!   Accessibility framework from macOS 14, under the app's floor, so
+//!   both are linked. The notification's page has no text
+//!   (`[[source: apple-axanimatedimagesenableddidchangenotification]]`)
+//!   and the header names no centre; Apple's article observes it on
+//!   `NotificationCenter.default` and says to "Check the value of the
+//!   Animated Images setting at any time"
+//!   (`[[source: apple-accessibility-animated-images]]`), so it is
+//!   observed there, where the tests below post it.
 //!
 //! **Observed on the default centre with no queue**, so the block runs on
 //! the thread that posts, and does nothing there but set the mark: no
@@ -38,8 +52,9 @@
 //! `unsafe` is allowed here for the calls the bindings mark so -- the
 //! observer's registration, whose block is `Send` and `Sync` because it
 //! only stores to an atomic, and the extern statics naming the
-//! notifications -- and for MediaAccessibility's two symbols, which no
-//! binding among this crate's dependencies declares.
+//! notifications -- and for MediaAccessibility's and Accessibility's two
+//! symbols each, which no binding among this crate's dependencies
+//! declares.
 #![allow(unsafe_code)]
 
 use std::ptr::NonNull;
@@ -61,6 +76,8 @@ pub enum Setting {
     Scroller,
     /// Accessibility's Dim Flashing Lights.
     DimFlashingLights,
+    /// Accessibility's Animated Images.
+    AnimatedImages,
 }
 
 /// What the system asks of flashing on screen: Dim Flashing Lights on is
@@ -69,6 +86,40 @@ pub enum Setting {
 pub enum Flashing {
     Full,
     Dimmed,
+}
+
+/// What the system asks of an animated picture: Animated Images on is
+/// [`AnimatedImages::Play`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AnimatedImages {
+    Play,
+    Pause,
+}
+
+#[link(name = "Accessibility", kind = "framework")]
+unsafe extern "C" {
+    /// `BOOL AXAnimatedImagesEnabled(void)`, `AXSettings.h` 18.
+    fn AXAnimatedImagesEnabled() -> bool;
+    /// `NSNotificationName const
+    /// AXAnimatedImagesEnabledDidChangeNotification`, 19.
+    static AXAnimatedImagesEnabledDidChangeNotification: &'static NSNotificationName;
+}
+
+/// Whether Animated Images is on, asked now: read at launch and when its
+/// notification arrives.
+pub fn animated_images() -> AnimatedImages {
+    // SAFETY: a function of no arguments the framework exports from macOS
+    // 14, below the app's floor.
+    match unsafe { AXAnimatedImagesEnabled() } {
+        true => AnimatedImages::Play,
+        false => AnimatedImages::Pause,
+    }
+}
+
+/// The name Animated Images' change is posted under.
+fn animated_name() -> &'static NSNotificationName {
+    // SAFETY: a framework constant, a valid string for the process's life.
+    unsafe { AXAnimatedImagesEnabledDidChangeNotification }
 }
 
 #[link(name = "MediaAccessibility", kind = "framework")]
@@ -110,6 +161,7 @@ pub enum Heard {
 struct Marks {
     scroller: AtomicBool,
     flashing: AtomicBool,
+    animated: AtomicBool,
 }
 
 impl Marks {
@@ -117,6 +169,7 @@ impl Marks {
         match s {
             Setting::Scroller => &self.scroller,
             Setting::DimFlashingLights => &self.flashing,
+            Setting::AnimatedImages => &self.animated,
         }
     }
 }
@@ -139,6 +192,7 @@ impl Watch {
         let observers = vec![
             observe(&center, scroller, &marks, Setting::Scroller),
             observe(&center, flashing_name(), &marks, Setting::DimFlashingLights),
+            observe(&center, animated_name(), &marks, Setting::AnimatedImages),
         ];
         Watch { marks, observers }
     }
@@ -247,8 +301,10 @@ mod tests {
         drop(watch);
         post(scroller_name());
         post(flashing_name());
+        post(animated_name());
         assert!(!marks.scroller.load(Ordering::Acquire));
         assert!(!marks.flashing.load(Ordering::Acquire));
+        assert!(!marks.animated.load(Ordering::Acquire));
     }
 
     /// **Dim Flashing Lights' notification is heard apart from the
@@ -295,6 +351,38 @@ mod tests {
         // SAFETY: as above.
         unsafe { local.post_notification(Some(name), core::ptr::null(), None, true) };
         assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Changed);
+    }
+
+    /// **Animated Images' notification is heard apart from the other
+    /// two**: posted on the default centre by the framework's name, it
+    /// marks its own setting, once a take, and neither the scroller's nor
+    /// Dim Flashing Lights'; theirs do not mark it. Perturbation: observe
+    /// it as Dim Flashing Lights -- the first take reads unchanged.
+    #[test]
+    fn the_animated_images_notification_marks_its_own_setting() {
+        let _one = alone();
+        let watch = Watch::start();
+        post(animated_name());
+        assert_eq!(watch.take(Setting::AnimatedImages), Heard::Changed);
+        assert_eq!(watch.take(Setting::AnimatedImages), Heard::Unchanged);
+        assert_eq!(
+            watch.take(Setting::DimFlashingLights),
+            Heard::Unchanged,
+            "the control: Dim Flashing Lights' mark is its own"
+        );
+        assert_eq!(watch.take(Setting::Scroller), Heard::Unchanged);
+        post(flashing_name());
+        post(scroller_name());
+        assert_eq!(watch.take(Setting::AnimatedImages), Heard::Unchanged);
+        assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Changed);
+        assert_eq!(watch.take(Setting::Scroller), Heard::Changed);
+    }
+
+    /// **Animated Images reads**: a link check, as below -- the framework
+    /// loads and the call returns; the value is the owner's setting.
+    #[test]
+    fn the_animated_images_setting_reads() {
+        let _ = animated_images();
     }
 
     /// **The setting reads**: a link check -- the framework loads and the

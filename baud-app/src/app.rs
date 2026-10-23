@@ -32,7 +32,7 @@ use baud_domain::{
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
-use baud_present_macos::settings::{Flashing, Heard, Setting};
+use baud_present_macos::settings::{AnimatedImages, Flashing, Heard, Setting};
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer, SurfaceSpace,
@@ -754,6 +754,12 @@ struct App {
     /// drawn faint while it is (`dim_off_phases`). Read at launch and when
     /// its notification arrives (`follow_settings`).
     flashing: Flashing,
+    /// Whether Animated Images is on, and `[images] animation`: a kitty
+    /// animation plays or holds as the two and the motion preference say
+    /// (`access::image_motion`). The first is read at launch and when its
+    /// notification arrives (`follow_settings`).
+    animated: AnimatedImages,
+    image_animation: crate::config::ImageAnimation,
     trail: Option<TrailState>,
     /// The quad or sweep trail's state between frames (`trail.rs`), and
     /// the one ledger of full passes every trail weighs against, the
@@ -863,6 +869,8 @@ struct Boot {
     cursor_guide: baud_domain::CursorGuide,
     /// `[screen] badge`.
     badge: crate::config::BadgeShown,
+    /// `[images] animation`.
+    image_animation: crate::config::ImageAnimation,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -1081,6 +1089,7 @@ impl Boot {
             blink_interval: cfg.blink_interval,
             cursor_guide: cfg.cursor_guide,
             badge: cfg.badge,
+            image_animation: cfg.image_animation,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
@@ -1136,6 +1145,7 @@ impl App {
             blink_interval,
             cursor_guide,
             badge,
+            image_animation,
             screen_transition,
             scroll,
             trail_scroll,
@@ -1166,6 +1176,7 @@ impl App {
         let motion_source = motion_override(std::env::var("BAUD_MOTION").ok().as_deref());
         let motion = system_motion(motion_source, reduce_motion);
         let flashing = baud_present_macos::settings::flashing();
+        let animated = baud_present_macos::settings::animated_images();
         startup_mark("reduce motion");
         let trail_pick = cursor_trail;
         let cursor_trail = trail_pick.effective(motion);
@@ -1470,6 +1481,8 @@ impl App {
             motion,
             motion_source,
             flashing,
+            animated,
+            image_animation,
             trail: None,
             chase: crate::trail::Chase::new(cursor_trail.style()),
             last_cursor_cell: None,
@@ -7267,6 +7280,25 @@ mod motion_tests {
                 )),
             "{follow}"
         );
+        // Animated Images: read at launch, again when heard, and handed to
+        // the animation step with the config's setting.
+        assert_eq!(
+            SRC.matches(concat!(
+                "let animated = baud_present_macos::settings::",
+                "animated_images();"
+            ))
+            .count(),
+            1,
+            "the launch reads Animated Images"
+        );
+        assert!(
+            follow.contains("self.settings.take(Setting::AnimatedImages)")
+                && follow.contains(concat!(
+                    "self.app.animated = baud_present_macos::settings::",
+                    "animated_images();"
+                )),
+            "{follow}"
+        );
     }
 
     /// **The pump rings a read's bells before anything can return**, and
@@ -7571,15 +7603,21 @@ mod motion_tests {
         );
     }
 
-    /// **A kitty animation steps on the tick, through the motion
-    /// preference**, and a frame changed owes a whole frame: the tick is
-    /// AppKit-bound, so its source is what can be checked; the steps
-    /// themselves are the core's (`tests/kitty_animation.rs`) and the
+    /// **A kitty animation steps on the tick, through `[images]
+    /// animation`, the motion preference and Animated Images**, and a frame
+    /// changed owes a whole frame: the tick is AppKit-bound, so its source
+    /// is what can be checked; the steps themselves are the core's
+    /// (`tests/kitty_animation.rs`), the mapping `access.rs`'s and the
     /// Linux turn's (`timed.rs`).
     #[test]
     fn the_tick_steps_kitty_animations_under_the_motion_preference() {
         const SRC: &str = include_str!("app.rs");
-        let motion = concat!("crate::access::image_", "motion(self.app.motion)");
+        let motion = concat!(
+            "crate::access::image_",
+            "motion(\n                self.app.image_animation,\n",
+            "                self.app.motion,\n",
+            "                auto_play(self.app.animated),"
+        );
         assert_eq!(SRC.matches(motion).count(), 1, "{motion}");
         let call = concat!("self.app.term.animate_", "images(now, motion)");
         assert_eq!(SRC.matches(call).count(), 1, "{call}");
@@ -9154,10 +9192,15 @@ impl Responder for Driver {
             self.app.pending = Pending::Dirty;
         }
         // A kitty animation's next frame, off the display link's clock and
-        // held under Reduce Motion (`access::image_motion`): a frame shown
-        // in another's place moves no cell word, so the frame is whole.
+        // held as `[images] animation`, Reduce Motion and Animated Images
+        // say (`access::image_motion`): a frame shown in another's place
+        // moves no cell word, so the frame is whole.
         if let Some(now) = HostTime::of_secs(target) {
-            let motion = crate::access::image_motion(self.app.motion);
+            let motion = crate::access::image_motion(
+                self.app.image_animation,
+                self.app.motion,
+                auto_play(self.app.animated),
+            );
             if self.app.term.animate_images(now, motion) == baud_domain::Animated::Changed {
                 self.app.next_damage = Damage::Full;
                 self.app.pending = Pending::Dirty;
@@ -10296,7 +10339,9 @@ impl Driver {
     ///
     /// A change of Dim Flashing Lights is read here too, and the next
     /// tick's phases take it (`dim_off_phases`): a blinking cell's off
-    /// phase goes faint or hidden on the frame the phase change owes.
+    /// phase goes faint or hidden on the frame the phase change owes. So is
+    /// a change of Animated Images, which the same tick's animation step
+    /// takes: a held picture plays on, or a playing one holds where it is.
     fn follow_settings(&mut self) {
         let heard = self.settings.take(Setting::Scroller);
         if scroller_change(heard, self.app.scroller, scroller_style) == Relayout::Now {
@@ -10306,6 +10351,10 @@ impl Driver {
         if self.settings.take(Setting::DimFlashingLights) == Heard::Changed {
             self.app.flashing = baud_present_macos::settings::flashing();
             crate::info!("flashing: {:?}", self.app.flashing);
+        }
+        if self.settings.take(Setting::AnimatedImages) == Heard::Changed {
+            self.app.animated = baud_present_macos::settings::animated_images();
+            crate::info!("animated images: {:?}", self.app.animated);
         }
     }
 
@@ -10506,6 +10555,7 @@ impl Driver {
                 }
                 Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
                 Part::Badge => self.app.badge = c.badge,
+                Part::ImageAnimation => self.app.image_animation = c.image_animation,
                 Part::Hollow => {
                     self.app.unfocused_cursor = c.unfocused_cursor;
                     let f = self.app.focus;
@@ -13888,6 +13938,14 @@ fn scroller_style() -> Scroller {
     match NSScroller::preferredScrollerStyle(mtm) {
         NSScrollerStyle::Legacy => Scroller::Legacy,
         _ => Scroller::Overlay,
+    }
+}
+
+/// Animated Images as `access::image_motion` reads it.
+fn auto_play(a: AnimatedImages) -> crate::access::AutoPlay {
+    match a {
+        AnimatedImages::Play => crate::access::AutoPlay::On,
+        AnimatedImages::Pause => crate::access::AutoPlay::Off,
     }
 }
 

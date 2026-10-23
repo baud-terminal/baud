@@ -41,19 +41,46 @@ pub(crate) fn system_motion(
     }
 }
 
-/// **What the motion preference does to a kitty animation**: reduced, the
-/// frames hold where they are and a program's own frame changes still show
-/// (Jev's lean, HOLD_CURRENT, 0.85 and 0.88 after research, under the bar;
-/// the kitty text is silent): "reducing automatic and repetitive
-/// animations" under Reduce Motion (`[[source: apple-hig-accessibility]]`),
-/// as text blink and the cursor's blink stop under it. Apple's separate
-/// Animated Images setting, "Pause animations in animated images in your
-/// app when people turn off the Animated Images setting", is not read: the
-/// window crate has no reader for it.
-pub(crate) fn image_motion(m: crate::config::SystemMotion) -> baud_domain::ImageMotion {
-    match m {
-        crate::config::SystemMotion::Full => baud_domain::ImageMotion::Play,
-        crate::config::SystemMotion::Reduced => baud_domain::ImageMotion::Hold,
+/// Whether the system's Animated Images setting lets an animated picture
+/// play: macOS's, read by its driver
+/// (`baud_present_macos::settings::animated_images`); Linux's desktop has
+/// no such setting, so its driver passes [`AutoPlay::On`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AutoPlay {
+    On,
+    /// Only macOS has the setting to turn off.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    Off,
+}
+
+/// **Whether a kitty animation plays, from `[images] animation`, the
+/// motion preference and Animated Images**: held, the frames stay where
+/// they are and a program's own frame changes still show (Jev's lean,
+/// HOLD_CURRENT, 0.85 and 0.88 after research, under the bar; the kitty
+/// text is silent).
+///
+/// * `"os"`, the default, holds under reduced motion -- "reducing
+///   automatic and repetitive animations" under Reduce Motion (`[[source:
+///   apple-hig-accessibility]]`), as text blink and the cursor's blink
+///   stop under it -- and while Animated Images is off, as the HIG asks:
+///   "Pause animations in animated images in your app when people turn off
+///   the Animated Images setting". The owner's call of 2026-10-23, A,
+///   follows both.
+/// * `"on"` plays whatever the system says, and `"off"` holds always.
+pub(crate) fn image_motion(
+    setting: crate::config::ImageAnimation,
+    m: crate::config::SystemMotion,
+    auto: AutoPlay,
+) -> baud_domain::ImageMotion {
+    use crate::config::{ImageAnimation, SystemMotion};
+    use baud_domain::ImageMotion;
+    match (setting, m, auto) {
+        (ImageAnimation::On, _, _) => ImageMotion::Play,
+        (ImageAnimation::Off, _, _) => ImageMotion::Hold,
+        (ImageAnimation::Os, SystemMotion::Full, AutoPlay::On) => ImageMotion::Play,
+        (ImageAnimation::Os, SystemMotion::Reduced, _) | (ImageAnimation::Os, _, AutoPlay::Off) => {
+            ImageMotion::Hold
+        }
     }
 }
 
@@ -108,11 +135,36 @@ mod tests {
     use crate::config::SystemMotion;
     use baud_domain::ImageMotion;
 
-    /// **Reduced motion holds a kitty animation, full motion runs it**,
-    /// on both drivers through this one mapping.
+    /// **Under `"os"` a kitty animation plays only with full motion and
+    /// Animated Images on; `"on"` always plays and `"off"` always holds**,
+    /// on both drivers through this one mapping: all twelve inputs.
+    /// Perturbations: drop Animated Images from the `"os"` arm -- the
+    /// full-motion, auto-play-off row plays; read `"on"` as `"os"` -- its
+    /// reduced rows hold.
     #[test]
-    fn reduced_motion_holds_a_kitty_animation() {
-        assert_eq!(image_motion(SystemMotion::Full), ImageMotion::Play);
-        assert_eq!(image_motion(SystemMotion::Reduced), ImageMotion::Hold);
+    fn an_animation_plays_as_the_setting_motion_and_animated_images_say() {
+        use crate::config::ImageAnimation::{Off, On, Os};
+        use ImageMotion::{Hold, Play};
+        use SystemMotion::{Full, Reduced};
+        for (setting, m, auto, want) in [
+            (Os, Full, AutoPlay::On, Play),
+            (Os, Full, AutoPlay::Off, Hold),
+            (Os, Reduced, AutoPlay::On, Hold),
+            (Os, Reduced, AutoPlay::Off, Hold),
+            (On, Full, AutoPlay::On, Play),
+            (On, Full, AutoPlay::Off, Play),
+            (On, Reduced, AutoPlay::On, Play),
+            (On, Reduced, AutoPlay::Off, Play),
+            (Off, Full, AutoPlay::On, Hold),
+            (Off, Full, AutoPlay::Off, Hold),
+            (Off, Reduced, AutoPlay::On, Hold),
+            (Off, Reduced, AutoPlay::Off, Hold),
+        ] {
+            assert_eq!(
+                image_motion(setting, m, auto),
+                want,
+                "{setting:?} {m:?} {auto:?}"
+            );
+        }
     }
 }

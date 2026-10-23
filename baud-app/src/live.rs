@@ -56,6 +56,9 @@ pub enum Part {
     Badge,
     /// `[cursor] guide`.
     CursorGuide,
+    /// `[images] animation`: the next turn steps or holds a kitty
+    /// animation as it says.
+    ImageAnimation,
     /// What the core is told: `[screen] checksum`, `logging` and
     /// `print_*`, `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
@@ -102,6 +105,7 @@ impl Part {
             | Part::Hollow
             | Part::Badge
             | Part::CursorGuide
+            | Part::ImageAnimation
             | Part::TermOptions
             | Part::Bell
             | Part::Emoji
@@ -135,6 +139,7 @@ impl Part {
             Part::Hollow => "[cursor] unfocused_hollow",
             Part::Badge => "[screen] badge",
             Part::CursorGuide => "[cursor] guide",
+            Part::ImageAnimation => "[images] animation",
             Part::TermOptions => "the terminal's options",
             Part::Bell => "bell",
             Part::Emoji => "emoji",
@@ -203,6 +208,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         glass,
         images,
         sixel,
+        image_animation,
         vs16_width,
         ambiguous_width,
         emoji,
@@ -264,6 +270,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(old.unfocused_cursor != *unfocused_cursor, Part::Hollow);
     part(old.badge != *badge, Part::Badge);
     part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
+    part(
+        old.image_animation != *image_animation,
+        Part::ImageAnimation,
+    );
     part(
         old.checksum != *checksum
             || old.logging != *logging
@@ -454,6 +464,7 @@ mod tests {
             ("[cursor]\nunfocused_hollow = \"on\"\n", Part::Hollow),
             ("[screen]\nbadge = \"off\"\n", Part::Badge),
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
+            ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
             ("[screen]\nlogging = \"off\"\n", Part::TermOptions),
             ("[window]\noperations = \"off\"\n", Part::TermOptions),

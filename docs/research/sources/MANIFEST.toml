@@ -20878,7 +20878,7 @@ group  = "AL"
 
 [sources.macos-sdk-axsettings-h]
 key    = "macos-sdk-axsettings-h"
-title  = "AXSettings.h -- AXPrefersNonBlinkingTextInsertionIndicator, 'Apps that draw custom insertion indicators should honor this setting' (32-34); AXReduceHighlightingEffectsEnabled, 'reduce bright effects', macos(26.4) (44-46)"
+title  = "AXSettings.h -- AXAnimatedImagesEnabled and its change notification, macos(14.0) (17-19); AXPrefersNonBlinkingTextInsertionIndicator, 'Apps that draw custom insertion indicators should honor this setting' (32-34); AXReduceHighlightingEffectsEnabled, 'reduce bright effects', macos(26.4) (44-46)"
 author = "Apple Inc."
 year   = 2026
 venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
@@ -33654,3 +33654,48 @@ group  = "AZ"
 # defers to. The text layer extracts letter-spaced, as ECMA-48's does;
 # searched with the non-alphanumerics stripped, with a positive control:
 # the title, "teletex" and "SHS" hit before "proportional" was believed.
+
+[sources.apple-axanimatedimagesenabled]
+key    = "apple-axanimatedimagesenabled"
+title  = "AXAnimatedImagesEnabled() -- whether the system setting for Animated Images is on; macOS 14 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenabled().json"
+file   = "apple-axanimatedimagesenabled.json"
+sha256 = "2646102399cbca88f2663cbb7fac1c39ea9ff3988ba9caa32f3f9209aed9eed6"
+bytes  = 10118
+status = "retrieved"
+group  = "AL"
+# Read 2026-10-23 (lane b174) for [images] animation; committed: an Apple
+# documentation page.
+
+[sources.apple-axanimatedimagesenableddidchangenotification]
+key    = "apple-axanimatedimagesenableddidchangenotification"
+title  = "AXAnimatedImagesEnabledDidChangeNotification -- its declaration; macOS 14; the page has no text (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/axanimatedimagesenableddidchangenotification.json"
+file   = "apple-axanimatedimagesenableddidchangenotification.json"
+sha256 = "ff3f0d38e2145217078b24ef9a182254927226a996af564950706fa4d6557984"
+bytes  = 9483
+status = "retrieved"
+group  = "AL"
+# Read 2026-10-23 (lane b174) for [images] animation; committed: an Apple
+# documentation page.
+
+[sources.apple-accessibility-animated-images]
+key    = "apple-accessibility-animated-images"
+title  = "Animated images -- pause animations when people turn off the Animated Images setting; the sample observes the change on NotificationCenter.default (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/animated-images.json"
+file   = "apple-accessibility-animated-images.json"
+sha256 = "853da54b67f9e134fd9e2a97dbaa4288a13b9a525e4b9cddd2294ce979db01c9"
+bytes  = 14323
+status = "retrieved"
+group  = "AL"
+# Read 2026-10-23 (lane b174) for [images] animation; committed: an Apple
+# documentation page.

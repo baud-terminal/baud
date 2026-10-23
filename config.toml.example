@@ -422,9 +422,16 @@ mode = "smooth"
 # chafa's grid of block elements, box-drawing strokes and coloured spaces.
 # Off by default: the text preview is what baud is proven to draw right, and
 # the claim is the reader's to make.
+#
+# animation: whether an animated picture (kitty's protocol) plays. "os", the
+# default, plays it unless Reduce Motion is on or "Auto-play animated images"
+# is off in macOS's Accessibility settings (on Linux, unless the desktop's
+# reduced-motion setting is on); "on" always plays it; "off" holds every one
+# at the frame it shows.
 [images]
 pixels_mb = 95
 advertise_sixel = false
+animation = "os"
 
 # Whether a program can put text on the clipboard with OSC 52: remote
 # Neovim, tmux's copy mode or a multiplexer over ssh, which have no other way

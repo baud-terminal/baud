@@ -623,6 +623,7 @@ pub fn run() {
         notice,
         scheme: None,
     };
+    d.timed.set_image_animation(cfg.image_animation);
     if let crate::access::MotionSource::Fixed(m) = motion_source {
         d.set_motion(m);
     }
@@ -1754,6 +1755,7 @@ impl Driver {
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
                 Part::Badge => self.badge = c.badge,
+                Part::ImageAnimation => self.timed.set_image_animation(c.image_animation),
                 Part::Hollow => {
                     self.unfocused_cursor = c.unfocused_cursor;
                     self.renderer
