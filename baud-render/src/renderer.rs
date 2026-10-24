@@ -159,17 +159,42 @@ struct StyleInputs {
 
 /// **Where one resolved copy of the rendition table stands**: which table it
 /// resolved, how many of the table's writes, and under which inputs, and how
-/// many of its slots blink. One a copy -- the CPU path's own, and one for each
-/// of the cell path's buffer sets, since a set the GPU is reading cannot be
-/// written and so falls behind the others by a frame.
+/// many of its slots blink or carry a decoration. One a copy -- the CPU
+/// path's own, and one for each of the cell path's buffer sets, since a set
+/// the GPU is reading cannot be written and so falls behind the others by a
+/// frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct StyleStamp {
     table: Option<baud_domain::TableSerial>,
     at: baud_domain::StyleWrites,
     inputs: Option<StyleInputs>,
     blinking: Tally,
+    /// The slots of the copy, up to the table's length, that carry a shape
+    /// of [`Shapes::DECORATIONS`]: every one of them, a slot no cell names
+    /// included, so the count is never below the slots a cell can name.
+    decorated: Tally,
     /// What the core had reclaimed when this copy was stamped.
     reclaims: Option<baud_domain::Reclaims>,
+}
+
+impl StyleStamp {
+    /// Whether a slot of this copy may draw a decoration: none when the
+    /// copy was synced and no slot of it carries one, so a frame can leave
+    /// the decorations' pass undrawn. A copy never synced may hold any.
+    pub fn decorations(&self) -> Decorations {
+        match (self.table, self.decorated.value()) {
+            (Some(_), 0) => Decorations::Absent,
+            _ => Decorations::Present,
+        }
+    }
+}
+
+/// Whether a resolved copy of the table holds a slot that draws a
+/// decoration ([`StyleStamp::decorations`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Decorations {
+    Absent,
+    Present,
 }
 
 /// How a sync resolved a copy: the slots written since it was stamped, or
@@ -5946,6 +5971,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if !fresh {
             sync.pass = Pass::Full;
             stamp.blinking = Tally::default();
+            stamp.decorated = Tally::default();
         }
         let since = if fresh {
             stamp.at
@@ -5968,18 +5994,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     if new.shapes.blinks() {
                         stamp.blinking.bump();
                     }
+                    if fresh && dst.shapes.any(Shapes::DECORATIONS) {
+                        stamp.decorated.lose();
+                    }
+                    if new.shapes.any(Shapes::DECORATIONS) {
+                        stamp.decorated.bump();
+                    }
                     self.rings = self.rings.after(new.shapes);
                     *dst = new;
                     sync.resolved.bump();
+                }
+                // **A copy resolved afresh from the log** resolved the slots
+                // written since the table began and left the rest as an
+                // earlier table had them: no cell names one of those now, but
+                // a later write to one would take back a count it never
+                // gave. Counted whole, so a slot a later write replaces was
+                // counted if it carries a decoration.
+                if !fresh {
+                    stamp.decorated = Tally::of(
+                        out.iter()
+                            .take(slots.len())
+                            .filter(|d| d.shapes.any(Shapes::DECORATIONS))
+                            .count(),
+                    );
                 }
             }
             baud_core::Written::Every => {
                 sync.pass = Pass::Full;
                 stamp.blinking = Tally::default();
+                stamp.decorated = Tally::default();
                 for (slot, dst) in slots.iter().zip(out.iter_mut()) {
                     *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
                     if dst.shapes.blinks() {
                         stamp.blinking.bump();
+                    }
+                    if dst.shapes.any(Shapes::DECORATIONS) {
+                        stamp.decorated.bump();
                     }
                     self.rings = self.rings.after(dst.shapes);
                     sync.resolved.bump();
@@ -5998,6 +6048,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             at: now,
             inputs: Some(inputs),
             blinking: stamp.blinking,
+            decorated: stamp.decorated,
             reclaims: Some(reclaims),
         };
         self.blink_slots = stamp.blinking;

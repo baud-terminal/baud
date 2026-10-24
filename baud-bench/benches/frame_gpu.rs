@@ -44,6 +44,10 @@
 //! map's walk over a screen they walked last (`baud_render::WalkKey`), as
 //! the app does. The `FRAME_CARET` line counts the rows drawn.
 //!
+//! `FRAME_WHOLE=on` redraws the whole target on each of those frames,
+//! one in flight and the next as soon as it lands, and the waited arm's
+//! line reports the GPU time a frame: a whole frame of the final screen.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -322,6 +326,10 @@ fn main() {
         ],
         other => panic!("FRAME_CARET={other:?} is not switch, plasma or fire"),
     });
+    // `FRAME_WHOLE=on`: each `FRAME_IDLE` frame redraws the whole target,
+    // back to back: the GPU time a whole frame of the final screen takes,
+    // where a replay's frames draw what each read changed.
+    let whole = std::env::var("FRAME_WHOLE").is_ok_and(|v| v == "on");
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -635,7 +643,10 @@ fn main() {
                         }
                         _ => Done::Wait,
                     };
-                    let missing = ages.missing(surface);
+                    let missing = match idle && whole {
+                        true => Redraw::Whole,
+                        false => ages.missing(surface),
+                    };
                     let Some(Drawn::Frame(g)) =
                         gpu.draw_cells_since(&mut r, &input, &target, done, missing)
                     else {
@@ -815,8 +826,14 @@ fn main() {
                     );
                     continue;
                 }
+                // The GPU's time where the arm waited for it; an asynchronous
+                // frame's has not arrived when the frame is counted.
+                let gpu = match arm == Arm::Cells {
+                    true => format!(", gpu {:.1}", us(p.gpu)),
+                    false => String::new(),
+                };
                 println!(
-                    "      {kind}: {} frames; map {:.1}, styles {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1} us/frame",
+                    "      {kind}: {} frames; map {:.1}, styles {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1}{gpu} us/frame",
                     p.frames.value(),
                     us(p.map),
                     us(p.resolve),

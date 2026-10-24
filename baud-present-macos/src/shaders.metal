@@ -2202,6 +2202,9 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 // as the straight line does. A shape not drawn is a zero-area quad.
 #define SHAPE_SLOTS 27u
 #define FIXED_SLOTS 11u
+// The cursor's slot, which a frame with no decoration on its table draws
+// alone (`CURSOR_SHAPE_SLOT` in `metal.rs`, pinned beside `SHAPE_SLOTS`).
+#define CURSOR_SLOT 3u
 #define SEGMENTS (SHAPE_SLOTS - FIXED_SLOTS)
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
@@ -2220,7 +2223,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
     uint2 cell = cell_at(u, cells, col, dr);
     Style s = styles[cell.y & 0xffffu];
-    if (which != 3u && hidden(u, s.shapes)) return o;
+    if (which != CURSOR_SLOT && hidden(u, s.shapes)) return o;
     uint fgw, bgw, curw;
     colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
     float2 at; float2 wh; uint colw;
@@ -2246,7 +2249,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         at = float2(float(col * u.cell.x), rowy + y);
         wh = float2(u.cell.x, u.thickness);
         colw = (s.shapes & 4u) != 0u ? fgw : rule(u, s, bgw);
-    } else if (which == 3u) {
+    } else if (which == CURSOR_SLOT) {
         if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u
             || u.cursor_kind > 3u) return o;
         if (u.cursor_kind == 2u) {

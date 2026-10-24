@@ -491,9 +491,10 @@ summary = "Emoji families, flags and other joined emoji are taken in faster, and
 [[item]]
 id = "X2-30"
 area = "speed"
-status = "planned"
+status = "done"
+date = "2026-10-24"
 title = "Less GPU work per frame"
-summary = "Fewer drawing passes for the text grid."
+summary = "While no style a program has used underlines, strikes through, frames or otherwise decorates text, the GPU skips the pass that draws those lines, and the pass for letters that reach above their row when no letter does: a frame of btop or of CJK text takes a fifth to a third of the GPU time it did."
 
 [[item]]
 id = "2026-10-16-the-old-terminal-id-request-answers"

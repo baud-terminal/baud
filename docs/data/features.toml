@@ -437,6 +437,16 @@ tests = ["baud-core/tests/named_sequences.rs::every_named_sequence_is_kept_howev
 shipped = ["X2-25"]
 
 [[feature]]
+id = "gpu-decorations-skipped"
+area = "speed"
+name = "Less GPU work per frame"
+does = "While no style a program has used underlines, strikes through, frames or otherwise decorates text, the GPU skips the pass that draws those lines, and the pass for letters that reach above their row when no letter does; on this Mac a frame of btop took about 78 microseconds of GPU time where it took 366, and a frame of Chinese, Japanese and Korean text 207 where it took 575."
+status = "built"
+platform = "macos"
+tests = ["baud-present-macos/tests/cells.rs::each_decoration_alone_and_the_cursor_line_draw_alike_on_every_arm", "baud-present-macos/tests/cells.rs::an_undecorated_cursor_line_draws_by_rows_as_the_whole_frame_does", "baud-present-macos/tests/cells.rs::a_sliding_cursor_line_draws_as_the_whole_pass_does", "baud-render/tests/decorated_slots.rs::a_copy_counts_the_decorated_slots_it_holds"]
+shipped = ["X2-30"]
+
+[[feature]]
 id = "no-half-drawn"
 area = "speed"
 name = "No half-drawn screens"

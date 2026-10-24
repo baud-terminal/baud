@@ -39,8 +39,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 ## Speed
 
 - [ ] **Faster zoom** — Zooming keeps the glyphs it has already drawn instead of drawing every one again.
-- [ ] **Less GPU work per frame** — Fewer drawing passes for the text grid.
 - [ ] **Smoother window drags** — A drag step that cannot be shown yet is not drawn at all.
+- [x] **Less GPU work per frame** — While no style a program has used underlines, strikes through, frames or otherwise decorates text, the GPU skips the pass that draws those lines, and the pass for letters that reach above their row when no letter does: a frame of btop or of CJK text takes a fifth to a third of the GPU time it did. (2026-10-24)
 - [x] **Faster emoji sequences** — Emoji families, flags and other joined emoji are taken in faster, and many different ones on the screen at once no longer lose pieces. (2026-10-23)
 - [x] **Less work when only the cursor moves** — A frame where only the cursor, its blinking, its trail or the cursor guide changed redraws just the rows they cover, on both GPU paths and in the copy the CPU path makes to the screen. (2026-10-23)
 

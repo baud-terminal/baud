@@ -137,6 +137,23 @@ fn the_shape_slot_count_matches_the_shader() {
         baud_present_macos::metal::SHAPES_PER_CELL,
         "the shader divides by {line:?} and the draw call multiplies by \
          SHAPES_PER_CELL; they must be the same number"
+    ); // The cursor's slot: the one instance a frame with no decoration on
+    // its table draws of the pass, by its index.
+    let prefix = "#define CURSOR_SLOT ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines CURSOR_SLOT");
+    let slot: usize = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("CURSOR_SLOT is an unsigned literal");
+    assert_eq!(
+        slot,
+        baud_present_macos::metal::CURSOR_SHAPE_SLOT,
+        "the shader tests {line:?} and the draw call names CURSOR_SHAPE_SLOT; \
+         they must be the same slot"
     );
 }
 

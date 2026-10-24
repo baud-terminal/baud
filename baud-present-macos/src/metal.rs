@@ -61,9 +61,10 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, CursorLook, Dirty, Generation, Ground, Highlight, ImageComposite, ImageLayer,
-    ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, Reach, Redraw,
-    Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally, Tex, TexRect,
+    Argb, Atlas, CursorLook, Decorations, Dirty, Generation, Ground, Highlight, ImageComposite,
+    ImageLayer, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration,
+    Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally,
+    Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -106,6 +107,12 @@ const UNIFORM_FLOATS: usize = 12;
 /// instance id into a cell and a slot with; `the_shape_slot_
 /// count_matches_the_shader` pins the pair.
 pub const SHAPES_PER_CELL: usize = 27;
+
+/// The cursor's slot of a cell's shapes, its underline or its bar: what a
+/// frame whose table carries no decoration draws of the shape pass, one
+/// instance. **Must equal `CURSOR_SLOT` in `shaders.metal`**, pinned with
+/// the slot count.
+pub const CURSOR_SHAPE_SLOT: usize = 3;
 
 /// The shaders, as the compiler and the runtime both read them.
 /// `scripts/build-metallib.sh` compiles this file to `baud.metallib`;
@@ -195,6 +202,15 @@ struct Span(usize);
 /// records end.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct At(usize);
+
+/// What a frame draws of the cell path's shape pass: every cell's slots, the
+/// cursor's slot alone (the instance index), or nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ShapeDraw {
+    Every,
+    Cursor(usize),
+    Nothing,
+}
 
 /// A trail's own pipeline -- the quad's and the sweep's, or an effect's:
 /// built the first frame one is drawn, so a launch pays nothing for a trail
@@ -2376,6 +2392,27 @@ impl Gpu {
             _ => Redraw::Whole,
         };
         let drawn = missing.union(changed);
+        // **What the shape pass draws**: every cell's slots while a slot of
+        // the table carries a decoration; else the cursor's slot alone when
+        // the cursor is an underline or a bar -- every other instance would
+        // find no shape bit and draw nothing; else nothing. The pass's
+        // bindings stay, since the hollow cursor draws on them.
+        let shape_draw = match (input.table.decorations(), kind, input.cursor) {
+            (Decorations::Present, _, _) => ShapeDraw::Every,
+            (Decorations::Absent, CursorKind::Underline | CursorKind::Bar, Some((r, c, _)))
+                if r.index() + slide_rows < draw_rows && c.index() < cols.index() =>
+            {
+                ShapeDraw::Cursor(
+                    ((r.index() + slide_rows) * cols.index() + c.index()) * SHAPES_PER_CELL
+                        + CURSOR_SHAPE_SLOT,
+                )
+            }
+            (Decorations::Absent, _, _) => ShapeDraw::Nothing,
+        };
+        // **Whether a glyph reaches above its row**: with `up` zero no
+        // entry the map holds starts above its row's top, and the pass of
+        // glyphs' parts above their rows has nothing to draw.
+        let above_draws = up > 0;
         let clips: Vec<Option<(usize, usize, MTLScissorRect)>> = match drawn {
             Redraw::Whole => vec![None],
             Redraw::Rows(set) => bands(target, pad, renderer.pixel_size(), metrics.cell_h, set)
@@ -2576,10 +2613,23 @@ impl Gpu {
                     enc.setFragmentTexture_atIndex(Some(&color), 1);
                     enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
                     enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
-                    match clip {
+                    match (k, shape_draw, clip) {
+                        (2, ShapeDraw::Nothing, _) => {}
+                        (3, _, _) if !above_draws => {}
+                        // The cursor's line alone, held to the band by its
+                        // scissor as the whole pass would be.
+                        (2, ShapeDraw::Cursor(at), _) => {
+                            enc.drawPrimitives_vertexStart_vertexCount_instanceCount_baseInstance(
+                                MTLPrimitiveType::TriangleStrip,
+                                0,
+                                4,
+                                1,
+                                at,
+                            );
+                        }
                         // A band: the instances of its rows and of the rows that
                         // reach it, which are each row's run of the pass.
-                        Some((from, to, _)) => {
+                        (_, _, Some((from, to, _))) => {
                             let per = instances / draw_rows.max(1);
                             enc.drawPrimitives_vertexStart_vertexCount_instanceCount_baseInstance(
                                 MTLPrimitiveType::TriangleStrip,
@@ -2589,7 +2639,7 @@ impl Gpu {
                                 per * from,
                             );
                         }
-                        None => enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                        (_, _, None) => enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                             MTLPrimitiveType::TriangleStrip,
                             0,
                             4,

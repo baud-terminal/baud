@@ -4086,6 +4086,243 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     composed_decoration_gate(arms, t);
 }
 
+/// **The shape pass drawn by what the table holds** (`Gpu::draw_cells`
+/// leaves it undrawn while no slot carries a decoration, but for the
+/// cursor's line): each decoration alone, minted on a screen whose table
+/// held none, and an undecorated screen under each cursor shape, shaped and
+/// hollow, solid and part way through a fade -- each on a terminal of its
+/// own, since a reset keeps the table's slots. The cell arm against the
+/// instance arm and the CPU arm, with the premise checked each time -- the
+/// table held no decoration before, and the decoration or the cursor
+/// reached the pixels -- so a case cannot pass by testing nothing.
+#[test]
+fn each_decoration_alone_and_the_cursor_line_draw_alike_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // The screen before the case, drawn: the table it was synced from holds
+    // no decoration.
+    let plain = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        feed(
+            t,
+            b"\x1b[?25l\x1b[2;3HThe quick brown fox \x1b[31mjumps over\x1b[0m 0123456789",
+        );
+        let (before, _) = arms.draw(t);
+        assert_eq!(
+            arms.stamp.decorations(),
+            baud_render::Decorations::Absent,
+            "{what}: the table held no decoration before"
+        );
+        before
+    };
+    let tail = |sgr: &str| format!(" \x1b[{sgr}mmarked, a.b\x1b[0m end");
+    for sgr in [
+        "4", "9", "21", "4:2", "4:3", "4:4", "4:5", "53", "62", "63", "51", "52", "64",
+    ] {
+        let what = format!("SGR {sgr} alone");
+        let control = {
+            arms!(fresh() => arms, t);
+            plain(&mut arms, &mut t, &what);
+            feed(&mut t, tail("0").as_bytes());
+            arms.draw(&mut t).0
+        };
+        arms!(fresh() => arms, t);
+        plain(&mut arms, &mut t, &what);
+        feed(&mut t, tail(sgr).as_bytes());
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            arms.stamp.decorations(),
+            baud_render::Decorations::Present,
+            "{what}: counted a decoration"
+        );
+        assert!(
+            differing(&control, &a) > 0,
+            "{what}: never reached the instance arm's pixels"
+        );
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(differing(&a, &cpu), 0, "{what}: the CPU arm differs");
+    }
+    // The cursor on a table with no decoration, its own line the pass's one
+    // instance: under every shape and look, solid and fading.
+    for (shape, style) in [("block", 2), ("underline", 4), ("bar", 6)] {
+        for look in [CursorLook::Shaped, CursorLook::Hollow] {
+            for phase in [None, Some(blink_phases()[0].0)] {
+                let what = format!("a {shape} cursor, {look:?}, fading {}", phase.is_some());
+                arms!(fresh() => arms, t);
+                arms.renderer.set_cursor_look(look);
+                plain(&mut arms, &mut t, &what);
+                feed(&mut t, tail("0").as_bytes());
+                let (none, _) = arms.draw(&mut t);
+                feed(
+                    &mut t,
+                    format!("\x1b[{style} q\x1b[2;5H\x1b[?25h").as_bytes(),
+                );
+                if let Some(p) = phase {
+                    arms.renderer.set_cursor_blink(p);
+                }
+                let (a, b) = arms.draw(&mut t);
+                assert_eq!(
+                    arms.stamp.decorations(),
+                    baud_render::Decorations::Absent,
+                    "{what}: the table holds no decoration"
+                );
+                assert!(
+                    differing(&none, &a) > 0,
+                    "{what}: the cursor reached no pixel"
+                );
+                assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+                let cpu = cpu_frame(&mut arms, &mut t);
+                let d = channel_diff(&cpu, &a, |_| true);
+                assert_eq!(d.0, 0, "{what}: the CPU arm differs by up to {}", d.1);
+            }
+        }
+    }
+}
+
+/// **The cursor's line alone, drawn by rows**: an underline and a bar
+/// cursor on a table with no decoration, moved and blinked by
+/// cursor-only frames, each drawn into the target the rotation gives it
+/// and compared with the whole frame -- the one instance of the shape pass
+/// held to each band's scissor as the whole pass would be.
+#[test]
+fn an_undecorated_cursor_line_draws_by_rows_as_the_whole_frame_does() {
+    for shape in ["\x1b[4 q", "\x1b[6 q"] {
+        let mut steps: Vec<Step> = vec![(
+            "plain text, the cursor a line",
+            Damage::Incremental,
+            Box::new(move |_, t| {
+                feed(
+                    t,
+                    b"\x1b[?25h\x1b[2;1HThe quick brown fox jumps over 0123456789",
+                );
+                feed(
+                    t,
+                    b"\x1b[5;1H\x1b[32mthe lazy dog\x1b[0m, again: ABCDEFGHIJ",
+                );
+                feed(t, format!("{shape}\x1b[3;5H").as_bytes());
+            }),
+            Want::Any,
+        )];
+        let cells = [
+            (3, 9),
+            (8, 30),
+            (4, 1),
+            (2, 3),
+            (1, 1),
+            (9, 119),
+            (5, 60),
+            (10, 2),
+        ];
+        for (r, c) in cells.iter().copied().chain(cells.iter().copied().rev()) {
+            steps.push((
+                "the cursor moved",
+                Damage::Incremental,
+                at(r, c),
+                Want::Rows,
+            ));
+        }
+        for p in [CursorPhase::HIDDEN, CursorPhase::SHOWN].repeat(3) {
+            steps.push((
+                "the blink flipped",
+                Damage::Incremental,
+                blink(p),
+                Want::Rows,
+            ));
+        }
+        steps.push((
+            "the table still holds no decoration",
+            Damage::Incremental,
+            Box::new(|a, t| {
+                assert_eq!(
+                    a.stamp.decorations(),
+                    baud_render::Decorations::Absent,
+                    "the premise: the shape pass draws the cursor's line alone"
+                );
+                feed(t, b"\x1b[6;7H");
+            }),
+            Want::Rows,
+        ));
+        let n = steps.len();
+        rows_were_few(&cell_oracle(Reads::Copy, Px::of(0), steps, n));
+    }
+}
+
+/// **The cursor's line under a slide**: a frame sliding by a whole row
+/// with an underline or a bar cursor, drawn from a table with no
+/// decoration and from one that holds an underline no cell names -- the
+/// cursor's one instance against the whole pass, on screens alike.
+#[test]
+fn a_sliding_cursor_line_draws_as_the_whole_pass_does() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    for shape in ["\x1b[4 q", "\x1b[6 q"] {
+        let frames = ["\x1b[1;1Hy", "\x1b[1;1H\x1b[4mx\x1b[0m\x1b[1;1Hy"].map(|before| {
+            arms!(fresh() => arms, t);
+            feed(&mut t, before.as_bytes());
+            let rows = usize::from(WS.ws_row);
+            for y in 1..=rows {
+                feed(
+                    &mut t,
+                    format!("\x1b[{y};3Hline {y}: The quick brown fox, 0123456789").as_bytes(),
+                );
+            }
+            feed(
+                &mut t,
+                format!("\x1b[{rows};1H\n{shape}\x1b[5;9H").as_bytes(),
+            );
+            let cell_h = arms.renderer.metrics().cell_h;
+            feed(&mut t, b"\x1b[?25l");
+            arms.slide = Some(cell_h);
+            let (_, none) = arms.draw(&mut t);
+            feed(&mut t, b"\x1b[?25h");
+            let (_, slid) = arms.draw(&mut t);
+            assert!(
+                differing(&none, &slid) > 0,
+                "{shape:?} after {before:?}: the cursor reached the slide's pixels"
+            );
+            (arms.stamp.decorations(), slid)
+        });
+        let [(absent, a), (present, b)] = frames;
+        assert_eq!(absent, baud_render::Decorations::Absent, "the premise");
+        assert_eq!(present, baud_render::Decorations::Present, "the premise");
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{shape:?}: the cursor's one instance is not the whole pass's line"
+        );
+    }
+}
+
 /// **`SGR 11`-`19` and `SGR 20` draw from their fonts alike on all three
 /// arms**: the cell arm through the font bits in its glyph-map key, the
 /// instance and CPU arms through the stack. Font 1 is JetBrains Mono

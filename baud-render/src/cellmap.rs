@@ -856,6 +856,20 @@ impl Shapes {
             | Shapes::ENCIRCLED.0
             | Shapes::STRESS.0,
     );
+    /// Every shape the cell shader's decorations pass draws for a cell, the
+    /// bits its slots test: the underline, the strike, the double
+    /// underline, the curly, dotted and dashed underlines' segments, and
+    /// [`Shapes::EDGES`]. A table with no slot carrying one leaves that pass
+    /// undrawn but for the cursor's line.
+    pub const DECORATIONS: Shapes = Shapes(
+        Shapes::UNDERLINE.0
+            | Shapes::STRIKE.0
+            | Shapes::DOUBLE_UNDERLINE.0
+            | Shapes::CURLY_UNDERLINE.0
+            | Shapes::DOTTED_UNDERLINE.0
+            | Shapes::DASHED_UNDERLINE.0
+            | Shapes::EDGES.0,
+    );
     /// Both blink shapes: a slot holds at most one, since `SGR 5` and `6`
     /// replace each other (`Attrs::BLINKS`).
     pub const BLINKS: Shapes = Shapes(Shapes::BLINK.0 | Shapes::RAPID_BLINK.0);
