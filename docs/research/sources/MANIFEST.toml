@@ -33610,9 +33610,10 @@ status = "external"
 group  = "C"
 # Read 2026-10-23 for the licence of the committed copy, `williams`. The
 # article, from its heading to its footer, is line for line the committed
-# copy's; the site's logo in the navigation differs, and the footer, which
-# the committed copy wraps in an HTML comment, is shown here: "Copyright
-# 2002‒2017 Paul Flo Williams" and the CC BY 4.0 line.
+# copy's; the two differ in head metadata (title, icon, a schema.org
+# block), in the site's logo in the navigation, and in the footer, which
+# the committed copy wraps in an HTML comment and which is shown here:
+# "Copyright 2002‒2017 Paul Flo Williams" and the CC BY 4.0 line.
 
 [sources.vt100-net-emu-index]
 key    = "vt100-net-emu-index"
@@ -33691,7 +33692,7 @@ group  = "AZ"
 
 [sources.apple-axanimatedimagesenabled]
 key    = "apple-axanimatedimagesenabled"
-title  = "AXAnimatedImagesEnabled() -- whether the system setting for Animated Images is on; macOS 14 (documentation JSON)"
+title  = "AXAnimatedImagesEnabled() -- whether the system setting for Animated Images is on; macOS 14, deprecated at macOS 15.0 and renamed AccessibilitySettings.animatedImagesEnabled (documentation JSON)"
 author = "Apple"
 year   = 2026
 venue  = "developer.apple.com/documentation/accessibility"
@@ -33954,6 +33955,34 @@ bytes  = 12776
 status = "retrieved"
 group  = "AN"
 
+[sources.rust-issue-155086]
+key    = "rust-issue-155086"
+title  = "rust-lang/rust issue #155086 \"[ICE]: cannot decode `AttrId` with `CacheDecoder`\" -- opened 2026-04-10, nightly-2026-04-03 good and every later one not; open, labelled S-needs-repro and S-needs-info"
+author = "dvdplm"
+year   = 2026
+venue  = "github.com/rust-lang/rust (issue, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/issues/155086"
+file   = "rust-issue-155086.json"
+sha256 = "d37fe485592b13a11629f7adb28c035909de2619e29349f6157062be4c1117c2"
+bytes  = 25347
+status = "retrieved"
+group  = "AN"
+
+[sources.rust-issue-155086-comments]
+key    = "rust-issue-155086-comments"
+title  = "rust-lang/rust issue #155086 comments -- 'This is most likely a duplicate of #154878.'"
+author = "rust-lang/rust contributors"
+year   = 2026
+venue  = "github.com/rust-lang/rust (issue comments, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/issues/155086/comments?per_page=100"
+file   = "rust-issue-155086-comments.json"
+sha256 = "9d969e13f76d06aa4555566cdc56636bda0842fd26f87b792b38fd68ecc4b429"
+bytes  = 4795
+status = "retrieved"
+group  = "AN"
+# Both fetched 2026-10-23 for the record's B6-05 section; the issue's
+# state and labels are as of that day.
+
 [sources.rust-pr-155056]
 key    = "rust-pr-155056"
 title  = "rust-lang/rust PR #155056, Revert \"Port lint attributes to attribute parser\" -- reverts #152369 and #154808, closes #154878; merged 2026-04-10T03:09:40Z as dd82fd20"
@@ -34057,6 +34086,7 @@ sha256 = "180725aa036853240dc642b97a13d51bf199228ccb395a14f234ad820cf1417f"
 bytes  = 19610
 status = "external"
 group  = "AN"
+
 [sources.sccache-0-18-rust-rs]
 key    = "sccache-0-18-rust-rs"
 title  = "sccache v0.18.0 src/compiler/rust.rs -- the Rust hash key: the full command line (less -L, --extern, --out-dir), every CARGO_ variable but four, and the working directory ('This will wind up in the rlib'); no base directory applied"

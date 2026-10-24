@@ -1675,7 +1675,8 @@ impl Config {
                         None => {
                             said.push(format!(
                                 "config: [screen] substitute_character {} is not one character \
-                                 one cell wide; using U+2426, \u{2426}",
+                                 one cell wide under every width setting, \
+                                 ambiguous_width = \"wide\" included; using U+2426, \u{2426}",
                                 value.trim()
                             ));
                             baud_domain::ErrorCharacter::DEC

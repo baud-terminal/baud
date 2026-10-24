@@ -382,9 +382,11 @@ guide = "off"
 # lost on the way, and cancels an escape sequence cut short -- shows a mark
 # where it arrived, as DEC's VT220 to VT500 and xterm show one. "off" by
 # default, showing nothing; "on" shows substitute_character there, in the
-# colours around it. substitute_character is one character one cell wide,
-# written as itself or as a \u escape: DEC's reversed question mark, U+2426, by
-# default; anything else is named in the message row and U+2426 is used.
+# colours around it. substitute_character is one character, written as itself
+# or as a \u escape, that is one cell wide under every width setting: § or ¿,
+# one cell by default and two under ambiguous_width = "wide", is refused.
+# DEC's reversed question mark, U+2426, is the default; a character that does
+# not fit is named in the message row and U+2426 is used.
 [screen]
 transition = false
 checksum = "on"

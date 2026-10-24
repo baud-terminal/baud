@@ -37,7 +37,12 @@
 //!   header pairs it with `AXAnimatedImagesEnabledDidChangeNotification`
 //!   (`[[source: macos-sdk-axsettings-h]]` 17-19). Both are in the
 //!   Accessibility framework from macOS 14, under the app's floor, so
-//!   both are linked. The notification's page has no text
+//!   both are linked. Apple's documentation page marks the C function
+//!   deprecated at macOS 15.0, renamed to Swift's
+//!   `AccessibilitySettings.animatedImagesEnabled`; the macOS 27.0 SDK's
+//!   header, line 18, declares it available from `macos(14.0)` and
+//!   `NS_REFINED_FOR_SWIFT`, with no deprecation, so the C symbol is the
+//!   one linked. The notification's page has no text
 //!   (`[[source: apple-axanimatedimagesenableddidchangenotification]]`)
 //!   and the header names no centre; Apple's article observes it on
 //!   `NotificationCenter.default` and says to "Check the value of the

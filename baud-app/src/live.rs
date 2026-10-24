@@ -60,7 +60,8 @@ pub enum Part {
     /// animation as it says.
     ImageAnimation,
     /// What the core is told: `[screen] checksum`, `substitute_mark`,
-    /// `substitute_character`, `logging` and `print_*`, `[window] operations`, `[pointer] hide_while_typing`,
+    /// `substitute_character`, `logging` and `print_*`,
+    /// `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
     TermOptions,
     Bell,

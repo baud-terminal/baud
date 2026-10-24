@@ -11,11 +11,15 @@
 //! current rendition and DECSCA attribute, shifting the line under IRM, the
 //! cursor moving on and wrapping under DECAWM; and note 2, within an escape
 //! or control sequence "the sequence in progress to be aborted and the
-//! Substitute control function to be executed instead". VT420 and VT510:
-//! SUB "Immediately cancels an escape sequence, control sequence, or device
-//! control string in progress, and displays a reverse question mark". A
-//! Sixel's body keeps 070-9 §9.1's blank sixel, and VT52 mode draws nothing
-//! (Jev's lean, ANSI_MODE_ONLY, 0.76 and 0.84, which a re-ask split).
+//! Substitute control function to be executed instead". The VT420's SUB
+//! "Immediately cancels an escape sequence, control sequence, or device
+//! control string in progress. The VT420 displays a reverse question mark
+//! for an error character" (`[[source: vt420-uu-ch9]]`); the VT510's
+//! "Immediately cancels an escape sequence, control sequence, or device
+//! control string in progress, and displays a reverse question mark as an
+//! error character" (`[[source: vt510-chapter4]]`). A Sixel's body keeps
+//! 070-9 §9.1's blank sixel, and VT52 mode draws nothing (Jev's lean,
+//! ANSI_MODE_ONLY, 0.76 and 0.84, which a re-ask split).
 
 use baud_core::*;
 use baud_domain::{ErrorCharacter, SubstituteMark, UnfitMark};
