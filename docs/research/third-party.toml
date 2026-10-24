@@ -774,7 +774,7 @@ files   = [
 ]
 
 [upstream.williams-parser]
-name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0, and it sits in the inline SVG's metadata with dc:type StillImage and the diagram's title, so it describes the state diagram. The footer naming CC BY 4.0 is inside an HTML comment in this copy, and vt100.net's other pages carry a copyright line and no licence. The same footer was visible on 2023-09-06 and 2023-09-24 over a body line for line this copy's (manifest `williams-dec-ansi-parser-20230924`), and CC BY 4.0 calls its grant irrevocable (2(a)(1)) and says stopping distribution does not end it (6(c); `cc-by-4-0-legalcode`). The whole file is kept under the stricter BY-NC-SA 3.0."
+name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0, and it sits in the inline SVG's metadata with dc:type StillImage and the diagram's title, so it describes the state diagram. The footer naming CC BY 4.0 is inside an HTML comment in this copy, and vt100.net's emulation index carries a copyright line and no licence (manifest `vt100-net-emu-index`). The same footer was visible on 2023-09-06 and 2023-09-24 over an article line for line this copy's (manifest `williams-dec-ansi-parser-20230906` and `williams-dec-ansi-parser-20230924`), and CC BY 4.0 calls its grant irrevocable (2(a)(1)) and says stopping distribution does not end it (6(c); `cc-by-4-0-legalcode`). The whole file is kept under the stricter BY-NC-SA 3.0."
 licence = "CC-BY-NC-SA-3.0"
 notice  = "uri"
 status  = "nc"

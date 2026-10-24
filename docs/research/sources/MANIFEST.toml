@@ -33593,7 +33593,41 @@ group  = "C"
 # Its body, prose and the inline SVG with its BY-NC-SA 3.0 RDF, is line for
 # line the committed copy's; the two differ in head metadata (title, icon, a
 # schema.org block) and in the footer, which the committed copy wraps in an
-# HTML comment. The 2023-09-06 snapshot shows the same footer.
+# HTML comment. The 2023-09-06 snapshot shows the same footer
+# (`williams-dec-ansi-parser-20230906`).
+
+[sources.williams-dec-ansi-parser-20230906]
+key    = "williams-dec-ansi-parser-20230906"
+title  = "A parser for DEC's ANSI-compatible video terminals, as vt100.net served it on 2023-09-06 -- the footer then visible: 'This work is licensed under a Creative Commons Attribution 4.0 International License'"
+author = "Paul Flo Williams"
+year   = 2023
+venue  = "vt100.net (via the Internet Archive)"
+url    = "https://web.archive.org/web/20230906211212id_/https://vt100.net/emu/dec_ansi_parser"
+file   = ""
+sha256 = "b64c9ae9a3588e89640e9e0722698051d1f0c07d9953cfc7d818c58fb6a270ea"
+bytes  = 91635
+status = "external"
+group  = "C"
+# Read 2026-10-23 for the licence of the committed copy, `williams`. The
+# article, from its heading to its footer, is line for line the committed
+# copy's; the site's logo in the navigation differs, and the footer, which
+# the committed copy wraps in an HTML comment, is shown here: "Copyright
+# 2002‒2017 Paul Flo Williams" and the CC BY 4.0 line.
+
+[sources.vt100-net-emu-index]
+key    = "vt100-net-emu-index"
+title  = "vt100.net, Emulation index page -- its footer a copyright line, 'Copyright 2002–2006 Paul Flo Williams', and no licence"
+author = "Paul Flo Williams"
+year   = 2006
+venue  = "vt100.net (via the Internet Archive)"
+url    = "https://web.archive.org/web/20260719061142id_/https://vt100.net/emu/"
+file   = ""
+sha256 = "98ec7d197a57cf1ba8cc7cf46d0728d0bc735df0192f7a57a822bc77e8e5f71e"
+bytes  = 21515
+status = "external"
+group  = "C"
+# Read 2026-10-23: the footer is the copyright line alone, and nothing on the
+# page names a licence. The live page served the same bytes that day.
 
 [sources.cc-by-4-0-legalcode]
 key    = "cc-by-4-0-legalcode"

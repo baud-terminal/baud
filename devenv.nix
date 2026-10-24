@@ -437,7 +437,8 @@ in
   # `@completed`. Named, each gate is a root and its failure is hard, so a
   # red unit run fails `devenv test` after the later gates have run. Drop
   # unit, bare, linux, audit or features from this list, or run one later
-  # gate alone (`devenv tasks run test:features` schedules the chain before
-  # it), and that gate's failure exits 0.
+  # gate alone (`devenv tasks run test:features`, or the by-hand
+  # `test:feature-suites`, schedules the chain before it), and that gate's
+  # failure exits 0.
   enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
 }

@@ -41,11 +41,13 @@ Fonts embedded in the baud application:
   baud-app/fonts/symbols-nerd-font/
       Symbols Nerd Font Mono 3.5.1, unmodified: MIT (LICENSE), with the icon
       sets it carries under their own licences, which README.md lists and
-      icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/: SIL
-      Open Font License 1.1 (Pomicons, Weather Icons, and Font Awesome, whose
-      licence applies the OFL to its icons packaged as fonts), Apache 2.0
-      (Material Design), CC BY 4.0 (Codicons), the Unlicense (Font Logos)
-      and MIT (Octicons and the rest).
+      icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and,
+      for the five MIT sets it ships no licence file for (Devicons,
+      extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from
+      each set's own project: SIL Open Font License 1.1 (Pomicons, Weather
+      Icons, and Font Awesome, whose licence applies the OFL to its icons
+      packaged as fonts), Apache 2.0 (Material Design), CC BY 4.0 (Codicons),
+      the Unlicense (Font Logos) and MIT (Octicons and the rest).
   baud-app/fonts/built/Regular.ttf
   baud-app/fonts/built/Bold.ttf
       and OFL.txt, FONTLOG.txt and AUTHORS.txt beside them: JetBrains Mono
