@@ -754,6 +754,12 @@ struct App {
     /// drawn faint while it is (`dim_off_phases`). Read at launch and when
     /// its notification arrives (`follow_settings`).
     flashing: Flashing,
+    /// The activity lights' clocks, told of each read that brought bytes
+    /// and each write the kernel took any of, stepped every tick
+    /// (`baud_render::lights`), and whether they are shown, from `[window]
+    /// activity_lights`.
+    activity: baud_render::Activity,
+    activity_lights: baud_render::ActivityLights,
     /// Whether Animated Images is on, and `[images] animation`: a kitty
     /// animation plays or holds as the two and the motion preference say
     /// (`access::image_motion`). The first is read at launch and when its
@@ -895,6 +901,7 @@ struct Boot {
     /// Whether a program's window operations are performed, from `[window]
     /// operations`.
     window_ops: baud_domain::WindowOps,
+    activity_lights: baud_render::ActivityLights,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
     /// Whether a program's print opens the print panel, from `[screen]
@@ -1103,6 +1110,7 @@ impl Boot {
             checksum: cfg.checksum,
             substitute: cfg.substitute,
             window_ops: cfg.window_ops,
+            activity_lights: cfg.activity_lights,
             logging: cfg.logging,
             printing: cfg.printing,
             notifications: cfg.notifications,
@@ -1160,6 +1168,7 @@ impl App {
             checksum,
             substitute,
             window_ops,
+            activity_lights,
             logging,
             printing,
             notifications,
@@ -1487,6 +1496,8 @@ impl App {
             motion,
             motion_source,
             flashing,
+            activity: baud_render::Activity::new(),
+            activity_lights,
             animated,
             image_animation,
             trail: None,
@@ -1636,9 +1647,18 @@ impl App {
         if self.outbox.is_empty() {
             return Sent::Nothing;
         }
+        // SD lights for a write the kernel took any of, never for bytes
+        // still owed.
         match self.pty.write(&mut self.outbox) {
-            Wrote::All => Sent::Bytes,
-            Wrote::Short => Sent::Nothing,
+            Wrote::All => {
+                self.activity.sent(host_now());
+                Sent::Bytes
+            }
+            Wrote::Part => {
+                self.activity.sent(host_now());
+                Sent::Nothing
+            }
+            Wrote::Nothing => Sent::Nothing,
         }
     }
 
@@ -3527,6 +3547,10 @@ struct Driver {
     icon_x: CGFloat,
     icon_size: CGFloat,
     icon_inset: CGFloat,
+    /// The activity lights at the strip's right, in the same container
+    /// (`lights.rs`), and the appearance the body under the strip draws in.
+    lights: crate::lights::Strip,
+    lights_appearance: Appearance,
     /// The config's files watched and the config as last read, while
     /// `config_reload` is on (`reload.rs`).
     reload: Option<Reloading>,
@@ -8276,6 +8300,11 @@ impl Driver {
         let drained = self.app.pty.drain();
         if !drained.chunks.is_empty() {
             startup_first("first bytes", &FIRST_BYTES);
+            // RD: the latest read's own stamp, taken by the reader as the
+            // read returned -- one store a drain, not a byte's work.
+            if let Some(last) = drained.chunks.last() {
+                self.app.activity.received(last.at);
+            }
             // The reader stamped each read as it returned: the first one
             // after a key's write is that key's echo.
             self.app
@@ -9215,6 +9244,9 @@ impl Responder for Driver {
             }
         }
         self.pump(Trigger::Tick);
+        // The activity lights, after the pump has stamped this turn's
+        // reads and writes: a swap of the view's picture, never a frame.
+        self.show_lights(target);
         // Every tick, not every frame: an idle screen builds no frame and
         // is the one this has to be able to report on.
         self.app.report();
@@ -9618,6 +9650,14 @@ pub fn run() {
     startup_mark("shown");
     let mut icon_iv: Option<Retained<NSImageView>> = None;
     let (mut icon_x, mut icon_s) = (0.0_f64, 0.0_f64);
+    // The activity lights keep the traffic lights' gap from the strip's
+    // other edge: the close button's distance from the left, once laid out.
+    let lights_right = window
+        .ns_window()
+        .standardWindowButton(NSWindowButton::CloseButton)
+        .map(|c| c.frame())
+        .filter(|f| f.size.height >= 1.0)
+        .map_or(12.0, |f| f.origin.x);
     if let Some(img) = &icon {
         // Placed against the real traffic lights rather than a hand-picked x.
         // The window is FullSizeContentView, so `container` (the content view)
@@ -9720,6 +9760,8 @@ pub fn run() {
         icon_x,
         icon_size: icon_s,
         icon_inset: inset,
+        lights: crate::lights::Strip::new(lights_right),
+        lights_appearance: glass.appearance(&window),
         reload: None,
         notice,
         glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
@@ -10522,6 +10564,8 @@ impl Driver {
                 Part::CopyOnSelect => {
                     self.app.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
+                // Put up or taken down at the next tick.
+                Part::ActivityLights => self.app.activity_lights = c.activity_lights,
                 Part::AmbiguousWidth => self.app.term.set_ambiguous_width(c.ambiguous_width),
                 Part::Scroll => self.app.scroll = c.scroll,
                 Part::Transition => self.app.screen_transition = c.screen_transition,
@@ -11232,6 +11276,41 @@ impl Driver {
     /// Re-place the titlebar mark at the top-left of its superview, whose
     /// height it reads now rather than at launch. Cheap -- one `setFrame` --
     /// and it runs on every resize so the mark cannot drift or vanish.
+    /// **The activity lights at the tick's target**: the clocks stepped,
+    /// and the view shown, swapped or taken down as `[window]
+    /// activity_lights`, the scale, the appearance and Dim Flashing Lights
+    /// say (`lights.rs`).
+    fn show_lights(&mut self, target: f64) {
+        let Some(now) = HostTime::of_secs(target) else {
+            return;
+        };
+        let shown = self.app.activity.step(now);
+        let body = match self.glass.kind() {
+            BodyKind::Standard => crate::lights::Body::Standard,
+            BodyKind::Glass => crate::lights::Body::Glass,
+        };
+        let wanted = crate::lights::Drawn {
+            scale: self.app.scale,
+            glow: crate::lights::glow(self.app.flashing),
+            appearance: self.lights_appearance,
+            backdrop: crate::lights::under(body, self.lights_appearance),
+        };
+        self.lights.show(
+            self.app.activity_lights,
+            wanted,
+            shown,
+            &self.app.renderer,
+            self.window.ns_window(),
+            &self.icon_super,
+            self.icon_inset,
+        );
+    }
+
+    /// The activity lights follow the window's top-right on every resize.
+    fn place_lights(&self) {
+        self.lights.place(&self.icon_super, self.icon_inset);
+    }
+
     fn place_icon(&self) {
         let Some(iv) = &self.icon else { return };
         let cy = self.icon_super.frame().size.height - self.icon_inset / 2.0;
@@ -11407,8 +11486,10 @@ impl Driver {
             Px::of(u32::try_from(px_w.max(0.0) as i64).unwrap_or(0)),
             Px::of(u32::try_from(px_h.max(0.0) as i64).unwrap_or(0)),
         );
-        // The titlebar mark follows the window's top-left on every resize.
+        // The titlebar mark follows the window's top-left on every resize,
+        // and the activity lights its top-right.
         self.place_icon();
+        self.place_lights();
         // The scroller the setting asks for now, and the gutter the frame
         // keeps for it -- before either early return below, because a frame
         // that changed width is a new frame whether or not the grid did.
@@ -11723,6 +11804,10 @@ impl Driver {
         let Some(appearance) = self.style.0.take() else {
             return;
         };
+        // The activity lights are drawn for the body the strip shows, in
+        // the appearance it draws in.
+        self.lights_appearance = self.glass.appearance(&self.window);
+        self.lights.stale();
         // The unemphasized pair is the appearance's, so it follows a flip
         // while the window is not key.
         self.inactive_selection(self.app.focus);

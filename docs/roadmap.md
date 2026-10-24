@@ -94,8 +94,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **A launch splash** — baud's colour logo, gone in a burst of plasma by the time the shell is ready, with a setting to turn it off.
 - [ ] **A prompt pinned to the bottom** — An optional mode that keeps the shell prompt at the bottom of the window.
 - [ ] **A slide when full-screen programs open and close** — The screen slides between your shell and a full-screen program, as an option beside today's fade.
-- [ ] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off.
 - [ ] **Cmd-N opens a new window** — Open another window, including after the last one closed.
+- [x] **Activity lights in the title bar** — Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar. (2026-10-24)
 - [x] **Blinking text follows Dim Flashing Lights** — With macOS's Dim Flashing Lights on, blinking text keeps its rates but dims in its off phase instead of vanishing, and switching the setting shows at once. (2026-10-22)
 - [x] **Readable colours on the light and dark glass** — Every built-in light and dark colour but the page's own reads at 4.5:1 on its page, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper. (2026-10-18)
 - [x] **Reverse video swaps every cell's colours** — With the reverse-screen mode on, foreground and background swap on every cell, including cells with explicit colours, as the DEC standard says. (2026-10-14)

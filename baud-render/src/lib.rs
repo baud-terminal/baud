@@ -42,6 +42,7 @@ mod guide;
 pub mod ice;
 mod instance;
 pub mod lightning;
+pub mod lights;
 mod linked;
 pub mod liquid;
 mod metrics;
@@ -84,6 +85,10 @@ pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
+pub use lights::{
+    Activity, ActivityLights, ByShown, GROUND_DARK, GROUND_LIGHT, Glow, Light, LightsImage,
+    LightsLook, Shown,
+};
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{

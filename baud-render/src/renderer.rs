@@ -3208,6 +3208,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The activity lights, drawn in the badge's face** -- baud's
+    /// embedded JetBrains Mono Bold (`Stack::badge`) -- for the window's
+    /// title strip ([`crate::lights::draw`]).
+    pub fn activity_lights(
+        &self,
+        look: &crate::LightsLook,
+        shown: crate::Shown,
+        scale: f32,
+        height: f32,
+        out: &mut crate::LightsImage,
+    ) -> Option<()> {
+        let face = self.stack.face(self.stack.badge());
+        crate::lights::draw(face, look, shown, scale, height, out)
+    }
+
+    /// The activity lights' width in points, in the badge's face.
+    pub fn activity_lights_width(&self) -> f32 {
+        crate::lights::width(self.stack.face(self.stack.badge()))
+    }
+
     /// The badge's records, for a path that draws records of its own:
     /// first among its grounds, before the cursor guide.
     pub fn badge(&self) -> &[Instance] {

@@ -89,7 +89,12 @@ pub const VAR_POINTS_MAX: u32 = 200_000;
 /// refuses outright answers [`Drawn::Refused`], for the caller to count as
 /// well and to draw the face's `.notdef` for (`Atlas::slot`). Any other
 /// glyph of a face at its default instance never asks.
-fn outline<S: Sink>(var: &mut Vec<VarPoint>, face: &Face<'_>, id: GlyphId, sink: &mut S) -> Drawn {
+pub(crate) fn outline<S: Sink>(
+    var: &mut Vec<VarPoint>,
+    face: &Face<'_>,
+    id: GlyphId,
+    sink: &mut S,
+) -> Drawn {
     match face.outline_at(id, var, sink) {
         Drawn::NeedsScratch(need) if need.value() <= VAR_POINTS_MAX => {
             var.resize(

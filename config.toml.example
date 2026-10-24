@@ -481,6 +481,11 @@ copy_on_select = "on"
 # where the window is and how big it is either way.
 [window]
 operations = "on"
+# Two small lights at the right of the title bar, like a modem's: RD
+# lights while bytes come in from the program, SD while bytes go out to it
+# (your keys, a paste, the terminal's answers). "on" by default; "off"
+# takes them away. macOS only: the Linux window has no title bar.
+activity_lights = "on"
 
 # Whether a key you type hides the mouse pointer until the mouse moves, as
 # xterm does. "on" by default: it hides unless a program is using the mouse

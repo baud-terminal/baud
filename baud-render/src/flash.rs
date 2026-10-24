@@ -171,6 +171,15 @@ fn transition(c: &Seen, g: &Seen, rule: Rule) -> bool {
     }
 }
 
+/// **Whether a change between two opaque colours is a transition**: a
+/// general one, or a red one at the red bound, either state a saturated
+/// red. The activity lights' Dim Flashing Lights cap reads every pair it
+/// draws through this.
+pub(crate) fn flashes(a: Argb, b: Argb) -> bool {
+    let (a, b) = (seen(rgb(a)), seen(rgb(b)));
+    transition(&a, &b, Rule::General) || transition(&a, &b, Rule::Red(STEP))
+}
+
 /// **The frame's blend**: the ink premultiplied at alpha `a` over the opaque
 /// ground, in encoded space, rounded to a byte -- a `BGRA8Unorm` target's,
 /// and `over` in `baud-present-macos/tests/cells.rs`.

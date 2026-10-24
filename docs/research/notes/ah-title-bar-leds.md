@@ -1,7 +1,8 @@
 # AH. Lights on the title bar: what each LED may honestly light for
 
 **Status: research draft, 2026-10-09; revised the same day after a read-only
-review. Nothing is built.** Every baud file:line citation in this note is
+review. The RD and SD pair was built on 2026-10-24 (section 10); every other
+light in this note is unbuilt.** Every baud file:line citation in this note is
 pinned at commit `ccb8aaa`.
 
 - Section 1 holds the owner's two requests.
@@ -1509,3 +1510,40 @@ header.
 - **The kernel tty trigger cannot watch a pty** (2.1). An "LED for the tty"
   that read kernel counters on Linux would always be dark, so the counts have
   to be baud's own.
+
+## 10. Built: the RD and SD pair (2026-10-24)
+
+Roadmap F1-20 is the pty pair only, so this is what was built of the note.
+Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
+
+- **What lights them.** RD: the stamp the reader already puts on each
+  read, the latest a drain brought (3.1). SD: each write the kernel took any of; a write that took none,
+  on a full queue, leaves SD dark (section 7's test, held by
+  `a_write_the_full_queue_takes_nothing_of_says_so`). Replies nobody typed
+  stay inside SD (Q3 unanswered; SD counts what was sent).
+- **Placement (Q7).** P3, an image view in baud's container at the strip's
+  right, re-placed on every resize (Jev SUBVIEW 1.00/1.00). The pixels
+  are baud's renderer's. The owner's crate needs nothing for it; P1,
+  a trailing accessory API in the crate, remains the alternative.
+- **Look (Q7, Q9).** RD and SD letters to the left of each light (a
+  lean, 0.89/0.88). RD is AppKit's `systemGreenColor`, SD its
+  `systemOrangeColor`, resolved under the window's appearance (a lean,
+  0.91/0.88).
+- **Timing (Q6).** A light is lit for 200 ms after the last byte. Once it
+  changes, it does not change again for 200 ms (Jev 0.96/0.97), so any
+  closed second holds at most three flashes. For comparison, iTerm2's
+  activity indicator holds 2 s after the last read
+  ([[source: iterm2-964a75d-ptysession-isprocessing]],
+  [[source: iterm2-964a75d-advanced-idle-time]]), and Konsole masks its
+  activity notice for 15 s ([[source: konsole-session-a88fae0]]).
+- **Accessibility (Q6).** Dim Flashing Lights draws a lit light at the
+  most of its colour that makes no WCAG flash over any grey the body
+  under the strip can be: the standard material's range, or black to
+  white over the glass (Jev 1.00/1.00). Reduce Motion changes nothing (a lean,
+  0.92/0.89).
+- **The setting.** `[window] activity_lights = "on" | "off"`, on by
+  default (Jev 1.00/0.98 on the name). It takes effect at once on reload.
+- **Linux.** Nothing: the Linux window has no title bar.
+
+Decision log 1473 to 1476.
+

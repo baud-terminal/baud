@@ -370,6 +370,12 @@ pub struct Config {
     /// A program on the other end of the line, a remote one included, can
     /// otherwise move or hide the window.
     pub window_ops: baud_domain::WindowOps,
+    /// `[window] activity_lights`: whether two modem-style lights at the
+    /// right of the title strip show bytes coming in (RD) and going out
+    /// (SD), `"on"` by default (the owner: "again option in config to turn
+    /// it off"), or `"off"`. macOS only: the Linux window has no title bar
+    /// (`baud_render::lights`).
+    pub activity_lights: baud_render::ActivityLights,
     /// `[pointer] hide_while_typing`: whether a key hides the pointer
     /// unless a program tracks the mouse, `"on"` by default -- xterm's
     /// `pointerMode` default, 1 -- or `"off"`, which never hides it, xterm's
@@ -901,6 +907,7 @@ impl Config {
             notifications: Notifications::On,
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
+            activity_lights: baud_render::ActivityLights::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
             scroll: ScrollMode::Smooth,
@@ -1757,6 +1764,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::WindowOps::On
+                        }
+                    };
+                }
+                ("window", "activity_lights") => {
+                    self.activity_lights = match value.trim().trim_matches('"') {
+                        "on" => baud_render::ActivityLights::On,
+                        "off" => baud_render::ActivityLights::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [window] activity_lights {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            baud_render::ActivityLights::On
                         }
                     };
                 }
@@ -4379,6 +4399,34 @@ mod reader {
         );
     }
 
+    /// **The activity lights are on unless `[window] activity_lights =
+    /// "off"`**, quoted or bare; any other value keeps them on and says so,
+    /// and the key is the `[window]` section's.
+    #[test]
+    fn the_activity_lights_are_on_unless_turned_off() {
+        use baud_render::ActivityLights;
+        assert_eq!(Config::defaults().activity_lights, ActivityLights::On);
+        assert_eq!(read("").activity_lights, ActivityLights::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[window]\nactivity_lights = {off}\n");
+            assert_eq!(read(&text).activity_lights, ActivityLights::Off, "{off}");
+        }
+        assert_eq!(
+            read("[window]\nactivity_lights = \"on\"\n").activity_lights,
+            ActivityLights::On
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[window]\nactivity_lights = false\n");
+        assert_eq!(c.activity_lights, ActivityLights::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("activity_lights"), "{said:?}");
+        assert_eq!(
+            read("activity_lights = \"off\"\n").activity_lights,
+            ActivityLights::On,
+            "not a top-level key"
+        );
+    }
+
     /// **Exit-status marks are off unless `[screen] exit_status = "on"`**,
     /// quoted or bare; any other value keeps them off and says so, and the
     /// key is the `[screen]` section's.
@@ -5388,6 +5436,13 @@ shadow     = "never"
             "the [window] operations"
         );
         assert_eq!(c.window_ops, baud_domain::WindowOps::On);
+        let window = text.split_once("\n[window]\n").map_or("", |(_, w)| w);
+        let window = window.split_once("\n[").map_or(window, |(w, _)| w);
+        assert!(
+            window.contains("\nactivity_lights = \"on\"\n"),
+            "the [window] activity_lights"
+        );
+        assert_eq!(c.activity_lights, baud_render::ActivityLights::On);
         assert!(
             text.contains("\n[pointer]\nhide_while_typing = \"on\"\n"),
             "the [pointer] hide_while_typing"

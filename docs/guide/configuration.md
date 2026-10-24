@@ -62,8 +62,9 @@ and reopening it.
 
 - **A new `ambiguous_width` measures the next character.** Text already
   on the screen keeps the columns it was written with.
-- **On Linux, padding, the scroll mode and the glass's tint and shadow**
-  are not drawn, so a change to them shows nothing there.
+- **On Linux, padding, the scroll mode, the glass's tint and shadow and
+  the activity lights** are not drawn, so a change to them shows nothing
+  there; the Linux window has no title bar to hold the lights.
 - **A size you zoomed to stays.** A new `font_size` shows only while the
   window is at the old one; Actual Size then returns to the new one.
 - **Colours a program set stay** until it resets them, as they do when the
@@ -211,6 +212,7 @@ unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
+| `activity_lights` | `"on"`, `"off"` | `"on"` | Whether two small lights at the right of the title bar show the line's activity, as a modem's front panel did: RD lights while bytes come in from the program, SD while bytes go out to it (your keys, a paste, the terminal's answers). A light stays on a fifth of a second after the last byte and never flashes more than three times a second; with Dim Flashing Lights on in macOS's Accessibility settings a lit light is drawn faint. macOS only. |
 | `operations` | `"on"`, `"off"` | `"on"` | Whether a program can move, resize, minimise, raise, lower, maximise or full-screen baud's window, as xterm lets it. A test suite such as vttest asks this way, and so does a program that sizes the window to fit what it draws. A program on another machine, or a file you `cat`, can also move the window off the screen or hide it; `"off"` refuses every request. Programs can still ask where the window is and how big it is either way. |
 
 ## [pointer]

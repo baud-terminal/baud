@@ -249,9 +249,10 @@ summary = "baud's colour logo, gone in a burst of plasma by the time the shell i
 [[item]]
 id = "F1-20"
 area = "window"
-status = "planned"
+status = "done"
+date = "2026-10-24"
 title = "Activity lights in the title bar"
-summary = "Small modem-style lights for bytes coming in and going out, with a setting to turn them off."
+summary = "Small modem-style lights for bytes coming in and going out, with a setting to turn them off. On macOS; the Linux window has no title bar."
 
 [[item]]
 id = "F1-23"

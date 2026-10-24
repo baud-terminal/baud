@@ -269,6 +269,14 @@ pub struct Backdrop {
 }
 
 impl Backdrop {
+    /// Every grey the backdrop spans, darkest first, as opaque colours.
+    pub fn greys(self) -> impl Iterator<Item = Argb> {
+        (self.dark.get()..=self.light.get()).map(|v| {
+            let c = Chan::from_u8(v);
+            Argb::rgb(c, c, c)
+        })
+    }
+
     /// Anything from black to white.
     pub fn any() -> Backdrop {
         Backdrop {

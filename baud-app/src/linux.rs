@@ -1756,6 +1756,8 @@ impl Driver {
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
                 Part::Badge => self.badge = c.badge,
+                // The Linux window has no title bar to put them in.
+                Part::ActivityLights => {}
                 Part::ImageAnimation => self.timed.set_image_animation(c.image_animation),
                 Part::Hollow => {
                     self.unfocused_cursor = c.unfocused_cursor;

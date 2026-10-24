@@ -70,6 +70,9 @@ pub enum Part {
     Notifications,
     /// `[clipboard] copy_on_select`.
     CopyOnSelect,
+    /// `[window] activity_lights`: the lights are put up or taken down at
+    /// the next tick.
+    ActivityLights,
     /// `config_reload` itself.
     Reload,
     /// `colorspace`.
@@ -112,6 +115,7 @@ impl Part {
             | Part::Emoji
             | Part::Notifications
             | Part::CopyOnSelect
+            | Part::ActivityLights
             | Part::AmbiguousWidth
             | Part::Reload => Takes::Now,
             Part::ColourSpace
@@ -146,6 +150,7 @@ impl Part {
             Part::Emoji => "emoji",
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
+            Part::ActivityLights => "[window] activity_lights",
             Part::Reload => "config_reload",
             Part::ColourSpace => "colorspace",
             Part::GlassStyle => "[glass] style",
@@ -203,6 +208,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         notifications,
         graphics_print,
         window_ops,
+        activity_lights,
         pointer_mode,
         font_changes,
         scroll,
@@ -293,6 +299,10 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(
         old.clipboard.copy_on_select != clipboard.copy_on_select,
         Part::CopyOnSelect,
+    );
+    part(
+        old.activity_lights != *activity_lights,
+        Part::ActivityLights,
     );
     part(old.config_reload != *config_reload, Part::Reload);
     part(old.colorspace != *colorspace, Part::ColourSpace);
@@ -485,6 +495,10 @@ mod tests {
             (
                 "[clipboard]\ncopy_on_select = \"off\"\n",
                 Part::CopyOnSelect,
+            ),
+            (
+                "[window]\nactivity_lights = \"off\"\n",
+                Part::ActivityLights,
             ),
             ("config_reload = \"off\"\n", Part::Reload),
             ("colorspace = \"display-p3\"\n", Part::ColourSpace),

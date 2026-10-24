@@ -94,16 +94,20 @@ pub struct Drained {
 /// What `read(2)` delivers at most per call, the tty's own quantum.
 const READ_CHUNK: usize = 4096;
 
-/// Whether a write reached the child whole.
+/// Whether a write reached the child whole, in part, or not at all.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Wrote {
     /// The kernel took every byte owed, and the outbox is empty.
     All,
-    /// The kernel took none of it, or not all of it: the slave's input queue
-    /// is full because the child is not reading, or the child is gone. The
-    /// rest is still in the outbox, first in line for the next write. It was
-    /// lost until 2026-10-09.
-    Short,
+    /// The kernel took some of it and not all: the slave's input queue
+    /// filled because the child is not reading. The rest is still in the
+    /// outbox, first in line for the next write. It was lost until
+    /// 2026-10-09.
+    Part,
+    /// The kernel took none of it: the queue is full, or the child is gone,
+    /// and everything owed is still owed. The activity lights' SD stays
+    /// dark for it, since nothing was sent.
+    Nothing,
 }
 
 /// Bytes owed to the child that the kernel has not taken yet, oldest first.
@@ -274,9 +278,10 @@ fn write_some(fd: crate::sys::Fd, out: &mut Outbox) -> Wrote {
         }
     }
     out.bytes.drain(..at);
-    match out.bytes.is_empty() {
-        true => Wrote::All,
-        false => Wrote::Short,
+    match (out.bytes.is_empty(), at) {
+        (true, _) => Wrote::All,
+        (false, 0) => Wrote::Nothing,
+        (false, _) => Wrote::Part,
     }
 }
 
@@ -3355,6 +3360,38 @@ mod tests {
         assert_eq!(readable(1 << 20), Waited::Unwatchable);
     }
 
+    /// **A write the full queue takes nothing of says so**, so the activity
+    /// lights' SD stays dark for bytes still owed (note AH, section 7): a
+    /// raw child that never reads lets Darwin's master take 1022 bytes of
+    /// 8192, a part, and the next write finds no room and takes none, every
+    /// byte still owed.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_write_the_full_queue_takes_nothing_of_says_so() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("/bin/stty raw -echo; echo ready; exec /bin/sleep 30".into()),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        read_until(master, "ready\n");
+        nonblocking(master).expect("O_NONBLOCK");
+        let mut out = Outbox::default();
+        out.push(&[b'x'; 8192]);
+        assert_eq!(write_some(master, &mut out), Wrote::Part);
+        let owed = out.bytes.len();
+        assert!(owed > 0 && owed < 8192, "{owed} owed");
+        assert_eq!(write_some(master, &mut out), Wrote::Nothing);
+        assert_eq!(out.bytes.len(), owed, "nothing taken, nothing lost");
+        // SAFETY: `master` is the descriptor forkpty returned and nothing
+        // else owns it; closing it hangs the sleeping child up.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    }
+
     /// **A write the queue cannot hold returns, and what it could not take
     /// stays owed, in order.** A raw child that never reads let Darwin's
     /// master take 1022 bytes and then answered `EAGAIN` (measured
@@ -3388,7 +3425,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(
             first,
-            Wrote::Short,
+            Wrote::Part,
             "Darwin's queue holds 1022 bytes, so 8192 do not go in one write; {} were taken",
             payload.len() - out.bytes.len()
         );

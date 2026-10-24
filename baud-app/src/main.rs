@@ -103,6 +103,9 @@ mod kitty_files;
 mod keep;
 #[cfg(target_os = "macos")]
 mod latency;
+// The activity lights in the title strip: the Linux window has none.
+#[cfg(target_os = "macos")]
+mod lights;
 // An input method's composition and the cell its candidate window opens
 // at: pure, so its tests run on every platform, and both drivers draw
 // through it.
