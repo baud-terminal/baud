@@ -34983,3 +34983,51 @@ url    = "https://raw.githubusercontent.com/romkatv/zsh4humans/c0c29f999635f58e2
 sha256 = "a937c42e91c84d471ec8163b0275d5499360e8919dcbc6d025f5aaae939859f9"
 bytes  = 276
 group  = "C"
+# Retrieved 2026-10-24. Read: vt_bidi() and log2vis(). A character in
+# U+2500-U+259F or a DEC Special Graphics one splits the line, makes its
+# base left to right, and each segment is given to fribidi on its own with
+# its direction found from its text; ASCII separators only from the user's
+# list (none by default); a right-to-left segment's trailing spaces are put
+# back at its right end.
+[sources.mlterm-vt-bidi-c-46cbbc9]
+key    = "mlterm-vt-bidi-c-46cbbc9"
+title  = "mlterm vtemu/libctl/vt_bidi.c -- box drawing and DEC graphics split a line into segments, each resolved on its own"
+author = "Araki Ken and contributors"
+venue  = "arakiken/mlterm at 46cbbc9 (BSD-style)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/46cbbc94cca70a8a116f1cd839ec3193af875882/vtemu/libctl/vt_bidi.c"
+sha256 = "f3800cde68a9fea7d73cd5b2b6a3d1d45612123abfe1ab5f6262e000764bfcb6"
+bytes  = 13070
+# Retrieved 2026-10-24. Read: BiDiClass() (U+2500-U+25FF answered as
+# U_LEFT_TO_RIGHT when BidiTableDirOverride is set) and bidiMap(), which
+# resolves each screen line on its own, at level 0 under BidiLineLTR.
+[sources.konsole-terminaldisplay-c8bc143]
+key    = "konsole-terminaldisplay-c8bc143"
+title  = "Konsole src/terminalDisplay/TerminalDisplay.cpp -- bidiMap, BidiLineLTR and BidiTableDirOverride"
+author = "The Konsole developers"
+venue  = "KDE/konsole at c8bc143 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/KDE/konsole/c8bc143ff2705c5c98bef77e941c6bae2f3e6627/src/terminalDisplay/TerminalDisplay.cpp"
+sha256 = "13d03d34a056d9adf6111b00fa512940d0de765708aa2cce1fc35c9ce6ab4fcd"
+bytes  = 135757
+# Retrieved 2026-10-24, a living standard: the hash is that day's page.
+# Read: the dir attribute's auto state ("it just looks at the first
+# character with a strong directionality, in a manner analogous to the
+# Paragraph Level determination in the bidirectional algorithm").
+[sources.whatwg-html-dom-dir]
+key    = "whatwg-html-dom-dir"
+title  = "HTML Living Standard, 3. Semantics, structure, and APIs of HTML documents (dom.html) -- the dir attribute and auto directionality"
+author = "WHATWG"
+venue  = "html.spec.whatwg.org/multipage"
+url    = "https://html.spec.whatwg.org/multipage/dom.html"
+sha256 = "3a1406c89a411b6a9d2c23f7166552f1fab9240671bbad9e00f30f85890c65f4"
+bytes  = 440654
+# Retrieved 2026-10-24. Read: 6.1, text-align, "Initial: start" and
+# "start: Inline-level content is aligned to the start edge of the line
+# box".
+[sources.css-text-3]
+key    = "css-text-3"
+title  = "CSS Text Module Level 3 -- 6.1 text-align"
+author = "W3C"
+venue  = "w3.org/TR/css-text-3"
+url    = "https://www.w3.org/TR/css-text-3/"
+sha256 = "17c26f1b41455947f106dac81736944b12da328ee4892c7c5b601f5b65ced55a"
+bytes  = 540326

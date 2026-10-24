@@ -2114,7 +2114,7 @@ paths = ["docs/embedding.md", "baud-core/examples/quickstart.rs"]
 [[missing]]
 name = "Right-to-left text"
 area = "text"
-does = "Hebrew and Arabic lines are drawn right to left from the start: a line that starts in Hebrew or Arabic runs right to left against the window's right edge, with its closing period at its left end, and the cursor, the selection and the mouse follow; a program that lays out its own right-to-left text turns it off with `CSI 8 l`. A program cannot yet set a line's direction, and Arabic letters are not joined."
+does = "Hebrew and Arabic lines are drawn right to left from the start: a line that starts in Hebrew or Arabic runs right to left against the window's right edge, with its closing period at its left end; a table drawn with box-drawing lines keeps its columns, a Hebrew name reading right to left in its cell; and the cursor, the selection and the mouse follow; a program that lays out its own right-to-left text turns it off with `CSI 8 l`. A program cannot yet set a line's direction, and Arabic letters are not joined."
 roadmap = ["SQ-v1.0-01"]
 
 [[missing]]

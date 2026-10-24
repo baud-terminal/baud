@@ -10096,6 +10096,64 @@ fn a_right_to_left_paragraph_is_drawn_against_the_right_edge_on_every_arm() {
     );
 }
 
+/// **A table row keeps its columns, and each cell its own direction, alike
+/// on every arm**: the owner's table (2026-10-24, "the table should be like
+/// B but דנהshould b be rtl"), its rows drawn with box-drawing rules. Each
+/// cell is a paragraph of its own (UAX #9 section 3's table cells, HL4), so
+/// the Hebrew name and the Hebrew owner read right to left against their
+/// cells' right sides and every rule stays under the one above. The
+/// expected frame is the rows written already in that order with BDSM
+/// reset.
+#[test]
+fn a_table_row_keeps_its_columns_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let rows = [
+        "\u{2502} Name          \u{2502} Size \u{2502} Owner \u{2502}",
+        "\u{2502} notes.txt     \u{2502} 42   \u{2502} ido   \u{2502}",
+        "\u{2502} \u{5DE}\u{5E1}\u{5DE}\u{5DA}.txt      \u{2502} 812  \u{2502} \u{5D3}\u{5E0}\u{5D4}   \u{2502}",
+    ];
+    let visual = "\u{2502}      txt.\u{5DA}\u{5DE}\u{5E1}\u{5DE} \u{2502} 812  \u{2502}   \u{5D4}\u{5E0}\u{5D3} \u{2502}";
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let base = b"\x1b[?25l\x1b[2J\x1b[8;1HThe quick brown fox jumps 0123456789";
+    arms!(Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap() => arms, t);
+    feed(&mut t, base);
+    for (i, r) in rows.iter().enumerate() {
+        feed(&mut t, format!("\x1b[{};1H{r}", i + 2).as_bytes());
+    }
+    let got = three(&mut arms, &mut t, "implicit");
+    assert!(arms.renderer.bidi().reordered(Row::from_index(3)));
+    feed(&mut t, b"\x1b[8l");
+    feed(&mut t, base);
+    for (i, r) in [rows[0], rows[1], visual].iter().enumerate() {
+        feed(&mut t, format!("\x1b[{};1H{r}", i + 2).as_bytes());
+    }
+    let want = three(&mut arms, &mut t, "written in visual order");
+    assert_eq!(differing(&got, &want), 0, "each cell in its own direction");
+}
+
 /// **A right-to-left paragraph's frames drawn by rows are the whole
 /// frame's pixels, on both GPU paths**: its text sits past the extent the
 /// core records for the row, at the right edge, so a frame that typed one

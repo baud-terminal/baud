@@ -30,6 +30,15 @@
 //! context before and after them as fit, UAX #9 HL5's "piece of text that
 //! is extracted from a longer sequence" (Jev CONTEXT_WINDOW, 0.98/0.98).
 //!
+//! **A table row keeps its columns.** A paragraph holding a box-drawing
+//! character ([`is_column_rule`]) is a table row: each rule is given to
+//! the algorithm as a paragraph separator, so each cell between two rules
+//! is a paragraph of its own at its own P2-P3 level (UAX #9 section 3's
+//! table cells, HL4), each cell is ordered as a line inside its own
+//! columns, every rule stays where it was written, and the row is laid
+//! out left to right (Jev's lean, BOX 0.71/0.91, CELL_PARAGRAPH
+//! 0.52/0.22; `docs/bidi.md`).
+//!
 //! **What it costs a row with no right-to-left character: one test of
 //! each cell's content word.** A paragraph runs the algorithm only when a
 //! row of it holds a character of class R, AL or AN, or an RLE, RLO or RLI
@@ -97,6 +106,19 @@ const DIRECTION: BidiParagraph = BidiParagraph::FirstStrong;
 /// The stand-in for an erased cell between characters: U+200B ZERO WIDTH
 /// SPACE, of class BN and no bracket.
 const ERASED: char = '\u{200B}';
+
+/// The stand-in for a column rule: U+2029 PARAGRAPH SEPARATOR, class B,
+/// which ends a paragraph (P1).
+const PARAGRAPH_SEPARATOR: char = '\u{2029}';
+
+/// **Whether a character is a column rule**, a table row's cell separator:
+/// the Box Drawing block, U+2500-U+257F, which holds every vertical a
+/// program draws a table's columns with (`│` U+2502, `┃` U+2503, `║`
+/// U+2551, the dashed ones) and the junctions on its rule rows, and which
+/// DEC Special Graphics line drawing is stored as.
+fn is_column_rule(c: char) -> bool {
+    matches!(c, '\u{2500}'..='\u{257F}')
+}
 
 /// The order one row is drawn in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -330,6 +352,19 @@ pub struct Reorder {
     text: Vec<char>,
     owner: Vec<Owner>,
     order: Vec<u16>,
+    /// For each codepoint of the text, whether it is a column rule.
+    rule: Vec<Rule>,
+    /// One line piece's order, and every line's levels by text position.
+    piece: Vec<u16>,
+    levels: Vec<BidiLevel>,
+}
+
+/// Whether a codepoint of a paragraph's text is a column rule: a table
+/// row's cell separator ([`is_column_rule`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rule {
+    No,
+    Yes,
 }
 
 impl Default for Reorder {
@@ -391,6 +426,9 @@ impl Reorder {
             text: Vec::new(),
             owner: Vec::new(),
             order: Vec::new(),
+            rule: Vec::new(),
+            piece: Vec::new(),
+            levels: Vec::new(),
         }
     }
 
@@ -575,6 +613,7 @@ impl Reorder {
     ) -> Option<BidiLevel> {
         self.text.clear();
         self.owner.clear();
+        self.rule.clear();
         let mut ranges: Vec<(core::ops::Range<usize>, Col)> = Vec::with_capacity(rows.len());
         for row in rows {
             let begin = self.text.len();
@@ -590,6 +629,7 @@ impl Reorder {
                 if cell.content.is_empty() {
                     self.text.push(ERASED);
                     self.owner.push(at(Lead::First));
+                    self.rule.push(Rule::No);
                     continue;
                 }
                 let base = term
@@ -598,34 +638,59 @@ impl Reorder {
                     .as_codepoint()
                     .and_then(|c| char::from_u32(c.value()))
                     .unwrap_or('\u{FFFD}');
-                self.text.push(base);
+                // A column rule ends its cell's paragraph: given to the
+                // algorithm as a paragraph separator (P1), so each cell is
+                // resolved on its own (HL4), and drawn where it is.
+                let rule = match !cell.flags.is_marked() && is_column_rule(base) {
+                    true => Rule::Yes,
+                    false => Rule::No,
+                };
+                self.text.push(match rule {
+                    Rule::Yes => PARAGRAPH_SEPARATOR,
+                    Rule::No => base,
+                });
                 self.owner.push(at(Lead::First));
+                self.rule.push(rule);
                 if cell.flags.is_marked() {
                     for m in term.cluster_marks(cell) {
                         if let Some(m) = char::from_u32(m) {
                             self.text.push(m);
                             self.owner.push(at(Lead::Attached));
+                            self.rule.push(Rule::No);
                         }
                     }
                 }
             }
             ranges.push((begin..self.text.len(), end));
         }
+        // **A table row**: a paragraph holding a column rule keeps its
+        // columns. Each cell is a paragraph of its own, at the level its
+        // own first strong letter gives it (UAX #9 section 3: "the text in
+        // two different cells of a table will be in different
+        // paragraphs"), each is ordered inside its own columns, and the
+        // row runs left to right, every rule where it was written.
+        let table = self.rule.contains(&Rule::Yes);
+        let dir = match table {
+            true => BidiParagraph::FirstStrong,
+            false => dir,
+        };
         let Ok(level) = self.bidi.resolve(&self.text, dir) else {
             return None;
+        };
+        let level = match table {
+            true => BidiLevel::LTR,
+            false => level,
         };
         let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
         let cols = self.orders.cols.index();
         for (p, row) in rows.iter().enumerate() {
             let Some(y) = row.window else { continue };
             let (line, end) = (ranges[p].0.clone(), ranges[p].1.index());
-            self.order.clear();
-            self.order.resize(line.len(), 0);
             let begin = line.start;
-            let Ok(levels) = self.bidi.reorder(line, &mut self.order) else {
+            if self.order_line(line).is_none() {
                 continue;
-            };
-            let levels: Vec<BidiLevel> = levels.to_vec();
+            }
+            let levels = core::mem::take(&mut self.levels);
             let mut out = RowOrder {
                 from: Vec::with_capacity(cols),
                 to: vec![Col::ZERO; cols],
@@ -687,7 +752,40 @@ impl Reorder {
             self.orders.rows[y.index()] = Some(out);
             self.orders.any = Any::Yes;
         }
-        Some(level)
+        // A table row's level is its cells' each; nothing carries on.
+        (!table).then_some(level)
+    }
+
+    /// **Orders one line of the text last resolved** into `order`, with
+    /// each of its positions' levels in `levels`: the whole line at once
+    /// (L1-L2), or, on a table row, each run between two column rules on
+    /// its own, as the line of its own paragraph, the rules kept in place
+    /// at level 0. A run's trailing whitespace takes its cell's paragraph
+    /// level (L1), so a right-to-left cell's text sits against the cell's
+    /// right side.
+    fn order_line(&mut self, line: core::ops::Range<usize>) -> Option<()> {
+        let begin = line.start;
+        self.order.clear();
+        self.levels.clear();
+        self.levels.resize(line.len(), BidiLevel::LTR);
+        let mut from = begin;
+        while from < line.end {
+            let to = (from..line.end)
+                .find(|&t| self.rule[t] == Rule::Yes)
+                .unwrap_or(line.end);
+            if to > from {
+                self.piece.clear();
+                self.piece.resize(to - from, 0);
+                let levels = self.bidi.reorder(from..to, &mut self.piece).ok()?;
+                self.levels[from - begin..to - begin].copy_from_slice(levels);
+                self.order.extend_from_slice(&self.piece);
+            }
+            if to < line.end {
+                self.order.push(u16::try_from(to).ok()?);
+            }
+            from = to + 1;
+        }
+        Some(())
     }
 }
 

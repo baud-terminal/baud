@@ -171,6 +171,97 @@ fn a_paragraph_resolved_in_pieces_keeps_its_first_pieces_direction() {
     assert!(first.ends_with('\u{5D0}'), "the alef at the right of row 0");
 }
 
+/// **A table row keeps its columns, and each cell its own direction**: a
+/// row drawn with box-drawing column rules runs left to right with every
+/// rule where it was written, and each cell between two rules is a
+/// paragraph of its own (UAX #9 section 3, "the text in two different
+/// cells of a table will be in different paragraphs"; HL4) at the level
+/// its own first strong letter gives it, ordered inside its own columns:
+/// a Hebrew cell reads right to left against its cell's right side (L1),
+/// a cell of digits stays as it is. The owner's row, 2026-10-24: "the
+/// table should be like B but דנהshould b be rtl".
+#[test]
+fn a_table_row_keeps_its_columns_and_each_cell_its_own_direction() {
+    let ws = WinSize {
+        ws_row: 3,
+        ws_col: 40,
+    };
+    let row = "\u{2502} \u{5DE}\u{5E1}\u{5DE}\u{5DA}.txt      \u{2502} 812  \u{2502} \u{5D3}\u{5E0}\u{5D4}   \u{2502}";
+    let (s, o) = drawn_with(&ws, row, 0, Rows::ZERO);
+    assert_eq!(
+        s,
+        "\u{2502}      txt.\u{5DA}\u{5DE}\u{5E1}\u{5DE} \u{2502} 812  \u{2502}   \u{5D4}\u{5E0}\u{5D3} \u{2502}........"
+    );
+    for rule in [0, 16, 23, 31] {
+        assert_eq!(
+            o.orders().visual_col(Row::ZERO, Col::at_index(rule)),
+            Col::at_index(rule),
+            "the rule at {rule} where it was written"
+        );
+        assert_eq!(
+            o.orders().side(Row::ZERO, Col::at_index(rule)),
+            CursorSide::Left
+        );
+    }
+    // A row of the same table with no right-to-left letter is not
+    // reordered at all.
+    let (s, o) = drawn_with(
+        &ws,
+        "\u{2502} notes.txt \u{2502} 42 \u{2502}",
+        0,
+        Rows::ZERO,
+    );
+    assert_eq!(
+        s,
+        "\u{2502} notes.txt \u{2502} 42 \u{2502}......................"
+    );
+    assert!(!o.orders().reordered(Row::ZERO));
+}
+
+/// **The cell's padding may be erased cells**, as a program that moves the
+/// cursor over a column leaves them: boundary neutrals the algorithm
+/// removes (X9), so they move with their cell's text, and the trailing
+/// ones take the cell's level (L1) and go to its left.
+#[test]
+fn a_table_cell_padded_with_erased_cells_keeps_its_columns() {
+    assert_eq!(
+        drawn("\u{2502}\x1b[C\u{5D3}\u{5E0}\u{5D4}\x1b[3C\u{2502}", 0),
+        "\u{2502}...\u{5D4}\u{5E0}\u{5D3}.\u{2502}...",
+    );
+}
+
+/// **DEC Special Graphics line drawing is a column rule**: `ESC ( 0` and
+/// `x` store U+2502, so a border ncurses draws that way divides a row into
+/// cells as the Unicode one does.
+#[test]
+fn a_dec_graphics_vertical_is_a_column_rule() {
+    assert_eq!(
+        drawn("\x1b(0x\x1b(B \u{5D3}\u{5E0}\u{5D4}  \x1b(0x\x1b(B", 0),
+        "\u{2502}  \u{5D4}\u{5E0}\u{5D3} \u{2502}....",
+    );
+}
+
+/// **A tree's branch divides its row too**: the name after `└──` is a cell
+/// of its own, read right to left in place, and the branch stays at the
+/// left edge where C would turn the whole row round.
+#[test]
+fn a_tree_branch_keeps_the_name_after_it_in_place() {
+    let ws = WinSize {
+        ws_row: 2,
+        ws_col: 24,
+    };
+    let (s, _) = drawn_with(
+        &ws,
+        "\u{2514}\u{2500}\u{2500} \u{5DE}\u{5E1}\u{5DE}\u{5DA} \u{5D7}\u{5E9}\u{5D5}\u{5D1}.txt",
+        0,
+        Rows::ZERO,
+    );
+    assert_eq!(
+        s,
+        "\u{2514}\u{2500}\u{2500}txt.\u{5D1}\u{5D5}\u{5E9}\u{5D7} \u{5DA}\u{5DE}\u{5E1}\u{5DE} ......."
+    );
+}
+
 /// **The control: BDSM reset draws every cell where it is**, as baud
 /// always did, and so does a row with no right-to-left character.
 #[test]

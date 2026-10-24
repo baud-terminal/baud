@@ -4,7 +4,9 @@
 starts** (ECMA-48's bidirectional support mode, BDSM, is on: its IMPLICIT
 state). A line that starts in Hebrew or Arabic runs right to left against
 the window's right edge, its closing period at its left end, after its last
-word. A Hebrew word in an English line reads right to left in its place,
+word. A table drawn with box-drawing lines keeps its columns, and a Hebrew name
+in one of its cells reads right to left against the cell's right side. A
+Hebrew word in an English line reads right to left in its place,
 brackets around Hebrew face the right way, vowel points stay on their
 letters, and the cursor, the selection, the find marks, the link underline
 and the mouse all follow what is drawn. A copy gives the text in the order
@@ -39,6 +41,21 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   paragraph's drawn rows and the context around them; a paragraph resolved
   in more than one piece keeps the first piece's level. Until a program
   can set a direction (SCP, next step), this is every paragraph's.
+- **A table row keeps its columns.** A paragraph holding a box-drawing
+  character (U+2500-U+257F: `│`, `┃`, `║`, the dashed verticals, the
+  junctions, and DEC Special Graphics line drawing, which is stored as
+  them) is a table row: it runs left to right, every rule stays where it
+  was written, and each cell between two rules is a paragraph of its own
+  at the level its own first strong letter gives it (UAX #9 section 3:
+  "the text in two different cells of a table will be in different
+  paragraphs"; HL4), ordered inside its own columns. A Hebrew cell reads
+  right to left against its cell's right side, its padding at its left
+  (L1), as a right-to-left line sits against the window's right edge; a
+  cell of digits or Latin text stays as it is. A tree's branch (`└──`)
+  divides its row the same way. ASCII `|` is text, so a Hebrew sentence
+  with a `|` in it reads as before, and a psql-style table drawn with `|`
+  is laid out as a line. A tab stores no character in the grid, only the
+  erased cells it skips, so it is no rule.
 - **The bidi controls work.** LRM, RLM, ALM, the embeddings, overrides and
   isolates that baud stores on the cell before them are given to the
   algorithm with that cell's character. One at the start of a line, with no
@@ -129,6 +146,29 @@ owner can veto each:**
 | an erased cell between characters | a boundary neutral, moved with the character before it | (SKIPPED) 0.10 / 0.18, (AS_BN) 0.85 / 0.89 |
 | the alternate screen | drawn like the primary ("The two screens should behave identically") | 0.58 / 0.34, 0.79 / 0.76 |
 
+**The table row, taken from Jev's lean, which held in all four answers;
+the owner can veto each.** Jev was shown the owner's table, a psql-style
+table drawn with `|`, a Hebrew sentence with a `|` in it beside a shell
+pipeline, and a tree, each drawn by baud's renderer under five options
+(`docs/research/notes/ab/b192/`), and asked again with HTML's `dir=auto`
+(`[[source: whatwg-html-dom-dir]]`: a direction from "the first character
+with a strong directionality") and CSS's `text-align: start`
+(`[[source: css-text-3]]`), by which a web table's Hebrew cell sits
+against its right edge. Prior art read at source: mlterm splits a line at
+U+2500-U+259F and DEC graphics and resolves each segment with its own
+direction, keeping a right-to-left segment's text at its left, ASCII
+separators only by the user's choice (`[[source:
+mlterm-vt-bidi-c-46cbbc9]]`); Konsole makes U+2500-U+25FF strong L, so a
+table row stays left to right with no direction per cell (`[[source:
+konsole-terminaldisplay-c8bc143]]`), a change of Bidi_Class no UAX #9
+higher-level protocol allows.
+
+| choice | taken | Jev, first ask then re-ask |
+|---|---|---|
+| which characters divide a row's cells | the Box Drawing block (every ASCII vertical bar as well would split a Hebrew sentence; a bar under a bar or a plus sign was the runner-up) | 0.52 / 0.92, 0.71 / 0.91 |
+| how a row is known to be a table row | any rule in the paragraph (not a rule lined up with one in the row above or below) | 0.52 / 0.44, 0.42 / 0.30 |
+| where a right-to-left cell's text sits | against its cell's right side, the cell its own paragraph (not mlterm's, at the cell's left) | 0.50 / 0.42, 0.52 / 0.22 |
+
 **Open departures from UAX #9 L4, which Jev leans to build.** The 126
 mirrored characters with no mirroring glyph, and a mirrored character
 carrying an attached codepoint other than a bidi control (a combining
@@ -197,10 +237,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 
 ## What is not built yet
 
-- **A table row keeps its columns**: the owner's answer, "the table should
-  be like B but דנה should be rtl". A row drawn with column rules that
-  starts with a Hebrew letter is still turned round whole and moved to the
-  right edge, its cells' text pulled across the rules.
 - **A paragraph a soft wrap splits mid-word** ("the wrap line looks bad"):
   an English word the wrap split lands at opposite ends of its two rows.
   The options are being researched and drawn; nothing is changed yet.
