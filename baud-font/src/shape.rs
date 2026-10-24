@@ -607,6 +607,15 @@ impl<'f, 'a> Normalised<'f, 'a> {
                 false => seq.push(c),
             }
         }
+        // One codepoint is in order and has nothing to compose with, so a
+        // cluster of one -- most cells -- skips both passes.
+        if seq.len.slot() < 2 {
+            return Normalised {
+                face,
+                seq: seq.cps,
+                len: seq.len,
+            };
+        }
         // Mark ordering: marks after a starter sort stably by
         // `CombiningClass::sort_key` -- the Canonical Ordering Algorithm
         // (`[[source: unicode-ch3]]` D109) over a permutation of the

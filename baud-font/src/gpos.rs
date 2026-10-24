@@ -186,21 +186,61 @@ impl<'a> Gpos<'a> {
         };
         let set = self.layout.lookups_for(script, features);
         for i in set.iter() {
-            if let Some(lookup) = self.layout.lookup(i) {
-                let mut pos = Index::ZERO;
-                while let Some(g) = buf.get(pos) {
-                    if seen(&lookup.filter, g) == Skip::Yes {
+            let Some(lookup) = self.layout.lookup(i) else {
+                continue;
+            };
+            let mut pos = Index::ZERO;
+            match Reach::of(&lookup) {
+                // A lookup of attachments alone moves on one glyph each
+                // time, applied or not, and needs no nested lookups: the
+                // walk JetBrains Mono's `mark` and `mkmk` take, kept out of
+                // the general one that can recurse.
+                Reach::Attachments => {
+                    while let Some(g) = buf.get(pos) {
+                        if seen(&lookup.filter, g) == Skip::No {
+                            self.attach_at(&lookup, buf, pos, run.vary);
+                        }
                         pos = pos.next();
-                        continue;
                     }
-                    pos = match run.apply_at(&lookup, buf, pos, Depth::TOP) {
-                        Some(a) => a.next.max(pos.next()),
-                        None => pos.next(),
-                    };
+                }
+                Reach::Any => {
+                    while let Some(g) = buf.get(pos) {
+                        if seen(&lookup.filter, g) == Skip::Yes {
+                            pos = pos.next();
+                            continue;
+                        }
+                        pos = match run.apply_at(&lookup, buf, pos, Depth::TOP) {
+                            Some(a) => a.next.max(pos.next()),
+                            None => pos.next(),
+                        };
+                    }
                 }
             }
         }
         set.declined()
+    }
+
+    /// [`Run::apply_at`] for a lookup of [`Reach::Attachments`]: each
+    /// subtable in turn until one attaches the mark at `pos`, or one does
+    /// not read, which ends the lookup there as it ends the general walk.
+    fn attach_at(&self, lookup: &Lookup<'a>, buf: &mut Buffer<'_>, pos: Index, vary: Vary<'_, 'a>) {
+        let mut i = Index::ZERO;
+        while lookup.subtable_count().holds(i) {
+            let Some((kind, sub)) = lookup.subtable(i, Kind::GPOS_EXTENSION) else {
+                return;
+            };
+            let target = match kind {
+                Kind::MARK_TO_BASE => Target::Base,
+                _ => Target::Mark,
+            };
+            if self
+                .mark_to(sub, &lookup.filter, buf, pos, target, vary)
+                .is_some()
+            {
+                return;
+            }
+            i = i.next();
+        }
     }
 
     /// The glyph a mark attaches to: the nearest earlier glyph the filter
@@ -294,6 +334,33 @@ impl<'a> Gpos<'a> {
             .saturating_add(target_anchor.y.saturating_sub(mark_anchor.y));
         g.positioned = Positioned::Yes;
         Some(())
+    }
+}
+
+/// What one lookup's subtables can do, read once a lookup before the walk
+/// over the run rather than at every glyph.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reach {
+    /// Every subtable that reads, up to the first that does not, attaches
+    /// a mark to a base or to a mark (types 4 and 6, through the extension
+    /// wrapper or not): no adjustment, no context, nothing nested.
+    Attachments,
+    /// Some subtable is of another type.
+    Any,
+}
+
+impl Reach {
+    fn of(lookup: &Lookup<'_>) -> Reach {
+        let mut i = Index::ZERO;
+        while lookup.subtable_count().holds(i) {
+            match lookup.subtable(i, Kind::GPOS_EXTENSION) {
+                Some((Kind::MARK_TO_BASE | Kind::MARK_TO_MARK, _)) => {}
+                Some(_) => return Reach::Any,
+                None => return Reach::Attachments,
+            }
+            i = i.next();
+        }
+        Reach::Attachments
     }
 }
 
@@ -916,6 +983,43 @@ mod tests {
             at(&t, F2Dot14(16384), store()),
             (10, -17),
             "a device offset past the table"
+        );
+    }
+
+    /// **A lookup's reach is read through the extension wrapper**: a mark
+    /// attachment wrapped in type 9 walks as one unwrapped does, and a
+    /// single adjustment wrapped or not takes the general walk.
+    #[test]
+    fn a_lookups_reach_is_read_through_the_extension_wrapper() {
+        let wrap = |kind: u16, sub: Vec<u8>| -> Vec<u8> {
+            let mut e = vec![0, 1];
+            e.extend(kind.to_be_bytes());
+            e.extend(8u32.to_be_bytes());
+            e.extend(sub);
+            e
+        };
+        let mark = vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let t = table(&[
+            (4, mark.clone()),
+            (6, mark.clone()),
+            (1, single_10()),
+            (9, wrap(4, mark.clone())),
+            (9, wrap(6, mark)),
+            (9, wrap(1, single_10())),
+        ]);
+        let gpos = Gpos::parse(Bytes::new(&t), Gdef::default()).unwrap();
+        let reach = |i: u32| Reach::of(&gpos.layout.lookup(Index::of(i)).unwrap());
+        let got: Vec<Reach> = (0..6).map(reach).collect();
+        assert_eq!(
+            got,
+            [
+                Reach::Attachments,
+                Reach::Attachments,
+                Reach::Any,
+                Reach::Attachments,
+                Reach::Attachments,
+                Reach::Any,
+            ]
         );
     }
 
