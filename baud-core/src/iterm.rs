@@ -32,6 +32,9 @@ pub struct ItermCounts {
     /// each drawn as nothing: every one but a user variable's,
     /// `\(user.NAME)`.
     pub badge_unevaluated: Messages,
+    /// Parts of an inline picture drawn as nothing: a GIF's Plain Text
+    /// Extensions, whose text baud does not render.
+    pub picture_parts_skipped: Messages,
 }
 
 impl ItermCounts {
@@ -39,6 +42,7 @@ impl ItermCounts {
         by_key: [Messages::NONE; ITERM_KEYS],
         unknown: Messages::NONE,
         badge_unevaluated: Messages::NONE,
+        picture_parts_skipped: Messages::NONE,
     };
 
     /// The messages with `key` not acted on: a key baud does not act on

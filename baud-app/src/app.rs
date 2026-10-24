@@ -8879,9 +8879,11 @@ impl Responder for Driver {
         };
         hide_pointer(act);
         // Any press is input to the blink's stop -- one the scrollbar, a
-        // link or a tracking child takes too -- before those take it.
+        // link or a tracking child takes too -- before those take it, and
+        // to a GIF frame waiting for the user (`Term::pointer_pressed`).
         if event.kind == ViewMouseKind::Down {
             self.app.caret.quiet(host_now());
+            self.app.term.pointer_pressed();
         }
         // DEC's locator keeps the pointer whatever takes the event: a move,
         // a drag or a crossing here, before the scrollbar and links, so a

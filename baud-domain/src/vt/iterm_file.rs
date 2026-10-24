@@ -11,9 +11,13 @@
 //! [`file_geometry`] is a pure function of the arguments, the picture and
 //! the screen, so every drawing path draws the one result.
 
+use crate::gif::{Gif, GifWait};
 use crate::jpeg::Jpeg;
 use crate::png::Png;
-use crate::{Base64, Base64Step, Col, Cols, ImageAlpha, ImageId, ImagePx, ImageStore, Pixel, Rows};
+use crate::{
+    Base64, Base64Step, Chan, Col, Cols, FrameWait, ImageAlpha, ImageId, ImagePx, ImageStore,
+    Pixel, Rows,
+};
 
 /// iTerm2's `boolValue`, which its source reads `inline` and
 /// `preserveAspectRatio` with: true for a value whose first character past
@@ -405,13 +409,16 @@ pub struct Picture {
     pub id: ImageId,
     pub width: u32,
     pub height: u32,
+    /// Parts of the file not drawn: a GIF's Plain Text Extensions.
+    pub parts_not_drawn: u32,
 }
 
 /// **The picture in the scratch's first `len` bytes, decoded into a stored
 /// image of its own size**, its work in the scratch after it. Which format
 /// it is the bytes say, as `NSImage`'s `initWithData:` reads them
 /// (`[[source: iterm2-964a75d-image-with-data]]`), not the file's `name`: a
-/// JPEG by its `SOI` and the marker after it ([`Jpeg::sniff`]), else a PNG
+/// GIF by its signature, its frames an animation ([`Gif::sniff`]), a JPEG
+/// by its `SOI` and the marker after it ([`Jpeg::sniff`]), else a PNG
 /// by its signature, its RGBA8 rows turned into straight ARGB words where
 /// they lie, as kitty's decode turns them. `None`, the image freed, for
 /// bytes that are neither, one that does not decode, or one the store
@@ -425,6 +432,11 @@ pub fn decode_picture(
     len: FileLen,
 ) -> (Option<Picture>, FileLen) {
     let at = len.0.min(scratch.len());
+    if Gif::sniff(&scratch[..at]) {
+        let work = Gif::parse(&scratch[..at]).map_or(0, |g| g.scratch_len());
+        let used = FileLen(at.saturating_add(work).min(scratch.len()));
+        return (gif_of(store, scratch, at), used);
+    }
     if Jpeg::sniff(&scratch[..at]) {
         let work = Jpeg::parse(&scratch[..at])
             .ok()
@@ -458,12 +470,64 @@ fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pict
             id,
             width: size.width,
             height: size.height,
+            parts_not_drawn: 0,
         }),
         Err(_) => {
             store.free(id);
             None
         }
     }
+}
+
+/// **The GIF in the scratch's first `at` bytes**, its frames decoded onto
+/// the canvas in the scratch after it and each stored whole in one image
+/// whose room for them all is reserved first, so an animation the image
+/// memory cannot hold whole is refused whole (Jev, REFUSE_WHOLE,
+/// 0.98/0.96); an animation set playing as many times as its loop count
+/// says.
+fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
+    let (data, rest) = scratch.split_at_mut(at);
+    let gif = Gif::parse(data).ok()?;
+    let size = gif.size();
+    let (w, h) = (
+        u16::try_from(size.width).ok()?,
+        u16::try_from(size.height).ok()?,
+    );
+    let n = gif.frames();
+    let id = store.store_frames(ImagePx::of(w), ImagePx::of(h), n)?;
+    let mut made = 0u32;
+    let decoded = gif.decode(rest, |f| {
+        let wait = match f.wait {
+            GifWait::Delay => FrameWait::Gap,
+            GifWait::Input => FrameWait::Input,
+        };
+        let Some(px) = store.frame_mut(id, made, f.gap_ms, wait) else {
+            return false;
+        };
+        for (p, c) in px.iter_mut().zip(f.rgba.chunks_exact(4)) {
+            *p = Pixel::straight(
+                Chan::from_u8(c[3]),
+                Chan::from_u8(c[0]),
+                Chan::from_u8(c[1]),
+                Chan::from_u8(c[2]),
+            );
+        }
+        made += 1;
+        true
+    });
+    if decoded.is_err() || made != n {
+        store.free(id);
+        return None;
+    }
+    if n > 1 {
+        store.play_frames(id, gif.plays());
+    }
+    Some(Picture {
+        id,
+        width: size.width,
+        height: size.height,
+        parts_not_drawn: gif.texts_not_drawn(),
+    })
 }
 
 fn picture_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
@@ -484,6 +548,7 @@ fn picture_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<P
                 id,
                 width: size.width,
                 height: size.height,
+                parts_not_drawn: 0,
             })
         }
         Err(_) => {

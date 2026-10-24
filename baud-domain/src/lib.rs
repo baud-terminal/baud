@@ -59,6 +59,7 @@ mod dec_sets_data;
 mod decode;
 mod font;
 mod frame;
+pub mod gif;
 mod grapheme;
 mod grapheme_data;
 mod grid;

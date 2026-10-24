@@ -5,7 +5,9 @@
 //! by the `png` crate, never by the decoder under test.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx, ItermKey, KittyCounts, Messages, Pixel};
+use baud_domain::{
+    Animated, HostTime, ImageBudget, ImageMotion, ImagePx, ItermKey, KittyCounts, Messages, Pixel,
+};
 
 const WS: WinSize = WinSize {
     ws_row: 24,
@@ -204,6 +206,392 @@ fn a_jpeg_process_not_built_draws_the_placeholder() {
         let (_, w, h, _) = placed(t);
         assert_eq!((w, h), (35, 36), "the placeholder");
         assert_eq!(t.iterm_counts().of(ItermKey::File), ONE);
+    });
+}
+
+/// One graphic of a GIF this file writes: its rectangle, indices and
+/// Graphic Control Extension (disposal, delay, user input).
+struct Graphic {
+    rect: [u16; 4],
+    px: Vec<u8>,
+    gce: Option<(u8, u16, bool)>,
+}
+
+/// **A GIF89a stream** over the colours `K`, `W`, `R`, `G`: a `w` by `h`
+/// screen, background index 0, a NETSCAPE2.0 block with `loops` if given,
+/// and each graphic's indices coded as Appendix F allows with a Clear code
+/// before every one, so the code width never grows.
+fn gif(w: u16, h: u16, loops: Option<u16>, graphics: &[Graphic]) -> Vec<u8> {
+    let mut out = b"GIF89a".to_vec();
+    out.extend(w.to_le_bytes());
+    out.extend(h.to_le_bytes());
+    out.extend([0xf1, 0, 0]);
+    out.extend([0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 0]);
+    if let Some(n) = loops {
+        out.extend(b"\x21\xff\x0bNETSCAPE2.0\x03\x01");
+        out.extend(n.to_le_bytes());
+        out.push(0);
+    }
+    for g in graphics {
+        if let Some((disposal, delay, input)) = g.gce {
+            out.extend([0x21, 0xf9, 4, disposal << 2 | u8::from(input) << 1]);
+            out.extend(delay.to_le_bytes());
+            out.extend([0, 0]);
+        }
+        out.push(0x2c);
+        for v in g.rect {
+            out.extend(v.to_le_bytes());
+        }
+        out.extend([0, 2]);
+        // Clear (4) then the index, three bits each, packed right to left.
+        let mut bits: Vec<bool> = Vec::new();
+        let mut code = |c: u8| (0..3).for_each(|k| bits.push(c >> k & 1 == 1));
+        for &i in &g.px {
+            code(4);
+            code(i);
+        }
+        code(5);
+        let bytes: Vec<u8> = bits
+            .chunks(8)
+            .map(|c| c.iter().rev().fold(0u8, |b, &x| b << 1 | u8::from(x)))
+            .collect();
+        for c in bytes.chunks(255) {
+            out.push(u8::try_from(c.len()).unwrap());
+            out.extend_from_slice(c);
+        }
+        out.push(0);
+    }
+    out.push(0x3b);
+    out
+}
+
+/// The opaque word of each colour index.
+const GIF_COLOURS: [u32; 4] = [0xff00_0000, 0xffff_ffff, 0xffff_0000, 0xff00_ff00];
+
+/// A whole-screen graphic of one colour and its delay.
+fn flat(w: u16, h: u16, i: u8, delay: u16) -> Graphic {
+    let n = usize::from(w) * usize::from(h);
+    Graphic {
+        rect: [0, 0, w, h],
+        px: vec![i; n],
+        gce: Some((1, delay, false)),
+    }
+}
+
+fn gif_at(ms: u64) -> HostTime {
+    HostTime::of_nanos(1_000_000_000 + ms * 1_000_000)
+}
+
+/// **An animated GIF plays**: iTerm2 plays a GIF's frames
+/// (`[[source: iterm2-964a75d-image-with-data]]`), each for its delay,
+/// "the number of hundredths (1/100) of a second to wait"; NETSCAPE2.0's
+/// count of 0 loops for ever. Its pixels change on the clock, and held
+/// (Reduce Motion) they do not.
+#[test]
+fn an_inline_gif_plays_its_frames() {
+    let g = gif(
+        20,
+        20,
+        Some(0),
+        &[
+            flat(20, 20, 1, 10),
+            flat(20, 20, 2, 20),
+            flat(20, 20, 3, 30),
+        ],
+    );
+    for size in SIZES {
+        with(1 << 16, |t| {
+            feed(t, &file("inline=1", &g), size);
+            let shown = |t: &Term<'_>| placed(t).3[0];
+            assert_eq!(shown(t), GIF_COLOURS[1], "the first frame, reads of {size}");
+            assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
+            assert_eq!(
+                t.animate_images(gif_at(0), ImageMotion::Play),
+                Animated::Same
+            );
+            for (ms, frame) in [(100, 2), (300, 3), (600, 1), (700, 2)] {
+                assert_eq!(
+                    t.animate_images(gif_at(ms), ImageMotion::Play),
+                    Animated::Changed,
+                    "{ms} ms"
+                );
+                assert_eq!(shown(t), GIF_COLOURS[frame], "{ms} ms, reads of {size}");
+            }
+            assert_eq!(
+                t.animate_images(gif_at(5000), ImageMotion::Hold),
+                Animated::Same
+            );
+            assert_eq!(shown(t), GIF_COLOURS[2], "held");
+        });
+    }
+}
+
+/// **With no NETSCAPE2.0 block the stream is processed once** and stays
+/// on its last frame.
+#[test]
+fn a_gif_with_no_loop_count_plays_once() {
+    let g = gif(10, 10, None, &[flat(10, 10, 1, 10), flat(10, 10, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        assert_eq!(
+            t.animate_images(gif_at(100), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert_eq!(placed(t).3[0], GIF_COLOURS[2]);
+        assert_eq!(
+            t.animate_images(gif_at(200), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(
+            t.animate_images(gif_at(900), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(placed(t).3[0], GIF_COLOURS[2], "the last frame stays");
+    });
+}
+
+/// **A stream that ends on a graphic with a delay of 0 ends showing it**:
+/// "Process each graphic in the Data Stream in sequence" (`[[source:
+/// gif89a]]` 8), so the last graphic, composited over the one before,
+/// is what stays once the last play ends. Played once with no NETSCAPE2.0
+/// block, and twice with a count of 1, back on the first frame between.
+#[test]
+fn a_gif_that_ends_on_a_zero_delay_ends_showing_it() {
+    for (loops, plays) in [(None, 1u64), (Some(1), 2)] {
+        let g = gif(
+            10,
+            10,
+            loops,
+            &[flat(10, 10, 1, 10), flat(10, 10, 2, 10), flat(10, 10, 3, 0)],
+        );
+        with(1 << 16, |t| {
+            feed(t, &file("inline=1", &g), 4097);
+            t.animate_images(gif_at(0), ImageMotion::Play);
+            let mut ms = 0;
+            for play in 1..=plays {
+                ms += 100;
+                t.animate_images(gif_at(ms), ImageMotion::Play);
+                assert_eq!(placed(t).3[0], GIF_COLOURS[2], "{loops:?}, play {play}");
+                ms += 100;
+                assert_eq!(
+                    t.animate_images(gif_at(ms), ImageMotion::Play),
+                    Animated::Changed,
+                    "{loops:?}, play {play}"
+                );
+                let want = match play == plays {
+                    true => GIF_COLOURS[3],
+                    false => GIF_COLOURS[1],
+                };
+                assert_eq!(placed(t).3[0], want, "{loops:?}, play {play} ends");
+            }
+            assert_eq!(t.next_image_frame(gif_at(ms)), None, "nothing due");
+            assert_eq!(
+                t.animate_images(gif_at(ms + 5000), ImageMotion::Play),
+                Animated::Same
+            );
+            assert_eq!(
+                placed(t).3[0],
+                GIF_COLOURS[3],
+                "{loops:?}: the last graphic stays"
+            );
+        });
+    }
+}
+
+/// **"If the flag is set, processing will continue when user input is
+/// entered"** (`[[source: gif89a]]` 23 v): a frame with the User Input
+/// Flag and no delay waits however long the clock runs, and a key moves
+/// it on.
+#[test]
+fn a_gif_frame_waiting_for_input_moves_on_a_key() {
+    let mut first = flat(10, 10, 1, 0);
+    first.gce = Some((1, 0, true));
+    let g = gif(10, 10, Some(0), &[first, flat(10, 10, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        assert_eq!(
+            t.animate_images(gif_at(60_000), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(t.next_image_frame(gif_at(60_000)), None, "nothing due");
+        assert_eq!(placed(t).3[0], GIF_COLOURS[1], "waiting");
+        let a = KeyCode::Char(Codepoint::from_char('a'));
+        t.key(KeyEvent::press(a, Modifiers::NONE));
+        assert_eq!(t.next_image_frame(gif_at(60_001)), Some(gif_at(60_001)));
+        assert_eq!(
+            t.animate_images(gif_at(60_001), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert_eq!(placed(t).3[0], GIF_COLOURS[2], "a key moved it on");
+    });
+}
+
+/// **A button pressed is user input too**, "Mouse Button Click" among
+/// GIF89a's examples: with mouse tracking on, a press the core reports
+/// moves a waiting frame on. A click the terminal takes itself is
+/// `a_gif_frame_waiting_for_input_moves_on_any_press`.
+#[test]
+fn a_gif_frame_waiting_for_input_moves_on_a_press() {
+    let mut first = flat(10, 10, 1, 0);
+    first.gce = Some((1, 0, true));
+    let g = gif(10, 10, Some(0), &[first, flat(10, 10, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, b"\x1b[?1000h", 4097);
+        feed(t, &file("inline=1", &g), 4097);
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        assert_eq!(
+            t.animate_images(gif_at(9_000), ImageMotion::Play),
+            Animated::Same
+        );
+        let release = MouseEvent {
+            button: MouseButton::Left,
+            mods: MouseMods::NONE,
+            kind: MouseKind::Release,
+            col: Col::ZERO,
+            row: Row::ZERO,
+            px: None,
+        };
+        t.mouse_report(release);
+        assert_eq!(
+            t.animate_images(gif_at(9_001), ImageMotion::Play),
+            Animated::Same,
+            "a release is not a press"
+        );
+        t.mouse_report(MouseEvent {
+            kind: MouseKind::Press,
+            ..release
+        });
+        assert_eq!(
+            t.animate_images(gif_at(9_002), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert_eq!(placed(t).3[0], GIF_COLOURS[2], "the press moved it on");
+    });
+}
+
+/// **A press the terminal takes itself moves a waiting frame on too** --
+/// a selection with tracking off, the scrollbar, a link -- as the
+/// embedder tells the core of every press (`Term::pointer_pressed`),
+/// and nothing is sent: a frame waits for the user, not for a report.
+#[test]
+fn a_gif_frame_waiting_for_input_moves_on_any_press() {
+    let mut first = flat(10, 10, 1, 0);
+    first.gce = Some((1, 0, true));
+    let g = gif(10, 10, Some(0), &[first, flat(10, 10, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        assert_eq!(
+            t.animate_images(gif_at(9_000), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(t.next_image_frame(gif_at(9_000)), None, "nothing due");
+        t.pointer_pressed();
+        assert!(t.reply().is_empty(), "nothing sent");
+        assert_eq!(t.next_image_frame(gif_at(9_001)), Some(gif_at(9_001)));
+        assert_eq!(
+            t.animate_images(gif_at(9_001), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert_eq!(placed(t).3[0], GIF_COLOURS[2], "the press moved it on");
+    });
+}
+
+/// **Text over an animated GIF clears its cell in every frame**, so the
+/// next frame shows none of the picture there either.
+#[test]
+fn text_over_an_animated_gif_clears_every_frame() {
+    let g = gif(20, 20, Some(0), &[flat(20, 20, 1, 10), flat(20, 20, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        feed(t, b"\x1b[1;2HX", 4097);
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        for (ms, frame) in [(0, 1), (100, 2)] {
+            if ms > 0 {
+                assert_eq!(
+                    t.animate_images(gif_at(ms), ImageMotion::Play),
+                    Animated::Changed
+                );
+            }
+            let (_, _, _, got) = placed(t);
+            for y in 0..20 {
+                for x in 0..20 {
+                    let want = match (10..20).contains(&x) && y < 20 {
+                        true => 0,
+                        false => GIF_COLOURS[frame],
+                    };
+                    assert_eq!(got[y * 20 + x], want, "({x}, {y}) in frame {frame}");
+                }
+            }
+        }
+    });
+}
+
+/// **An animated GIF drawn at another size keeps its frames and timing**,
+/// each resampled as a still picture is.
+#[test]
+fn a_gif_at_another_size_keeps_its_frames() {
+    let g = gif(10, 10, Some(0), &[flat(10, 10, 1, 10), flat(10, 10, 3, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1;width=2", &g), 4097);
+        let (_, w, h, got) = placed(t);
+        assert_eq!((w, h), (20, 20));
+        assert!(got.iter().all(|&p| p == GIF_COLOURS[1]));
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        assert_eq!(
+            t.animate_images(gif_at(100), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert!(
+            placed(t).3.iter().all(|&p| p == GIF_COLOURS[3]),
+            "the second frame"
+        );
+    });
+}
+
+/// **An animation the image memory cannot hold whole draws the
+/// placeholder**, counted, as a picture too big for it does (Jev,
+/// REFUSE_WHOLE).
+#[test]
+fn a_gif_too_big_for_the_memory_is_refused_whole() {
+    // Three frames of 40 by 40 need 4802 words; the arena holds 4096.
+    let g = gif(
+        40,
+        40,
+        Some(0),
+        &[
+            flat(40, 40, 1, 10),
+            flat(40, 40, 2, 10),
+            flat(40, 40, 3, 10),
+        ],
+    );
+    with(1 << 12, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        let (_, w, h, _) = placed(t);
+        assert_eq!((w, h), (35, 36), "the placeholder");
+        assert_eq!(t.iterm_counts().of(ItermKey::File), ONE);
+    });
+}
+
+/// **A Plain Text Extension is not drawn, and is counted** in
+/// `picture_parts_skipped`; the picture round it draws.
+#[test]
+fn a_gif_plain_text_extension_is_counted() {
+    let mut g = gif(4, 4, None, &[flat(4, 4, 1, 0)]);
+    let at = g.len() - 1;
+    let text = [
+        0x21, 0x01, 12, 0, 0, 0, 0, 4, 0, 4, 0, 4, 4, 1, 0, 2, b'h', b'i', 0,
+    ];
+    g.splice(at..at, text);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        let (_, w, h, got) = placed(t);
+        assert_eq!((w, h), (4, 4));
+        assert_eq!(got[0], GIF_COLOURS[1]);
+        assert_eq!(t.iterm_counts().picture_parts_skipped, ONE);
+        assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
     });
 }
 

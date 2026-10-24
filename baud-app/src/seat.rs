@@ -426,6 +426,9 @@ impl Seat {
                 }
             }
             Input::Pressed { button, .. } => {
+                // Any press, whatever takes it below, is input to a GIF
+                // frame waiting for the user (`Term::pointer_pressed`).
+                term.pointer_pressed();
                 self.down = Some(button);
                 (Kind::Down, button)
             }
@@ -953,6 +956,39 @@ mod tests {
     }
 
     const NONE: Modifiers = Modifiers::NONE;
+
+    /// **A press that selects moves a GIF frame waiting for the user on**,
+    /// "processing will continue when user input is entered", "Mouse
+    /// Button Click" among GIF89a's examples: with tracking off the press
+    /// is the selection's and sends nothing, and the core hears of it all
+    /// the same (`Term::pointer_pressed`). The picture is a 1x1 GIF whose
+    /// first frame waits with no delay. Perturbation: leave the press
+    /// untold -- the frame stays.
+    #[test]
+    fn a_press_that_selects_moves_a_waiting_gif_frame_on() {
+        use baud_domain::{Animated, HostTime, ImageBudget, ImageMotion, ImagePx};
+        let mut owned = Owned::new(&WS).with_images(ImageBudget::of(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(10));
+        let mut seat = Seat::new();
+        feed(
+            &mut t,
+            b"\x1b]1337;File=inline=1:R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh\
+              +QQGAAAAACwAAAAAAQABAAACAkwBACH5BAQKAAAALAAAAAABAAEAAAICRAEAOw==\x07",
+        );
+        let at = |ms: u64| HostTime::of_nanos(1_000_000_000 + ms * 1_000_000);
+        t.animate_images(at(0), ImageMotion::Play);
+        let tick = |t: &mut Term<'_>, ms| t.animate_images(at(ms), ImageMotion::Play);
+        assert_eq!(tick(&mut t, 9_000), Animated::Same, "waiting");
+        let (_, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(0)),
+            NONE,
+        );
+        assert!(sent.is_empty(), "the selection's press: {sent:?}");
+        assert_eq!(tick(&mut t, 9_001), Animated::Changed, "moved on");
+    }
 
     /// **A read says what the effects answer**: a switch of surface, and
     /// a reset from a primary looked back, which reveals the thumb; text

@@ -153,9 +153,10 @@ impl Paint<'_, '_> {
     }
 
     /// **The file is whole**: a download refused and counted; an inline
-    /// picture decoded, placed and the cursor moved; anything that is no
-    /// picture baud decodes -- a format other than PNG, data that is not
-    /// base64, a PNG that does not decode -- drawn as the broken-image
+    /// picture decoded, placed and the cursor moved, an animated GIF
+    /// playing; anything that is no picture baud decodes -- a format other
+    /// than PNG, JPEG and GIF, data that is not base64, a file that does
+    /// not decode -- drawn as the broken-image
     /// placeholder at the size asked (Jev, BROKEN_PLACEHOLDER, 0.94/0.98)
     /// and counted. More data than the scratch holds is refused whole.
     fn file_finish(&mut self, key: ItermKey) {
@@ -190,6 +191,11 @@ impl Paint<'_, '_> {
         };
         if picture.is_none() {
             self.not_acted(key);
+        }
+        if let Some(p) = picture {
+            let skipped = Messages::of(usize::try_from(p.parts_not_drawn).unwrap_or(usize::MAX));
+            let c = &mut self.strs.iterm.counts;
+            c.picture_parts_skipped = c.picture_parts_skipped.plus(skipped);
         }
         self.place_picture(args, picture, key);
     }

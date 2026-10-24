@@ -5270,6 +5270,17 @@ impl<'b> Term<'b> {
             .highlighted()
     }
 
+    /// **A button pressed in the terminal**, whatever takes the press --
+    /// the scrollbar, a link, a selection, or the program through
+    /// [`Term::mouse_report`]: the user's input a GIF frame may wait for
+    /// (`ImageStore::input_arrived`), "processing will continue when user
+    /// input is entered" (`[[source: gif89a]]` 23 v), "Mouse Button Click"
+    /// among its examples. Input-side and cold: an embedder calls this per
+    /// press, and it sends nothing.
+    pub fn pointer_pressed(&mut self) {
+        self.store.images.input_arrived();
+    }
+
     /// Queue a mouse report, if the application asked for this kind of event.
     ///
     /// Returns whether the report is in the reply buffer, so an embedder can
@@ -5314,6 +5325,10 @@ impl<'b> Term<'b> {
     /// **Input-side and cold**: an embedder calls this per pointer event;
     /// the per-byte loop never does.
     pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
+        // A button pressed is the user's input, as a key is (`Term::key`).
+        if e.kind == MouseKind::Press {
+            self.store.images.input_arrived();
+        }
         if self.cold.mouse != MouseTracking::Highlight {
             return self.tracking_report(e);
         }
@@ -6001,6 +6016,12 @@ impl<'b> Term<'b> {
         let Some(k) = self.queue_key(e) else {
             return false;
         };
+        // **A key pressed is the user's input** a GIF frame may wait for
+        // (`ImageStore::input_arrived`): "processing will continue when
+        // user input is entered" (`[[source: gif89a]]` 23 v).
+        if e.kind != KeyEventKind::Release {
+            self.store.images.input_arrived();
+        }
         // **A normal keystroke arms the margin bell** (`margin.rs`), before
         // the echo below prints it.
         if crate::margin::is_normal_keystroke(k.as_bytes()) == crate::margin::Normal::Yes {

@@ -3723,6 +3723,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     kitty_draw_gate(&mut arms, &mut t);
     iterm_file_gate(&mut arms, &mut t);
     iterm_jpeg_gate(&mut arms, &mut t);
+    iterm_gif_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
     proportional_gate(&mut arms, &mut t);
@@ -6935,6 +6936,103 @@ fn iterm_jpeg_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let cpu = cpu_frame(arms, t);
     assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the JPEG");
     assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on the JPEG");
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
+    feed(t, b"\x1bc");
+}
+
+/// **An iTerm2 animated GIF on every arm** (`[[source: gif89a]]`): a
+/// 16 by 16 GIF of two frames, white then red, each for ten hundredths,
+/// looping for ever, placed at the cursor; the instance arm draws the
+/// frame shown and the cell and CPU arms draw what it draws, before the
+/// clock moves it and after. Before the decoder it drew the broken-image
+/// placeholder.
+fn iterm_gif_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    // A two-colour global table, background 0: white, red.
+    let mut g = b"GIF89a\x10\x00\x10\x00\x80\x00\x00\xff\xff\xff\xff\x00\x00".to_vec();
+    g.extend(b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00");
+    for i in 0..2u8 {
+        g.extend([0x21, 0xf9, 4, 4, 10, 0, 0, 0]);
+        g.extend(b"\x2c\x00\x00\x00\x00\x10\x00\x10\x00\x00\x02");
+        // Clear (4) then the index, three bits each, packed right to left:
+        // 256 pixels in 1536 bits, then the End of Information code.
+        let mut bits: Vec<bool> = Vec::new();
+        let mut code = |c: u8| (0..3).for_each(|k| bits.push(c >> k & 1 == 1));
+        for _ in 0..256 {
+            code(4);
+            code(i);
+        }
+        code(5);
+        let bytes: Vec<u8> = bits
+            .chunks(8)
+            .map(|c| c.iter().rev().fold(0u8, |b, &x| b << 1 | u8::from(x)))
+            .collect();
+        for c in bytes.chunks(255) {
+            g.push(u8::try_from(c.len()).unwrap());
+            g.extend_from_slice(c);
+        }
+        g.push(0);
+    }
+    g.push(0x3b);
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut cmd = b"\x1bc\x1b[?25l\x1b[3;5H\x1b]1337;File=inline=1:".to_vec();
+    for q in g.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            match k <= q.len() {
+                true => cmd.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                false => cmd.push(b'='),
+            }
+        }
+    }
+    cmd.push(0x07);
+    feed(t, &cmd);
+    let start = HostTime::of_nanos(1_000_000_000);
+    for (name, tick, colour) in [
+        ("the first frame", None, 0xFFFF_FFFFu32),
+        ("the second, its gap past", Some(100), 0xFFFF_0000),
+        ("the first again", Some(200), 0xFFFF_FFFF),
+    ] {
+        if let Some(ms) = tick {
+            let then = start.plus(std::time::Duration::from_millis(ms));
+            assert_eq!(
+                t.animate_images(then, ImageMotion::Play),
+                Animated::Changed,
+                "{name}: the premise, the tick changed the frame"
+            );
+        } else {
+            assert_eq!(t.animate_images(start, ImageMotion::Play), Animated::Same);
+        }
+        let (a, b) = arms.draw(t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "{name}: the picture is on screen");
+        let (x0, y0) = (
+            usize::try_from(places[0].x).unwrap(),
+            usize::try_from(places[0].y).unwrap(),
+        );
+        let wrong = (0..16)
+            .flat_map(|y| (0..16).map(move |x| (y0 + y) * fw + x0 + x))
+            .filter(|&i| a[i] != colour)
+            .count();
+        assert_eq!(wrong, 0, "{name}: the instance arm draws the frame shown");
+        let cpu = cpu_frame(arms, t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{name}: the GPU arms disagree on the GIF"
+        );
+        assert_eq!(
+            differing(&a, &cpu),
+            0,
+            "{name}: the CPU arm disagrees on the GIF"
+        );
+    }
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }

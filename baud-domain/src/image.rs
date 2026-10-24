@@ -52,7 +52,7 @@ mod frames;
 use crate::style::Chan;
 pub use frames::{
     AnimState, Animated, FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth,
-    FrameLoad, FrameNo, FrameRefusal, ImageMotion,
+    FrameLoad, FrameNo, FrameRefusal, FrameWait, ImageMotion,
 };
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
@@ -1559,6 +1559,9 @@ pub struct ImageStore<'b> {
     framed: usize,
     /// Whether the last tick ran the clock or held it.
     held: ImageMotion,
+    /// Whether the user's input arrived since the last tick, for frames
+    /// that wait for it ([`frames::FrameWait::Input`]).
+    input: frames::InputSeen,
     /// **How many live placements are relative** ([`KittyParent`]): the
     /// gate for following a parent that moved and deleting what a parent
     /// leaves, so a store with none pays one compare.
@@ -1624,6 +1627,7 @@ impl<'b> ImageStore<'b> {
             relatives: 0,
             framed: 0,
             held: ImageMotion::Play,
+            input: frames::InputSeen::No,
         }
     }
 
@@ -2037,8 +2041,9 @@ impl<'b> ImageStore<'b> {
     /// pixels and cut at the screen's edge -- each pixel the source pixel
     /// under its centre, [`ImageDraw::nearest`], the filter every drawing
     /// path samples with, so a picture resampled here draws as one scaled
-    /// at draw time would. Refused and counted as [`ImageStore::store`]
-    /// refuses; `src` is left as it was.
+    /// at draw time would. An animation is resampled frame by frame, its
+    /// timing and state with it. Refused and counted as
+    /// [`ImageStore::store`] refuses; `src` is left as it was.
     pub fn store_resampled(
         &mut self,
         src: ImageId,
@@ -2047,18 +2052,31 @@ impl<'b> ImageStore<'b> {
         full_w: u32,
     ) -> Option<ImageId> {
         let (sw, sh) = self.size_of(src)?;
-        let from = self.slots.get(src.index()?)?.start();
-        let (id, _) = self.store(w, h, ImageAlpha::OpaqueOrClear)?;
-        let to = self.slots.get(id.index()?)?.start();
+        let si = src.index()?;
+        let s = *self.slots.get(si)?;
+        let frames = s.anim.frame_count();
+        let id = match frames {
+            1 => self.store(w, h, ImageAlpha::OpaqueOrClear)?.0,
+            n => self.store_frames(w, h, n)?,
+        };
+        let ti = id.index()?;
+        let to = self.slots.get(ti)?.start();
         let (sw, sh) = (u32::from(sw.raw()), u32::from(sh.raw()));
         let (w, h) = (w.index(), h.index());
         let dh = u32::try_from(h).unwrap_or(u32::MAX);
-        for y in 0..h {
-            let sy = ImageDraw::nearest(u32::try_from(y).unwrap_or(0), dh, 0, sh) as usize;
-            for x in 0..w {
-                let sx = ImageDraw::nearest(u32::try_from(x).unwrap_or(0), full_w, 0, sw) as usize;
-                self.pixels[to + y * w + x] = self.pixels[from + sy * sw as usize + sx];
+        for k in 0..frames as usize {
+            let (from, to) = (s.start() + k * s.area(), to + k * w * h);
+            for y in 0..h {
+                let sy = ImageDraw::nearest(u32::try_from(y).unwrap_or(0), dh, 0, sh) as usize;
+                for x in 0..w {
+                    let sx =
+                        ImageDraw::nearest(u32::try_from(x).unwrap_or(0), full_w, 0, sw) as usize;
+                    self.pixels[to + y * w + x] = self.pixels[from + sy * sw as usize + sx];
+                }
             }
+        }
+        if frames > 1 {
+            self.copy_timing(si, ti);
         }
         Some(id)
     }
@@ -3048,17 +3066,21 @@ impl<'b> ImageStore<'b> {
         true
     }
 
-    /// How many pixels of image `s` in `(x0, y0, x1, y1)` are not clear.
+    /// How many pixels of image `s` in `(x0, y0, x1, y1)` are not clear,
+    /// summed over its frames: an animation is clear only when every frame
+    /// is.
     fn lit_in(&self, s: ImageSlot, (x0, y0, x1, y1): (usize, usize, usize, usize)) -> u32 {
         let (w, h) = (s.width.index(), s.height.index());
         let (x0, x1, y1) = (x0.min(w), x1.min(w), y1.min(h));
         let mut n = 0usize;
-        for y in y0.min(y1)..y1 {
-            let row = s.start() + y * w;
-            n += self.pixels[row + x0.min(x1)..row + x1]
-                .iter()
-                .filter(|p| p.alpha().get() != 0)
-                .count();
+        for k in 0..s.anim.frame_count() as usize {
+            for y in y0.min(y1)..y1 {
+                let row = s.start() + k * s.area() + y * w;
+                n += self.pixels[row + x0.min(x1)..row + x1]
+                    .iter()
+                    .filter(|p| p.alpha().get() != 0)
+                    .count();
+            }
         }
         u32::try_from(n).unwrap_or(u32::MAX)
     }
@@ -3214,13 +3236,17 @@ impl<'b> ImageStore<'b> {
             }
             None => (x0, y0, x1, y1),
         };
-        let at = s.start();
+        // Every frame of an animation: a cell text clears shows none of
+        // the picture whichever frame is shown.
         let mut was_lit = 0u32;
-        for y in y0..y1 {
-            let span = &mut self.pixels[at + y * w + x0..at + y * w + x1];
-            let n = span.iter().filter(|p| p.alpha().get() != 0).count();
-            was_lit = was_lit.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
-            span.fill(Pixel::CLEAR);
+        for k in 0..s.anim.frame_count() as usize {
+            let at = s.start() + k * s.area();
+            for y in y0..y1 {
+                let span = &mut self.pixels[at + y * w + x0..at + y * w + x1];
+                let n = span.iter().filter(|p| p.alpha().get() != 0).count();
+                was_lit = was_lit.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
+                span.fill(Pixel::CLEAR);
+            }
         }
         if let Some((page, plane)) = self.page_plane.filter(|_| scaled.is_none()) {
             if page == id {
@@ -3370,6 +3396,7 @@ impl<'b> ImageStore<'b> {
         self.local_placed = 0;
         self.relatives = 0;
         self.framed = 0;
+        self.input = frames::InputSeen::No;
         self.page_plane = None;
         self.page_shows = PageShows::Own;
         self.reach = [None; 2];
@@ -3901,11 +3928,7 @@ impl<'b> ImageStore<'b> {
         let c0 = slot.col.index();
         let lit = match (img.owner, img.lit) {
             (ImageOwner::Local | ImageOwner::Iterm, None) => {
-                let n = self.pixels[img.start()..img.end()]
-                    .iter()
-                    .filter(|px| px.alpha().get() != 0)
-                    .count();
-                Some(u32::try_from(n).unwrap_or(u32::MAX))
+                Some(self.lit_in(img, (0, 0, img.width.index(), img.height.index())))
             }
             (_, lit) => lit,
         };
@@ -4216,13 +4239,18 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let pw = x1 - x0;
-            let piece = self
-                .store(
-                    ImagePx::of(u16::try_from(pw).unwrap_or(u16::MAX)),
-                    img.height,
-                    img.alpha,
-                )
-                .map(|(id, _)| id);
+            // An animation is not split: its pixels inside the margins
+            // move within it, every frame, as when no piece is stored.
+            let piece = match img.anim.animated() {
+                true => None,
+                false => self
+                    .store(
+                        ImagePx::of(u16::try_from(pw).unwrap_or(u16::MAX)),
+                        img.height,
+                        img.alpha,
+                    )
+                    .map(|(id, _)| id),
+            };
             let placed = piece.map(|id| {
                 (
                     id,
@@ -4255,7 +4283,10 @@ impl<'b> ImageStore<'b> {
                     }
                     let since = |x: LineIdx| x.since(s.line).map_or(0, |r| r.index());
                     let (y0, y1) = ((since(lo) * ch).min(h), (since(hi) * ch).min(h));
-                    self.shift_rows(img.start() + x0, w, pw, (y0, y1), n.index() * ch, way);
+                    for k in 0..img.anim.frame_count() as usize {
+                        let at = img.start() + k * img.area() + x0;
+                        self.shift_rows(at, w, pw, (y0, y1), n.index() * ch, way);
+                    }
                     if img.lit.is_some() {
                         let after = self.lit_in(img, (x0, 0, x1, h));
                         self.unlit(s.image, moved.saturating_sub(after));

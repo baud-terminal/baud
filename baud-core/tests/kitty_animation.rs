@@ -180,7 +180,15 @@ fn a_frame_is_made_and_answered_with_its_number() {
     }
     with(|t| {
         root(t);
-        for (z, want, gap) in [("", 2, 40), (",z=-5", 3, 0), (",z=7", 4, 7)] {
+        // The largest `z`, 2^31 - 1 ms, kept whole: a picture's frames take
+        // a bit of the word for their input flag, a kitty frame's do not.
+        let largest = ",z=2147483647";
+        for (z, want, gap) in [
+            ("", 2, 40),
+            (",z=-5", 3, 0),
+            (",z=7", 4, 7),
+            (largest, 5, 2_147_483_647),
+        ] {
             let r = feed(t, &rgba(&format!("a=f,f=32,s=2,v=2,i=1{z}"), &data));
             assert_eq!(text(&r), format!("\x1b_Gi=1,r={want};OK\x1b\\"));
             let g = t.images().frame_gap(img(t, 1), FrameNo::of(want)).unwrap();
@@ -535,6 +543,31 @@ fn the_clock_runs_a_placed_animation() {
             Animated::Changed
         );
         assert_eq!(shown(t), 1);
+    });
+}
+
+/// **A kitty image's last loop ends on its last frame with a gap**, a
+/// gapless last frame passed over and not shown: kitty's
+/// scan_active_animations() walks to it and leaves at the wrap before
+/// update_current_frame() draws it. A picture's last loop is not this
+/// (`a_gif_that_ends_on_a_zero_delay_ends_showing_it`).
+#[test]
+fn a_last_loop_passes_over_a_gapless_last_frame() {
+    with(|t| {
+        four(t);
+        let id = img(t, 1);
+        feed(t, &apc("a=a,i=1,r=1,z=50,s=3,v=2", b""));
+        feed(t, &apc("a=a,i=1,r=4,z=-1", b""));
+        feed(t, &apc("a=p,i=1,q=2", b""));
+        let shown = |t: &Term<'_>| t.images().kitty_frames(id).unwrap().1.raw();
+        t.animate_images(at(0), ImageMotion::Play);
+        t.animate_images(at(50), ImageMotion::Play);
+        t.animate_images(at(60), ImageMotion::Play);
+        assert_eq!(shown(t), 3);
+        assert_eq!(t.animate_images(at(80), ImageMotion::Play), Animated::Same);
+        assert_eq!(shown(t), 3, "frame 4 passed over");
+        assert_eq!(t.images().frame_loops(id), Some((1, 1)));
+        assert_eq!(t.next_image_frame(at(80)), None, "nothing more to run");
     });
 }
 

@@ -38,7 +38,7 @@
 //! frame a tick once its gap has passed, past gapless frames, a loop
 //! counted at the wrap, a loading animation waiting at its last frame.
 
-use super::{ImageAlpha, ImageId, ImageOwner, ImageSlot, ImageState, ImageStore, Pixel};
+use super::{ImageAlpha, ImageId, ImageOwner, ImagePx, ImageSlot, ImageState, ImageStore, Pixel};
 use crate::style::Chan;
 use crate::time::HostTime;
 use core::time::Duration;
@@ -202,9 +202,46 @@ pub enum FrameDeleted {
 /// `40ms`".
 const DEFAULT_GAP: u32 = 40;
 
-/// A frame's word: its gap in the low 31 bits, its depth in the top one.
+/// A kitty frame's word: its gap in the low 31 bits.
 const GAP_MASK: u32 = 0x7FFF_FFFF;
+
+/// A picture's frame word, which no kitty command reaches: its gap in the
+/// low 30 bits, as a GIF's delay, at most 65535 hundredths, takes twenty.
+const PICTURE_GAP_MASK: u32 = 0x3FFF_FFFF;
+
+/// A picture's frame word: whether it waits for the user's input.
+const INPUT_BIT: u32 = 0x4000_0000;
+
+/// Every frame word: its depth, in the top bit.
 const RGB_BIT: u32 = 0x8000_0000;
+
+/// The bits of slot `s`'s frame words a gap takes: all 31 for a kitty
+/// image, 30 for a picture's, whose next bit is the input bit.
+fn gap_mask(s: &ImageSlot) -> u32 {
+    match s.owner {
+        ImageOwner::Kitty(..) => GAP_MASK,
+        _ => PICTURE_GAP_MASK,
+    }
+}
+
+/// **Whether a frame waits for the user**: GIF89a's User Input Flag,
+/// "processing will continue when user input is entered", or when its
+/// delay expires if it has one, "whichever occurs first"
+/// (`[[source: gif89a]]` 23 v).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrameWait {
+    /// Its gap alone paces it.
+    Gap,
+    /// A key or a click moves it on, or its gap, if not zero.
+    Input,
+}
+
+/// Whether the user's input has arrived since the last tick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum InputSeen {
+    No,
+    Yes,
+}
 
 /// **One image's animation**: how many frames and how many it has room
 /// for, the one shown, the root frame's gap and depth -- the others' are
@@ -224,8 +261,10 @@ pub(crate) struct Frames {
     /// When the shown frame was shown; none until a tick stamps it.
     shown_at: Option<HostTime>,
     /// The gaps summed, milliseconds: zero, every frame gapless, and
-    /// nothing to run.
+    /// nothing to run but for frames that wait for input.
     duration: u64,
+    /// How many frames wait for the user's input ([`FrameWait::Input`]).
+    waits: u32,
 }
 
 impl Frames {
@@ -241,6 +280,7 @@ impl Frames {
         loops: 0,
         shown_at: None,
         duration: 0,
+        waits: 0,
     };
 
     /// The words a span of frames `area` pixels each takes.
@@ -257,6 +297,11 @@ impl Frames {
     /// The shown frame's number.
     pub(crate) fn shown_frame(&self) -> FrameNo {
         FrameNo(self.shown + 1)
+    }
+
+    /// How many frames it has.
+    pub(crate) fn frame_count(&self) -> u32 {
+        self.count
     }
 
     /// Whether it has frames past the first.
@@ -363,23 +408,53 @@ impl<'b> ImageStore<'b> {
             .then_some(i)
     }
 
+    /// Frame `k`'s word, from zero, as kept: its gap, input bit and depth.
+    fn raw_word(&self, s: &ImageSlot, k: usize) -> u32 {
+        match k {
+            0 => {
+                s.anim.gap0
+                    | match s.anim.depth0 {
+                        FrameDepth::Rgba => 0,
+                        FrameDepth::Rgb => RGB_BIT,
+                    }
+            }
+            _ => self.pixels[s.start() + s.area() * s.anim.cap as usize + k - 1].bits(),
+        }
+    }
+
     /// Frame `k`'s word, from zero: its gap and depth.
     fn frame_word(&self, s: &ImageSlot, k: usize) -> (u32, FrameDepth) {
-        if k == 0 {
-            return (s.anim.gap0, s.anim.depth0);
-        }
-        let w = self.pixels[s.start() + s.area() * s.anim.cap as usize + k - 1].bits();
+        let w = self.raw_word(s, k);
         let depth = match w & RGB_BIT {
             0 => FrameDepth::Rgba,
             _ => FrameDepth::Rgb,
         };
-        (w & GAP_MASK, depth)
+        (w & gap_mask(s), depth)
+    }
+
+    /// Whether frame `k` waits for the user's input: never a kitty
+    /// image's.
+    fn frame_waits(&self, s: &ImageSlot, k: usize) -> FrameWait {
+        match (gap_mask(s), self.raw_word(s, k) & INPUT_BIT) {
+            (GAP_MASK, _) | (_, 0) => FrameWait::Gap,
+            _ => FrameWait::Input,
+        }
     }
 
     fn set_frame_word(&mut self, i: usize, k: usize, gap: u32, depth: FrameDepth) {
+        self.set_word(i, k, gap, depth, FrameWait::Gap);
+    }
+
+    fn set_word(&mut self, i: usize, k: usize, gap: u32, depth: FrameDepth, wait: FrameWait) {
         let s = self.slots[i];
+        let mask = gap_mask(&s);
+        let input = match (wait, mask) {
+            (FrameWait::Input, PICTURE_GAP_MASK) => INPUT_BIT,
+            _ => 0,
+        };
+        let gap = gap.min(mask);
         if k == 0 {
-            self.slots[i].anim.gap0 = gap;
+            self.slots[i].anim.gap0 = gap | input;
             self.slots[i].anim.depth0 = depth;
             return;
         }
@@ -388,7 +463,7 @@ impl<'b> ImageStore<'b> {
             FrameDepth::Rgb => RGB_BIT,
         };
         let at = s.start() + s.area() * s.anim.cap as usize + k - 1;
-        self.pixels[at] = Pixel((gap & GAP_MASK) | bit);
+        self.pixels[at] = Pixel(gap | input | bit);
     }
 
     /// **Frame `k`'s gap set**, kitty's `change_gap`: never below zero,
@@ -396,7 +471,9 @@ impl<'b> ImageStore<'b> {
     fn change_gap(&mut self, i: usize, k: usize, gap: u32) {
         let s = self.slots[i];
         let (old, depth) = self.frame_word(&s, k);
-        self.set_frame_word(i, k, gap, depth);
+        let wait = self.frame_waits(&s, k);
+        self.set_word(i, k, gap, depth, wait);
+        let gap = gap.min(gap_mask(&s));
         let d = &mut self.slots[i].anim.duration;
         *d = d.saturating_sub(u64::from(old)) + u64::from(gap);
     }
@@ -782,7 +859,7 @@ impl<'b> ImageStore<'b> {
             && s.state == ImageState::Ready
             && s.anim.count > 1
             && s.anim.state != AnimState::Stopped
-            && s.anim.duration > 0
+            && (s.anim.duration > 0 || s.anim.waits > 0)
             && s.placements.index() > 0
             && (s.anim.max_loops == 0 || s.anim.loops < s.anim.max_loops)
     }
@@ -790,13 +867,18 @@ impl<'b> ImageStore<'b> {
     /// **A tick of the clock at `now`**: each running animation whose
     /// shown frame's gap has passed moves on a frame, past gapless ones,
     /// a loop counted at the wrap and the last loop or a loading
-    /// animation's last frame where it waits; a frame shown first is
+    /// animation's last frame where it waits -- a picture's last loop on
+    /// its last frame, gapless or not; a frame shown first is
     /// stamped `now`. Held, nothing moves, and the frames shown are
     /// stamped afresh when it runs again, so each gets its whole gap.
-    /// One compare when no image has a second frame.
+    /// One compare when no image has a second frame. A frame that waits
+    /// for input ([`FrameWait::Input`]) moves on when input arrived since
+    /// the last tick or its gap, if not zero, has passed, "whichever occurs
+    /// first"; input that arrives while held is dropped.
     pub fn animate(&mut self, now: HostTime, motion: ImageMotion) -> Animated {
         let was = self.held;
         self.held = motion;
+        let input = core::mem::replace(&mut self.input, InputSeen::No);
         if self.framed == 0 || motion == ImageMotion::Hold {
             return Animated::Same;
         }
@@ -815,7 +897,11 @@ impl<'b> ImageStore<'b> {
             };
             let gap = self.frame_word(&s, s.anim.shown_index()).0;
             let due = shown_at.plus(Duration::from_millis(u64::from(gap)));
-            if now < due {
+            let ready = match self.frame_waits(&s, s.anim.shown_index()) {
+                FrameWait::Gap => now >= due,
+                FrameWait::Input => input == InputSeen::Yes || (gap != 0 && now >= due),
+            };
+            if !ready {
                 continue;
             }
             let mut a = s.anim;
@@ -827,12 +913,18 @@ impl<'b> ImageStore<'b> {
                         break false;
                     }
                     a.loops += 1;
+                    // The last loop played ends where it is -- a kitty
+                    // image on the last frame with a gap, a picture on its
+                    // last frame whatever its gap, the composite a stream
+                    // ends on (`Gif::decode`).
                     if a.max_loops != 0 && a.loops >= a.max_loops {
-                        break false;
+                        break gap_mask(&s) != GAP_MASK && at != a.shown;
                     }
                 }
                 at = next;
-                if self.frame_word(&s, at as usize).0 != 0 {
+                if self.frame_word(&s, at as usize).0 != 0
+                    || self.frame_waits(&s, at as usize) == FrameWait::Input
+                {
                     break true;
                 }
             };
@@ -854,7 +946,9 @@ impl<'b> ImageStore<'b> {
     /// yet stamped is due at `now`. A tick at `now` comes first: what it
     /// left past due waits -- a loading animation at its last frame, the
     /// last loop played -- and is not due, so a loop that waits on this
-    /// never spins. None while held or nothing runs.
+    /// never spins. A frame waiting for input is due at `now` once input
+    /// has arrived, else at its gap's end, or never with no gap. None while
+    /// held or nothing runs.
     pub fn next_frame(&self, now: HostTime) -> Option<HostTime> {
         if self.framed == 0 || self.held == ImageMotion::Hold {
             return None;
@@ -863,15 +957,126 @@ impl<'b> ImageStore<'b> {
             .iter()
             .filter(|s| ImageStore::runs(s))
             .filter_map(|s| {
-                let gap = self.frame_word(s, s.anim.shown_index()).0;
-                match s.anim.shown_at {
-                    None => Some(now),
-                    Some(t) => {
+                let k = s.anim.shown_index();
+                let gap = self.frame_word(s, k).0;
+                let waits = self.frame_waits(s, k);
+                match (s.anim.shown_at, waits, self.input) {
+                    (None, ..) => Some(now),
+                    (Some(_), FrameWait::Input, InputSeen::Yes) => Some(now),
+                    (Some(_), FrameWait::Input, InputSeen::No) if gap == 0 => None,
+                    (Some(t), ..) => {
                         Some(t.plus(Duration::from_millis(u64::from(gap)))).filter(|&d| d > now)
                     }
                 }
             })
             .min()
+    }
+
+    /// **The user pressed a key or a button**: frames waiting for input
+    /// move on at the next tick ([`ImageStore::animate`]). One compare
+    /// when no image has a second frame.
+    pub fn input_arrived(&mut self) {
+        if self.framed > 0 {
+            self.input = InputSeen::Yes;
+        }
+    }
+
+    /// **Store a `width` x `height` animation with room for `frames`
+    /// frames**, each stored whole, as [`ImageStore::store`] stores one
+    /// frame and refuses as it refuses: the span reserved at once, so its
+    /// frames are written in place by [`ImageStore::frame_mut`] and never
+    /// move. A picture's frames, a decoded GIF's.
+    pub fn store_frames(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        frames: u32,
+    ) -> Option<ImageId> {
+        let area = width.index().checked_mul(height.index())?;
+        let span = Frames {
+            cap: frames.max(1),
+            ..Frames::ONE
+        }
+        .span(area);
+        let at = (area > 0).then(|| self.lowest_gap(span)).flatten();
+        let id = self.store_at(at, width, height, ImageAlpha::OpaqueOrClear)?;
+        let i = id.index()?;
+        self.slots[i].anim.cap = frames.max(1);
+        Some(id)
+    }
+
+    /// **Frame `k`'s pixels, from zero, to write**, its gap in milliseconds
+    /// and whether it waits for input set: the root, or the next frame
+    /// after the last, while there is room ([`ImageStore::store_frames`]).
+    pub fn frame_mut(
+        &mut self,
+        id: ImageId,
+        k: u32,
+        gap: u32,
+        wait: FrameWait,
+    ) -> Option<&mut [Pixel]> {
+        let i = id.index()?;
+        let s = *self.slots.get(i)?;
+        let count = s.anim.count;
+        if s.is_empty() || k >= s.anim.cap || (k != 0 && k != count) {
+            return None;
+        }
+        let gap = gap.min(gap_mask(&s));
+        self.set_word(i, k as usize, gap, FrameDepth::Rgba, wait);
+        let a = &mut self.slots[i].anim;
+        a.duration += u64::from(gap);
+        if wait == FrameWait::Input {
+            a.waits += 1;
+        }
+        if k > 0 {
+            a.count += 1;
+            if a.count == 2 {
+                self.framed += 1;
+            }
+        }
+        self.epoch = self.epoch.bumped();
+        let at = s.start() + k as usize * s.area();
+        self.pixels.get_mut(at..at + s.area())
+    }
+
+    /// **Play an animation from its first frame**, `loops` times, zero for
+    /// ever, as kitty's `s=3` runs one.
+    pub fn play_frames(&mut self, id: ImageId, loops: u32) {
+        if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+            if !s.is_empty() {
+                s.anim.state = AnimState::Running;
+                s.anim.max_loops = loops;
+                s.anim.loops = 0;
+                s.anim.shown = 0;
+                s.anim.shown_at = None;
+            }
+        }
+    }
+
+    /// **Slot `to`'s frames timed as slot `from`'s**, its frames already
+    /// written: the words, the count, the gaps' sum and the state, as the
+    /// copy of an animation resampled takes them.
+    pub(crate) fn copy_timing(&mut self, from: usize, to: usize) {
+        let (f, t) = (self.slots[from], self.slots[to]);
+        let n = f.anim.count.min(t.anim.cap);
+        for k in 1..n as usize {
+            let w = self.raw_word(&f, k);
+            let at = t.start() + t.area() * t.anim.cap as usize + k - 1;
+            self.pixels[at] = Pixel(w);
+        }
+        let a = &mut self.slots[to].anim;
+        let cap = a.cap;
+        *a = Frames {
+            cap,
+            count: n,
+            ..f.anim
+        };
+        a.shown = 0;
+        a.shown_at = None;
+        if n > 1 {
+            self.framed += 1;
+        }
+        self.epoch = self.epoch.bumped();
     }
 
     /// **A kitty image's frames**: how many, which is shown, and the

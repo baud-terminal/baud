@@ -88,8 +88,9 @@ Images the tests read:
   baud-domain/tests/ijg/testimg.ppm
       The Independent JPEG Group's test images from release 6b,
       unmodified, under the IJG's terms (LICENSES/ijg-README.txt). The
-      other files in baud-domain/tests/jpeg/ were made by baud's own
-      scene.py there and are under this licence.
+      files in baud-domain/tests/jpeg/ and baud-domain/tests/gif/ are
+      baud's own, made as the README in each records, and are under this
+      licence.
 
 Fonts the tests read:
 
