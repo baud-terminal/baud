@@ -34411,3 +34411,59 @@ sha256 = "d45d4bf1d4e1e8079e1fb6c7275eb73e211833619c0b3f08ed3d637dc3d3e05a"
 bytes  = 62215
 group  = "E"
 # Retrieved 2026-10-24.
+# Retrieved 2026-10-24.
+# Why two openers of /dev/ptmx can be given one terminal. `ptmx_clone` returns
+# the first empty slot (507) without filling it; `ptmx_get_ioctl` fills it later
+# and, finding it filled by another opener, returns the value "so we know to
+# redrive the open, we've been raced" (362), which `ptcopen` turns into
+# EREDRIVEOPEN (xnu-tty-dev, 496).
+[sources.xnu-tty-ptmx-c]
+key    = "xnu-tty-ptmx-c"
+title  = "XNU xnu-12377.121.6, bsd/kern/tty_ptmx.c -- ptmx_clone and ptmx_get_ioctl, the pty allocation race"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_ptmx.c"
+sha256 = "15e1f42f430754e7843e83c669ada1a69a793c32cc637a1cae6eff9516d63b14"
+bytes  = 25725
+group  = "E"
+# Retrieved 2026-10-24.
+# Why a redriven open asks for a fresh terminal. `devfs_dntovn` calls the clone
+# function for a new minor on every vnode it makes (1275), and "A cloned vnode
+# is not hooked into the devnode; every lookup gets a new vnode" (1324-1325).
+[sources.xnu-devfs-tree-c]
+key    = "xnu-devfs-tree-c"
+title  = "XNU xnu-12377.121.6, bsd/miscfs/devfs/devfs_tree.c -- devfs_dntovn, a new minor per lookup of a cloning device"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/miscfs/devfs/devfs_tree.c"
+sha256 = "506762c70c2ce05464750f4e5e96dec3c1c1eee24d2322582cfd91456283063f"
+bytes  = 48773
+group  = "E"
+# Retrieved 2026-10-24. Read: 133-146. `Pty.open` calls `openpty` once and
+# returns `error.OpenptyFailed` on any failure; nothing retries it.
+[sources.ghostty-d9840f3-pty]
+key    = "ghostty-d9840f3-pty"
+title  = "ghostty: src/pty.zig -- Pty.open, one openpty call"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ d9840f3c"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/pty.zig"
+file   = ""
+sha256 = "217318ce787e778a0b8d4cc1065ec704d520759efc71daf5c03343d282a8e3e5"
+bytes  = 18325
+status = "external"
+group  = "E"
+# Retrieved 2026-10-24. Read: 185-190. `new` calls `openpty` once and returns
+# its error with `?`; nothing retries it.
+[sources.alacritty-0c405d5-tty-unix]
+key    = "alacritty-0c405d5-tty-unix"
+title  = "alacritty 0.15.1 (0c405d5), alacritty_terminal/src/tty/unix.rs -- new, one openpty call"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty_terminal/src/tty/unix.rs"
+file   = ""
+sha256 = "a2762a5cb5be8a16c67be2868795c39f2beba4c34e11a171b1ba11e4e9ffe72d"
+bytes  = 12986
+status = "external"
+group  = "E"

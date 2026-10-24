@@ -98,6 +98,18 @@ pub const POLLNVAL: i16 = 0x20;
 pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
 
+/// **What a pty open returns when the kernel's own redrive ran out.**
+/// Darwin's `/dev/ptmx` hands an opener the first free terminal without
+/// claiming it, so two openers at once can be given the same one; the
+/// one that comes second gets `EREDRIVEOPEN` and the kernel redoes the
+/// open, ten times, and then returns it: "-6 ... reserved for kernel
+/// internal use" (`[[source: xnu-errno-h]]`, `[[source: xnu-tty-ptmx-c]]`,
+/// `[[source: xnu-vfs-vnops-c]]`). Linux has no such value. Not in the
+/// header test: the SDK's `errno.h` does not carry it, the kernel's has it
+/// under `KERNEL_PRIVATE`, so the pinned source holds the value.
+#[cfg(target_os = "macos")]
+pub const EREDRIVEOPEN: c_int = -6;
+
 /// `fcntl`'s commands and flag for a descriptor's own flags: the pty's
 /// master is set to close on exec, and a test reads that what `openat`
 /// opened for a kitty file does. The same values on both platforms.
@@ -244,6 +256,12 @@ unsafe extern "C" {
     pub fn grantpt(fd: Fd) -> c_int;
     #[cfg(test)]
     pub fn unlockpt(fd: Fd) -> c_int;
+
+    /// Waits for the child `pid` and reaps it, for the test that forks
+    /// many at once and must not leave them behind. A `pid_t` is an `int`
+    /// on both platforms, and so is the status.
+    #[cfg(test)]
+    pub fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
 }
 
 // **POSIX shared memory, for the kitty `t=s` medium**

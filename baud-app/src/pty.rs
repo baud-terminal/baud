@@ -1018,6 +1018,73 @@ fn settle_before_fork() {
     }
 }
 
+/// How many times a pty open is made before its failure stands. Each
+/// `EREDRIVEOPEN` means another opener took the terminal first, and the
+/// kernel has already redone the open ten times; measured with 64 threads
+/// opening at once, no open took more than 4 calls. Each call that loses
+/// waits out the kernel's sleeps, about 0.4 s.
+const REDRIVES: usize = 16;
+
+/// `open` -- a `forkpty` or a `posix_openpt` -- made again, at once, while
+/// it fails with [`crate::sys::EREDRIVEOPEN`]: the kernel's redrive
+/// continued past its own ten, as its comment has the value mean, "we've
+/// been raced" (`[[source: xnu-tty-ptmx-c]]`). The race is system-wide: four
+/// processes of eight threads each lost it where one alone never did. No
+/// wait of baud's own: the kernel sleeps inside the call from its sixth
+/// try. A `forkpty` that fails this way has not forked, since Darwin's
+/// opens the pty before it forks (`[[source: apple-libc-pty-c]]`), and any
+/// other failure stands.
+fn redriven(mut open: impl FnMut() -> core::ffi::c_int) -> core::ffi::c_int {
+    let mut calls = 1;
+    loop {
+        let got = open();
+        if got >= 0 || calls == REDRIVES || !raced() {
+            return got;
+        }
+        calls += 1;
+    }
+}
+
+/// Whether the last call lost the kernel's pty allocation race.
+#[cfg(target_os = "macos")]
+fn raced() -> bool {
+    std::io::Error::last_os_error().raw_os_error() == Some(crate::sys::EREDRIVEOPEN)
+}
+
+/// Linux's pty open has no such race to lose.
+#[cfg(not(target_os = "macos"))]
+fn raced() -> bool {
+    false
+}
+
+/// `forkpty` on a fresh pty of size `ws`, made again while it loses the
+/// kernel's race ([`redriven`]): its pid, zero in the child and negative
+/// when it failed, and the master in the parent. libnotify is settled
+/// before it forks ([`settle_before_fork`]).
+fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) {
+    // Darwin's `forkpty` takes the size by mutable pointer and
+    // glibc's by const, so the binding is only mutated on one.
+    #[cfg_attr(target_os = "linux", allow(unused_mut))]
+    let mut ws = ws;
+    let mut master: crate::sys::Fd = -1;
+    #[cfg(target_os = "linux")]
+    let ws_arg: *const crate::sys::Winsize = &raw const ws;
+    #[cfg(not(target_os = "linux"))]
+    let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
+    settle_before_fork();
+    // SAFETY: forkpty is given a valid out-pointer and window size, both
+    // live for the call. The caller decides what the child runs.
+    let pid = redriven(|| unsafe {
+        crate::sys::forkpty(
+            &mut master,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            ws_arg,
+        )
+    });
+    (pid, master)
+}
+
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
@@ -1117,44 +1184,24 @@ impl Pty {
         };
         let envp_home = envp_of(home);
         let envp_stay = envp_of(stay);
-        // Darwin's `forkpty` takes the size by mutable pointer and
-        // glibc's by const, so the binding is only mutated on one.
-        #[cfg_attr(target_os = "linux", allow(unused_mut))]
-        let mut ws = ws;
-        let mut master: crate::sys::Fd = -1;
-        // Linux's forkpty takes the window size by const pointer and
-        // Darwin's by mutable pointer; the size is the same struct.
-        #[cfg(target_os = "linux")]
-        let ws_arg: *const crate::sys::Winsize = &raw const ws;
-        #[cfg(not(target_os = "linux"))]
-        let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
-        // SAFETY: forkpty is given a valid out-pointer and window size. In
-        // the child only `tcgetattr`, `tcsetattr`, `chdir`, `execve` and
-        // `_exit` run, and a branch on `chdir`'s result, over the child's
-        // stack and pointers into memory built before the fork: after a
-        // multi-threaded process forks, POSIX has "the child process only
-        // executes async-signal-safe operations until such time as one of
-        // the exec functions is successful" (`[[source: posix-fork]]`),
-        // and XSH 2.4.3's table lists all five (`[[source:
-        // posix-xsh-chap02]]`).
-        // The rule was `execve` and `_exit` alone until 2026-10-13, when
-        // the owner widened it for the two attribute calls, and then for
-        // `chdir` by choosing that the child change directory.
-        // `settle_before_fork` runs here in the parent, before the fork, and
-        // adds nothing to what the child runs.
-        settle_before_fork();
-        let pid = unsafe {
-            crate::sys::forkpty(
-                &mut master,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                ws_arg,
-            )
-        };
+        // `fork_terminal` returns in the child having called nothing but
+        // `forkpty`: a pid of zero ends the redrive before it reads errno.
+        let (pid, master) = fork_terminal(ws);
         if pid < 0 {
             return None;
         }
         if pid == 0 {
+            // SAFETY: in the child only `tcgetattr`, `tcsetattr`, `chdir`,
+            // `execve` and `_exit` run, and a branch on `chdir`'s result,
+            // over the child's stack and pointers into memory built before
+            // the fork: after a multi-threaded process forks, POSIX has "the
+            // child process only executes async-signal-safe operations until
+            // such time as one of the exec functions is successful"
+            // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists all
+            // five (`[[source: posix-xsh-chap02]]`).
+            // The rule was `execve` and `_exit` alone until 2026-10-13, when
+            // the owner widened it for the two attribute calls, and then for
+            // `chdir` by choosing that the child change directory.
             unsafe {
                 utf8_erase(CHILD_TERMINAL);
                 // A failed change leaves the directory as it was (`[[source:
@@ -2020,32 +2067,78 @@ mod tests {
             .map(|e| e.as_ptr())
             .chain(std::iter::once(std::ptr::null()))
             .collect();
-        #[cfg_attr(target_os = "linux", allow(unused_mut))]
-        let mut ws = ws;
-        #[cfg(target_os = "linux")]
-        let ws_arg: *const crate::sys::Winsize = &raw const ws;
-        #[cfg(not(target_os = "linux"))]
-        let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
-        let mut master: crate::sys::Fd = -1;
-        settle_before_fork();
-        // SAFETY: as in `fork_with`; the child runs only `execve` and
-        // `_exit`.
-        let pid = unsafe {
-            crate::sys::forkpty(
-                &mut master,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                ws_arg,
-            )
-        };
+        let (pid, master) = fork_terminal(ws);
         assert!(pid >= 0, "forkpty");
         if pid == 0 {
+            // SAFETY: as in `fork_with`; the child runs only `execve` and
+            // `_exit`.
             unsafe {
                 crate::sys::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 crate::sys::_exit(127);
             }
         }
         master
+    }
+
+    /// **Terminals opened at once all open.** Darwin's `/dev/ptmx` can hand
+    /// two openers the same terminal, and the kernel redoes the loser's
+    /// open ten times before it fails it with `EREDRIVEOPEN`; forty-eight
+    /// threads forking at once lose that often enough to fail it. Each
+    /// thread forks a child through [`fork_terminal`], as a window does,
+    /// that exits at once, reads its master to the end and reaps it.
+    #[test]
+    fn terminals_opened_at_once_all_open() {
+        const THREADS: usize = 48;
+        const ROUNDS: usize = 10;
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let ws = text_area(&size, Px::of(8), Px::of(16));
+        let start = std::sync::Barrier::new(THREADS);
+        let failed: Vec<String> = std::thread::scope(|s| {
+            let opened: Vec<_> =
+                (0..THREADS)
+                    .map(|_| {
+                        s.spawn(|| {
+                        start.wait();
+                        let mut failed = Vec::new();
+                        for _ in 0..ROUNDS {
+                            let (pid, master) = fork_terminal(ws);
+                            if pid < 0 {
+                                failed.push(std::io::Error::last_os_error().to_string());
+                                continue;
+                            }
+                            if pid == 0 {
+                                // SAFETY: the child calls only `_exit`.
+                                unsafe { crate::sys::_exit(0) }
+                            }
+                            read_all(master);
+                            // SAFETY: `master` is the descriptor forkpty
+                            // returned and nothing else owns it; `pid` is
+                            // this thread's own child.
+                            unsafe {
+                                drop(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(
+                                    master,
+                                ));
+                                crate::sys::waitpid(pid, std::ptr::null_mut(), 0);
+                            }
+                        }
+                        failed
+                    })
+                    })
+                    .collect();
+            opened
+                .into_iter()
+                .flat_map(|t| t.join().expect("a thread"))
+                .collect()
+        });
+        assert!(
+            failed.is_empty(),
+            "of {} opens, {} failed: {failed:?}",
+            THREADS * ROUNDS,
+            failed.len()
+        );
     }
 
     /// What `/bin/stty -a` printed on `master`, word by word, once the child
@@ -2848,7 +2941,8 @@ mod tests {
     fn unheld_pty() -> crate::sys::Fd {
         // SAFETY: plain calls on the descriptor the first returns.
         unsafe {
-            let m = crate::sys::posix_openpt(crate::sys::O_RDWR | crate::sys::O_NOCTTY);
+            let m =
+                redriven(|| crate::sys::posix_openpt(crate::sys::O_RDWR | crate::sys::O_NOCTTY));
             assert!(m >= 0, "posix_openpt");
             assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
             assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");
