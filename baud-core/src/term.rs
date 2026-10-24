@@ -3851,6 +3851,60 @@ impl<'b> Term<'b> {
         self.cold.bell.sub_mark
     }
 
+    /// **Whether a new prompt is drawn on the window's last row**, the
+    /// embedder's `[screen] prompt_at_bottom` ([`PromptAtBottom`]). The
+    /// embedder's choice: no sequence changes it, `RIS` included. **Turned
+    /// on while the primary is at a prompt, it pins that prompt at once**
+    /// (Jev, AT_ONCE, 0.98/0.96): the prompt zone is state the marks set,
+    /// so this moves a prompt only where a mark said one is. Turned off,
+    /// nothing moves back.
+    pub fn set_prompt_at_bottom(&mut self, p: PromptAtBottom) {
+        let was = self.store.strs.prompt_at_bottom;
+        self.store.strs.prompt_at_bottom = p;
+        if was == PromptAtBottom::Off
+            && p == PromptAtBottom::On
+            && self.cold.screen == Screen::Normal
+            && self.store.strs.shell.zone == Zone::Prompt
+        {
+            self.pin_prompt_now();
+        }
+    }
+
+    /// [`Paint::pin_prompt_block`] outside a read: a `Paint` built as a
+    /// read builds one, and the one thing the pin changes that is carried
+    /// by value, the cursor's row, carried back.
+    fn pin_prompt_now(&mut self) {
+        let mut p = crate::paint::Paint::new(
+            &mut self.store,
+            self.cy,
+            self.cx,
+            self.rows,
+            self.cols,
+            self.cell_height,
+            self.cell_width,
+            self.rot,
+            self.style,
+            self.style_raw,
+            self.flags,
+            self.charset,
+            self.cluster,
+            self.last_cp,
+            &mut self.cold,
+            self.reply_len,
+            self.title_len,
+            self.icon_len,
+            self.link,
+        );
+        p.pin_prompt_block();
+        self.cy = p.cy;
+        self.cells_written += p.cells.index();
+    }
+
+    /// What [`Term::set_prompt_at_bottom`] last set.
+    pub fn prompt_at_bottom(&self) -> PromptAtBottom {
+        self.store.strs.prompt_at_bottom
+    }
+
     /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
     /// embedder: `On`, the default, the owner's call of 2026-10-19 (option
     /// 4), or `Off`, which queues none and counts each in

@@ -34919,3 +34919,49 @@ sha256 = "5a2aaeaf144ba870dee701f87577c5f2cf470e875a1cb94e355395c1969a5f81"
 bytes  = 38658
 status = "external"
 group  = "J"
+# Retrieved 2026-10-24 for the prompt at the bottom (F1-49). Read: 60-100
+# and 250-280, `InputMode`'s three modes; 600-615, PinnedToBottom's padding,
+# "adjustment += (content_element_lines - total_block_height)", a viewport
+# offset over block grids.
+[sources.warp-block-list-viewport-b2b7357]
+key    = "warp-block-list-viewport-b2b7357"
+title  = "Warp b2b7357, app/src/terminal/block_list_viewport.rs -- InputMode PinnedToBottom, PinnedToTop, Waterfall; the padding under PinnedToBottom (255-266, 600-615)"
+author = "Warp"
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/terminal/block_list_viewport.rs"
+sha256 = "defb4ba5deba9800ca3e38b46266b9ef116f66b2dbb28b56e90ac5b634721891"
+bytes  = 90776
+group  = "C"
+# Retrieved 2026-10-24. Read: whole. appearance.input.input_mode, default
+# PinnedToBottom, overridden to Waterfall for new users.
+[sources.warp-input-mode-b2b7357]
+key    = "warp-input-mode-b2b7357"
+title  = "Warp b2b7357, app/src/settings/input_mode.rs -- the input position setting and its default"
+author = "Warp"
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/settings/input_mode.rs"
+sha256 = "577c0882b398e757bd0652704262ac4509926f089f0ef273db2693db82db9761"
+bytes  = 973
+group  = "C"
+# Retrieved 2026-10-24. Read: 264-270, prompt-at-bottom at startup: the
+# cursor's row from a CPR, then LINES - cursor_y newlines.
+[sources.z4h-c0c29f9-main]
+key    = "z4h-c0c29f9-main"
+title  = "zsh4humans c0c29f9, main.zsh -- prompt-at-bottom: newlines to the last row at startup"
+author = "Roman Perepelitsa"
+venue  = "github.com/romkatv/zsh4humans (MIT)"
+url    = "https://raw.githubusercontent.com/romkatv/zsh4humans/c0c29f999635f58e2b1bdb442e633c01a1b9ecc2/main.zsh"
+sha256 = "1025e8cf99cc92f7616adf5122b5f1d0b461e3d3946433f2e2035fedc224d689"
+bytes  = 16499
+group  = "C"
+# Retrieved 2026-10-24. Read: whole. Control-L under prompt-at-bottom:
+# 2*LINES - cursor_y - 1 newlines, the screen scrolled into the scrollback.
+[sources.z4h-c0c29f9-clear-screen-soft-bottom]
+key    = "z4h-c0c29f9-clear-screen-soft-bottom"
+title  = "zsh4humans c0c29f9, fn/z4h-clear-screen-soft-bottom -- Control-L that lands on the last row"
+author = "Roman Perepelitsa"
+venue  = "github.com/romkatv/zsh4humans (MIT)"
+url    = "https://raw.githubusercontent.com/romkatv/zsh4humans/c0c29f999635f58e2b1bdb442e633c01a1b9ecc2/fn/z4h-clear-screen-soft-bottom"
+sha256 = "a937c42e91c84d471ec8163b0275d5499360e8919dcbc6d025f5aaae939859f9"
+bytes  = 276
+group  = "C"

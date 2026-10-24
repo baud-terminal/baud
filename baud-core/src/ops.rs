@@ -1298,7 +1298,7 @@ impl Paint<'_, '_> {
     /// compare in each caller.
     #[cold]
     #[inline(never)]
-    fn lines_moved_past_edge(&mut self, at: Row, n: Count, bottom: Row, way: BandMove) {
+    pub(crate) fn lines_moved_past_edge(&mut self, at: Row, n: Count, bottom: Row, way: BandMove) {
         if self.cold.screen != Screen::Normal {
             return;
         }

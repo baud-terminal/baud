@@ -387,6 +387,19 @@ guide = "off"
 # one cell by default and two under ambiguous_width = "wide", is refused.
 # DEC's reversed question mark, U+2426, is the default; a character that does
 # not fit is named in the message row and U+2426 is used.
+#
+# prompt_at_bottom: whether the shell's prompt sits on the window's last row.
+# "on" draws each new prompt there -- in a new window, after clear, after
+# Control-L, and when the shell redraws its prompt after the window grows,
+# as bash and zsh do -- with earlier output staying where it was and blank
+# rows between; a prompt of several lines lands whole, its last line on the
+# last row, and once the window is full every prompt is there anyway. A
+# window made smaller moves its top rows into the scrollback, as it does
+# whenever the prompt is on the last row, and growing it brings them back.
+# It needs a shell that marks its prompt and where the typing begins (OSC
+# 133 A and B, as fish, nushell and Ghostty's shell integration send) and
+# leaves full-screen programs alone. Turned on at a prompt, that prompt
+# moves down at once. "off" by default: the prompt follows the output down.
 [screen]
 transition = false
 checksum = "on"
@@ -401,6 +414,7 @@ exit_status = "off"
 badge = "on"
 substitute_mark = "off"
 substitute_character = "\u2426"
+prompt_at_bottom = "off"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

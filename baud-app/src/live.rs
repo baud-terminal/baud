@@ -60,7 +60,7 @@ pub enum Part {
     /// animation as it says.
     ImageAnimation,
     /// What the core is told: `[screen] checksum`, `substitute_mark`,
-    /// `substitute_character`, `logging` and `print_*`,
+    /// `substitute_character`, `prompt_at_bottom`, `logging` and `print_*`,
     /// `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
     TermOptions,
@@ -208,6 +208,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         exit_status,
         checksum,
         substitute,
+        prompt_at_bottom,
         logging,
         printing,
         notifications,
@@ -291,6 +292,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(
         old.checksum != *checksum
             || old.substitute != *substitute
+            || old.prompt_at_bottom != *prompt_at_bottom
             || old.logging != *logging
             || old.graphics_print != *graphics_print
             || old.window_ops != *window_ops
@@ -340,6 +342,7 @@ pub fn term_options(
 ) {
     crate::host::set_checksum(term, c.checksum);
     crate::host::set_substitute(term, c.substitute);
+    crate::host::set_prompt_at_bottom(term, c.prompt_at_bottom);
     crate::host::set_window_ops(term, c.window_ops);
     crate::host::set_window_abilities(term, abilities, c.clipboard.osc52);
     crate::host::set_logging(term, c.logging);
@@ -488,6 +491,7 @@ mod tests {
             ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
             ("[screen]\nsubstitute_mark = \"on\"\n", Part::TermOptions),
+            ("[screen]\nprompt_at_bottom = \"on\"\n", Part::TermOptions),
             (
                 "[screen]\nsubstitute_character = \"#\"\n",
                 Part::TermOptions,

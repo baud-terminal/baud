@@ -1441,6 +1441,17 @@ platform = "macos"
 tests = ["baud-app/src/config.rs::style_selects_the_standard_material_or_either_glass", "baud-app/src/app.rs::the_floor_reads_against_the_body_drawn", "baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-app/src/config.rs::the_default_dims_keep_text_readable_over_white_and_black", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
 
 [[feature]]
+id = "prompt-at-bottom"
+area = "window"
+name = "The prompt on the last row"
+does = "With `[screen] prompt_at_bottom = \"on\"`, your shell's prompt sits on the window's last row: in a new window, after `clear`, after Control-L, and when your shell redraws it after the window grows, as bash and zsh do. A prompt of several lines lands whole, and earlier output stays where it was. It works with a shell that marks its prompt and where your typing begins, and full-screen programs are left alone."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/prompt_at_bottom.rs::a_prompt_lands_on_the_last_row_only_with_the_setting_on", "baud-core/tests/prompt_at_bottom.rs::a_growth_at_a_prompt_keeps_it_on_the_last_row", "baud-core/tests/prompt_at_bottom.rs::a_zoom_gesture_leaves_one_prompt_on_the_last_row", "baud-core/tests/prompt_at_bottom.rs::a_two_line_prompt_lands_whole_and_moves_no_output", "baud-core/tests/prompt_at_bottom.rs::a_two_line_prompt_redrawn_moves_no_output", "baud-core/tests/prompt_at_bottom.rs::a_tall_prompt_keeps_the_output_through_a_zoom_at_its_largest", "baud-core/tests/prompt_at_bottom.rs::nothing_but_a_prompt_mark_on_the_primary_moves_the_cursor", "baud-app/src/host.rs::the_prompt_at_bottom_setting_reaches_the_core"]
+rows = ["vt:`OSC 133`"]
+shipped = ["F1-49"]
+
+[[feature]]
 id = "launch-splash"
 area = "window"
 name = "A launch splash"

@@ -526,6 +526,10 @@ pub struct StrBuf<'b> {
     /// `clip_area` is: only a mark and a resize reach them.
     pub(crate) shell: crate::prompt::Shell,
     pub(crate) shell_other: crate::prompt::Shell,
+    /// **Whether a new prompt is drawn on the window's last row**
+    /// ([`crate::Term::set_prompt_at_bottom`]): beside the marks' state for
+    /// the reason it is, only a mark and the setter read it.
+    pub(crate) prompt_at_bottom: PromptAtBottom,
     /// The primary's prompts, where each began and how its command ended
     /// (`baud_domain::PromptLog`): [`Owned`]'s, one entry a ring row, the
     /// most a ring holds, so the log never fills; none through
@@ -641,6 +645,7 @@ impl<'b> StrBuf<'b> {
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
+            prompt_at_bottom: PromptAtBottom::Off,
             prompts: PromptLog::new(&mut []),
             reflow_dropped: Rows::ZERO,
             print_area: &mut [],
@@ -982,6 +987,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,
@@ -1071,6 +1077,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,

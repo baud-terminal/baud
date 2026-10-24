@@ -204,6 +204,10 @@ impl Paint<'_, '_> {
             }
             Semantic::Prompt(kind) => self.later_prompt(kind),
             Semantic::Input(end) => {
+                // The prompt is drawn, whatever its height: pin it now.
+                if self.strs.shell.zone == crate::term::Zone::Prompt {
+                    self.pin_prompt_block();
+                }
                 let (rot, ring) = (self.view.rotation(), self.view.ring());
                 self.strs.shell.input = Input::At {
                     row: rot.advance(self.cy.index(), ring),
@@ -318,6 +322,111 @@ impl Paint<'_, '_> {
             .index();
         let cy = self.cy.index();
         y > cy || (y..cy).any(|r| !self.view.extent(Row::from_index(r)).wrapped())
+    }
+
+    /// **The prompt walks down to the window's last row**, under
+    /// [`PromptAtBottom::On`]: the rows from `from` to the cursor's move
+    /// down over the blank rows directly below the cursor, which open above
+    /// them, so the prompt lands with its last line on the last row and
+    /// nothing above it moves -- Jev's GAP (0.97/0.98), the page zsh4humans'
+    /// shell-side `prompt-at-bottom` leaves, output where it was written and
+    /// the blank rows between it and the prompt. A move of `IL` at `from`
+    /// in the band down to the last blank row, with no cell holding text
+    /// pushed off it, and the selection, the images, the block start, the
+    /// input and the prompt log following the rows as they follow a region
+    /// scroll.
+    ///
+    /// `from` is the block's first row, and the walk is taken once the
+    /// prompt is drawn ([`Paint::pin_prompt_block`]). **Only where a mark
+    /// said a prompt is**, and only on the primary with no scrolling region
+    /// or side margins: a program that set either has taken the layout
+    /// over, as a full-screen one has, and the alternate screen is never
+    /// touched.
+    fn pin_prompt(&mut self, from: Row) {
+        if self.strs.prompt_at_bottom != PromptAtBottom::On
+            || self.cold.screen != crate::term::Screen::Normal
+            || self.cold.top != Row::ZERO
+            || self.cold.bot.index() + 1 != self.rows.index()
+            || self.fenced()
+            || self.on_status()
+        {
+            return;
+        }
+        let (cy, rows) = (self.cy.index(), self.rows.index());
+        let k = (cy + 1..rows)
+            .take_while(|&y| self.view.row_is_blank(Row::from_index(y)))
+            .count();
+        if k == 0 || from.index() > cy {
+            return;
+        }
+        let (n, by) = (Count::of(k), Rows::of_count(k));
+        let bot = Row::from_index(cy + k);
+        self.cold
+            .band_moved((from, bot), by, crate::ops::Scroll::Down, self.book.top);
+        if self.past_edge() {
+            self.clear_swept();
+        }
+        self.view
+            .insert_lines_in(from, n, bot, PackedCell::empty_with(StyleId::DEFAULT));
+        if self.past_edge() {
+            self.lines_moved_past_edge(from, n, bot, BandMove::Down);
+        }
+        if self.images.any_placed() {
+            self.band_images_moved(from, bot, by, BandMove::Down);
+        }
+        if self.cold.guard_open.is_some() {
+            self.guard_band_moved(from, bot, by, BandMove::Down);
+        }
+        if self.cold.placement.is_placed() {
+            self.placement_band_moved(from, bot, by, BandMove::Down);
+        }
+        self.cells = self
+            .cells
+            .plus((bot.index() + 1 - from.index()) * self.cols.index());
+        // The marks' rows in the band go down with it.
+        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        let moved = |r: RowRot| {
+            let y = r.retreat(rot.index(), ring).index();
+            match (from.index()..=cy).contains(&y) {
+                true => r.advance(k, ring),
+                false => r,
+            }
+        };
+        let shell = &mut self.strs.shell;
+        shell.block = PromptBlock::at(moved(shell.block.start()));
+        if let Input::At { row, col, end } = shell.input {
+            shell.input = Input::At {
+                row: moved(row),
+                col,
+                end,
+            };
+        }
+        if let Later::At(r) = shell.secondary {
+            shell.secondary = Later::At(moved(r));
+        }
+        let top = self.book.top;
+        self.strs.prompts.moved_down(
+            top.plus(Rows::of_count(from.index())),
+            top.plus(Rows::of_count(bot.index())),
+            by,
+        );
+        self.set_row(Row::from_index(cy + k));
+    }
+
+    /// **The drawn prompt walks down**, from its block's first row to the
+    /// cursor's: at the input mark, `B` or `I`, and at the setter. Not at
+    /// the initial mark, before the shell has drawn the prompt: there the
+    /// walk would put the prompt's first line on the last row, and every
+    /// later line of a taller prompt would scroll a row of output into the
+    /// history, at every redraw again. A block whose first row is not on
+    /// the screen is left where it is.
+    pub(crate) fn pin_prompt_block(&mut self) {
+        let start = self.strs.shell.block.start();
+        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        let y = start.retreat(rot.index(), ring).index();
+        if y <= self.cy.index() {
+            self.pin_prompt(Row::from_index(y));
+        }
     }
 
     /// The block begins on the cursor's row: an initial mark.

@@ -335,6 +335,10 @@ pub struct Config {
     /// `SUB` draws the error character, off by default, and which
     /// ([`Substitute`]).
     pub substitute: Substitute,
+    /// `[screen] prompt_at_bottom`: whether a shell's new prompt is drawn
+    /// on the window's last row, `"off"` by default (Jev, OFF, 0.94/0.92),
+    /// or `"on"` ([`baud_domain::PromptAtBottom`]).
+    pub prompt_at_bottom: baud_domain::PromptAtBottom,
     /// `[screen] logging`: whether a program may log what it sends to a
     /// file it names (xterm's `?46` and `OSC 46`), `"on"` by default (the
     /// owner's call of 2026-10-20), or `"off"`, which refuses both. A
@@ -918,6 +922,7 @@ impl Config {
             badge: BadgeShown::On,
             checksum: baud_domain::ChecksumReport::On,
             substitute: Substitute::DEFAULT,
+            prompt_at_bottom: baud_domain::PromptAtBottom::Off,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
             notifications: Notifications::On,
@@ -1677,6 +1682,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::ChecksumReport::On
+                        }
+                    };
+                }
+                ("screen", "prompt_at_bottom") => {
+                    self.prompt_at_bottom = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::PromptAtBottom::On,
+                        "off" => baud_domain::PromptAtBottom::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] prompt_at_bottom {other:?} is not on or off; \
+                                 using off"
+                            ));
+                            baud_domain::PromptAtBottom::Off
                         }
                     };
                 }
@@ -4606,6 +4624,35 @@ mod reader {
         );
     }
 
+    /// **`[screen] prompt_at_bottom` is off unless it says on**: "on" and
+    /// "off", quoted or bare, and anything else is said and leaves it off.
+    /// Perturbation: default it on -- the first assertion fails.
+    #[test]
+    fn the_prompt_stays_off_the_bottom_unless_the_config_says() {
+        use baud_domain::PromptAtBottom;
+        assert_eq!(Config::defaults().prompt_at_bottom, PromptAtBottom::Off);
+        for (text, want) in [
+            ("\"on\"", PromptAtBottom::On),
+            ("on", PromptAtBottom::On),
+            ("\"off\"", PromptAtBottom::Off),
+        ] {
+            let c = read(&format!("[screen]\nprompt_at_bottom = {text}\n"));
+            assert_eq!(c.prompt_at_bottom, want, "{text}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nprompt_at_bottom = \"yes\"\n");
+        assert_eq!(c.prompt_at_bottom, PromptAtBottom::Off);
+        assert!(
+            said.iter().any(|l| l.contains("prompt_at_bottom")),
+            "{said:?}"
+        );
+        assert_eq!(
+            read("prompt_at_bottom = \"on\"\n").prompt_at_bottom,
+            PromptAtBottom::Off,
+            "a top-level key of the same name is not the screen section's"
+        );
+    }
+
     /// **`[screen] substitute_mark` is off unless it says on, and
     /// `substitute_character` is U+2426 unless it names one character one
     /// cell wide**, the owner's call of 2026-10-23: the mark reads on and
@@ -5473,6 +5520,11 @@ shadow     = "never"
             Substitute::DEFAULT,
             "the example's mark is the default"
         );
+        assert!(
+            text.contains("\nprompt_at_bottom = \"off\"\n"),
+            "the [screen] prompt_at_bottom line"
+        );
+        assert_eq!(c.prompt_at_bottom, baud_domain::PromptAtBottom::Off);
         assert_eq!(c.logging, baud_domain::Logging::On);
         assert_eq!(c.printing, Printing::On);
         assert!(

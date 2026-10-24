@@ -450,6 +450,13 @@ pub fn set_substitute(term: &mut baud_core::Term<'_>, s: crate::config::Substitu
     term.set_substitute_mark(s.mark());
 }
 
+/// Tell the core whether a shell's new prompt is drawn on the window's
+/// last row, from `[screen] prompt_at_bottom`. One function for both
+/// drivers, called after `Term::new` and before the first feed.
+pub fn set_prompt_at_bottom(term: &mut baud_core::Term<'_>, p: baud_domain::PromptAtBottom) {
+    term.set_prompt_at_bottom(p);
+}
+
 /// Tell the core whether a program's window operations reach the driver,
 /// from `[window] operations`. One function for both drivers, called after
 /// `Term::new` and before the first feed.
@@ -1250,6 +1257,47 @@ mod tests {
         for (driver, src, arg) in [
             ("macOS", include_str!("app.rs"), "substitute);"),
             ("Linux", include_str!("linux.rs"), "cfg.substitute);"),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+    }
+
+    /// **`[screen] prompt_at_bottom` reaches the core, from both drivers
+    /// and from a reload**: a drawn prompt's input mark puts the prompt on
+    /// the last row with it on and leaves it where the cursor is by default. Both
+    /// drivers start AppKit or Wayland, which no test drives, so their call
+    /// is held in the source. Perturbation: leave the call out of
+    /// `term_options` -- the reload half fails.
+    #[test]
+    fn the_prompt_at_bottom_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 6,
+            ws_col: 20,
+        };
+        for (text, row) in [("", 0), ("[screen]\nprompt_at_bottom = \"on\"\n", 5)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_prompt_at_bottom(&mut t, cfg.prompt_at_bottom);
+            feed(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+            assert_eq!(t.cursor().0.index(), row, "{text:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            crate::live::term_options(&mut t, &cfg, baud_core::WindowAbilities::NONE);
+            feed(&mut t, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+            assert_eq!(t.cursor().0.index(), row, "reloaded {text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_prompt_at_bottom(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", include_str!("app.rs"), "prompt_at_bottom);"),
+            ("Linux", include_str!("linux.rs"), "cfg.prompt_at_bottom);"),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
             let rest = src.split(CALL).nth(1).expect("the call");

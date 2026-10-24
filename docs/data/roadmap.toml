@@ -315,9 +315,10 @@ summary = "Animated pictures, and pictures placed relative to other pictures, th
 [[item]]
 id = "F1-49"
 area = "window"
-status = "planned"
+status = "done"
+date = "2026-10-24"
 title = "A prompt pinned to the bottom"
-summary = "An optional mode that keeps the shell prompt at the bottom of the window."
+summary = "An optional mode that keeps the shell prompt at the bottom of the window, for a shell that marks its prompts."
 
 [[item]]
 id = "F1-50"

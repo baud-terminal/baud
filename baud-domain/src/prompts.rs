@@ -94,6 +94,22 @@ struct Open {
 /// shell in a REPL is three.
 pub const NOPEN: usize = 16;
 
+/// **Whether a new prompt is drawn on the window's last row**, the
+/// embedder's `[screen] prompt_at_bottom`. Under `On` a prompt the shell
+/// has drawn walks down over the blank rows at the foot of the primary
+/// screen at the mark where its input begins, `OSC 133 ; B` or `I`, so its
+/// last line lands on the last row and the output stays where it was
+/// written, as zsh4humans' shell-side
+/// `prompt-at-bottom` leaves it (Jev, GAP, 0.97/0.98). `Off` by default
+/// (Jev, OFF, 0.94/0.92): the prompt follows the output down, as in every
+/// other terminal.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum PromptAtBottom {
+    #[default]
+    Off,
+    On,
+}
+
 /// The log; see the module.
 pub struct PromptLog<'b> {
     slots: &'b mut [PromptEntry],
@@ -379,6 +395,34 @@ impl<'b> PromptLog<'b> {
         (i < self.len).then(|| self.at(i))
     }
 
+    /// **The lines from `from` to `last` moved down `k`**, over the bottom
+    /// `k` of them, blank lines the move drops: the prompt walking down to
+    /// the window's last row ([`PromptAtBottom`]). An entry on a line that
+    /// moved goes with it, and the rest keep theirs. One on a line walked
+    /// over lands on `last`, where the walking prompt does, so the prompt
+    /// opened or redrawn there next takes it as it takes any entry on its
+    /// line or after: a redraw keeps the newest prompt's entry and moves it
+    /// to the row the prompt is redrawn on, as it would off. The entries
+    /// stay in line order.
+    pub fn moved_down(&mut self, from: LineIdx, last: LineIdx, k: Rows) {
+        let Some(keep) = last.minus(k) else {
+            return;
+        };
+        let start = self.first_from(from);
+        let mut out = start;
+        for i in start..self.len {
+            let e = self.at(i);
+            let line = match e.line {
+                l if l <= keep => l.plus(k),
+                l if l <= last => last,
+                l => l,
+            };
+            *self.at_mut(out) = PromptEntry { line, ..e };
+            out += 1;
+        }
+        self.len = out;
+    }
+
     /// Forget every prompt on a line before `line`: `CSI 3 J` erased them.
     pub fn forget_before(&mut self, line: LineIdx) {
         let n = self.first_from(line);
@@ -521,6 +565,30 @@ mod tests {
         assert_eq!(from(9), [9, 12, 20]);
         assert_eq!(from(10), [12, 20]);
         assert!(from(21).is_empty());
+    }
+
+    /// **A walk down moves the entries on the lines it moves**, puts the
+    /// ones on the blank lines it walks over on its last line, and leaves
+    /// the rest, in line order.
+    #[test]
+    fn a_walk_down_moves_the_entries_on_its_lines() {
+        let mut slots = [PromptEntry::EMPTY; 8];
+        let mut log = PromptLog::new(&mut slots);
+        for n in [1, 4, 6, 8, 12] {
+            log.open_bare(line(n));
+        }
+        log.moved_down(line(4), line(10), Rows::of_count(3));
+        assert_eq!(
+            lines(&log),
+            [1, 7, 9, 10, 12],
+            "4 to 7, 6 to 9; 8 walked over"
+        );
+        log.redrawn(line(10));
+        assert_eq!(
+            lines(&log),
+            [1, 7, 9, 10],
+            "a redraw on 10 moves the newest there"
+        );
     }
 
     /// An `N` finishes the innermost command of its `aid` and everything in

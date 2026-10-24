@@ -910,6 +910,9 @@ struct Boot {
     /// What a `SUB` draws, from `[screen] substitute_mark` and
     /// `substitute_character`.
     substitute: crate::config::Substitute,
+    /// Whether a new prompt is drawn on the last row, from `[screen]
+    /// prompt_at_bottom`.
+    prompt_at_bottom: baud_domain::PromptAtBottom,
     /// Whether a program's window operations are performed, from `[window]
     /// operations`.
     window_ops: baud_domain::WindowOps,
@@ -1123,6 +1126,7 @@ impl Boot {
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
             substitute: cfg.substitute,
+            prompt_at_bottom: cfg.prompt_at_bottom,
             window_ops: cfg.window_ops,
             activity_lights: cfg.activity_lights,
             launch_splash: cfg.launch_splash,
@@ -1182,6 +1186,7 @@ impl App {
             vs16_width,
             checksum,
             substitute,
+            prompt_at_bottom,
             window_ops,
             activity_lights,
             launch_splash,
@@ -1367,6 +1372,7 @@ impl App {
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_substitute(&mut term, substitute);
+        crate::host::set_prompt_at_bottom(&mut term, prompt_at_bottom);
         crate::host::set_window_ops(&mut term, window_ops);
         crate::host::set_window_abilities(
             &mut term,
@@ -10598,6 +10604,9 @@ impl Driver {
                         crate::winops::mac_abilities(),
                     );
                     self.app.clipboard.osc52 = c.clipboard.osc52;
+                    // `prompt_at_bottom` turned on at a prompt moves its
+                    // rows in the core with no output to draw them.
+                    self.app.next_damage = Damage::Full;
                 }
                 Part::Bell => self.app.bell_style = c.bell,
                 Part::Emoji => {

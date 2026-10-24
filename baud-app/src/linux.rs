@@ -474,6 +474,7 @@ pub fn run() {
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_substitute(&mut term, cfg.substitute);
+    crate::host::set_prompt_at_bottom(&mut term, cfg.prompt_at_bottom);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_window_abilities(
         &mut term,
@@ -1714,6 +1715,9 @@ impl Driver {
                         crate::winops::wayland_abilities(self.bounds_event),
                     );
                     self.clipboard.osc52 = c.clipboard.osc52;
+                    // `prompt_at_bottom` turned on at a prompt moves its
+                    // rows in the core with no output to draw them.
+                    self.damage = Damage::Full;
                 }
                 Part::Bell => self.bell_style = c.bell,
                 Part::Emoji => {
