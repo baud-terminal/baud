@@ -648,9 +648,9 @@ struct App {
     /// so on an idle screen `frames` stops and this does not. Row 11's
     /// metric is what those ticks cost, and it needs both numbers.
     ticks: Tally,
-    /// Frames whose shared-buffer writes began while the GPU was still
-    /// reading the last one's. See the comment at the count site.
-    wrote_in_flight: Tally,
+    /// Frames asked for while the GPU was still reading the last one, and
+    /// left owed rather than built (`builds`).
+    owed_in_flight: Tally,
     links: Links,
     /// See [`Trace`].
     trace: Option<Trace>,
@@ -1472,7 +1472,7 @@ impl App {
             travel_across: Travel::default(),
             frames: Tally::default(),
             ticks: Tally::default(),
-            wrote_in_flight: Tally::default(),
+            owed_in_flight: Tally::default(),
             links: Links::default(),
             trace,
             last_report: std::time::Instant::now(),
@@ -2006,22 +2006,19 @@ impl App {
         if self.pending == Pending::Clean {
             return;
         }
-        // **How often a frame is built over memory the GPU is still
-        // reading.** The three writes below -- the glyph map, the resolved
-        // styles and the overlay records -- all go into Metal *shared*
-        // buffers (`Gpu::styles` lends a `&mut [Resolved]` out of the same
-        // allocation it wraps in a `StylesBuffer`), and so does the grid
-        // itself, which the cell shader reads in place. Nothing checks
-        // whether a frame is in flight until `draw_cells`, which is after
-        // all of them, so `Drawn::Busy` reports the hazard rather than
-        // preventing it.
-        //
-        // `pump` does hold the barrier, so this is zero in steady state.
-        // What reaches here mid-flight is `relayout` and `zoom`, which call
-        // `present` directly -- which is to say: a resize and a font change,
-        // the two gestures the owner reported as broken.
-        if self.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
-            self.wrote_in_flight.bump();
+        // **A frame in flight: this one is owed, and nothing is built**
+        // (`builds`). After the surfaces above, so a drag step that
+        // replaced them has superseded the frame in flight, drawn for the
+        // size the window left, and it is never shown; before the styles,
+        // the map walk, the copy, the overlay and the convert below, which
+        // `draw_cells` would refuse. `pending` stays set, and the
+        // completion's wake or the next tick builds it at the size the
+        // window has then. `pump` holds the same gate, so this is reached
+        // by the callers of `present` outside it: `relayout`, `zoom` and
+        // the rest.
+        if builds(self.presenter.as_ref().map(Presenter::in_flight)) == Builds::Owed {
+            self.owed_in_flight.bump();
+            return;
         }
         self.renderer.set_blink(self.blink);
         // The visual bell, decided before any path reads the video, at the
@@ -2744,13 +2741,13 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded, {} deferred, {} given back, {} built over a live frame, last gpu {:?}",
+                "present: {} landed, {} shown, {} superseded, {} deferred, {} given back, {} owed to a live frame, last gpu {:?}",
                 c.landed,
                 c.shown,
                 c.superseded,
                 c.deferred,
                 c.abandoned,
-                self.wrote_in_flight.value(),
+                self.owed_in_flight.value(),
                 c.gpu
             ),
             None => "present: no presenter".to_string(),
@@ -5535,6 +5532,274 @@ mod locator_tests {
 }
 
 #[cfg(test)]
+mod drag_tests {
+    use super::{Builds, builds};
+    use baud_present_macos::InFlight;
+    use baud_render::Tally;
+
+    /// The sizes a shell was dragged through, as recorded.
+    const STEPS: &str = include_str!("../../tests/resize/drag.steps");
+
+    /// A grid size, columns by rows.
+    type Size = (u16, u16);
+
+    /// A moment of the drag, counted in its steps.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Step(usize);
+
+    /// A set of surfaces, replaced whenever the size moves.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Set(usize);
+
+    /// A frame the GPU is drawing: when it lands, its size and the
+    /// surfaces it was drawn for.
+    struct Flying {
+        lands: Step,
+        size: Size,
+        set: Set,
+    }
+
+    /// The surfaces the presenter holds: their size and their set.
+    struct Surfaces {
+        size: Size,
+        set: Set,
+    }
+
+    /// Where the model's `present` asks the gate: after the surfaces are
+    /// replaced for the window's size, as `App::present` asks it, or
+    /// before, the control.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Order {
+        SurfacesFirst,
+        GateFirst,
+    }
+
+    /// What a drag left: the frames built while one was in flight, the
+    /// frames built, the size of the last frame shown, and the frames
+    /// shown at a size the window had left.
+    #[derive(Debug, Default)]
+    struct Drag {
+        over_live: Tally,
+        built: Tally,
+        shown: Option<Size>,
+        stale: Tally,
+    }
+
+    /// The window and the frames between the driver and the GPU.
+    struct Loop {
+        order: Order,
+        land: Step,
+        window: Size,
+        surfaces: Surfaces,
+        flying: Option<Flying>,
+        d: Drag,
+    }
+
+    impl Loop {
+        /// The surfaces replaced when the window's size moved: a new set,
+        /// which supersedes every frame committed against the old one.
+        fn replace(&mut self) {
+            if self.surfaces.size != self.window {
+                self.surfaces = Surfaces {
+                    size: self.window,
+                    set: Set(self.surfaces.set.0 + 1),
+                };
+            }
+        }
+
+        /// `present` for the model: owed, built and refused, or committed.
+        fn present(&mut self, now: Step) -> Builds {
+            if self.order == Order::SurfacesFirst {
+                self.replace();
+            }
+            let flight = match self.flying {
+                Some(_) => InFlight::Busy,
+                None => InFlight::Idle,
+            };
+            if builds(Some(flight)) == Builds::Owed {
+                return Builds::Owed;
+            }
+            if self.order == Order::GateFirst {
+                self.replace();
+            }
+            self.d.built.bump();
+            if flight == InFlight::Busy {
+                // Built, and refused by `draw_cells`: still owed.
+                self.d.over_live.bump();
+                return Builds::Owed;
+            }
+            self.flying = Some(Flying {
+                lands: Step(now.0 + self.land.0),
+                size: self.surfaces.size,
+                set: self.surfaces.set,
+            });
+            Builds::Now
+        }
+
+        /// The frame in flight lands: shown if its set is still the
+        /// presenter's (`journal::admits`), and stale if the window has
+        /// left its size.
+        fn landed(&mut self) {
+            let Some(f) = self.flying.take() else { return };
+            if f.set == self.surfaces.set {
+                self.d.shown = Some(f.size);
+                if f.size != self.window {
+                    self.d.stale.bump();
+                }
+            }
+        }
+    }
+
+    /// **A drag replayed against a GPU that takes `land` steps to land a
+    /// frame**, as the driver runs it: every step moves the window and
+    /// asks `present` for a frame (`relayout`); a landing wakes the pump,
+    /// and every `tick` steps the display link does, and either builds the
+    /// owed frame once none is in flight.
+    fn drag(sizes: &[Size], land: Step, tick: Step, order: Order) -> Drag {
+        let mut l = Loop {
+            order,
+            land,
+            window: sizes[0],
+            surfaces: Surfaces {
+                size: sizes[0],
+                set: Set(0),
+            },
+            flying: None,
+            d: Drag::default(),
+        };
+        let mut owed = Builds::Now;
+        let mut now = Step(0);
+        loop {
+            if l.flying.as_ref().is_some_and(|f| f.lands == now) {
+                l.landed();
+                if owed == Builds::Owed {
+                    owed = l.present(now);
+                }
+            }
+            if let Some(&size) = sizes.get(now.0) {
+                l.window = size;
+                owed = l.present(now);
+            } else if owed == Builds::Now && l.flying.is_none() {
+                return l.d;
+            }
+            if now.0.is_multiple_of(tick.0) && owed == Builds::Owed {
+                owed = l.present(now);
+            }
+            now = Step(now.0 + 1);
+            assert!(
+                now.0 < sizes.len() * 4 + 64,
+                "the drag never settled: {:?}",
+                l.d
+            );
+        }
+    }
+
+    fn sizes() -> Vec<Size> {
+        STEPS
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|l| {
+                let (size, _) = l.split_once(' ').expect("COLSxROWS <len>");
+                let (c, r) = size.split_once('x').expect("COLSxROWS");
+                (c.parse().expect("columns"), r.parse().expect("rows"))
+            })
+            .collect()
+    }
+
+    /// **A drag step that finds a frame in flight builds nothing**, and
+    /// the frame it owes is built when the slot frees: the last frame
+    /// shown is the size the drag stopped at, wherever in the recording it
+    /// stops, and no frame is shown at a size the window has left. Over a
+    /// GPU that lands a frame in one step, three and seven,
+    /// and a display link that ticks every step, every second and every
+    /// fifth.
+    #[test]
+    fn a_drag_step_over_a_frame_in_flight_is_owed_not_built() {
+        let sizes = sizes();
+        assert!(sizes.len() > 300, "the recording: {}", sizes.len());
+        for end in 1..=sizes.len() {
+            let steps = &sizes[..end];
+            let last = steps[end - 1];
+            for land in [1, 3, 7] {
+                for tick in [1, 2, 5] {
+                    let d = drag(steps, Step(land), Step(tick), Order::SurfacesFirst);
+                    let at = format!("{end} steps, land {land}, tick {tick}: {d:?}");
+                    assert_eq!(d.over_live, Tally::default(), "{at}");
+                    assert_eq!(d.shown, Some(last), "{at}");
+                    assert_eq!(d.stale, Tally::default(), "{at}");
+                    let built = d.built.value();
+                    assert!(built > 0 && built <= Tally::of(end).value(), "{at}");
+                }
+            }
+        }
+    }
+
+    /// **The control: the gate asked before the surfaces are replaced
+    /// shows stale frames.** A step that finds a frame in flight leaves
+    /// the old surfaces up, so that frame lands current at a size the
+    /// window has left -- the order the pin below forbids.
+    #[test]
+    fn a_gate_before_the_surfaces_shows_a_size_the_window_left() {
+        let d = drag(&sizes(), Step(3), Step(1), Order::GateFirst);
+        assert!(d.stale.value() > 0, "{d:?}");
+    }
+
+    /// The gate itself: a frame in flight owes the next, an idle GPU and
+    /// the CPU path, which has no presenter in flight, build it now.
+    #[test]
+    fn a_frame_is_owed_only_while_one_is_in_flight() {
+        assert_eq!(builds(Some(InFlight::Busy)), Builds::Owed);
+        assert_eq!(builds(Some(InFlight::Idle)), Builds::Now);
+        assert_eq!(builds(None), Builds::Now);
+    }
+
+    /// **`present` asks the gate after the surfaces are replaced and
+    /// before anything is built.** After: a step that replaces them
+    /// supersedes the frame in flight, which was drawn for the size the
+    /// window left, so it is never shown. Before: the styles synced, the
+    /// glyph map walked, the window copied, the overlay walked or the
+    /// instances converted, all of which `draw_cells` would throw away.
+    /// And the frame stays owed: the branch leaves `pending` as it is.
+    /// `present` is AppKit-bound, so the source is what can fail.
+    #[test]
+    fn present_asks_the_gate_between_the_surfaces_and_the_build() {
+        const SRC: &str = include_str!("app.rs");
+        let body = SRC
+            .split_once(concat!(
+                "fn present(&mut self, screen: &Drawable",
+                "View, show: Show) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("present's body");
+        let at = |tok: &str| body.find(tok).unwrap_or_else(|| panic!("{tok} in present"));
+        let gate = at(concat!(
+            "if builds(self.presenter.as_ref().map(Presenter::",
+            "in_flight))"
+        ));
+        assert!(at("p.resize(sw, sh)") < gate, "the surfaces first");
+        for built in [
+            "self.renderer.set_blink(",
+            "Presenter::building",
+            "self.renderer.sync_styles(",
+            ".convert(&self.term",
+            ".render_at(",
+        ] {
+            assert!(gate < at(built), "{built} after the gate");
+        }
+        let branch = body[gate..]
+            .split_once('}')
+            .map(|(b, _)| b)
+            .expect("the branch");
+        assert!(branch.contains("return;"), "{branch}");
+        assert!(
+            !branch.contains("pending"),
+            "the frame stays owed: {branch}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod resize_selection_tests {
     use super::kept_across_resize;
     use baud_core::{Owned, Term};
@@ -7956,6 +8221,31 @@ fn refont_step(
 enum Drew {
     Yes,
     No,
+}
+
+/// Whether `present` builds the frame it was asked for now, or leaves it
+/// owed (`builds`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Builds {
+    Now,
+    Owed,
+}
+
+/// **A frame asked for while the GPU still reads the last one is owed,
+/// not built.** Built, it would sync the styles, walk the glyph map, copy
+/// the window and walk the overlay -- or convert, on the instance path --
+/// and `draw_cells` would refuse it as `Busy` and throw the lot away. A
+/// drag asks on every step (`relayout`), and so do a zoom, a font change
+/// and the other events that call `present` directly rather than through
+/// the pump, whose own gate already waits. Owed, the frame is built by the
+/// completion's wake or the display link's next tick, at the size the
+/// window has by then: `pending` stays set, so nothing is lost. The CPU
+/// path has no frame in flight.
+fn builds(flight: Option<InFlight>) -> Builds {
+    match flight {
+        Some(InFlight::Busy) => Builds::Owed,
+        Some(InFlight::Idle) | None => Builds::Now,
+    }
 }
 
 /// A key's echo drawn before the pty answered (row 9 of note N,
@@ -11694,9 +11984,9 @@ impl Driver {
             // frame is a size behind the window for an instant and the layer
             // clips it top-left (`contentsGravity`) rather than stretching, so
             // it is a thin sliver at the moving edge, not a freeze. If the GPU
-            // is still busy this step draws nothing and the in-flight frame's
-            // completion drives the next; either way the main thread returns
-            // at once and keeps tracking the drag. `term.resize` kept the
+            // is still busy this step builds nothing (`builds`) and the
+            // in-flight frame's completion drives the next; either way the
+            // main thread returns at once and keeps tracking the drag. `term.resize` kept the
             // content -- the pitch is fixed, each row clipped or extended in
             // place -- and the child redraws into it on `SIGWINCH`.
             let t_present = Instant::now();

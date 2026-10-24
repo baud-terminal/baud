@@ -481,9 +481,10 @@ summary = "A frame where only the cursor, its blinking, its trail or the cursor 
 [[item]]
 id = "X2-14"
 area = "speed"
-status = "planned"
+status = "done"
+date = "2026-10-24"
 title = "Smoother window drags"
-summary = "A drag step that cannot be shown yet is not drawn at all."
+summary = "While you drag a window's edge, a step that comes while the last frame is still on its way to the screen is not drawn at all; the next frame is drawn at the size the window has by then, and the last at the size you let go at."
 
 [[item]]
 id = "X2-25"

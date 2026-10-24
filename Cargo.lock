@@ -102,6 +102,7 @@ dependencies = [
  "baud-present-macos",
  "baud-render",
  "libc",
+ "macos-liquid-glass",
 ]
 
 [[package]]

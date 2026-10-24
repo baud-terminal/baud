@@ -26,6 +26,9 @@ libc = "0.2"
 # nothing elsewhere and the bin says so.
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
+# `drag` implements the presenter's `Wake`, whose surface type is the
+# window crate's.
+macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
 
 # The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
 # it may ask the kernel. Target-gated the way `baud-core` gates its scans.
@@ -212,4 +215,11 @@ harness = false
 # bench's own header.
 [[bench]]
 name = "reshape"
+harness = false
+
+# A recorded drag through the cell path on Metal: the frames each step
+# builds, the ones drawn and the GPU time. macOS only; it prints on every
+# other target.
+[[bench]]
+name = "drag"
 harness = false

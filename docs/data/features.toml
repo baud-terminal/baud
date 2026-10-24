@@ -447,6 +447,16 @@ tests = ["baud-present-macos/tests/cells.rs::each_decoration_alone_and_the_curso
 shipped = ["X2-30"]
 
 [[feature]]
+id = "drag-frames-owed"
+area = "speed"
+name = "Smoother window drags"
+does = "While you drag a window's edge, a step that comes while the last frame is still on its way to the screen is not drawn at all, and the next frame is drawn at the size the window has by then, ending at the size you let go at; on this Mac, with steps a millisecond apart, a recorded drag built 253 to 268 frames where it built 334 to 338."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::a_drag_step_over_a_frame_in_flight_is_owed_not_built", "baud-app/src/app.rs::present_asks_the_gate_between_the_surfaces_and_the_build", "baud-app/src/app.rs::a_frame_is_owed_only_while_one_is_in_flight"]
+shipped = ["X2-14"]
+
+[[feature]]
 id = "no-half-drawn"
 area = "speed"
 name = "No half-drawn screens"
