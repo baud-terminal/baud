@@ -20,7 +20,9 @@ use baud_domain::{
     ImagePx, PackedCell, Pixel, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
+use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
+use baud_present_macos::screens::Screens;
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
@@ -170,6 +172,11 @@ struct Arms<'f, 'a> {
     /// other than zero, which a fragment function that forgot the origin
     /// would misplace in both arms alike.
     margin: (u32, u32),
+    /// The screen each cell frame is built from, as the app's record names
+    /// it (`Screens::take`), over a copy of its own: what the GPU takes a
+    /// frame's change against.
+    screens: Screens,
+    screen: Vec<PackedCell>,
 }
 
 /// Which grid the cell arm reads ([`Arms::reads`]).
@@ -402,6 +409,16 @@ impl Arms<'_, '_> {
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
         self.chrome = Tally::of(self.records.len() - chrome_from);
+        // Whether this frame's screen is the last's, as the app decides it:
+        // the window as drawn, its status line and line renditions.
+        self.screens.take(
+            &mut [&mut self.screen[..]],
+            SetIx(0),
+            &view,
+            t.status_line().as_ref(),
+            t.stride(),
+            self.slide.is_some(),
+        );
         let (grid, rotation, ring) = match self.reads {
             Reads::Copy => {
                 let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
@@ -431,6 +448,7 @@ impl Arms<'_, '_> {
             map_gen: self.map.generation(),
             reach: self.map.reach(),
             moving: self.moving,
+            screen: self.screens.now(),
         };
         f(&mut self.gpu, &mut self.renderer, &input)
     }
@@ -486,6 +504,8 @@ impl Arms<'_, '_> {
             map_gen: self.map.generation(),
             reach: self.map.reach(),
             moving: self.moving,
+            // The screen `draw` just built from.
+            screen: self.screens.now(),
         };
         let Some(Drawn::Frame(_)) =
             self.gpu
@@ -1202,6 +1222,8 @@ macro_rules! arms {
             moving: (0, 0),
             reads: Reads::Core,
             margin: (0, 0),
+            screens: Screens::new(),
+            screen: vec![PackedCell::EMPTY; owned_stride.index() * (usize::from(WS.ws_row) + 1)],
         };
     };
 }
@@ -8989,6 +9011,15 @@ fn cursor_steps() -> Vec<Change> {
             Box::new(move |_, t| feed(t, format!("\x1b[{r};{c}H").as_bytes())),
         ));
     }
+    // A row's cells rewritten away from the cursor, in glyphs and a
+    // rendition the screen already shows, the cursor saved and put back:
+    // nothing but the cells changes, so only the screen the frame names
+    // says the row must be drawn.
+    steps.push((
+        "a row's cells rewritten, the cursor where it was",
+        Damage::Incremental,
+        Box::new(|_, t| feed(t, b"\x1b7\x1b[8;1Hworld\x1b8")),
+    ));
     for p in [
         CursorPhase::HIDDEN,
         CursorPhase::SHOWN,

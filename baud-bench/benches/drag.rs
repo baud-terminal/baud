@@ -273,6 +273,9 @@ fn main() {
                     table: stamps[set],
                     map_gen: map.generation(),
                     reach: map.reach(),
+                    // A drag step rebuilds the copy whole, so each frame is a
+                    // screen of its own.
+                    screen: baud_present_macos::screens::ScreenGen::fresh(),
                     moving: (records.len(), records.len()),
                 };
                 let drawn = p.draw_cells(watch.clone(), r, &input);

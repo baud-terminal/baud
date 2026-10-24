@@ -664,6 +664,7 @@ fn main() {
                         map_gen: map.generation(),
                         reach: map.reach(),
                         moving: (records.len(), records.len()),
+                        screen: screens.now(),
                     };
                     let td = Instant::now();
                     let drawn = m.presenter.draw_cells(Quiet, &mut r, &input);
@@ -768,9 +769,12 @@ the first cpu {:.1}, copy {:.2}",
             // The surfaces the one target stands for, and what each lacks.
             let mut ages = Ages::new();
             let mut surface = SurfaceIx::FIRST;
-            // The screen the last walk read, as the app keeps it.
-            let mut screen: Vec<PackedCell> = Vec::new();
-            let mut walked: Option<WalkKey> = None;
+            // The screen the last frame was built from, copied into one
+            // set as the app's record keeps it: what says a frame's screen
+            // is the last's, for the walk and for the GPU's change.
+            let mut screens = Screens::new();
+            let mut screen =
+                vec![PackedCell::EMPTY; stride.index() * (usize::from(prov.ws_row) + 1)];
             let mut at = 0usize;
             let t0 = Instant::now();
             let mut idle_left = if cell_arm || caret.is_some() {
@@ -848,20 +852,18 @@ the first cpu {:.1}, copy {:.2}",
                         );
                     }
                     // The walk skipped over the screen it walked last, under
-                    // the same key: the app's `Screens`.
+                    // the same key: the app's `Screens`. The slide arm walks
+                    // every frame, as a slide does.
                     let vp = t.viewport();
-                    let (vc, vr) = (vp.cols().index(), vp.rows().index());
-                    let same = arm != Arm::Slide
-                        && screen.len() == vc * vr
-                        && (0..vr).all(|y| {
-                            screen[y * vc..(y + 1) * vc] == vp.row(Row::from_index(y))[..vc]
-                        });
-                    if !same {
-                        screen.clear();
-                        for y in 0..vr {
-                            screen.extend_from_slice(&vp.row(Row::from_index(y))[..vc]);
-                        }
-                    }
+                    let built = screens.take(
+                        &mut [&mut screen[..]],
+                        SetIx(0),
+                        &vp,
+                        t.status_line().as_ref(),
+                        t.stride(),
+                        false,
+                    );
+                    let same = arm != Arm::Slide && built == Built::Last;
                     let key = WalkKey {
                         table: stamp,
                         map: map.generation(),
@@ -871,9 +873,9 @@ the first cpu {:.1}, copy {:.2}",
                         cols: vp.cols(),
                         rows: vp.rows(),
                     };
-                    if !same || walked != Some(key) {
+                    if !same || screens.walked != Some(key) {
                         map.ensure(&t, vp, styles_mem, &mut r, &mut candidates);
-                        walked = (arm != Arm::Slide).then(|| WalkKey {
+                        screens.walked = (arm != Arm::Slide).then(|| WalkKey {
                             map: map.generation(),
                             grown: r.atlas_stats().grown,
                             ..key
@@ -973,6 +975,7 @@ the first cpu {:.1}, copy {:.2}",
                         map_gen: map.generation(),
                         reach: map.reach(),
                         moving,
+                        screen: screens.now(),
                     };
                     let done = match arm {
                         _ if fin => Done::Wait,

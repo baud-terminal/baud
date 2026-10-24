@@ -11,24 +11,25 @@
 //!   twenty-byte records on the CPU; `Gpu::draw` writes them into a
 //!   `.shared` ring slot -- the write is the upload, D2's one copy -- and
 //!   draws one background pass and one instanced glyph pass.
-//! * **Cells.** Nothing is converted. The terminal's viewport *lives* in a
-//!   shared buffer ([`Gpu::grid`] lends the core its memory), the rendition
-//!   table is resolved straight into another ([`Gpu::styles`]), the glyph
-//!   map is kept in a third ([`Gpu::map`]), and a vertex shader resolves
-//!   every cell itself, undoing the core's row rotation with one modulo so
-//!   the core never turns the grid in place either. `Gpu::draw_cells`
-//!   uploads nothing; it binds.
+//! * **Cells.** Nothing is converted. The grid is a shared buffer
+//!   ([`Gpu::grid`]) -- in the app, a copy of the window in the set the
+//!   frame is built in (research decision D4, [`crate::screens`]); a bench
+//!   or a test may bind the core's own ring, which the shader reads under
+//!   its rotation with one modulo -- the rendition table is resolved
+//!   straight into another ([`Gpu::styles`]), the glyph map is kept in a
+//!   third ([`Gpu::map`]), and a vertex shader resolves every cell itself.
+//!   `Gpu::draw_cells` uploads nothing; it binds.
 //!
 //! **Nothing waits.** A draw is committed with a completion handler, and
 //! the caller's [`Done::Notify`] closure runs on the GPU's thread when the
 //! frame is finished -- the presenter uses it to hand the surface to the
-//! main thread and wake the responder. One frame is in flight at a time:
-//! while it is, the buffers it reads are the ones the core writes, so the
-//! caller keeps incoming bytes queued until [`Gpu::in_flight`] says idle,
+//! main thread and wake the responder. One frame is in flight at a time,
 //! and a draw asked for meanwhile answers [`Drawn::Busy`] rather than
-//! blocking. That single atomic is the whole synchronisation, and it is
-//! what makes the zero-copy grid safe: the GPU reads it only inside a
-//! window the core does not write.
+//! blocking. The buffers a frame reads are its own set's, which nothing
+//! writes until it lands ([`crate::journal::Wheel`]), so the core goes on
+//! being fed while the GPU reads. A caller that binds the core's own grid
+//! instead must not feed while [`Gpu::in_flight`] says busy: the core
+//! rewrites the rows of the live window in place.
 //!
 //! The atlas is the one thing still copied, and only the texels a new
 //! glyph wrote: the renderer's sheets are CPU memory the rasteriser
@@ -50,6 +51,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::journal::Landing;
+use crate::screens::ScreenGen;
 use crate::slots;
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
@@ -171,9 +173,9 @@ pub struct GpuFrame {
 #[derive(Clone, Copy)]
 struct Ring(usize);
 
-/// Shared memory the terminal's viewport lives in: what [`Gpu::grid`]
-/// lends the core and what the cell path binds. The GPU reads the cells
-/// the core writes, in place.
+/// Shared memory a grid of cells lives in, from [`Gpu::grid`]: what the
+/// cell path binds -- in the app, a frame set's copy of the window -- and
+/// what the core may be lent its storage from.
 pub struct GridBuffer(Buffer);
 
 /// Shared memory the resolved rendition table lives in.
@@ -502,6 +504,16 @@ pub struct CellInput<'a> {
     /// from the first to one past the last: the records a cursor-only frame
     /// moves, whose rows are its change. The rest must be the last frame's.
     pub moving: (usize, usize),
+    /// **The screen the drawn rows of `grid` hold**, as the caller's record
+    /// names it ([`crate::screens::Screens::now`]): a frame handed the
+    /// screen the last committed frame was handed shows the same cells in
+    /// every row the shader reads, so its change is the cursor's rows and
+    /// the moving records'. The caller already knows -- it compared the
+    /// screen to decide whether to copy it -- so nothing here compares the
+    /// cells again or keeps a copy of them to compare with. A caller that
+    /// cannot say passes [`ScreenGen::fresh`], a screen of its own, and
+    /// the frame is drawn whole.
+    pub screen: ScreenGen,
 }
 
 /// How the cursor is drawn, as the shader switches on it.
@@ -739,8 +751,9 @@ struct CellLast {
     /// cursor: the guide on its row, the badge with its block's cell left
     /// out (`Renderer::place_grounds`).
     grounds: Vec<Instance>,
-    /// The grid's drawn rows, `cols` cells each, and the overlay's bytes.
-    cells: Vec<PackedCell>,
+    /// The screen its grid's drawn rows held ([`CellInput::screen`]), and
+    /// the overlay's bytes.
+    screen: ScreenGen,
     overlay: Vec<u8>,
 }
 
@@ -919,8 +932,9 @@ unsafe fn peek<T>(buffer: &Buffer, n: Elems) -> Option<&[T]> {
 ///
 /// # Safety
 /// `T` must be valid for any bit pattern the caller then writes, and the
-/// caller must not read the slice through the GPU while writing it here,
-/// which [`Gpu::in_flight`] is the gate for.
+/// caller must not write the slice while a committed frame the GPU has not
+/// finished reads the buffer: the wheel holds a frame set's until it lands,
+/// and [`Gpu::in_flight`] is the gate for one bound otherwise.
 unsafe fn lend<T>(buffer: &Buffer, n: Elems) -> Option<&'static mut [T]> {
     let n = n.0;
     if buffer.length() < n.saturating_mul(core::mem::size_of::<T>()) {
@@ -1160,8 +1174,8 @@ impl Gpu {
     }
 
     /// Whether the device shares memory with the CPU, which is what makes
-    /// reading the grid in place a read rather than a transfer (D2's
-    /// discrete arm is unbuilt).
+    /// a shared buffer the CPU wrote a read for the GPU rather than a
+    /// transfer (D2's discrete arm is unbuilt).
     pub fn unified_memory(&self) -> Memory {
         if self.device.hasUnifiedMemory() {
             Memory::Unified
@@ -1170,9 +1184,10 @@ impl Gpu {
         }
     }
 
-    /// Whether a frame is being read by the GPU. While it is, the shared
-    /// buffers a draw binds must not be written: keep incoming bytes
-    /// queued, and draw when the completion arrives.
+    /// Whether a frame is being read by the GPU. While it is, the buffers
+    /// it was committed with must not be written: a frame set's are held
+    /// by the wheel until it lands, and a caller that bound the core's own
+    /// grid must not feed it until this says idle.
     pub fn in_flight(&self) -> InFlight {
         if self.in_flight.load(Ordering::Acquire) == 0 {
             InFlight::Idle
@@ -2154,7 +2169,8 @@ impl Gpu {
     /// [`Gpu::draw_cells`] into a target that holds an earlier frame and
     /// lacks `missing` of the last one committed ([`crate::redraw::Ages`]).
     /// A frame is compared with the last committed on everything it is
-    /// handed and every uniform built from it: when only the cursor's
+    /// handed and every uniform built from it, its grid by the screen the
+    /// caller names ([`CellInput::screen`]): when only the cursor's
     /// words, the trail's and the blink animation's records (`moving`) and
     /// the grounds -- the cursor guide and the badge -- differ, its change
     /// is the rows of the old and the new cursor, each with the rows its
@@ -2295,28 +2311,26 @@ impl Gpu {
             sel_fg_curve: Uni(curve_of(hilite.fg)),
         };
         // **What this frame changed of the last committed**, from what it
-        // was handed. The grid's drawn rows and the overlay are read where
-        // the shader reads them.
+        // was handed: the grid's rows by the screen its caller names, and
+        // the overlay read where the shader reads it.
         let ncols = cols.index();
-        let (rot, ring, stride) = (
-            input.rotation.index(),
-            input.ring.index().max(1),
-            input.stride.index(),
-        );
-        // SAFETY: the grid holds `ring * stride` cells and the overlay at
-        // least `ncols * (draw_rows + 1)` bytes or its length, as `grid` and
-        // `overlay` lent them; nothing writes either while a frame is being
-        // built, the gate `in_flight` and the caller's thread keep.
-        let grid_cells =
-            unsafe { peek::<PackedCell>(&input.grid.0, Elems(ring.saturating_mul(stride))) }?;
+        let (ring, stride) = (input.ring.index().max(1), input.stride.index());
+        // The shader reads `ring * stride` cells of the grid: a grid shorter
+        // than that is refused rather than read past its end.
+        if input.grid.0.length()
+            < ring
+                .saturating_mul(stride)
+                .saturating_mul(core::mem::size_of::<PackedCell>())
+        {
+            return None;
+        }
+        // SAFETY: the overlay holds at least `ncols * (draw_rows + 1)` bytes
+        // or its length, as `overlay` lent it; nothing writes it while a
+        // frame is being built into its set, which the caller's wheel keeps.
         let overlay_len = ncols
             .saturating_mul(draw_rows.saturating_add(1))
             .min(input.overlay.0.length());
         let overlay_bytes = unsafe { peek::<u8>(&input.overlay.0, Elems(overlay_len)) }?;
-        let row_of = |dr: usize| {
-            let at = (dr + rot) % ring * stride;
-            grid_cells.get(at..at + ncols).unwrap_or(&[])
-        };
         let n = input.records.len();
         let (ma, mb) = (input.moving.0.min(n), input.moving.1.min(n));
         let (ma, mb) = (ma, mb.max(ma));
@@ -2363,8 +2377,7 @@ impl Gpu {
                 && l.records[..ma] == input.records[..ma]
                 && l.records[ma..] == input.records[mb..]
                 && l.overlay == overlay_bytes
-                && l.cells.len() == ncols * draw_rows
-                && (0..draw_rows).all(|dr| l.cells[dr * ncols..(dr + 1) * ncols] == *row_of(dr))
+                && l.screen == input.screen
         };
         // The rows a glyph can reach past its own, up and down.
         let ch = i64::from(metrics.cell_h.value().max(1));
@@ -2761,7 +2774,7 @@ impl Gpu {
                 records: Vec::new(),
                 moving: RowSet::NONE,
                 grounds: Vec::new(),
-                cells: Vec::new(),
+                screen: input.screen,
                 overlay: Vec::new(),
             }),
         };
@@ -2773,11 +2786,8 @@ impl Gpu {
             last.records.extend_from_slice(&input.records[mb..]);
             last.overlay.clear();
             last.overlay.extend_from_slice(overlay_bytes);
-            last.cells.clear();
-            for dr in 0..draw_rows {
-                last.cells.extend_from_slice(row_of(dr));
-            }
         }
+        last.screen = input.screen;
         last.size = target.size();
         last.viewport = vp;
         last.uniforms = uniforms;

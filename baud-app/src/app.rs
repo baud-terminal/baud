@@ -233,10 +233,11 @@ struct CellMemory {
     /// So the frame gets its own copy of the *screen* -- not the ring, and
     /// not the scrollback behind it -- laid out flat in screen order, which
     /// is why the shader reads it at [`RowRot::NONE`] with a ring of
-    /// `rows`. D4 prices the copy at 1.2 us against a 16,667 us frame, and
-    /// `frame_gpu`'s `copied` arm measured it *faster* end to end than the
-    /// in-place read: 30-60 us less GPU time for about one microsecond of
-    /// CPU.
+    /// `rows`. It is 80,000 bytes at 200x50 and about 3 us of CPU, against
+    /// an 8,333 us frame at 120 Hz (note BC, section 3, where `frame_gpu`
+    /// read the copy and the live grid in the same GPU time under load).
+    /// The record of which screen each set holds and the copy itself are
+    /// [`Screens::take`], the code `frame_gpu`'s `app` arm runs.
     ///
     /// One per set, for the reason the overlay and the styles are: the
     /// frame in flight is reading its own.
@@ -1066,10 +1067,11 @@ impl App {
             ));
             Term::new(owned.storage(), ws)
         };
-        // **Both surfaces are the GPU's on the cell path.** The primary is
-        // the ring -- the screen's capacity plus the scrollback -- and the
-        // alternate screen is its own buffer of the capacity, so entering
-        // it swaps which buffer the shader reads and copies nothing.
+        // **Both surfaces live in shared memory on the cell path.** The
+        // primary is the ring -- the screen's capacity plus the scrollback
+        // -- and the alternate screen is its own buffer of the capacity.
+        // The shader reads neither: each frame copies the window out of
+        // whichever is up into its own set (research decision D4).
         let (mut wanted, gpu, term, grid) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
                 let owned: &'static mut Owned = Box::leak(Box::new(
@@ -2292,6 +2294,10 @@ impl App {
                     map_gen: cell.maps.live.generation(),
                     reach: cell.maps.live.reach(),
                     moving,
+                    // The screen the copy holds, as the record that decided
+                    // whether to copy it names it: the GPU's change is
+                    // taken against the last frame it committed.
+                    screen: cell.screens.now(),
                 };
                 if let Some(p) = &mut self.presenter {
                     let before = self.latency.stamp(host_now);

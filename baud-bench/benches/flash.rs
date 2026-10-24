@@ -485,6 +485,8 @@ fn main() {
                 map_gen: self.map.generation(),
                 reach: self.map.reach(),
                 moving,
+                // Drawn whole and read back every frame: a screen of its own.
+                screen: baud_present_macos::screens::ScreenGen::fresh(),
             };
             let Some(Drawn::Frame(_)) =
                 self.gpu

@@ -162,14 +162,14 @@ impl Wheel {
 }
 
 /// Whether the memory a frame reads that has **no ring** may be written
-/// now: the terminal's grid, which the cell shader reads in place, and the
-/// atlas sheets every GPU path samples.
+/// now: the atlas sheets every GPU path samples. The terminal's grid was
+/// the other until research decision D4; a frame reads its own set's copy
+/// of the window since, so a reflow has nothing in flight to collide with.
 ///
-/// There is one of each, so a mutation cannot move aside the way a ringed
-/// buffer can. Ringing either is the wrong price -- the grid is megabytes
-/// and the atlas is two textures, against an event a keypress or a drag
-/// step produces -- so the *request* waits instead, for a completion that
-/// is already on its way.
+/// There is one atlas, so a mutation cannot move aside the way a ringed
+/// buffer can. Ringing it is the wrong price -- two textures, against an
+/// event a keypress or a drag step produces -- so the *request* waits
+/// instead, for a completion that is already on its way.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reshape {
     /// Nothing is reading it. Reflow, rescale, do as you like.
