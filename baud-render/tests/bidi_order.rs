@@ -67,13 +67,30 @@ fn a_hebrew_word_reads_right_to_left_in_a_left_to_right_line() {
     );
 }
 
+/// **A terminal as it starts draws a Hebrew word right to left**: BDSM is
+/// set at power-on, the owner's answer of 2026-10-24.
+#[test]
+fn a_fresh_terminal_draws_a_hebrew_word_right_to_left() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "ab \u{5D0}\u{5D1}\u{5D2}");
+    let mut o = Reorder::new();
+    o.lay_out(&t, Rows::ZERO);
+    assert!(o.orders().reordered(Row::ZERO), "the row is reordered");
+    assert_eq!(
+        o.orders().visual_col(Row::ZERO, Col::at_index(3)),
+        Col::at_index(5),
+        "the alef, written at 3, drawn at 5"
+    );
+}
+
 /// **The control: BDSM reset draws every cell where it is**, as baud
 /// always did, and so does a row with no right-to-left character.
 #[test]
 fn explicit_and_left_to_right_rows_keep_their_order() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "ab \u{5D0}\u{5D1}\u{5D2}");
+    feed(&mut t, "\x1b[8lab \u{5D0}\u{5D1}\u{5D2}");
     let mut o = Reorder::new();
     o.lay_out(&t, Rows::ZERO);
     assert!(!o.orders().any(), "BDSM reset reorders nothing");

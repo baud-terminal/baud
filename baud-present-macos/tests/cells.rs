@@ -8703,7 +8703,12 @@ fn italic_hebrew_draws_alike_on_every_arm() {
         ("italic", "\x1b[3m"),
         ("bold italic", "\x1b[1;3m"),
     ] {
-        let text = format!("\x1bc\x1b[?25l{sgr}{}", GENESIS_1_1_TO_5.join("\r\n"));
+        // Stored order: the glyphs and points are what this compares, so the
+        // reordering a right-to-left row takes since BDSM starts set is off.
+        let text = format!(
+            "\x1bc\x1b[8l\x1b[?25l{sgr}{}",
+            GENESIS_1_1_TO_5.join("\r\n")
+        );
         feed(&mut t, text.as_bytes());
         assert_eq!(t.marks_dropped, 0, "{name}: the core keeps every point");
         let (a, b) = arms.draw(&mut t);

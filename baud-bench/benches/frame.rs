@@ -15,9 +15,10 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
-//! `FRAME_BIDI=implicit` sets BDSM (`CSI 8 h`) before the recording, so
-//! each frame lays its rows out in the order UAX #9 gives them; the
-//! default leaves it reset, as a terminal starts.
+//! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
+//! each frame draws its rows in stored order; the default leaves it set,
+//! as a terminal starts, and each frame lays its rows out in the order
+//! UAX #9 gives them.
 //!
 //! `FRAME_BG_ALPHA=<0-255>` paints over a page dimmed to that alpha, the
 //! glass (`[glass] dim_dark = 0.22` is 56), where the default is
@@ -224,11 +225,12 @@ fn main() {
         }
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
-        // `FRAME_BIDI=implicit` sets BDSM before the recording, so every
-        // frame lays its rows out by UAX #9: what the right-to-left layout
-        // costs a frame of text that holds no right-to-left character.
-        if std::env::var("FRAME_BIDI").as_deref() == Ok("implicit") {
-            let bdsm = b"\x1b[8h";
+        // `FRAME_BIDI=explicit` resets BDSM before the recording, so no
+        // frame lays its rows out by UAX #9: the arm without the
+        // right-to-left layout, which a terminal starts with since BDSM is
+        // set at power-on.
+        if std::env::var("FRAME_BIDI").as_deref() == Ok("explicit") {
+            let bdsm = b"\x1b[8l";
             t.write_at(BytePos::ZERO, bdsm);
             t.feed(BytePos::ZERO, ReadLen::from_index(bdsm.len()));
         }

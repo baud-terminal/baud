@@ -1,19 +1,20 @@
 # Right-to-left text: what is built, and what is next
 
-**Hebrew and Arabic lines are drawn right to left once a program turns
-bidirectional mode on** (`CSI 8 h`, ECMA-48's BDSM in its IMPLICIT state).
-A Hebrew word in an English line reads right to left in its place, brackets
-around Hebrew face the right way, vowel points stay on their letters, and
-the cursor, the selection, the find marks, the link underline and the mouse
-all follow what is drawn. A copy gives the text in the order the program
-wrote it. baud still starts with the mode off, drawing every line left to
-right as before: whether it should start on is one of three questions left
-for the owner (below).
+**Hebrew and Arabic lines are drawn right to left from the moment baud
+starts** (ECMA-48's bidirectional support mode, BDSM, is on: its IMPLICIT
+state). A Hebrew word in an English line reads right to left in its place,
+brackets around Hebrew face the right way, vowel points stay on their
+letters, and the cursor, the selection, the find marks, the link underline
+and the mouse all follow what is drawn. A copy gives the text in the order
+the program wrote it. A program that lays out its own right-to-left text
+turns the mode off with `CSI 8 l`, and every line is then drawn in the
+order its cells hold; `CSI 8 h` turns it back on, and a reset (`RIS`)
+returns it to on.
 
 This is step 2 of right-to-left text. Step 1 built the Unicode
 Bidirectional Algorithm; step 2 puts its order on the screen.
 
-## What you see with the mode on
+## What you see
 
 - **A line is drawn in the order UAX #9 gives it**, revision 51 for
   Unicode 17.0.0 (`[[source: uax9-bidi]]`), on all three draw paths: the
@@ -83,6 +84,26 @@ requests and the renders it was shown are in
 | Arabic in this step | reordered, drawn isolated until joining | 1.00 / 1.00 |
 | a paragraph past the capacity | the drawn rows with whole rows of context (UAX #9 HL5) | 0.98 / 0.98 |
 
+**Decided by the owner** (2026-10-24):
+
+| choice | decided | the owner's words |
+|---|---|---|
+| the state at power-on | BDSM set, so right-to-left lines are drawn right to left from the start; `RIS` returns it to set, `DECSTR` keeps it | "Should right-to-left lines be on from the start? C" |
+
+ECMA-48 7.1 recommends the reset state as every mode's initial one, and
+its Annex D leaves "the initial state of a device upon power up including
+the settings of the modes" to the implementation; terminal-wg makes the
+set state the default. `RIS` follows ECMA-48 8.3.105's "reset to its
+initial state, i.e. the state it has after it is made operational", as
+VTE's does (`[[source: vte-modes-56bad78]]` 186 declares BDSM set by
+default, `[[source: vte-vteseq-cc-56bad78]]` 8315's RIS calls `reset()`,
+which `[[source: vte-modes-hh-56bad78]]` makes every mode's default) and
+as baud's own SRM already does, where the clause "set the modes into the
+reset state" in its "may imply, if applicable" list would turn the mode
+off. Jev's lean, which the owner can veto: INITIAL_STATE 0.78 / 0.82, then
+0.64 / 0.86 with VTE's source; both asks said wrongly that every other
+ANSI mode baud has starts reset, and asked again with SRM, 0.68 / 0.84.
+
 **Taken from Jev's lean, which held in all four answers but for the
 erased cells, where the first ask's SKIPPED (0.10 / 0.18 against a space)
 was re-offered as AS_BN, the same behaviour named after its class; the
@@ -109,24 +130,12 @@ marks 0.62 / 0.54 then 0.72 / 0.66. That lean is to build both; this step
 built only the bidi-control case, so both stay open departures until they
 are built (`docs/research/notes/ab/step2/l4.png` shows both).
 
-## Open: three questions for the owner
+## Open: two questions for the owner
 
 The renders are in `docs/research/notes/ab/step2/` (`mode.png`,
 `cursor.png`). Each is built as today's behaviour until the owner answers.
-
-1. **Should baud start with right-to-left lines drawn right to left?**
-   Built as off (EXPLICIT), today's drawing and the state ECMA-48 7.1
-   recommends as the initial one. Jev leaned to off in all four answers
-   (0.82 / 0.82, then 0.51 / 0.37), so it is taken as the other leans are;
-   it is asked all the same because the owner's own words point the other
-   way ("you drew it ltr not rtl which is how hebtrew is written", "RTL
-   support is a MUST"), and an owner's call outranks a lean. On (IMPLICIT)
-   is terminal-wg's "must be the default", and what VTE, iTerm2, mintty,
-   Konsole and mlterm do; no program or terminfo entry read sends
-   `CSI 8 h`, so with it off nobody sees right-to-left lines unless they
-   turn it on.
-The other two are asked because Jev's lean flipped between the asks, or
-split between the orders:
+Both are asked because Jev's lean flipped between the asks, or split
+between the orders:
 
 2. **Which way does a paragraph run when nothing says?** Built as left to
    right (level 0, terminal-wg's default). The other choice is UAX #9's own
@@ -140,16 +149,18 @@ split between the orders:
 
 ## What it costs
 
-Measured with the `frame` bench's convert column (`FRAME_BIDI=implicit`
-sets the mode before a recording), base 9dd37f0f against this change
+Measured with the `frame` bench's convert column (then with the mode set
+before a recording; since BDSM is set at power-on the bench draws with it
+on and `FRAME_BIDI=explicit` turns it off), base 9dd37f0f against step 2
 built the same way from `git archive`, an A/A copy, four arms rotated over
 eight rounds with the first dropped, on mains (the docs/record.md entry,
 "Right-to-left lines are drawn in their visual order", has the table):
 
-- **With the mode off, as baud starts: no difference.** The layout returns
+- **With the mode off (`CSI 8 l`): no difference.** The layout returns
   at once; every recording's convert range overlaps base's.
-- **With it on, recordings with almost no right-to-left character**
-  (btop has none; cat-scroll one Arabic letter): ranges overlap. A drawn
+- **With it on, as baud starts, recordings with almost no right-to-left
+  character** (btop has none; cat-scroll one Arabic letter): ranges
+  overlap. A drawn
   row is tested only when it changes, by one load a cell from a table
   compiled from the class data; an unchanged row costs a byte compare. Rows
   of a paragraph that runs past the window's edge, above it or below it,
@@ -157,7 +168,8 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   window's first or last row continues a soft-wrapped paragraph, up to
   `baud_render::CONTEXT` / columns rows (92 at 200 columns) are read cell
   by cell each frame.
-- **With it on, recordings that hold Hebrew and Arabic** pay for laying
+- **With it on, recordings that hold Hebrew and Arabic** pay, from the
+  start now, for laying
   those rows out: cat-cjk's convert +9.8%. vim-unicode reads 2.1% lower,
   its range clear of base's (268.7-273.7 against 275.7-280.1), which is
   unexplained.

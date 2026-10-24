@@ -1,6 +1,6 @@
 # AB. Right-to-left text
 
-**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`). Three of step 2's choices are open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
+**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`), and since the owner's answer of 2026-10-24 BDSM is set at power-on (12.3). Two of step 2's choices are open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
 
 - the specifications;
 - terminals that do bidi;
@@ -1565,8 +1565,14 @@ finding that no pinned terminfo entry and no application read sends
   is to build both; this step built only the bidi-control case, so both
   stay unbuilt and counted, open departures until built (ab/step2/l4.png).
 - **12.3 Open for the owner**, today's behaviour kept:
-  Q2 the state at power-on (built EXPLICIT; Jev EXPLICIT 0.82/0.82 then
-  0.51/0.37), Q3 the paragraph direction (built level 0; FIRST_STRONG
+  ~~Q2 the state at power-on (built EXPLICIT; Jev EXPLICIT 0.82/0.82 then
+  0.51/0.37)~~ answered 2026-10-24, "Should right-to-left lines be on
+  from the start? C": BDSM set at power-on and by RIS, RIS taken as
+  ECMA-48 8.3.105's "initial state" as VTE 56bad78's reset() does
+  (Jev's lean INITIAL_STATE, 0.78/0.82, then 0.64/0.86 with VTE's source;
+  both requests stated that every other ANSI mode baud implements starts
+  reset, which SRM does not, and the corrected ask gave 0.68/0.84;
+  `ab/b191/`); Q3 the paragraph direction (built level 0; FIRST_STRONG
   0.56/0.48 then LTR_LEVEL 0.22/0.30), Q14's cursor at a pending wrap on a
   reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
   then hidden 0.52 and drawn 0.30). Q2's lean held in all four answers and

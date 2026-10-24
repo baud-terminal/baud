@@ -36,8 +36,11 @@ fn fnv64(data: &[u8]) -> u64 {
 /// precomposed character no face here has, and none can draw in parts,
 /// stayed whole (2026-10-18): each Hangul syllable and each kana with a
 /// voiced mark is one `.notdef` in its own cells where its parts' boxes had
-/// spilled into the cells after it, 340 cells.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xff8c8a54df759923);
+/// spilled into the cells after it, 340 cells. It moved again when BDSM
+/// came to be set at power-on (2026-10-24), its Hebrew and Arabic rows
+/// drawn in the order UAX #9 gives them; with `CSI 8 l` before the
+/// recording the frame is its old pin again.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x3a74e9bf3cb1494b);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

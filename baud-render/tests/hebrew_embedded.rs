@@ -87,7 +87,10 @@ fn the_built_regular_paints_every_recording_as_stock_does_but_its_hebrew() {
     let cols = usize::from(WS.ws_col);
     let mut hebrew = Vec::new();
     for name in RECORDINGS {
-        let bytes = recording(name);
+        // Every row in the order its cells hold (BDSM reset first), so a
+        // cell is compared where it is stored: the subject is the face's
+        // glyphs, and the mask is kept by stored cells.
+        let bytes = [&b"\x1b[8l"[..], &recording(name)[..]].concat();
         let paint_with = |faces: &[Face<'_>]| {
             let mut r = renderer(faces);
             let mut c = Canvas::for_renderer(&r);
@@ -376,7 +379,9 @@ fn genesis_1_1_to_5_keeps_every_point_in_italic_and_bold_italic() {
             .collect::<Vec<_>>()
             .join("\r\n")
     };
-    let line = |style: FaceStyle, text: &str| [sgr(style), text.as_bytes()].concat();
+    // Stored order (BDSM reset): the test reads each cell's glyphs and points.
+    let line =
+        |style: FaceStyle, text: &str| [&b"\x1b[8l"[..], sgr(style), text.as_bytes()].concat();
     let (regular, ..) = painted_verses(&faces, &STYLED, &line(FaceStyle::Regular, &verses(true)));
     for (style, ix) in [(FaceStyle::Italic, 3), (FaceStyle::BoldItalic, 4)] {
         for c in GENESIS_1_1_TO_5.iter().flat_map(|v| v.chars()) {

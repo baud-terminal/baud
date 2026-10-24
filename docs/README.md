@@ -42,7 +42,7 @@ them.
 | [vt-coverage.md](vt-coverage.md) | whether a specific control sequence works: one row per operation, against its primary source |
 | [input-coverage.md](input-coverage.md) | what baud sends for each key, modifier and input mode |
 | [protocols/](protocols/) | one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests, and a page per `$TERM` profile |
-| [bidi.md](bidi.md) | right-to-left text: lines drawn in their visual order with the mode on, what is decided, what is open and what is next |
+| [bidi.md](bidi.md) | right-to-left text: lines drawn in their visual order from the start, what is decided, what is open and what is next |
 | [protocol-decisions.md](protocol-decisions.md) | whether something that looks like a gap is deliberate, and the open departures from the standards |
 | [../MEASUREMENTS.md](../MEASUREMENTS.md) | every number, stamped with the host and commit that produced it |
 | [../THIRD_PARTY.md](../THIRD_PARTY.md) | every third-party file, with its licence and source |

@@ -13381,6 +13381,37 @@ group  = "J"
 # against a fetch of the url, not committed -- a source file at a pinned commit.
 # mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/modes.py
 
+[sources.vte-modes-hh-56bad78]
+key    = "vte-modes-hh-56bad78"
+title  = "VTE src/modes.hh -- reset() is set_modes(m_default_modes): every mode back to its declared default"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/modes.hh"
+file   = ""
+sha256 = "bfa91b7626c477d83be4f2165bd8d3a0e340e4e4ab0a3c8b2fc28d4f9774844e"
+bytes  = 7258
+status = "external"
+group  = "J"
+# Read 2026-10-24 (lane b191) for what RIS does to BDSM, which modes.py declares
+# default=True; hash-verified against a fetch of the url, not committed.
+
+[sources.vte-vteseq-cc-56bad78]
+key    = "vte-vteseq-cc-56bad78"
+title  = "VTE src/vteseq.cc -- RIS, 'reset-to-initial-state', calls reset(true, true)"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/vteseq.cc"
+file   = ""
+sha256 = "e5b627de309ef5941280f3a738bd7cf145583bcd4679e222ee3e810b61e67dc0"
+bytes  = 331924
+status = "external"
+group  = "J"
+# Read 2026-10-24 (lane b191): Terminal::RIS (line 8315) calls reset(true, true),
+# whose m_modes_ecma.reset() is in vte-cc-56bad78; hash-verified against a fetch
+# of the url, not committed.
+
 [sources.konsole-screen-a88fae0]
 key    = "konsole-screen-a88fae0"
 title  = "Konsole src/Screen.cpp -- what joins a cell, the column-0 drop and the 10-code-point cap"

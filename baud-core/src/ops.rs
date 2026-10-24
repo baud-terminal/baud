@@ -4201,8 +4201,11 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
-        // BDSM with the modes, ECMA-48 8.3.105's "set the modes into the
-        // reset state"; `DECSTR` keeps it, as its DEC table names no BDSM.
+        // BDSM to its initial state, set: ECMA-48 8.3.105 resets a device
+        // "to its initial state, i.e. the state it has after it is made
+        // operational", setting the modes into the reset state being what
+        // that "may imply, if applicable". `DECSTR` keeps it, as its DEC
+        // table names no BDSM.
         self.cold.bidi = BidiSupport::POWER_ON;
         // iTerm2's cursor guide goes back to the embedder's setting: its
         // reset sets the profile's again (`screenDidReset`, `[[source:

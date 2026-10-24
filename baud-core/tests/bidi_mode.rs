@@ -7,9 +7,16 @@
 //! (DCSM)"; IMPLICIT, the set state, "All bi-directional aspects of data
 //! are handled by the device itself". The mode is the renderer's to act on
 //! (the reordering is display-only); the core records it, answers DECRQM
-//! from it, and returns it to the reset state on `RIS`. Every test but the
-//! controls fails on a BDSM that is counted and dropped, which is what it
-//! was.
+//! from it, and returns it to its initial state, set, on `RIS`. Every test
+//! but the controls fails on a BDSM that is counted and dropped, which is
+//! what it was.
+//!
+//! **Set at power-on**, the owner's answer of 2026-10-24 ("Should
+//! right-to-left lines be on from the start? C", the panel drawing them
+//! right to left from the start). `[[source: ecma48]]` 7.1 recommends the
+//! reset state as the initial one; Annex D item 11 leaves "the initial
+//! state of a device upon power up including the settings of the modes"
+//! to the implementation.
 mod support;
 use baud_core::{BidiSupport, Owned, Term, WinSize};
 
@@ -31,38 +38,42 @@ fn after(bytes: &[u8]) -> (BidiSupport, usize, Vec<u8>) {
 }
 
 #[test]
-fn bdsm_starts_explicit_and_decrqm_answers_reset() {
+fn bdsm_starts_implicit_and_decrqm_answers_set() {
     assert_eq!(
         after(b""),
-        (BidiSupport::Explicit, 0, b"\x1b[8;2$y".to_vec())
+        (BidiSupport::Implicit, 0, b"\x1b[8;1$y".to_vec())
     );
 }
 
 #[test]
 fn sm_8_sets_implicit_and_rm_8_resets_it() {
     assert_eq!(
-        after(b"\x1b[8h"),
+        after(b"\x1b[8l\x1b[8h"),
         (BidiSupport::Implicit, 0, b"\x1b[8;1$y".to_vec())
     );
     assert_eq!(
-        after(b"\x1b[8h\x1b[8l"),
+        after(b"\x1b[8l"),
         (BidiSupport::Explicit, 0, b"\x1b[8;2$y".to_vec())
     );
 }
 
-/// A parameter list sets each mode it names: BDSM beside IRM.
+/// A parameter list sets and resets each mode it names: BDSM beside IRM.
 #[test]
 fn bdsm_in_a_list_is_set_with_its_neighbours() {
-    assert_eq!(after(b"\x1b[4;8h").0, BidiSupport::Implicit);
+    assert_eq!(after(b"\x1b[8l\x1b[4;8h").0, BidiSupport::Implicit);
+    assert_eq!(after(b"\x1b[4;8l").0, BidiSupport::Explicit);
 }
 
-/// `RIS` returns it to the reset state, ECMA-48 8.3.105's "set the modes
-/// into the reset state"; `DECSTR` keeps it, as its DEC table names no
-/// BDSM.
+/// `RIS` returns it to its initial state, set: ECMA-48 8.3.105, "reset to
+/// its initial state, i.e. the state it has after it is made operational",
+/// where setting the modes into the reset state is one of what that "may
+/// imply, if applicable". `DECSTR` keeps it either way, as its DEC table
+/// names no BDSM.
 #[test]
-fn ris_resets_bdsm_and_decstr_keeps_it() {
-    assert_eq!(after(b"\x1b[8h\x1bc").0, BidiSupport::Explicit);
-    assert_eq!(after(b"\x1b[8h\x1b[!p").0, BidiSupport::Implicit);
+fn ris_returns_bdsm_to_set_and_decstr_keeps_it() {
+    assert_eq!(after(b"\x1b[8l\x1bc").0, BidiSupport::Implicit);
+    assert_eq!(after(b"\x1b[8l\x1b[!p").0, BidiSupport::Explicit);
+    assert_eq!(after(b"\x1b[!p").0, BidiSupport::Implicit);
 }
 
 /// The control beside it: DCSM, mode 9, is not built, so it is counted and

@@ -141,11 +141,15 @@ pub enum BidiSupport {
 }
 
 impl BidiSupport {
-    /// The state at power-on and after `RIS`: the reset state, which
-    /// `[[source: ecma48]]` 7.1 recommends as the initial one. Which state
-    /// baud starts in is the owner's open call (`docs/bidi.md`), so this
-    /// is today's drawing until it is answered.
-    pub const POWER_ON: BidiSupport = BidiSupport::Explicit;
+    /// The state at power-on and after `RIS`: the set state, so
+    /// right-to-left lines are drawn right to left from the start -- the
+    /// owner's answer of 2026-10-24, "Should right-to-left lines be on from
+    /// the start? C". `[[source: ecma48]]` 7.1 recommends the reset state as
+    /// the initial one, and Annex D item 11 leaves "the initial state of a
+    /// device upon power up including the settings of the modes" to the
+    /// implementation; terminal-wg makes the set state the default
+    /// (`[[source: terminal-wg-bidi-basic-modes]]`).
+    pub const POWER_ON: BidiSupport = BidiSupport::Implicit;
 }
 
 impl AnsiMode {

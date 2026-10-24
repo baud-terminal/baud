@@ -67,7 +67,7 @@ fn tsi(t: &mut Term<'_>) -> Vec<String> {
 
 /// A state far from power-on in every field the report carries.
 const SET: &[u8] =
-    b"\x1b[4h\x1b[20h\x1b[6h\x1b[8h\x1b[12l\x1b[2$~\x1b[?1h\x1b[?5h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?1004h\
+    b"\x1b[4h\x1b[20h\x1b[6h\x1b[8l\x1b[12l\x1b[2$~\x1b[?1h\x1b[?5h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?1004h\
 \x1b[?1006h\x1b[?1002h\x1b[?2004h\x1b[?12l\x1b[?1036l\x1b[?66h\x1b[?67h\
 \x1b[3;7r\x1b[2;30s\x1b[1;3;4:3;38;2;10;20;30;48;5;9;58;5;3;12m\x1b[5 q\
 \x1b[1\"q\x1b[2 t\x1b[5 u\x1b[2*x\x1b[>0;2t\x1b[>1;3m\x1b[>4;2m\x1b[>2n\

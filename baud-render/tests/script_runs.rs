@@ -44,8 +44,12 @@ fn painted(faces: &[Face<'_>], text: &str) -> (Vec<u32>, usize, u64) {
     let mut c = Canvas::for_renderer(&r);
     let mut owned = Owned::new(&ROW);
     let mut t = Term::new(owned.storage(), &ROW);
-    t.write_at(BytePos::ZERO, text.as_bytes());
-    t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+    // BDSM reset, so the row is shaped in the order its cells hold: the
+    // subject is where a script run is cut, which a right-to-left run
+    // shaped a cell at a time (UAX #9 3.5) would hide.
+    let bytes = format!("\x1b[8l{text}");
+    t.write_at(BytePos::ZERO, bytes.as_bytes());
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     paint(&mut r, &mut t, &mut c, Damage::Full);
     let cell_w = usize::try_from(r.metrics().cell_w.value()).unwrap();
     (c.pixels, cell_w, r.cache_stats().misses.value())
