@@ -1160,6 +1160,7 @@ licence = "MIT OR Apache-2.0"
 notice  = "LICENSES/rust-MIT.txt"
 status  = "kept"
 files   = [
+  "rust-core-sync-atomic.rs",
   "rust-std-macros.rs",
   "rust-std-pal-unix-time.rs",
   "rust-std-panicking.rs",

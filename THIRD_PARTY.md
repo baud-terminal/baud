@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 306 | 29 | redistributable, and its notice is satisfied |
+| kept | 307 | 29 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 869 | 40 | |
+| total | 870 | 40 | |
 
 ## Licence texts in LICENSES/
 
@@ -1614,10 +1614,11 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT OR Apache-2.0
 - **Notice:** [LICENSES/rust-MIT.txt](LICENSES/rust-MIT.txt)
-- **Files:** 4
+- **Files:** 5
 
 | file | copied from |
 |---|---|
+| [rust-core-sync-atomic.rs](docs/research/sources/rust-core-sync-atomic.rs) | https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/core/src/sync/atomic.rs |
 | [rust-std-macros.rs](docs/research/sources/rust-std-macros.rs) | https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/macros.rs |
 | [rust-std-pal-unix-time.rs](docs/research/sources/rust-std-pal-unix-time.rs) | https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/sys/pal/unix/time.rs |
 | [rust-std-panicking.rs](docs/research/sources/rust-std-panicking.rs) | https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/panicking.rs |

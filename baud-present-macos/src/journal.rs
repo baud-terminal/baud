@@ -3,9 +3,12 @@
 //!
 //! A frame is committed on the main thread and lands on the GPU's completion
 //! thread, which is where the count is taken, so every counter here is an
-//! atomic and every write is a `fetch_add`. Nothing is published through
-//! them, so `Relaxed` is the whole ordering argument: a reader wants the
-//! values, and no memory is reached by way of them.
+//! atomic and every write is a `fetch_add`. The counts publish nothing, so
+//! they are `Relaxed`: a reader wants the values, and no memory is reached
+//! by way of them. **Two words do publish something**: the [`Wheel`]'s
+//! held sets and the frames still flying each say "the GPU is done with
+//! this memory, write it", so a landing stores them `Release` and the
+//! main thread loads them `Acquire` before it writes what they guard.
 //!
 //! **Counted on the landing thread, which under-counts and cannot
 //! over-count.** The comparison reads the epoch from the GPU's thread, so a
@@ -88,11 +91,31 @@ pub enum SetState {
 /// cannot drift apart -- the reason it lives here rather than beside the
 /// buffers.
 ///
-/// The ordering argument is the module's, in the safe direction. A set is
-/// taken on the main thread and freed on the GPU's completion thread, so a
-/// free that has happened and has not yet been observed reads as *held*
-/// and the main thread skips a set that is already free. It cannot read a
-/// held set as free, because the main thread is the one that held it.
+/// **The free is a release and the look an acquire.** A set is taken on
+/// the main thread and freed on the GPU's completion thread, which Metal
+/// calls "after the GPU finishes executing the command buffer"
+/// (`[[source: apple-addcompletedhandler]]`). The main thread then writes
+/// the set's buffers, and a CPU write is coherent with the GPU only at
+/// command buffer boundaries (`[[source: apple-sdk27-mtlresource-h]]`,
+/// line 62), so the writes must come after the landing that freed it.
+/// With `Relaxed` on both sides nothing in Rust's memory model puts them
+/// there: a `Relaxed` load reading zero orders nothing after it, and the
+/// writes may be done before the load in the model's terms. A `Release`
+/// free read by an `Acquire` look makes "all subsequent operations become
+/// ordered after that store" (`[[source: rust-core-sync-atomic]]`, the
+/// `Ordering::Acquire` text), so every write into a set happens after the
+/// completion that gave it back. No torn frame was ever seen from this:
+/// it closes a gap in the model, not an observed bug.
+///
+/// No loom or stress test is kept for it: the race is between the CPU's
+/// stores and the GPU's reads, which no Rust memory-model checker sees,
+/// and a stress test that passes under `Relaxed` on this machine is a
+/// probe that cannot fire.
+///
+/// A free that has happened and has not yet been observed reads as *held*
+/// and the main thread skips a set that is already free -- the safe
+/// direction. It cannot read a held set as free, because the main thread
+/// is the one that held it.
 pub struct Wheel {
     /// The frame holding each set, or zero. A committed frame is never
     /// [`FrameGen::FIRST`] -- the presenter advances before it tags -- so
@@ -128,10 +151,12 @@ impl Wheel {
     /// means there is nowhere to build that a live frame is not reading
     /// and the caller must not draw.
     pub fn building(&self) -> Option<SetIx> {
+        // `next` is the main thread's alone; the look at `held` is the
+        // acquire the free's release pairs with.
         let at = self.next.load(Ordering::Relaxed) % Wheel::SETS;
         (0..Wheel::SETS)
             .map(|step| (at + step) % Wheel::SETS)
-            .find(|&ix| self.held[ix].load(Ordering::Relaxed) == 0)
+            .find(|&ix| self.held[ix].load(Ordering::Acquire) == 0)
             .map(SetIx)
     }
 
@@ -148,13 +173,16 @@ impl Wheel {
     /// `frame` landed, so whatever set it held is free again.
     pub fn landed(&self, frame: FrameGen) {
         for h in &self.held {
-            let _ = h.compare_exchange(frame.value(), 0, Ordering::Relaxed, Ordering::Relaxed);
+            // `Release` on the free: what the main thread writes after it
+            // sees the zero happens after this landing. A compare that
+            // fails frees nothing and publishes nothing.
+            let _ = h.compare_exchange(frame.value(), 0, Ordering::Release, Ordering::Relaxed);
         }
     }
 
     /// Whether a set is safe to build into.
     pub fn state(&self, set: SetIx) -> SetState {
-        match self.held.get(set.0).map(|h| h.load(Ordering::Relaxed)) {
+        match self.held.get(set.0).map(|h| h.load(Ordering::Acquire)) {
             Some(0) | None => SetState::Free,
             Some(_) => SetState::Held,
         }
@@ -289,7 +317,10 @@ impl Journal {
     /// query with a side effect on purpose: it makes "a resize waited"
     /// a number in the frame report rather than a thing to believe.
     pub fn reshape(&self) -> Reshape {
-        match self.flying.load(Ordering::Relaxed) {
+        // `Acquire`, against the landing's `Release`: a reshape told `Now`
+        // writes the atlas after the landing that let it go, as a frame's
+        // set is written after the free (see [`Wheel`]).
+        match self.flying.load(Ordering::Acquire) {
             0 => Reshape::Now,
             _ => {
                 self.deferred.fetch_add(1, Ordering::Relaxed);
@@ -322,7 +353,7 @@ impl Journal {
             self.wheel.landed(tag.frame);
         }
         self.flying
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |n| {
                 Some(n.saturating_sub(1))
             })
             .ok();
