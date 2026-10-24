@@ -1030,8 +1030,8 @@ const REDRIVES: usize = 16;
 /// continued past its own ten, as its comment has the value mean, "we've
 /// been raced" (`[[source: xnu-tty-ptmx-c]]`). The race is system-wide: four
 /// processes of eight threads each lost it where one alone never did. No
-/// wait of baud's own: the kernel sleeps inside the call from its sixth
-/// try. A `forkpty` that fails this way has not forked, since Darwin's
+/// wait of baud's own: the kernel sleeps inside the call before its sixth
+/// redo. A `forkpty` that fails this way has not forked, since Darwin's
 /// opens the pty before it forks (`[[source: apple-libc-pty-c]]`), and any
 /// other failure stands.
 fn redriven(mut open: impl FnMut() -> core::ffi::c_int) -> core::ffi::c_int {

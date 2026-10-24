@@ -23,13 +23,14 @@
 //! **The clock** ([`Activity`]): a light is lit for [`HOLD`] after the last
 //! byte, and once it changes it does not change again for [`DWELL`]; a
 //! byte that lands while a dark light dwells lights it when the dwell
-//! ends, so no byte goes unshown (HOLD_DWELL_200, Jev 0.96/0.97). Changes
-//! are at least 200 ms apart, so any closed second holds at most six, three
-//! flashes: WCAG 2.2's "no more than three general flashes and / or no
-//! more than three red flashes within any one-second period"
-//! (`[[source: wcag22]]`), met by count as well as by the area clause the
-//! lights' size already meets. iTerm2's activity indicator holds two
-//! seconds after the last read
+//! ends, so no byte goes unshown (HOLD_DWELL_200, Jev 0.96/0.97). A
+//! light's changes are at least 200 ms apart, so any closed second holds
+//! at most six of them, three flashes: WCAG 2.2's "no more than three
+//! general flashes and / or no more than three red flashes within any
+//! one-second period" (`[[source: wcag22]]`). The count holds per light:
+//! two out of phase can make six flashes between them, so the pair meets
+//! 2.3.1 by the area clause the lights' size meets. iTerm2's activity
+//! indicator holds two seconds after the last read
 //! (`[[source: iterm2-964a75d-ptysession-isprocessing]]`), the Linux tty
 //! trigger flashes 50 ms per 100 ms poll (`[[source: linux-ledtrig-tty]]`);
 //! 200 ms keeps a modem's flicker under the threshold.

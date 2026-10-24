@@ -42,8 +42,9 @@
 //! Bidi_Mirroring_Glyph draws it, and so does one whose cell carries only
 //! bidi controls (an RLM after a bracket), which draw nothing of their
 //! own: the drawn cell is the mirror alone. The 126 Bidi_Mirrored
-//! characters with no such glyph, and a mirrored character carrying a mark
-//! that draws (`<` and U+0338), are drawn as they are and counted in
+//! characters with no such glyph, and a mirrored character carrying an
+//! attached codepoint other than a bidi control (a combining mark such as
+//! U+0338 after `<`), are drawn as they are and counted in
 //! [`Reorder::unmirrored`]: two open departures from L4, until the glyph
 //! key can carry a flipped glyph and the draw paths a substitute base for
 //! a marked cell. Jev, asked with these counts, leans to build both
@@ -394,8 +395,9 @@ impl Reorder {
     }
 
     /// Bidi_Mirrored characters drawn unmirrored in the last layout, L4's
-    /// departure: those with no Bidi_Mirroring_Glyph, and those carrying a
-    /// mark that draws.
+    /// departure: those with no Bidi_Mirroring_Glyph, and those carrying an
+    /// attached codepoint other than a bidi control (a combining mark such
+    /// as U+0338).
     pub fn unmirrored(&self) -> Tally {
         self.unmirrored
     }
@@ -675,8 +677,9 @@ impl Reorder {
 enum Mirror {
     /// Its character's Bidi_Mirroring_Glyph.
     Glyph(Content),
-    /// Nothing else: it is Bidi_Mirrored with no such glyph, or carries a
-    /// mark that draws, and is drawn as it is.
+    /// Nothing else: it is Bidi_Mirrored with no such glyph, or carries an
+    /// attached codepoint other than a bidi control (a combining mark such
+    /// as U+0338), and is drawn as it is.
     Missing,
     /// Itself: it is not Bidi_Mirrored.
     Not,

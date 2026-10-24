@@ -36,13 +36,14 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   algorithm with that cell's character. One at the start of a line, with no
   cell before it to be stored on, is still dropped and counted.
 - **Brackets and other mirrored characters** resolved right to left draw
-  their Bidi_Mirroring_Glyph (L4), an RLM or LRM typed after a bracket
-  included. Two kinds still draw as they are, counted in
-  `Renderer::bidi_unmirrored`: the 126 mirrored characters with no such
-  glyph (N-ary sums, roots, integrals and the like), and a mirrored
-  character carrying a mark that draws, such as `<` followed by U+0338
-  (text in composed form writes U+226E, which is mirrored). Both are open
-  departures from L4 (below).
+  their Bidi_Mirroring_Glyph (L4), a bracket carrying only bidi controls
+  (LRM, RLM, ALM, the embeddings, overrides and isolates) included. Two
+  kinds still draw as they are, counted in `Renderer::bidi_unmirrored`:
+  the 126 mirrored characters with no such glyph (N-ary sums, roots,
+  integrals and the like), and a mirrored character carrying an attached
+  codepoint other than a bidi control (a combining mark such as U+0338,
+  as in `<` followed by it; text in composed form writes U+226E, which is
+  mirrored). Both are open departures from L4 (below).
 - **A cell moves whole**: a letter with its points, a wide character with
   its right half, kept on its left.
 - **An erased cell between characters** moves with the character before it;
@@ -121,8 +122,9 @@ owner can veto each:**
 
 **Open departures from UAX #9 L4, which Jev leans to build.** The 126
 mirrored characters with no mirroring glyph, and a mirrored character
-carrying a mark that draws, are drawn unmirrored and counted. The first
-two asks put only the first case, as 128 characters, and on the premise
+carrying an attached codepoint other than a bidi control (a combining
+mark such as U+0338), are drawn unmirrored and counted. The first two
+asks put only the first case, as 128 characters, and on the premise
 that every character with a mirroring glyph draws it, which the build did
 not then meet for a cell carrying an RLM; their answers (counted, 0.88 /
 0.92 and 0.86 / 0.92) are superseded. Asked with the true counts, and
@@ -186,7 +188,7 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   contents, and the text before it for context, so it is quadratic in the
   worst case. X5c scans ahead from every FSI to its matching PDI. Section
   5.1 names bracket matching as a place to optimise. Neither is measured
-  on a row of nested brackets yet.
+  yet, on a row of nested brackets or one of nested FSIs.
 
 ## What is not built yet
 

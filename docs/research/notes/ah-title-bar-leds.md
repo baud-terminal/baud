@@ -1532,10 +1532,10 @@ Q1, Q3 to Q5, Q8 and the rest of Q2 stay open.
 - **Timing (Q6).** A light is lit for 200 ms after the last byte. Once it
   changes, it does not change again for 200 ms (Jev 0.96/0.97), so any
   closed second holds at most three flashes of one light. The count holds
-  per light: two lights out of phase can make twelve changes, six
-  flashes, between them, so the pair passes WCAG 2.3.1 by the area
-  clause, two 7 pt lights. For comparison, iTerm2's
-  activity indicator holds 2 s after the last read
+  per light: two lights out of phase can make twelve changes, six flashes,
+  between them, so the pair passes WCAG 2.3.1 by the area clause, two 7 pt
+  lights. For comparison, iTerm2's activity indicator holds 2 s after the
+  last read
   ([[source: iterm2-964a75d-ptysession-isprocessing]],
   [[source: iterm2-964a75d-advanced-idle-time]]), and Konsole masks its
   activity notice for 15 s ([[source: konsole-session-a88fae0]]).

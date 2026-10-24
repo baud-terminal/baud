@@ -34472,7 +34472,6 @@ sha256 = "d45d4bf1d4e1e8079e1fb6c7275eb73e211833619c0b3f08ed3d637dc3d3e05a"
 bytes  = 62215
 group  = "E"
 # Retrieved 2026-10-24.
-# Retrieved 2026-10-24.
 # Why two openers of /dev/ptmx can be given one terminal. `ptmx_clone` returns
 # the first empty slot (507) without filling it; `ptmx_get_ioctl` fills it later
 # and, finding it filled by another opener, returns the value "so we know to

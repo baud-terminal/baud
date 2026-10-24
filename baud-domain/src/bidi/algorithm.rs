@@ -16,12 +16,14 @@
 //!
 //! The characters X9 removes (the embeddings, overrides, PDF and BN) are
 //! skipped by position rather than deleted, and are given the level of the
-//! character before them, or the paragraph's. X9 allows this:
+//! character before them, or the paragraph's. X9 allows any placement:
 //! "Conformance does not require any particular placement of these
 //! characters", and the conformance files skip them. Section 5.2's
-//! retaining guideline differs: it keeps the stack's level for them and
-//! ignores BN in I1-I2. L1 then resets the ones that trail a line or
-//! precede a separator, as 5.2 asks.
+//! retaining guideline carries them through the rules at the stack's
+//! level, ignoring BN in I1-I2, and only at L1 resolves each "to the level
+//! of the preceding character if there is one, and otherwise to the base
+//! level", the level they are given here. L1 also resets the ones that
+//! trail a line or precede a separator, as 5.2 asks.
 
 use super::{BidiClass, BidiClass::*, BidiProps, BracketKind, paired_bracket};
 use core::ops::Range;

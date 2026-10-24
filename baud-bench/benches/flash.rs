@@ -738,7 +738,7 @@ fn main() {
     if drawer == Drawer::Cpu {
         assert!(
             arms.iter().all(|a| !matches!(a, Arm::Effect(_))),
-            "on the CPU path an effect runs as the quad: ask for off, quad, sweep and ghost"
+            "on the CPU path this bench asks only off, quad, sweep and ghost: drop the effect arms"
         );
     }
 
