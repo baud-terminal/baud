@@ -51,7 +51,10 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   another**, and the cells of a right-to-left run are shaped one at a time
   rather than in their drawn order (UAX #9 3.5).
 - **The cursor** is drawn over the cell it is on, wherever that cell is
-  drawn; a bar cursor sits on the right side of a right-to-left letter.
+  drawn, in its own shape: a block over the cell, an underline under it,
+  and a bar on the right side of a right-to-left letter. On a full line,
+  where the next letter would wrap, it stays drawn over the last letter
+  written, which on a reordered line can be mid-line.
 - **The selection** is a range of the text as written: its highlight falls
   on each selected cell wherever it is drawn, so a selection across a
   Hebrew word can show as two runs, and a copy gives the written order. A
@@ -89,6 +92,7 @@ requests and the renders it was shown are in
 | choice | decided | the owner's words |
 |---|---|---|
 | the state at power-on | BDSM set, so right-to-left lines are drawn right to left from the start; `RIS` returns it to set, `DECSTR` keeps it | "Should right-to-left lines be on from the start? C" |
+| the cursor on a full reordered line | drawn over its cell, in its shape | "On a full right-to-left line, is the cursor drawn or hidden? drawn and based on how the cursor is , line, block or udnerline" |
 
 ECMA-48 7.1 recommends the reset state as every mode's initial one, and
 its Annex D leaves "the initial state of a device upon power up including
@@ -130,22 +134,20 @@ marks 0.62 / 0.54 then 0.72 / 0.66. That lean is to build both; this step
 built only the bidi-control case, so both stay open departures until they
 are built (`docs/research/notes/ab/step2/l4.png` shows both).
 
-## Open: two questions for the owner
+terminal-wg prefers hiding the cursor on a full reordered line ("It's
+more consistent to make it disappear"); the owner chose it drawn.
 
-The renders are in `docs/research/notes/ab/step2/` (`mode.png`,
-`cursor.png`). Each is built as today's behaviour until the owner answers.
-Both are asked because Jev's lean flipped between the asks, or split
-between the orders:
+## Open: one question for the owner
+
+The render is in `docs/research/notes/ab/step2/` (`mode.png`). It is built
+as today's behaviour until the owner answers, and asked because Jev's lean
+flipped between the asks:
 
 2. **Which way does a paragraph run when nothing says?** Built as left to
    right (level 0, terminal-wg's default). The other choice is UAX #9's own
    rule, the first strong letter, which right-aligns a Hebrew paragraph and
    flips a whole box-drawn row that starts with Hebrew. Jev: first strong
    0.56 / 0.48, then left to right 0.22 / 0.30.
-3. **Where is the cursor when a reordered line is full?** Built as drawn
-   over the last character written, which on a reordered line can be
-   mid-line. terminal-wg prefers hiding it there. Jev: 0.28 hidden / 0.73
-   drawn, then 0.52 hidden / 0.30 drawn.
 
 ## What it costs
 

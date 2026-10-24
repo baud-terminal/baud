@@ -1,6 +1,6 @@
 # AB. Right-to-left text
 
-**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`), and since the owner's answer of 2026-10-24 BDSM is set at power-on (12.3). Two of step 2's choices are open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
+**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`), and since the owner's answer of 2026-10-24 BDSM is set at power-on (12.3). One of step 2's choices, the paragraph direction, is open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
 
 - the specifications;
 - terminals that do bidi;
@@ -1573,9 +1573,11 @@ finding that no pinned terminfo entry and no application read sends
   both requests stated that every other ANSI mode baud implements starts
   reset, which SRM does not, and the corrected ask gave 0.68/0.84;
   `ab/b191/`); Q3 the paragraph direction (built level 0; FIRST_STRONG
-  0.56/0.48 then LTR_LEVEL 0.22/0.30), Q14's cursor at a pending wrap on a
+  0.56/0.48 then LTR_LEVEL 0.22/0.30), ~~Q14's cursor at a pending wrap on a
   reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
-  then hidden 0.52 and drawn 0.30). Q2's lean held in all four answers and
+  then hidden 0.52 and drawn 0.30)~~ answered 2026-10-24, "drawn and based
+  on how the cursor is , line, block or udnerline": drawn, each shape
+  placed for its cell. Q2's lean held in all four answers and
   is taken; it is asked because the owner's words point the other way.
 
 **12.2 What was built** (`baud-render/src/bidi.rs`; `docs/bidi.md`):

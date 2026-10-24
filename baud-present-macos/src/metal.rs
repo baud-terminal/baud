@@ -2424,14 +2424,17 @@ impl Gpu {
         // the table carries a decoration; else the cursor's slot alone when
         // the cursor is an underline or a bar -- every other instance would
         // find no shape bit and draw nothing; else nothing. The pass's
-        // bindings stay, since the hollow cursor draws on them.
+        // bindings stay, since the hollow cursor draws on them. The cursor's
+        // instance is the cell this frame's order draws it in, the column
+        // the shader tests (`cursor_col`), not its logical one.
         let shape_draw = match (input.table.decorations(), kind, input.cursor) {
             (Decorations::Present, _, _) => ShapeDraw::Every,
             (Decorations::Absent, CursorKind::Underline | CursorKind::Bar, Some((r, c, _)))
                 if r.index() + slide_rows < draw_rows && c.index() < cols.index() =>
             {
+                let v = renderer.bidi().visual_col(r, c);
                 ShapeDraw::Cursor(
-                    ((r.index() + slide_rows) * cols.index() + c.index()) * SHAPES_PER_CELL
+                    ((r.index() + slide_rows) * cols.index() + v.index()) * SHAPES_PER_CELL
                         + CURSOR_SHAPE_SLOT,
                 )
             }

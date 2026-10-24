@@ -12,7 +12,7 @@
 //! than passing, because a comparison that skips itself reads as a pass.
 #![cfg(target_os = "macos")]
 
-use baud_core::{Owned, Term};
+use baud_core::{Owned, Term, WrapPending};
 use baud_domain::CacheGeometry;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
@@ -9938,6 +9938,139 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
                 "the bar is on the right edge"
             );
             assert!(!changed.contains(&(8 * cw)), "and not on the left");
+        }
+    }
+}
+
+/// **The cursor on a right-to-left row is drawn in its own shape, alike on
+/// every arm**: a block over its cell, an underline under it, and a bar on
+/// the cell's right edge where the character under it resolves right to
+/// left (`[[source: terminal-wg-bidi-cursor]]`'s "at the very least ... the
+/// right side"), wherever the order draws that cell. On an ordinary row,
+/// and on a full row in the pending-wrap state, where the cursor's cell
+/// is the row's last logical column: drawn, the owner's answer of
+/// 2026-10-24 ("drawn and based on how the cursor is , line, block or
+/// udnerline"), where terminal-wg prefers hiding it. A full row of Latin
+/// letters is the control, its cursor on its last visual column with the
+/// bar on the left edge.
+#[test]
+fn the_cursor_on_a_right_to_left_row_is_drawn_in_its_shape_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let cols = usize::from(WS.ws_col);
+    // A full row: as many letters as columns, the last one written leaving
+    // the cursor in the pending-wrap state on the last logical column.
+    let full = |first: u32, n: u32| -> String {
+        (0..cols)
+            .map(|i| char::from_u32(first + u32::try_from(i).unwrap() % n).unwrap())
+            .collect()
+    };
+    let hebrew = full(0x5D0, 27);
+    let latin = full(u32::from('a'), 26);
+    // (what, the scene with the cursor placed, the row, the visual column
+    // it must be drawn over, whether its character runs right to left)
+    let ordinary = "\x1b[2;3Habc \u{5E9}\u{5DC}\u{5D5}\u{5DD} def\x1b[2;8H".to_string();
+    let scenes = [
+        ("an ordinary row", ordinary, 1, 8, true),
+        ("a full row", format!("\x1b[4;1H{hebrew}"), 3, 0, true),
+        (
+            "a full row of Latin",
+            format!("\x1b[4;1H{latin}"),
+            3,
+            cols - 1,
+            false,
+        ),
+    ];
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    for (what, text, row, visual, rtl) in &scenes {
+        for (style, shape) in [("2", "block"), ("4", "underline"), ("6", "bar")] {
+            let at = format!("{what}, {shape}");
+            arms!(fresh() => arms, t);
+            // The glyphs the harness requires of a scene, on a row of
+            // their own, then the scene.
+            feed(
+                &mut t,
+                b"\x1b[?25l\x1b[2J\x1b[8;1HThe quick brown fox jumps 0123456789",
+            );
+            feed(&mut t, format!("\x1b[{style} q{text}").as_bytes());
+            assert_eq!(t.cursor().0, Row::from_index(*row), "{at}");
+            if what.starts_with("a full row") {
+                assert_eq!(t.wrap_pending(), WrapPending::Yes, "{at}: the premise");
+                assert_eq!(t.cursor().1, Col::at_index(cols - 1), "{at}");
+            }
+            let hidden = three(&mut arms, &mut t, &format!("{at}, hidden"));
+            feed(&mut t, b"\x1b[?25h");
+            if what.starts_with("a full row") {
+                assert_eq!(t.wrap_pending(), WrapPending::Yes, "{at}: still pending");
+            }
+            let shown = three(&mut arms, &mut t, &at);
+            assert_eq!(
+                arms.renderer
+                    .bidi()
+                    .visual_col(Row::from_index(*row), t.cursor().1),
+                Col::at_index(*visual),
+                "{at}: the cell's drawn column"
+            );
+            let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+            let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+            let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+            let band = row * ch..(row + 1) * ch;
+            let changed: Vec<(usize, usize)> = (0..shown.len())
+                .filter(|&i| shown[i] != hidden[i])
+                .map(|i| (i % w, i / w))
+                .collect();
+            assert!(!changed.is_empty(), "{at}: drawn");
+            let (left, right) = (visual * cw, (visual + 1) * cw);
+            assert!(
+                changed
+                    .iter()
+                    .all(|&(x, y)| x >= left && x < right && band.contains(&y)),
+                "{at}: inside visual column {visual} of row {row}"
+            );
+            let xs = |x: usize| changed.iter().any(|&(cx, _)| cx == x);
+            match shape {
+                "block" => assert!(xs(left) && xs(right - 1), "{at}: the block covers its cell"),
+                "underline" => {
+                    assert!(xs(left) && xs(right - 1), "{at}: across its cell");
+                    assert!(
+                        changed.iter().all(|&(_, y)| y >= band.start + ch / 2),
+                        "{at}: under it, in the cell's lower half"
+                    );
+                }
+                _ => {
+                    let (on, off) = match rtl {
+                        true => (right - 1, left),
+                        false => (left, right - 1),
+                    };
+                    assert!(xs(on), "{at}: the bar on the side its letter runs from");
+                    assert!(!xs(off), "{at}: and not on the other");
+                }
+            }
         }
     }
 }
