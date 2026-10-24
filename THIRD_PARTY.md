@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 321 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 322 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 306 | 30 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 868 | 41 | |
+| total | 869 | 41 | |
 
 ## Licence texts in LICENSES/
 
@@ -430,7 +430,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 142
+- **Files:** 143
 
 | file | copied from |
 |---|---|
@@ -461,6 +461,7 @@ notice is, and the URL each file was copied from.
 | [apple-fspg-library-dirs.html](docs/research/sources/apple-fspg-library-dirs.html) | https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html |
 | [apple-generating-log-messages.json](docs/research/sources/apple-generating-log-messages.json) | https://developer.apple.com/tutorials/data/documentation/os/generating-log-messages-from-your-code.json |
 | [apple-hig-accessibility.json](docs/research/sources/apple-hig-accessibility.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/accessibility.json |
+| [apple-hig-color.json](docs/research/sources/apple-hig-color.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/color.json |
 | [apple-hig-keyboards.json](docs/research/sources/apple-hig-keyboards.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/keyboards.json |
 | [apple-hig-launching.json](docs/research/sources/apple-hig-launching.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/launching.json |
 | [apple-hig-loading.json](docs/research/sources/apple-hig-loading.json) | https://developer.apple.com/tutorials/data/design/human-interface-guidelines/loading.json |

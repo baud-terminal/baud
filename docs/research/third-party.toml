@@ -413,6 +413,7 @@ files   = [
   "apple-fspg-library-dirs.html",
   "apple-generating-log-messages.json",
   "apple-hig-accessibility.json",
+  "apple-hig-color.json",
   "apple-hig-launching.json",
   "apple-hig-loading.json",
   "apple-hig-motion.json",

@@ -125,9 +125,10 @@ pub(crate) struct Strip {
     /// The gap kept at the strip's right, the traffic lights' at its left.
     right: CGFloat,
     /// The looks drawn so far this session, by what they were made from: a
-    /// dimmed look scans every grey of the material for its caps, 41 to 54
-    /// ms on this machine, so a flip back to an appearance, or a move to a
-    /// display of another scale, does not scan again.
+    /// dimmed look takes 0.63-1.7 ms to make over the standard material and
+    /// 2.6-18 ms over the glass on this machine, so a flip back to an
+    /// appearance, or a move to a display of another scale, does not make
+    /// it again.
     looks: Vec<(LookKey, LightsLook)>,
 }
 

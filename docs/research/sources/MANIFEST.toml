@@ -28464,17 +28464,16 @@ group  = "Y"
 
 [sources.apple-hig-color]
 key    = "apple-hig-color"
-title  = "Human Interface Guidelines: Color -- 'Liquid Glass appears more opaque in larger elements like sidebars to preserve legibility' (documentation JSON, retrieved 2026-10-17)"
+title  = "Human Interface Guidelines: Color -- 'Avoid relying solely on color to differentiate between objects, indicate interactivity, or communicate essential information'; 'Liquid Glass appears more opaque in larger elements like sidebars to preserve legibility' (documentation JSON, retrieved 2026-10-17)"
 author = "Apple Inc."
 year   = 2026
 venue  = "developer.apple.com/design/human-interface-guidelines"
 url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/color.json"
-file   = ""
+file   = "apple-hig-color.json"
 sha256 = "262ce33cb88d41ac0238bf1e3f59b7957e8ddb030379c41b35a6cbdb9ab11a39"
 bytes  = 182037
-status = "external"
+status = "retrieved"
 group  = "AS"
-# Read and hash-verified; not committed -- a vendor page.
 
 [sources.apple-wwdc25-219]
 key    = "apple-wwdc25-219"

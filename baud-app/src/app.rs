@@ -11273,9 +11273,6 @@ impl Driver {
         a.took
     }
 
-    /// Re-place the titlebar mark at the top-left of its superview, whose
-    /// height it reads now rather than at launch. Cheap -- one `setFrame` --
-    /// and it runs on every resize so the mark cannot drift or vanish.
     /// **The activity lights at the tick's target**: the clocks stepped,
     /// and the view shown, swapped or taken down as `[window]
     /// activity_lights`, the scale, the appearance and Dim Flashing Lights
@@ -11311,6 +11308,9 @@ impl Driver {
         self.lights.place(&self.icon_super, self.icon_inset);
     }
 
+    /// Re-place the titlebar mark at the top-left of its superview, whose
+    /// height it reads now rather than at launch. Cheap -- one `setFrame` --
+    /// and it runs on every resize so the mark cannot drift or vanish.
     fn place_icon(&self) {
         let Some(iv) = &self.icon else { return };
         let cy = self.icon_super.frame().size.height - self.icon_inset / 2.0;

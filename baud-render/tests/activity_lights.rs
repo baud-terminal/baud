@@ -341,13 +341,6 @@ fn the_lights_flash_at_most_three_times_a_second_and_show_every_byte() {
                 );
             }
             for &(at, l) in &seen {
-                let recent = bytes
-                    .iter()
-                    .any(|&b| b <= at && at <= b + HOLD + DWELL + slack);
-                assert!(
-                    l == Light::Dark || recent,
-                    "seed {seed}: lit at {at:?} with no byte"
-                );
                 let quiet = !bytes
                     .iter()
                     .any(|&b| b <= at && at < b + HOLD + DWELL + slack);

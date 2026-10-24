@@ -27,7 +27,9 @@ X1-X10, W1-W7, N0-N2, I1-I2 and L1-L2.
   Bidi_Mirroring_Glyph and the paired brackets from the pinned UCD 17.0.0
   files into two tries, 49 KB in all. Each property is one indexed load, and
   `bidi_tables_match_the_pinned_data` keeps the committed tables equal to
-  the files.
+  the files. baud-font's `script_data.rs` holds a second paired-bracket
+  trie (`BRACKET_INDEX`), built from the same `BidiBrackets.txt` by
+  `scripts/gen-script-tables.py`. Merging the two is a cleanup for step 2.
 - **No allocation, and bounded.** A `Bidi<N>` holds a text of up to `N`
   characters and every array the rules need, about 18 bytes a character. The
   two stacks the annex sizes are fixed: 127 entries for the directional
@@ -59,7 +61,10 @@ VT420-class terminal. we need to support such protocols fully, always!"
   hard newline. `RowExtent`'s wrap bit already marks the difference.
   - Such a paragraph can be longer than a row, so the renderer needs a
     `Bidi` sized to the longest paragraph it resolves. Otherwise it needs a
-    stated rule for longer ones.
+    stated rule for longer ones. Size it from baud-core's `MAX_COLS` where
+    that constant is visible, or from the longest paragraph the renderer
+    resolves, and never from a bare 2048, so the two bounds cannot drift
+    apart.
   - terminal-wg's cap of about 500 lines falls back to no reordering past
     it, and no higher-level protocol in UAX #9 permits that (note AB 2.4).
     Resolving a truncated segment under HL4 or HL5 is the conforming
@@ -126,9 +131,17 @@ is built, and is never recorded unless baud acts on it.
 ### Cost
 
 Resolving a row is per frame, not per byte. Before step 2 lands, the
-frame bench's CPU column is measured on both arms. UAX #9 section 5.1 names
-the obvious fast path: a row with no right-to-left character, and no
-override or embedding, needs no reordering.
+frame bench's CPU column is measured on both arms. UAX #9 section 5.1
+names the obvious fast path: "first test for right-to-left characters and
+invoke the Bidirectional Algorithm only if they are present". baud's own
+reading adds one condition: the row must also have no RLO, since an
+override turns Latin into right-to-left text.
+
+- **Two rules scan more than once.** N0 scans every bracket pair's
+  contents, and the text before it for context, so it is quadratic in the
+  worst case. X5c scans ahead from every FSI to its matching PDI. Section
+  5.1 names bracket matching as a place to optimise. Step 2 measures both
+  on a row of nested brackets before it resolves rows per frame.
 
 ## Decided here
 

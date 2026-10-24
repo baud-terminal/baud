@@ -711,8 +711,9 @@ impl Atlas {
     /// the size is the same, every rectangle handed out names another
     /// size's image, so `grown` and the generation move, and whatever
     /// cached one rebuilds -- as after a reset, but over sheets that still
-    /// hold every size's glyphs. The exception is an atlas with nothing
-    /// drawn under the size it holds (a new atlas, or one just reset): its
+    /// hold every size's glyphs. The exception is a size it does not keep,
+    /// asked while nothing is drawn under the size it holds (a new atlas,
+    /// one just reset, or one just moved to a size not drawn at yet): its
     /// memo is only renamed, and since no rectangle names that size,
     /// neither `grown` nor the generation moves.
     pub fn at(&mut self, size: SizeKey) -> Rescaled {
