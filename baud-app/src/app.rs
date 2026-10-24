@@ -2024,7 +2024,7 @@ impl App {
                     &view,
                     status.as_ref(),
                     self.term.stride(),
-                    sliding,
+                    leaving,
                 );
                 let key = WalkKey {
                     table: cell.style_stamps[set],

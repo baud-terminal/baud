@@ -1215,8 +1215,9 @@ impl Gpu {
         let buffer = self.shared(Span(n.saturating_mul(core::mem::size_of::<PackedCell>())))?;
         // SAFETY: `PackedCell` is `repr(C)` over plain integers, valid for
         // every bit pattern, and the slice is filled before anything reads
-        // it; the in-flight gate keeps the GPU's reads out of the core's
-        // writes.
+        // it; the caller writes it only while no committed frame reads it --
+        // a frame set's copy under the wheel, a grid the core is lent behind
+        // the in-flight gate.
         let cells = unsafe { lend::<PackedCell>(&buffer, Elems(n)) }?;
         cells.fill(PackedCell::EMPTY);
         Some((GridBuffer(buffer), cells))

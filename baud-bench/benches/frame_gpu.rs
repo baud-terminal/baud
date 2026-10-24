@@ -81,8 +81,8 @@ fn main() {
         Wake,
     };
     use baud_render::{
-        Blend, Candidate, CursorPhase, Damage, GlyphMap, Instance, Overlay, PxSize, Redraw,
-        Renderer, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey,
+        Blend, Candidate, CursorPhase, Damage, GlyphMap, Instance, Leaving, Overlay, PxSize,
+        Redraw, Renderer, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey,
     };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -484,7 +484,7 @@ fn main() {
         copies_mem: Vec<&'static mut [PackedCell]>,
         /// Frames committed through the presenter, every round: the surface
         /// the last went to is the one before the presenter's next.
-        commits: usize,
+        commits: Tally,
     }
     // `FRAME_APP_MBS`: the rate the app arm's reads arrive at, in MB/s;
     // 198.6 by default, what the Darwin tty delivers to a reader that does
@@ -514,7 +514,7 @@ fn main() {
             overlay_mem,
             copies,
             copies_mem,
-            commits: 0,
+            commits: Tally::default(),
         }
     });
     for round in 0..rounds {
@@ -596,7 +596,7 @@ fn main() {
                         &view,
                         status.as_ref(),
                         t.stride(),
-                        false,
+                        Leaving::None,
                     );
                     let dc = tc.elapsed();
                     let key = WalkKey {
@@ -671,7 +671,7 @@ fn main() {
                     let dd = td.elapsed();
                     let df = tf.elapsed();
                     match drawn {
-                        Some(Drawn::Frame(_)) => m.commits += 1,
+                        Some(Drawn::Frame(_)) => m.commits.bump(),
                         Some(Drawn::Busy) => panic!("built while idle, and refused as busy"),
                         None => panic!("draw_cells through the presenter"),
                     }
@@ -713,7 +713,8 @@ the first cpu {:.1}, copy {:.2}",
                 if hash {
                     // The surface the last frame went to, its rows cut to
                     // the target's width: the presenter's next, one back.
-                    let last = (0..(m.commits + SURFACES - 1) % SURFACES)
+                    let commits = usize::try_from(m.commits.value()).unwrap_or(usize::MAX);
+                    let last = (0..(commits + SURFACES - 1) % SURFACES)
                         .fold(SurfaceIx::FIRST, |ix, _| ix.next());
                     let words = m.presenter.surface_pixels(last).expect("the surface");
                     let (wide, high) = (
@@ -861,7 +862,7 @@ the first cpu {:.1}, copy {:.2}",
                         &vp,
                         t.status_line().as_ref(),
                         t.stride(),
-                        false,
+                        Leaving::None,
                     );
                     let same = arm != Arm::Slide && built == Built::Last;
                     let key = WalkKey {

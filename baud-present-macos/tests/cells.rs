@@ -417,7 +417,10 @@ impl Arms<'_, '_> {
             &view,
             t.status_line().as_ref(),
             t.stride(),
-            self.slide.is_some(),
+            match self.slide {
+                Some(_) => baud_render::Leaving::Drawn,
+                None => baud_render::Leaving::None,
+            },
         );
         let (grid, rotation, ring) = match self.reads {
             Reads::Copy => {

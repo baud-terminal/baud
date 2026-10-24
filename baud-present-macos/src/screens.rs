@@ -15,7 +15,7 @@
 
 use baud_core::StatusLine;
 use baud_domain::{LineRendition, PackedCell, Row, Stride, Viewport};
-use baud_render::WalkKey;
+use baud_render::{Leaving, WalkKey};
 
 use crate::journal::{SetIx, Wheel};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -92,7 +92,8 @@ impl Screens {
     /// `status` are the last frame's screen, and that screen copied into
     /// `copies[set]` at `stride` cells a row -- the window's rows in screen
     /// order, then the status line's row -- unless that set's copy already
-    /// holds it. A frame that slides is a screen of its own: its copy holds
+    /// holds it. A frame that slides -- whose `leaving` row is drawn -- is a
+    /// screen of its own: its copy holds
     /// a leaving row and its walk another window.
     ///
     /// `Viewport::row` resolves a row through the rotation and the ring,
@@ -105,10 +106,10 @@ impl Screens {
         view: &Viewport<'_>,
         status: Option<&StatusLine<'_>>,
         stride: Stride,
-        sliding: bool,
+        leaving: Leaving,
     ) -> Built {
-        let built = match (sliding, self.last.and_then(|ps| copies.get(ps))) {
-            (false, Some(copy)) => self.is_last(copy, view, status, stride),
+        let built = match (leaving, self.last.and_then(|ps| copies.get(ps))) {
+            (Leaving::None, Some(copy)) => self.is_last(copy, view, status, stride),
             _ => Built::New,
         };
         self.built(built, view, status);
@@ -187,6 +188,7 @@ mod tests {
     use crate::journal::SetIx;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, PackedCell, ReadLen, Row, WinSize};
+    use baud_render::Leaving;
 
     const WS: WinSize = WinSize {
         ws_col: 20,
@@ -272,37 +274,41 @@ mod tests {
         };
         feed(&mut t, b"hello");
         assert_eq!(
-            take(&mut s, &t, &mut sets, 0, false),
+            take(&mut s, &t, &mut sets, 0, Leaving::None),
             Built::New,
             "the first"
         );
         assert_eq!(sets[0], copy(&t), "set 0 holds it");
         let first = s.now();
         assert_eq!(
-            take(&mut s, &t, &mut sets, 1, false),
+            take(&mut s, &t, &mut sets, 1, Leaving::None),
             Built::Last,
             "unchanged"
         );
         assert_eq!(s.now(), first, "the same screen");
         assert_eq!(sets[1], copy(&t), "set 1 holds it too");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, false), Built::Last);
+        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::Last);
         // A cell changed behind the record's back in set 1, which holds the
         // screen: the next frame into it compares against set 0 and does
         // not copy, so the cell stays -- the copy was skipped.
         sets[1][1] = PackedCell::EMPTY;
-        assert_eq!(take(&mut s, &t, &mut sets, 1, false), Built::Last);
+        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
         assert_ne!(sets[1], copy(&t), "set 1 was not copied again");
         sets[1] = copy(&t);
         feed(&mut t, b" world");
         assert_eq!(
-            take(&mut s, &t, &mut sets, 0, false),
+            take(&mut s, &t, &mut sets, 0, Leaving::None),
             Built::New,
             "a cell written"
         );
         assert_ne!(s.now(), first, "a new screen");
         assert_eq!(sets[0], copy(&t), "copied into the set it goes to");
         let second = s.now();
-        assert_eq!(take(&mut s, &t, &mut sets, 1, true), Built::New, "a slide");
+        assert_eq!(
+            take(&mut s, &t, &mut sets, 1, Leaving::Drawn),
+            Built::New,
+            "a slide"
+        );
         assert_ne!(s.now(), second, "is a screen of its own");
         assert_eq!(sets[1], copy(&t));
     }
