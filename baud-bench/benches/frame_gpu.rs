@@ -48,6 +48,12 @@
 //! one in flight and the next as soon as it lands, and the waited arm's
 //! line reports the GPU time a frame: a whole frame of the final screen.
 //!
+//! `FRAME_HASH=check` draws each cell arm's last screen once more, whole
+//! and outside the timing, reads it back and requires its hash to equal
+//! the `copied` arm's: the check that every arm drew the screen it is
+//! timed on. `FRAME_SIZE=COLSxROWS` sets the screen drawn, 200x50 by
+//! default.
+//!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 #[cfg(target_os = "macos")]
@@ -55,7 +61,7 @@ fn main() {
     // Imported here rather than at the top of the file: this bench is macOS
     // only, so a top-level `use` is unused on every other target and `-D
     // warnings` makes that an error. CI lints on ubuntu; a Mac cannot see it.
-    use baud_core::{Depth, Owned, Term, grid_stride};
+    use baud_core::{Depth, Owned, Screen, Term, grid_stride};
     use baud_domain::PackedCell;
     use baud_domain::{
         BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
@@ -142,12 +148,25 @@ fn main() {
         .iter()
         .map(|(data, i)| Face::parse_index(data, baud_font::FaceIndex::of(*i)).unwrap())
         .collect();
-    let ws = WinSize {
-        ws_row: 50,
-        ws_col: 200,
-    };
+    // `FRAME_SIZE=400x150`: the screen drawn, 200x50 by default. It sizes
+    // the core, the renderer, the target and the copy alike, and the
+    // storage too unless `FRAME_GRID` provisions it apart.
+    let ws = std::env::var("FRAME_SIZE").map_or(
+        WinSize {
+            ws_row: 50,
+            ws_col: 200,
+        },
+        |g| {
+            let (c, r) = g.split_once('x').expect("FRAME_SIZE is COLSxROWS");
+            WinSize {
+                ws_row: r.parse().expect("rows"),
+                ws_col: c.parse().expect("cols"),
+            }
+        },
+    );
     // `FRAME_GRID=400x150`: provision the storage, and so the rendition
-    // table and the GPU's grid, at that size while the screen stays 200x50.
+    // table and the GPU's grid, at that size while the screen stays
+    // `FRAME_SIZE`.
     // The app provisions `MAX_GRID`, 400x150, which sizes the table to
     // 65,536 slots where the screen alone gives 16,384 -- so without this the
     // bench prices a quarter of the app's style resolve.
@@ -233,8 +252,9 @@ fn main() {
         pict: Tally,
         wait: Duration,
         /// Where the cell arms' CPU goes, a frame after a read and a frame
-        /// with nothing read (`FRAME_IDLE`), apart.
-        parts: [Parts; 2],
+        /// with nothing read (`FRAME_IDLE`), apart; the third is
+        /// `FRAME_HASH`'s frame, which is reported in neither.
+        parts: [Parts; 3],
     }
     /// One kind of cell-path frame, split by what it does: the glyph-map
     /// walk, the rendition table synced (`Renderer::sync_styles`, the slots
@@ -330,6 +350,15 @@ fn main() {
     // back to back: the GPU time a whole frame of the final screen takes,
     // where a replay's frames draw what each read changed.
     let whole = std::env::var("FRAME_WHOLE").is_ok_and(|v| v == "on");
+    // `FRAME_HASH=check`: after each cell arm's replay, one more frame of
+    // the final screen drawn whole and waited for, outside the timing, its
+    // pixels read back and hashed; every cell arm's hash must equal the
+    // `copied` arm's in the same round, or the bench exits non-zero. The
+    // copy is the screen by construction, so an arm whose hash differs drew
+    // something else -- a live arm reading the primary while the alternate
+    // screen is up drew a blank one.
+    let hash = std::env::var("FRAME_HASH").is_ok_and(|v| v == "check");
+    let mut mismatched = false;
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -399,7 +428,21 @@ fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(1);
+    // An arm as its line prints it.
+    let label = |a: Arm| match a {
+        Arm::Cpu => "cpu",
+        Arm::Gpu => "gpu",
+        Arm::Cpu2 => "cpu2",
+        Arm::Cells => "waited",
+        Arm::Async => "async",
+        Arm::Copied => "copied",
+        Arm::Present => "present",
+        Arm::Slide => "slide",
+    };
     for round in 0..rounds {
+        // The round's final frames, by arm: a hash of the pixels and how
+        // many differ from the first, which is the margin's clear.
+        let mut hashes: Vec<(Arm, u64, usize)> = Vec::new();
         for &arm in &arms {
             let mut r = fresh();
             // The cell arms lend the terminal its viewport from the GPU;
@@ -408,11 +451,13 @@ fn main() {
                 arm,
                 Arm::Cells | Arm::Async | Arm::Copied | Arm::Present | Arm::Slide
             );
+            // Both surfaces' buffers are kept: the live arms bind whichever
+            // is up, as the core's rotation and ring follow it.
             let (grid, shared) = if cell_arm {
                 let (g, cells) = gpu.grid(ring, stride).expect("a shared grid");
                 let prows = Rows::of_index(usize::from(prov.ws_row));
-                let (_, alt) = gpu.grid(prows, stride).expect("a shared alternate");
-                (Some(g), Some((cells, alt)))
+                let (a, alt) = gpu.grid(prows, stride).expect("a shared alternate");
+                (Some((g, a)), Some((cells, alt)))
             } else {
                 (None, None)
             };
@@ -448,9 +493,21 @@ fn main() {
                 0
             };
             let mut shown = false;
-            while at < data.len() || idle_left > 0 {
+            let mut hash_left = hash && cell_arm;
+            let mut total = None;
+            while at < data.len() || idle_left > 0 || hash_left {
                 let idle = at >= data.len();
-                if idle {
+                // `FRAME_HASH`'s frame: the replay and its idle frames done,
+                // so the arm's time is taken here, before it.
+                let fin = idle && idle_left == 0;
+                if fin {
+                    hash_left = false;
+                    while gpu.in_flight() == InFlight::Busy {
+                        std::hint::spin_loop();
+                    }
+                    total = Some(t0.elapsed());
+                }
+                if idle && !fin {
                     idle_left -= 1;
                     if let Some(pair) = caret {
                         if !shown {
@@ -464,7 +521,10 @@ fn main() {
                         r.set_cursor_blink(pair[idle_left % 2]);
                     }
                 }
-                let part = usize::from(idle);
+                let part = match fin {
+                    true => 2,
+                    false => usize::from(idle),
+                };
                 if cell_arm {
                     // The bench's stand-in for the frame loop's gate: no
                     // feed while the GPU reads the grid.
@@ -587,7 +647,7 @@ fn main() {
                     if !idle {
                         s.convert += dt;
                     }
-                    if s.frames < first_n {
+                    if s.frames < first_n && !fin {
                         s.first_frames.bump();
                         s.first_convert += dt;
                         s.first_miss = map.stats().misses;
@@ -596,11 +656,15 @@ fn main() {
                         true => (RowRot::NONE, rows),
                         false => (t.rotation(), t.ring()),
                     };
+                    // The live grid is the surface that is up: the primary's
+                    // ring, or the alternate screen's own buffer after
+                    // `?1049h`, which `t.rotation()` and `t.ring()` describe.
+                    let (primary, alternate) = grid.as_ref().expect("grid");
                     let input = CellInput {
-                        grid: if arm == Arm::Copied {
-                            &copy_grid
-                        } else {
-                            grid.as_ref().expect("grid")
+                        grid: match (arm == Arm::Copied, t.screen()) {
+                            (true, _) => &copy_grid,
+                            (false, Screen::Normal) => primary,
+                            (false, Screen::Alternate) => alternate,
                         },
                         styles: &styles,
                         map: &map_buffer,
@@ -625,6 +689,7 @@ fn main() {
                         moving,
                     };
                     let done = match arm {
+                        _ if fin => Done::Wait,
                         Arm::Async | Arm::Slide => Done::Notify(Arc::clone(&sink)),
                         Arm::Present => {
                             // The identity the frame carries, captured the
@@ -643,7 +708,7 @@ fn main() {
                         }
                         _ => Done::Wait,
                     };
-                    let missing = match idle && whole {
+                    let missing = match (idle && whole) || fin {
                         true => Redraw::Whole,
                         false => ages.missing(surface),
                     };
@@ -654,6 +719,17 @@ fn main() {
                     };
                     ages.drew(surface, g.changed);
                     surface = surface.next();
+                    if fin {
+                        gpu.read(&target, &mut pixels).expect("read back");
+                        // FNV-1a over the words, and the pixels that are
+                        // not the first's: a blank screen is its cursor.
+                        let h = pixels.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
+                            (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
+                        });
+                        let inked = pixels.iter().filter(|&&p| p != pixels[0]).count();
+                        hashes.push((arm, h, inked));
+                        continue;
+                    }
                     if let Redraw::Rows(set) = g.drawn {
                         s.parts[part].partial.bump();
                         s.parts[part].drawn_rows.add(Tally::of(set.len().index()));
@@ -756,7 +832,7 @@ fn main() {
             while gpu.in_flight() == InFlight::Busy {
                 std::hint::spin_loop();
             }
-            s.total = t0.elapsed();
+            s.total = total.unwrap_or_else(|| t0.elapsed());
             if arm == Arm::Present {
                 let c = journal.counts();
                 println!(
@@ -771,16 +847,7 @@ fn main() {
             println!(
                 "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>9.1}",
                 round,
-                match arm {
-                    Arm::Cpu => "cpu",
-                    Arm::Gpu => "gpu",
-                    Arm::Cpu2 => "cpu2",
-                    Arm::Cells => "waited",
-                    Arm::Async => "async",
-                    Arm::Copied => "copied",
-                    Arm::Present => "present",
-                    Arm::Slide => "slide",
-                },
+                label(arm),
                 s.frames,
                 per(s.total),
                 per(s.convert),
@@ -870,6 +937,26 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
                 );
             }
         }
+        // Every cell arm's final frame against the copy's, which is the
+        // screen by construction; else against the first arm's.
+        let reference = hashes
+            .iter()
+            .find(|(a, ..)| *a == Arm::Copied)
+            .or(hashes.first())
+            .map(|&(_, h, _)| h);
+        for &(a, h, inked) in &hashes {
+            let ok = Some(h) == reference;
+            mismatched |= !ok;
+            println!(
+                "      hash: round {round} {:<7} {h:016x}, {inked} pixels not the margin's{}",
+                label(a),
+                if ok { "" } else { "  MISMATCH" }
+            );
+        }
+    }
+    if mismatched {
+        eprintln!("frame_gpu: a cell arm's final frame is not the copy's");
+        std::process::exit(1);
     }
 }
 
