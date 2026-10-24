@@ -35031,3 +35031,43 @@ venue  = "w3.org/TR/css-text-3"
 url    = "https://www.w3.org/TR/css-text-3/"
 sha256 = "17c26f1b41455947f106dac81736944b12da328ee4892c7c5b601f5b65ced55a"
 bytes  = 540326
+# Retrieved 2026-10-24. Read: implicit_paragraph(), which resolves the
+# levels over the whole paragraph (fribidi_get_par_embedding_levels_ex,
+# its direction found from the text when autodetection is on) and then
+# reorders it "line by line" with fribidi_reorder_line; cells move only
+# within their row (the header comment).
+[sources.vte-bidi-cc-56bad78]
+key    = "vte-bidi-cc-56bad78"
+title  = "VTE src/bidi.cc -- a paragraph's levels resolved whole, then each row reordered on its own"
+author = "The VTE developers"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0-or-later)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/bidi.cc"
+file   = ""
+sha256 = "a468faa6a894405532d45b3e45128aff19b91a35ab8ad75b3123f89752698a92"
+bytes  = 34820
+# Retrieved 2026-10-24. Read: vt_line_bidi_render(), which calls vt_bidi()
+# on one screen line's own characters, so each line is resolved alone.
+[sources.mlterm-vt-line-bidi-c-46cbbc9]
+key    = "mlterm-vt-line-bidi-c-46cbbc9"
+title  = "mlterm vtemu/libctl/vt_line_bidi.c -- each screen line resolved on its own"
+author = "Araki Ken and contributors"
+year   = 2026
+venue  = "arakiken/mlterm at 46cbbc9 (BSD-style)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/46cbbc94cca70a8a116f1cd839ec3193af875882/vtemu/libctl/vt_line_bidi.c"
+file   = ""
+sha256 = "2b88c2ca85a825a18f893672cb117a3d14512eaf21946175781f07d8ed1aec84"
+bytes  = 18798
+# Retrieved 2026-10-24. Read: "the reasonable definition of paragraphs ...
+# is the segments delimited by explicit newline characters ... A paragraph
+# appears as one or more rows of the emulator."
+[sources.terminal-wg-bidi-paragraphs]
+key    = "terminal-wg-bidi-paragraphs"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/paragraphs.html: a paragraph is the text between hard newlines, one or more rows"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/paragraphs.html"
+file   = ""
+sha256 = "f780d8d92d2e3821b6cfe316ecd1e107d8308e13e7fcc8b968aded710cfca8fb"
+bytes  = 20233

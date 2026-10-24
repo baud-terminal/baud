@@ -1577,8 +1577,10 @@ finding that no pinned terminfo entry and no application read sends
   of three options on eight examples, "all match C besides these 2 , the
   wrap line looks bad and the table should be like B but דנהshould b be
   rtl": the first strong letter (P2-P3), a right-to-left line against the
-  right edge, built; the table row and the wrapped paragraph are their own
-  items (`docs/bidi.md`); ~~Q14's cursor at a pending wrap on a
+  right edge, built; the table row, built as Jev's lean (each cell its own
+  paragraph between box-drawing rules, `ab/b192/`), and the wrapped
+  paragraph, open for the owner with four options drawn
+  (`ab/b192/wrap.png`), are their own items (`docs/bidi.md`); ~~Q14's cursor at a pending wrap on a
   reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
   then hidden 0.52 and drawn 0.30)~~ answered 2026-10-24, "drawn and based
   on how the cursor is , line, block or udnerline": drawn, each shape

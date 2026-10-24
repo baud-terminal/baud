@@ -238,8 +238,25 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 ## What is not built yet
 
 - **A paragraph a soft wrap splits mid-word** ("the wrap line looks bad"):
-  an English word the wrap split lands at opposite ends of its two rows.
-  The options are being researched and drawn; nothing is changed yet.
+  an English word the wrap split lands at opposite ends of its two rows,
+  drawn as before until the owner chooses. UAX #9 breaks a paragraph into
+  lines first and reorders each line (L1-L2), and a terminal keeps each
+  cell in its row, so in a right-to-left paragraph a run the wrap splits
+  ends its first row at the left and begins the next at the right under
+  every option that keeps the paragraph's direction on every row: the
+  paragraph resolved whole (built; VTE's way, `[[source:
+  vte-bidi-cc-56bad78]]`, and terminal-wg's paragraph, the rows between
+  hard newlines, `[[source: terminal-wg-bidi-paragraphs]]`), or each row
+  resolved alone in the paragraph's direction, which draws the same unless
+  an embedding or a bracket pair crosses the wrap. Each row its own
+  paragraph, as mlterm resolves each screen line and Konsole does with its
+  BidiLineLTR setting off (`[[source:
+  mlterm-vt-line-bidi-c-46cbbc9]]`, `[[source:
+  konsole-terminaldisplay-c8bc143]]`), and every row left to right put the
+  halves at matching ends (Konsole draws every row left to right while its
+  BidiLineLTR setting is on, its default), at the cost of a row that runs left to right
+  with the Hebrew period at its right end. The four options on three
+  wrapped paragraphs: `docs/research/notes/ab/b192/wrap.png`.
 - **A direction a program sets**: SCP (per line in ECMA-48), SPD, and
   terminal-wg's per-paragraph modes with `?2501` (autodetection), `?1243`
   (arrow-key swapping) and `?2500` (box mirroring). They need a direction
