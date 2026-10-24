@@ -121,7 +121,8 @@ drew the right screen. **Every `frame_gpu` live-arm GPU or wall figure on
 btop, vim, asciiquarium or cava recorded since 2026-09-13 drew a blank
 screen.** The fix is two hunks: keep the alternate buffer at line 414, and at
 lines 599-604 bind it when `t.screen() == Screen::Alternate`. The tables below
-are from the fixed binary. The fix is not part of this commit.
+are from the fixed binary. The fix landed after this note, with a pixel
+check that holds it (section 10).
 
 GPU start-to-end, us a frame, median [range]:
 
@@ -169,8 +170,8 @@ CPU, us a frame, median [range]:
 
 **No arm runs the app's real shape**: two sets, the `Screens::is_last`
 compare, the copy, `Done::Notify` and feeding during flight. The bench's copy
-arm copies every frame into one buffer. The app's own per-frame cost is
-therefore unmeasured.
+arm copies every frame into one buffer. The app's own per-frame cost was
+therefore unmeasured until the `app` arm (section 10).
 
 **Everything a changed frame touches on the cell path**, at 200x50 (80,000 B
 of screen):
@@ -184,7 +185,8 @@ of screen):
 5. On every whole redraw, `CellLast.cells` is refilled from the bound buffer
    (`baud-present-macos/src/metal.rs`, around line 2768). **That is a second
    full copy of the screen**, into a CPU `Vec`, and it repeats what
-   `Screens::is_last` and the copy have already established.
+   `Screens::is_last` and the copy have already established. Items 4 and 5
+   are gone since section 10.
 6. When any row is reordered, `Bidi::window` copies the whole window again,
    permuted (`baud-render/src/bidi.rs`).
 
@@ -521,7 +523,7 @@ The judge found three gaps in today's code while checking the designs:
   load, the `committed` store and the `landed` compare-exchange
   (`baud-present-macos/src/journal.rs`). This is a gap in the language's
   memory model, not a tear anyone has seen. The fix costs nothing per byte:
-  Release on the landing, Acquire in `building`.
+  Release on the landing, Acquire in `building`. Fixed (section 10).
 * Several comments still describe the in-place read and the gated feed:
   * `metal.rs`'s module doc ("what makes the zero-copy grid safe"), the `lend`
     safety text, and the "keep incoming bytes queued" comment;
@@ -588,3 +590,101 @@ us. Neither has been measured.
 * **Whether writes after a commit are visible to a pass that waits on a
   CPU-signalled shared event.** It is unresolved in Apple's text. A test on
   one machine cannot settle a guarantee, and nothing here depends on it.
+
+## 10. The follow-through, measured (2026-10-24)
+
+Steps 1, 3 and 5 of section 8 are built. Step 2, the idle re-run, could
+not be taken idle: every round below overlapped other sessions' builds, at
+load 7.5-31.8 (logged before each run), on mains when checked after,
+the power source not logged per run. Step 4, the ceiling arm for the
+tax, is not built.
+
+**What changed.** `frame_gpu`'s live arms bind the alternate screen's
+buffer while it is up, and `FRAME_HASH=check` fails the run unless every
+cell arm's last screen, drawn once more whole, hashes to the copied
+arm's. Before the fix it failed on btop, vim, asciiquarium and cava;
+after it, all six recordings agree at 200x50 provisioned at 200x50 and
+400x150, and drawn at 400x150. The window copy and the record of which
+screen each set holds moved into `baud-present-macos` as `Screens::take`,
+and the new `app` arm runs it through a `Presenter`: the wheel's two
+sets, three IOSurface targets, a commit with a completion handler, every
+read fed while a frame is in flight. Its last surface hashes equal to the
+copied arm's on all six recordings, drawn at 200x50 and 400x150. `CellInput` carries the screen its grid holds, so the GPU no
+longer keeps `CellLast.cells` or compares a frame's rows; the token is
+kept only on a commit, so a frame refused as busy is not compared
+against. The wheel's free is `Release` and its look `Acquire`.
+
+**How it was run.** Three binaries built from `git archive` at one path:
+base `d7ec0023` (the app arm, the old comparison), change `c0c751e1`, and
+an A/A rebuild of the change, byte-identical to it. Five outer rounds with
+the arm order rotated, the first dropped; four inner rounds a run, the
+first dropped: n = 12 a cell. The app arm's reads arrive at 20 MB/s
+(`FRAME_APP_MBS=20`), so a replay gives tens of frames; its medians leave
+out each round's first frame, which walks a cold map. Medians [range], us
+a frame.
+
+GPU start-to-end, the change binary:
+
+| recording | live, 200x50 | copy, 200x50 | live, 400x150 | copy, 400x150 |
+|---|---|---|---|---|
+| btop | 165.9 [164.4-169.6] | 166.9 [164.6-170.1] | 606.7 [602.9-610.2] | 609.1 [602.2-614.5] |
+| vim | 161.7 [161.2-172.1] | 161.6 [161.3-175.2] | 794.0 [791.0-810.5] | 800.5 [792.0-811.6] |
+| asciiquarium | 284.9 [281.7-289.7] | 285.8 [280.8-293.4] | 588.1 [586.6-597.9] | 591.1 [588.1-599.0] |
+| cava | 171.1 [168.8-275.4] | 168.4 [165.7-173.7] | 591.5 [588.3-599.4] | 590.3 [588.6-596.4] |
+| cat-scroll | 287.5 [128.8-291.9] | 287.9 [127.7-292.1] | 608.9 [603.8-613.0] | 609.2 [604.0-613.2] |
+| cat-cjk | 288.1 [154.3-296.4] | 288.6 [125.1-292.5] | 609.8 [601.2-610.9] | 604.3 [600.2-612.6] |
+
+**Live and copy overlap on every row at both sizes, so there is no GPU
+result**, now with the live arms drawing the right screen. September's
+30-60 us gap is not reproduced, under load.
+
+The copy, a frame:
+
+| recording | `copied` arm, 200x50 | `app` arm, 200x50 | `copied` arm, 400x150 | `app` arm, 400x150 |
+|---|---|---|---|---|
+| btop | 1.4 [1.2-2.0] | 2.5 [2.1-3.8] | 6.1 [5.4-7.4] | 9.4 [6.8-14.0] |
+| vim | 1.8 [1.3-2.1] | 2.5 [1.6-3.6] | 6.0 [5.4-7.9] | 10.6 [6.5-21.5] |
+| asciiquarium | 1.9 [1.5-2.4] | 2.8 [1.8-4.0] | 6.1 [5.5-11.2] | 8.6 [7.5-14.6] |
+| cava | 1.6 [1.3-2.3] | 3.2 [2.6-5.2] | 5.8 [5.4-14.6] | 10.1 [7.2-13.1] |
+| cat-scroll | 1.7 [1.4-2.3] | 2.6 [1.9-3.8] | 6.0 [5.5-14.3] | 11.4 [8.2-21.1] |
+| cat-cjk | 1.9 [1.4-2.2] | 2.5 [1.8-3.7] | 6.4 [5.5-9.3] | 10.2 [7.5-25.6] |
+
+**A drawn 400x150 copy is 5.8-11.4 us by median on the change binary**,
+480,000 B. The `app` arm's figure includes the comparison with the last
+screen and the status row, which the `copied` arm's loop does not. The
+`copied` arm's loop is the same code in the base binary and read 7.1-14.8
+us there, cava's the highest, so the figure moves with the code around
+it, and ranges reach 21-26 us on both arms. Section 8's rule licenses 6.1
+only with a flat ceiling arm *and* a 400x150 copy of at least about 15
+us. C is borderline under load; the copy stands because step 4, the
+ceiling arm, is not built.
+
+The bind and commit a frame, where the comparison and the refill were,
+base against change, the A/A beside it. The `app` arm runs the same bench
+code in both binaries. The `async` arm does not: the change also moved
+the bench's own screen comparison for its live arms into `Screens::take`,
+so its columns are not the library change alone.
+
+| recording | `app`, 400x150, base | change | A/A | `async`, 400x150, base | change | A/A |
+|---|---|---|---|---|---|---|
+| btop | 45.5 [18.3-100.6] | 31.1 [10.6-80.1] | 28.6 [14.6-53.7] | 14.8 [8.0-65.5] | 10.8 [6.1-17.5] | 11.8 [6.4-16.8] |
+| vim | 44.0 [19.0-99.4] | 35.3 [13.6-63.3] | 30.1 [17.4-51.1] | 14.9 [8.8-29.8] | 14.0 [8.9-17.2] | 13.8 [9.4-16.7] |
+| asciiquarium | 54.9 [21.3-106.9] | 25.9 [15.2-60.8] | 59.0 [11.9-98.1] | 13.2 [6.2-31.4] | 8.1 [6.2-20.1] | 14.6 [6.3-37.1] |
+| cava | 33.9 [19.7-85.2] | 19.6 [10.7-48.2] | 17.8 [10.5-56.3] | 13.8 [7.4-32.8] | 8.2 [5.7-15.9] | 11.2 [5.5-24.4] |
+| cat-scroll | 44.4 [20.9-86.0] | 31.7 [11.6-90.8] | 40.5 [12.7-86.8] | 11.7 [5.2-58.3] | 9.1 [5.1-111.1] | 11.5 [5.3-55.2] |
+| cat-cjk | 71.2 [19.7-144.2] | 41.8 [12.6-90.5] | 44.2 [13.2-93.3] | 13.4 [5.4-143.8] | 9.5 [5.9-26.4] | 11.6 [5.8-615.5] |
+
+**The ranges overlap on every row, so the saving is unmeasured.** The
+medians are lower on every row at 400x150, and the A/A medians, from the
+same binary as the change, spread as far as the change moved them:
+asciiquarium's 25.9 against 59.0. At 200x50 the medians go both ways.
+What was removed is known by arithmetic: a whole frame's refill wrote
+the drawn rows a second time, 480,000 B at 400x150, and a frame alike in
+everything else read them twice more.
+
+**What would have proven the changes wrong**: a hash that differs between
+any cell arm and the copy (none did, on six recordings at three sizes), a
+pixel of the cursor-only oracle that differs from a whole draw (none,
+with a new step that changes only cells; reading every screen as the
+last one fails it by 243 pixels), or a bind and commit slower on the
+change than the A/A spread (not seen).
