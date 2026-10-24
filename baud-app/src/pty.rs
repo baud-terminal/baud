@@ -999,6 +999,25 @@ fn utf8_erase_at(subsidiary: &std::path::Path, enc: InputEncoding) -> std::io::R
     Ok(())
 }
 
+/// **A forked child's first act is libSystem's, and a thread can be in the
+/// middle of what it reads.** On macOS `fork` runs libnotify's handler in
+/// the child, which reads the library's globals through a once; when
+/// another thread of this process was making the process's first libnotify
+/// call at the moment of the fork, the child waits on a once whose owner
+/// did not cross the fork and is killed before it reaches `execve` -- the
+/// shell never starts and the master reads nothing. `std::env::temp_dir()`
+/// with `TMPDIR` unset is one such first call. Making one here, in the
+/// parent, settles the once before every fork, or waits for the thread
+/// that is settling it. Elsewhere `fork` runs no such handler.
+fn settle_before_fork() {
+    // SAFETY: the token check takes any int and reads libnotify's table
+    // under its own lock.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        crate::sys::notify_is_valid_token(0);
+    }
+}
+
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
@@ -1121,6 +1140,9 @@ impl Pty {
         // The rule was `execve` and `_exit` alone until 2026-10-13, when
         // the owner widened it for the two attribute calls, and then for
         // `chdir` by choosing that the child change directory.
+        // `settle_before_fork` runs here in the parent, before the fork, and
+        // adds nothing to what the child runs.
+        settle_before_fork();
         let pid = unsafe {
             crate::sys::forkpty(
                 &mut master,
@@ -2005,6 +2027,7 @@ mod tests {
         #[cfg(not(target_os = "linux"))]
         let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
         let mut master: crate::sys::Fd = -1;
+        settle_before_fork();
         // SAFETY: as in `fork_with`; the child runs only `execve` and
         // `_exit`.
         let pid = unsafe {

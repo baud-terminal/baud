@@ -12,7 +12,8 @@
 //! Darwin's raw uptime clock, a
 //! symbol looked up at run time because older systems do not have it, and
 //! the user's locale -- read from CoreFoundation and checked with
-//! `newlocale` -- for a shell whose environment names none.
+//! `newlocale` -- for a shell whose environment names none, and on macOS
+//! one libnotify call a fork makes first, for what it initialises.
 //!
 //! **Every layout and constant below is checked against the platform's own
 //! headers** by this file's tests, which compile a C probe with `cc` and
@@ -129,6 +130,21 @@ pub const RTLD_LAZY: c_int = 0x1;
 pub const RTLD_LOCAL: c_int = 0x4;
 #[cfg(target_os = "macos")]
 pub const RTLD_NOLOAD: c_int = 0x10;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// **libnotify's token check, called before a fork for its first line.**
+    /// It reads libnotify's globals through `_notify_globals()`, an
+    /// `os_alloc_once` (`[[source: libnotify-348-notify-client]]` lines
+    /// 475-477 and 748-754), and libSystem's fork handler in the child reads
+    /// them the same way (lines 1221-1223). A fork while another thread is
+    /// inside that one-time initialisation leaves the child waiting on a once
+    /// whose owner did not cross the fork, and libplatform aborts it: "os_once_t
+    /// is corrupt", "crashed on child side of fork pre-exec". Called first, the
+    /// initialisation is over -- or this call waits for it -- before the fork.
+    /// The answer is not read.
+    pub fn notify_is_valid_token(val: c_int) -> bool;
+}
 
 // `forkpty` is in libutil on glibc and in libSystem on Darwin.
 #[cfg_attr(not(target_os = "macos"), link(name = "util"))]

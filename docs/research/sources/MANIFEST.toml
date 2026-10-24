@@ -34243,3 +34243,47 @@ bytes  = 80052
 status = "external"
 group  = "AH"
 # Read for the activity lights (F1-20, 2026-10-24).
+# What a forked child runs before `execve` on macOS. `_notify_globals()`
+# reads libnotify's globals through `os_alloc_once` (475-477),
+# `notify_is_valid_token` calls it first (748-754), and `_notify_fork_child()`,
+# the handler libSystem runs in a fork's child, calls it on its first line
+# (1221-1223). That is a public tag, not this OS's build; the stack seen on macOS 27.0
+# (26A5425a) -- `_notify_fork_child`, `_os_alloc_once`, `_os_once_gate_wait`,
+# "os_once_t is corrupt" -- is what ties it to the shipped library. APSL 2.0,
+# so read and hashed, not committed.
+[sources.libnotify-348-notify-client]
+key    = "libnotify-348-notify-client"
+title  = "Libnotify-348.120.4, notify_client.c -- _notify_globals(), notify_is_valid_token and _notify_fork_child()"
+author = "Apple Inc."
+venue  = "github.com/apple-oss-distributions/Libnotify, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libnotify/Libnotify-348.120.4/notify_client.c"
+sha256 = "d6a955e8fbadfe6e8716ab3b60dda6ea2a964654420b09c45ae2455b334326f7"
+bytes  = 151157
+group  = "E"
+# Retrieved 2026-10-24.
+# Why `posix_openpt` can fail with errno -6. errno.h names it: `EREDRIVEOPEN
+# (-6)`, "redrive open" (280), among the kernel's internal codes; `ptcopen`
+# returns it when its pty lookup reports a raced allocation (xnu-tty-dev, 496).
+[sources.xnu-errno-h]
+key    = "xnu-errno-h"
+title  = "XNU xnu-12377.121.6, bsd/sys/errno.h -- EREDRIVEOPEN (-6), an internal code"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/errno.h"
+sha256 = "b16e5eb195f153793b14c3826e6b04db945e9ed6a37c5a9046196555bded6906"
+bytes  = 14075
+group  = "E"
+# Retrieved 2026-10-24.
+# `vn_open_auth` retries an open that met "the tty allocation race" (788-790)
+# at most `max_retries = 10` times (408), then logs "reached max_retries" (807)
+# and returns the error to the caller.
+[sources.xnu-vfs-vnops-c]
+key    = "xnu-vfs-vnops-c"
+title  = "XNU xnu-12377.121.6, bsd/vfs/vfs_vnops.c -- vn_open_auth's bounded retry on EREDRIVEOPEN"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/vfs/vfs_vnops.c"
+sha256 = "d45d4bf1d4e1e8079e1fb6c7275eb73e211833619c0b3f08ed3d637dc3d3e05a"
+bytes  = 62215
+group  = "E"
+# Retrieved 2026-10-24.
