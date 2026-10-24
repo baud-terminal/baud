@@ -94,8 +94,25 @@ Mapping baud's viewport directly as the GPU buffer would have the GPU read a
 grid the parser is mutating. The 1.2 µs copy into ring slot *N* is cheaper
 than any synchronisation scheme that would make the live grid safe. **This is
 the one place "zero-copy as much as possible" yields to "wherever is faster,"
-by the owner's own refinement.** Reverses if: baud-core grows a ring of grids
-(three viewports) -- a core change with its own cost, not a renderer decision.
+by the owner's own refinement.** ~~Reverses if: baud-core grows a ring of grids
+(three viewports) -- a core change with its own cost, not a renderer decision.~~
+Superseded 2026-10-24, below.
+
+**Revisited 2026-10-24, note BC (`docs/research/notes/bc-frame-ring.md`).**
+The grid is a ring, but a ring of lines: a scroll is free, and the rows on
+screen are still rewritten in place, so the GPU cannot read it without a race.
+Apple's ring is whole per-frame buffers, which is what the copy into the
+`Wheel`'s sets already is. A "ring of grids" removes no copy: three grids are
+either the copy moved into the core or three times the cell stores. The copy
+measured 2.8-3.2 us at 200x50 on 2026-10-24, under load (the 1.2 us above is
+`ceiling.rs`'s memcpy rate). The GPU read the live grid and the copy in the
+same time, ranges overlapping; September's 30-60 us gap was not reproduced
+under load, and an idle re-run decides it. **Reverses if:** an `ingest2`
+ceiling arm shows that a copy-on-write row pool's per-byte tax *t*, scaled to
+the PTY rate, is below the measured per-frame copy *C* at the largest drawn
+window, on every recording. That is
+*t* x (198.6 MB/s / the recording's memory rate) < *C* x 120 a second, which
+at *C* = 3 us is *t* below about 0.26% on cat-scroll.
 
 ### D5. No CUDA in the renderer; NVIDIA is served by Vulkan and DX12
 A kernel launch is 3–50 µs against a whole-frame composite that a vertex

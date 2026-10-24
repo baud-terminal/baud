@@ -34528,3 +34528,395 @@ sha256 = "a2762a5cb5be8a16c67be2868795c39f2beba4c34e11a171b1ba11e4e9ffe72d"
 bytes  = 12986
 status = "external"
 group  = "E"
+
+# Group J, note BC (docs/research/notes/bc-frame-ring.md): how a frame reaches the GPU
+# on unified memory -- Apple's buffer-instance pattern, its coherence rule, and how five
+# GPU terminals hand their state to the GPU. Read and hash-verified 2026-10-24; not
+# committed -- vendor pages, vendor headers and source files at pinned commits. Re-fetch
+# at the pinned url (or read the local file a file:// url names) and compare the sha256.
+[sources.apple-sync-cpu-gpu-work]
+key    = "apple-sync-cpu-gpu-work"
+title  = "Synchronizing CPU and GPU work (sample, documentation JSON) -- a pool of buffer instances, three in flight, CPU writes finished before commit"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/synchronizing-cpu-and-gpu-work.json"
+file   = ""
+sha256 = "baa5161a9846bc70a3fa1b0d27f5c68d9c3ee59996d2a51721f0367ba3693ac9"
+bytes  = 35343
+status = "external"
+group  = "J"
+[sources.apple-mtlbp-triple-buffering]
+key    = "apple-mtlbp-triple-buffering"
+title  = "Metal Best Practices Guide: Triple Buffering"
+author = "Apple Inc."
+year   = 2017
+venue  = "developer.apple.com archive"
+url    = "https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/TripleBuffering.html"
+file   = ""
+sha256 = "7451ad53b83f001ec3786e7e9d12ac663441443cefb248f58f687b2f9e185dba"
+bytes  = 34487
+status = "external"
+group  = "J"
+[sources.apple-mpg-mem-obj]
+key    = "apple-mpg-mem-obj"
+title  = "Metal Programming Guide: Resource Objects -- Maintaining Coherency Between CPU and GPU Memory"
+author = "Apple Inc."
+year   = 2016
+venue  = "developer.apple.com archive"
+url    = "https://developer.apple.com/library/archive/documentation/Miscellaneous/Conceptual/MetalProgrammingGuide/Mem-Obj/Mem-Obj.html"
+file   = ""
+sha256 = "c0e154cad8d8f2095e1fc85a2d33c900b4a0a6ec427dcaf22c65e7bc498b6925"
+bytes  = 44195
+status = "external"
+group  = "J"
+[sources.apple-makebuffer-bytesnocopy]
+key    = "apple-makebuffer-bytesnocopy"
+title  = "MTLDevice makeBuffer(bytesNoCopy:length:options:deallocator:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makebuffer(bytesnocopy:length:options:deallocator:).json"
+file   = ""
+sha256 = "4ec29895e39adc8d34d7d1ef5d8d4604bc409df1e1ab9f0b0a5110df31d66428"
+bytes  = 26729
+status = "external"
+group  = "J"
+[sources.apple-mtlstoragemode-shared]
+key    = "apple-mtlstoragemode-shared"
+title  = "MTLStorageMode.shared"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlstoragemode/shared.json"
+file   = ""
+sha256 = "ddfa55646418f034eda053c5ef4abdee0cb0262bce0ddcc8b4021fa09bbdf2db"
+bytes  = 18506
+status = "external"
+group  = "J"
+[sources.apple-cpucachemode-writecombined]
+key    = "apple-cpucachemode-writecombined"
+title  = "MTLCPUCacheMode.writeCombined"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcpucachemode/writecombined.json"
+file   = ""
+sha256 = "75362aae22c1254ac069da3550666be084d238e9cec00db4f5300e5d8357f11f"
+bytes  = 8378
+status = "external"
+group  = "J"
+[sources.apple-setvertexbytes]
+key    = "apple-setvertexbytes"
+title  = "MTLRenderCommandEncoder setVertexBytes(_:length:index:) -- single-use data under 4 KB"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlrendercommandencoder/setvertexbytes(_:length:index:).json"
+file   = ""
+sha256 = "b841f9f7d54206ab9c464b7d6014f93c1caf42e1e995e1b64e026901f2f30961"
+bytes  = 30160
+status = "external"
+group  = "J"
+[sources.apple-mtlhazardtrackingmode]
+key    = "apple-mtlhazardtrackingmode"
+title  = "MTLHazardTrackingMode -- ordering between GPU commands"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlhazardtrackingmode.json"
+file   = ""
+sha256 = "1eb4d7866593dea15f97759868f4ff3743528fbffa40159562194ca3fef603eb"
+bytes  = 38551
+status = "external"
+group  = "J"
+[sources.apple-mtlsharedevent]
+key    = "apple-mtlsharedevent"
+title  = "MTLSharedEvent"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlsharedevent.json"
+file   = ""
+sha256 = "bc86f5e8c8f6a58c346f1210a546d382a05a22b2ce0a479a5498f403fdbf1d26"
+bytes  = 34492
+status = "external"
+group  = "J"
+[sources.apple-sync-events-gpu-cpu]
+key    = "apple-sync-events-gpu-cpu"
+title  = "Synchronizing events between a GPU and the CPU"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/synchronizing-events-between-a-gpu-and-the-cpu.json"
+file   = ""
+sha256 = "db76033e0d8f495f7e73395eaff884803126344e109102a29b1f8f70bf0ae368"
+bytes  = 22225
+status = "external"
+group  = "J"
+[sources.apple-encodewaitforevent]
+key    = "apple-encodewaitforevent"
+title  = "MTLCommandBuffer encodeWaitForEvent(_:value:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/encodewaitforevent(_:value:).json"
+file   = ""
+sha256 = "b93ee38a32719647a1df2aa78f31ddb57083cac63b8a3dfc488f79372aacb06f"
+bytes  = 18539
+status = "external"
+group  = "J"
+[sources.apple-addcompletedhandler]
+key    = "apple-addcompletedhandler"
+title  = "MTLCommandBuffer addCompletedHandler(_:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/addcompletedhandler(_:).json"
+file   = ""
+sha256 = "e54ac5c46233de51a0923d0f769d610b4d1da43d472a02e74a42ac79278ec798"
+bytes  = 24513
+status = "external"
+group  = "J"
+[sources.apple-cametallayer-maximumdrawablecount]
+key    = "apple-cametallayer-maximumdrawablecount"
+title  = "CAMetalLayer maximumDrawableCount -- 2 or 3, default 3"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cametallayer/maximumdrawablecount.json"
+file   = ""
+sha256 = "eef660b8c071298815d37a198780bcb61c6187849ca043b758cbf5f5683040b1"
+bytes  = 11031
+status = "external"
+group  = "J"
+[sources.apple-mtlmutability]
+key    = "apple-mtlmutability"
+title  = "MTLMutability"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlmutability.json"
+file   = ""
+sha256 = "5a6ca7f2d7d35549180de06bfb4c0851ea26f138a1b8803dd677a14f9075f928"
+bytes  = 15327
+status = "external"
+group  = "J"
+# The page embeds a per-fetch cache-busting query in a <script src>, so its hash
+# changes between fetches; this is the 2026-10-24 fetch. The transcript text is unchanged.
+[sources.apple-wwdc14-604]
+key    = "apple-wwdc14-604"
+title  = "WWDC 2014 session 604, Working with Metal: Fundamentals (page and transcript)"
+author = "Apple Inc."
+year   = 2014
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2014/604/"
+file   = ""
+sha256 = "a7d20d6b0ce0145f04a0ed062d59f07eacfb2c111288eb5638a97df6ee363861"
+bytes  = 238801
+status = "external"
+group  = "J"
+[sources.apple-sdk27-mtlresource-h]
+key    = "apple-sdk27-mtlresource-h"
+title  = "macOS 27.0 SDK, Metal.framework/Headers/MTLResource.h -- shared storage coherent at command buffer boundaries"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Headers/MTLResource.h"
+file   = ""
+sha256 = "1c2fc6c7250205ef7089cbe7ffe004c7a774acb5e8bcb30791e942639e420a0d"
+bytes  = 16922
+status = "external"
+group  = "J"
+[sources.apple-sdk27-mtlbuffer-h]
+key    = "apple-sdk27-mtlbuffer-h"
+title  = "macOS 27.0 SDK, Metal.framework/Headers/MTLBuffer.h -- access to buffers is not synchronized"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Headers/MTLBuffer.h"
+file   = ""
+sha256 = "896451ab6131610b757a560dac93d0b6983a839d9a3a1cfe7d7dbd73f556b7d3"
+bytes  = 5788
+status = "external"
+group  = "J"
+[sources.xcode27-game-template-metal]
+key    = "xcode27-game-template-metal"
+title  = "Xcode 27.0 macOS Game template, Metal/Renderer.swift -- one shared uniform buffer of three slots"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Templates/Project%20Templates/macOS/Application/Game.xctemplate/Metal/Renderer.swift"
+file   = ""
+sha256 = "5c90821f5adcc5b03b58bf60c4471d03786dad47ad94e29bb10de852b9703c32"
+bytes  = 14303
+status = "external"
+group  = "J"
+[sources.xcode27-game-template-metal4]
+key    = "xcode27-game-template-metal4"
+title  = "Xcode 27.0 macOS Game template, Metal 4/Renderer.swift -- the same three-slot buffer under Metal 4"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Templates/Project%20Templates/macOS/Application/Game.xctemplate/Metal%204/Renderer.swift"
+file   = ""
+sha256 = "a1c113efc78f4d51dc4314d21798adb0d4e4e31b7458358a08a7e88714b0bd55"
+bytes  = 16618
+status = "external"
+group  = "J"
+[sources.ghostty-d9840f3-render-state]
+key    = "ghostty-d9840f3-render-state"
+title  = "ghostty d9840f3, terminal/render.zig -- the per-frame clone abandoned for blocking IO; dirty rows copied under the lock"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/render.zig"
+file   = ""
+sha256 = "fd79435be252f90454eca28be18c6893482fc0bd75793a169576a77cd4efdf7f"
+bytes  = 88165
+status = "external"
+group  = "J"
+[sources.ghostty-d9840f3-renderer-state]
+key    = "ghostty-d9840f3-renderer-state"
+title  = "ghostty d9840f3, renderer/State.zig -- the renderer mutex and the 1 ms demand handoff"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/State.zig"
+file   = ""
+sha256 = "5e64ba542f7ed885ed6a687b02779140c94a990916352d8de5b5d9ac2d3c0375"
+bytes  = 9322
+status = "external"
+group  = "J"
+[sources.kitty-6d5d0c4-shaders]
+key    = "kitty-6d5d0c4-shaders"
+title  = "kitty 6d5d0c4, kitty/shaders.c -- cell_prepare_to_render, when the cell buffer is uploaded"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/shaders.c"
+file   = ""
+sha256 = "54c80625f495603ef320b1e05992b1bbe797edcbb24814061ecdb061c6704c8d"
+bytes  = 153540
+status = "external"
+group  = "J"
+[sources.kitty-6d5d0c4-child-monitor]
+key    = "kitty-6d5d0c4-child-monitor"
+title  = "kitty 6d5d0c4, kitty/child-monitor.c -- parse then render on one thread"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/child-monitor.c"
+file   = ""
+sha256 = "5c1f60e332ffacaf4ed21834578b831a588749b1a7e13272b8aa1e7acb7af609"
+bytes  = 98078
+status = "external"
+group  = "J"
+[sources.kitty-6d5d0c4-line-buf-h]
+key    = "kitty-6d5d0c4-line-buf-h"
+title  = "kitty 6d5d0c4, kitty/line-buf.h -- GPU and CPU cell buffers behind line_map"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/line-buf.h"
+file   = ""
+sha256 = "9bba1f0a9e85adc20b979121935c4f67647e4bf57f3cee08fabbf355f257aca1"
+bytes  = 480
+status = "external"
+group  = "J"
+[sources.alacritty-v0151-display-mod]
+key    = "alacritty-v0151-display-mod"
+title  = "alacritty v0.15.1, alacritty/src/display/mod.rs -- renderable cells collected under the terminal lock"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/display/mod.rs"
+file   = ""
+sha256 = "83abaceb1b10b242cbabfe9bd0a88a7cf120fbdf4f75d8ccad5bf4ffb6fe4038"
+bytes  = 55322
+status = "external"
+group  = "J"
+[sources.alacritty-v0151-sync]
+key    = "alacritty-v0151-sync"
+title  = "alacritty v0.15.1, alacritty_terminal/src/sync.rs -- FairMutex"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/sync.rs"
+file   = ""
+sha256 = "4410fbae64e8f80321b3569a1495fb323e3319812c441f9eac54048c65ff93fb"
+bytes  = 1322
+status = "external"
+group  = "J"
+[sources.alacritty-v0151-glsl3]
+key    = "alacritty-v0151-glsl3"
+title  = "alacritty v0.15.1, alacritty/src/renderer/text/glsl3.rs -- instance upload per batch"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty/src/renderer/text/glsl3.rs"
+file   = ""
+sha256 = "ff6b9c98fa19e91946ecb750fa292f022e2a0343a20e10382a57c4af54042bee"
+bytes  = 12142
+status = "external"
+group  = "J"
+[sources.wezterm-5046fc2-renderstate]
+key    = "wezterm-5046fc2-renderstate"
+title  = "wezterm 20240203-110809-5046fc22, wezterm-gui/src/renderstate.rs -- TripleVertexBuffer, no fence"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/wezterm-gui/src/renderstate.rs"
+file   = ""
+sha256 = "89f7a67ab4b32d82139e9e787fd0d677bc19efc40a39e7d714e10bf7d7d88760"
+bytes  = 25654
+status = "external"
+group  = "J"
+[sources.wezterm-5046fc2-render-pane]
+key    = "wezterm-5046fc2-render-pane"
+title  = "wezterm 20240203-110809-5046fc22, wezterm-gui/src/termwindow/render/pane.rs -- quads built under the terminal lock"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/wezterm-gui/src/termwindow/render/pane.rs"
+file   = ""
+sha256 = "ddd335e0957657ea6603fa0ac4bc7e23edc0c5ab5a3ef26b4d4ce683e20dd61a"
+bytes  = 27899
+status = "external"
+group  = "J"
+[sources.wezterm-5046fc2-localpane]
+key    = "wezterm-5046fc2-localpane"
+title  = "wezterm 20240203-110809-5046fc22, mux/src/localpane.rs -- the terminal behind a mutex"
+author = "Wez Furlong"
+year   = 2024
+venue  = "WezTerm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/mux/src/localpane.rs"
+file   = ""
+sha256 = "18559a30a6f7001d436b7d236b6b300bec7c6cc3cfd61cb78d07309cecb67420"
+bytes  = 39369
+status = "external"
+group  = "J"
+[sources.zed-347f171-metal-renderer]
+key    = "zed-347f171-metal-renderer"
+title  = "zed 347f171, crates/gpui_apple/src/metal_renderer.rs -- InstanceBufferPool, released on completion"
+author = "Zed Industries"
+year   = 2026
+venue  = "Zed"
+url    = "https://raw.githubusercontent.com/zed-industries/zed/347f171a3fd00a3b672382d78348b37bd969d17c/crates/gpui_apple/src/metal_renderer.rs"
+file   = ""
+sha256 = "d3cdb56263ad992c11263c9de9cc23aeccf202fe85ab42312f22549b44864b75"
+bytes  = 67858
+status = "external"
+group  = "J"
+[sources.zed-347f171-terminal-alacritty]
+key    = "zed-347f171-terminal-alacritty"
+title  = "zed 347f171, crates/terminal/src/alacritty.rs -- make_content clones every viewport cell"
+author = "Zed Industries"
+year   = 2026
+venue  = "Zed"
+url    = "https://raw.githubusercontent.com/zed-industries/zed/347f171a3fd00a3b672382d78348b37bd969d17c/crates/terminal/src/alacritty.rs"
+file   = ""
+sha256 = "5a2aaeaf144ba870dee701f87577c5f2cf470e875a1cb94e355395c1969a5f81"
+bytes  = 38658
+status = "external"
+group  = "J"
