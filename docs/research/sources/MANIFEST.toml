@@ -7086,7 +7086,7 @@ group  = "O"
 
 [sources.rust-std-sys-time-unix]
 key    = "rust-std-sys-time-unix"
-title  = "library/std/src/sys/time/unix.rs at bcded3316 (rustc 1.96.0-nightly 2026-04-06, this box's toolchain) -- Instant::CLOCK_ID is CLOCK_UPTIME_RAW on target_vendor = 'apple'"
+title  = "library/std/src/sys/time/unix.rs at bcded3316 (rustc 1.96.0-nightly 2026-04-06; the same blob at 02c7f9bec, the nightly-2026-04-11 pin) -- Instant::CLOCK_ID is CLOCK_UPTIME_RAW on target_vendor = 'apple'"
 author = "The Rust Project Developers"
 year   = 2026
 venue  = "rust-lang/rust (MIT/Apache-2.0)"
@@ -7103,7 +7103,7 @@ group  = "O"
 
 [sources.rust-std-pal-unix-time]
 key    = "rust-std-pal-unix-time"
-title  = "library/std/src/sys/pal/unix/time.rs at bcded3316 -- Timespec::now(clock) is one libc::clock_gettime(clock, &mut timespec)"
+title  = "library/std/src/sys/pal/unix/time.rs at bcded3316, the same blob at 02c7f9bec, the nightly-2026-04-11 pin -- Timespec::now(clock) is one libc::clock_gettime(clock, &mut timespec)"
 author = "The Rust Project Developers"
 year   = 2026
 venue  = "rust-lang/rust (MIT/Apache-2.0)"
@@ -16122,7 +16122,7 @@ group  = "AI"
 
 [sources.rust-std-panicking]
 key    = "rust-std-panicking"
-title  = "Rust std at bcded33, library/std/src/panicking.rs -- 'The default hook, which is registered at startup, prints a message to standard error'"
+title  = "Rust std at bcded33 (the same blob at 02c7f9bec, the nightly-2026-04-11 pin), library/std/src/panicking.rs -- 'The default hook, which is registered at startup, prints a message to standard error'"
 author = "The Rust Project Developers"
 year   = 2026
 venue  = "rust-lang/rust"
@@ -16148,7 +16148,7 @@ group  = "AI"
 
 [sources.rust-std-eprintln]
 key    = "rust-std-eprintln"
-title  = "Rust std at bcded33 (rustc 1.96.0-nightly 2026-04-06, this repo's toolchain), library/std/src/macros.rs -- eprintln!: 'Panics if writing to io::stderr fails'"
+title  = "Rust std at bcded33 (rustc 1.96.0-nightly 2026-04-06; the same blob at 02c7f9bec, the nightly-2026-04-11 pin), library/std/src/macros.rs -- eprintln!: 'Panics if writing to io::stderr fails'"
 author = "The Rust Project Developers"
 year   = 2026
 venue  = "rust-lang/rust"
@@ -17813,7 +17813,7 @@ group  = "C"
 
 [sources.rust-core-char-methods]
 key    = "rust-core-char-methods"
-title  = "Rust core, char/methods.rs at the pinned toolchain's commit -- char::is_control is general category Cc only"
+title  = "Rust core, char/methods.rs at bcded33, the same blob at the nightly-2026-04-11 pin -- char::is_control is general category Cc only"
 author = "The Rust Project"
 year   = 2026
 venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
@@ -17826,7 +17826,7 @@ group  = "C"
 
 [sources.rust-core-str-mod]
 key    = "rust-core-str-mod"
-title  = "Rust core, str/mod.rs at the pinned toolchain's commit -- str::trim removes White_Space"
+title  = "Rust core, str/mod.rs at bcded33, the same blob at the nightly-2026-04-11 pin -- str::trim removes White_Space"
 author = "The Rust Project"
 year   = 2026
 venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
@@ -17839,7 +17839,7 @@ group  = "C"
 
 [sources.rust-core-str-lossy]
 key    = "rust-core-str-lossy"
-title  = "Rust core, str/lossy.rs at the pinned toolchain's commit -- Utf8Chunk::invalid, 'a maximum length of 3', replaced by one U+FFFD"
+title  = "Rust core, str/lossy.rs at bcded33, the same blob at the nightly-2026-04-11 pin -- Utf8Chunk::invalid, 'a maximum length of 3', replaced by one U+FFFD"
 author = "The Rust Project"
 year   = 2026
 venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
@@ -34011,7 +34011,7 @@ group  = "AN"
 
 [sources.rust-nightly-2026-04-07]
 key    = "rust-nightly-2026-04-07"
-title  = "The nightly channel manifest of 2026-04-07 -- rustc 1.96.0-nightly (bcded3316 2026-04-06), the toolchain devenv.lock's rust-overlay pins"
+title  = "The nightly channel manifest of 2026-04-07 -- rustc 1.96.0-nightly (bcded3316 2026-04-06), the toolchain devenv.lock's rust-overlay pinned before nightly-2026-04-11"
 author = "The Rust Project"
 year   = 2026
 venue  = "static.rust-lang.org"
@@ -34037,7 +34037,7 @@ group  = "AN"
 
 [sources.rust-nightly-2026-04-11]
 key    = "rust-nightly-2026-04-11"
-title  = "The nightly channel manifest of 2026-04-11 -- rustc 1.96.0-nightly (02c7f9bec 2026-04-10), the first built after the revert merged; passes #154878's repro"
+title  = "The nightly channel manifest of 2026-04-11 -- rustc 1.96.0-nightly (02c7f9bec 2026-04-10), the first built after the revert merged; passes #154878's repro; the toolchain devenv.lock's rust-overlay pins"
 author = "The Rust Project"
 year   = 2026
 venue  = "static.rust-lang.org"
