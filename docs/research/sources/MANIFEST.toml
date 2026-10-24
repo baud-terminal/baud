@@ -33733,3 +33733,108 @@ status = "retrieved"
 group  = "AL"
 # Read 2026-10-23 (lane b174) for [images] animation; committed: an Apple
 # documentation page.
+
+[sources.itu-t81]
+key    = "itu-t81"
+title  = "CCITT Recommendation T.81 (09/92), ISO/IEC 10918-1 -- Digital compression and coding of continuous-tone still images: clause 7 (a decoder embodies one or more processes, baseline among them), Table 1, Annex B (syntax, fill bytes, segments), Annex C (Huffman tables), Annex F (sequential DCT, F.2.2 decoding, zero bits at a marker), Annex G (progressive: spectral selection, successive approximation, EOB runs), Annex K.2"
+author = "CCITT / ISO/IEC JTC 1/SC 29"
+year   = 1992
+venue  = "ITU-T T.81, as hosted by the W3C"
+url    = "https://www.w3.org/Graphics/JPEG/itu-t81.pdf"
+file   = ""
+sha256 = "631031d4ba56b06abee3e312a0f235b9422da9c7267d1c8f7604418795768bf0"
+bytes  = 1058883
+status = "external"
+group  = "J"
+# Read 2026-10-23 (lane b176) for the JPEG decoder; the text layer extracts
+# whole through PDFKit.
+
+[sources.jfif-102]
+key    = "jfif-102"
+title  = "JPEG File Interchange Format, Version 1.02 -- the YCbCr and RGB conversion equations, top-down orientation, chroma samples sited centred (Spatial Relationship of Components)"
+author = "Eric Hamilton, C-Cube Microsystems"
+year   = 1992
+venue  = "www.w3.org/Graphics/JPEG"
+url    = "https://www.w3.org/Graphics/JPEG/jfif3.pdf"
+file   = ""
+sha256 = "1135325aa12ee6b3def5a374fecdf3d6d0de88dc4f205af7de8d25a9c949e173"
+bytes  = 17183
+status = "external"
+group  = "J"
+# Read 2026-10-23 (lane b176).
+
+[sources.exif-232]
+key    = "exif-232"
+title  = "CIPA DC-X008-Translation-2019, Exif Version 2.32 -- tag 274 Orientation, SHORT, values 1-8 and 'Other = reserved'; Figure 12 and the arrangement of each value"
+author = "CIPA and JEITA"
+year   = 2019
+venue  = "Camera & Imaging Products Association"
+url    = "https://www.cipa.jp/std/documents/e/DC-X008-Translation-2019-E.pdf"
+file   = ""
+sha256 = "5f9b8261f479167df8799f3b871d7e9316b634f9f073cbb80a0a0b478de50954"
+bytes  = 2456981
+status = "external"
+group  = "J"
+# Read 2026-10-23 (lane b176). The values were checked against macOS's
+# decoder through iTerm2's decode path: each of 1-8 in both byte orders,
+# 0 and 9 shown as 1.
+
+[sources.iterm2-964a75d-image-with-data]
+key    = "iterm2-964a75d-image-with-data"
+title  = "iTerm2 964a75d, iTerm2SandboxedWorker/iTermImage+ImageWithData.m -- the file handed to NSImage initWithData:, the first representation's pixel size, an animated GIF's frames and NSImageCurrentFrameDuration delays summed"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/iTerm2SandboxedWorker/iTermImage+ImageWithData.m"
+file   = ""
+sha256 = "b195b925a19112f1e0f37f1bd1ec1256adb65555cda2239d5f3d42ac45d45799"
+bytes  = 9146
+status = "external"
+group  = "AX"
+# Read 2026-10-23 (lane b176): iTerm2 names no format; what macOS decodes is
+# what draws.
+
+[sources.ijg-jpeg-6b]
+key    = "ijg-jpeg-6b"
+title  = "Independent JPEG Group's software, release 6b (jpegsrc.v6b.tar.gz) -- jidctint.c (jpeg_idct_islow), jdsample.c (h2v1/h2v2_fancy_upsample, int_upsample), jdcolor.c (build_ycc_rgb_table, ycck_cmyk_convert), jdapimin.c (default_decompress_parms), jdphuff.c, makefile.unix's test target and its test images"
+author = "Thomas G. Lane and the Independent JPEG Group"
+year   = 1998
+venue  = "www.ijg.org/files"
+url    = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
+file   = ""
+sha256 = "75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d"
+bytes  = 613261
+status = "external"
+group  = "J"
+# Read 2026-10-23 (lane b176). testorig.jpg, testprog.jpg and testimg.ppm
+# are in baud-domain/tests/ijg/ with the README the IJG's terms require;
+# the decoder's arithmetic is the IJG's (LICENSE, third-party.toml).
+
+[sources.firefox-774fa0c-swizzle]
+key    = "firefox-774fa0c-swizzle"
+title  = "Firefox 774fa0c, gfx/2d/Swizzle.cpp -- SwizzleCmykRowFallback: inverted CMYK to RGB as iC*iK, iM*iK, iY*iK over 255; with image/decoders/nsJPEGDecoder.cpp, which hands a CMYK or YCCK JPEG to it as InvertedCMYK with no CMYK profile"
+author = "Mozilla"
+year   = 2026
+venue  = "mozilla-firefox/firefox (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/mozilla-firefox/firefox/774fa0cf68ccf50e8da30f50e71714abdc4686b5/gfx/2d/Swizzle.cpp"
+file   = ""
+sha256 = "c850e29f961481e61b97c3923c62c2b42aeddd4493db9c913cd32c81cf0525d4"
+bytes  = 79715
+status = "external"
+group  = "J"
+# Read 2026-10-23 (lane b176); nsJPEGDecoder.cpp at the same commit hashes
+# to d8fe8581d4feccf5f9b0c955b8fcca1873c26c9f5d087f309d81a34e8c577456.
+
+[sources.grok-build-2bdd1d6-terminal-image]
+key    = "grok-build-2bdd1d6-terminal-image"
+title  = "grok-build 2bdd1d6, crates/codegen/xai-grok-pager-render/src/terminal/image.rs -- 'iTerm2 needs TERM_FEATURES F or OSC 1337 leaks base64': inline previews sent as File=inline=1 when the features hold F"
+author = "xAI"
+year   = 2026
+venue  = "xai-org/grok-build (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager-render/src/terminal/image.rs"
+file   = ""
+sha256 = "eed5777548d5cda4841e2b0789e8db8b6acbb1497c84afe4b6fc566167e98779"
+bytes  = 22718
+status = "external"
+group  = "AX"
+# Read 2026-10-23 (lane b176): how a program reads FILE.

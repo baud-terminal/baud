@@ -11,6 +11,7 @@
 //! [`file_geometry`] is a pure function of the arguments, the picture and
 //! the screen, so every drawing path draws the one result.
 
+use crate::jpeg::Jpeg;
 use crate::png::Png;
 use crate::{Base64, Base64Step, Col, Cols, ImageAlpha, ImageId, ImagePx, ImageStore, Pixel, Rows};
 
@@ -406,26 +407,63 @@ pub struct Picture {
     pub height: u32,
 }
 
-/// **The PNG in the scratch's first `len` bytes, decoded into a stored image
-/// of its own size**, its scanlines in the scratch after it, the RGBA8 rows
-/// turned into straight ARGB words where they lie, as kitty's decode turns
-/// them. `None`, the image freed, for bytes that are no PNG, one that does
-/// not decode, or one the store refuses.
+/// **The picture in the scratch's first `len` bytes, decoded into a stored
+/// image of its own size**, its work in the scratch after it. Which format
+/// it is the bytes say, as `NSImage`'s `initWithData:` reads them
+/// (`[[source: iterm2-964a75d-image-with-data]]`), not the file's `name`: a
+/// JPEG by its `SOI` and the marker after it ([`Jpeg::sniff`]), else a PNG
+/// by its signature, its RGBA8 rows turned into straight ARGB words where
+/// they lie, as kitty's decode turns them. `None`, the image freed, for
+/// bytes that are neither, one that does not decode, or one the store
+/// refuses.
 ///
 /// The second result is how much of the scratch the decode wrote, the file
-/// and its scanlines, which go back once it is done.
+/// and its work, which go back once it is done.
 pub fn decode_picture(
     store: &mut ImageStore,
     scratch: &mut [u8],
     len: FileLen,
 ) -> (Option<Picture>, FileLen) {
     let at = len.0.min(scratch.len());
+    if Jpeg::sniff(&scratch[..at]) {
+        let work = Jpeg::parse(&scratch[..at])
+            .ok()
+            .and_then(|j| j.scratch_len())
+            .unwrap_or(0);
+        let used = FileLen(at.saturating_add(work).min(scratch.len()));
+        return (jpeg_of(store, scratch, at), used);
+    }
     let raw = Png::parse(&scratch[..at])
         .ok()
         .and_then(|p| p.raw_len())
         .unwrap_or(0);
     let used = FileLen(at.saturating_add(raw).min(scratch.len()));
     (picture_of(store, scratch, at), used)
+}
+
+/// **The JPEG in the scratch's first `at` bytes**, decoded at the size it
+/// is shown, its orientation applied, into a stored image; its work in the
+/// scratch after it.
+fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
+    let (data, rest) = scratch.split_at_mut(at);
+    let jpeg = Jpeg::parse(data).ok()?;
+    let size = jpeg.size();
+    let (w, h) = (
+        u16::try_from(size.width).ok()?,
+        u16::try_from(size.height).ok()?,
+    );
+    let (id, px) = store.store(ImagePx::of(w), ImagePx::of(h), ImageAlpha::OpaqueOrClear)?;
+    match jpeg.decode(rest, px) {
+        Ok(_) => Some(Picture {
+            id,
+            width: size.width,
+            height: size.height,
+        }),
+        Err(_) => {
+            store.free(id);
+            None
+        }
+    }
 }
 
 fn picture_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {

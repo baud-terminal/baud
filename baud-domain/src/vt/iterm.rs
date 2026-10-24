@@ -1656,6 +1656,12 @@ mod tests {
         .with(Feature::FocusReporting, Claim::Yes);
         let mut out = [0u8; 64];
         assert_eq!(f.encode(&mut out), b"T3CwMSc7Uw17FP");
+        // `FILE`'s `F` after `Sx`'s place, `FOCUS_REPORTING`'s after `B`'s.
+        let f = f
+            .with(Feature::File, Claim::Yes)
+            .with(Feature::Sixel, Claim::Yes);
+        let mut out = [0u8; 64];
+        assert_eq!(f.encode(&mut out), b"T3CwMSc7Uw17FSxFP");
         let mut out = [0u8; 64];
         assert_eq!(Features::NONE.encode(&mut out), b"");
     }

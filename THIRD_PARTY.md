@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 303 | 28 | redistributable, and its notice is satisfied |
+| kept | 303 | 30 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 858 | 39 | |
+| total | 858 | 41 | |
 
 ## Licence texts in LICENSES/
 
@@ -48,6 +48,7 @@ they were built from.
 | [GPL-3.0-only.txt](LICENSES/GPL-3.0-only.txt) | GPL-3.0-only | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-only.txt | fb981668c18a279e |
 | [harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt) | MIT-Modern-Variant | fetched: https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/COPYING | ba8f810f2455c2f0 |
 | [highway-LICENSE.txt](LICENSES/highway-LICENSE.txt) | Apache-2.0 OR BSD-3-Clause | fetched: https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE | 85de9303e7a81f35 |
+| [ijg-README.txt](LICENSES/ijg-README.txt) | IJG | fetched: README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d), unaltered as its condition (1) requires | 4cf9c190f184019b |
 | [iterm2-color-schemes-MIT.txt](LICENSES/iterm2-color-schemes-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE | 2373168614b52749 |
 | [libx11-compose.txt](LICENSES/libx11-compose.txt) | MIT | built: the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/COPYING, verbatim, with a paragraph saying which copied files it covers | 1ed64ec53f01779b |
 | [libx11-xcms.txt](LICENSES/libx11-xcms.txt) | LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group | built: the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which | e401afaad5a23d6d |
@@ -401,6 +402,22 @@ they were built from.
 - **Notice:** none needed
 - **From:** https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https://github.com/notofonts/noto-cjk/tree/Sans2.004
 - **Files:** [assets/readme/text.png](assets/readme/text.png)
+
+### The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** IJG
+- **Notice:** [LICENSES/ijg-README.txt](LICENSES/ijg-README.txt)
+- **From:** https://www.ijg.org/files/jpegsrc.v6b.tar.gz
+- **Files:** [baud-domain/tests/ijg/testorig.jpg](baud-domain/tests/ijg/testorig.jpg), [baud-domain/tests/ijg/testprog.jpg](baud-domain/tests/ijg/testprog.jpg), [baud-domain/tests/ijg/testimg.ppm](baud-domain/tests/ijg/testimg.ppm)
+
+### The JPEG decoder's inverse DCT, triangle upsampling and YCbCr conversion in jpeg.rs, the arithmetic of the IJG's libjpeg 6b (jidctint.c, jdsample.c, jdcolor.c) re-expressed and said to be the IJG's where it stands; this software is based in part on the work of the Independent JPEG Group
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** IJG
+- **Notice:** [LICENSES/ijg-README.txt](LICENSES/ijg-README.txt)
+- **From:** https://www.ijg.org/files/jpegsrc.v6b.tar.gz
+- **Files:** [baud-domain/src/jpeg.rs](baud-domain/src/jpeg.rs)
 
 ## docs/research/sources/
 

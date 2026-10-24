@@ -467,9 +467,14 @@ impl Paint<'_, '_> {
     /// where it is executed (Jev, LEVEL_GATED, 0.98/0.96); clipboard writes
     /// while `OSC 52` writes reach a clipboard; notifications while the
     /// embedder delivers them; Sixel while the Primary DA claims it;
-    /// ambiguous-wide and the Unicode version as they are set. `FILE` is
-    /// not claimed: it says "including those using lossy compression", and
-    /// baud draws PNG alone and refuses downloads (Jev, NOT_CLAIMED,
+    /// ambiguous-wide and the Unicode version as they are set. `FILE`,
+    /// "the OSC 1337 File protocol for transfer/display of files such as
+    /// images or video, including those using lossy compression", while
+    /// image memory is provisioned, since PNG and JPEG pictures draw
+    /// inline; downloads stay refused (Jev's lean, CLAIM, 0.04/0.38 and
+    /// 0.28/0.20 asked again: its code `F` is `FOCUS_REPORTING`'s too, so
+    /// a reader already saw one, and programs read it as inline display).
+    /// It was not claimed while PNG alone drew (Jev, NOT_CLAIMED,
     /// 0.96/0.88 and 0.90/0.92).
     fn capabilities(&mut self) {
         let clip =
@@ -509,6 +514,7 @@ impl Paint<'_, '_> {
                 Feature::Sixel,
                 Claim::of(self.sixel_claim() == SixelClaim::Yes),
             )
+            .with(Feature::File, Claim::of(self.images.provisioned()))
             .with(Feature::Progress, Claim::Yes);
         let mut out = [0u8; 64];
         let codes = f.encode(&mut out);

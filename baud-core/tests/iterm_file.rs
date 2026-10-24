@@ -131,6 +131,82 @@ fn an_inline_png_is_placed_at_its_own_size() {
     }
 }
 
+/// The IJG's baseline test image and its reference decode
+/// (`[[source: ijg-jpeg-6b]]`), as `djpeg -dct int` writes it.
+const TESTORIG: &[u8] = include_bytes!("../../baud-domain/tests/ijg/testorig.jpg");
+const TESTIMG: &[u8] = include_bytes!("../../baud-domain/tests/ijg/testimg.ppm");
+
+/// The reference decode's pixels as the store keeps them, opaque.
+fn testimg() -> Vec<u32> {
+    // "P6\n227 149\n255\n", fifteen bytes.
+    assert_eq!(&TESTIMG[..15], b"P6\n227 149\n255\n");
+    TESTIMG[15..]
+        .chunks(3)
+        .map(|p| u32::from_be_bytes([0xff, p[0], p[1], p[2]]))
+        .collect()
+}
+
+/// **A JPEG draws, not the placeholder**: `imgcat`'s JPEG is "Any image
+/// format that macOS supports", placed at its own size at the cursor, its
+/// pixels the reference decode's, the cursor right of it on its last row,
+/// at every read size; with an Exif orientation of 6 the picture is shown
+/// turned a quarter clockwise, its sides swapped.
+#[test]
+fn an_inline_jpeg_is_placed_as_it_decodes() {
+    let want = testimg();
+    for size in SIZES {
+        with(1 << 16, |t| {
+            feed(t, b"\x1b[3;5H", size);
+            feed(t, &file("inline=1", TESTORIG), size);
+            let (col, w, h, got) = placed(t);
+            assert_eq!((col, w, h), (4, 227, 149), "reads of {size}");
+            assert!(got == want, "the pixels, reads of {size}");
+            // 149 pixels are eight rows of 20; 227 are 23 columns of 10.
+            assert_eq!(
+                t.cursor(),
+                (Row::from_index(9), Col::at_index(27)),
+                "reads of {size}"
+            );
+            assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
+        });
+    }
+    // Exif's tag 274 at 6, big-endian, after the JFIF APP0's 18 bytes.
+    let mut turned = TESTORIG[..20].to_vec();
+    let tiff = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00\x00\x00\x00\x00";
+    let len = u16::try_from(2 + 6 + tiff.len()).unwrap();
+    turned.extend([0xff, 0xe1]);
+    turned.extend(len.to_be_bytes());
+    turned.extend(b"Exif\0\0");
+    turned.extend(tiff);
+    turned.extend_from_slice(&TESTORIG[20..]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &turned), 4097);
+        let (_, w, h, got) = placed(t);
+        assert_eq!((w, h), (149, 227), "the sides swapped");
+        // Shown (x, y) is coded (y, 148 - x).
+        for y in 0..227 {
+            for x in 0..149 {
+                assert_eq!(got[y * 149 + x], want[(148 - x) * 227 + y], "({x}, {y})");
+            }
+        }
+    });
+}
+
+/// **A JPEG this decoder does not implement draws the placeholder**, and is
+/// counted: an arithmetic-coded frame, `SOF9`.
+#[test]
+fn a_jpeg_process_not_built_draws_the_placeholder() {
+    let sof = TESTORIG.windows(2).position(|w| w == [0xff, 0xc0]).unwrap();
+    let mut f = TESTORIG.to_vec();
+    f[sof + 1] = 0xc9;
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &f), 4097);
+        let (_, w, h, _) = placed(t);
+        assert_eq!((w, h), (35, 36), "the placeholder");
+        assert_eq!(t.iterm_counts().of(ItermKey::File), ONE);
+    });
+}
+
 /// **"N: N character cells"**, the height from the aspect: six cells wide
 /// is 60 pixels, 80 tall, the picture resampled to them as every drawing
 /// path samples, the pixel under each drawn pixel's centre.

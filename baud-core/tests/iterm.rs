@@ -557,9 +557,10 @@ fn unicode_version_is_saved_with_the_cursor_and_kept_by_ris() {
 /// ambiguous width wide, Unicode 8's widths, Level 3, where DECSLRM is not
 /// executed, notifications delivered and Sixel claimed each moving its
 /// code. `UNICODE_BASIC` and `UNICODE_WIDTHS` go while ISO 8859-1 is the
-/// input, where UTF-8 is not accepted, and come back with UTF-8. `FILE` is
-/// never claimed. Ended with `ST`, `ESC \`, as the feature-reporting page
-/// defines it.
+/// input, where UTF-8 is not accepted, and come back with UTF-8. `FILE`,
+/// a second `F` after `Sx`, as iTerm2's encoder writes it, only with image
+/// memory, where inline pictures draw. Ended with `ST`, `ESC \`, as the
+/// feature-reporting page defines it.
 #[test]
 fn capabilities_report_what_baud_does_now() {
     let ask = osc("Capabilities");
@@ -616,7 +617,7 @@ fn capabilities_report_what_baud_does_now() {
         feed(&mut t, &ask, size);
         assert_eq!(
             t.reply(),
-            b"\x1b]1337;Capabilities=T3LrMSc7UUw17Ts3BFGsGoSyHNoSxP\x1b\\",
+            b"\x1b]1337;Capabilities=T3LrMSc7UUw17Ts3BFGsGoSyHNoSxFP\x1b\\",
             "reads of {size}"
         );
     }

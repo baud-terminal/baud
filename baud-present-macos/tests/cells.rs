@@ -3722,6 +3722,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     substitute_mark_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
     iterm_file_gate(&mut arms, &mut t);
+    iterm_jpeg_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
     proportional_gate(&mut arms, &mut t);
@@ -6867,6 +6868,73 @@ fn iterm_file_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the CPU arm disagrees after the text"
     );
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
+    feed(t, b"\x1bc");
+}
+
+/// A 29 by 21 baseline 4:2:0 JPEG of baud's own scene, and the IJG's
+/// `djpeg -dct int` decode of it (`[[source: ijg-jpeg-6b]]`).
+const SMALL_JPEG: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../baud-domain/tests/jpeg/small.jpg"
+));
+const SMALL_PPM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../baud-domain/tests/jpeg/small.ppm"
+));
+
+/// **An iTerm2 JPEG on every arm** (`[[source: iterm2-images]]`, "Any
+/// image format that macOS supports"): `imgcat`'s JPEG, placed at the
+/// cursor one image pixel a device pixel, draws on the instance arm the
+/// reference decode's own pixels, and the cell and CPU arms draw what it
+/// draws. Before the decoder it drew the broken-image placeholder.
+fn iterm_jpeg_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    // "P6\n29 21\n255\n", thirteen bytes, then the samples.
+    assert_eq!(&SMALL_PPM[..13], b"P6\n29 21\n255\n");
+    let want: Vec<u32> = SMALL_PPM[13..]
+        .chunks(3)
+        .map(|p| u32::from_be_bytes([0xFF, p[0], p[1], p[2]]))
+        .collect();
+    let (w, h) = (29, 21);
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut cmd = b"\x1bc\x1b[?25l\x1b[3;5H\x1b]1337;File=inline=1:".to_vec();
+    for q in SMALL_JPEG.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            match k <= q.len() {
+                true => cmd.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                false => cmd.push(b'='),
+            }
+        }
+    }
+    cmd.push(0x07);
+    feed(t, &cmd);
+    let (a, b) = arms.draw(t);
+    let places = arms.renderer.image_placements();
+    assert_eq!(places.len(), 1, "the picture is on screen");
+    let (x0, y0) = (
+        usize::try_from(places[0].x).unwrap(),
+        usize::try_from(places[0].y).unwrap(),
+    );
+    let mut wrong = 0;
+    for y in 0..h {
+        for x in 0..w {
+            if a[(y0 + y) * fw + x0 + x] != want[y * w + x] {
+                wrong += 1;
+            }
+        }
+    }
+    assert_eq!(wrong, 0, "the instance arm draws the JPEG's decoded pixels");
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the JPEG");
+    assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on the JPEG");
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }

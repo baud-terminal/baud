@@ -329,6 +329,12 @@ from    = "the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/
 how     = "built"
 sha256  = "1ed64ec53f01779b150380a49056c607ba05eb4dc44a56eb0b783c1eb265a654"
 
+[text."ijg-README.txt"]
+licence = "IJG"
+from    = "README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d), unaltered as its condition (1) requires"
+how     = "fetched"
+sha256  = "4cf9c190f184019b61c36bcc49d4a24ffeb2a838c6f1690d6c4db14cfb2d0478"
+
 [text."libx11-xcms.txt"]
 licence = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
 from    = "the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which"
@@ -2330,3 +2336,19 @@ licence  = "not verified"
 notice   = "none"
 upstream = "unrecorded"
 status   = "unverified"
+
+[[tree]]
+what     = "The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both"
+paths    = ["baud-domain/tests/ijg/testorig.jpg", "baud-domain/tests/ijg/testprog.jpg", "baud-domain/tests/ijg/testimg.ppm"]
+licence  = "IJG"
+notice   = "LICENSES/ijg-README.txt"
+upstream = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
+status   = "kept"
+
+[[tree]]
+what     = "The JPEG decoder's inverse DCT, triangle upsampling and YCbCr conversion in jpeg.rs, the arithmetic of the IJG's libjpeg 6b (jidctint.c, jdsample.c, jdcolor.c) re-expressed and said to be the IJG's where it stands; this software is based in part on the work of the Independent JPEG Group"
+paths    = ["baud-domain/src/jpeg.rs"]
+licence  = "IJG"
+notice   = "LICENSES/ijg-README.txt"
+upstream = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
+status   = "kept"

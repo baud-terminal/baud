@@ -68,6 +68,7 @@ mod image;
 mod input;
 mod interpolate;
 mod iso96_data;
+pub mod jpeg;
 mod kitty;
 mod layout;
 mod line;

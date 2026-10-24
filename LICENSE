@@ -81,6 +81,16 @@ Fonts embedded in the baud application:
   for baud-font/tests/var/cff2-outlines.txt, outlines of Source Code VF
   written by scripts/cff2-oracle.py.
 
+Images the tests read:
+
+  baud-domain/tests/ijg/testorig.jpg
+  baud-domain/tests/ijg/testprog.jpg
+  baud-domain/tests/ijg/testimg.ppm
+      The Independent JPEG Group's test images from release 6b,
+      unmodified, under the IJG's terms (LICENSES/ijg-README.txt). The
+      other files in baud-domain/tests/jpeg/ were made by baud's own
+      scene.py there and are under this licence.
+
 Fonts the tests read:
 
   baud-font/tests/fonts/BungeeTint-Regular.ttf
@@ -123,7 +133,11 @@ Other projects' code:
   and Xcms notices and The Open Group's; LICENSES/libx11-xcms.txt); and
   the Compose reader in baud-xkb/src/compose.rs, from libxkbcommon's
   Compose parser and state machine (MIT and HPND-sell-variant;
-  LICENSES/libxkbcommon-LICENSE.txt).
+  LICENSES/libxkbcommon-LICENSE.txt); and the inverse DCT, the
+  triangle upsampling and the YCbCr conversion in
+  baud-domain/src/jpeg.rs, the arithmetic of the Independent JPEG
+  Group's libjpeg 6b (the IJG's terms; LICENSES/ijg-README.txt). This
+  software is based in part on the work of the Independent JPEG Group.
 
 Third-party research sources:
 
