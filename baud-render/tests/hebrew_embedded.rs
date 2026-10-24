@@ -1,19 +1,20 @@
 //! The embedded font's Hebrew, through the renderer.
 //!
-//! `baud-app/fonts/built/Regular.ttf` and `Bold.ttf` are JetBrains Mono's
-//! Regular and Bold with baud's Hebrew added (`scripts/build-fonts.sh`), and
-//! nothing else: so a frame painted with the built Regular is the frame stock
+//! `baud-app/fonts/built/Regular.ttf`, `Bold.ttf`, `Italic.ttf` and
+//! `BoldItalic.ttf` are JetBrains Mono's four styles with baud's Hebrew
+//! added (`scripts/build-fonts.sh`), and nothing else: so a frame painted with the built Regular is the frame stock
 //! JetBrains Mono paints, except in a cell that holds Hebrew and the cell to
 //! its right, which a glyph overhanging its cell can reach. Every recording is
 //! held to that, with `vim-unicode` and `cat-cjk` -- the two whose final
 //! screens carry Hebrew -- as the control that the built font reached the
 //! pixels at all.
 //!
-//! And through the stack the app builds: bold Hebrew paints what the built
-//! Bold paints as the only text face, and differs from the Regular's. Italic
-//! and bold-italic Hebrew paint the built Regular's frame, because the italic
-//! slots are stock JetBrains Mono for now (STOCK_ITALIC, interim) and the
-//! chain answers for what they lack.
+//! And through the stack the app builds: bold, italic and bold-italic Hebrew
+//! each paint what the built face of that style paints as the only text
+//! face, and differ from the Regular's -- italic Hebrew leans with the
+//! Latin, as the owner asked (2026-10-24), instead of drawing upright from
+//! the chain. Pointed Genesis 1:1-5 in italic and bold italic keeps every
+//! point.
 //!
 //! These are properties of the committed files, which baud-render reads by
 //! path; which bytes the app compiles in is `baud-app/src/embedded.rs`'s
@@ -225,22 +226,22 @@ const STYLED: [FaceRole; 5] = [
     FaceRole::Style(FaceStyle::BoldItalic),
 ];
 
-/// **Bold Hebrew draws from the built Bold, and italic Hebrew from the
-/// chain.** On the stack the app builds by default -- the built Regular, the
-/// icon face, then the built Bold and the stock Italic and Bold Italic as the
-/// styled faces -- `SGR 1` shalom paints exactly what the built Bold paints
-/// as the only text face, and not what the Regular paints. `SGR 3` and
-/// `SGR 1;3` shalom paint the built Regular's frame: the stock italics lack
-/// Hebrew, so the chain draws it upright and regular weight (STOCK_ITALIC,
-/// interim), while italic Latin on the same stack is the italic face's.
+/// **Bold, italic and bold-italic Hebrew each draw from the built face of
+/// their style.** On the stack the app builds by default -- the built
+/// Regular, the icon face, then the built Bold, Italic and Bold Italic as
+/// the styled faces -- `SGR 1`, `SGR 3` and `SGR 1;3` shalom each paint
+/// exactly what that style's built face paints as the only text face, and
+/// not what the Regular paints: italic Hebrew leans with the Latin instead
+/// of drawing upright and regular weight from the chain, as it did while
+/// the italic faces were stock JetBrains Mono with no Hebrew.
 #[test]
-fn bold_hebrew_draws_from_the_built_bold_and_italic_from_the_chain() {
+fn bold_and_italic_hebrew_draw_from_the_built_styles() {
     let files = [
         app_font("built/Regular.ttf"),
         app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
         app_font("built/Bold.ttf"),
-        app_font("jetbrains-mono/JetBrainsMono-Italic.ttf"),
-        app_font("jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
+        app_font("built/Italic.ttf"),
+        app_font("built/BoldItalic.ttf"),
     ];
     let faces: Vec<Face<'_>> = files.iter().map(|d| Face::parse(d).unwrap()).collect();
     let plain = [FaceRole::Fallback, FaceRole::Fallback];
@@ -265,29 +266,155 @@ fn bold_hebrew_draws_from_the_built_bold_and_italic_from_the_chain() {
         regular != boxes,
         "the control: the built Regular draws Hebrew"
     );
-
-    let bold = painted(&faces, &STYLED, &line(FaceStyle::Bold, SHALOM));
-    let want = painted(&alone(2), &plain, &line(FaceStyle::Regular, SHALOM));
-    assert!(bold == want, "bold Hebrew is not the built Bold's");
-    assert!(bold != regular, "the control: bold Hebrew is the Regular's");
-
-    let shin = Codepoint::new(0x5E9).unwrap();
-    for (style, ix) in [(FaceStyle::Italic, 3), (FaceStyle::BoldItalic, 4)] {
-        assert!(
-            faces[ix].glyph(shin).is_none(),
-            "{style:?}: the premise of the interim -- its face is stock JetBrains Mono"
-        );
+    for (style, ix) in [
+        (FaceStyle::Bold, 2),
+        (FaceStyle::Italic, 3),
+        (FaceStyle::BoldItalic, 4),
+    ] {
         let got = painted(&faces, &STYLED, &line(style, SHALOM));
+        let want = painted(&alone(ix), &plain, &line(FaceStyle::Regular, SHALOM));
         assert!(
-            got == regular,
-            "{style:?}: the italic slots are stock until the owner answers the lean, so \
-             their Hebrew is the chain's -- the built Regular, upright and regular weight"
+            got == want,
+            "{style:?}: Hebrew is not the built face of its style's"
         );
-        let latin = painted(&faces, &STYLED, &line(style, "ab"));
-        let upright = painted(&alone(0), &plain, &line(FaceStyle::Regular, "ab"));
         assert!(
-            latin != upright,
-            "{style:?}: the control -- italic Latin on this stack is the italic face's"
+            got != regular,
+            "{style:?}: Hebrew is the Regular's, upright and regular weight"
+        );
+    }
+}
+
+/// The pointed Genesis 1:1-5 (`baud-core/tests/cluster_bounds.rs`, the
+/// text the core is held to keep every point of), one verse a row.
+const GENESIS_1_1_TO_5: [&str; 5] = [
+    "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ׃",
+    "וְהָאָרֶץ הָיְתָה תֹהוּ וָבֹהוּ וְחֹשֶׁךְ עַל־פְּנֵי תְהוֹם וְרוּחַ אֱלֹהִים מְרַחֶפֶת עַל־פְּנֵי הַמָּיִם׃",
+    "וַיֹּאמֶר אֱלֹהִים יְהִי אוֹר וַיְהִי־אוֹר׃",
+    "וַיַּרְא אֱלֹהִים אֶת־הָאוֹר כִּי־טוֹב וַיַּבְדֵּל אֱלֹהִים בֵּין הָאוֹר וּבֵין הַחֹשֶׁךְ׃",
+    "וַיִּקְרָא אֱלֹהִים לָאוֹר יוֹם וְלַחֹשֶׁךְ קָרָא לָיְלָה וַיְהִי־עֶרֶב וַיְהִי־בֹקֶר יוֹם אֶחָד׃",
+];
+
+/// A Hebrew point: U+0591-05C7 but the four that take a cell of their own.
+fn is_point(c: char) -> bool {
+    matches!(u32::from(c), 0x0591..=0x05C7)
+        && !matches!(u32::from(c), 0x05BE | 0x05C0 | 0x05C3 | 0x05C6)
+}
+
+const WS5: WinSize = WinSize {
+    ws_row: 5,
+    ws_col: 80,
+};
+
+/// What `bytes` paints through `faces` with `roles` on an 80 x 5 screen:
+/// the pixels, the canvas width, the cell size, and for each cell, row by
+/// row, whether it holds a point.
+fn painted_verses(
+    faces: &[Face<'_>],
+    roles: &[FaceRole],
+    bytes: &[u8],
+) -> (Vec<u32>, usize, (usize, usize), Vec<bool>) {
+    let mut r = Renderer::new(
+        Stack::with_roles(faces, roles).unwrap(),
+        PxSize::of(16.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS5.ws_col)),
+        Rows::of_index(usize::from(WS5.ws_row)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS5);
+    let mut t = Term::new(owned.storage(), &WS5);
+    let mut c = Canvas::for_renderer(&r);
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    assert_eq!(t.marks_dropped, 0, "the core keeps every point");
+    paint(&mut r, &mut t, &mut c, Damage::Full);
+    let (rows, cols) = (usize::from(WS5.ws_row), usize::from(WS5.ws_col));
+    let pointed = (0..rows)
+        .flat_map(|y| (0..cols).map(move |x| (y, x)))
+        .map(|(y, x)| {
+            t.marks(Row::from_index(y), Col::at_index(x))
+                .next()
+                .is_some()
+        })
+        .collect();
+    let m = r.metrics();
+    let cell = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    (c.pixels, c.width, cell, pointed)
+}
+
+/// **Pointed Genesis 1:1-5 keeps every point in italic and bold italic.**
+/// The five verses, `SGR 3` and then `SGR 1;3`, on the stack the app builds:
+/// every point in them maps in that style's built face; the frame is the
+/// one that face paints as the only text face, so no letter and no point
+/// falls back to the upright Regular; and every one of the 128 cells
+/// holding the verses' 146 points paints differently from the same verses
+/// with the points taken out, so each cell's points reach the pixels. The control: the
+/// verses in italic do not paint the Regular's frame.
+#[test]
+fn genesis_1_1_to_5_keeps_every_point_in_italic_and_bold_italic() {
+    let files = [
+        app_font("built/Regular.ttf"),
+        app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+        app_font("built/Bold.ttf"),
+        app_font("built/Italic.ttf"),
+        app_font("built/BoldItalic.ttf"),
+    ];
+    let faces: Vec<Face<'_>> = files.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    let verses = |keep: bool| -> String {
+        GENESIS_1_1_TO_5
+            .iter()
+            .map(|v| {
+                v.chars()
+                    .filter(|&c| keep || !is_point(c))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n")
+    };
+    let line = |style: FaceStyle, text: &str| [sgr(style), text.as_bytes()].concat();
+    let (regular, ..) = painted_verses(&faces, &STYLED, &line(FaceStyle::Regular, &verses(true)));
+    for (style, ix) in [(FaceStyle::Italic, 3), (FaceStyle::BoldItalic, 4)] {
+        for c in GENESIS_1_1_TO_5.iter().flat_map(|v| v.chars()) {
+            let cp = Codepoint::new(u32::from(c)).unwrap();
+            assert!(
+                c == ' ' || faces[ix].glyph(cp).is_some(),
+                "{style:?}: U+{:04X} is not in the built face",
+                u32::from(c)
+            );
+        }
+        let (got, width, (cw, ch), pointed) =
+            painted_verses(&faces, &STYLED, &line(style, &verses(true)));
+        let alone = [
+            Face::parse(&files[ix]).unwrap(),
+            Face::parse(&files[1]).unwrap(),
+        ];
+        let (want, ..) = painted_verses(&alone, &plain, &line(FaceStyle::Regular, &verses(true)));
+        assert!(got == want, "{style:?}: not the built face's frame");
+        assert!(got != regular, "{style:?}: the Regular's frame, upright");
+        let (bare, ..) = painted_verses(&faces, &STYLED, &line(style, &verses(false)));
+        let cols = usize::from(WS5.ws_col);
+        let mut lost = Vec::new();
+        let mut held = 0;
+        for (i, _) in pointed.iter().enumerate().filter(|(_, p)| **p) {
+            held += 1;
+            let (y, x) = (i / cols, i % cols);
+            let differs = (y * ch..(y + 1) * ch).any(|py| {
+                let at = py * width + x * cw;
+                got[at..at + cw] != bare[at..at + cw]
+            });
+            if !differs {
+                lost.push((y, x));
+            }
+        }
+        assert_eq!(held, 128, "{style:?}: the cells holding a point");
+        assert!(
+            lost.is_empty(),
+            "{style:?}: cells whose points drew nothing: (row, col) {lost:?}"
         );
     }
 }

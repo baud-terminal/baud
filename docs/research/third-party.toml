@@ -2061,20 +2061,12 @@ upstream = "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1"
 status   = "kept"
 
 [[tree]]
-what     = "baud's embedded Regular and Bold: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call"
-paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
+what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call"
+paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
 upstream = "https://github.com/JetBrains/JetBrainsMono and https://github.com/microsoft/cascadia-code"
 status   = "open"
-
-[[tree]]
-what     = "baud's embedded Italic and Bold Italic: JetBrains Mono 2.304's, with only nameIDs 1, 4 and 6 changed to the built family's name (scripts/font-family-records.py), a Modified Version under the OFL; no Cascadia material"
-paths    = ["baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf"]
-licence  = "OFL-1.1"
-notice   = "baud-app/fonts/built/OFL.txt"
-upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
-status   = "kept"
 
 [[tree]]
 what     = "Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font"
@@ -2086,7 +2078,7 @@ status   = "open"
 
 [[tree]]
 what     = "The Hebrew build modules. Whether they are Font Software under the OFL or baud's code under the repository's licence has not been decided (FONTLOG.txt); LICENSE assigns them to neither"
-paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
 licence  = "not assigned"
 notice   = "baud-app/fonts/built/FONTLOG.txt"
 upstream = "baud's own build, ported from the research tree"

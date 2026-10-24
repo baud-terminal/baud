@@ -852,8 +852,9 @@ mod tests {
     /// owner's boxes (2026-10-08), on the path a launch takes: `Config::defaults`,
     /// `load_faces`, the renderer's stack. Alef, shin and sheva -- two letters
     /// and a point -- map in the embedded Regular, which regular text draws
-    /// from, and bold text draws them from the embedded Bold. Linux loads its
-    /// faces through the same two calls.
+    /// from, and bold, italic and bold-italic text draw them from the
+    /// embedded Bold, Italic and Bold Italic. Linux loads its faces through
+    /// the same two calls.
     #[test]
     fn the_default_stack_draws_hebrew_from_the_embedded_font() {
         use baud_render::FaceStyle;
@@ -876,23 +877,16 @@ mod tests {
                 n - 3,
                 "U+{cp:04X}: bold Hebrew draws from the embedded Bold"
             );
-            // Italic and Bold Italic are stock JetBrains Mono for now
-            // (STOCK_ITALIC, interim): index 0 here is the embedded Regular
-            // drawing it, which the first assert proves maps it -- not the
-            // primary's .notdef, which is also index 0.
             for (style, ix) in [(FaceStyle::Italic, n - 2), (FaceStyle::BoldItalic, n - 1)] {
                 assert!(
-                    faces[ix].glyph(c).is_none(),
-                    "U+{cp:04X}, {style:?}: the premise of the interim -- its face is stock \
-                     JetBrains Mono, with no Hebrew; a face that maps it is an italic Hebrew \
-                     build, and this test moves with it"
+                    faces[ix].glyph(c).is_some(),
+                    "U+{cp:04X}, {style:?}: the embedded italic face"
                 );
                 assert_eq!(
                     stack.select_styled(c, style).index(),
-                    0,
-                    "U+{cp:04X}, {style:?}: the italic slots stay stock until the owner answers \
-                     the lean (1c) and has seen that the built italics are a plain shear, so \
-                     the chain answers: the embedded Regular, upright and regular weight"
+                    ix,
+                    "U+{cp:04X}, {style:?}: italic Hebrew draws from the embedded italic face, \
+                     not upright from the embedded Regular"
                 );
             }
         }

@@ -44,11 +44,20 @@ import design as D          # round 1: letter weights, widths, edits
 import design3 as E         # round 3 (round 2's values, then round 3's)
 import narrow as N          # narrow-letter variants
 import style as ST          # the STYLE parameter
+import optical as OP        # the italics' correction of rounds (JetBrains Mono Italic's)
 import field as FD
 from geom import FlatPen, runs_at_y
 from pin import save_pinned, table_pinned    # baud: the repacker pin, shared with instance.py
 
 ST.apply(D, E, N)
+
+
+def italic_outline(rec, label=''):
+    """A letter's italic outline: the shear, and JetBrains Mono Italic's correction of its rounds
+    (optical.py). Every use of a sheared letter goes through here -- the glyph written and the
+    distance fields fit_italic and fit_meteg place points against -- so the anchors are fitted to
+    the outline the font carries."""
+    return OP.italic_rec(rec, ST.shear_xy, ST.ROUND_K, label, ST.LEVEL)
 
 W = ST.HERE
 JBM = ST.JBM_TARGET            # merged into (read only)
@@ -637,7 +646,7 @@ def fit_italic(letters, marks, up_a, base_a, report):
             if excess(ax) <= 0:
                 continue
             if u not in fields:
-                fields[u] = FD.distance(polys(map_rec(letters[u], ST.shear_xy)))[0]
+                fields[u] = FD.distance(polys(italic_outline(letters[u])))[0]
             if m not in samp:
                 samp[m] = samples(map_rec(marks[m], lin))
             fld = fields[u]
@@ -695,7 +704,7 @@ def fit_meteg(letters, marks, up_a, base_a, report, home):
             if excess(ax) <= 0:
                 continue
             if u not in fields:
-                fields[u] = FD.distance(polys(map_rec(letters[u], ST.shear_xy)))[0]
+                fields[u] = FD.distance(polys(italic_outline(letters[u])))[0]
             if v not in samp:
                 samp[v] = samples(map_rec(marks[v], lin))
             fld = fields[u]
@@ -852,8 +861,12 @@ def build(out, letter_hook=None, tag=''):
             cx, cy = axis['above' if (m in E.ABOVE_DOTS or m == 0x05BF) else 'below']
             want = cx + ST.TAN * (yc - cy)            # JBM Italic's mark axis (its marks lean right)
             delta[m] = want - ST.shear_xy(xc, yc)[0]
+        # the letters and the marks of punctuation drawn as letters take the rounds' correction;
+        # sof pasuq is JetBrains Mono's colon, whose italic dots are its upright ones sheared to
+        # within 2.2 units (optical.py), so it takes the plain shear, as the points do
         for name, (rec, adv, u, cls) in list(new.items()):
-            new[name] = (map_rec(rec, ST.shear_xy), adv, u, cls)
+            sheared = map_rec(rec, ST.shear_xy) if u == 0x05C3 else italic_outline(rec, chr(u))
+            new[name] = (sheared, adv, u, cls)
         up_a = base_a
         base_a = {u: {m: tuple(round(c) for c in ST.shear_xy(*xy)) for m, xy in d.items()} for u, d in base_a.items()}
         fit_italic(letters, marks, up_a, base_a, report)
@@ -994,6 +1007,12 @@ def build(out, letter_hook=None, tag=''):
     print('saved', out, len(new), 'glyphs; anchors flagged:', len(flagged))
     print('pathops retries (plain area -> checked area):', PATHOPS_RETRIES or 'none')
     if ST.ITALIC:
+        print('rounds corrected (ROUND_K %s): %d arcs (letter, kind, sheared angle, handle ratio, largest move in units):' % (ST.ROUND_K, len(OP.CORRECTED)))
+        for c in OP.CORRECTED:
+            print('   ', *c)
+        print('bowl joints levelled (LEVEL %s): %d (letter, outer joint upright, gap to the inner joint, move in units):' % (ST.LEVEL, len(OP.LEVELLED)))
+        for c in OP.LEVELLED:
+            print('   ', *c)
         print('italic cell fit: %d anchors moved (letter, point, x sheared -> x fitted, clearance before -> after):' % len(FIT_LOG))
         for f in FIT_LOG:
             print('   ', *f)

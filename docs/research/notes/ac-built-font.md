@@ -577,6 +577,115 @@ holds near 0.87. The question is on the review page (version 10) as 1c, with
 both leans re-rendered from the fourth pass's fonts. The owner, a native reader,
 decides.
 
+## 4c. The italics, built (2026-10-24)
+
+The owner answered 1c on 2026-10-24: "learn right R". Italic and bold italic
+Hebrew lean right, with the Latin. The session's record of the owner's call of
+2026-10-07 asks for the italic "optically corrected like JBM's italic rounds, not a
+plain shear". So the question became what JetBrains Mono's italic does to its rounds.
+
+**What JetBrains Mono's italic does, read at source.** Its italic masters
+(`[[source: jbm-glyphs-italic]]`) carry italicAngle = 9 and are drawn as their own
+outlines. Read node for node against the upright masters
+(`[[source: jbm-glyphs-upright]]`):
+
+- The italic is the upright sheared 9 degrees about y ~ 278. On 26 compatible
+  letters and figures, the on-curve nodes sit 0.4 units off the sheared upright on
+  average horizontally (ExtraBold 0.3). a, e, f, y, Q and nine are redrawn, not
+  sheared. (The first Jev request said 29 letters; the tool measures 26.)
+- Stems keep their horizontal width (90) and bars their height (82). The combining
+  dots are the sheared upright.
+- **The bowls' joints move.** Of the 350 ends of the Regular master's 175
+  right-angle round corners, 10 move more than 3 units along their straight. All
+  are a bowl's curve/straight joint, in o, O and q: o's outer 12.6-12.7 units
+  (212 -> 200, 338 -> 351), O's outer 10.1 (210 -> 200, 521 -> 531), q's inner -10
+  (190 -> 200, 360 -> 350). In ExtraBold only O's outer moves, 10.1; o is pure
+  shear there. The acute and the obtuse corner move alike (12.6 and 12.7), so the
+  move is no function of the sheared angle, and no kind's mean exceeds 0.6 units.
+  What it does is level the joints. Paired side by side, five upright bowls have
+  an outer straight that stops short of the inner one across the stroke: o (10
+  units), O (9-10), q (4-5), g (4-5) and e (10); in ExtraBold, O (10). The italic
+  levels o and O (the outer joints move to the inner ones' heights) and q (its inner
+  joints move in by 10), each onto a joint height the family already uses (200/350
+  as b, d, p and c; 200/530 as C and G). It leaves g short (pure shear) and e (redrawn
+  with the same gap). So it is a correction made on the roundest bowls, not a rule
+  every italic bowl obeys (`docs/research/notes/ac/italic/invariant.py`). The
+  effect is optical. The shear thins a bowl's obtuse corner (o: 78.5 units along
+  the diagonal, against 92.6 at the acute), and the italic has 3.1-3.2% more ink
+  there than the sheared upright, 0.2-0.6% more at the acute.
+- **The handles at round corners change.** The shear makes a corner 81 or 99
+  degrees. Against the upright (a shear keeps the ratio of handle to tangent
+  distance), the fit through 1 is `k = 1 + K (theta - 90)`, with K by what meets
+  the corner: 0.00022 with a stroke on both sides (14 corners, 1 corrected), 0.00091
+  with one (132), 0.00104 curved on both (29). ExtraBold: 0.00018, 0.00112, 0.00073.
+  The bowls carry it (o O C G b d p q s and the figures, up to 0.94 and 1.065). The
+  arches of n, h and m are pure shear.
+
+The scripts, run on the two pinned sources, and their output are in
+`docs/research/notes/ac/italic/`: `docs/research/notes/ac/italic/ends.py` (the arc
+ends), `docs/research/notes/ac/italic/joints.py` (the joint heights),
+`docs/research/notes/ac/italic/jbm_nodes.py` (the nodes and the handle fits) and
+`docs/research/notes/ac/italic/diag.py` (the diagonal thickness).
+
+**Built.** `baud-app/fonts/glyphs/languages/hebrew/build/optical.py` does both, in
+that order, before the shear.
+
+- Hebrew's bowls stop short of level by more than JetBrains Mono's ever did: 6.6 to
+  31.2 units in Italic (samekh 31.2 on both sides, tet 26.9 and 6.6, shin 26.9 and
+  23.6, mem 7.6) and 23.2 to 45.5 in Bold Italic (samekh 45.5, shin 37.1, mem 23.2),
+  measured on each weight's own outlines. A level is not a magnitude, so nothing is
+  interpolated toward ExtraBold. Each outer joint moves toward its inner one by the
+  gap, at most 13 units, JetBrains Mono's largest move. The arc is scaled along its
+  straight, so the joint stays on it and both ends keep their tangents.
+- Each right-angle round of a letter (43 arcs in Italic, 39 in Bold Italic) takes
+  its kind's handle fit. A straight piece of zero length no longer counts as a
+  stroke: Cascadia's Bold outlines start contours on runs of them, and the first
+  build read Bold samekh's and mem's bowl corners as corners between two straights,
+  so they took that kind's smaller slope. Italic uses the Regular master's K. Bold Italic is wght
+  700, interpolated three quarters toward ExtraBold.
+
+Points stay plain-sheared, as JetBrains Mono's dots are. With both parts off the
+build reproduces the earlier gated plain-shear files byte for byte
+(`scripts/build-fonts.sh --italics`). Against the plain shear, the correction moves
+12 Italic and 14 Bold Italic glyphs. The levelling moves samekh, tet, shin and mem in
+Italic by up to 13 units, and samekh, shin and mem in Bold Italic. The cell fit
+re-runs against the corrected outline and moves two point anchors: hataf segol
+under tet in Italic (x 246 to 248) and under shin in Bold Italic (x 256 to 268).
+Meteg passes 185 and 143 of 297, the same as the plain shear's.
+
+**How far, by Jev.** The handles first. Three candidates went to Jev, each with
+renders: A, the fit over all 175 corners, as one K; B, the fit over the 53 corners
+JBM visibly corrected (0.00266); C, each kind's own fit. First ask, A against B: B,
+0.77 and 0.75, at confidence 0.54 and 0.50. The split by kind showed that B gives
+Hebrew's stroke-to-stroke corners about 12 times what JetBrains Mono gives its own.
+Re-asked with C: C, 0.96 in both orders, at confidence 0.94 and 0.94.
+
+That request said the italic departs from the shear only in the handles, and it
+gave Hebrew's arc counts as 88 and 95. Both were wrong. The joints went to Jev
+separately, with renders: C (handles only), D (level in full) and D13 (level by at
+most 13). First ask: C was rejected (0.02-0.03), and D against D13 split (0.49 and
+0.48, at confidence 0.23; 0.53 and 0.45, at 0.30). The diagonal thickness then
+separated them. Against the plain shear, D thickens Hebrew's obtuse corners
+4.6-5.1% and its acute ones 3.7-4.0%. D13 gives 1.4-3.0% and 0.5-0.7%, which is
+JetBrains Mono's pattern. Re-asked: D13, 0.98 and 0.97, at confidence 0.97 and 0.95.
+Two statements in that request were wrong: that no point anchor moves (two do), and
+that every JetBrains Mono italic bowl ends level (g and e do not). Asked again with
+both corrected: D13, 0.97 in both orders at confidence 0.95, then 0.99 in both orders
+at confidence 0.98. What separated D from D13 was the diagonal thickness, which
+neither correction touches. The four renders it decided on are
+`docs/research/notes/ac/italic/overlay_full.png`,
+`docs/research/notes/ac/italic/overlay_capped.png`,
+`docs/research/notes/ac/italic/overlay_bold.png` and
+`docs/research/notes/ac/italic/sheet28.png`, made by
+`docs/research/notes/ac/italic/overlay.py` and
+`docs/research/notes/ac/italic/italic_sheet.rs` (built as an example of baud-render).
+
+**Visible effect.** At 28 px through baud's renderer, the handle correction alone
+changes 497 pixels of a 5-row sheet against the plain shear, by at most 17 of 255 in
+a channel. Levelling by 13 changes 345 more, by at most 17 (Bold Italic 259, 16). At
+large sizes the bowl bottoms of samekh, tet and shin read fuller at the obtuse
+corner.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools
@@ -681,8 +790,9 @@ The section 5 design's `base/` and `icons/` moves wait.
 
 **What the app embeds.** Regular and Bold are the built files, using the review
 page's defaults (1a = A, 1b = L2), which are interim and the owner's call.
-Italic and Bold Italic stay stock (STOCK_ITALIC, below the bar), so italic
-Hebrew draws upright Regular from the chain until 1c is answered.
+Italic and Bold Italic stayed stock (STOCK_ITALIC, below the bar), so italic
+Hebrew drew upright Regular from the chain until 1c was answered; since 2026-10-24
+they carry the italic Hebrew (section 4c).
 
 **A configured stack is followed by the embedded Regular, then the icon face,
 then STIX** (`config.rs`, the `FontFallback::Embedded` branch). This is
@@ -724,10 +834,8 @@ the bar read on confidence.
 - 1a-1e.
 - The family name: OFL-FAQ Q5.4 allows neither word of "Cascadia Code", and it
   should not be "JetBrains Mono".
-- Shear or optically corrected italic: every built italic is a plain 9-degree
-  shear, while the session's reading of the owner's call was "optically
-  corrected".
-- The italic lean.
+- ~~Shear or optically corrected italic.~~ Optically corrected, section 4c.
+- ~~The italic lean.~~ Right, the owner's call of 2026-10-24.
 - The licence call.
 
 The licence call, stated precisely: the built files carry Microsoft's copyright

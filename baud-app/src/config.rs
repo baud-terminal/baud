@@ -2756,11 +2756,9 @@ fn font_key(font: baud_render::FontSlot) -> (&'static str, String) {
         })
 }
 
-/// The embedded Bold -- JetBrains Mono Bold with baud's Hebrew -- and
-/// JetBrains Mono's stock Italic and Bold Italic, each the face its style is
-/// drawn from: never synthesised while a real face exists. The italics map
-/// no Hebrew for now (STOCK_ITALIC, interim), so italic Hebrew falls to the
-/// chain and draws from the embedded Regular.
+/// The embedded Bold, Italic and Bold Italic -- JetBrains Mono's, each
+/// with baud's Hebrew -- each the face its style is drawn from: never
+/// synthesised while a real face exists.
 fn styled_faces() -> [FaceSpec; 3] {
     use baud_render::FaceStyle;
     [
@@ -2971,7 +2969,7 @@ mod named {
     /// N_SHARE): with no font installed at all, the embedded Regular is
     /// the first face, its Bold, Italic and Bold Italic the styled faces,
     /// and nothing is said. "JetBrains Mono" is no embedded family: the
-    /// stock italics carry the embedded family's name now. An embedded
+    /// built italics carry the embedded family's name. An embedded
     /// face wins a tie with an installed copy of itself.
     #[test]
     fn the_embedded_font_answers_to_its_name() {

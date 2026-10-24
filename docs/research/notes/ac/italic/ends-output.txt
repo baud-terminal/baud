@@ -1,0 +1,32 @@
+master Regular corners 175 ends 350 ends moved >3 along: 10
+   o 0 one-straight 99.0 p3 straight 12.7 -3.7 222.7
+   o 0 one-straight 81.0 p0 straight 12.6 3.6 222.7
+   o 0 one-straight 99.0 p3 straight 12.7 -3.5 222.7
+   o 0 one-straight 81.0 p0 straight 11.5 4.2 222.7
+   O 0 one-straight 99.0 p3 straight 10.1 0.3 222.7
+   O 0 one-straight 81.0 p0 straight 10.1 0.1 221.7
+   O 0 one-straight 99.0 p3 straight 10.1 -0.0 222.7
+   O 0 one-straight 81.0 p0 straight 10.1 0.3 222.7
+   q 1 one-straight 81.0 p3 straight -10.3 1.1 123.5
+   q 1 one-straight 99.0 p0 straight -10.1 -0.4 123.5
+both-straight end at straight acute  n= 20 mean along -0.05  median +0.00  |>3| 0
+both-straight end at straight obtuse n=  8 mean along -0.07  median +0.00  |>3| 0
+one-straight  end at straight acute  n= 65 mean along +0.56  median +0.00  |>3| 5
+one-straight  end at straight obtuse n= 67 mean along +0.60  median +0.00  |>3| 5
+one-straight  end at curve    acute  n= 65 mean along +0.15  median +0.30  |>3| 0
+one-straight  end at curve    obtuse n= 67 mean along -0.11  median -0.20  |>3| 0
+both-curved   end at curve    acute  n= 28 mean along -0.02  median +0.00  |>3| 0
+both-curved   end at curve    obtuse n= 30 mean along -0.08  median +0.00  |>3| 0
+master ExtraBold corners 177 ends 354 ends moved >3 along: 4
+   O 0 one-straight 99.0 p3 straight 10.1 -0.0 232.9
+   O 0 one-straight 81.0 p0 straight 10.1 0.1 232.9
+   O 0 one-straight 99.0 p3 straight 10.1 0.1 232.9
+   O 0 one-straight 81.0 p0 straight 10.1 -0.0 232.9
+both-straight end at straight acute  n= 24 mean along +0.02  median +0.05  |>3| 0
+both-straight end at straight obtuse n=  8 mean along -0.03  median +0.00  |>3| 0
+one-straight  end at straight acute  n= 65 mean along +0.31  median +0.00  |>3| 2
+one-straight  end at straight obtuse n= 67 mean along +0.29  median +0.00  |>3| 2
+one-straight  end at curve    acute  n= 65 mean along +0.13  median +0.10  |>3| 0
+one-straight  end at curve    obtuse n= 67 mean along -0.10  median +0.00  |>3| 0
+both-curved   end at curve    acute  n= 28 mean along -0.01  median +0.00  |>3| 0
+both-curved   end at curve    obtuse n= 30 mean along -0.09  median +0.00  |>3| 0

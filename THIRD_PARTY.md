@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 306 | 30 | redistributable, and its notice is satisfied |
+| kept | 306 | 29 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 869 | 41 | |
+| total | 869 | 40 | |
 
 ## Licence texts in LICENSES/
 
@@ -107,13 +107,13 @@ they were built from.
 - **From:** unrecorded
 - **Files:** [tests/recordings/sixel/img2sixel-96x72.six](tests/recordings/sixel/img2sixel-96x72.six), [tests/recordings/sixel/img2sixel-96x72.oracle-rgb](tests/recordings/sixel/img2sixel-96x72.oracle-rgb)
 
-### baud's embedded Regular and Bold: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call
+### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call
 
 - **Status:** open -- an open question, recorded where the file is; the owner's call
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
 - **From:** https://github.com/JetBrains/JetBrainsMono and https://github.com/microsoft/cascadia-code
-- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
+- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
 
 ### Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font
 
@@ -129,7 +129,7 @@ they were built from.
 - **Licence:** not assigned
 - **Notice:** [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt)
 - **From:** baud's own build, ported from the research tree
-- **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/instance.py](baud-app/fonts/glyphs/languages/hebrew/build/instance.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/pin.py](baud-app/fonts/glyphs/languages/hebrew/build/pin.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
+- **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/instance.py](baud-app/fonts/glyphs/languages/hebrew/build/instance.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/pin.py](baud-app/fonts/glyphs/languages/hebrew/build/pin.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
 
 ### DEC Special Graphics, generated by scripts/gen-dec-graphics.py from foot's vt100_0[] table. Whether a 31-entry codepoint table needs foot's notice is the owner's call (MANIFEST.toml, at foot-vt100-0); the notice is in the tree for the foot sources either way
 
@@ -202,14 +202,6 @@ they were built from.
 - **Notice:** [baud-app/fonts/symbols-nerd-font/LICENSE](baud-app/fonts/symbols-nerd-font/LICENSE)
 - **From:** https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
 - **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE)
-
-### baud's embedded Italic and Bold Italic: JetBrains Mono 2.304's, with only nameIDs 1, 4 and 6 changed to the built family's name (scripts/font-family-records.py), a Modified Version under the OFL; no Cascadia material
-
-- **Status:** kept -- redistributable, and its notice is satisfied
-- **Licence:** OFL-1.1
-- **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
-- **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
-- **Files:** [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf)
 
 ### Bungee Tint, a test font, unmodified
 

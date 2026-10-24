@@ -8566,14 +8566,8 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
             0,
         ),
         styled("baud-app/fonts/built/Bold.ttf", FaceStyle::Bold),
-        styled(
-            "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf",
-            FaceStyle::Italic,
-        ),
-        styled(
-            "baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf",
-            FaceStyle::BoldItalic,
-        ),
+        styled("baud-app/fonts/built/Italic.ttf", FaceStyle::Italic),
+        styled("baud-app/fonts/built/BoldItalic.ttf", FaceStyle::BoldItalic),
     ];
     let mut split = Vec::new();
     for (chain, files) in [("stock", &stock), ("embedded", &embedded)] {
@@ -8645,6 +8639,93 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
         "{} letters draw differently across the arms: {split:#?}",
         split.len()
     );
+}
+
+/// The pointed Genesis 1:1-5 (`baud-core/tests/cluster_bounds.rs`), one
+/// verse a row.
+const GENESIS_1_1_TO_5: [&str; 5] = [
+    "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ׃",
+    "וְהָאָרֶץ הָיְתָה תֹהוּ וָבֹהוּ וְחֹשֶׁךְ עַל־פְּנֵי תְהוֹם וְרוּחַ אֱלֹהִים מְרַחֶפֶת עַל־פְּנֵי הַמָּיִם׃",
+    "וַיֹּאמֶר אֱלֹהִים יְהִי אוֹר וַיְהִי־אוֹר׃",
+    "וַיַּרְא אֱלֹהִים אֶת־הָאוֹר כִּי־טוֹב וַיַּבְדֵּל אֱלֹהִים בֵּין הָאוֹר וּבֵין הַחֹשֶׁךְ׃",
+    "וַיִּקְרָא אֱלֹהִים לָאוֹר יוֹם וְלַחֹשֶׁךְ קָרָא לָיְלָה וַיְהִי־עֶרֶב וַיְהִי־בֹקֶר יוֹם אֶחָד׃",
+];
+
+/// **Italic and bold-italic Hebrew draw alike on the instance, cell and
+/// CPU arms.** The pointed Genesis 1:1-5 in regular, `SGR 3` and
+/// `SGR 1;3`, on the embedded font's four built styles behind the icon
+/// face, as the app stacks them: each arm draws every frame pixel for
+/// pixel as the others do. The controls: the italic and bold-italic frames
+/// differ from the regular one and from each other, so the italic faces'
+/// Hebrew is what the arms agree on -- while the italic faces carried no
+/// Hebrew, all three frames were the upright Regular's.
+#[test]
+fn italic_hebrew_draws_alike_on_every_arm() {
+    let here = |p: &str| {
+        std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("{p}: {e}"))
+    };
+    let files = [
+        here("baud-app/fonts/built/Regular.ttf"),
+        here("baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+        here("baud-app/fonts/built/Bold.ttf"),
+        here("baud-app/fonts/built/Italic.ttf"),
+        here("baud-app/fonts/built/BoldItalic.ttf"),
+    ];
+    let faces: Vec<Face<'_>> = files
+        .iter()
+        .map(|d| Face::parse(d).expect("parse"))
+        .collect();
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Bold),
+        FaceRole::Style(FaceStyle::Italic),
+        FaceRole::Style(FaceStyle::BoldItalic),
+    ];
+    let theme = Theme {
+        bg_alpha: Chan::from_u8(56),
+        ..Theme::dark()
+    };
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let mut frames = Vec::new();
+    for (name, sgr) in [
+        ("regular", ""),
+        ("italic", "\x1b[3m"),
+        ("bold italic", "\x1b[1;3m"),
+    ] {
+        let text = format!("\x1bc\x1b[?25l{sgr}{}", GENESIS_1_1_TO_5.join("\r\n"));
+        feed(&mut t, text.as_bytes());
+        assert_eq!(t.marks_dropped, 0, "{name}: the core keeps every point");
+        let (a, b) = arms.draw(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(
+            channel_diff(&a, &b, |_| true),
+            (0, 0),
+            "{name}: the cell arm against the instance arm (pixels, largest channel step)"
+        );
+        assert_eq!(
+            channel_diff(&a, &cpu, |_| true),
+            (0, 0),
+            "{name}: the CPU arm against the instance arm (pixels, largest channel step)"
+        );
+        frames.push(a);
+    }
+    assert!(frames[1] != frames[0], "italic Hebrew is the Regular's");
+    assert!(
+        frames[2] != frames[0],
+        "bold-italic Hebrew is the Regular's"
+    );
+    assert!(frames[2] != frames[1], "bold-italic Hebrew is the Italic's");
 }
 
 /// **The config's notice on the cell path is the instance path's and the

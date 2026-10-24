@@ -32,9 +32,9 @@
 //!
 //! **baud's own embedded faces answer to their names too, ahead of every
 //! installed face** (Jev, E_IN_NAMES, the re-ask's lean): the embedded
-//! font's four faces by its family's name -- one family since the font's
-//! build gave the stock italics the built family's name records (Jev,
-//! N_SHARE, 0.92/0.96) -- and the icon and maths faces by theirs.
+//! font's four faces by its family's name -- one family, the built italics
+//! carrying the built family's name records (Jev, N_SHARE, 0.92/0.96) --
+//! and the icon and maths faces by theirs.
 
 use crate::fontconf::{FaceView, FcIndex, Kept, Select};
 use baud_font::var::{Fixed, Variation};

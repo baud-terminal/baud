@@ -46,8 +46,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Text, fonts and emoji
 
-- [ ] **Hebrew in every style** — Italic and bold italic Hebrew with its points, to match the regular and bold already built in. *In progress.*
 - [ ] **Right-to-left text** — Hebrew and Arabic lines laid out right to left, with the cursor and selection following. *In progress.*
+- [x] **Hebrew in every style** — Italic and bold italic Hebrew with its points, to match the regular and bold already built in. (2026-10-24)
 - [x] **Hebrew points on the last few fonts** — Hebrew points sit on their letters with Courier New, Arial Unicode MS and Arial Hebrew too: two points under one letter side by side, points inside their letter's cell, and meteg and the cantillation marks drawn. (2026-10-23)
 - [x] **Choose fonts by name** — Name a font family and size instead of pointing at a font file. File paths keep working. (2026-10-22)
 - [x] **Real bold and italic for your own fonts** — When you choose your own font, its bold and italic faces are used instead of the regular one. (2026-10-22)

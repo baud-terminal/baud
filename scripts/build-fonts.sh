@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # **Build baud's embedded font from what is committed, and prove the bytes.**
 #
-#   scripts/build-fonts.sh            build Regular and Bold, name the stock italics into
-#                                     their family, gate all four, and write
+#   scripts/build-fonts.sh            build Regular, Bold, Italic and Bold Italic, gate all
+#                                     four, and write
 #                                     baud-app/fonts/built/{Regular,Bold,Italic,BoldItalic}.ttf
 #                                     and MANIFEST
 #   scripts/build-fonts.sh --check    rebuild into a temporary directory and compare with
 #                                     built/MANIFEST and the committed files; writes nothing
-#   scripts/build-fonts.sh --italics  build the four italic recipes (both leans) into a
-#                                     temporary directory and compare each with its gated
-#                                     hash; writes nothing, and nothing embeds them
+#   scripts/build-fonts.sh --italics  build the two italics with the rounds' correction off
+#                                     (ROUND_K=0 LEVEL=0) and compare each with the plain shear's
+#                                     gated hash: the control that the correction is the
+#                                     only thing the italics add to the shear; writes nothing
 #
 # The inputs are the stock JetBrains Mono base (baud-app/fonts/jetbrains-mono/) and
 # baud-app/fonts/glyphs/languages/hebrew/: Cascadia Mono's variable font from the
@@ -17,10 +18,12 @@
 # (build/). The steps: instance the variable font at wght 400 and 700, regenerate the
 # anchors from those instances and require them equal to the committed ones, then run
 # build/build.py once per style under `env -i` with that style's exact environment.
-# Then the stock Italic and Bold Italic get the built family's name records
-# (scripts/font-family-records.py: nameIDs 1, 4 and 6, every other table and every
-# glyph stock), so the four embedded faces are one family, as the OpenType name
-# table's nameID 1 has a style-linking group share one name.
+# The italics are the upright design leaning right 9 degrees with the Latin, the
+# owner's call of 2026-10-24, with JetBrains Mono Italic's correction of rounds: its
+# bowls' joints levelled and its round corners' handles re-balanced (build/optical.py);
+# each merges into JetBrains Mono's own Italic or Bold Italic and
+# carries the built family's name, so the four embedded faces are one family, as the
+# OpenType name table's nameID 1 has a style-linking group share one name.
 #
 # **The gate is the sha256 of the gated files, by value.** These outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
@@ -74,19 +77,17 @@ NIXPKGS_SHA256=08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
 # (hebrew/SOURCE). The build refuses any other file.
 VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 
-# The gated hashes. Regular and Bold are embedded. The italics are recipes kept for
-# --italics: the Italic and Bold Italic slots stay stock JetBrains Mono until the
-# owner chooses the lean (1c) and the construction (shear or optical).
+# The gated hashes: the four embedded styles, and for --italics the two italics as
+# the plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b),
+# which the italics' recipes reproduce byte for byte with ROUND_K=0 LEVEL=0.
 gate_hash() {
   case $1 in
   Regular) echo df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f ;;
   Bold) echo a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 ;;
-  Italic-right) echo 852093090230e9c5f427fc1b3e70b1d5640d97ac280060fe6869c4f1e2bac001 ;;
-  Italic-left) echo 800a1eaac9886e6f98c61968da931743828e3a2084c2d8036f3517d67f5318a6 ;;
-  BoldItalic-right) echo 6175bc972ced48e18f7bdc141699775e4c6174821b05fdb47e23ea8d9905dd48 ;;
-  BoldItalic-left) echo 2fbc56fb574adfe5cf906703c4b16061b364d00c4264fe94dc42a009d1b2f1ac ;;
-  Italic) echo b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c ;;
-  BoldItalic) echo aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c ;;
+  Italic) echo f0743aa5f7c156f283553c45d9eae7d77e79660f885bd763b2ccf515c1200e5c ;;
+  BoldItalic) echo 43a3aade8d8d459d7546cb53bb1064fac464c1cc97883ea9e73886e8b8c844b2 ;;
+  Italic-plain) echo 852093090230e9c5f427fc1b3e70b1d5640d97ac280060fe6869c4f1e2bac001 ;;
+  BoldItalic-plain) echo 6175bc972ced48e18f7bdc141699775e4c6174821b05fdb47e23ea8d9905dd48 ;;
   *) return 1 ;;
   esac
 }
@@ -98,8 +99,9 @@ BASE_ENV=(SOURCE_DATE_EPOCH=315532800 PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1
 # gated set. buildone.sh exported DIP_FLOOR=1 and LOWEST_DIP=-293 for every style.
 # buildall.sh gave Bold and Bold Italic BOLDENV, and Bold Italic right its own hataf
 # gap (54). buildall3.sh rebuilt the two right leans with the meteg cell fit
-# (METEG_FIT=1) under UID_TAG prototype-bi-bold2-m. VARIANT=A and LAMED=L2 are the
-# interim picks for the owner's 1a and 1b, the review page's shown defaults.
+# (METEG_FIT=1) under UID_TAG prototype-bi-bold2-m: those are the italics' recipes,
+# whose rounds' correction is style.py's ROUND_K and LEVEL, set by STYLE. VARIANT=A and LAMED=L2
+# are the interim picks for the owner's 1a and 1b, the review page's shown defaults.
 BOLDENV=(BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF_BAR_MIN_DROP=3
   BOLD_LOWEST_TWO=-272.0 BOLD_LOWEST_DIP=-298.0 BOLD_SEG_PITCH=133 BOLD_QUB_DX=146
   BOLD_QUB_PITCH=134.4 BOLD_SEG_HOME=-43 BOLD_QUB_HOME=-42)
@@ -108,10 +110,11 @@ recipe() {
   case $1 in
   Regular) RECIPE=(STYLE=Regular LEAN=R "${COMMON[@]}") ;;
   Bold) RECIPE=(STYLE=Bold LEAN=R "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2 BOLD_HATAF_GAP=46 "${COMMON[@]}") ;;
-  Italic-right) RECIPE=(STYLE=Italic LEAN=R UID_TAG=prototype-bi-bold2-m METEG_FIT=1 "${COMMON[@]}") ;;
-  Italic-left) RECIPE=(STYLE=Italic LEAN=L "${COMMON[@]}") ;;
-  BoldItalic-right) RECIPE=(STYLE=BoldItalic LEAN=R "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2-m BOLD_HATAF_GAP=54 METEG_FIT=1 "${COMMON[@]}") ;;
-  BoldItalic-left) RECIPE=(STYLE=BoldItalic LEAN=L "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2 BOLD_HATAF_GAP=46 "${COMMON[@]}") ;;
+  Italic) RECIPE=(STYLE=Italic LEAN=R UID_TAG=prototype-bi-bold2-m METEG_FIT=1 "${COMMON[@]}") ;;
+  BoldItalic) RECIPE=(STYLE=BoldItalic LEAN=R "${BOLDENV[@]}" UID_TAG=prototype-bi-bold2-m BOLD_HATAF_GAP=54 METEG_FIT=1 "${COMMON[@]}") ;;
+  # the italics with the rounds' correction off: the plain shear (--italics)
+  Italic-plain) recipe Italic && RECIPE+=(ROUND_K=0 LEVEL=0) ;;
+  BoldItalic-plain) recipe BoldItalic && RECIPE+=(ROUND_K=0 LEVEL=0) ;;
   *) return 1 ;;
   esac
 }
@@ -202,12 +205,12 @@ build_one() {
 
 if [ "$mode" = italics ]; then
   fail=0
-  for name in Italic-right Italic-left BoldItalic-right BoldItalic-left; do
+  for name in Italic-plain BoldItalic-plain; do
     build_one "$name"
     got=$(sha "$WORK/$name.ttf")
     want=$(gate_hash "$name")
     if [ "$got" = "$want" ]; then
-      echo "ok   $name-A-L2  $got  (the gated file; not embedded)"
+      echo "ok   $name-A-L2  $got  (the plain shear; not embedded)"
     else
       echo "FAIL $name-A-L2  $got  want $want"
       fail=1
@@ -216,23 +219,12 @@ if [ "$mode" = italics ]; then
   exit $fail
 fi
 
-STYLES=(Regular Bold)
-# The stock italics, named into the built family: no recipe, the stock file in and
-# the built Regular's family name out.
-RENAMED=(Italic BoldItalic)
+STYLES=(Regular Bold Italic BoldItalic)
 fail=0
 for name in "${STYLES[@]}"; do
   build_one "$name"
 done
-for name in "${RENAMED[@]}"; do
-  if ! py -- scripts/font-family-records.py "$JBM/JetBrainsMono-$name.ttf" "$WORK/Regular.ttf" \
-    "$WORK/$name.ttf" >"$WORK/$name.log" 2>&1; then
-    echo "FAIL name $name; the log's tail:" >&2
-    tail -n 30 "$WORK/$name.log" >&2
-    exit 1
-  fi
-done
-for name in "${STYLES[@]}" "${RENAMED[@]}"; do
+for name in "${STYLES[@]}"; do
   got=$(sha "$WORK/$name.ttf")
   want=$(gate_hash "$name")
   if [ "$got" != "$want" ]; then
@@ -270,19 +262,17 @@ print("package uharfbuzz", uharfbuzz.__version__, "(HarfBuzz %s)" % uharfbuzz.ve
   echo "step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf"
   echo "step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)"
   echo "step build build/build.py <style>.ttf, once per recipe"
-  echo "step name scripts/font-family-records.py JetBrainsMono-<style>.ttf Regular.ttf <style>.ttf, for ${RENAMED[*]}"
   local f
   while IFS= read -r f; do
     echo "input $(sha "$f") $f"
   done < <(find "$HEB" -type f -not -name '*.pyc' -not -name .DS_Store -not -path '*/__pycache__/*' | LC_ALL=C sort)
-  for name in "${STYLES[@]}" "${RENAMED[@]}"; do
+  for name in "${STYLES[@]}"; do
     echo "input $(sha "$JBM/JetBrainsMono-$(base_of "$name").ttf") $JBM/JetBrainsMono-$(base_of "$name").ttf"
   done
-  echo "input $(sha scripts/font-family-records.py) scripts/font-family-records.py"
   for w in 400 700; do
     echo "intermediate $(sha "$WORK/cas$w.ttf") cas$w.ttf (the wght $w instance; not committed)"
   done
-  for name in "${STYLES[@]}" "${RENAMED[@]}"; do
+  for name in "${STYLES[@]}"; do
     echo "output $(sha "$WORK/$name.ttf") $OUT/$name.ttf"
   done
 }
@@ -294,10 +284,10 @@ if [ "$mode" = build ]; then
     exit 1
   fi
   mkdir -p "$OUT"
-  for name in "${STYLES[@]}" "${RENAMED[@]}"; do cp "$WORK/$name.ttf" "$OUT/$name.ttf"; done
+  for name in "${STYLES[@]}"; do cp "$WORK/$name.ttf" "$OUT/$name.ttf"; done
   cp "$WORK/MANIFEST" "$OUT/MANIFEST"
   grep '^output ' "$OUT/MANIFEST"
-  echo "ok: wrote ${STYLES[*]} ${RENAMED[*]} into $OUT, each the gated bytes, and $OUT/MANIFEST"
+  echo "ok: wrote ${STYLES[*]} into $OUT, each the gated bytes, and $OUT/MANIFEST"
   exit 0
 fi
 
@@ -306,7 +296,7 @@ if [ ! -f "$OUT/MANIFEST" ]; then
   echo "FAIL: no $OUT/MANIFEST to check against" >&2
   exit 1
 fi
-for name in "${STYLES[@]}" "${RENAMED[@]}"; do
+for name in "${STYLES[@]}"; do
   want=$(awk -v p="$OUT/$name.ttf" '$1 == "output" && $3 == p { print $2 }' "$OUT/MANIFEST")
   got=$(sha "$OUT/$name.ttf" 2>/dev/null || echo missing)
   if [ -z "$want" ] || [ "$got" != "$want" ]; then

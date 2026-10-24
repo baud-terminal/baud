@@ -1,6 +1,6 @@
 //! The fonts baud carries inside its binary: baud's embedded font in four
-//! styles -- JetBrains Mono, with baud's own Hebrew in its Regular and Bold
-//! -- Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized to one cell
+//! styles -- JetBrains Mono, with baud's own Hebrew in every style --
+//! Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized to one cell
 //! -- behind them, and STIX Two Math last, for the symbols no other default
 //! face has (the owner's call, 2026-10-02). So a machine with no font
 //! configured still draws JetBrains Mono, its ligatures, real bold and
@@ -21,12 +21,12 @@
 //! `fonts/built/MANIFEST` pins how, and `fonts/built/FONTLOG.txt` says what
 //! changed, what was picked for the meantime and what is still the owner's.
 //! The Italic and Bold Italic are `fonts/built/Italic.ttf` and
-//! `BoldItalic.ttf`: JetBrains Mono v2.304's own glyphs and tables, with
-//! only nameIDs 1, 4 and 6 rewritten to the built family's
-//! (`scripts/font-family-records.py`), so the four are one family that a
-//! `fonts` name finds (Jev, N_SHARE, 0.92/0.96). They carry no Hebrew for
-//! now: the interim pick STOCK_ITALIC, under which italic Hebrew draws
-//! upright Regular from the chain. Nerd Fonts v3.5.1's
+//! `BoldItalic.ttf`: JetBrains Mono v2.304's Italic and Bold Italic with the
+//! same 52 Hebrew code points, the upright Hebrew leaning right 9 degrees
+//! with the Latin (the owner's call, 2026-10-24) and its rounds corrected as
+//! JetBrains Mono's own italic corrects them, in the built family's name, so
+//! the four are one family that a `fonts` name finds (Jev, N_SHARE,
+//! 0.92/0.96). Nerd Fonts v3.5.1's
 //! `SymbolsNerdFontMono-Regular.ttf` and STIX Two v2.13b171's
 //! `STIXTwoMath-Regular.otf` are unmodified. Each source directory's `SOURCE`
 //! records where its files came from, and the licences sit beside them and
@@ -53,17 +53,17 @@ pub const BOLD: Embedded = Embedded {
     bytes: include_bytes!("../fonts/built/Bold.ttf"),
 };
 
-/// JetBrains Mono Italic in the built family's name, which maps no Hebrew
-/// (STOCK_ITALIC, interim).
+/// JetBrains Mono Italic with baud's Hebrew, leaning right with the Latin:
+/// the face italic text is drawn from.
 pub const ITALIC: Embedded = Embedded {
-    name: "Italic.ttf, JetBrains Mono Italic (embedded)",
+    name: "Italic.ttf, JetBrains Mono Italic with baud's Hebrew (embedded)",
     bytes: include_bytes!("../fonts/built/Italic.ttf"),
 };
 
-/// JetBrains Mono Bold Italic in the built family's name, which maps no
-/// Hebrew (STOCK_ITALIC, interim).
+/// JetBrains Mono Bold Italic with baud's Hebrew, leaning right with the
+/// Latin: the face bold italic text is drawn from.
 pub const BOLD_ITALIC: Embedded = Embedded {
-    name: "BoldItalic.ttf, JetBrains Mono Bold Italic (embedded)",
+    name: "BoldItalic.ttf, JetBrains Mono Bold Italic with baud's Hebrew (embedded)",
     bytes: include_bytes!("../fonts/built/BoldItalic.ttf"),
 };
 
@@ -119,8 +119,8 @@ mod tests {
         for (e, len, hash, style) in [
             (REGULAR, 279_896, 0x753b_59e6_d38e_813b_u64, 0),
             (BOLD, 284_460, 0x825c_ce6f_6e15_4098, 1),
-            (ITALIC, 276_816, 0xc0fd_3354_f436_ef77, 2),
-            (BOLD_ITALIC, 279_808, 0x4f2c_7e36_e9c6_1de6, 3),
+            (ITALIC, 283_296, 0x662e_613e_aa35_b409, 2),
+            (BOLD_ITALIC, 286_868, 0xa53f_c717_4683_4d1f, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -156,8 +156,8 @@ mod tests {
         for out in [
             "output df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f baud-app/fonts/built/Regular.ttf",
             "output a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 baud-app/fonts/built/Bold.ttf",
-            "output b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c baud-app/fonts/built/Italic.ttf",
-            "output aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c baud-app/fonts/built/BoldItalic.ttf",
+            "output f0743aa5f7c156f283553c45d9eae7d77e79660f885bd763b2ccf515c1200e5c baud-app/fonts/built/Italic.ttf",
+            "output 43a3aade8d8d459d7546cb53bb1064fac464c1cc97883ea9e73886e8b8c844b2 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -239,8 +239,8 @@ mod tests {
     /// The Hebrew `scripts/build-fonts.sh` adds to JetBrains Mono, 52 code
     /// points: the 20 points, and maqaf, paseq and sof pasuq, in U+05B0-05C5
     /// and U+05C7; the 27 letters U+05D0-05EA; and geresh and gershayim
-    /// U+05F3-05F4. Read from `fonts/built/Regular.ttf` and `Bold.ttf` with
-    /// fontTools 4.63.0, a reader that is not baud's.
+    /// U+05F3-05F4. Read from the four built styles with fontTools 4.63.0, a
+    /// reader that is not baud's.
     fn shipped() -> Vec<Codepoint> {
         (0x05B0..=0x05C5)
             .chain([0x05C7])
@@ -260,12 +260,12 @@ mod tests {
     }
 
     /// **Every style maps the Hebrew it ships** -- the owner's boxes, read
-    /// at the font. Regular and Bold map all 52 code points and nothing else
-    /// in the Hebrew block (U+05C6, nun hafukha, is one the build does not
-    /// draw); the stock files they were built from map none, the control that
-    /// the Hebrew is the build's. Italic and Bold Italic ship none: they are
-    /// stock JetBrains Mono for now (STOCK_ITALIC, interim), so their Hebrew
-    /// is drawn from the chain, upright Regular.
+    /// at the font. Regular, Bold, Italic and Bold Italic each map all 52
+    /// code points and nothing else in the Hebrew block (U+05C6, nun
+    /// hafukha, is one the build does not draw); the stock files they were
+    /// built from map none, the control that the Hebrew is the build's. So
+    /// italic Hebrew is drawn from the italic faces, not upright from the
+    /// chain.
     #[test]
     fn every_style_maps_the_hebrew_it_ships() {
         let hebrew = shipped();
@@ -279,6 +279,8 @@ mod tests {
         for (e, base) in [
             (REGULAR, "JetBrainsMono-Regular.ttf"),
             (BOLD, "JetBrainsMono-Bold.ttf"),
+            (ITALIC, "JetBrainsMono-Italic.ttf"),
+            (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
         ] {
             let f = face(e);
             for &c in &hebrew {
@@ -301,15 +303,151 @@ mod tests {
                 "the control: stock {base} maps Hebrew"
             );
         }
-        for e in [ITALIC, BOLD_ITALIC] {
-            assert!(
-                block(&face(e)).is_empty(),
-                "{}: the italic slots are stock JetBrains Mono until the owner answers the \
-                 lean (STOCK_ITALIC, interim), so they map no Hebrew and theirs draws upright \
-                 Regular from the chain; an italic that maps it is a new build, and this pin \
-                 moves with it",
-                e.name
+    }
+
+    /// How far a glyph's outline leans: the least-squares slope of x on y
+    /// over every point its outline names, on- and off-curve -- 0 for a
+    /// shape with no lean, tan(9 degrees) = 0.158 added by a 9-degree shear
+    /// to the right.
+    fn lean(f: &Face<'_>, c: Codepoint) -> f64 {
+        let g = f.glyph(c).expect("mapped");
+        let mut p = Path(Vec::new());
+        f.outline(g, &mut p);
+        let pts: Vec<(f64, f64)> =
+            p.0.iter()
+                .flat_map(|cmd| {
+                    // Path's kinds: 0 move, 1 line, 2 quad, 3 cubic, 4 close.
+                    let n = match cmd[0] {
+                        k if k < 1.5 => 1,
+                        k if k < 2.5 => 2,
+                        k if k < 3.5 => 3,
+                        _ => 0,
+                    };
+                    (0..n).map(move |k| (f64::from(cmd[1 + 2 * k]), f64::from(cmd[2 + 2 * k])))
+                })
+                .collect();
+        let n = f64::from(u32::try_from(pts.len()).unwrap());
+        let (mx, my) = pts
+            .iter()
+            .fold((0.0, 0.0), |(a, b), (x, y)| (a + x / n, b + y / n));
+        let (sxy, syy) = pts.iter().fold((0.0, 0.0), |(a, b), (x, y)| {
+            (a + (x - mx) * (y - my), b + (y - my) * (y - my))
+        });
+        sxy / syy
+    }
+
+    /// **Italic Hebrew leans right, with the Latin** -- the owner's call of
+    /// 2026-10-24 ("learn right R"). Every Hebrew letter of the Italic and
+    /// Bold Italic leans right of its upright by 9 degrees, JetBrains Mono
+    /// Italic's angle: its outline's slope, x on y, exceeds the Regular's or
+    /// the Bold's by 0.158, within 0.03. The control: JetBrains Mono's own
+    /// Latin in the same files leans by the same angle the same way (`l`,
+    /// `H`), so a Hebrew leaning left, or upright, fails beside it.
+    #[test]
+    fn italic_hebrew_leans_right_with_the_latin() {
+        let tan9 = 9.0_f64.to_radians().tan();
+        let mut off = Vec::new();
+        for (it, up) in [(ITALIC, REGULAR), (BOLD_ITALIC, BOLD)] {
+            let (fi, fu) = (face(it), face(up));
+            for c in (0x05D0..=0x05EA).filter_map(Codepoint::new) {
+                let d = lean(&fi, c) - lean(&fu, c);
+                if (d - tan9).abs() > 0.03 {
+                    off.push(format!("{} U+{:04X}: {d:.3}", it.name, c.value()));
+                }
+            }
+            for c in ['l', 'H'] {
+                let c = Codepoint::new(u32::from(c)).unwrap();
+                let d = lean(&fi, c) - lean(&fu, c);
+                assert!(
+                    (d - tan9).abs() <= 0.03,
+                    "the control: {}'s {:?} leans {d:.3}",
+                    it.name,
+                    c
+                );
+            }
+        }
+        assert!(
+            off.is_empty(),
+            "letters not leaning 9 degrees right: {off:#?}"
+        );
+    }
+
+    /// Where samekh's bowl sides end below: the lower end of each of its
+    /// four side strokes (straight segments at least 20 units long that
+    /// begin below y 300 and run up at the face's slant), left to right --
+    /// outer left, inner left, inner right, outer right -- as heights.
+    fn samekh_side_bottoms(f: &Face<'_>, slant: f64) -> Vec<f64> {
+        let g = f.glyph(Codepoint::new(0x05E1).unwrap()).expect("mapped");
+        let mut p = Path(Vec::new());
+        f.outline(g, &mut p);
+        let mut sides = Vec::new();
+        let (mut at, mut start) = ((0.0, 0.0), (0.0, 0.0));
+        for cmd in &p.0 {
+            let pt = |k: usize| (f64::from(cmd[k]), f64::from(cmd[k + 1]));
+            let next = match cmd[0] {
+                k if k < 0.5 => {
+                    start = pt(1);
+                    at = start;
+                    continue;
+                }
+                k if k < 1.5 => pt(1),
+                k if k < 2.5 => pt(3),
+                k if k < 3.5 => pt(5),
+                _ => start,
+            };
+            let ((x0, y0), (x1, y1)) = if at.1 < next.1 {
+                (at, next)
+            } else {
+                (next, at)
+            };
+            let straight = cmd[0] < 1.5 || cmd[0] > 3.5;
+            if straight
+                && y1 - y0 >= 20.0
+                && y0 < 300.0
+                && (x1 - x0 - slant * (y1 - y0)).abs() < 1.0
+            {
+                sides.push((x0 - slant * y0, y0));
+            }
+            at = next;
+        }
+        sides.sort_by(|a, b| a.0.total_cmp(&b.0));
+        sides.into_iter().map(|(_, y)| y).collect()
+    }
+
+    /// **Italic samekh's bowl takes JetBrains Mono Italic's joint
+    /// levelling.** JetBrains Mono's italic moves a bowl's outer
+    /// curve/straight joint to its inner joint's height where the upright's
+    /// outer straight stopped short (o 12.6-12.7 units, O 10.1); baud's
+    /// italics move each Hebrew bowl's outer joint toward its inner one by
+    /// the gap, at most 13 units (optical.py, `level_rec`). Samekh's
+    /// upright gaps are 31.2 (Regular) and 45.5 (Bold) on both sides, so
+    /// in the Italic and Bold Italic each side's gap is the upright's less
+    /// 13, within a unit of rounding. A plain shear keeps the upright gap,
+    /// and a full level leaves none: both fail.
+    #[test]
+    fn italic_samekh_levels_its_bowl_joints_by_up_to_13_units() {
+        let tan9 = 9.0_f64.to_radians().tan();
+        for (it, up) in [(ITALIC, REGULAR), (BOLD_ITALIC, BOLD)] {
+            let (bi, bu) = (
+                samekh_side_bottoms(&face(it), tan9),
+                samekh_side_bottoms(&face(up), 0.0),
             );
+            assert_eq!(
+                (bi.len(), bu.len()),
+                (4, 4),
+                "{}: four sides, {bi:?} {bu:?}",
+                it.name
+            );
+            for (outer, inner) in [(0, 1), (3, 2)] {
+                let (gu, gi) = (bu[outer] - bu[inner], bi[outer] - bi[inner]);
+                assert!(gu > 13.0, "{}: the upright gap {gu}", up.name);
+                assert!(
+                    (gi - (gu - 13.0)).abs() <= 1.0,
+                    "{}: side {outer}'s joint gap is {gi:.1}, the upright's {gu:.1} less 13 is {:.1}",
+                    it.name,
+                    gu - 13.0
+                );
+            }
         }
     }
 
@@ -473,41 +611,6 @@ mod tests {
         lost
     }
 
-    /// **The embedded italics are JetBrains Mono's but for their names**:
-    /// every table the stock file has is the stock file's byte for byte,
-    /// `head` but for its checkSumAdjustment, except `name`, whose family
-    /// records are the built family's (`scripts/font-family-records.py`).
-    /// The stock file against itself is the control that the comparison
-    /// reads a table at all.
-    #[test]
-    fn the_embedded_italics_are_stock_but_for_their_names() {
-        let tags: [&[u8; 4]; 17] = [
-            b"GDEF", b"GPOS", b"GSUB", b"OS/2", b"cmap", b"cvt ", b"fpgm", b"gasp", b"glyf",
-            b"head", b"hhea", b"hmtx", b"loca", b"maxp", b"name", b"post", b"prep",
-        ];
-        let differs = |a: &[u8], b: &[u8]| -> Vec<String> {
-            tags.iter()
-                .filter(|t| {
-                    let (x, y) = (table_bytes(a, t), table_bytes(b, t));
-                    match **t {
-                        // checkSumAdjustment, bytes 8 to 11.
-                        [b'h', b'e', b'a', b'd'] => x[..8] != y[..8] || x[12..] != y[12..],
-                        _ => x != y,
-                    }
-                })
-                .map(|t| String::from_utf8_lossy(&t[..]).into_owned())
-                .collect()
-        };
-        for (e, file) in [
-            (ITALIC, "JetBrainsMono-Italic.ttf"),
-            (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
-        ] {
-            let stock = stock(file);
-            assert_eq!(differs(e.bytes, &stock), ["name"], "{}", e.name);
-            assert!(differs(&stock, &stock).is_empty(), "the control");
-        }
-    }
-
     /// **The built font keeps JetBrains Mono**: each built style against
     /// the stock file of its style keeps GSUB byte for byte (once the `hebr`
     /// script record is taken out), maps every code
@@ -518,18 +621,26 @@ mod tests {
     /// them is a probe that cannot fire.
     #[test]
     fn the_built_font_keeps_jetbrains_mono() {
-        let (r, b, i) = (
+        let (r, b, i, bi) = (
             stock("JetBrainsMono-Regular.ttf"),
             stock("JetBrainsMono-Bold.ttf"),
             stock("JetBrainsMono-Italic.ttf"),
+            stock("JetBrainsMono-BoldItalic.ttf"),
         );
-        let (r, b, i) = (
+        let (r, b, i, bi) = (
             Face::parse(&r).unwrap(),
             Face::parse(&b).unwrap(),
             Face::parse(&i).unwrap(),
+            Face::parse(&bi).unwrap(),
         );
         assert_eq!(lost(&face(REGULAR), &r), Vec::<&str>::new(), "Regular");
         assert_eq!(lost(&face(BOLD), &b), Vec::<&str>::new(), "Bold");
+        assert_eq!(lost(&face(ITALIC), &i), Vec::<&str>::new(), "Italic");
+        assert_eq!(
+            lost(&face(BOLD_ITALIC), &bi),
+            Vec::<&str>::new(),
+            "Bold Italic"
+        );
         // The controls. The stock file the build starts from fails exactly
         // the two checks about what the build adds.
         assert_eq!(lost(&r, &r), ["glyph count", "added"], "stock over stock");
@@ -650,6 +761,8 @@ mod tests {
         for (e, base) in [
             (REGULAR, "JetBrainsMono-Regular.ttf"),
             (BOLD, "JetBrainsMono-Bold.ttf"),
+            (ITALIC, "JetBrainsMono-Italic.ttf"),
+            (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
         ] {
             let stock = stock(base);
             assert_eq!(

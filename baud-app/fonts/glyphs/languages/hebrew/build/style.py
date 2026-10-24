@@ -68,6 +68,39 @@ def shear_xy(x, y):
     return (x + SLANT * TAN * (y - SHEAR_Y0), y)
 
 
+# ---------------------------------------------------------------- the rounds' correction
+# ROUND_K: optical.py's k = 1 + ROUND_K[kind] * (theta - 90), JetBrains Mono Italic's handle
+# ratio at a round corner the shear turned to theta degrees, fitted through k = 1 on its
+# right-angle corners (sources/JetBrainsMono-Italic.glyphs against JetBrainsMono.glyphs at
+# cd5227b, per master), one fit per kind of corner -- what meets the corner's arc at its ends:
+#   both-straight  a stroke on each side (D, t, 5): 14 corners, 0.00022 per degree (400), 0.00018 (800)
+#   one-straight   a stroke on one side (b, d, n, o, u, C, O): 132 corners, 0.00091 (400), 0.00112 (800)
+#   both-curved    curve on both sides (S, 6, 8): 29 corners, 0.00104 (400), 0.00073 (800)
+# Italic takes the Regular master's (400); Bold Italic is wght 700, three quarters of the
+# way to the ExtraBold master (800), interpolated. The upright styles are not sheared and take
+# none. ROUND_K in the environment sets every kind to one value: the embedded styles'
+# recipes do not set it, and scripts/build-fonts.sh --italics sets it to 0, the plain shear.
+ROUND_K_OF = {
+    'Italic': {'both-straight': 0.00022, 'one-straight': 0.00091, 'both-curved': 0.00104},
+    'BoldItalic': {'both-straight': 0.00019, 'one-straight': 0.00107, 'both-curved': 0.00081},
+}
+_NONE = {'both-straight': 0.0, 'one-straight': 0.0, 'both-curved': 0.0}
+ROUND_K = ({k: float(os.environ['ROUND_K']) for k in _NONE} if os.environ.get('ROUND_K')
+           else ROUND_K_OF.get(STYLE, _NONE))
+
+# LEVEL: how far optical.py's level_rec moves a bowl's outer joint toward its inner one's, in units.
+# JetBrains Mono Italic levels its own (Regular o 12.6-12.7, O 10.1, q's inner 10; ExtraBold O 10.1),
+# the same at acute and obtuse corners; Hebrew's gaps are 6.6-31.2 (Italic) and 23.2-45.5 (Bold
+# Italic, measured on the wght-700 outlines: a level is not a magnitude, so nothing is interpolated).
+# 13, JBM's largest move, thickens Hebrew's obtuse bowl corners 1.4-3.0% and its acute ones 0.5-0.7%
+# where JBM's italic thickens its own 3.1-3.2% and 0.2-0.6%; levelling in full would give 4.6-5.1% and
+# 3.7-4.0% (Jev, D13_LEVEL_CAPPED, 0.99 at confidence 0.98 in both orders). LEVEL in the environment
+# overrides it: 0 is off, 'full' no limit; scripts/build-fonts.sh --italics sets 0.
+LEVEL_OF = {'Italic': 13.0, 'BoldItalic': 13.0}
+_level = os.environ.get('LEVEL')
+LEVEL = (math.inf if _level == 'full' else float(_level)) if _level else LEVEL_OF.get(STYLE, 0.0)
+
+
 def suffix():
     """File and nameID-3 tag of this style."""
     return STYLE + ('-' + {'R': 'right', 'L': 'left'}[LEAN] if ITALIC else '')

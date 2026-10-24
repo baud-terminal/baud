@@ -6,7 +6,8 @@ meantime, and what is still wrong. The licence is OFL.txt and the authors are li
 AUTHORS.txt. MANIFEST records how the files are built and pins every input and output.
 
 The record of the design work is note AC, docs/research/notes/ac-built-font.md: section
-4a covers the Regular, 4b the other styles and the italic lean, and 6 the open decisions.
+4a covers the Regular, 4b the other styles and the italic lean, 4c the italics as built,
+and 6 the open decisions.
 
 On macOS, scripts/bundle-macos.sh puts this directory's OFL.txt, FONTLOG.txt,
 AUTHORS.txt and MANIFEST, and glyphs/languages/hebrew/'s OFL.txt and SOURCE, in the app
@@ -18,26 +19,18 @@ THE FILES
 
 Regular.ttf     JetBrains Mono 2.304 Regular plus Hebrew. The variant is A-L2.
 Bold.ttf        JetBrains Mono 2.304 Bold plus Hebrew. The variant is A-L2.
-Italic.ttf      JetBrains Mono 2.304 Italic, renamed into this family.
-BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic, renamed into this family.
+Italic.ttf      JetBrains Mono 2.304 Italic plus Hebrew, leaning right. The variant is A-L2.
+BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic plus Hebrew, leaning right. The variant
+                is A-L2.
 
-The Italic and Bold Italic are stock JetBrains Mono's glyphs and tables: no Hebrew,
-which is the interim pick below. In those slots, Hebrew draws from the stack's chain,
-so it comes out upright and at Regular weight. Only their family name records
-changed (see WHAT CHANGED); they hold nothing from Cascadia.
-
-Regular and Bold are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
+All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
-write bytes other than these sha256s,
+write bytes other than these sha256s:
 
-  Regular.ttf  df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f
-  Bold.ttf     a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3
-
-and Italic.ttf and BoldItalic.ttf from the stock italics by
-scripts/font-family-records.py, to these:
-
-  Italic.ttf      b31440833719f832d9c45467a6187e13564c976fcefe44ef9c3ce7a9fa98f83c
-  BoldItalic.ttf  aa44c16d76b1e0233395e3b5bbda0119af6d0230db4ec093f4e00e9753c4623c
+  Regular.ttf     df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f
+  Bold.ttf        a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3
+  Italic.ttf      f0743aa5f7c156f283553c45d9eae7d77e79660f885bd763b2ccf515c1200e5c
+  BoldItalic.ttf  43a3aade8d8d459d7546cb53bb1064fac464c1cc97883ea9e73886e8b8c844b2
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and nothing else: take the 6-byte hebr script record
@@ -46,8 +39,9 @@ table but name (nameID 7) and head (its checksum) is final3's. The gates were ru
 again on these bytes on 2026-10-08 (CHANGELOG).
 
 Running scripts/build-fonts.sh --check rebuilds all four and compares them with MANIFEST.
-scripts/build-fonts.sh --italics rebuilds the four italic recipes (both leans) and
-compares each with its gated hash; none of them is embedded.
+scripts/build-fonts.sh --italics rebuilds the two italics with the rounds' correction
+off (both its parts) and requires the plain shear's earlier gated bytes (note AC 4b),
+so the correction is the only thing the italics add to the shear.
 
 
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
@@ -93,20 +87,38 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   is an open call; see below.
 
 
-WHAT CHANGED IN ITALIC.TTF AND BOLDITALIC.TTF
+THE ITALICS
 
-Against stock JetBrains Mono 2.304 Italic and Bold Italic, three name records and
-nothing else: nameID 1 is "Proto Hebrew Mono C", nameID 4 "Proto Hebrew Mono C
-Italic" (or "Bold Italic") and nameID 6 "ProtoHebrewMonoC-Italic" (or "-BoldItalic"),
-each the built Regular's family name with the stock subfamily (nameID 2). Every other
-table is stock byte for byte, and head differs only in checkSumAdjustment;
-scripts/font-family-records.py refuses to write any other result. The OpenType name
-table says a family name "should be shared among at most four fonts that differ only
-in weight or style (italic/oblique)", a style-linking group of regular, italic, bold
-and bold italic; baud uses these four faces as that group, and a font named in baud's
-config by family finds all four by this name. Copyright, trademark (nameID 7, JetBrains
-Mono's own), version and licence records are stock. When decision 11 names the family,
-all four files are renamed together.
+Italic and bold italic Hebrew lean right, with JetBrains Mono Italic's Latin and
+digits: the owner's call of 2026-10-24 ("learn right R"). Each is its upright design
+(Regular, or Bold) sheared 9 degrees about y = 315, JetBrains Mono Italic's angle
+(italicAngle = 9 in every master of its source), with the points moved by the same
+shear so each stays on its letter, then fitted back into the cell where the shear
+took a point out of it, meteg included (note AC 4b). The vowel points stay sheared,
+as JetBrains Mono's own combining dots are.
+
+The letters' rounds then take JetBrains Mono Italic's own correction
+(build/optical.py), read from its sources (sources/JetBrainsMono.glyphs and
+JetBrainsMono-Italic.glyphs at cd5227b). Its italic is its upright sheared, with two
+departures at the rounds. First, where a bowl's outer curve met its straight side
+farther from the corner than the inner curve across the stroke, the italic levels the
+joints on o, O and q: o's and O's outer joints move level with the inner ones (o by
+12-13 units, O by 10) and q's inner joints move in by 10, the same at acute and obtuse
+corners (g and e keep their gaps). At the obtuse corner the shear thinned, the italic
+has about 3% more ink than its sheared upright. Hebrew's bowls stop short by 6.6-31.2 units (Italic) and 23.2-45.5
+(Bold Italic), so each outer joint moves toward its inner one by the gap, at most 13
+units, JetBrains Mono's largest move: samekh, tet, shin and mem in Italic.ttf,
+samekh, shin and mem in BoldItalic.ttf. Second, at a round corner the shear made
+acute it shortens the curve's handles and at one it made obtuse it lengthens them, by
+an amount that depends on what meets the corner; each Hebrew corner gets the amount
+JetBrains Mono gives a corner like it. Against the plain shear the two move 12 glyphs
+in Italic.ttf and 14 in BoldItalic.ttf, and the cell fit moves two point anchors.
+Stems keep their horizontal width, as JetBrains Mono's italic keeps them.
+
+Each merges into JetBrains Mono's own Italic or Bold Italic, under this family's name:
+its family and style records are those the stock italics renamed into the family
+carried, nameIDs 0 and 7 are as in Regular.ttf and Bold.ttf, and nameID 3 is this
+style's own build tag (WHAT CHANGED).
 
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
@@ -129,6 +141,8 @@ Bold's stems. The steps (note AC 4a and 4b):
 - Meteg attaches to the vowel before it.
 - Two-row points (sheva, the hatafs) drop under ג ט ל ס ש so their top dot does not
   touch the letter.
+- Italic and Bold Italic: the upright design leaning right 9 degrees, its rounds
+  corrected as JetBrains Mono Italic corrects its own (THE ITALICS).
 
 Nothing from Cascadia's Latin is used.
 
@@ -146,11 +160,12 @@ interim)
 - Regular: the gated Regular-A-L2 design, its bytes changed only by the two
   conformance fixes; the review page's shown defaults for 1a (A) and 1b (L2).
   Interim; the owner's call.
-- Italic and Bold Italic: STOCK_ITALIC, interim, 0.57. The slots keep stock JetBrains
-  Mono's glyphs, so no lean and no shear is baked in. Their family name records are
-  the built family's since 2026-10-22 (N_SHARE, settled, Jev 0.92/0.96 in both
-  orders; CHANGELOG). The build keeps both leans' recipes
-  (--italics).
+- Italic and Bold Italic: the lean is the owner's (right, 2026-10-24). How far the
+  rounds' handles are corrected is C_PER_KIND_FIT, settled, 0.96 at confidence 0.94 in
+  both orders: each corner takes JetBrains Mono's fit for corners of its kind. How far
+  the bowls' joints are levelled is D13_LEVEL_CAPPED, settled, 0.99 at confidence 0.98
+  in both orders: by the gap, at most 13 units. Their
+  family name is the built family's (N_SHARE, settled, Jev 0.92/0.96 in both orders).
 - Inputs: COMMIT_VF, settled, 0.93. Cascadia's variable font is committed with SOURCE
   and its licence, and the build instances it.
 - Name bytes: KEEP_FINAL3_BYTES, settled, 0.95, superseded for two fields on
@@ -175,9 +190,7 @@ OPEN OWNER CALLS
     interim is A.
 1b  Holam on lamed: beside the mast (L1) or above it, inside the cell (L2). The
     interim is L2.
-1c  Which way italic Hebrew leans: right, with JetBrains Mono Italic's Latin and
-    digits; left; or both behind a setting. The interim is neither, because the
-    italic slots are stock.
+1c  Answered by the owner on 2026-10-24: right, with the Latin.
 1d  Vowel points at 26 px, baud's default size, where no round dot fits in the rows
     below the baseline: as built, no drop under ג ט ל ס ש, or a short or dash-shaped
     dot. The interim is as built.
@@ -204,7 +217,7 @@ The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-
 OFL condition 5: "The Font Software, modified or unmodified, in part or in whole, must
 be distributed entirely under this license, and must not be distributed under any
 other license." So LICENSE carves the fonts out, in its section "Files this licence
-does not cover": Regular.ttf and Bold.ttf with this file, OFL.txt and AUTHORS.txt
+does not cover": the four built styles with this file, OFL.txt and AUTHORS.txt
 beside them; CascadiaMono.ttf and the two anchors files; and the stock fonts. It
 names the two questions above as open and assigns the build modules to neither
 licence. baud-font/tests/licences.rs fails if a font in the tree is neither baud's
@@ -216,13 +229,9 @@ not use individual words from the Reserved Font Names"), and it should not be
 "JetBrains Mono", which is JetBrains' trademark. The prototype name and JetBrains'
 nameIDs 8, 9, 11 and 12 stay until then; nameID 7 keeps both trademark notices.
 
-Shear or optical italic. Every italic recipe in the build is the upright design
-sheared 9 degrees about y = 315, outlines and anchors in one transform, which is
-JetBrains Mono Italic's angle. That is a plain shear, not optically corrected. The
-owner's words were "i do think we want italic in hebrew". The session recorded them
-as slanted to match JetBrains Mono's italic and optically corrected like its rounds,
-not a plain shear, but that is a reading. The question goes to the owner with a
-rendered comparison before any italic is embedded.
+Shear or optical italic. Answered: the italics are optically corrected as JetBrains
+Mono's italic corrects its rounds (THE ITALICS), the reading the session recorded of
+the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
@@ -241,6 +250,11 @@ were fixed; see the CHANGELOG.)
   descender, meteg sits up to 60 units out of the cell with hataf segol, 42 with
   qubuts, and 10 with hataf patah and hataf qamats, which Regular keeps inside; on the
   five with one, qof and four final forms, 32 of 55 clusters leave the cell.
+- Meteg in the italics passes 185 of 297 clusters in Italic and 143 in Bold Italic,
+  where Regular passes 217 and Bold 172: the right lean's points sit left of the
+  upright's, and the cell fit moves the vowel but not meteg alone (note AC 4b).
+  Measured on these files with the round 3 critic's check; the plain shear's are the
+  same counts.
 - Rare combinations overflow the cell sideways: qof with hataf segol by 104 units,
   and final tsadi with qubuts by 140 (Regular; Bold unmeasured).
 - After the digit 1, an unattached holam vanishes into it, as JetBrains Mono's own
@@ -310,3 +324,7 @@ CHANGELOG
   2.304's Italic and Bold Italic with nameIDs 1, 4 and 6 in this family's name, so
   the four embedded faces are one family (see WHAT CHANGED IN ITALIC.TTF AND
   BOLDITALIC.TTF). Regular.ttf and Bold.ttf are unchanged.
+2026-10-24 (i-am-logger, baud): Italic.ttf and BoldItalic.ttf carry the Hebrew,
+  leaning right with the Latin (the owner's call), the upright sheared 9 degrees with
+  JetBrains Mono Italic's correction of rounds (THE ITALICS). Regular.ttf and Bold.ttf
+  are unchanged.

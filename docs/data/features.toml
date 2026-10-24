@@ -539,22 +539,21 @@ tests = ["baud-app/src/host.rs::claude_codes_symbols_draw_from_stix_behind_a_con
 id = "hebrew-font"
 area = "text"
 name = "Hebrew built in"
-does = "Hebrew letters and points are drawn from baud's own monospace Hebrew, made to match the built-in font, in regular and bold."
+does = "Hebrew letters and points are drawn from baud's own monospace Hebrew, made to match the built-in font, in regular, bold, italic and bold italic."
 status = "built"
 platform = "both"
-tests = ["baud-render/tests/hebrew_embedded.rs::bold_hebrew_draws_from_the_built_bold_and_italic_from_the_chain", "baud-app/src/embedded.rs::every_style_maps_the_hebrew_it_ships"]
+tests = ["baud-render/tests/hebrew_embedded.rs::bold_and_italic_hebrew_draw_from_the_built_styles", "baud-app/src/embedded.rs::every_style_maps_the_hebrew_it_ships"]
 shipped = ["2026-10-15-hebrew-ligatures-now-form-in-apple"]
 
 [[feature]]
 id = "hebrew-italic"
 area = "text"
 name = "Italic Hebrew"
-does = "Italic Hebrew is drawn upright in the regular weight."
-status = "interim"
-gap = "the built-in italic faces carry no Hebrew yet."
+does = "Italic and bold italic Hebrew lean right with the Latin around them, at the built-in font's own italic angle and with its rounds shaped as its italic shapes them, and every vowel point stays on its letter."
+status = "built"
 platform = "both"
-paths = ["baud-app/src/embedded.rs"]
-roadmap = ["SQ-v1.0-11"]
+tests = ["baud-app/src/embedded.rs::italic_hebrew_leans_right_with_the_latin", "baud-render/tests/hebrew_embedded.rs::genesis_1_1_to_5_keeps_every_point_in_italic_and_bold_italic", "baud-present-macos/tests/cells.rs::italic_hebrew_draws_alike_on_every_arm"]
+shipped = ["SQ-v1.0-11"]
 
 [[feature]]
 id = "pointed-hebrew"

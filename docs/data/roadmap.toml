@@ -180,7 +180,8 @@ summary = "Open another window, including after the last one closed."
 [[item]]
 id = "SQ-v1.0-11"
 area = "text"
-status = "in_progress"
+status = "done"
+date = "2026-10-24"
 title = "Hebrew in every style"
 summary = "Italic and bold italic Hebrew with its points, to match the regular and bold already built in."
 

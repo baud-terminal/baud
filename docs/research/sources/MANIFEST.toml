@@ -10772,6 +10772,36 @@ group  = "J"
 # Committed at `baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf`,
 # renamed as the upright is. Note Z.
 
+[sources.jbm-glyphs-upright]
+key    = "jbm-glyphs-upright"
+title  = "JetBrains Mono v2.304, sources/JetBrainsMono.glyphs -- the upright masters (Thin, Regular, ExtraBold) as drawn, Glyphs 2 format"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono at cd5227b (v2.304), sources (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/sources/JetBrainsMono.glyphs"
+file   = ""
+sha256 = "235ed9380a052c565d5eb3a3cc8244c890d8e9ecc9d859d64795cae9b68780de"
+bytes  = 2342558
+status = "external"
+group  = "J"
+# Read for what JetBrains Mono's italic does to its upright: node for node against
+# jbm-glyphs-italic (note AC 4c, the Hebrew build's optical.py).
+
+[sources.jbm-glyphs-italic]
+key    = "jbm-glyphs-italic"
+title  = "JetBrains Mono v2.304, sources/JetBrainsMono-Italic.glyphs -- the italic masters as drawn, italicAngle = 9 in each"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono at cd5227b (v2.304), sources (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/sources/JetBrainsMono-Italic.glyphs"
+file   = ""
+sha256 = "8a6ad70aac334e75e80afe97230e939efcfc220d1b0cb7270efa17c764d01455"
+bytes  = 2355206
+status = "external"
+group  = "J"
+# The italic masters are the upright's sheared 9 degrees about y ~ 278, on-curve
+# nodes within 0.4 units on average; the rounds' handles are what differs (note AC 4c).
+
 [sources.font-fira-code-variable]
 key    = "font-fira-code-variable"
 title  = "Fira Code 6.2, variable (wght 300-700, default at its minimum) -- a second variation oracle face"
