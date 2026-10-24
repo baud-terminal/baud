@@ -1,9 +1,11 @@
 //! The glyph atlas: one `A8` texture of coverage masks and one `ARGB`
 //! texture of colour glyphs, each carved into bands of uniform slots,
-//! grow-only, keyed by face and glyph.
+//! grow-only, keyed by face and glyph at each pixel size.
 //!
-//! A glyph is resolved the first time it is asked for and never again
-//! while the atlas lives; a size or font change starts a new atlas. A
+//! A glyph is resolved the first time it is asked for at a size and never
+//! again while the atlas holds that size: what was drawn at the last
+//! [`SIZES`] sizes stays on the sheets, so a zoom back to one of them draws
+//! nothing ([`Atlas::at`]), and a change of faces starts a new atlas. A
 //! face's bitmap strike (`sbix`, `CBDT`) is tried first, then its `COLR`
 //! layers painted through palette zero, then the outline as a mask -- the
 //! order Apple Color Emoji, Noto Color Emoji and Bungee Tint each need.
@@ -38,7 +40,8 @@
 //! everything still on screen and cleared the 384 KB glyph map -- mid
 //! frame, while the GPU was sampling the texture it rewrote. A band never
 //! moves, so the only operation that voids a rectangle is [`Atlas::reset`],
-//! which a font size change asks for deliberately.
+//! which a change of faces asks for deliberately, as does a size past
+//! [`SIZES`].
 //!
 //! Bands also admit per-slot eviction, since a freed slot is an index its
 //! class can hand out again rather than a hole a packer would have to
@@ -319,9 +322,10 @@ pub struct AtlasStats {
     pub synthesised: Tally,
     /// Bitmap strikes decoded and `COLR` glyphs painted.
     pub coloured: Tally,
-    /// Every slot voided: [`Atlas::reset`], which a font size change asks
-    /// for. What a cache of rectangles watches, and the only event that
-    /// invalidates one.
+    /// Every slot voided, by [`Atlas::reset`], or every slot handed out
+    /// naming another size's image, by [`Atlas::at`]: either way what a
+    /// cache of rectangles watches, and the only events that invalidate
+    /// one.
     pub grown: Tally,
     /// A texture doubled with its rows copied across. Every rectangle
     /// survives, so nothing that cached one is told; the GPU still learns
@@ -464,6 +468,72 @@ pub enum Replaced {
     Yes,
 }
 
+/// **How many pixel sizes the atlas holds its glyphs at.** A slot is never
+/// freed, so the sizes are bounded rather than evicted one at a time: a
+/// rescale to a size past these starts the atlas over, as the badge's
+/// third size does (`BADGE_SIZES`), and holds only the new one.
+pub const SIZES: usize = 4;
+
+/// A pixel size the atlas holds glyphs at: the size's bits, so two sizes
+/// are one key exactly when they are the same `f32`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SizeKey(u32);
+
+impl SizeKey {
+    /// No size yet: an atlas made by [`Atlas::new`] before
+    /// [`Atlas::at`] names one.
+    const NONE: SizeKey = SizeKey(u32::MAX);
+
+    pub fn of(size: crate::PxSize) -> SizeKey {
+        SizeKey(size.value().to_bits())
+    }
+}
+
+/// What [`Atlas::at`] did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Rescaled {
+    /// The size was the one drawn at already.
+    Same,
+    /// The size was held, and its glyphs are drawn again from the sheets.
+    Kept,
+    /// A size not held, beside the others: its glyphs are drawn as asked.
+    Added,
+    /// A size past [`SIZES`], or the first one named over glyphs drawn
+    /// under none: the atlas started over, as [`Atlas::reset`] does, and
+    /// holds only this one.
+    Restarted,
+}
+
+/// The glyphs drawn at one pixel size, by what they were asked for under:
+/// every image here is a function of the size, so a size has its own.
+struct Memo {
+    size: SizeKey,
+    /// `None` records a glyph with no ink, so a space is looked up once.
+    map: HashMap<GlyphKey, Option<Slot>>,
+    /// The procedural glyphs -- box drawing, block elements, braille --
+    /// by codepoint, drawn once per size the way a font glyph is: a cell
+    /// mask is a function of the cell, which is a function of the size.
+    procedural: HashMap<u32, Option<Slot>>,
+    /// The same for a line not single-width: drawn at the doubled cell,
+    /// by codepoint, or a ring part's key, and stretch.
+    procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+}
+
+impl Memo {
+    fn new(size: SizeKey) -> Memo {
+        Memo {
+            size,
+            map: HashMap::new(),
+            procedural: HashMap::new(),
+            procedural_stretched: HashMap::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.map.is_empty() && self.procedural.is_empty() && self.procedural_stretched.is_empty()
+    }
+}
+
 pub struct Atlas {
     generation: Generation,
     mask: Sheet,
@@ -473,18 +543,15 @@ pub struct Atlas {
     dirty: Dirty,
     mask_replaced: Replaced,
     color_replaced: Replaced,
-    /// `None` records a glyph with no ink, so a space is looked up once.
-    map: HashMap<GlyphKey, Option<Slot>>,
-    /// The procedural glyphs -- box drawing, block elements, braille --
-    /// by codepoint, drawn once per size the way a font glyph is; a cell
-    /// mask is a function of the cell, so `reset` voids it with `map`.
-    procedural: HashMap<u32, Option<Slot>>,
-    /// The same for a line not single-width: drawn at the doubled cell,
-    /// by codepoint, or a ring part's key, and stretch, and voided with the
-    /// rest.
-    procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+    /// What has been drawn at the size the cells are drawn at now.
+    held: Memo,
+    /// What was drawn at the other sizes held, at most [`SIZES`] less one,
+    /// their slots still on the sheets: a rescale back to one of them
+    /// takes its memo up again and draws nothing.
+    kept: Vec<Memo>,
     /// Glyphs drawn at a size of their own, the badge's, by face, glyph and
-    /// scale; voided with the rest.
+    /// scale -- the scale is in the key, so they stand at every cell size --
+    /// and voided with the rest.
     sized: HashMap<(FaceIx, GlyphIx, ScaleKey), Option<Slot>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
@@ -513,9 +580,8 @@ impl Atlas {
             dirty: Dirty::default(),
             mask_replaced: Replaced::No,
             color_replaced: Replaced::No,
-            map: HashMap::new(),
-            procedural: HashMap::new(),
-            procedural_stretched: HashMap::new(),
+            held: Memo::new(SizeKey::NONE),
+            kept: Vec::new(),
             sized: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
@@ -536,7 +602,7 @@ impl Atlas {
         self.pixels.resize(n * n, 0);
         self.mask_replaced = Replaced::Yes;
         self.dirty.mask = None;
-        self.map.retain(|_, s| {
+        let other = |s: &Option<Slot>| {
             !matches!(
                 s,
                 Some(Slot {
@@ -544,7 +610,10 @@ impl Atlas {
                     ..
                 })
             )
-        });
+        };
+        for memo in core::iter::once(&mut self.held).chain(&mut self.kept) {
+            memo.map.retain(|_, s| other(s));
+        }
     }
 
     fn clear_color(&mut self, side: Side) {
@@ -554,7 +623,7 @@ impl Atlas {
         self.argb.resize(n * n, 0);
         self.color_replaced = Replaced::Yes;
         self.dirty.color = None;
-        self.map.retain(|_, s| {
+        let other = |s: &Option<Slot>| {
             !matches!(
                 s,
                 Some(Slot {
@@ -562,7 +631,10 @@ impl Atlas {
                     ..
                 })
             )
-        });
+        };
+        for memo in core::iter::once(&mut self.held).chain(&mut self.kept) {
+            memo.map.retain(|_, s| other(s));
+        }
     }
 
     /// A bigger mask texture with every slot still where it was. The old
@@ -605,19 +677,19 @@ impl Atlas {
 
     /// Start over at the first side: every slot is gone, the sheets are
     /// replaced whole, and the grow count moves so the glyph map and the
-    /// overlay rebuild what they kept. What a change of font size needs.
+    /// overlay rebuild what they kept. What a change of faces needs, and a
+    /// size past [`SIZES`].
     pub fn reset(&mut self) {
         // **At the side the session has reached, not back at the first.**
-        // Every bitmap is at the wrong pixel size after a rescale, so every
-        // slot has to go -- but how much room this terminal's repertoire
-        // needs is a fact the session learned, and a new font size needs
+        // Every bitmap is of faces or sizes no longer drawn, so every slot
+        // has to go -- but how much room this terminal's repertoire needs
+        // is a fact the session learned, and new faces or a new size need
         // about the same order of it. Starting at `Side::FIRST` guarantees
         // growing back through every doubling, re-rastering and re-uploading
         // the whole sheet at each one, on every step of a zoom.
         let (mask, color) = (self.mask.side, self.color.side);
-        self.map.clear();
-        self.procedural.clear();
-        self.procedural_stretched.clear();
+        self.held = Memo::new(self.held.size);
+        self.kept.clear();
         self.sized.clear();
         self.clear_mask(mask);
         self.clear_color(color);
@@ -625,8 +697,55 @@ impl Atlas {
         self.stats.grown.bump();
     }
 
-    /// Which version of the sheets this is; every placement and reset
-    /// moves it.
+    /// **The cells are drawn at `size` from now on.** A size already held
+    /// takes up the glyphs drawn at it, still on the sheets, so a zoom
+    /// back rasterises nothing and neither sheet is replaced; a size not
+    /// held starts a memo of its own beside the others, filled as glyphs
+    /// are asked for; a size past [`SIZES`] starts the atlas over. Unless
+    /// the size is the same, every rectangle handed out names another
+    /// size's image, so `grown` and the generation move, and whatever
+    /// cached one rebuilds -- as after a reset, but over sheets that still
+    /// hold every size's glyphs.
+    pub fn at(&mut self, size: SizeKey) -> Rescaled {
+        if self.held.size == size {
+            return Rescaled::Same;
+        }
+        if let Some(i) = self.kept.iter().position(|m| m.size == size) {
+            self.switched();
+            let back = self.kept.swap_remove(i);
+            let was = core::mem::replace(&mut self.held, back);
+            if !was.is_empty() {
+                self.kept.push(was);
+            }
+            return Rescaled::Kept;
+        }
+        if self.held.is_empty() {
+            // Nothing drawn under the size held -- a new atlas, or one just
+            // reset -- so no rectangle names it, and it is this size's.
+            self.held.size = size;
+            return Rescaled::Added;
+        }
+        if self.held.size == SizeKey::NONE || self.kept.len() + 1 >= SIZES {
+            // Glyphs drawn before any size was named cannot be kept under
+            // one, and a size past the bound starts over.
+            self.reset();
+            self.held.size = size;
+            return Rescaled::Restarted;
+        }
+        self.switched();
+        let was = core::mem::replace(&mut self.held, Memo::new(size));
+        self.kept.push(was);
+        Rescaled::Added
+    }
+
+    /// Every rectangle handed out names another size's image now.
+    fn switched(&mut self) {
+        self.generation = Generation(self.generation.0.wrapping_add(1));
+        self.stats.grown.bump();
+    }
+
+    /// Which version of the sheets this is; every placement, reset and
+    /// change of size moves it.
     pub fn generation(&self) -> Generation {
         self.generation
     }
@@ -739,7 +858,7 @@ impl Atlas {
             stretch,
             phase,
         };
-        if let Some(known) = self.map.get(&key) {
+        if let Some(known) = self.held.map.get(&key) {
             return *known;
         }
         let before = self.stats.refused;
@@ -747,7 +866,7 @@ impl Atlas {
             .bitmap(face, id, scale, phase, stretch)
             .or_else(|| self.layered(face, id, scale, phase, stretch))
         {
-            self.map.insert(key, Some(s));
+            self.held.map.insert(key, Some(s));
             return Some(s);
         }
         let slot = self.rasterise(face, id, scale, phase, stretch);
@@ -778,15 +897,15 @@ impl Atlas {
                 stretch,
                 phase,
             };
-            if self.map.contains_key(&own) {
-                self.map.insert(key, notdef);
+            if self.held.map.contains_key(&own) {
+                self.held.map.insert(key, notdef);
             }
             return notdef;
         }
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
         if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase, stretch) {
-            self.map.insert(key, slot);
+            self.held.map.insert(key, slot);
         }
         slot
     }
@@ -1112,21 +1231,21 @@ impl Atlas {
     /// braille -- drawn at exactly `cell` and placed at the cell origin:
     /// `left` is zero and `top` is `-baseline`, so every path's placement
     /// formula lands it on the cell whatever face the row is on. `None`
-    /// for a codepoint a font draws. Memoised per codepoint until `reset`,
-    /// because the mask is a function of the cell and the cell changes
-    /// only with the size.
+    /// for a codepoint a font draws. Memoised per codepoint and size until
+    /// `reset`, because the mask is a function of the cell and the cell
+    /// changes only with the size.
     pub fn synthetic(
         &mut self,
         cp: Codepoint,
         cell: crate::boxes::Cell,
         baseline: Px,
     ) -> Option<Slot> {
-        if let Some(slot) = self.procedural.get(&cp.value()) {
+        if let Some(slot) = self.held.procedural.get(&cp.value()) {
             return *slot;
         }
         let slot = self.synthesise(cp, cell, baseline);
         if slot.is_some() || !crate::boxes::covers(cp) {
-            self.procedural.insert(cp.value(), slot);
+            self.held.procedural.insert(cp.value(), slot);
         }
         slot
     }
@@ -1157,7 +1276,7 @@ impl Atlas {
         if stretch == Stretch::One {
             return self.synthetic(cp, cell, baseline);
         }
-        if let Some(slot) = self.procedural_stretched.get(&(cp.value(), stretch)) {
+        if let Some(slot) = self.held.procedural_stretched.get(&(cp.value(), stretch)) {
             return *slot;
         }
         let slot = match stretch {
@@ -1180,7 +1299,8 @@ impl Atlas {
             ),
         };
         if slot.is_some() || !crate::boxes::covers(cp) {
-            self.procedural_stretched
+            self.held
+                .procedural_stretched
                 .insert((cp.value(), stretch), slot);
         }
         slot
@@ -1197,30 +1317,30 @@ impl Atlas {
         th: Px,
         baseline: Px,
     ) -> Option<Slot> {
-        if let Some(slot) = self.procedural.get(&ring.key().0) {
+        if let Some(slot) = self.held.procedural.get(&ring.key().0) {
             return *slot;
         }
         let slot = crate::boxes::draw_ring(ring, cell, th, &mut self.scratch, &mut self.coverage)
             .and_then(|extent| self.place_cell_mask(extent, baseline));
-        self.procedural.insert(ring.key().0, slot);
+        self.held.procedural.insert(ring.key().0, slot);
         slot
     }
 
     /// **An exit-status mark's mask** ([`crate::status`]), the cell's box,
     /// placed as a procedural glyph is and memoised the same way under the
-    /// mark's key; a rescale's [`Atlas::reset`] drops it with them.
+    /// mark's key, per size with them.
     pub fn status_mark(
         &mut self,
         mark: crate::status::Mark,
         cell: crate::boxes::Cell,
         baseline: Px,
     ) -> Option<Slot> {
-        if let Some(slot) = self.procedural.get(&mark.key().0) {
+        if let Some(slot) = self.held.procedural.get(&mark.key().0) {
             return *slot;
         }
         let slot = crate::status::draw(mark, cell.w, cell.h, &mut self.scratch, &mut self.coverage)
             .and_then(|extent| self.place_cell_mask(extent, baseline));
-        self.procedural.insert(mark.key().0, slot);
+        self.held.procedural.insert(mark.key().0, slot);
         slot
     }
 
@@ -1243,7 +1363,7 @@ impl Atlas {
             return self.ring(ring, cell, th, baseline);
         }
         let key = (ring.key().0, stretch);
-        if let Some(slot) = self.procedural_stretched.get(&key) {
+        if let Some(slot) = self.held.procedural_stretched.get(&key) {
             return *slot;
         }
         let slot = match stretch {
@@ -1265,7 +1385,7 @@ impl Atlas {
                     )
                 }),
         };
-        self.procedural_stretched.insert(key, slot);
+        self.held.procedural_stretched.insert(key, slot);
         slot
     }
 
@@ -1429,8 +1549,8 @@ mod tests {
         assert_eq!(a.stats.enlarged.value(), before.enlarged.value() + 1);
     }
 
-    /// And a font size change still voids everything, which is what
-    /// `grown` means now. The pair tells the two events apart, so a cache
+    /// And a reset still voids everything, which is what `grown` means,
+    /// with a change of size. The pair tells the two events apart, so a cache
     /// can watch the one that concerns it rather than both.
     #[test]
     fn a_reset_voids_what_growing_keeps() {
@@ -1439,5 +1559,60 @@ mod tests {
         a.reset();
         assert_eq!(a.stats.grown.value(), before.grown.value() + 1);
         assert_eq!(a.stats.enlarged.value(), before.enlarged.value());
+    }
+
+    /// **What a rescale does to the memos, size by size.** The first size
+    /// is taken as the atlas's own; another is added beside it and the one
+    /// before is kept; a held size comes back; the size past [`SIZES`]
+    /// starts over, with nothing kept. Each change but the same size moves
+    /// `grown`, and none replaces a sheet but the start over. A box-drawing
+    /// mask is drawn at each size, at that size's cell, so each memo holds
+    /// something.
+    #[test]
+    fn a_rescale_keeps_the_sizes_it_holds_and_starts_over_past_them() {
+        let key = |px: f32| SizeKey::of(crate::PxSize::of(px).unwrap());
+        let line = Codepoint::new(0x2500).unwrap();
+        let draw = |a: &mut Atlas, k: usize| {
+            let cell = crate::boxes::Cell {
+                w: Px::of(8 + u32::try_from(k).unwrap()),
+                h: Px::of(16 + 2 * u32::try_from(k).unwrap()),
+            };
+            a.synthetic(line, cell, Px::of(12))
+                .expect("a box-drawing mask")
+        };
+        let mut a = Atlas::new();
+        assert_eq!(a.at(key(14.0)), Rescaled::Added, "the first size is taken");
+        let first = draw(&mut a, 0);
+        a.take_dirty();
+        let (grown, drawn) = (a.stats.grown, a.stats.synthesised);
+        assert_eq!(a.at(key(14.0)), Rescaled::Same);
+        assert_eq!(a.stats.grown, grown, "the same size moves nothing");
+        for k in 1..SIZES {
+            let px = 14.0 + k as f32;
+            assert_eq!(a.at(key(px)), Rescaled::Added, "{px} px");
+            draw(&mut a, k);
+        }
+        assert_eq!(a.kept.len(), SIZES - 1);
+        a.take_dirty();
+        assert_eq!(a.at(key(14.0)), Rescaled::Kept, "the first size is held");
+        assert_eq!(draw(&mut a, 0), first, "and its mask is where it was");
+        assert_eq!(
+            a.stats.synthesised.value(),
+            drawn.value() + SIZES as u64 - 1,
+            "drawn once a size"
+        );
+        assert_eq!(
+            a.take_dirty(),
+            (Dirty::default(), Replaced::No, Replaced::No),
+            "switching between held sizes replaces no sheet and writes nothing"
+        );
+        assert_eq!(
+            a.stats.grown.value(),
+            grown.value() + SIZES as u64,
+            "every change of size tells what kept a rectangle"
+        );
+        assert_eq!(a.at(key(14.0 + SIZES as f32)), Rescaled::Restarted);
+        assert!(a.kept.is_empty(), "a start over keeps no other size");
+        assert_eq!(a.take_dirty().1, Replaced::Yes, "and replaces the sheets");
     }
 }

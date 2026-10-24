@@ -1,5 +1,6 @@
 //! A change of pixel size rebuilds what depends on it: the metrics, the
-//! atlas, and through the atlas's grow count everything that kept a slot.
+//! atlas's glyphs for the size, and through the atlas's grow count
+//! everything that kept a slot.
 //! What the app does when the backing scale changes or the font is zoomed.
 
 mod support;

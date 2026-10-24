@@ -34104,3 +34104,57 @@ group  = "AN"
 # crash, its revert, and the re-landed port. The channel manifests and
 # sccache's docs are kept external for size and licence; each hashes as
 # recorded, and what the record cites of each is in its title.
+
+# Read 2026-10-24 (lane b180) for F1-07: how a browser keeps glyphs across
+# a change of size. Both key a glyph cache by a font instance that carries
+# the size, and both bound it by bytes with least-recently-used eviction,
+# per strike in Skia and per entry in WebRender. Kept external at the
+# pinned commits; each hashes as recorded.
+[sources.skia-strike-cache-h]
+key    = "skia-strike-cache-h"
+title  = "SkStrikeCache.h -- Skia's glyph strike cache: SK_DEFAULT_FONT_CACHE_LIMIT (2 MB) and SK_DEFAULT_FONT_CACHE_COUNT_LIMIT (2048) as the cache's budgets"
+author = "Google"
+year   = 2026
+venue  = "google/skia (BSD-3-Clause), commit f572728c472590e617ade43515b9a8ab48bb3d55"
+url    = "https://raw.githubusercontent.com/google/skia/f572728c472590e617ade43515b9a8ab48bb3d55/src/core/SkStrikeCache.h"
+file   = ""
+sha256 = "1ae2b7d8fc6dc11fccb0f8c1317240f649c5c30eb40c59daec328a8b1e9a37cf"
+bytes  = 4398
+status = "external"
+group  = "J"
+[sources.skia-strike-cache-cpp]
+key    = "skia-strike-cache-cpp"
+title  = "SkStrikeCache.cpp -- strikes found by descriptor, moved to the head of an LRU list on use, and purged from the tail past the byte or count budget, never less than a quarter ('no small purges!')"
+author = "Google"
+year   = 2026
+venue  = "google/skia (BSD-3-Clause), commit f572728c472590e617ade43515b9a8ab48bb3d55"
+url    = "https://raw.githubusercontent.com/google/skia/f572728c472590e617ade43515b9a8ab48bb3d55/src/core/SkStrikeCache.cpp"
+file   = ""
+sha256 = "395f021711b6c94cc03f2005d82036e2bc0259e6c43f7f145629b1da96d24841"
+bytes  = 10372
+status = "external"
+group  = "J"
+[sources.webrender-glyph-cache]
+key    = "webrender-glyph-cache"
+title  = "WebRender glyph_cache.rs -- a GlyphKeyCache per FontInstance over the shared texture cache, entries dropped when the texture cache evicts them"
+author = "The Servo Project Developers"
+year   = 2026
+venue  = "servo/webrender (MPL-2.0), commit e1c924ebad9ffdfe8c8c606aba77eb3f888c396a"
+url    = "https://raw.githubusercontent.com/servo/webrender/e1c924ebad9ffdfe8c8c606aba77eb3f888c396a/webrender/src/glyph_cache.rs"
+file   = ""
+sha256 = "46a80c8e909c83582fdb82f21c299eb0f0c80c3052e9d13893f107ecd7552ab6"
+bytes  = 6759
+status = "external"
+group  = "J"
+[sources.webrender-texture-cache]
+key    = "webrender-texture-cache"
+title  = "WebRender texture_cache.rs -- a byte budget per texture type (glyphs apart), and evict_items_from_cache_if_required: past the budget, the least recently used entries not used in the previous frame are evicted one by one"
+author = "The Servo Project Developers"
+year   = 2026
+venue  = "servo/webrender (MPL-2.0), commit e1c924ebad9ffdfe8c8c606aba77eb3f888c396a"
+url    = "https://raw.githubusercontent.com/servo/webrender/e1c924ebad9ffdfe8c8c606aba77eb3f888c396a/webrender/src/texture_cache.rs"
+file   = ""
+sha256 = "0df4eed07ff850fd97240fdaeeb1bbb65ead45d890e97892334021fa7eb9d767"
+bytes  = 68556
+status = "external"
+group  = "J"

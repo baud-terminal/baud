@@ -4810,6 +4810,35 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         assert!(converted(arms) > before, "{step} kept the line's records");
         assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after {step}");
     }
+    // **A zoom, and a zoom back to a size the atlas holds.** The zoom back
+    // draws no glyph again and replaces neither sheet, so both GPU arms draw
+    // from the textures they hold, through a map and records rebuilt for
+    // the size; the arms agree with each other and with the CPU arm at
+    // every step.
+    let drawn = |arms: &Arms<'_, '_>| {
+        let s = arms.renderer.atlas_stats();
+        s.rasterised.value() + s.coloured.value() + s.synthesised.value()
+    };
+    for (px, step, again) in [
+        (20.0, "a zoom", false),
+        (14.0, "a zoom back", true),
+        (20.0, "a zoom in again", true),
+        (14.0, "the zoom back to the start", true),
+    ] {
+        let (before, glyphs) = (converted(arms), drawn(arms));
+        arms.renderer
+            .rescale(PxSize::of(px).unwrap())
+            .expect("a size the face takes");
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after {step}");
+        assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees after {step}");
+        assert!(converted(arms) > before, "{step} kept the line's records");
+        match again {
+            true => assert_eq!(drawn(arms), glyphs, "{step} drew glyphs again"),
+            false => assert!(drawn(arms) > glyphs, "{step} draws the line's glyphs"),
+        }
+    }
     let resting = arms.renderer.theme().clone();
     arms.renderer.set_theme(Theme {
         app_bg: baud_render::AppBg::Dimmed,

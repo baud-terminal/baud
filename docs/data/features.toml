@@ -679,10 +679,11 @@ tests = ["baud-render/tests/rescale.rs::a_rescale_moves_the_metrics_and_restarts
 id = "zoom"
 area = "text"
 name = "Zoom"
-does = "Cmd +, Cmd - and Cmd 0 or the View menu zoom from 6 to 72 points without touching your settings file, and the window keeps its size."
+does = "Cmd +, Cmd - and Cmd 0 or the View menu zoom from 6 to 72 points without touching your settings file, and the window keeps its size. Zooming back to a recent size reuses the letters already drawn at it instead of drawing each one again."
 status = "built"
 platform = "macos"
-tests = ["baud-core/tests/zoomcycle.rs::a_zoom_cycle_does_not_duplicate_a_line"]
+tests = ["baud-core/tests/zoomcycle.rs::a_zoom_cycle_does_not_duplicate_a_line", "baud-render/tests/zoom.rs::a_zoom_back_draws_no_glyph_again_and_paints_a_fresh_frame", "baud-render/tests/zoom.rs::a_size_past_the_held_ones_starts_the_atlas_over"]
+shipped = ["F1-07"]
 
 
 [[feature]]

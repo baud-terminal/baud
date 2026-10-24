@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Code, Kind, Stretch, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, Kind, Rescaled, SizeKey, Stretch, Tex};
 use crate::badge::{self, BadgeLook};
 use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
@@ -2034,6 +2034,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
             ink_scratch: Vec::new(),
         };
+        r.atlas.at(SizeKey::of(size));
         r.resize(cols, rows);
         r.main = rows;
         Some(r)
@@ -2044,20 +2045,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// A new pixel size for the same faces -- the backing scale changed, or
-    /// the font size -- so the metrics, the per-face scales and the atlas are
-    /// rebuilt and the next convert repaints every row. `None` leaves the
-    /// renderer as it was, when the primary face cannot be measured at that
-    /// size.
+    /// the font size -- so the metrics and the per-face scales are rebuilt,
+    /// the atlas draws at the new size, and the next convert repaints every
+    /// row. `None` leaves the renderer as it was, when the primary face
+    /// cannot be measured at that size.
     ///
     /// **The run cache is kept.** A `Shaped` holds glyph ids, cell spans and
     /// offsets *in font units* (`Placed`), and the current `scale` is applied
     /// at composite -- none of it depends on the pixel size, so shaping a run
-    /// at the old size still names the right glyphs at the new one. Only the
-    /// atlas holds pixels, so only the atlas resets; clearing the cache too
-    /// re-shaped every visible run for nothing, which was ~1.4 ms of the cold
-    /// frame a font change forces (btop 14->24 px: convert 2.5 ms to 1.1 ms,
-    /// cache misses 163 to 0). The rasterising that remains is the size
-    /// change itself and cannot be skipped.
+    /// at the old size still names the right glyphs at the new one. Clearing
+    /// the cache re-shaped every visible run for nothing, which was ~1.4 ms
+    /// of the cold frame a font change forces (btop 14->24 px: convert 2.5
+    /// ms to 1.1 ms, cache misses 163 to 0).
+    ///
+    /// **And the glyphs already drawn are kept.** Only the atlas holds
+    /// pixels, and it holds them per size ([`Atlas::at`]): a zoom to a size
+    /// not drawn at rasterises what the frame shows, as it always did, and
+    /// a zoom back to one of the last [`crate::atlas::SIZES`] rasterises
+    /// nothing and replaces neither texture.
     pub fn rescale(&mut self, size: PxSize) -> Option<()> {
         let metrics = Metrics::of(self.stack.primary(), size)?;
         self.scales = self
@@ -2067,11 +2072,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
         self.metrics = metrics;
-        self.atlas.reset();
-        // The badge's glyphs went with the rest: built again at the next
-        // `set_badge`.
+        // The badge's glyphs are drawn at a scale of their own, in the key,
+        // so they stand at every cell size, and the sizes they are held at
+        // still count until the atlas starts over. Its records name the old
+        // cell grid: built again at the next `set_badge`.
+        if self.atlas.at(SizeKey::of(size)) == Rescaled::Restarted {
+            self.badge_sizes.clear();
+        }
         self.badge_key = None;
-        self.badge_sizes.clear();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -2117,6 +2125,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cache = RunCache::new();
         self.metrics = metrics;
         self.atlas.reset();
+        self.atlas.at(SizeKey::of(size));
         // The badge's glyphs went with the rest: built again at the next
         // `set_badge`.
         self.badge_key = None;

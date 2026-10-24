@@ -218,9 +218,10 @@ summary = "Holding Cmd marks the linked text and shows its address."
 [[item]]
 id = "F1-07"
 area = "speed"
-status = "planned"
+status = "done"
+date = "2026-10-24"
 title = "Faster zoom"
-summary = "Zooming keeps the glyphs it has already drawn instead of drawing every one again."
+summary = "Zooming back to a recent size keeps the glyphs already drawn at it instead of drawing every one again."
 
 [[item]]
 id = "F1-16"

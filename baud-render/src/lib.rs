@@ -64,8 +64,8 @@ pub mod ufo;
 mod units;
 
 pub use atlas::{
-    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Stretch, Tex, TexRect,
-    VAR_POINTS_MAX,
+    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Rescaled, SIZES, Side, SizeKey,
+    Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
 pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};

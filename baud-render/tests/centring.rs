@@ -36,8 +36,8 @@ const SYMMETRIC: &str = "HO0|IuUM=+-*";
 /// the cell's left edge, and the cell width.
 ///
 /// The renderer is made at `made` px and rescaled to `px` when they differ,
-/// which is what a zoom does: the atlas resets, and must take the new
-/// size's phase with it.
+/// which is what a zoom does: the atlas draws at the new size, and must
+/// take the new size's phase with it.
 fn centroids(made: f32, px: f32, n: usize) -> (Vec<f64>, f64) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];

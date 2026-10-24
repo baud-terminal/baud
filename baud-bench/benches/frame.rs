@@ -64,6 +64,14 @@
 //! screen's, so every row is repainted every frame, and the picture's
 //! placements under it with it. `FRAME_WS=<cols>x<rows>`
 //! sets the screen, 200x50 by default.
+//!
+//! `FRAME_ZOOM=<px>` prices a zoom and a zoom back over the recording's
+//! last screen: warm at 14 px, then `FRAME_ZOOM_STEPS` rescales to `px`
+//! and back to 14 by turns, each with the one full frame it forces,
+//! reporting each step's time, the glyphs drawn and the bytes a GPU copy
+//! of the atlas would take. `FRAME_ZOOM=<px>,<px>,...` walks those sizes
+//! instead, and `FRAME_ZOOM_PAINT=off` converts without painting, the
+//! CPU's share of a zoom on the GPU path.
 
 use baud_core::{Owned, Term};
 use baud_domain::Chan;
@@ -71,6 +79,13 @@ use baud_domain::{BytePos, Cols, ImageBudget, ImagePx, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{Backdrop, Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
+
+/// Whether a zoom step paints its frame.
+#[derive(Clone, Copy)]
+enum Switch {
+    On,
+    Off,
+}
 
 fn main() {
     let mut args = baud_bench::args();
@@ -564,6 +579,115 @@ fn main() {
                 c1.misses.value() - c0.misses.value(),
             );
         }
+        return;
+    }
+    // `FRAME_ZOOM=<px>` prices a zoom and a zoom back: warm the atlas on
+    // the whole recording at 14 px, then `FRAME_ZOOM_STEPS` (default 4)
+    // rescales, to the new size and back by turns, each followed by the one
+    // full-damage frame it forces, printing every step's wall time, convert
+    // and paint, rasters, sheet sides and the bytes a GPU copy of the
+    // sheets would take. `FRAME_ZOOM=<px>,<px>,...` walks those sizes in
+    // order instead. Run under `/usr/bin/time -l` at 0, 1, 2 and more
+    // steps: the instructions retired at `n` steps less those at `n - 1`
+    // are step `n`'s, the first zoom and then the zoom back.
+    // `FRAME_ZOOM_PAINT=off` converts each step's frame and paints
+    // nothing, as the app's GPU path leaves the paint to the GPU, so the
+    // count is the CPU's share of a zoom.
+    if let Ok(list) = std::env::var("FRAME_ZOOM") {
+        let paint = std::env::var("FRAME_ZOOM_PAINT").map_or(Switch::On, |v| match v.as_str() {
+            "off" => Switch::Off,
+            _ => Switch::On,
+        });
+        let walk: Vec<f32> = list.split(',').filter_map(|v| v.parse().ok()).collect();
+        let walk = match walk.as_slice() {
+            [one] => vec![*one, 14.0],
+            _ => walk,
+        };
+        let pts = list;
+        let steps: usize = std::env::var("FRAME_ZOOM_STEPS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(walk.len().max(4));
+        let mut rz = fresh();
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let (w0, h0) = rz.pixel_size();
+        let mut px = vec![0u32; usize::try_from(w0.value() * h0.value()).unwrap()];
+        let mut at = 0usize;
+        while at < data.len() {
+            let n = 4096.min(data.len() - at);
+            t.write_at(BytePos::ZERO, &data[at..at + n]);
+            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+            at += n;
+            let mut target = Target::new(&mut px, w0, w0, h0).unwrap();
+            rz.render(&mut t, &mut target, Damage::Full);
+        }
+        rz.atlas_mut().take_dirty();
+        println!(
+            "zoom {pts} px over {which}: warm at 14 px, sheets {}/{}",
+            rz.atlas().side().value(),
+            rz.atlas().color_side().value()
+        );
+        let mut fnv = 0xcbf2_9ce4_8422_2325u64;
+        for step in 1..=steps {
+            let to = walk[(step - 1) % walk.len()];
+            let a0 = rz.atlas_stats();
+            // The time is the rescale's and the frame's; the canvas
+            // resized between them, and hashed after, is the harness's.
+            let start = std::time::Instant::now();
+            rz.rescale(PxSize::of(to).unwrap())
+                .expect("a size the face takes");
+            let rescaled = start.elapsed();
+            let (convert, composite, framed) = match paint {
+                Switch::On => {
+                    let (w1, h1) = rz.pixel_size();
+                    px.clear();
+                    px.resize(usize::try_from(w1.value() * h1.value()).unwrap(), 0);
+                    let mut target = Target::new(&mut px, w1, w1, h1).unwrap();
+                    let start = std::time::Instant::now();
+                    let f = rz.render(&mut t, &mut target, Damage::Full);
+                    (f.convert, f.composite, start.elapsed())
+                }
+                Switch::Off => {
+                    let start = std::time::Instant::now();
+                    let c = rz.convert(&t, Rows::ZERO, Damage::Full);
+                    (c.convert, Duration::ZERO, start.elapsed())
+                }
+            };
+            let elapsed = rescaled + framed;
+            let a1 = rz.atlas_stats();
+            // What a GPU copy of the sheets would take for this frame: a
+            // replaced sheet whole, else the rectangle written.
+            let (dirty, mask_new, color_new) = rz.atlas_mut().take_dirty();
+            let texels = |r: Option<baud_render::TexRect>| {
+                r.map_or(0, |r| u64::from(r.w.0) * u64::from(r.h.0))
+            };
+            let side = |s: baud_render::Side| u64::from(s.value()) * u64::from(s.value());
+            let upload = match mask_new {
+                baud_render::Replaced::Yes => side(rz.atlas().side()),
+                baud_render::Replaced::No => texels(dirty.mask),
+            } + 4 * match color_new {
+                baud_render::Replaced::Yes => side(rz.atlas().color_side()),
+                baud_render::Replaced::No => texels(dirty.color),
+            };
+            if let Switch::On = paint {
+                for p in &px {
+                    fnv = (fnv ^ u64::from(*p)).wrapping_mul(0x100_0000_01b3);
+                }
+            }
+            println!(
+                "  step {step} to {to}px: {} us (convert {} us, paint {} us); raster {}, coloured {}, synthesised {}; sheets {}/{}, upload {upload} bytes",
+                elapsed.as_micros(),
+                convert.as_micros(),
+                composite.as_micros(),
+                a1.rasterised.value() - a0.rasterised.value(),
+                a1.coloured.value() - a0.coloured.value(),
+                a1.synthesised.value() - a0.synthesised.value(),
+                rz.atlas().side().value(),
+                rz.atlas().color_side().value(),
+            );
+        }
+        println!("  pixels {fnv:016x}");
         return;
     }
 
