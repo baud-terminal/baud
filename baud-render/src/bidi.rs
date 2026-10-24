@@ -83,11 +83,16 @@ pub enum CursorSide {
     Right,
 }
 
-/// The paragraph level an implicit paragraph gets: level 0, UAX #9 HL1
-/// setting it from ECMA-48's default character path (SPD 0, left to
-/// right). Whether it is instead found from the text (P2-P3) is the
-/// owner's open call (`docs/bidi.md`).
-const DIRECTION: BidiParagraph = BidiParagraph::Ltr;
+/// **The paragraph level an implicit paragraph gets: found from its text**,
+/// UAX #9 P2-P3 -- level 1 when its first strong letter, isolates skipped,
+/// is R or AL, else level 0 -- the standard's own default and the owner's
+/// answer of 2026-10-24 ("all match C besides these 2"). A right-to-left
+/// paragraph's erased cells past its text are laid out before it, so its
+/// rows sit against the right edge. The letter is looked for only in the
+/// text the layout reads: the paragraph's rows the window draws and the
+/// context around them ([`CONTEXT`]); a paragraph resolved in more than
+/// one piece keeps the first piece's level for the rest (HL1).
+const DIRECTION: BidiParagraph = BidiParagraph::FirstStrong;
 
 /// The stand-in for an erased cell between characters: U+200B ZERO WIDTH
 /// SPACE, of class BN and no bracket.
@@ -504,6 +509,7 @@ impl Reorder {
         // fits around it: the rows above before the first chunk, the rows
         // below after the last.
         let cap = Chars(CONTEXT);
+        let mut dir = DIRECTION;
         let mut start = 0;
         while start < drawn.len() {
             let mut used = Chars::default();
@@ -549,13 +555,24 @@ impl Reorder {
                     });
                 }
             }
-            self.resolve(term, &rows);
+            if let Some(level) = self.resolve(term, &rows, dir) {
+                dir = match level.direction() {
+                    baud_domain::BidiDirection::Rtl => BidiParagraph::Rtl,
+                    baud_domain::BidiDirection::Ltr => BidiParagraph::Ltr,
+                };
+            }
             start = end;
         }
     }
 
-    /// Resolves `rows` as one paragraph and orders each drawn one.
-    fn resolve(&mut self, term: &Term<'_>, rows: &[ParaRow<'_>]) {
+    /// Resolves `rows` as one paragraph at `dir` and orders each drawn one;
+    /// answers the paragraph's level.
+    fn resolve(
+        &mut self,
+        term: &Term<'_>,
+        rows: &[ParaRow<'_>],
+        dir: BidiParagraph,
+    ) -> Option<BidiLevel> {
         self.text.clear();
         self.owner.clear();
         let mut ranges: Vec<(core::ops::Range<usize>, Col)> = Vec::with_capacity(rows.len());
@@ -594,8 +611,8 @@ impl Reorder {
             }
             ranges.push((begin..self.text.len(), end));
         }
-        let Ok(level) = self.bidi.resolve(&self.text, DIRECTION) else {
-            return;
+        let Ok(level) = self.bidi.resolve(&self.text, dir) else {
+            return None;
         };
         let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
         let cols = self.orders.cols.index();
@@ -670,6 +687,7 @@ impl Reorder {
             self.orders.rows[y.index()] = Some(out);
             self.orders.any = Any::Yes;
         }
+        Some(level)
     }
 }
 

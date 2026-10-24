@@ -2,7 +2,9 @@
 
 **Hebrew and Arabic lines are drawn right to left from the moment baud
 starts** (ECMA-48's bidirectional support mode, BDSM, is on: its IMPLICIT
-state). A Hebrew word in an English line reads right to left in its place,
+state). A line that starts in Hebrew or Arabic runs right to left against
+the window's right edge, its closing period at its left end, after its last
+word. A Hebrew word in an English line reads right to left in its place,
 brackets around Hebrew face the right way, vowel points stay on their
 letters, and the cursor, the selection, the find marks, the link underline
 and the mouse all follow what is drawn. A copy gives the text in the order
@@ -28,9 +30,15 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   than 18,432 codepoints (`baud_render::CONTEXT`, a row at the widest grid
   with full clusters) is resolved over the rows drawn and as many whole rows
   around them as fit.
-- **Every paragraph is at level 0** (left to right, left-aligned) until a
-  program can set a direction (SCP, next step) or the owner chooses
-  first-strong detection.
+- **A paragraph takes its direction from its first strong letter** (UAX
+  #9 P2-P3, isolates skipped): one that starts in Hebrew or Arabic is at
+  level 1 and runs right to left, its erased cells laid out before its
+  text, so it sits against the right edge; one that starts in a Latin
+  letter, or holds no strong letter, is at level 0 and stays at the left
+  edge. The letter is looked for in the text the layout reads, the
+  paragraph's drawn rows and the context around them; a paragraph resolved
+  in more than one piece keeps the first piece's level. Until a program
+  can set a direction (SCP, next step), this is every paragraph's.
 - **The bidi controls work.** LRM, RLM, ALM, the embeddings, overrides and
   isolates that baud stores on the cell before them are given to the
   algorithm with that cell's character. One at the start of a line, with no
@@ -94,6 +102,7 @@ requests and the renders it was shown are in
 |---|---|---|
 | the state at power-on | BDSM set, so right-to-left lines are drawn right to left from the start; `RIS` returns it to set, `DECSTR` keeps it | "Should right-to-left lines be on from the start? C" |
 | the cursor on a full reordered line | drawn over its cell, in its shape | "On a full right-to-left line, is the cursor drawn or hidden? drawn and based on how the cursor is , line, block or udnerline" |
+| which way a paragraph runs when nothing says | its first strong letter's way (UAX #9 P2-P3), a right-to-left line against the right edge, for every example shown but the wrapped paragraph and the table | "all match C besides these 2 , the wrap line looks bad and the table should be like B but דנהshould b be rtl" |
 
 ECMA-48 7.1 recommends the reset state as every mode's initial one, and
 its Annex D leaves "the initial state of a device upon power up including
@@ -139,17 +148,13 @@ are built (`docs/research/notes/ab/step2/l4.png` shows both).
 terminal-wg prefers hiding the cursor on a full reordered line ("It's
 more consistent to make it disappear"); the owner chose it drawn.
 
-## Open: one question for the owner
-
-The render is in `docs/research/notes/ab/step2/` (`mode.png`). It is built
-as today's behaviour until the owner answers, and asked because Jev's lean
-flipped between the asks:
-
-2. **Which way does a paragraph run when nothing says?** Built as left to
-   right (level 0, terminal-wg's default). The other choice is UAX #9's own
-   rule, the first strong letter, which right-aligns a Hebrew paragraph and
-   flips a whole box-drawn row that starts with Hebrew. Jev: first strong
-   0.56 / 0.48, then left to right 0.22 / 0.30.
+The owner chose the direction from renders of three options on eight
+examples: B, every line left to right (terminal-wg's default, built
+before); C, the first strong letter with a right-to-left line against the
+right edge; and C2, the first strong letter kept at the left edge. Jev had
+leaned first strong 0.56 / 0.48, then left to right 0.22 / 0.30. The two
+examples the answer excepts, a table row and a paragraph a soft wrap
+splits, are under "What is not built yet".
 
 ## What it costs
 
@@ -192,6 +197,13 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 
 ## What is not built yet
 
+- **A table row keeps its columns**: the owner's answer, "the table should
+  be like B but דנה should be rtl". A row drawn with column rules that
+  starts with a Hebrew letter is still turned round whole and moved to the
+  right edge, its cells' text pulled across the rules.
+- **A paragraph a soft wrap splits mid-word** ("the wrap line looks bad"):
+  an English word the wrap split lands at opposite ends of its two rows.
+  The options are being researched and drawn; nothing is changed yet.
 - **A direction a program sets**: SCP (per line in ECMA-48), SPD, and
   terminal-wg's per-paragraph modes with `?2501` (autodetection), `?1243`
   (arrow-key swapping) and `?2500` (box mirroring). They need a direction

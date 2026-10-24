@@ -8722,6 +8722,10 @@ fn italic_hebrew_draws_alike_on_every_arm() {
     )
     .unwrap();
     arms!(renderer => arms, t);
+    // The cell arm reads the window copied in its drawn order, as the app
+    // reads it: every verse is a right-to-left paragraph, and the core's
+    // own grid holds its cells in the order they were written.
+    arms.reads = Reads::Copy;
     let mut frames = Vec::new();
     for (name, sgr) in [
         ("regular", ""),
@@ -9759,55 +9763,72 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
         )
         .unwrap()
     };
-    // Each row as written, and as UAX #9 draws it at paragraph level 0:
-    // a run of R reversed (L2), a bracket pair resolved R by N0 drawn with
-    // its mirror (L4), the wide U+231A (ON, so R by N1 between two letters)
-    // kept whole with its lead on the left, a pointed word's cells moved
-    // with their points, an underline drawn on the cells it was set on, and
-    // a bracket mirrored though an RLM is stored on its cell.
+    // Each row as written, and as UAX #9 draws it: the first row, whose
+    // first strong letter is Latin, at paragraph level 0 with its run of R
+    // reversed in place (L2); every row that starts with a Hebrew letter at
+    // level 1 (P2-P3), reversed whole with its Latin run kept in order, and
+    // drawn against the right edge with the two erased cells it was written
+    // after, logically first, at the far right. A bracket pair resolved R
+    // by N0 is drawn with its mirror (L4), the wide U+231A (ON, so R by N1
+    // between two letters) kept whole with its lead on the left, a pointed
+    // word's cells moved with their points, an underline drawn on the cells
+    // it was set on, and a bracket mirrored though an RLM is stored on its
+    // cell. The third field is a right-to-left row's width in cells.
     let (shin, lamed, vav, mem) = ("\u{5E9}", "\u{5DC}", "\u{5D5}", "\u{5DD}");
     let (alef, bet, gimel) = ("\u{5D0}", "\u{5D1}", "\u{5D2}");
     let (qamats, holam) = ("\u{5B8}", "\u{5B9}");
-    let rows = [
+    let rows: [(String, String, Option<usize>); 7] = [
         (
             format!("abc {shin}{lamed}{vav}{mem} def"),
             format!("abc {mem}{vav}{lamed}{shin} def"),
+            None,
         ),
         (
             format!("{alef}({bet}){gimel} xy"),
-            format!("{gimel}({bet}){alef} xy"),
+            format!("xy {gimel}({bet}){alef}"),
+            Some(8),
         ),
         (
             format!("{alef}\u{231A}{bet} z"),
-            format!("{bet}\u{231A}{alef} z"),
+            format!("z {bet}\u{231A}{alef}"),
+            Some(6),
         ),
         (
             format!("{shin}{qamats}{lamed}{vav}{holam}{mem}"),
             format!("{mem}{vav}{holam}{lamed}{shin}{qamats}"),
+            Some(4),
         ),
         (
             format!("\x1b[4;31m{alef}{bet}\x1b[0m{gimel}"),
             format!("{gimel}\x1b[4;31m{bet}{alef}\x1b[0m"),
+            Some(3),
         ),
         // A row with no right-to-left character, drawn where it is: and
         // the glyphs the harness requires of a scene.
         (
             "The quick brown fox jumps 0123456789".to_string(),
             "The quick brown fox jumps 0123456789".to_string(),
+            None,
         ),
         // A bracket carrying an RLM, which the core stores on its cell:
         // still drawn with its mirror (L4), the RLM drawing nothing.
         (
             format!("{alef}({bet})\u{200F}{gimel} xy"),
-            format!("{gimel}({bet}){alef} xy"),
+            format!("xy {gimel}({bet}){alef}"),
+            Some(8),
         ),
     ];
+    let cols = usize::from(WS.ws_col);
     let scene = |t: &mut Term<'_>, implicit: bool, cursor: &str| {
         feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
         feed(t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
-        for (i, (logical, visual)) in rows.iter().enumerate() {
-            let text = if implicit { logical } else { visual };
-            feed(t, format!("\x1b[{};3H{text}", i + 2).as_bytes());
+        for (i, (logical, visual, rtl)) in rows.iter().enumerate() {
+            let (text, col) = match (implicit, rtl) {
+                (true, _) => (logical, 3),
+                (false, None) => (visual, 3),
+                (false, Some(width)) => (visual, cols - 2 - width + 1),
+            };
+            feed(t, format!("\x1b[{};{col}H{text}", i + 2).as_bytes());
         }
         feed(t, cursor.as_bytes());
     };
@@ -9836,7 +9857,7 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
         assert_eq!(differing(&got, &want), 0, "the visual order drawn");
         scene(&mut t, false, "");
         feed(&mut t, b"\x1b[8l");
-        for (i, (logical, _)) in rows.iter().enumerate() {
+        for (i, (logical, _, _)) in rows.iter().enumerate() {
             feed(&mut t, format!("\x1b[{};3H{logical}", i + 2).as_bytes());
         }
         let stored = three(&mut arms, &mut t, "explicit");
@@ -9907,9 +9928,10 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
         );
     }
     // **The pointed row, whose marked cells the cell arm draws by records**:
-    // a selection of the shin and the lamed (logical 2 and 3, drawn at 5
-    // and 4) and a block cursor on the shin, each mapped through the order
-    // where a record is painted as well as where the shader paints.
+    // a selection of the shin and the lamed (logical 2 and 3, drawn at 117
+    // and 116, the row a right-to-left paragraph against the right edge)
+    // and a block cursor on the shin, each mapped through the order where
+    // a record is painted as well as where the shader paints.
     {
         arms!(fresh() => arms, t);
         scene(&mut t, true, "");
@@ -9928,13 +9950,25 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
             (4 * ch..5 * ch)
                 .any(|y| (col * cw..(col + 1) * cw).any(|x| a[y * w + x] != b[y * w + x]))
         };
-        assert!(cell_differs(&sel, &bare, 4) && cell_differs(&sel, &bare, 5));
+        let r4 = Row::from_index(4);
+        let at = |c: usize| {
+            arms.renderer
+                .bidi()
+                .visual_col(r4, Col::at_index(c))
+                .index()
+        };
+        assert_eq!((at(2), at(3)), (cols - 3, cols - 4), "shin and lamed");
+        assert!(cell_differs(&sel, &bare, cols - 4) && cell_differs(&sel, &bare, cols - 3));
         assert!(!cell_differs(&sel, &bare, 2) && !cell_differs(&sel, &bare, 3));
+        assert!(
+            !cell_differs(&sel, &bare, cols - 5) && !cell_differs(&sel, &bare, cols - 6),
+            "only the logical range"
+        );
         scene(&mut t, true, "\x1b[2 q\x1b[5;3H\x1b[?25h");
         let block = three(&mut arms, &mut t, "pointed, block cursor");
         assert!(
-            cell_differs(&block, &bare, 5),
-            "the block over the shin, drawn at 5"
+            cell_differs(&block, &bare, cols - 3),
+            "the block over the shin, drawn at 117"
         );
         assert!(
             !cell_differs(&block, &bare, 2),
@@ -9974,6 +10008,136 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
             assert!(!changed.contains(&(8 * cw)), "and not on the left");
         }
     }
+}
+
+/// **A paragraph whose first strong letter is Hebrew runs right to left
+/// against the right edge, alike on every arm**: UAX #9 P2-P3 give the
+/// owner's sentence level 1, so its closing period is drawn at the left
+/// end of its text and the text ends at the window's right edge, where
+/// the erased cells past it go before it (`[[source:
+/// terminal-wg-bidi-erased-cells]]`). The expected frame is the same
+/// characters written already in visual order, at the right edge, with
+/// BDSM reset; a line whose first strong letter is Latin, the control,
+/// stays at the left edge on both.
+#[test]
+fn a_right_to_left_paragraph_is_drawn_against_the_right_edge_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let cols = usize::from(WS.ws_col);
+    let sentence = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DD}! \u{5D6}\u{5D5} \u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA}.";
+    let n = sentence.chars().count();
+    let reversed: String = sentence.chars().rev().collect();
+    let control = "hello world, 123 \u{5E9}\u{5DC}\u{5D5}\u{5DD}";
+    let control_visual = "hello world, 123 \u{5DD}\u{5D5}\u{5DC}\u{5E9}";
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let base = b"\x1b[?25l\x1b[2J\x1b[8;1HThe quick brown fox jumps 0123456789";
+    arms!(Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(cols),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap() => arms, t);
+    feed(&mut t, base);
+    feed(
+        &mut t,
+        format!("\x1b[2;1H{sentence}\x1b[4;1H{control}").as_bytes(),
+    );
+    let got = three(&mut arms, &mut t, "implicit");
+    assert!(arms.renderer.bidi().reordered(Row::from_index(1)));
+    assert_eq!(
+        arms.renderer
+            .bidi()
+            .visual_col(Row::from_index(1), Col::at_index(n - 1)),
+        Col::at_index(cols - n),
+        "the period, written last, drawn at the text's left end"
+    );
+    feed(&mut t, b"\x1b[8l");
+    feed(&mut t, base);
+    feed(
+        &mut t,
+        format!(
+            "\x1b[2;{}H{reversed}\x1b[4;1H{control_visual}",
+            cols - n + 1
+        )
+        .as_bytes(),
+    );
+    let want = three(&mut arms, &mut t, "written in visual order");
+    assert_eq!(
+        differing(&got, &want),
+        0,
+        "drawn right to left, at the right"
+    );
+    feed(&mut t, base);
+    feed(
+        &mut t,
+        format!("\x1b[2;1H{sentence}\x1b[4;1H{control}").as_bytes(),
+    );
+    let stored = three(&mut arms, &mut t, "explicit");
+    assert!(
+        differing(&stored, &want) > 0,
+        "the control: BDSM reset draws the stored order"
+    );
+}
+
+/// **A right-to-left paragraph's frames drawn by rows are the whole
+/// frame's pixels, on both GPU paths**: its text sits past the extent the
+/// core records for the row, at the right edge, so a frame that typed one
+/// more letter, erased one, or moved the cursor along the row must still
+/// draw where the text is drawn. Both paths draw the cursor's frames by
+/// rows.
+#[test]
+fn a_right_to_left_paragraph_drawn_by_rows_is_the_whole_frame() {
+    let sentence = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DD}! \u{5D6}\u{5D5} \u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA}.";
+    let steps = |row: Want, rows: Want| -> Vec<Step> {
+        let inc = Damage::Incremental;
+        vec![
+            (
+                "the scene and the sentence",
+                inc,
+                Box::new(move |_, t| {
+                    feed(
+                        t,
+                        b"\x1b[?25h\x1b[2J\x1b[8;1HThe quick brown fox jumps 0123456789",
+                    );
+                    feed(t, format!("\x1b[6;1H{sentence}").as_bytes());
+                }),
+                Want::Any,
+            ),
+            (
+                "one more letter",
+                inc,
+                Box::new(|_, t| feed(t, "\u{5D0}".as_bytes())),
+                row,
+            ),
+            (
+                "and erased again",
+                inc,
+                Box::new(|_, t| feed(t, b"\x08\x1b[K")),
+                row,
+            ),
+            ("the cursor along the row", inc, at(6, 3), rows),
+            ("and to the period", inc, at(6, 26), rows),
+        ]
+    };
+    cell_oracle(Reads::Copy, Px::of(0), steps(Want::Any, Want::Rows), 0);
+    instance_oracle(Px::of(0), steps(Want::Any, Want::Rows), 0);
 }
 
 /// **The cursor on a right-to-left row is drawn in its own shape, alike on

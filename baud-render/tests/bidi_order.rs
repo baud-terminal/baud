@@ -84,6 +84,93 @@ fn a_fresh_terminal_draws_a_hebrew_word_right_to_left() {
     );
 }
 
+/// **A paragraph takes its direction from its first strong letter**
+/// (UAX #9 P2-P3), and a right-to-left one sits against the right edge:
+/// the owner's sentence, all Hebrew, runs right to left at level 1, so its
+/// closing period, a neutral between an R and the paragraph's end (N1-N2),
+/// is drawn at the left end of the text, and the erased cells past it are
+/// laid out before it, at the line's end in the paragraph direction.
+#[test]
+fn a_hebrew_paragraph_runs_right_to_left_against_the_right_edge() {
+    let ws = WinSize {
+        ws_row: 2,
+        ws_col: 30,
+    };
+    let sentence = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DD}! \u{5D6}\u{5D5} \u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA}.";
+    let reversed: String = sentence.chars().rev().collect();
+    let (s, o) = drawn_with(&ws, sentence, 0, Rows::ZERO);
+    assert_eq!(s, format!("....{reversed}"));
+    assert!(
+        s.ends_with('\u{5E9}'),
+        "the shin, written first, drawn last"
+    );
+    assert_eq!(
+        o.orders().visual_col(Row::ZERO, Col::at_index(25)),
+        Col::at_index(4),
+        "the period, written last, drawn at the text's left end"
+    );
+    assert_eq!(
+        o.orders().visual_col(Row::ZERO, Col::at_index(26)),
+        Col::at_index(3),
+        "the cursor's cell past the text: just left of it"
+    );
+    assert_eq!(
+        o.orders().side(Row::ZERO, Col::at_index(26)),
+        CursorSide::Right
+    );
+    // A click anywhere names the cell drawn under it, the blank left of
+    // the text included: the maps are each other's inverse.
+    for c in 0..30 {
+        let v = o.orders().visual_col(Row::ZERO, Col::at_index(c));
+        assert_eq!(
+            o.orders().logical_col(Row::ZERO, v),
+            Col::at_index(c),
+            "column {c}"
+        );
+    }
+    assert_eq!(
+        o.orders().logical_col(Row::ZERO, Col::ZERO),
+        Col::at_index(29),
+        "a click at the left edge: the row's last erased cell"
+    );
+    // The control: a line whose first strong letter is Latin stays at
+    // level 0, at the left edge.
+    let (s, _) = drawn_with(
+        &ws,
+        "hello world, 123 \u{5E9}\u{5DC}\u{5D5}\u{5DD}",
+        0,
+        Rows::ZERO,
+    );
+    assert_eq!(s, "hello world, 123 \u{5DD}\u{5D5}\u{5DC}\u{5E9}.........");
+}
+
+/// **A paragraph resolved in more than one piece keeps one direction**: a
+/// window full of one paragraph, more codepoints than [`CONTEXT`], is
+/// resolved in pieces, and each piece after the first is given the first
+/// piece's level (HL1) rather than looking for a first strong letter of
+/// its own. The paragraph starts with a Hebrew letter and goes on in
+/// Latin, so its last row, in the last piece and all Latin, still sits
+/// against the right edge.
+#[test]
+fn a_paragraph_resolved_in_pieces_keeps_its_first_pieces_direction() {
+    let cols = 200;
+    let rows = baud_render::CONTEXT / cols + 8;
+    let ws = WinSize {
+        ws_row: u16::try_from(rows).unwrap(),
+        ws_col: u16::try_from(cols).unwrap(),
+    };
+    let tail = 50;
+    let text = format!("\u{5D0}{}", "a".repeat(cols * (rows - 1) - 1 + tail));
+    let (last, o) = drawn_with(&ws, &text, rows - 1, Rows::ZERO);
+    assert!(o.orders().reordered(Row::from_index(rows - 1)));
+    assert_eq!(
+        last,
+        format!("{}{}", ".".repeat(cols - tail), "a".repeat(tail))
+    );
+    let (first, _) = drawn_with(&ws, &text, 0, Rows::ZERO);
+    assert!(first.ends_with('\u{5D0}'), "the alef at the right of row 0");
+}
+
 /// **The control: BDSM reset draws every cell where it is**, as baud
 /// always did, and so does a row with no right-to-left character.
 #[test]
@@ -99,14 +186,21 @@ fn explicit_and_left_to_right_rows_keep_their_order() {
     assert!(!o.orders().any(), "a left-to-right row is not reordered");
 }
 
-/// L4: a bracket resolved right to left draws its mirroring glyph. N0
-/// gives the pair R (a strong R inside, R before the opener), so the run
-/// `א(ב)ג` reverses whole and each bracket shows its mirror.
+/// L4: a bracket resolved right to left draws its mirroring glyph. The
+/// paragraph is at level 1 (its first strong letter is the alef, P2-P3)
+/// and N0 gives the pair R (a strong R inside matching the embedding
+/// direction), so the line reverses whole, against the right edge, and
+/// each bracket shows its mirror. The same run after a Latin word, at
+/// level 0, reverses in place.
 #[test]
 fn a_bracket_resolved_right_to_left_draws_its_mirror() {
     assert_eq!(
         drawn("\u{5D0}(\u{5D1})\u{5D2}", 0),
-        "\u{5D2}(\u{5D1})\u{5D0}......."
+        ".......\u{5D2}(\u{5D1})\u{5D0}"
+    );
+    assert_eq!(
+        drawn("x \u{5D0}(\u{5D1})\u{5D2}", 0),
+        "x \u{5D2}(\u{5D1})\u{5D0}....."
     );
 }
 
@@ -117,28 +211,37 @@ fn a_bracket_resolved_right_to_left_draws_its_mirror() {
 /// the same way as without it.
 #[test]
 fn a_bracket_carrying_a_bidi_control_draws_its_mirror() {
-    // The LRM is strong L at level 0 (W1-W7 leave it L), so it ends the
-    // run: the gimel after it is a run of its own, drawn to its right.
+    // Each row after a Latin letter, so the paragraph is at level 0 and
+    // the run reverses in place. The LRM is strong L at level 0 (W1-W7
+    // leave it L), so it ends the run: the gimel after it is a run of its
+    // own, drawn to its right.
     for (bytes, want, what) in [
         (
-            "\u{5D0}(\u{5D1})\u{200F}\u{5D2}",
-            "\u{5D2}(\u{5D1})\u{5D0}.......",
+            "x\u{5D0}(\u{5D1})\u{200F}\u{5D2}",
+            "x\u{5D2}(\u{5D1})\u{5D0}......",
             "an RLM after the closer",
         ),
         (
-            "\u{5D0}(\u{200F}\u{5D1})\u{5D2}",
-            "\u{5D2}(\u{5D1})\u{5D0}.......",
+            "x\u{5D0}(\u{200F}\u{5D1})\u{5D2}",
+            "x\u{5D2}(\u{5D1})\u{5D0}......",
             "an RLM after the opener",
         ),
         (
-            "\u{5D0}(\u{5D1})\u{61C}\u{5D2}",
-            "\u{5D2}(\u{5D1})\u{5D0}.......",
+            "x\u{5D0}(\u{5D1})\u{61C}\u{5D2}",
+            "x\u{5D2}(\u{5D1})\u{5D0}......",
             "an ALM after the closer",
         ),
         (
-            "\u{5D0}(\u{5D1})\u{200E}\u{5D2}",
-            "(\u{5D1})\u{5D0}\u{5D2}.......",
+            "x\u{5D0}(\u{5D1})\u{200E}\u{5D2}",
+            "x(\u{5D1})\u{5D0}\u{5D2}......",
             "an LRM after the closer",
+        ),
+        // At level 1 the LRM is an L of its own, at level 2, and the line
+        // reverses whole: the closer it is stored on still mirrors.
+        (
+            "\u{5D0}(\u{5D1})\u{200E}\u{5D2}",
+            ".......\u{5D2}(\u{5D1})\u{5D0}",
+            "an LRM after the closer, at level 1",
         ),
     ] {
         let (s, o) = drawn_with(&WS, bytes, 0, Rows::ZERO);
@@ -156,7 +259,7 @@ fn a_bracket_carrying_a_bidi_control_draws_its_mirror() {
     assert!(vp.row(Row::ZERO)[3].flags.is_marked(), "the RLM is stored");
     let mut out = vec![PackedCell::EMPTY; 12];
     o.orders().permute(Row::ZERO, vp.row(Row::ZERO), &mut out);
-    assert!(!out[1].flags.is_marked(), "the mirror is unmarked");
+    assert!(!out[8].flags.is_marked(), "the mirror is unmarked");
 }
 
 /// **The departure that is left, counted**: a mirrored character carrying
@@ -166,10 +269,10 @@ fn a_bracket_carrying_a_bidi_control_draws_its_mirror() {
 #[test]
 fn a_mirrored_character_carrying_a_drawn_mark_is_counted() {
     let (s, o) = drawn_with(&WS, "\u{5D0}<\u{338}\u{5D1}", 0, Rows::ZERO);
-    assert_eq!(s, "\u{5D1}<\u{5D0}.........");
+    assert_eq!(s, ".........\u{5D1}<\u{5D0}");
     assert_eq!(o.unmirrored().value(), 1);
     let (s, o) = drawn_with(&WS, "\u{5D0}\u{226E}\u{5D1}", 0, Rows::ZERO);
-    assert_eq!(s, "\u{5D1}\u{226F}\u{5D0}.........", "the control");
+    assert_eq!(s, ".........\u{5D1}\u{226F}\u{5D0}", "the control");
     assert_eq!(o.unmirrored().value(), 0);
 }
 
@@ -179,7 +282,7 @@ fn a_mirrored_character_carrying_a_drawn_mark_is_counted() {
 fn a_wide_character_keeps_its_lead_on_the_left() {
     assert_eq!(
         drawn("\u{5D0}\u{1F600}\u{5D1}", 0),
-        "\u{5D1}\u{1F600}~\u{5D0}........"
+        "........\u{5D1}\u{1F600}~\u{5D0}"
     );
 }
 
@@ -196,10 +299,11 @@ fn marks_move_with_their_cell() {
     let mut out = vec![PackedCell::EMPTY; 12];
     o.orders().permute(Row::ZERO, vp.row(Row::ZERO), &mut out);
     let logical = vp.row(Row::ZERO);
-    assert_eq!(out[0], logical[2], "the vav and its holam drawn first");
-    assert_eq!(out[1], logical[1]);
-    assert_eq!(out[2], logical[0], "the shin and its qamats drawn last");
-    assert!(out[0].flags.is_marked() && out[2].flags.is_marked());
+    // A right-to-left paragraph, against the right edge.
+    assert_eq!(out[9], logical[2], "the vav and its holam drawn first");
+    assert_eq!(out[10], logical[1]);
+    assert_eq!(out[11], logical[0], "the shin and its qamats drawn last");
+    assert!(out[9].flags.is_marked() && out[11].flags.is_marked());
 }
 
 /// An erased cell between characters is a boundary neutral (BN): X9
@@ -208,7 +312,7 @@ fn marks_move_with_their_cell() {
 #[test]
 fn an_erased_cell_between_characters_moves_with_the_one_before_it() {
     // A, then CUF over one cell, then B: the gap was never written.
-    assert_eq!(drawn("\u{5D0}\x1b[C\u{5D1}", 0), "\u{5D1}.\u{5D0}.........");
+    assert_eq!(drawn("\u{5D0}\x1b[C\u{5D1}", 0), ".........\u{5D1}.\u{5D0}");
 }
 
 /// A paragraph is the rows joined by soft wraps: an RLO on the first row

@@ -12,9 +12,11 @@ programs, and pictures.
 
 ## Not built yet
 
-- **Right-to-left text.** Hebrew letters are drawn with their points, but a
-  right-to-left line is laid out left to right. Bidirectional layout is
-  not built ([note AB](../research/notes/ab-right-to-left.md)).
+- **Right-to-left text, in part.** A line that starts in Hebrew or Arabic
+  runs right to left against the window's right edge, and a Hebrew word in
+  an English line reads right to left in its place. A program cannot yet
+  set a line's direction, and Arabic letters are not joined
+  ([bidi](../bidi.md)).
 - **Key releases and modifier keys on macOS.** Programs that ask to be told
   when a key is let go, or when Shift or Control alone is pressed, are not
   told yet. Key presses themselves work.

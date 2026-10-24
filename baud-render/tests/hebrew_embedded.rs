@@ -309,8 +309,8 @@ const WS5: WinSize = WinSize {
 };
 
 /// What `bytes` paints through `faces` with `roles` on an 80 x 5 screen:
-/// the pixels, the canvas width, the cell size, and for each cell, row by
-/// row, whether it holds a point.
+/// the pixels, the canvas width, the cell size, and for each cell drawn,
+/// row by row, whether the cell it shows holds a point.
 fn painted_verses(
     faces: &[Face<'_>],
     roles: &[FaceRole],
@@ -333,14 +333,16 @@ fn painted_verses(
     assert_eq!(t.marks_dropped, 0, "the core keeps every point");
     paint(&mut r, &mut t, &mut c, Damage::Full);
     let (rows, cols) = (usize::from(WS5.ws_row), usize::from(WS5.ws_col));
-    let pointed = (0..rows)
-        .flat_map(|y| (0..cols).map(move |x| (y, x)))
-        .map(|(y, x)| {
-            t.marks(Row::from_index(y), Col::at_index(x))
-                .next()
-                .is_some()
-        })
-        .collect();
+    // Each pointed cell where it is drawn: a verse is a right-to-left
+    // paragraph (its first strong letter is Hebrew, UAX #9 P2-P3), so its
+    // cells are drawn reversed, against the right edge.
+    let mut pointed = vec![false; rows * cols];
+    for (y, x) in (0..rows).flat_map(|y| (0..cols).map(move |x| (y, x))) {
+        let (row, col) = (Row::from_index(y), Col::at_index(x));
+        if t.marks(row, col).next().is_some() {
+            pointed[y * cols + r.bidi().visual_col(row, col).index()] = true;
+        }
+    }
     let m = r.metrics();
     let cell = (
         usize::try_from(m.cell_w.value()).unwrap(),

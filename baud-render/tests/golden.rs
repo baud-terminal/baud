@@ -61,17 +61,22 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// are their old pins again. cat-cjk and vim-unicode moved when BDSM came
 /// to be set at power-on (2026-10-24), their Hebrew and Arabic rows drawn
 /// in the order UAX #9 gives them; with `CSI 8 l` before each recording,
-/// all nine frames are their old pins again.
+/// all nine frames are their old pins again. They moved again when a
+/// paragraph came to take its direction from its first strong letter
+/// (UAX #9 P2-P3, 2026-10-24): one row of cat-cjk and eleven of
+/// vim-unicode start with a right-to-left letter and are drawn right to
+/// left against the right edge; every other row's pixels are the old
+/// frame's.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0x02759005377d677c),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x84d445463a4decad),
+    ("utf8/cat-cjk.raw", 0x848bd3c8e7cc5925),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x719f7f0a3b102e96),
+    ("utf8/vim-unicode.raw", 0xed2f76a3190917a6),
 ];
 
 #[test]

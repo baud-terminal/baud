@@ -1572,8 +1572,13 @@ finding that no pinned terminfo entry and no application read sends
   (Jev's lean INITIAL_STATE, 0.78/0.82, then 0.64/0.86 with VTE's source;
   both requests stated that every other ANSI mode baud implements starts
   reset, which SRM does not, and the corrected ask gave 0.68/0.84;
-  `ab/b191/`); Q3 the paragraph direction (built level 0; FIRST_STRONG
-  0.56/0.48 then LTR_LEVEL 0.22/0.30), ~~Q14's cursor at a pending wrap on a
+  `ab/b191/`); ~~Q3 the paragraph direction (built level 0; FIRST_STRONG
+  0.56/0.48 then LTR_LEVEL 0.22/0.30)~~ answered 2026-10-24 from renders
+  of three options on eight examples, "all match C besides these 2 , the
+  wrap line looks bad and the table should be like B but דנהshould b be
+  rtl": the first strong letter (P2-P3), a right-to-left line against the
+  right edge, built; the table row and the wrapped paragraph are their own
+  items (`docs/bidi.md`); ~~Q14's cursor at a pending wrap on a
   reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
   then hidden 0.52 and drawn 0.30)~~ answered 2026-10-24, "drawn and based
   on how the cursor is , line, block or udnerline": drawn, each shape
