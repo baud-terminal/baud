@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 320 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 321 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 303 | 30 | redistributable, and its notice is satisfied |
+| kept | 304 | 30 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 864 | 41 | |
+| total | 866 | 41 | |
 
 ## Licence texts in LICENSES/
 
@@ -823,7 +823,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 26
+- **Files:** 27
 
 | file | copied from |
 |---|---|
@@ -834,6 +834,7 @@ notice is, and the URL each file was copied from.
 | [uax14-line-breaking.html](docs/research/sources/uax14-line-breaking.html) | https://www.unicode.org/reports/tr14/tr14-55.html |
 | [uax24-script-property.html](docs/research/sources/uax24-script-property.html) | https://www.unicode.org/reports/tr24/tr24-39.html |
 | [uax29-text-segmentation.html](docs/research/sources/uax29-text-segmentation.html) | https://www.unicode.org/reports/tr29/tr29-47.html |
+| [uax9-tr9-51.html](docs/research/sources/uax9-tr9-51.html) | https://www.unicode.org/reports/tr9/tr9-51.html |
 | [uax9-tr9-52.html](docs/research/sources/uax9-tr9-52.html) | https://www.unicode.org/reports/tr9/tr9-52.html |
 | [unicode-ch3.html](docs/research/sources/unicode-ch3.html) | https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/ |
 | [unicode-enumerated-versions.html](docs/research/sources/unicode-enumerated-versions.html) | https://www.unicode.org/versions/enumeratedversions.html |
@@ -1716,7 +1717,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **Files:** 30
+- **Files:** 31
 
 | file | copied from |
 |---|---|
@@ -1732,6 +1733,7 @@ notice is, and the URL each file was copied from.
 | [iso8859-9.txt](docs/research/sources/iso8859-9.txt) | https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-9.TXT |
 | [ucd18-emoji-data.txt](docs/research/sources/ucd18-emoji-data.txt) | https://www.unicode.org/Public/18.0.0/ucd/emoji/emoji-data.txt |
 | [unicode-bidibrackets.txt](docs/research/sources/unicode-bidibrackets.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiBrackets.txt |
+| [unicode-bidimirroring.txt](docs/research/sources/unicode-bidimirroring.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt |
 | [unicode-casefolding.txt](docs/research/sources/unicode-casefolding.txt) | https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt |
 | [unicode-derivedbidiclass.txt](docs/research/sources/unicode-derivedbidiclass.txt) | https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt |
 | [unicode-derivedcoreproperties.txt](docs/research/sources/unicode-derivedcoreproperties.txt) | https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt |

@@ -38,6 +38,8 @@
 extern crate alloc;
 
 mod base64;
+mod bidi;
+mod bidi_data;
 mod brand;
 mod cache;
 mod caseless;
@@ -108,6 +110,7 @@ mod width_data;
 pub mod zlib;
 
 pub use base64::*;
+pub use bidi::*;
 pub use brand::*;
 pub use cache::*;
 pub use caseless::*;

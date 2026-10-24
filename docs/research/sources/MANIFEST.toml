@@ -1376,6 +1376,21 @@ bytes  = 173433
 status = "retrieved"
 group  = "G"
 
+# Bidi_Mirroring_Glyph: the character whose glyph is another's mirrored
+# (UAX #9 L4). `scripts/gen-bidi-tables.py` builds it into `bidi_data.rs`.
+[sources.unicode-bidimirroring]
+key    = "unicode-bidimirroring"
+title  = "BidiMirroring.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt"
+file   = "unicode-bidimirroring.txt"
+sha256 = "a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce"
+bytes  = 26827
+status = "retrieved"
+group  = "G"
+
 [sources.unicode-propertyvaluealiases]
 key    = "unicode-propertyvaluealiases"
 title  = "PropertyValueAliases.txt, Unicode Character Database 17.0.0"
@@ -4402,20 +4417,22 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
 
+# Revision 51, the revision for Unicode 17.0.0, the version of every UCD file
+# baud compiles. The url was the unversioned one, which now serves revision 52
+# (`uax9-tr9-52`); the hash was always revision 51's, so the url names it.
+# `scripts/gen-bidi-tables.py` and `baud-domain/src/bidi.rs` build from it.
 [sources.uax9-bidi]
 key    = "uax9-bidi"
-title  = "UAX #9: Unicode Bidirectional Algorithm"
+title  = "UAX #9: Unicode Bidirectional Algorithm, revision 51 (Unicode 17.0.0)"
 author = "Unicode Consortium"
 year   = 2025
 venue  = "unicode.org/reports/tr9"
-url    = "https://www.unicode.org/reports/tr9/"
-file   = ""
+url    = "https://www.unicode.org/reports/tr9/tr9-51.html"
+file   = "uax9-tr9-51.html"
 sha256 = "25ebbc5bc05ec302677ace0e3118e454e12da5e1e7ebec386aabd6e585c8cebe"
 bytes  = 187487
-status = "external"
+status = "retrieved"
 group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
 
 [sources.ms-opentype-featurelist]
 key    = "ms-opentype-featurelist"
