@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 304 | 30 | redistributable, and its notice is satisfied |
+| kept | 306 | 30 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 866 | 41 | |
+| total | 868 | 41 | |
 
 ## Licence texts in LICENSES/
 
@@ -1717,7 +1717,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Unicode-3.0
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
-- **Files:** 31
+- **Files:** 33
 
 | file | copied from |
 |---|---|
@@ -1733,7 +1733,9 @@ notice is, and the URL each file was copied from.
 | [iso8859-9.txt](docs/research/sources/iso8859-9.txt) | https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-9.TXT |
 | [ucd18-emoji-data.txt](docs/research/sources/ucd18-emoji-data.txt) | https://www.unicode.org/Public/18.0.0/ucd/emoji/emoji-data.txt |
 | [unicode-bidibrackets.txt](docs/research/sources/unicode-bidibrackets.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiBrackets.txt |
+| [unicode-bidicharactertest.txt](docs/research/sources/unicode-bidicharactertest.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt |
 | [unicode-bidimirroring.txt](docs/research/sources/unicode-bidimirroring.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt |
+| [unicode-biditest.txt](docs/research/sources/unicode-biditest.txt) | https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt |
 | [unicode-casefolding.txt](docs/research/sources/unicode-casefolding.txt) | https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt |
 | [unicode-derivedbidiclass.txt](docs/research/sources/unicode-derivedbidiclass.txt) | https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt |
 | [unicode-derivedcoreproperties.txt](docs/research/sources/unicode-derivedcoreproperties.txt) | https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt |

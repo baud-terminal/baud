@@ -1,6 +1,6 @@
 # AB. Right-to-left text
 
-**Status: research. Bidi is not built; phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
+**Status: research. The bidirectional algorithm is built and drawn nowhere yet: UAX #9 in `baud-domain`, passing both conformance files, is step 1 of right-to-left text, and `docs/bidi.md` lists what drawing it needs (2026-10-24). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
 
 - the specifications;
 - terminals that do bidi;
@@ -50,7 +50,7 @@ Where the critic found that a claim does not hold, this note gives the corrected
 
 **One existing pin is broken and one is incomplete** [measured; repairs in 9.0]:
 
-- **`uax9-bidi`** points at the unversioned URL `https://www.unicode.org/reports/tr9/`. That URL now serves rev 52 (3c281b38…, 188,933 B). The pinned hash 25ebbc5b… (187,487 B) is exactly `tr9-51.html`, so re-fetching the pinned URL fails its hash.
+- **`uax9-bidi`** points at the unversioned URL `https://www.unicode.org/reports/tr9/` (*repaired 2026-10-24*: it names revision 51's URL, and `docs/research/sources/uax9-tr9-51.html` is committed). That URL now serves rev 52 (3c281b38…, 188,933 B). The pinned hash 25ebbc5b… (187,487 B) is exactly `tr9-51.html`, so re-fetching the pinned URL fails its hash.
 - **`terminal-wg-bidi`** still verifies, but it covers only the index page (5d5f728a…, 22,225 B, still byte-identical on 2026-10-06), which holds no requirements, only a Foreword and Conventions; every requirement is on the subpages. Both entries also give `year = 2025`, though the terminal-wg document dates from 2018-2019 [source: MANIFEST.toml:2939-2949, 3014-3024].
 
 **VTE's version claim.** VTE's source says it implements "Terminal-wg/bidi v0.2" [source: VTE src/bidi.cc header @56bad78]. No v0.2 was ever published: the spec repo has only `master` and tag `0.1` [measured: `git ls-remote`]. What VTE's "v0.2" contains could not be confirmed. It may include unpublished changes, such as forcing DCSM as issue #9 proposes.
@@ -818,6 +818,7 @@ vim with `arabicshape` already emits presentation forms.
 - 17.0.0 matches baud's other UCD pins and rev 51.
 - 18.0.0 adds two brackets and five mirroring pairs (2.4).
 - The test files' data is identical in both, and both sets of bytes are saved.
+- *Decided 2026-10-24 by Jev and built*: 17.0.0 and rev 51, over the bidi tables alone at 18.0.0 and over every table moved at once (confidence 0.95 and 0.98 in the two orders). `uax9-bidi` now names rev 51's URL, the bytes it always hashed. The record, "The bidirectional algorithm, UAX #9, is built and passes both conformance files".
 
 **Q21. Native digits and user direction toggles.**
 

@@ -8,6 +8,10 @@
 //! `every_code_point_has_the_bidi_class_the_pinned_file_gives` reads every
 //! code point back against `DerivedBidiClass.txt`.
 
+mod algorithm;
+
+pub use algorithm::*;
+
 use crate::bidi_data::{BIDI_BLOCKS, BIDI_INDEX, MIRROR_BLOCKS, MIRROR_GLYPHS, MIRROR_INDEX};
 
 /// A Bidi_Class value, in UAX #9 Table 4's order, which is the table's,

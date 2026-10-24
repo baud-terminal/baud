@@ -1391,6 +1391,35 @@ bytes  = 26827
 status = "retrieved"
 group  = "G"
 
+# UAX #9's two conformance files: "Implementations are expected to correctly
+# cover all test cases in both test files". `baud-domain/tests/bidi.rs` runs
+# every line of each.
+[sources.unicode-biditest]
+key    = "unicode-biditest"
+title  = "BidiTest.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt"
+file   = "unicode-biditest.txt"
+sha256 = "888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620"
+bytes  = 7959988
+status = "retrieved"
+group  = "G"
+
+[sources.unicode-bidicharactertest]
+key    = "unicode-bidicharactertest"
+title  = "BidiCharacterTest.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt"
+file   = "unicode-bidicharactertest.txt"
+sha256 = "a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488"
+bytes  = 6880771
+status = "retrieved"
+group  = "G"
+
 [sources.unicode-propertyvaluealiases]
 key    = "unicode-propertyvaluealiases"
 title  = "PropertyValueAliases.txt, Unicode Character Database 17.0.0"
