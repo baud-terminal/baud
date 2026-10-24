@@ -24,6 +24,7 @@ use crate::overlay::Composition;
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
+use crate::splash::{self, SplashLook};
 use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
 use crate::stack::{FaceStyle, FontSlot, Presentation, TextFace};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
@@ -598,6 +599,14 @@ const MARK_ALPHA: u8 = 0x66;
 /// How many sizes of the badge's glyphs the atlas holds before it starts
 /// over (`Renderer::set_badge`).
 const BADGE_SIZES: usize = 2;
+
+/// Whether a trail the driver asks for is held back: one lit while the
+/// splash's plasma held the effect's slot, until it lands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HeldTrail {
+    Yes,
+    No,
+}
 
 /// Whether a CPU frame repainted the exit-status strip.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1638,6 +1647,20 @@ pub struct Renderer<'f, 'a> {
     trail: Option<Drawn>,
     last_trail: Option<Drawn>,
     trail_inst: Vec<Instance>,
+    /// The trail the driver asked for, which [`Renderer::trail`] draws
+    /// unless the splash's plasma holds the effect's slot, and whether a
+    /// trail lit while it did is still being held back.
+    asked_trail: Option<Drawn>,
+    held_trail: HeldTrail,
+    /// **The launch splash** on this frame and the last ([`SplashLook`]),
+    /// the scale its glyphs were first drawn at, and its records: the
+    /// lockup's glyphs and block, drawn with baud's own overlays over
+    /// everything but the thumb and the fade. While it vanishes its plasma
+    /// is the frame's effect.
+    splash: Option<SplashLook>,
+    last_splash: Option<SplashLook>,
+    splash_scale: Option<f32>,
+    splash_inst: Vec<Instance>,
     /// An input method's composition on this frame and the last, and its
     /// records: the rows under either are dirty, and the cells under it are
     /// converted blank so its own glyphs replace theirs ([`Composition`]).
@@ -1989,6 +2012,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             trail: None,
             last_trail: None,
             trail_inst: Vec::new(),
+            asked_trail: None,
+            held_trail: HeldTrail::No,
+            splash: None,
+            last_splash: None,
+            splash_scale: None,
+            splash_inst: Vec::new(),
             composition: None,
             last_composition: None,
             compose_inst: Vec::new(),
@@ -2620,14 +2649,171 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// function of the value and the pixel oracle can compare two GPU arms
     /// on it.
     pub fn set_trail(&mut self, look: Option<TrailLook>) {
-        self.trail = look.map(|l| match l {
+        self.asked_trail = look.map(|l| match l {
             TrailLook::Ghost(t) => {
                 Drawn::Ghost(trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h))
             }
             TrailLook::Smear(s) => Drawn::Smear(s),
             TrailLook::Vfx(v) => Drawn::Vfx(v, Px::of(0), Px::of(0)),
         });
+        self.choose_trail();
+    }
+
+    /// **The trail this frame draws**: the splash's plasma while it
+    /// vanishes, since a frame has one effect's slot on every GPU path;
+    /// else the driver's, unless one lit under the plasma is still in
+    /// flight -- held back until it lands, so it never appears halfway.
+    fn choose_trail(&mut self) {
+        let plasma = self.splash_vfx();
+        if plasma.is_some() && self.asked_trail.is_some() {
+            self.held_trail = HeldTrail::Yes;
+        } else if self.asked_trail.is_none() {
+            self.held_trail = HeldTrail::No;
+        }
+        self.trail = match (plasma, self.held_trail) {
+            (Some(v), _) => Some(Drawn::Vfx(v, Px::of(0), Px::of(0))),
+            (None, HeldTrail::Yes) => None,
+            (None, HeldTrail::No) => self.asked_trail,
+        };
         self.build_trail();
+    }
+
+    /// **The launch splash** for the frames to come, or none (`splash.rs`):
+    /// the lockup in the theme's half, centred, at the size its first frame
+    /// chose, its records drawn with baud's own overlays on every path --
+    /// in [`Renderer::instances`] after the find field and the link bar,
+    /// the CPU path's over the images, and the cell path's from
+    /// [`Renderer::splash`] -- and, while it vanishes, its plasma in the
+    /// effect's slot. A change of it repaints the whole frame, as the
+    /// screen fade does.
+    pub fn set_splash(&mut self, look: Option<SplashLook>) {
+        // Gone and staying gone, every frame after the launch: nothing to
+        // build, and the trail as `set_trail` left it.
+        if look.is_none() && self.splash.is_none() {
+            return;
+        }
+        self.splash = look;
+        if look.is_none() {
+            self.splash_scale = None;
+        }
+        self.build_splash();
+        self.choose_trail();
+    }
+
+    /// The splash's records, for a path that draws records of its own:
+    /// with baud's own overlays, before the thumb and the fade.
+    pub fn splash(&self) -> &[Instance] {
+        &self.splash_inst
+    }
+
+    /// The splash's plasma this frame, while it vanishes.
+    fn splash_vfx(&self) -> Option<Vfx> {
+        let look = self.splash?;
+        let splash::SplashPhase::Vanish(age) = look.phase else {
+            return None;
+        };
+        if age >= splash::end() {
+            return None;
+        }
+        let (scale, at) = self.splash_place()?;
+        Some(splash::vfx(at, scale, age))
+    }
+
+    /// The splash's scale and where its box starts in the frame.
+    fn splash_place(&self) -> Option<(f32, trail::Pt)> {
+        let scale = self.splash_scale?;
+        let (w, h) = self.pixel_size();
+        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        Some((scale, splash::origin((side(w), side(h)), scale)))
+    }
+
+    /// The lockup's two colours on the theme's half.
+    fn splash_colours(&self) -> splash::Colours {
+        match self.theme.polarity() {
+            Some(baud_domain::ColorScheme::Light) => splash::LIGHT,
+            _ => splash::DARK,
+        }
+    }
+
+    /// **The splash's records**: `baud` and `❯` in the badge's face --
+    /// baud's embedded JetBrains Mono Bold, 700 where the lockup asks 500
+    /// for the wordmark and no embedded face has it (Jev, BOLD, 0.98 and
+    /// 0.98, against the Regular) -- at the lockup's sizes and pens, and the
+    /// block, each at its opacity this phase.
+    fn build_splash(&mut self) {
+        self.splash_inst.clear();
+        let Some(look) = self.splash else {
+            return;
+        };
+        let (w, h) = self.pixel_size();
+        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let scale = *self
+            .splash_scale
+            .get_or_insert_with(|| splash::scale((side(w), side(h))));
+        let Some((_, at)) = self.splash_place() else {
+            return;
+        };
+        if scale <= 0.0 {
+            return;
+        }
+        let colours = self.splash_colours();
+        let face = self.stack.badge();
+        let f = self.stack.face(face);
+        let upem = f.units_per_em();
+        let mut out = Vec::new();
+        for (line, text, colour) in [
+            (splash::WORDMARK, "baud", colours.wordmark),
+            (splash::PROMPT, "\u{276F}", colours.amber),
+        ] {
+            let px = line.size * scale;
+            let s = Scale::of(px, upem);
+            let mut pen = at.x + line.x * scale;
+            let baseline = (at.y + line.baseline * scale).round() as i32;
+            for c in text.chars() {
+                let Some(id) = f.glyph(Codepoint::from_char(c)) else {
+                    continue;
+                };
+                let advance = f
+                    .default_advance(id)
+                    .map_or(0.0, |a| s.px(f32::from(a.value())));
+                if let Some(slot) = self.atlas.slot_sized(f, face, id, s) {
+                    let x = pen.round() as i32 + slot.left;
+                    let y = baseline + slot.top;
+                    let (l, r) = (x as f32, (x + i32::from(slot.w.0)) as f32);
+                    let alpha = splash::ink(look, at, scale, l, r);
+                    out.push(Instance {
+                        x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
+                        y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+                        w: slot.w,
+                        h: slot.h,
+                        u: slot.x,
+                        v: slot.y,
+                        color: splash::at_alpha(colour, alpha),
+                        kind: slot.kind,
+                        curve: curve_row(colour),
+                    });
+                }
+                pen += advance + line.tracking * scale;
+            }
+        }
+        let b = splash::placed(splash::BLOCK, at, scale);
+        let (x0, y0) = (b.left.round(), b.top.round());
+        let (x1, y1) = (b.right.round(), b.bottom.round());
+        out.push(Instance {
+            x: Screen(i16::try_from(x0 as i64).unwrap_or(i16::MAX)),
+            y: Screen(i16::try_from(y0 as i64).unwrap_or(i16::MAX)),
+            w: Tex(u16::try_from((x1 - x0).max(0.0) as i64).unwrap_or(0)),
+            h: Tex(u16::try_from((y1 - y0).max(0.0) as i64).unwrap_or(0)),
+            u: Tex(0),
+            v: Tex(0),
+            color: splash::at_alpha(colours.amber, splash::block(look)),
+            kind: Kind::Solid,
+            curve: curve_row(colours.amber),
+        });
+        // A record at no opacity draws nothing: left out, so a vanished
+        // glyph costs no draw.
+        out.retain(|r| r.color.a().get() > 0);
+        self.splash_inst = out;
     }
 
     /// The trail's records, in the colours in force: one for a ghost, a
@@ -2636,13 +2822,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn build_trail(&mut self) {
         self.trail_inst.clear();
         let frame = self.pixel_size();
+        // The splash's plasma is the logo's amber; every trail the cursor's
+        // colour.
+        let effect_fill = match self.splash_vfx() {
+            Some(_) => self.splash_colours().amber,
+            None => self.cursor_fill,
+        };
         match &mut self.trail {
             Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(*g, self.cursor_fill)),
             Some(Drawn::Smear(s)) => self
                 .trail_inst
                 .push(trail::quad_instance(s, self.cursor_fill)),
             Some(Drawn::Vfx(v, top, bottom)) => {
-                v.instances(frame, self.cursor_fill, &mut self.trail_inst);
+                v.instances(frame, effect_fill, &mut self.trail_inst);
                 // A repeat pass keeps one record a pixel: the bands, a cell
                 // row each and disjoint, and not the particles that stack
                 // over them, whose alphas would compound past the cap.
@@ -3734,6 +3926,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.bar_inst
                 .extend(scrollbar::instances(b, self.defaults.0));
         }
+        self.build_splash();
         self.build_trail();
         self.build_link();
         self.fade_inst.clear();
@@ -5209,6 +5402,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
             || self.fade != self.last_fade
+            || self.splash != self.last_splash
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
@@ -5459,6 +5653,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_bar = self.bar;
         self.last_trail = self.trail;
         self.last_fade = self.fade;
+        self.last_splash = self.splash;
         self.last_clusters = clusters;
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
@@ -5644,6 +5839,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in self
                 .chrome_inst
                 .iter()
+                .chain(&self.splash_inst)
                 .chain(&self.bar_inst)
                 .chain(&self.fade_inst)
             {
@@ -5667,6 +5863,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .chain(self.trail_inst.iter())
             .chain(self.glow_inst.iter())
             .chain(self.chrome_inst.iter())
+            .chain(self.splash_inst.iter())
             .chain(self.bar_inst.iter())
             .chain(self.fade_inst.iter())
     }
@@ -5677,7 +5874,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// after the images over the text, as kitty draws its scrollbar and
     /// hyperlink target after them (`[[source: kitty-hyperlink-target]]`).
     pub fn chrome(&self) -> Tally {
-        Tally::of(self.chrome_inst.len() + self.bar_inst.len() + self.fade_inst.len())
+        Tally::of(
+            self.chrome_inst.len()
+                + self.splash_inst.len()
+                + self.bar_inst.len()
+                + self.fade_inst.len(),
+        )
     }
 
     /// The background word of every cell, row-major, `cols` by `rows`.

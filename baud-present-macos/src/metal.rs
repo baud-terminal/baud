@@ -1617,6 +1617,19 @@ impl Gpu {
         Some(())
     }
 
+    /// **Builds `effect`'s pipeline now**, if it never was: the launch
+    /// splash builds the plasma's while its logo is held and nothing else
+    /// is drawn, so the frame its vanish starts on -- the shell's first
+    /// output -- does not pay for it. Whether it built.
+    pub fn warm_effect(&mut self, effect: Effect) -> bool {
+        let Some(at) = Effect::ALL.iter().position(|&e| e == effect) else {
+            return false;
+        };
+        self.effect_pipes[at]
+            .get(&self.device, &self.library, effect.fragment())
+            .is_some()
+    }
+
     /// The trail's draw for this frame, if the renderer has one and its
     /// pipeline could be built: `glyph_vertex` over the records, and
     /// `quad_fragment` over a quad's or a sweep's corners, or an effect's own

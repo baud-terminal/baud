@@ -55,9 +55,10 @@
 //! column with FNV-1a over every frame's pixels, so two builds can be shown
 //! to draw the same frames byte for byte; `-` without it. `FLASH_PATH=cpu`
 //! draws each frame on the CPU path instead, [`Renderer::render_at`], which
-//! the app takes under `BAUD_GPU=0` or with no Metal device, and where an
-//! effect runs as the quad (`chase_style` in `app.rs`): so its arms are the
-//! smears and off, and the `path` column says which path drew the line.
+//! the app takes under `BAUD_GPU=0` or with no Metal device, and where the
+//! app draws every effect from its Rust model. This bench asks only the
+//! smears and off of it and refuses an effect arm there, and the `path`
+//! column says which path drew the line.
 //!
 //! **The glass.** `FLASH_GLASS=1` draws every ground through the default
 //! config's glass: the page and every background a program sets dimmed to

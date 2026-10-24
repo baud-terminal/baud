@@ -73,6 +73,9 @@ pub enum Part {
     /// `[window] activity_lights`: the lights are put up or taken down at
     /// the next tick.
     ActivityLights,
+    /// `[launch] splash`: off takes a splash still on screen down at once;
+    /// on after launch shows nothing, the splash being the launch's.
+    Splash,
     /// `config_reload` itself.
     Reload,
     /// `colorspace`.
@@ -116,6 +119,7 @@ impl Part {
             | Part::Notifications
             | Part::CopyOnSelect
             | Part::ActivityLights
+            | Part::Splash
             | Part::AmbiguousWidth
             | Part::Reload => Takes::Now,
             Part::ColourSpace
@@ -151,6 +155,7 @@ impl Part {
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
             Part::ActivityLights => "[window] activity_lights",
+            Part::Splash => "[launch] splash",
             Part::Reload => "config_reload",
             Part::ColourSpace => "colorspace",
             Part::GlassStyle => "[glass] style",
@@ -209,6 +214,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         graphics_print,
         window_ops,
         activity_lights,
+        launch_splash,
         pointer_mode,
         font_changes,
         scroll,
@@ -304,6 +310,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         old.activity_lights != *activity_lights,
         Part::ActivityLights,
     );
+    part(old.launch_splash != *launch_splash, Part::Splash);
     part(old.config_reload != *config_reload, Part::Reload);
     part(old.colorspace != *colorspace, Part::ColourSpace);
     part(old.glass.style != glass.style, Part::GlassStyle);
@@ -500,6 +507,7 @@ mod tests {
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,
             ),
+            ("[launch]\nsplash = \"off\"\n", Part::Splash),
             ("config_reload = \"off\"\n", Part::Reload),
             ("colorspace = \"display-p3\"\n", Part::ColourSpace),
             ("[glass]\nstyle = \"clear\"\n", Part::GlassStyle),

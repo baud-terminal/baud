@@ -90,6 +90,7 @@ pub(crate) struct Plan {
     pub(crate) trail: Option<TrailLook>,
     pub(crate) fade: Option<Transition>,
     pub(crate) blink: BlinkPhases,
+    pub(crate) splash: Option<baud_render::SplashLook>,
 }
 
 /// The cell the frame is drawn on: its size in pixels and its height in
@@ -123,6 +124,9 @@ pub(crate) struct Timed {
     fade: Option<f64>,
     /// The scrollbar's thumb (`bar.rs`).
     pub(crate) bar: crate::bar::Bar,
+    /// The launch splash (`splash.rs`): gone unless [`Timed::with_splash`]
+    /// shows it.
+    splash: crate::splash::Splash,
 }
 
 impl Timed {
@@ -148,6 +152,23 @@ impl Timed {
             transition,
             fade: None,
             bar: crate::bar::Bar::new(),
+            splash: crate::splash::Splash::new(crate::config::LaunchSplash::Off),
+        }
+    }
+
+    /// **The launch's splash**, from `[launch] splash` (and `BAUD_SPLASH`):
+    /// shown from the first frame, as on macOS.
+    pub(crate) fn with_splash(mut self, setting: crate::config::LaunchSplash) -> Timed {
+        self.splash = crate::splash::Splash::new(setting);
+        self
+    }
+
+    /// **`[launch] splash` read again**: off takes a splash still on
+    /// screen down, which owes the frame that clears it.
+    pub(crate) fn set_splash(&mut self, setting: crate::config::LaunchSplash) -> Owes {
+        match self.splash.set(setting) {
+            crate::splash::Owes::Frame => Owes::Full,
+            crate::splash::Owes::Nothing => Owes::Nothing,
         }
     }
 
@@ -215,7 +236,11 @@ impl Timed {
             .map(|s| self.clock.instant_of_secs(s));
         let dwell = self.chase.deadline().map(|t| self.clock.instant_of(t));
         let hold = self.bar.deadline().map(|t| self.clock.instant_of(t));
-        [flip, dwell, hold]
+        let cap = self
+            .splash
+            .deadline()
+            .map(|s| self.clock.instant_of_secs(s));
+        [flip, dwell, hold, cap]
             .into_iter()
             .flatten()
             .filter(|&t| t > now)
@@ -252,7 +277,9 @@ impl Timed {
         }
         // The thumb steps every turn, whatever else is owed.
         let thumb = self.bar.turn(host, term) == crate::bar::Owes::Frame;
+        let splash = self.splash.owes(self.clock.secs(now)) == crate::splash::Owes::Frame;
         let moving = thumb
+            || splash
             || self.ghost.is_some()
             || self.fade.is_some()
             || self.chase.owes(host) == crate::caret::Owes::Frame;
@@ -401,11 +428,13 @@ impl Timed {
         if fade.is_none() {
             self.fade = None;
         }
+        let splash = self.splash.look(Some(secs), term, self.motion);
         Plan {
             scroll,
             trail,
             fade,
             blink: self.blink,
+            splash,
         }
     }
 }
@@ -461,6 +490,61 @@ mod tests {
             assert_eq!(fx.deadline(now), None, "{ms}");
             assert_eq!(fx.turn(now, &mut t), Owes::Nothing, "{ms}");
         }
+    }
+
+    /// **The launch splash on Linux, as on macOS**: held from the first
+    /// plan, its cap the wait's deadline and nothing owed before it; the
+    /// frame after the prompt's starts the plasma, which owes every turn
+    /// and is gone at its
+    /// end, owing nothing after; and a reload to off takes a held splash
+    /// down with one whole frame. Without `with_splash` there is none.
+    #[test]
+    fn the_splash_holds_wakes_at_its_cap_and_vanishes_on_output() {
+        use crate::config::LaunchSplash;
+        use baud_render::SplashPhase;
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let off = TrailPick::Named(CursorTrail::Off);
+        let mut none = Timed::new(t0, off, ScreenTransition::Off);
+        assert_eq!(none.plan(t0, &t, rect, CELL, widths()).splash, None);
+        let mut fx = Timed::new(t0, off, ScreenTransition::Off).with_splash(LaunchSplash::On);
+        let first = fx.plan(t0, &t, rect, CELL, widths()).splash;
+        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Hold));
+        let cap = Duration::from_secs_f64(crate::splash::CAP);
+        let wake = fx.deadline(t0).expect("the cap");
+        let after = wake.saturating_duration_since(t0);
+        assert!(after.abs_diff(cap) < Duration::from_millis(2), "{after:?}");
+        let soon = t0 + Duration::from_millis(100);
+        assert_eq!(fx.turn(soon, &mut t), Owes::Nothing);
+        feed(&mut t, b"$ ");
+        let shown = fx.plan(soon, &t, rect, CELL, widths()).splash;
+        assert_eq!(
+            shown.map(|l| l.phase),
+            Some(SplashPhase::Hold),
+            "over the prompt"
+        );
+        assert_eq!(fx.deadline(soon), None);
+        assert_eq!(fx.turn(soon, &mut t), Owes::Frame);
+        let soon = soon + Duration::from_millis(16);
+        let vanish = fx.plan(soon, &t, rect, CELL, widths()).splash;
+        assert_eq!(vanish.map(|l| l.phase), Some(SplashPhase::Vanish(0.0)));
+        assert_eq!(
+            fx.turn(soon + Duration::from_millis(16), &mut t),
+            Owes::Frame
+        );
+        let end = Duration::from_secs_f64(f64::from(baud_render::splash::end()) + 0.01);
+        assert_eq!(fx.plan(soon + end, &t, rect, CELL, widths()).splash, None);
+        assert_eq!(fx.turn(soon + end, &mut t), Owes::Nothing);
+        let mut blank = Owned::new(&WS);
+        let b = Term::new(blank.storage(), &WS);
+        let mut held = Timed::new(t0, off, ScreenTransition::Off).with_splash(LaunchSplash::On);
+        let first = held.plan(t0, &b, rect, CELL, widths()).splash;
+        assert_eq!(first.map(|l| l.phase), Some(SplashPhase::Hold));
+        assert_eq!(held.set_splash(LaunchSplash::On), Owes::Nothing);
+        assert_eq!(held.set_splash(LaunchSplash::Off), Owes::Full);
+        assert_eq!(held.plan(t0, &b, rect, CELL, widths()).splash, None);
+        assert_eq!(held.deadline(t0), None);
     }
 
     /// **Blinking text on screen wakes the wait at each flip and repaints

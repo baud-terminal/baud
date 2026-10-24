@@ -1442,6 +1442,16 @@ platform = "macos"
 tests = ["baud-app/src/config.rs::style_selects_the_standard_material_or_either_glass", "baud-app/src/app.rs::the_floor_reads_against_the_body_drawn", "baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-app/src/config.rs::the_default_dims_keep_text_readable_over_white_and_black", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
 
 [[feature]]
+id = "launch-splash"
+area = "window"
+name = "A launch splash"
+does = "baud starts with its colour logo in the middle of the window, gone in a burst of plasma once your shell has drawn something. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, it fades instead. It never flashes more than three times a second, follows light and dark, and one setting turns it off."
+status = "built"
+platform = "both"
+tests = ["baud-present-macos/tests/cells.rs::the_splash_draws_alike_on_every_arm", "baud-render/tests/splash.rs::the_vanish_holds_the_effects_slot_in_amber", "baud-render/tests/splash.rs::the_held_logo_stays_over_output_and_goes_whole", "baud-bench/tests/splash_flashes.rs::the_splash_flashes_no_pixel_more_than_three_times_a_second", "baud-app/src/splash.rs::it_holds_until_the_shell_draws_then_vanishes", "baud-app/src/timed.rs::the_splash_holds_wakes_at_its_cap_and_vanishes_on_output", "baud-app/src/config.rs::the_launch_splash_is_on_unless_turned_off"]
+shipped = ["F1-19"]
+
+[[feature]]
 id = "activity-lights"
 area = "window"
 name = "Activity lights"

@@ -50,6 +50,7 @@ and their size, padding, the cursor's shape, blink and trail, the bell,
 emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
+`[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
 choices, `[pointer]`), and `[images] animation`.
 
@@ -214,6 +215,12 @@ unless you name a trail here.
 |---|---|---|---|
 | `activity_lights` | `"on"`, `"off"` | `"on"` | Whether two small lights at the right of the title bar show the line's activity, as a modem's front panel did: RD lights while bytes come in from the program, SD while bytes go out to it (your keys, a paste, the terminal's answers). A light stays on a fifth of a second after the last byte and never flashes more than three times a second; with Dim Flashing Lights on in macOS's Accessibility settings a lit light is drawn faint. macOS only. |
 | `operations` | `"on"`, `"off"` | `"on"` | Whether a program can move, resize, minimise, raise, lower, maximise or full-screen baud's window, as xterm lets it. A test suite such as vttest asks this way, and so does a program that sizes the window to fit what it draws. A program on another machine, or a file you `cat`, can also move the window off the screen or hide it; `"off"` refuses every request. Programs can still ask where the window is and how big it is either way. |
+
+## [launch]
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `splash` | `"on"`, `"off"` | `"on"` | Whether baud starts with its colour logo in the middle of the window, gone in a burst of plasma once your shell has drawn something, or half a second after the window opens if the shell draws nothing by then. Your keys go to the shell the whole time, and the shell's output draws under the logo. On a Mac with Reduce Motion on, it fades instead. It never flashes more than three times a second. `"off"` turns it off; saving `"off"` while the logo shows takes it down at once. |
 
 ## [pointer]
 

@@ -376,6 +376,12 @@ pub struct Config {
     /// it off"), or `"off"`. macOS only: the Linux window has no title bar
     /// (`baud_render::lights`).
     pub activity_lights: baud_render::ActivityLights,
+    /// `[launch] splash`: whether a launch shows baud's colour logo in the
+    /// middle of the window until the shell draws something, gone in the
+    /// plasma -- `"on"` by default (Jev, 0.98 and 0.98; note AJ) -- or
+    /// `"off"`. On follows Reduce Motion, which fades it instead
+    /// (`splash.rs`).
+    pub launch_splash: LaunchSplash,
     /// `[pointer] hide_while_typing`: whether a key hides the pointer
     /// unless a program tracks the mouse, `"on"` by default -- xterm's
     /// `pointerMode` default, 1 -- or `"off"`, which never hides it, xterm's
@@ -712,6 +718,16 @@ pub enum TrailPick {
     Named(CursorTrail),
 }
 
+/// `[launch] splash`: the launch splash shown, or not (the owner's on/off
+/// settings: "i would say on or off, not answer, keep it simple"). The
+/// section is Jev's lean, LAUNCH (0.28 and 0.48, under the 0.9 bar after a
+/// re-ask, against `[screen]` and `[window]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LaunchSplash {
+    On,
+    Off,
+}
+
 /// The system's motion preference: macOS's Reduce Motion, read by the
 /// driver. It decides the default trail and holds `SGR 5` text shown. The
 /// Linux driver reads no desktop preference yet, so it is full there.
@@ -908,6 +924,7 @@ impl Config {
             graphics_print: baud_domain::GraphicsPrint::DEFAULT,
             window_ops: baud_domain::WindowOps::On,
             activity_lights: baud_render::ActivityLights::On,
+            launch_splash: LaunchSplash::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
             font_changes: baud_domain::FontChanges::On,
             scroll: ScrollMode::Smooth,
@@ -1764,6 +1781,18 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::WindowOps::On
+                        }
+                    };
+                }
+                ("launch", "splash") => {
+                    self.launch_splash = match value.trim().trim_matches('"') {
+                        "on" => LaunchSplash::On,
+                        "off" => LaunchSplash::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [launch] splash {other:?} is not on or off; using on"
+                            ));
+                            LaunchSplash::On
                         }
                     };
                 }
@@ -4396,6 +4425,33 @@ mod reader {
             read("unfocused_hollow = \"on\"\n").unfocused_cursor,
             CursorLook::Shaped,
             "not a top-level key"
+        );
+    }
+
+    /// **The launch splash is on unless `[launch] splash = "off"`**, quoted
+    /// or bare; any other value keeps it on and says so, and the key is the
+    /// `[launch]` section's.
+    #[test]
+    fn the_launch_splash_is_on_unless_turned_off() {
+        assert_eq!(Config::defaults().launch_splash, LaunchSplash::On);
+        assert_eq!(read("").launch_splash, LaunchSplash::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[launch]\nsplash = {off}\n");
+            assert_eq!(read(&text).launch_splash, LaunchSplash::Off, "{off}");
+        }
+        assert_eq!(
+            read("[launch]\nsplash = \"on\"\n").launch_splash,
+            LaunchSplash::On
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[launch]\nsplash = false\n");
+        assert_eq!(c.launch_splash, LaunchSplash::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("[launch] splash"), "{said:?}");
+        assert_eq!(read("splash = \"off\"\n").launch_splash, LaunchSplash::On);
+        assert_eq!(
+            read("[screen]\nsplash = \"off\"\n").launch_splash,
+            LaunchSplash::On
         );
     }
 

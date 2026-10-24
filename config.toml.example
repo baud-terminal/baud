@@ -487,6 +487,16 @@ operations = "on"
 # takes them away. macOS only: the Linux window has no title bar.
 activity_lights = "on"
 
+# baud's colour logo in the middle of the window when it starts, gone in a
+# burst of plasma once your shell has drawn something (or half a second
+# after the window opens, if it draws nothing). Your keys go to the shell
+# the whole time, and the shell's output draws under the logo. On a Mac
+# with Reduce Motion on, it fades instead.
+# "on" by default; "off" turns it off. Saving "off" while it shows takes
+# it down at once.
+[launch]
+splash = "on"
+
 # Whether a key you type hides the mouse pointer until the mouse moves, as
 # xterm does. "on" by default: it hides unless a program is using the mouse
 # (vim with mouse support, htop, tmux), when the pointer stays so you can

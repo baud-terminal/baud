@@ -57,6 +57,7 @@ mod renderer;
 mod scroll;
 mod scrollbar;
 mod select;
+pub mod splash;
 mod stack;
 pub mod status;
 mod stress_data;
@@ -113,6 +114,7 @@ pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, char_col,
     row_of,
 };
+pub use splash::{SplashLook, SplashPhase};
 pub use stack::{
     EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, FontSlot, Presentation, Stack, TextFace,
 };

@@ -564,6 +564,15 @@ impl Presenter {
         })
     }
 
+    /// **Builds `effect`'s pipeline now** on the GPU path
+    /// ([`Gpu::warm_effect`]); the CPU path has none to build.
+    pub fn warm_effect(&mut self, effect: baud_render::effect::Effect) -> bool {
+        match &mut self.draw {
+            Draw::Cpu => false,
+            Draw::Gpu { gpu, .. } => gpu.warm_effect(effect),
+        }
+    }
+
     /// The GPU, to lend memory from, on the GPU path.
     pub fn gpu(&self) -> Option<&Gpu> {
         match &self.draw {

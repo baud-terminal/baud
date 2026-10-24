@@ -602,7 +602,11 @@ pub fn run() {
         composing_hints: Vec::new(),
         finding: None,
         composing_caret: baud_render::Caret::End,
-        timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition),
+        timed: crate::timed::Timed::new(Instant::now(), cfg.cursor_trail, cfg.screen_transition)
+            .with_splash(crate::splash::splash_override(
+                std::env::var("BAUD_SPLASH").ok().as_deref(),
+                cfg.launch_splash,
+            )),
         bus,
         theme_choice: cfg.theme,
         half,
@@ -1729,6 +1733,16 @@ impl Driver {
                     self.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
                 Part::AmbiguousWidth => self.term.set_ambiguous_width(c.ambiguous_width),
+                Part::Splash => {
+                    let setting = crate::splash::splash_override(
+                        std::env::var("BAUD_SPLASH").ok().as_deref(),
+                        c.launch_splash,
+                    );
+                    if self.timed.set_splash(setting) != crate::timed::Owes::Nothing {
+                        self.damage = Damage::Full;
+                        self.pending = Pending::Dirty;
+                    }
+                }
                 Part::Trail | Part::Transition => {
                     let owes =
                         self.timed
@@ -2416,6 +2430,7 @@ impl Driver {
         self.renderer.set_screen_fade(plan.fade);
         self.renderer.set_blink(plan.blink);
         self.renderer.set_trail(plan.trail);
+        self.renderer.set_splash(plan.splash);
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;

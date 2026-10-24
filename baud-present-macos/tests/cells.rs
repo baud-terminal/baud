@@ -36,8 +36,9 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Caret, Composition, Corners, CursorLook,
     CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight, Hover, Instance, Kind,
     Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
-    Shape, SixelBg, Smear, Stack, StatusMarks, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
-    Transition, VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
+    Shape, SixelBg, Smear, SplashLook, SplashPhase, Stack, StatusMarks, StyleStamp, Tally, Target,
+    Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader,
+    quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -131,6 +132,8 @@ struct Arms<'f, 'a> {
     trail: Option<TrailLook>,
     /// The alternate-screen fade both arms draw, or none.
     fade: Option<Transition>,
+    /// The launch splash both arms draw, or none.
+    splash: Option<SplashLook>,
     /// An input method's composition both arms draw, or none.
     composition: Option<Composition>,
     /// The find field and its marks both arms draw, or none.
@@ -241,6 +244,7 @@ impl Arms<'_, '_> {
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
+        self.renderer.set_splash(self.splash);
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
         self.renderer.set_link(self.link.clone());
@@ -394,6 +398,7 @@ impl Arms<'_, '_> {
                 self.records.extend_from_slice(self.renderer.find_caret());
             }
         }
+        self.records.extend_from_slice(self.renderer.splash());
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
         self.chrome = Tally::of(self.records.len() - chrome_from);
@@ -1183,6 +1188,7 @@ macro_rules! arms {
             window: None,
             trail: None,
             fade: None,
+            splash: None,
             composition: None,
             find: None,
             link: None,
@@ -1198,6 +1204,109 @@ macro_rules! arms {
             margin: (0, 0),
         };
     };
+}
+
+/// **The launch splash draws alike on every arm** (note AJ): the lockup
+/// held, the plasma at five ages of its vanish and the fade at half, over
+/// a prompt and a line of text under the logo, on the dark and the light
+/// half. The cell arm draws what the instance arm draws, pixel for pixel;
+/// the CPU arm, which the Linux driver draws with, the same, but for the
+/// plasma's own rounding against the GPU's -- a step on a few pixels, as
+/// [`effect_scenes`] holds each GPU arm to the effect's reference. The
+/// controls: the held logo changes the frame and its block is the half's
+/// amber, exactly, at the block's centre; the plasma lights pixels the
+/// held logo does not; past the vanish's end the frame is the plain one.
+#[test]
+fn the_splash_draws_alike_on_every_arm() {
+    let font = |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let regular = font("baud-font/tests/fonts/JetBrainsMono-Regular.ttf");
+    let bold = font("baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let faces = [Face::parse(&regular).unwrap(), Face::parse(&bold).unwrap()];
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Bold)];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    feed(
+        &mut t,
+        b"\x1b[1;34m~/code\x1b[0m on \x1b[35mmain\x1b[0m\r\n\x1b[5;30Hunder the logo, text\x1b[2;1H$ ",
+    );
+    let end = baud_render::splash::end();
+    for (half, theme, amber) in [
+        ("dark", Theme::dark(), baud_render::splash::DARK.amber),
+        ("light", Theme::light(), baud_render::splash::LIGHT.amber),
+    ] {
+        arms.renderer.set_theme(theme);
+        arms.splash = None;
+        let (plain, _) = arms.draw(&mut t);
+        let mut held = Vec::new();
+        for phase in [
+            SplashPhase::Hold,
+            SplashPhase::Vanish(0.0),
+            SplashPhase::Vanish(0.03),
+            SplashPhase::Vanish(0.08),
+            SplashPhase::Vanish(0.2),
+            SplashPhase::Vanish(0.4),
+            SplashPhase::Fade(0.5),
+            SplashPhase::Vanish(end + 0.01),
+        ] {
+            let at = format!("{half}, {phase:?}");
+            arms.splash = Some(SplashLook { phase });
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(differing(&a, &b), 0, "{at}: the GPU arms disagree");
+            let cpu = cpu_frame(&mut arms, &mut t);
+            let (n, most) = channel_diff(&cpu, &a, |_| true);
+            match phase {
+                SplashPhase::Vanish(age) if age > 0.0 && age < end => {
+                    assert!(
+                        most <= 1 && n <= 40,
+                        "{at}: the CPU arm differs on {n}, by {most}"
+                    );
+                }
+                _ => assert_eq!((n, most), (0, 0), "{at}: the CPU arm differs"),
+            }
+            match phase {
+                SplashPhase::Hold => {
+                    assert!(differing(&a, &plain) > 500, "{at}: the control, drawn");
+                    let records = arms.renderer.splash();
+                    let block = records.last().expect("the block's record");
+                    assert_eq!(block.kind, Kind::Solid);
+                    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+                    let (cx, cy) = (
+                        usize::try_from(i32::from(block.x.0) + i32::from(block.w.0) / 2).unwrap(),
+                        usize::try_from(i32::from(block.y.0) + i32::from(block.h.0) / 2).unwrap(),
+                    );
+                    assert_eq!(
+                        a[cy * fw + cx],
+                        premultiply(amber).0,
+                        "{at}: the block is the half's amber"
+                    );
+                    held = a;
+                }
+                SplashPhase::Vanish(age) if age >= end => {
+                    assert_eq!(differing(&a, &plain), 0, "{at}: gone");
+                    assert!(arms.renderer.splash().is_empty(), "{at}: no record left");
+                }
+                SplashPhase::Vanish(age) if age > 0.0 && age < 0.3 => {
+                    let new = a
+                        .iter()
+                        .zip(&held)
+                        .zip(&plain)
+                        .filter(|((x, h), p)| x != h && x != p)
+                        .count();
+                    assert!(new > 100, "{at}: the plasma lit only {new} pixels");
+                }
+                _ => {}
+            }
+        }
+    }
+    arms.splash = None;
 }
 
 #[test]

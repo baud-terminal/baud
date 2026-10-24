@@ -780,6 +780,12 @@ struct App {
     chase: crate::trail::Chase<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
+    /// **The launch splash's timing** (`splash.rs`): held from the first
+    /// frame, vanishing on the first visible output or the cap, read off
+    /// `tick_target` like the trail.
+    splash: crate::splash::Splash,
+    /// Whether the plasma's pipeline was built while the splash was held.
+    splash_warm: Done,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
     /// and the fade being animated. `Some` forces a frame the way a trail
     /// does, so an idle terminal on either screen builds nothing.
@@ -908,6 +914,8 @@ struct Boot {
     /// operations`.
     window_ops: baud_domain::WindowOps,
     activity_lights: baud_render::ActivityLights,
+    /// Whether a launch shows the splash, from `[launch] splash`.
+    launch_splash: crate::config::LaunchSplash,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
     /// Whether a program's print opens the print panel, from `[screen]
@@ -1117,6 +1125,7 @@ impl Boot {
             substitute: cfg.substitute,
             window_ops: cfg.window_ops,
             activity_lights: cfg.activity_lights,
+            launch_splash: cfg.launch_splash,
             logging: cfg.logging,
             printing: cfg.printing,
             notifications: cfg.notifications,
@@ -1175,6 +1184,7 @@ impl App {
             substitute,
             window_ops,
             activity_lights,
+            launch_splash,
             logging,
             printing,
             notifications,
@@ -1512,6 +1522,11 @@ impl App {
             chase: crate::trail::Chase::new(cursor_trail.style()),
             last_cursor_cell: None,
             tick_target: 0.0,
+            splash: crate::splash::Splash::new(crate::splash::splash_override(
+                std::env::var("BAUD_SPLASH").ok().as_deref(),
+                launch_splash,
+            )),
+            splash_warm: Done::No,
             screen_transition,
             transition: None,
             scroll,
@@ -1900,6 +1915,12 @@ impl App {
             None => None,
         };
         self.renderer.set_screen_fade(veil);
+        // The launch splash, off `tick_target` like the fade: held, vanishing
+        // or gone. The synchronous first frame comes before the display
+        // link's first tick, so it holds the logo and starts no clock.
+        let now = self.last_tick.map(|_| self.tick_target);
+        let splash = self.splash.look(now, &self.term, self.motion);
+        self.renderer.set_splash(splash);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
         // through its overlay below -- but in the find field while it is
@@ -2417,6 +2438,7 @@ impl App {
                         cell.records.extend_from_slice(self.renderer.find_caret());
                     }
                 }
+                cell.records.extend_from_slice(self.renderer.splash());
                 cell.records.extend_from_slice(self.renderer.scrollbar());
                 cell.records.extend_from_slice(self.renderer.screen_fade());
                 let chrome = Tally::of(cell.records.len() - chrome_from);
@@ -9208,6 +9230,19 @@ impl Responder for Driver {
         if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.pending = Pending::Dirty;
         }
+        // The launch splash owes every frame while it vanishes, and the one
+        // its cap runs out on. While its logo is held the plasma's pipeline
+        // is built, once, so the frame its vanish starts on does not pay.
+        if self.app.splash.owes(target) == crate::splash::Owes::Frame {
+            self.app.pending = Pending::Dirty;
+        }
+        if self.app.splash.held() && self.app.splash_warm == Done::No {
+            self.app.splash_warm = Done::Yes;
+            if let Some(p) = &mut self.app.presenter {
+                p.warm_effect(baud_render::effect::Effect::Plasma);
+            }
+            startup_mark("splash warm");
+        }
         // The quad owes every frame while it is in flight, and the one a
         // move's dwell runs out on: after a lone keystroke's echo nothing
         // else would draw it (`trail.rs`).
@@ -10583,6 +10618,17 @@ impl Driver {
                 }
                 // Put up or taken down at the next tick.
                 Part::ActivityLights => self.app.activity_lights = c.activity_lights,
+                // Off takes a splash still on screen down with one frame.
+                Part::Splash => {
+                    let setting = crate::splash::splash_override(
+                        std::env::var("BAUD_SPLASH").ok().as_deref(),
+                        c.launch_splash,
+                    );
+                    if self.app.splash.set(setting) == crate::splash::Owes::Frame {
+                        self.app.next_damage = Damage::Full;
+                        self.app.pending = Pending::Dirty;
+                    }
+                }
                 Part::AmbiguousWidth => self.app.term.set_ambiguous_width(c.ambiguous_width),
                 Part::Scroll => self.app.scroll = c.scroll,
                 Part::Transition => self.app.screen_transition = c.screen_transition,

@@ -1,11 +1,40 @@
 # AJ. The launch splash: the colour logo, and the plasma it vanishes in
 
-**Status: research draft, 2026-10-09; revised the same day after a
-read-only review. Nothing is built. Jev was asked on 2026-10-09, after the
-draft (decision log 359-360), and question 4's Medium face again on
-2026-10-10 (377-378, 0.30 and 0.56); question 6's default is the only
-answer at 0.9 or above both times, and so the only one decided
-(section 8).** The owner's request, verbatim (2026-10-08, TODO.md "The
+**Status: built 2026-10-24 (roadmap F1-19; the record, "The launch splash,
+held until the shell draws and gone in the plasma"). The questions as
+built:**
+
+- **1. When.** On the shell's first visible cell or a 0.5 s cap, whichever
+  is first (E2 and a cap; the cap is Jev's lean, CAP_05, 0.55 and 0.45);
+  the vanish starts on the frame after that one.
+- **2. Which plasma.** P1, against P2 with renders (Jev, 0.82 and 0.86,
+  then 0.98 and 0.98 re-asked with research; from text on 2026-10-09,
+  0.77 and 0.81). P4 was not offered: it needs a shader nothing in baud
+  draws, and the plasma the trails use is baud's one plasma. P1 is built
+  from the plasma trail's own model with no new shader: the box from the
+  wordmark to the block collapses into the block on kitty's quad
+  constants (Jev, 0.98 and 0.98, against a slower collapse).
+- **3. Colour.** C1, the lockup's amber (Jev, 0.90 and 0.92, with the
+  owner's 2026-09-25 words on the flame quoted); the logo in the lockup's
+  colours on the half the theme's polarity names.
+- **4. Cells or pixels.** L2, against L1 with renders (Jev, 0.96 and
+  0.94; from text on 2026-10-09, 0.66 and 0.40): the lockup's geometry
+  at 0.30 of the window's width (Jev, 0.91 and 0.92), in the embedded
+  JetBrains Mono Bold: weight 700 where the lockup asks 500, the one
+  departure (Jev, 0.98 and 0.98, against the Regular).
+- **5. Reduce Motion.** R2, the logo, then a 0.15 s fade (Jev, 1.00 and
+  1.00), on macOS: the Linux driver reads no motion preference yet.
+- **6. The key.** `[launch] splash = "on" | "off"`, on by default (Jev,
+  0.98 and 0.98; the values the owner's, 2026-10-19); the section is Jev's
+  lean, LAUNCH (0.28 and 0.48).
+- **7. Do not show again.** K, the key alone; nothing writes it.
+- **8. Linux and the CPU path.** The same plasma: every path draws every
+  effect from its Rust model now, so 5.8's premise no longer holds.
+
+The research draft follows unchanged. It was revised on 2026-10-09 after a
+read-only review; Jev was asked on 2026-10-09 (decision log 359-360) and
+question 4's Medium face again on 2026-10-10 (377-378, 0.30 and 0.56); the
+splash's forks were asked on 2026-10-24 (1479-1482 and 1489-1496). The owner's request, verbatim (2026-10-08, TODO.md "The
 owner's new issues"):
 
 > "i'd like baud to start with the baud > [] logo drawn in the middle and then

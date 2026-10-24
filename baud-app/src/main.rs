@@ -178,6 +178,10 @@ mod reveal;
 mod seat;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
+// The launch splash's timing: pure, so its tests run on every platform,
+// and both drivers time it through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod splash;
 // The Linux driver's timed effects, off its one wait's timeout and the
 // compositor's frame events: pure, so its tests run on every platform.
 #[cfg(any(target_os = "linux", test))]
