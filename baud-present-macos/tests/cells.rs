@@ -145,6 +145,10 @@ struct Arms<'f, 'a> {
     /// from it and be compared against the two that read the live grid.
     copy: GridBuffer,
     copy_mem: &'static mut [PackedCell],
+    /// The window in the order each row is drawn in, as the app lays it
+    /// out (`Orders::window`): what the cell arm's walks read.
+    bidi_cells: Vec<PackedCell>,
+    bidi_used: Vec<baud_domain::RowExtent>,
     /// Smooth scroll: the pixels the screen is shifted down, or none. Both
     /// cell arms draw one extra leaving row above the window when set.
     slide: Option<Px>,
@@ -223,7 +227,14 @@ impl Arms<'_, '_> {
         t: &mut Term<'_>,
         f: impl FnOnce(&mut Gpu, &mut Renderer<'_, '_>, &CellInput<'_>) -> R,
     ) -> R {
-        let view = t.view(self.back);
+        // The window in the order each row is drawn in, laid out for this
+        // frame as the app lays it out: the core's own view when no row is
+        // reordered.
+        self.renderer.lay_out_bidi(t, self.back);
+        let view =
+            self.renderer
+                .bidi()
+                .window(t, self.back, &mut self.bidi_cells, &mut self.bidi_used);
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_cursor_guide(self.guide);
         self.renderer.set_badge(self.badge.clone());
@@ -388,7 +399,7 @@ impl Arms<'_, '_> {
         self.chrome = Tally::of(self.records.len() - chrome_from);
         let (grid, rotation, ring) = match self.reads {
             Reads::Copy => {
-                let ring = self.copy_window(t);
+                let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
                 (&self.copy, RowRot::NONE, Rows::of_index(ring))
             }
             Reads::Core => (&self.grid, view.rotation(), t.ring()),
@@ -419,49 +430,6 @@ impl Arms<'_, '_> {
         f(&mut self.gpu, &mut self.renderer, &input)
     }
 
-    /// The window copied flat into `copy`, as the app copies it: the
-    /// screen's rows, then the leaving row of a slide or the status line's,
-    /// then the config's notice row, blank. How many rows it holds.
-    fn copy_window(&mut self, t: &Term<'_>) -> usize {
-        let view = t.view(self.back);
-        let stride = t.stride().index();
-        let (cols, rows) = (view.cols().index(), view.rows().index());
-        for y in 0..rows {
-            let src = view.row(Row::from_index(y));
-            let at = y * stride;
-            self.copy_mem[at..at + cols].copy_from_slice(&src[..cols]);
-        }
-        // Smooth scroll: append the leaving row -- the line just above the
-        // window, `view(back + 1).row(0)` -- at index `rows`, and read one
-        // more row, so the shader's `slide_rows = 1` maps draw row 0 to it
-        // with the identity rotation. Copied as the app copies it, a marked
-        // cell given its base (`copy_for_shader`).
-        let ring = if self.slide.is_some() {
-            let above = t.view(Rows::of_index(self.back.index() + 1));
-            let src = above.row(Row::from_index(0));
-            let at = rows * stride;
-            copy_for_shader(t, &src[..cols], &mut self.copy_mem[at..at + cols]);
-            rows + 1
-        } else if let Some(line) = t.status_line() {
-            // The status line's row after the screen's, as the app copies
-            // it; no slide runs while it is shown.
-            let at = rows * stride;
-            self.copy_mem[at..at + cols].copy_from_slice(&line.cells[..cols]);
-            rows + 1
-        } else {
-            rows
-        };
-        // The config's notice row after both, blank, as the app copies it.
-        match self.renderer.notice_bar() {
-            Some(_) => {
-                let at = ring * stride;
-                self.copy_mem[at..at + cols].fill(PackedCell::EMPTY);
-                ring + 1
-            }
-            None => ring,
-        }
-    }
-
     /// The cell path again, reading **a copy of the window** rather than
     /// the core's grid: D4's buffer, laid out flat in screen order, so the
     /// shader's rotation is the identity and its ring is the screen.
@@ -475,7 +443,8 @@ impl Arms<'_, '_> {
         let target = self.gpu.offscreen(w, h).expect("target");
         let view = t.view(self.back);
         self.renderer.set_images(t, self.back);
-        let ring = self.copy_window(t);
+        self.renderer.lay_out_bidi(t, self.back);
+        let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
@@ -1220,6 +1189,8 @@ macro_rules! arms {
             chrome: Tally::default(),
             copy,
             copy_mem,
+            bidi_cells: Vec::new(),
+            bidi_used: Vec::new(),
             slide: None,
             stamp: StyleStamp::default(),
             moving: (0, 0),
@@ -6389,6 +6360,58 @@ fn substitute_mark_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     feed(t, b"\x1b[2J\x1b[H");
 }
 
+/// The window copied flat into `copy`, as the app copies it: the
+/// screen's rows in the order each is drawn in, then the leaving row of a
+/// slide or the status line's, then the config's notice row, blank. How
+/// many rows it holds.
+fn copy_window(
+    t: &Term<'_>,
+    back: Rows,
+    slide: Option<Px>,
+    renderer: &Renderer<'_, '_>,
+    copy_mem: &mut [PackedCell],
+) -> usize {
+    let view = t.view(back);
+    let stride = t.stride().index();
+    let (cols, rows) = (view.cols().index(), view.rows().index());
+    for y in 0..rows {
+        let r = Row::from_index(y);
+        let at = y * stride;
+        renderer
+            .bidi()
+            .permute(r, view.row(r), &mut copy_mem[at..at + cols]);
+    }
+    // Smooth scroll: append the leaving row -- the line just above the
+    // window, `view(back + 1).row(0)` -- at index `rows`, and read one
+    // more row, so the shader's `slide_rows = 1` maps draw row 0 to it
+    // with the identity rotation. Copied as the app copies it, a marked
+    // cell given its base (`copy_for_shader`).
+    let ring = if slide.is_some() {
+        let above = t.view(Rows::of_index(back.index() + 1));
+        let src = above.row(Row::from_index(0));
+        let at = rows * stride;
+        copy_for_shader(t, &src[..cols], &mut copy_mem[at..at + cols]);
+        rows + 1
+    } else if let Some(line) = t.status_line() {
+        // The status line's row after the screen's, as the app copies
+        // it; no slide runs while it is shown.
+        let at = rows * stride;
+        copy_mem[at..at + cols].copy_from_slice(&line.cells[..cols]);
+        rows + 1
+    } else {
+        rows
+    };
+    // The config's notice row after both, blank, as the app copies it.
+    match renderer.notice_bar() {
+        Some(_) => {
+            let at = ring * stride;
+            copy_mem[at..at + cols].fill(PackedCell::EMPTY);
+            ring + 1
+        }
+        None => ring,
+    }
+}
+
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
 /// put through the macOS presenter's own `premultiply`, as
 /// `Presenter::present` copies a frame into its surface -- the form the
@@ -9469,4 +9492,257 @@ fn rows_were_few(rot: &Rotation) {
         rot.rows.value(),
         rot.partial.value()
     );
+}
+
+/// **A right-to-left row draws in its visual order alike on every arm**,
+/// and in the order a hand-reordered row draws in: while BDSM is set
+/// (`[[source: ecma48]]` 7.2.1, IMPLICIT) each row is laid out in the order
+/// UAX #9 gives it (`[[source: uax9-bidi]]`), on the instance arm, the cell
+/// arm reading the window copy the app binds, and the CPU arm.
+///
+/// The expected frame is the same characters written already in their
+/// visual order with BDSM reset, so it is drawn by the paths as they were
+/// before any reordering existed: a row reordered on one arm and not
+/// another, or reordered wrongly on all three, fails here. The scene
+/// holds what the order moves -- a Hebrew word in a Latin line, brackets
+/// L4 mirrors, a wide character inside a right-to-left run, pointed
+/// letters the cell arm draws by records, and an underline across a run
+/// -- and then a logical selection whose highlight the order splits, a
+/// block cursor and a bar cursor over a right-to-left letter.
+#[test]
+fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // Each row as written, and as UAX #9 draws it at paragraph level 0:
+    // a run of R reversed (L2), a bracket pair resolved R by N0 drawn with
+    // its mirror (L4), the wide U+231A (ON, so R by N1 between two letters)
+    // kept whole with its lead on the left, a pointed word's cells moved
+    // with their points, an underline drawn on the cells it was set on, and
+    // a bracket mirrored though an RLM is stored on its cell.
+    let (shin, lamed, vav, mem) = ("\u{5E9}", "\u{5DC}", "\u{5D5}", "\u{5DD}");
+    let (alef, bet, gimel) = ("\u{5D0}", "\u{5D1}", "\u{5D2}");
+    let (qamats, holam) = ("\u{5B8}", "\u{5B9}");
+    let rows = [
+        (
+            format!("abc {shin}{lamed}{vav}{mem} def"),
+            format!("abc {mem}{vav}{lamed}{shin} def"),
+        ),
+        (
+            format!("{alef}({bet}){gimel} xy"),
+            format!("{gimel}({bet}){alef} xy"),
+        ),
+        (
+            format!("{alef}\u{231A}{bet} z"),
+            format!("{bet}\u{231A}{alef} z"),
+        ),
+        (
+            format!("{shin}{qamats}{lamed}{vav}{holam}{mem}"),
+            format!("{mem}{vav}{holam}{lamed}{shin}{qamats}"),
+        ),
+        (
+            format!("\x1b[4;31m{alef}{bet}\x1b[0m{gimel}"),
+            format!("{gimel}\x1b[4;31m{bet}{alef}\x1b[0m"),
+        ),
+        // A row with no right-to-left character, drawn where it is: and
+        // the glyphs the harness requires of a scene.
+        (
+            "The quick brown fox jumps 0123456789".to_string(),
+            "The quick brown fox jumps 0123456789".to_string(),
+        ),
+        // A bracket carrying an RLM, which the core stores on its cell:
+        // still drawn with its mirror (L4), the RLM drawing nothing.
+        (
+            format!("{alef}({bet})\u{200F}{gimel} xy"),
+            format!("{gimel}({bet}){alef} xy"),
+        ),
+    ];
+    let scene = |t: &mut Term<'_>, implicit: bool, cursor: &str| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+        feed(t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
+        for (i, (logical, visual)) in rows.iter().enumerate() {
+            let text = if implicit { logical } else { visual };
+            feed(t, format!("\x1b[{};3H{text}", i + 2).as_bytes());
+        }
+        feed(t, cursor.as_bytes());
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // The rows, no cursor and no selection: the frame of the visual order.
+    {
+        arms!(fresh() => arms, t);
+        scene(&mut t, true, "");
+        let got = three(&mut arms, &mut t, "reordered");
+        assert!(arms.renderer.bidi().any(), "the rows were reordered");
+        assert_eq!(
+            arms.renderer.bidi_unmirrored().value(),
+            0,
+            "every bracket has a mirror"
+        );
+        scene(&mut t, false, "");
+        let want = three(&mut arms, &mut t, "written in visual order");
+        assert_eq!(differing(&got, &want), 0, "the visual order drawn");
+        scene(&mut t, false, "");
+        feed(&mut t, b"\x1b[8l");
+        for (i, (logical, _)) in rows.iter().enumerate() {
+            feed(&mut t, format!("\x1b[{};3H{logical}", i + 2).as_bytes());
+        }
+        let stored = three(&mut arms, &mut t, "explicit");
+        assert!(
+            differing(&stored, &want) > 0,
+            "the control: BDSM reset draws the stored order"
+        );
+    }
+    // **No shaping crosses a level run, nor runs inside a right-to-left
+    // one** (UAX #9 3.5): `x->y` is one left-to-right run, which the face's
+    // `->` ligature joins on every arm; the `->` between two Hebrew letters
+    // resolves R, is drawn `<-` with the `>` mirrored, and each of its
+    // cells is shaped alone -- by `convert_row`'s runs on two arms and by
+    // the overlay's windows on the third, which must agree.
+    {
+        arms!(fresh() => arms, t);
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            &mut t,
+            format!("\x1b[2;3Hx->y {alef}->{bet} done").as_bytes(),
+        );
+        feed(
+            &mut t,
+            "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        let got = three(&mut arms, &mut t, "ligatures");
+        feed(&mut t, b"\x1b[2J\x1b[8l");
+        feed(
+            &mut t,
+            format!("\x1b[2;3Hx->y {alef}->{bet} done").as_bytes(),
+        );
+        feed(
+            &mut t,
+            "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        let stored = three(&mut arms, &mut t, "ligatures, explicit");
+        assert!(differing(&got, &stored) > 0, "the row was reordered");
+    }
+    // A logical selection over `c ש` (the row is written from column 2):
+    // drawn on the `c`, the space and the shin, which the order has put at
+    // the far end of the word -- two runs of highlight, the same on every
+    // arm.
+    {
+        arms!(fresh() => arms, t);
+        scene(&mut t, true, "");
+        arms.highlight = Some(Highlight {
+            from: (Row::from_index(1), Col::at_index(4)),
+            to: (Row::from_index(1), Col::at_index(6)),
+            region: Region::Stream,
+        });
+        let sel = three(&mut arms, &mut t, "selected");
+        arms.highlight = None;
+        let bare = three(&mut arms, &mut t, "unselected");
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let cell_differs = |col: usize| {
+            (ch..2 * ch)
+                .any(|y| (col * cw..(col + 1) * cw).any(|x| sel[y * w + x] != bare[y * w + x]))
+        };
+        // Logical 4..=6 is `c`, space, shin; the shin is drawn at visual
+        // column 9, the end of `שלום` reversed, and the lamed at 8 and the
+        // final mem at 6 are not selected.
+        assert!(cell_differs(4) && cell_differs(5) && cell_differs(9));
+        assert!(
+            !cell_differs(8) && !cell_differs(6),
+            "only the logical range"
+        );
+    }
+    // **The pointed row, whose marked cells the cell arm draws by records**:
+    // a selection of the shin and the lamed (logical 2 and 3, drawn at 5
+    // and 4) and a block cursor on the shin, each mapped through the order
+    // where a record is painted as well as where the shader paints.
+    {
+        arms!(fresh() => arms, t);
+        scene(&mut t, true, "");
+        arms.highlight = Some(Highlight {
+            from: (Row::from_index(4), Col::at_index(2)),
+            to: (Row::from_index(4), Col::at_index(3)),
+            region: Region::Stream,
+        });
+        let sel = three(&mut arms, &mut t, "pointed, selected");
+        arms.highlight = None;
+        let bare = three(&mut arms, &mut t, "pointed, unselected");
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let cell_differs = |a: &[u32], b: &[u32], col: usize| {
+            (4 * ch..5 * ch)
+                .any(|y| (col * cw..(col + 1) * cw).any(|x| a[y * w + x] != b[y * w + x]))
+        };
+        assert!(cell_differs(&sel, &bare, 4) && cell_differs(&sel, &bare, 5));
+        assert!(!cell_differs(&sel, &bare, 2) && !cell_differs(&sel, &bare, 3));
+        scene(&mut t, true, "\x1b[2 q\x1b[5;3H\x1b[?25h");
+        let block = three(&mut arms, &mut t, "pointed, block cursor");
+        assert!(
+            cell_differs(&block, &bare, 5),
+            "the block over the shin, drawn at 5"
+        );
+        assert!(
+            !cell_differs(&block, &bare, 2),
+            "and not at its logical column"
+        );
+    }
+    // A block and a bar cursor on the lamed (logical column 7): drawn over
+    // visual column 8, the bar on the cell's right edge.
+    for (style, name) in [("2", "block"), ("6", "bar")] {
+        arms!(fresh() => arms, t);
+        scene(&mut t, true, &format!("\x1b[{style} q\x1b[2;8H\x1b[?25h"));
+        let got = three(&mut arms, &mut t, name);
+        assert_eq!(
+            arms.renderer
+                .bidi()
+                .visual_col(Row::from_index(1), Col::at_index(7)),
+            Col::at_index(8)
+        );
+        scene(&mut t, true, "\x1b[2;8H\x1b[?25l");
+        let hidden = three(&mut arms, &mut t, "no cursor");
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let changed: Vec<usize> = (0..w)
+            .filter(|&x| (ch..2 * ch).any(|y| got[y * w + x] != hidden[y * w + x]))
+            .collect();
+        assert!(!changed.is_empty(), "{name}: drawn");
+        assert!(
+            changed.iter().all(|&x| x >= 8 * cw && x < 9 * cw),
+            "{name}: inside visual column 8, {changed:?}"
+        );
+        if name == "bar" {
+            assert!(
+                changed.contains(&(9 * cw - 1)),
+                "the bar is on the right edge"
+            );
+            assert!(!changed.contains(&(8 * cw)), "and not on the left");
+        }
+    }
 }

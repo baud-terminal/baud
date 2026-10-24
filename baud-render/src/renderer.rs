@@ -1538,6 +1538,18 @@ pub struct Renderer<'f, 'a> {
     /// [`Theme::finds_pictures`]. Found over the whole screen, because a
     /// picture is a property of a block of cells rather than of one.
     pictures: Pictures,
+    /// **Each row of the window in the order UAX #9 gives it**, laid out
+    /// once a frame by [`Renderer::lay_out_bidi`] and read by every path:
+    /// the cursor, the selection, the find marks and the link underline
+    /// keep logical columns and are drawn through it (`bidi.rs`).
+    bidi: crate::bidi::Reorder,
+    /// The window in that order, for the pictures drawn in text, which are
+    /// found over the cells as they are drawn on every path.
+    bidi_cells: Vec<PackedCell>,
+    bidi_used: Vec<baud_domain::RowExtent>,
+    /// The find marks' wash, from the palette `set_find` read, so a frame's
+    /// layout can draw the marks again through its order.
+    find_wash: Argb,
     /// **The CPU and instance paths' resolved rendition table**, kept from
     /// frame to frame and brought up to date by [`Renderer::sync_styles`]:
     /// only the slots the core wrote since, or every live slot when the table
@@ -1939,6 +1951,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cur_size: Vec::new(),
             prev_size: Vec::new(),
             pictures: Pictures::new(),
+            bidi: crate::bidi::Reorder::new(),
+            bidi_cells: Vec::new(),
+            bidi_used: Vec::new(),
+            find_wash: Argb(0),
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
             sized_rows: Vec::new(),
@@ -2389,9 +2405,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// appends [`Renderer::find_solids`] to its records with the content
     /// and [`Renderer::find_caret`] after the field, over the images.
     pub fn set_find(&mut self, term: &Term<'_>, look: Option<FindLook>) {
+        self.find_wash = self
+            .theme
+            .entry(MARK_SLOT, |ch| term.palette(ch))
+            .with_alpha(Chan::from_u8(MARK_ALPHA));
+        self.find = look;
+        self.build_find();
+    }
+
+    /// The find marks' washes and the field's caret, the marks through this
+    /// frame's order: a match on a reordered row is as many washes as the
+    /// runs its cells are drawn in.
+    fn build_find(&mut self) {
         let mut out = core::mem::take(&mut self.find_inst);
         out.clear();
         self.find_caret.clear();
+        let look = self.find.take();
         if let Some(f) = &look {
             let (cw, ch) = (self.metrics.cell_w.value(), self.metrics.cell_h.value());
             let x = |c: Col| {
@@ -2401,19 +2430,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 )
             };
             let y = |r: Row| screen(i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX));
-            let wash = self
-                .theme
-                .entry(MARK_SLOT, |ch| term.palette(ch))
-                .with_alpha(Chan::from_u8(MARK_ALPHA));
+            let wash = self.find_wash;
             for m in f.marks.iter().filter(|m| m.current == Current::No) {
-                let n = u32::try_from(m.to.index().saturating_sub(m.from.index()) + 1).unwrap_or(0);
-                out.push(solid(
-                    x(m.from),
-                    y(m.row),
-                    Px::of(n.saturating_mul(cw)),
-                    Px::of(ch),
-                    wash,
-                ));
+                for (at, n) in self.bidi.orders().runs(m.row, m.from, m.to) {
+                    let n = u32::try_from(n.index()).unwrap_or(0);
+                    out.push(solid(
+                        x(at),
+                        y(m.row),
+                        Px::of(n.saturating_mul(cw)),
+                        Px::of(ch),
+                        wash,
+                    ));
+                }
             }
             let line = self.metrics.thickness.value().max(2);
             let caret = solid(
@@ -2427,6 +2455,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.find_inst = out;
         self.find = look;
+    }
+
+    /// **Lays out the window `back` lines into the history in the order
+    /// UAX #9 gives each row**, for the frame about to be drawn, and draws
+    /// the find marks and the link underline through it. [`Renderer::convert`]
+    /// calls it; the cell path calls it before it reads the window
+    /// ([`crate::Orders::window`]). While BDSM is reset nothing is
+    /// reordered.
+    pub fn lay_out_bidi(&mut self, term: &Term<'_>, back: Rows) {
+        let was = self.bidi.orders().any();
+        self.bidi.lay_out(term, back);
+        if was || self.bidi.orders().any() {
+            self.build_find();
+            self.build_link();
+        }
+    }
+
+    /// The order the last layout drew each row in.
+    pub fn bidi(&self) -> &crate::bidi::Orders {
+        self.bidi.orders()
+    }
+
+    /// Bidi_Mirrored characters the last layout drew unmirrored
+    /// ([`crate::Reorder::unmirrored`]).
+    pub fn bidi_unmirrored(&self) -> Tally {
+        self.bidi.unmirrored()
     }
 
     /// The find overlay's marks, each match's wash, for a path that draws
@@ -2481,14 +2535,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 )
             };
             for s in &l.spans {
-                let n = u32::try_from(s.to.index().saturating_sub(s.from.index()) + 1).unwrap_or(0);
-                out.push(solid(
-                    x(s.from),
-                    y(s.row),
-                    Px::of(n.saturating_mul(cw)),
-                    thick,
-                    self.defaults.0,
-                ));
+                for (at, n) in self.bidi.orders().runs(s.row, s.from, s.to) {
+                    let n = u32::try_from(n.index()).unwrap_or(0);
+                    out.push(solid(
+                        x(at),
+                        y(s.row),
+                        Px::of(n.saturating_mul(cw)),
+                        thick,
+                        self.defaults.0,
+                    ));
+                }
             }
         }
         self.link_inst = out;
@@ -3023,7 +3079,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// box's**, through the line's geometry ([`stretched`]): two cells wide,
     /// and on a double-height line each row's half of a shape twice as tall,
     /// so an underline cursor shows on the bottom half alone.
+    ///
+    /// **`col` is the cursor's logical column**: it is drawn over the
+    /// visual column this frame's order puts that cell at, and a bar on the
+    /// side its character runs from ([`crate::CursorSide`]).
     fn cursor_px(&self, row: Row, col: Col, style: CursorStyle) -> (Px, Px, Px, Px) {
+        let orders = self.bidi.orders();
+        let side = orders.side(row, col);
+        let col = orders.visual_col(row, col);
         let x = u32::try_from(col.index())
             .unwrap_or(0)
             .saturating_mul(self.metrics.cell_w.value());
@@ -3034,7 +3097,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
                 (x, top + ch.saturating_sub(line), cw, line)
             }
-            CursorStyle::BlinkingBar | CursorStyle::SteadyBar => (x, top, line, ch),
+            CursorStyle::BlinkingBar | CursorStyle::SteadyBar => match side {
+                crate::bidi::CursorSide::Left => (x, top, line, ch),
+                crate::bidi::CursorSide::Right => (x + cw.saturating_sub(line), top, line, ch),
+            },
             _ => (x, top, cw, ch),
         };
         let size = self.size_of(row);
@@ -5006,9 +5072,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the program that owns it owns the cursor.
         let back = term.looking_back(back);
         let vp = term.view(back);
+        self.lay_out_bidi(term, back);
+        let orders = self.bidi.orders();
         for r in 0..main.index() {
-            self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
-            self.cur_size[r] = vp.rendition(Row::from_index(r));
+            let row = Row::from_index(r);
+            orders.permute(row, vp.row(row), &mut self.cur[r * ncols..(r + 1) * ncols]);
+            self.cur_size[r] = vp.rendition(row);
         }
         // **The status line's row, below the main display's**, whatever the
         // window looks back on: it is no line of the history.
@@ -5090,7 +5159,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         if self.theme.finds_pictures() {
-            self.pictures.find(term, &vp, self.video);
+            let drawn =
+                self.bidi
+                    .orders()
+                    .window(term, back, &mut self.bidi_cells, &mut self.bidi_used);
+            self.pictures.find(term, &drawn, self.video);
         } else {
             self.pictures.clear(cols, main);
         }
@@ -6292,6 +6365,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let range = self.row_cells(r);
         // A copy of the row, so shaping may borrow the renderer mutably.
         let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
+        // **A reordered row's map, copied for the same reason**: the logical
+        // column each visual cell shows, which the selection and the
+        // pictures are kept by, and where shaping must stop (`bidi.rs`).
+        let orders = self.bidi.orders();
+        let logical: Vec<Col> = match orders.reordered(r) {
+            true => (0..row.len())
+                .map(|v| orders.logical_col(r, Col::at_index(v)))
+                .collect(),
+            false => Vec::new(),
+        };
+        let seams: Vec<bool> = match orders.reordered(r) {
+            true => (0..row.len())
+                .map(|v| orders.seam(r, Col::at_index(v)))
+                .collect(),
+            false => Vec::new(),
+        };
+        let cursor_visual = cursor.map(|(cr, cc, s)| (cr, cc, orders.visual_col(cr, cc), s));
+        let logical_of = |v: Col| logical.get(v.index()).copied().unwrap_or(v);
+        let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
         let mut instances = core::mem::take(&mut self.per_row[r.index()]);
         instances.clear();
         // **The line's rendition** (`[[source: dec-std-070]]` § 5.6.1): on a
@@ -6339,13 +6431,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // character in two: `Highlight::selects`.
             let selected = if self
                 .highlight
-                .is_some_and(|h| h.selects(r, col, cell.content))
+                .is_some_and(|h| h.selects(r, logical_of(col), cell.content))
             {
                 Selected::Yes
             } else {
                 Selected::No
             };
-            let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == col);
+            // The cursor is kept by its logical cell and drawn where that
+            // cell is: `here` holds the logical column, for `cursor_px`.
+            let here = cursor_visual
+                .filter(|&(cr, _, cv, _)| cr == r && cv == col)
+                .map(|(cr, cc, _, s)| (cr, cc, s));
             let block = match here {
                 Some((_, _, style)) if self.swaps(style) => BlockCursor::Yes(block_paint),
                 _ => BlockCursor::No,
@@ -6451,7 +6547,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if !hidden && res.shapes.any(Shapes::EDGES) {
                 self.edges(term, r, col, &row, res, d, &mut shapes, &mut rings);
             }
-            if let Some((_, _, style)) = here.filter(|&(_, _, s)| !self.swaps(s)) {
+            if let Some((_, lc, style)) = here.filter(|&(_, _, s)| !self.swaps(s)) {
                 // The bar or underline cursor, or the hollow box, draws in
                 // the cursor colour if one is set, else the cell's
                 // foreground, at its opacity.
@@ -6461,7 +6557,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 match self.cursor_look {
                     CursorLook::Shaped => {
                         // Already on the line's geometry (`Renderer::cursor_px`).
-                        let (left, y, w, h) = self.cursor_px(r, col, style);
+                        let (left, y, w, h) = self.cursor_px(r, lc, style);
                         cursor_shapes.push(solid(
                             screen(px_i32(left)),
                             screen(px_i32(y)),
@@ -6470,7 +6566,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                             cur,
                         ));
                     }
-                    CursorLook::Hollow => cursor_shapes.extend(self.hollow(r, col, cur)),
+                    CursorLook::Hollow => cursor_shapes.extend(self.hollow(r, lc, cur)),
                 }
             }
         }
@@ -6561,7 +6657,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // `face_of_cell`, so a marked cell is asked with its whole
                 // cluster both times.
                 if c > start
-                    && (crate::boxes::covers(cp)
+                    && (seam(c)
+                        || crate::boxes::covers(cp)
                         || self.face_of_cell(term, cell, cp) != face
                         || (varies == Varies::Yes
                             && self.script_at(face, Col::at_index(c)).1 != selection))

@@ -2440,6 +2440,9 @@ impl Driver {
         let whole = self.damage;
         self.renderer
             .render(&mut self.term, &mut target, self.damage);
+        // The order each row was drawn in, which the pointer maps back
+        // through.
+        self.seat.drawn(self.renderer.bidi());
         self.damage = Damage::Incremental;
         self.strips.clear();
         let px = |p: Px| baud_present_wayland::Px(p.value());

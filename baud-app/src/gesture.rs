@@ -244,6 +244,27 @@ pub(crate) fn pointer_under(
     (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
 }
 
+/// **The logical cell a pointer is over**: on a row drawn in another order
+/// (`baud_render::Orders`), the cell the visual one under the pointer
+/// shows, and its pixel at the same place in that cell. terminal-wg's
+/// display-only model, `[[source: terminal-wg-bidi-display-only]]`:
+/// "whenever a mouse event is reported back to an app, it undergoes the
+/// inverse transformation"; the selection is kept by logical cells too.
+pub(crate) fn logical(
+    orders: &baud_render::Orders,
+    (row, col, px): (Row, Col, PointerPx),
+    cell: (f64, f64),
+) -> (Row, Col, PointerPx) {
+    let l = orders.logical_col(row, col);
+    if l == col {
+        return (row, col, px);
+    }
+    let left = |c: Col| (cell.0 * c.index() as f64).floor() as i64;
+    let x = i64::from(px.x.raw()) - left(col) + left(l);
+    let x = ImagePx::of(u16::try_from(x.max(0)).unwrap_or(u16::MAX));
+    (row, l, PointerPx { x, y: px.y })
+}
+
 /// **The cell and pixel under a point for DEC's locator, or `None`
 /// outside the text area**: [`pointer_under`]'s arithmetic, unclamped. A
 /// mouse report names the edge cell for a pointer over the padding; the

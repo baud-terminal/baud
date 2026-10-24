@@ -82,6 +82,14 @@ pub const MASK_BARE: u8 = 16;
 /// draws nothing there. `MASK_SIZED` in the cell shader.
 pub const MASK_SIZED: u8 = 4;
 
+/// `BIDI`: the cell is on a row drawn in another order (`bidi.rs`), so
+/// whether it is selected is not the selection's column range but
+/// `SELECTED`, which the walk sets from the logical cell it shows -- the
+/// instance path's `Highlight::selects` on that cell. `MASK_BIDI` and
+/// `MASK_SELECTED` in the cell shader.
+pub const MASK_BIDI: u8 = 32;
+pub const MASK_SELECTED: u8 = 64;
+
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
 pub struct Scene<'s, 't> {
@@ -269,6 +277,9 @@ struct Paint<'p> {
     pictures: Option<&'p Pictures>,
     /// The colours the selection draws in ([`Renderer::hilite`]).
     hilite: Hilite,
+    /// The order the window's rows are drawn in, where the records are the
+    /// screen's: a cell's selection is its logical cell's.
+    orders: Option<&'p crate::bidi::Orders>,
     /// What the block cursor is drawn in ([`Renderer::block_paint`]): a
     /// record's glyph takes its text colour.
     block_paint: BlockPaint,
@@ -446,10 +457,39 @@ impl Overlay {
             cols: view.cols(),
             pan: scene.pan,
         };
-        let block = cursor.filter(|(_, _, s)| {
-            r.cursor_look() == CursorLook::Shaped
-                && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
-        });
+        // **The order the rows are drawn in**, this frame's: the view is the
+        // window in that order (`Orders::window`), and the cursor and the
+        // selection, kept by logical cells, are mapped through it. A copy,
+        // so the walk may borrow the renderer mutably; none while no row
+        // is reordered.
+        let orders = match r.bidi().any() {
+            true => r.bidi().clone(),
+            false => crate::bidi::Orders::default(),
+        };
+        let block = cursor
+            .filter(|(_, _, s)| {
+                r.cursor_look() == CursorLook::Shaped
+                    && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
+            })
+            .map(|(row, c, s)| (row, orders.visual_col(row, c), s));
+        // A reordered row's selection, cell by cell, for the shader: the
+        // logical cell each visual cell shows, asked as the instance path
+        // asks it.
+        if orders.any() {
+            for y in 0..rows {
+                let row = Row::from_index(y);
+                if !orders.reordered(row) {
+                    continue;
+                }
+                for (x, cell) in view.row(row).iter().enumerate().take(cols) {
+                    let l = orders.logical_col(row, Col::at_index(x));
+                    let sel = scene
+                        .highlight
+                        .is_some_and(|h| h.selects(row, l, cell.content));
+                    mask[y * cols + x] |= MASK_BIDI | if sel { MASK_SELECTED } else { 0 };
+                }
+            }
+        }
         let covered = Covered::of(
             scene.composition,
             scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
@@ -514,13 +554,33 @@ impl Overlay {
                 let c = scene.candidates[i].col.index();
                 let face = scene.candidates[i].face;
                 i += 1;
+                // **No window crosses a level run** (UAX #9 3.5), nor forms
+                // inside a right-to-left one: a pair across a seam is none,
+                // and a window stops at the seams either side of its pair.
+                let row = Row::from_index(y);
+                if orders.seam(row, Col::at_index(c)) {
+                    continue;
+                }
+                let (from, to) = match orders.reordered(row) {
+                    true => {
+                        let from = (0..=c)
+                            .rev()
+                            .find(|&x| orders.seam(row, Col::at_index(x)))
+                            .unwrap_or(0);
+                        let to = (c + 1..cols)
+                            .find(|&x| orders.seam(row, Col::at_index(x)))
+                            .map_or(cols.saturating_sub(1), |x| x - 1);
+                        (from, to)
+                    }
+                    false => (0, cols.saturating_sub(1)),
+                };
                 let ext = r
                     .extent(face)
                     .and_then(|e| usize::try_from(e.value()).ok())
                     .unwrap_or(1)
                     .max(1);
-                let lo = c.saturating_sub(ext);
-                let hi = (c + ext - 1).min(cols.saturating_sub(1));
+                let lo = c.saturating_sub(ext).max(from);
+                let hi = (c + ext - 1).min(cols.saturating_sub(1)).min(to);
                 match ranges.last_mut() {
                     Some(last) if lo <= last.1 + 1 => last.1 = last.1.max(hi),
                     _ => ranges.push((lo, hi)),
@@ -540,7 +600,7 @@ impl Overlay {
                     covered,
                     mask,
                     records,
-                    pictures,
+                    (pictures, &orders),
                 );
             }
         }
@@ -559,6 +619,7 @@ impl Overlay {
             pictures: Some(pictures),
             hilite: r.hilite(),
             block_paint: r.block_paint(),
+            orders: Some(&orders),
         };
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
@@ -813,7 +874,7 @@ impl Overlay {
         covered: Covered,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
-        pictures: &Pictures,
+        (pictures, orders): (&Pictures, &crate::bidi::Orders),
     ) {
         let row = scene.view.row(y);
         let mut piece: Vec<(usize, PackedCell, Vec<Codepoint>)> = Vec::new();
@@ -852,6 +913,7 @@ impl Overlay {
                 pictures: Some(pictures),
                 hilite: r.hilite(),
                 block_paint: r.block_paint(),
+                orders: Some(orders),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -1054,6 +1116,7 @@ impl Overlay {
                 pictures: None,
                 hilite: r.hilite(),
                 block_paint: r.block_paint(),
+                orders: None,
             },
             &geom,
         );
@@ -1226,9 +1289,13 @@ impl Overlay {
         let under_cursor = paint
             .block
             .is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
-        let selected = paint
-            .highlight
-            .is_some_and(|h| h.selects(Row::from_index(y), Col::at_index(x), cell.content));
+        let selected = paint.highlight.is_some_and(|h| {
+            let at = Col::at_index(x);
+            let at = paint
+                .orders
+                .map_or(at, |o| o.logical_col(Row::from_index(y), at));
+            h.selects(Row::from_index(y), at, cell.content)
+        });
         // The selection swaps, then the cursor swaps again, and a hidden
         // cell draws nothing of its own: `Resolved::drawn`, the one spelling
         // `Renderer::convert_row` and the cell shader mirror, which the pixel
@@ -1715,6 +1782,7 @@ pub(crate) fn composition_records(
             pictures: None,
             hilite,
             block_paint,
+            orders: None,
         };
         let mut over = Vec::new();
         Overlay::emit(

@@ -379,10 +379,13 @@ struct CellUniforms {
     cursor_text_curve: Uni,
     /// The blink shapes this frame draws faint rather than hides,
     /// `BlinkPhases::faint`: each rate's off phase while the system asks
-    /// for dimmed flashing lights. With a pad, so the struct stays a
-    /// multiple of eight bytes.
+    /// for dimmed flashing lights.
     blink_faint: Uni,
-    faint_pad: Uni,
+    /// The side of its cell a bar cursor is drawn on: 1 the right, where
+    /// the character under it runs right to left ([`baud_render::CursorSide`]),
+    /// else 0. It took the pad that kept the struct a multiple of eight
+    /// bytes.
+    cursor_side: Uni,
 }
 
 const _: () = assert!(core::mem::size_of::<CellUniforms>() == 152);
@@ -2200,11 +2203,23 @@ impl Gpu {
             )?),
             _ => None,
         };
-        let (cursor_row, cursor_col) = input
-            .cursor
-            .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
-                (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
-            });
+        // The cursor is kept by its logical cell and drawn where this
+        // frame's order puts it, a bar on the side its character runs from
+        // (`Renderer::bidi`, `cursor_px`'s rule).
+        let orders = renderer.bidi();
+        let (cursor_row, cursor_col) =
+            input
+                .cursor
+                .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
+                    (
+                        Uni::of(Elems(r.index())),
+                        Uni::of(Elems(orders.visual_col(r, c).index())),
+                    )
+                });
+        let cursor_side = Uni(match input.cursor.map(|(r, c, _)| orders.side(r, c)) {
+            Some(baud_render::CursorSide::Right) => 1,
+            _ => 0,
+        });
         let hilite = renderer.hilite();
         let block = renderer.block_paint();
         let curve_of = |p: Option<CellPaint<(Argb, CurveRow)>>| match p {
@@ -2260,7 +2275,7 @@ impl Gpu {
             )),
             blink_hidden: Uni(renderer.blink().hidden().0),
             blink_faint: Uni(renderer.blink().faint().0),
-            faint_pad: Uni(0),
+            cursor_side,
             sel_bg: paint_word(hilite.bg, None, |(c, _)| c),
             sel_fg: paint_word(hilite.fg, None, |(c, _)| c),
             sel_bg_curve: Uni(curve_of(hilite.bg)),

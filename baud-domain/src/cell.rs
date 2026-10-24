@@ -480,6 +480,15 @@ impl CellFlags {
 }
 
 impl PackedCell {
+    /// **Whether two rows of cells are the same, a byte compare**: the
+    /// cells' words compared as one block of bytes, which the library runs
+    /// a vector at a time, where comparing them cell by cell field by field
+    /// does not. A cell has no padding (`IntoBytes`), so equal bytes are
+    /// equal cells.
+    pub fn same_cells(a: &[PackedCell], b: &[PackedCell]) -> bool {
+        a.as_bytes() == b.as_bytes()
+    }
+
     /// Unwritten. Note this is *not* a space: the renderer decides what an empty
     /// cell looks like, and selection can tell the difference.
     pub const EMPTY: PackedCell = PackedCell {

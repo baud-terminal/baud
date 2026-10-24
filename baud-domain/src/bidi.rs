@@ -181,6 +181,83 @@ impl BidiProps {
     }
 }
 
+/// **Whether `cp` can make a left-to-right paragraph reorder**: a
+/// character of class R, AL or AN, or an RLE, RLO or RLI. Without one, a
+/// paragraph at level 0 resolves every character to an even level -- EN
+/// becomes L by W7 with an L start of sequence, LRE, LRO and LRI raise to
+/// even levels only, and FSI resolves left to right with no R or AL inside
+/// it -- so L2 reverses nothing and L4 mirrors nothing. AN is in the set
+/// because N1 resolves a neutral between two ANs to R. UAX #9 section 5.1
+/// names the test: "An example of an effective optimization is to first
+/// test for right-to-left characters and invoke the Bidirectional Algorithm
+/// only if they are present."
+///
+/// **One load for nearly every character.** Below U+0590 nothing is in the
+/// set, and above it a bit a 256-character block, compiled from the class
+/// table ([`RTL_BLOCKS`]), says whether the block holds any; only a
+/// character in such a block reads its class.
+#[inline]
+pub fn opens_rtl(cp: u32) -> bool {
+    if !in_rtl_block(cp) {
+        return false;
+    }
+    char::from_u32(cp).is_some_and(|c| {
+        matches!(
+            BidiClass::of(c),
+            BidiClass::R
+                | BidiClass::AL
+                | BidiClass::AN
+                | BidiClass::RLE
+                | BidiClass::RLO
+                | BidiClass::RLI
+        )
+    })
+}
+
+/// Whether `cp`'s 256-character block holds a character [`opens_rtl`]
+/// answers yes for: one load from [`RTL_BLOCKS`], and no for any word past
+/// U+10FFFF. A row whose every cell's block answers no needs no class read.
+#[inline]
+pub fn in_rtl_block(cp: u32) -> bool {
+    let block = usize::try_from(cp >> 8).unwrap_or(usize::MAX);
+    RTL_BLOCKS
+        .get(block >> 6)
+        .is_some_and(|w| w >> (block & 63) & 1 == 1)
+}
+
+/// A bit for each 256-character block of the code space, set where the
+/// block holds a character [`opens_rtl`] answers yes for: compiled from the
+/// class table at build time, one test of each distinct block's 256
+/// entries.
+pub static RTL_BLOCKS: [u64; 68] = rtl_blocks();
+
+const fn rtl_blocks() -> [u64; 68] {
+    let distinct = BIDI_BLOCKS.len() / 256;
+    let mut rtl = [false; 256];
+    let mut b = 0;
+    while b < distinct {
+        let mut i = 0;
+        while i < 256 {
+            let class = BIDI_BLOCKS[b * 256 + i] & 0x1F;
+            // R, AL, AN, RLE, RLO and RLI in Table 4's order (`BidiClass`).
+            if matches!(class, 1 | 2 | 6 | 16 | 17 | 20) {
+                rtl[b] = true;
+            }
+            i += 1;
+        }
+        b += 1;
+    }
+    let mut out = [0u64; 68];
+    let mut k = 0;
+    while k < BIDI_INDEX.len() {
+        if rtl[BIDI_INDEX[k] as usize] {
+            out[k / 64] |= 1 << (k % 64);
+        }
+        k += 1;
+    }
+    out
+}
+
 /// The mirror table's entry for `c`: its glyph's index and its pair.
 fn mirror_entry(c: char) -> u16 {
     let cp = u32::from(c);

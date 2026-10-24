@@ -1145,9 +1145,11 @@ struct CU {
     // row a glyph in a colour takes. 144 bytes with these.
     uint cursor_text; uint cursor_text_curve;
     // The blink shapes this frame draws faint rather than hides, under
-    // dimmed flashing lights: `BlinkPhases::faint`. And a pad, so the struct
-    // stays a multiple of eight bytes: 152.
-    uint blink_faint; uint faint_pad;
+    // dimmed flashing lights: `BlinkPhases::faint`. And the side of its
+    // cell a bar cursor is drawn on, 1 the right where the character under
+    // it runs right to left (`baud_render::CursorSide`), so the struct stays
+    // a multiple of eight bytes: 152.
+    uint blink_faint; uint cursor_side;
 };
 
 // A paint word: 0 none, the cell's text or page by name, else an opaque
@@ -1782,6 +1784,12 @@ constant uchar STRESS_SKIP_BLOCKS[4704] = {
 // `baud_render::MASK_RECORD`: a record draws the cell. Pinned by
 // `the_record_mask_bit_matches_the_shader`.
 #define MASK_RECORD 1u
+// `baud_render::MASK_BIDI` and `MASK_SELECTED`: the cell is on a row drawn
+// in another order, and whether it is selected is the second bit, which
+// the overlay's walk set from the logical cell it shows. Pinned by
+// `the_bidi_mask_bits_match_the_shader`.
+#define MASK_BIDI 32u
+#define MASK_SELECTED 64u
 
 // The record and sized bits of the cell at column `col` of logical row
 // `lrow`: the screen's row of the overlay, and for the leaving row above
@@ -1887,10 +1895,16 @@ static bool carries(constant CU& u, device const uint2* cells,
 // Whether the cell is inside the selection, both ends inclusive: a stream
 // (`sel_on` 1) in row-major order, a block (`sel_on` 2) by its row range
 // and its column range apart. A wide tail takes its lead's answer, so a
-// block's edge never cuts a character in two. Must match
-// `Highlight::selects`; the pixel oracle compares the two arms.
-static bool selected(constant CU& u, uint content, uint col, uint row) {
+// block's edge never cuts a character in two. On a row drawn in another
+// order the overlay holds the answer for the logical cell (`MASK_BIDI`).
+// Must match `Highlight::selects`; the pixel oracle compares the two arms.
+static bool selected(constant CU& u, device const uchar* overlay, uint content, uint col,
+                     uint row) {
     if (u.sel_on == 0u) return false;
+    if (row < u.grid.y) {
+        uint m = uint(overlay[row * u.grid.x + col]);
+        if ((m & MASK_BIDI) != 0u) return (m & MASK_SELECTED) != 0u;
+    }
     if (content == WIDE_TAIL && col > 0u) col -= 1u;
     if (u.sel_on == 2u) {
         return row >= u.sel_from_row && row <= u.sel_to_row &&
@@ -1963,7 +1977,7 @@ static bool is_line(uint content) {
 // `Resolved::drawn`, `Curves::row` and `Swaps::ink`.
 static uint curve_under(constant CU& u, Style s, device const uchar* overlay,
                         uint content, uint col, int lrow, bool block) {
-    bool sel = selected(u, content, col, uint(lrow));
+    bool sel = selected(u, overlay, content, col, uint(lrow));
     bool swap = sel != block;
     // Under a highlight colour the glyph is in the selection's text, or,
     // swapped again by a block, its page: a colour's row where one is set,
@@ -1993,7 +2007,7 @@ static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
     // A block's text colour: a colour's own row, or the cell's solid text
     // as the selection leaves it, the curve the cell takes with no block.
     if (block && u.cursor_text == PAINT_TEXT) {
-        if (!selected(u, content, col, uint(lrow))) return s.curves & 0xffffu;
+        if (!selected(u, overlay, content, col, uint(lrow))) return s.curves & 0xffffu;
         return curve_under(u, s, overlay, content, col, lrow, false);
     }
     if (block && u.cursor_text != 0u) return u.cursor_text_curve;
@@ -2031,7 +2045,7 @@ static void colors(constant CU& u, device const Style* styles,
     // This must match `Renderer::convert_row`, and the pixel gate
     // compares the two arms to say so.
     uint ink = s.fg;
-    if (selected(u, cell.x, col, row)) {
+    if (selected(u, overlay, cell.x, col, row)) {
         // `Hilite::paint`: the page `OSC 17`'s where set, else the text; the
         // text `OSC 19`'s where set, else the cell's own on a page that is
         // not the cell's text, else the page -- reverse video when neither
@@ -2067,11 +2081,11 @@ static void colors(constant CU& u, device const Style* styles,
 // Whether the cell draws a background that is not the default one: its
 // rendition's `SHAPE_DEFAULT_BG` unset, or selected, or under a block
 // cursor. Must match `Resolved::ground`.
-static bool ground_set(constant CU& u, device const Style* styles, uint2 cell,
-                       uint col, uint row) {
+static bool ground_set(constant CU& u, device const Style* styles,
+                       device const uchar* overlay, uint2 cell, uint col, uint row) {
     Style s = styles[cell.y & 0xffffu];
     bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y;
-    return (s.shapes & SHAPE_DEFAULT_BG) == 0u || selected(u, cell.x, col, row) || block;
+    return (s.shapes & SHAPE_DEFAULT_BG) == 0u || selected(u, overlay, cell.x, col, row) || block;
 }
 
 // `ground_pass`, for a frame with a kitty image below `INT32_MIN/2`:
@@ -2095,7 +2109,7 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     bool sized = (sized_bits(u, overlay, col, lrow) & MASK_SIZED) != 0u;
     uint at = sized ? col / 2u : col;
     uint2 cell = cell_at(u, cells, at, dr);
-    bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, cell, at, uint(lrow));
+    bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, overlay, cell, at, uint(lrow));
     if (ground_pass == GROUND_ONLY_SET && !set) {
         FlatOut none;
         none.pos = float4(2.0, 2.0, 0.0, 1.0);
@@ -2256,7 +2270,11 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             at = float2(float(col * u.cell.x), rowy + float(u.cell.y) - thick);
             wh = float2(u.cell.x, thick);
         } else {
-            at = float2(float(col * u.cell.x), rowy);
+            // On the right of the cell where its character runs right to
+            // left (`cursor_side`), `Renderer::cursor_px`'s bar.
+            float x = float(col * u.cell.x)
+                    + (u.cursor_side == 1u ? max(float(u.cell.x) - thick, 0.0) : 0.0);
+            at = float2(x, rowy);
             wh = float2(thick, u.cell.y);
         }
         // The bar or underline cursor draws in the cursor colour, a colour

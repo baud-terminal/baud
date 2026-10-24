@@ -15,6 +15,10 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
+//! `FRAME_BIDI=implicit` sets BDSM (`CSI 8 h`) before the recording, so
+//! each frame lays its rows out in the order UAX #9 gives them; the
+//! default leaves it reset, as a terminal starts.
+//!
 //! `FRAME_BG_ALPHA=<0-255>` paints over a page dimmed to that alpha, the
 //! glass (`[glass] dim_dark = 0.22` is 56), where the default is
 //! `Theme::dark()`'s opaque page: the compositor blends the two pages by
@@ -220,6 +224,14 @@ fn main() {
         }
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
+        // `FRAME_BIDI=implicit` sets BDSM before the recording, so every
+        // frame lays its rows out by UAX #9: what the right-to-left layout
+        // costs a frame of text that holds no right-to-left character.
+        if std::env::var("FRAME_BIDI").as_deref() == Ok("implicit") {
+            let bdsm = b"\x1b[8h";
+            t.write_at(BytePos::ZERO, bdsm);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bdsm.len()));
+        }
         let mut rep = Rep {
             frames: 0,
             total: Duration::ZERO,

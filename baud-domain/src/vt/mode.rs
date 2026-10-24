@@ -119,7 +119,33 @@ pub enum AnsiMode {
     /// SRM, mode 12 (`[[source: vt510-srm]]`, 7.2.15): reset, "the terminal
     /// sends keyboard characters to the host and to the screen".
     SendReceive,
+    /// BDSM, mode 8, `[[source: ecma48]]` 7.2.1 ([`BidiSupport`]).
+    BiDirectionalSupport,
     Other(Param),
+}
+
+/// **BDSM's two states**, `[[source: ecma48]]` 7.2.1. EXPLICIT, the reset
+/// state: "Control functions are performed in the data component or in the
+/// presentation component, depending on the setting of the DEVICE
+/// COMPONENT SELECT MODE (DCSM)". IMPLICIT, the set state: "All
+/// bi-directional aspects of data are handled by the device itself" -- the
+/// renderer lays each line out in the order UAX #9 gives it.
+///
+/// baud has no presentation component apart from the data component and
+/// no SCP yet, so EXPLICIT is the left-to-right drawing of every row in
+/// the order its cells hold, which is what every row was drawn in before.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BidiSupport {
+    Explicit,
+    Implicit,
+}
+
+impl BidiSupport {
+    /// The state at power-on and after `RIS`: the reset state, which
+    /// `[[source: ecma48]]` 7.1 recommends as the initial one. Which state
+    /// baud starts in is the owner's open call (`docs/bidi.md`), so this
+    /// is today's drawing until it is answered.
+    pub const POWER_ON: BidiSupport = BidiSupport::Explicit;
 }
 
 impl AnsiMode {
@@ -131,6 +157,7 @@ impl AnsiMode {
             18 => AnsiMode::TabulationStop,
             2 => AnsiMode::KeyboardAction,
             12 => AnsiMode::SendReceive,
+            8 => AnsiMode::BiDirectionalSupport,
             n => AnsiMode::Other(Param(n)),
         }
     }

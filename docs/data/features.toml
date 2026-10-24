@@ -2084,7 +2084,7 @@ paths = ["docs/embedding.md", "baud-core/examples/quickstart.rs"]
 [[missing]]
 name = "Right-to-left text"
 area = "text"
-does = "Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet."
+does = "Hebrew and Arabic lines are drawn right to left, with the cursor, the selection and the mouse following, once a program turns bidirectional mode on (`CSI 8 h`); baud does not start in it yet, a program cannot set a line's direction, and Arabic letters are not joined."
 roadmap = ["SQ-v1.0-01"]
 
 [[missing]]

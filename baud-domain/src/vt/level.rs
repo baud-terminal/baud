@@ -454,7 +454,10 @@ impl AnsiMode {
             AnsiMode::LineFeedNewLine => Function::Lnm,
             AnsiMode::KeyboardAction => Function::Kam,
             AnsiMode::SendReceive => Function::Srm,
-            AnsiMode::Erasure | AnsiMode::TabulationStop | AnsiMode::Other(_) => return None,
+            AnsiMode::Erasure
+            | AnsiMode::TabulationStop
+            | AnsiMode::BiDirectionalSupport
+            | AnsiMode::Other(_) => return None,
         })
     }
 }

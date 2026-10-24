@@ -6,7 +6,7 @@
 //! (`[[source: unicode-bidibrackets]]`).
 
 use baud_domain::{
-    BidiClass, BidiMirrored, BidiProps, BracketKind, mirroring_glyph, paired_bracket,
+    BidiClass, BidiMirrored, BidiProps, BracketKind, mirroring_glyph, opens_rtl, paired_bracket,
 };
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
@@ -134,6 +134,87 @@ fn every_code_point_has_the_bidi_class_the_pinned_file_gives() {
         "{} differ: {:?}",
         wrong.len(),
         &wrong[..wrong.len().min(8)]
+    );
+}
+
+/// **The renderer's fast path agrees with the class table at every code
+/// point**: `opens_rtl` answers yes exactly for R, AL, AN, RLE, RLO and RLI,
+/// whichever way its block bit and its threshold below U+0590 get there,
+/// and no for every value past U+10FFFF, where a cell's reserved words and
+/// cluster indices live. A block bit left clear, or a class left out of the
+/// set, would draw a right-to-left line in its stored order.
+#[test]
+fn opens_rtl_is_the_class_table_at_every_code_point() {
+    let mut wrong = Vec::new();
+    let mut yes = 0;
+    for c in every_char() {
+        let want = matches!(
+            BidiClass::of(c),
+            BidiClass::R
+                | BidiClass::AL
+                | BidiClass::AN
+                | BidiClass::RLE
+                | BidiClass::RLO
+                | BidiClass::RLI
+        );
+        yes += usize::from(want);
+        if opens_rtl(u32::from(c)) != want {
+            wrong.push(format!("U+{:04X}", u32::from(c)));
+        }
+    }
+    for word in [
+        0x11_0000,
+        0x11_0001,
+        0x11_0002,
+        0x12_0001,
+        0x100_0000,
+        u32::MAX,
+    ] {
+        if opens_rtl(word) {
+            wrong.push(format!("{word:#x}"));
+        }
+    }
+    // The positive control: Hebrew alef, Arabic alef, an Arabic-Indic digit
+    // and RLI are in; Latin A, a European digit and LRI are not.
+    assert!(opens_rtl(0x05D0) && opens_rtl(0x0627) && opens_rtl(0x0661) && opens_rtl(0x2067));
+    assert!(!opens_rtl(0x41) && !opens_rtl(0x31) && !opens_rtl(0x2066));
+    assert!(yes > 5_000, "only {yes} right-to-left code points");
+    assert!(
+        wrong.is_empty(),
+        "{} differ: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(8)]
+    );
+}
+
+/// **The mirrored characters with no Bidi_Mirroring_Glyph are the 126
+/// BidiMirroring.txt lists as comments at its end**, under "no appropriate
+/// mirroring character": those L4 leaves "up to the rendering system", 554
+/// mirrored in all and 428 with a glyph.
+#[test]
+fn the_mirrored_characters_with_no_glyph_are_the_pinned_files_126() {
+    let text = source("unicode-bidimirroring.txt");
+    let (_, tail) = text
+        .split_once("# The following characters have no appropriate mirroring character.")
+        .expect("the section");
+    let listed: Vec<char> = tail
+        .lines()
+        .filter_map(|l| l.strip_prefix("# ")?.split_once(';'))
+        .filter_map(|(cp, _)| char::from_u32(u32::from_str_radix(cp.trim(), 16).ok()?))
+        .collect();
+    let mirrored: Vec<char> = every_char()
+        .filter(|&c| BidiProps::of(c).mirrored == BidiMirrored::Yes)
+        .collect();
+    let glyphless: Vec<char> = mirrored
+        .iter()
+        .copied()
+        .filter(|&c| mirroring_glyph(c).is_none())
+        .collect();
+    assert_eq!(glyphless, listed);
+    assert_eq!(
+        (mirrored.len(), glyphless.len()),
+        (554, 126),
+        "mirrored, and of them with no glyph"
     );
 }
 

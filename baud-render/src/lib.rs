@@ -27,6 +27,7 @@
 
 mod atlas;
 mod badge;
+mod bidi;
 pub mod boxes;
 mod cache;
 mod caret;
@@ -69,6 +70,7 @@ pub use atlas::{
     Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
 pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
+pub use bidi::{CONTEXT, CursorSide, Orders, Reorder};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{
@@ -92,8 +94,8 @@ pub use lights::{
 pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
-    Caret, Composition, Hints, MASK_BARE, MASK_PICTURE, MASK_RECORD, MASK_SIZED, Overlay,
-    OverlayStats, Scene,
+    Caret, Composition, Hints, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD, MASK_SELECTED,
+    MASK_SIZED, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use redraw::{REDRAW_ROWS, Redraw, RowSet};

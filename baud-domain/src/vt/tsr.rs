@@ -24,7 +24,7 @@
 //! |---|---|
 //! | 1 | the version, 2 |
 //! | 1 | the conformance level 1 to 4 (bits 0-1), eight-bit C1 (bit 2), ISO 8859-1 input (bit 3) |
-//! | 3 | the five ANSI modes [`TSR_ANSI_MODES`], two bits each |
+//! | 3 | the six ANSI modes [`TSR_ANSI_MODES`], two bits each |
 //! | 31 | the sixty-one private modes XTSAVE keeps, two bits each, by slot, the last nibble's low two bits zero |
 //! | 28 | the rendition: 23 attribute bits in `Attrs::WIRE`'s order (6), the font (1), the foreground, background and underline colours (7 each) |
 //! | 12 | DECSTBM's top and bottom, DECSLRM's left and right, from 1 |
@@ -103,9 +103,11 @@ pub const TSR_TAB_BYTES: usize = TSR_TAB_COLS.div_ceil(8);
 pub const TSR_REPLY_MAX: usize = 2 + 3 + TSR_DATA_MAX + 2 + 2;
 const _: () = assert!(TSR_REPLY_MAX == 256);
 
-/// The ANSI modes DECRQM answers, in the report's order: IRM, LNM, ERM, KAM
-/// and SRM. TSM is permanently reset and carries nothing.
-pub const TSR_ANSI_MODES: [u16; 5] = [4, 20, 6, 2, 12];
+/// The ANSI modes DECRQM answers, in the report's order: IRM, LNM, ERM, KAM,
+/// SRM and BDSM. TSM is permanently reset and carries nothing. BDSM took the
+/// two bits the five left clear, so a report written before it reads BDSM as
+/// absent and restores nothing for it.
+pub const TSR_ANSI_MODES: [u16; 6] = [4, 20, 6, 2, 12, 8];
 
 /// How many private modes the report carries: XTSAVE's slots.
 pub const TSR_PRIVATE_MODES: usize = SLOT_WIRE.len();
@@ -177,7 +179,7 @@ pub struct TerminalState {
     pub c1: C1Transmit,
     /// `ESC % @` or `ESC % G`, which `?1020` reports.
     pub encoding: InputEncoding,
-    pub ansi: [TsrMode; 5],
+    pub ansi: [TsrMode; 6],
     pub private: [TsrMode; TSR_PRIVATE_MODES],
     pub rendition: StyleWord,
     /// DECSTBM's and DECSLRM's parameters.
@@ -218,7 +220,7 @@ pub struct TerminalState {
 pub struct TerminalRestore {
     pub level: Option<(ConformanceLevel, C1Transmit)>,
     pub encoding: Option<InputEncoding>,
-    pub ansi: [Option<TsrMode>; 5],
+    pub ansi: [Option<TsrMode>; 6],
     pub private: [Option<TsrMode>; TSR_PRIVATE_MODES],
     pub rendition: Option<StyleWord>,
     pub top: Option<u16>,
@@ -466,7 +468,7 @@ impl TerminalState {
         };
         p.nibbles(level_code(self.level) | eight | latin1, 1);
         let ansi = self.ansi.iter().fold(0, |v, m| (v << 2) | m.code());
-        p.nibbles(ansi << 2, 3);
+        p.nibbles(ansi, 3);
         for pair in self.private.chunks(2) {
             let low = pair.get(1).map_or(0, |m| m.code());
             p.nibbles((pair[0].code() << 2) | low, 1);
@@ -614,7 +616,7 @@ impl TerminalRestore {
             };
             (level, c1)
         });
-        let mut ansi = [None; 5];
+        let mut ansi = [None; 6];
         if let Some(v) = g.nibbles(3) {
             for (i, m) in ansi.iter_mut().enumerate() {
                 *m = TsrMode::of((v >> (2 * (5 - i))) & 3);

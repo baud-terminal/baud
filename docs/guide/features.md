@@ -286,7 +286,7 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Links open safely** — the pointer keeps its shape over a link, where iTerm2 and WezTerm show a pointing hand.
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
 - **Linux** — the Linux version has run only headless, with no GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
-- **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
+- **Right-to-left text** — Hebrew and Arabic lines are drawn right to left, with the cursor, the selection and the mouse following, once a program turns bidirectional mode on (`CSI 8 h`); baud does not start in it yet, a program cannot set a line's direction, and Arabic letters are not joined. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **More than one window** — baud opens one window; Cmd-N for another is not built yet. [Roadmap](../roadmap.md#window-colours-and-bell)
 
 ## How this page stays true

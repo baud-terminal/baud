@@ -4527,7 +4527,7 @@ group  = "J"
 key    = "terminal-wg-bidi"
 title  = "Bidirectional text in terminal emulators (BiDi in terminals) -- the terminal-wg specification"
 author = "Egmont Koblinger"
-year   = 2025
+year   = 2019
 venue  = "terminal-wg / GitLab, freedesktop.org"
 url    = "https://terminal-wg.pages.freedesktop.org/bidi/"
 file   = ""
@@ -4535,8 +4535,133 @@ sha256 = "5d5f728aed10949c72ee2c4e19155c45fe91e46e2ed3273eb8d4a3db96c8cc5c"
 bytes  = 22225
 status = "external"
 group  = "J"
+# The index page alone, which holds a Foreword and the conventions: every
+# requirement is on a subpage, pinned below. v0.1, 2019-01-29.
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-basic-modes]
+key    = "terminal-wg-bidi-basic-modes"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/basic-modes.html: the six modes, implicit and explicit, the I-beam's side, and 'this implicit mode must be the default'"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/basic-modes.html"
+file   = ""
+sha256 = "e3beb7e7f805db77974c08d354f54e2439830163ca3ea551733bf5b7d80d241b"
+bytes  = 29303
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-display-only]
+key    = "terminal-wg-bidi-display-only"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/display-only.html: BiDi is display-only: the model unchanged, cells moved within their row, selection on the model, mouse reports through the inverse transformation"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/display-only.html"
+file   = ""
+sha256 = "3893c9baaef99b31197f1fb61b88daee16c506a4a5ff7ab6cc08734e213117ac"
+bytes  = 23775
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-erased-cells]
+key    = "terminal-wg-bidi-erased-cells"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/erased-cells.html: trailing erased cells laid out at the line's end in the paragraph direction and left out of the algorithm"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/erased-cells.html"
+file   = ""
+sha256 = "85b14c0adb4cfaea8b058aa86df4ead75aa62a12e474a41fc0bf40594954e467"
+bytes  = 21409
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-cursor]
+key    = "terminal-wg-bidi-cursor"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/cursor.html: the cursor follows its character; the I-beam on the right side over an RTL-resolved character; the about-to-wrap state"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/cursor.html"
+file   = ""
+sha256 = "ac87b3aebb3f706f39dd311cd15df8f713e1a7e074253fe037d6c6b877703db1"
+bytes  = 23024
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-escape-sequences]
+key    = "terminal-wg-bidi-escape-sequences"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/escape-sequences.html: BDSM, SCP, SPD, ?2500, ?2501, ?1243, and the draft rules for how they apply to paragraphs"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/escape-sequences.html"
+file   = ""
+sha256 = "7a63f9bcb72e0f418ac9650750491c884c0d8b4e98d4546f35c99f1bc010418d"
+bytes  = 37243
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-misc]
+key    = "terminal-wg-bidi-misc"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/misc.html: images not flipped, box drawing not mirrored, the paragraph cap, extra hidden lines for context"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/misc.html"
+file   = ""
+sha256 = "27de786f5607b4c678bdee7972008f9803ea8fe4d394134ccc068606d4e89736"
+bytes  = 31113
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi-ecosystem]
+key    = "terminal-wg-bidi-ecosystem"
+title  = "BiDi in terminal emulators v0.1 -- future-improvement-ideas/ecosystem.html: 'The two screens should behave identically', and terminfo's smcup/rmcup as the place to switch explicit mode per program"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/future-improvement-ideas/ecosystem.html"
+file   = ""
+sha256 = "10651c2b286d88f5496b708d8b15eb9707a17e5b8ad786ce03fcddf08602fbf8"
+bytes  = 24318
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
+# not committed. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ecma-tr53]
+key    = "ecma-tr53"
+title  = "ECMA TR/53: Handling of Bi-Directional Texts, 2nd edition"
+author = "Ecma International"
+year   = 1992
+venue  = "Ecma Technical Report TR/53"
+url    = "https://ecma-international.org/wp-content/uploads/ECMA_TR-53_2nd_edition_june_1992.pdf"
+file   = ""
+sha256 = "912dfcdb813716bfa8ca5f2886896cbd4a3c1e4fc31ac3b21dae1b064f920e99"
+bytes  = 96531
+status = "external"
+group  = "J"
+# Section 7.1 on BDSM: EXPLICIT for 'bi-directionality-aware' applications,
+# IMPLICIT for 'bi-directionality-unaware' ones, the reset state EXPLICIT.
+# Its text extracts letter-spaced; read after stripping the non-alphanumerics.
+# Read and hash-verified on 2026-10-24; not committed. Re-fetch at the pinned
+# url and compare the sha256.
 
 [sources.ghostty-font-shaper-run]
 key    = "ghostty-font-shaper-run"

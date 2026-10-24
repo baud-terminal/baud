@@ -1229,6 +1229,11 @@ pub struct Cold {
     /// whichever cursor the primary will have when the alternate screen goes.
     pub(crate) alt_entry: crate::ops::AltSwitch,
     pub(crate) modes: Modes,
+    /// BDSM, `SM 8` / `RM 8`: whether the renderer lays lines out in their
+    /// bidirectional order ([`BidiSupport`]). Its own field, not a
+    /// [`ModeBit`]: the mode word is read by the per-byte path and full,
+    /// and nothing on that path reads this.
+    pub(crate) bidi: BidiSupport,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1443,9 +1448,11 @@ pub struct Cold {
 // `SUB`'s mark is four bytes in `BellState`'s tail padding
 // (`margin::BellState`), so it stays at 936: as a field of its own it took
 // the struct to 944, every field packed and none of its padding free.
+// BDSM's byte (`bidi`) took it to 944 for that reason: written by `SM 8`,
+// `RM 8` and `RIS`, read by DECRQM and the renderer, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 936);
+const _: () = assert!(core::mem::size_of::<Cold>() == 944);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1971,6 +1978,7 @@ impl Cold {
             // `baud-core2` made the same one, so the golden capture of what it
             // rendered (`tests/golden.rs`) compares like with like.
             modes: Modes::default(),
+            bidi: BidiSupport::POWER_ON,
             xtsave: SavedModes::NONE,
         }
     }
@@ -3634,6 +3642,14 @@ impl<'b> Term<'b> {
             later,
             input,
         })
+    }
+
+    /// **BDSM, `SM 8` / `RM 8`** (`[[source: ecma48]]` 7.2.1): whether lines
+    /// are drawn in the order UAX #9 gives them (IMPLICIT) or left to right
+    /// as their cells hold them (EXPLICIT). The renderer reads it; nothing
+    /// in the core does, since the reordering is display-only.
+    pub fn bidi_support(&self) -> BidiSupport {
+        self.cold.bidi
     }
 
     /// `?2004`. Whether pasted text should be bracketed.

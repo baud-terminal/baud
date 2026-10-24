@@ -136,9 +136,11 @@ impl Script {
     }
 }
 
-/// The order a run's glyphs are laid out in. baud does not reorder text
-/// (UAX #9 is unbuilt; note AB), but a `morx` subtable names the order it
-/// walks a run in by the run's layout, so the shaper still needs it.
+/// The order a run's glyphs are laid out in. The shaper is given a run's
+/// cells in the order they are drawn: a line is reordered before it is
+/// shaped (`docs/bidi.md`), and a right-to-left run's cells are shaped one
+/// at a time. A `morx` subtable still names the order it walks a run in by
+/// the run's layout, so the shaper needs it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Direction {
     LeftToRight,

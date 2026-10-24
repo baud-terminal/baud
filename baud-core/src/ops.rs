@@ -4031,6 +4031,12 @@ impl Paint<'_, '_> {
             AnsiMode::Erasure => self.cold.modes.apply(ModeBit::EraseGuarded, on),
             AnsiMode::KeyboardAction => self.cold.modes.apply(ModeBit::KeyboardAction, on),
             AnsiMode::SendReceive => self.cold.modes.apply(ModeBit::SendReceive, on),
+            AnsiMode::BiDirectionalSupport => {
+                self.cold.bidi = match on {
+                    true => BidiSupport::Implicit,
+                    false => BidiSupport::Explicit,
+                }
+            }
             _ => self.unsupported_param += 1,
         }
     }
@@ -4195,6 +4201,9 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // BDSM with the modes, ECMA-48 8.3.105's "set the modes into the
+        // reset state"; `DECSTR` keeps it, as its DEC table names no BDSM.
+        self.cold.bidi = BidiSupport::POWER_ON;
         // iTerm2's cursor guide goes back to the embedder's setting: its
         // reset sets the profile's again (`screenDidReset`, `[[source:
         // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
@@ -4682,6 +4691,10 @@ impl Paint<'_, '_> {
                 AnsiMode::TabulationStop => ModeState::PermanentlyReset,
                 AnsiMode::KeyboardAction => bit_state(self.cold.modes, ModeBit::KeyboardAction),
                 AnsiMode::SendReceive => bit_state(self.cold.modes, ModeBit::SendReceive),
+                AnsiMode::BiDirectionalSupport => match self.cold.bidi {
+                    BidiSupport::Implicit => ModeState::Set,
+                    BidiSupport::Explicit => ModeState::Reset,
+                },
                 _ => ModeState::NotRecognized,
             };
         }

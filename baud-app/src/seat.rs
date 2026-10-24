@@ -231,6 +231,9 @@ pub(crate) struct Seat {
     /// The link preview: the link under the pointer while Ctrl is held,
     /// underlined, and its address in a bar (`link::Hover`).
     hover: crate::link::Hover,
+    /// The order the last frame drew each row in, which a pointer position
+    /// is mapped back through (`gesture::logical`).
+    orders: baud_render::Orders,
 }
 
 impl Seat {
@@ -251,6 +254,15 @@ impl Seat {
             opening: None,
             focus: Focus::Lost,
             hover: crate::link::Hover::default(),
+            orders: baud_render::Orders::default(),
+        }
+    }
+
+    /// The order the frame just drawn put each row in: a pointer on it is
+    /// over the logical cell its visual one shows.
+    pub(crate) fn drawn(&mut self, orders: &baud_render::Orders) {
+        if self.orders != *orders {
+            self.orders.clone_from(orders);
         }
     }
 
@@ -325,13 +337,29 @@ impl Seat {
 
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
         let at = self.at.unwrap_or((0.0, 0.0));
-        gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad)
+        gesture::logical(
+            &self.orders,
+            gesture::pointer_under(at, 1.0, g.cell, g.grid, g.pad),
+            g.cell,
+        )
     }
 
     /// Where DEC's locator is: `None` off the surface or its text area.
     fn locator_at(&self, g: Geometry) -> Option<LocatorAt> {
         self.at
             .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, g.pad))
+            .map(|at| match at.px {
+                Some(px) => {
+                    let (row, col, px) =
+                        gesture::logical(&self.orders, (at.row, at.col, px), g.cell);
+                    LocatorAt {
+                        row,
+                        col,
+                        px: Some(px),
+                    }
+                }
+                None => at,
+            })
     }
 
     /// **One pointer input** with no scrollbar beside it
@@ -1103,6 +1131,52 @@ mod tests {
         put(&mut seat, &mut t, Input::StoppedAcross, NONE);
         let (_, sent) = put(&mut seat, &mut t, Input::DistanceAcross(5.0), NONE);
         assert_eq!(sent, b"", "the half column before the stop was dropped");
+    }
+
+    /// **A click on a reordered row reports the cell the program wrote**:
+    /// the pointer is over a visual cell, and a mouse report undergoes the
+    /// inverse of the drawn order, terminal-wg's "whenever a mouse event is
+    /// reported back to an app, it undergoes the inverse transformation"
+    /// (`[[source: terminal-wg-bidi-display-only]]`). `ab אבג` at paragraph
+    /// level 0 draws the alef at column 5; a press there reports column 4
+    /// (1-based), where the program wrote it. The control: before the seat
+    /// is told the order, the press reports the column under the pointer.
+    #[test]
+    fn a_press_on_a_reordered_row_reports_the_logical_cell() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            "\x1b[8hab \u{5D0}\u{5D1}\u{5D2}\x1b[?1000h\x1b[?1006h".as_bytes(),
+        );
+        let mut seat = Seat::new();
+        put(&mut seat, &mut t, Input::Entered(55.0, 5.0), NONE);
+        let (_, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(10)),
+            NONE,
+        );
+        assert_eq!(
+            sent, b"\x1b[<0;6;1M",
+            "the control: the column under the pointer"
+        );
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(20)),
+            NONE,
+        );
+        let mut order = baud_render::Reorder::new();
+        order.lay_out(&t, baud_domain::Rows::ZERO);
+        seat.drawn(order.orders());
+        let (_, sent) = put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(500)),
+            NONE,
+        );
+        assert_eq!(sent, b"\x1b[<0;4;1M", "the alef, where it was written");
     }
 
     /// **The wheel moves the window over the history**, a line a detent,

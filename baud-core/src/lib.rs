@@ -98,6 +98,8 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+/// What [`Term::bidi_support`] returns: BDSM's state.
+pub use baud_domain::BidiSupport;
 pub use baud_domain::FileHost;
 /// Focus reporting's vocabulary, for the same reason: an embedder that cannot
 /// name a [`Focus`] cannot call [`Term::focus`].

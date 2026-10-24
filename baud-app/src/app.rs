@@ -265,6 +265,12 @@ struct CellMemory {
     /// screen does less** (`Screens`): the map walk is skipped and a set
     /// whose copy already holds the screen is not copied again.
     screens: Screens,
+    /// **The window in the order UAX #9 gives each row**, while a row is
+    /// drawn in another order (`baud_render::Orders::window`): what the map
+    /// walk, the overlay and the copy read. Empty, and the core's own view
+    /// read, while none is.
+    bidi_cells: Vec<PackedCell>,
+    bidi_used: Vec<baud_domain::RowExtent>,
 }
 
 /// **Which screen each set's copy holds, and what the last map walk read.**
@@ -1288,6 +1294,8 @@ impl App {
                         styles,
                         styles_mem,
                         screens: Screens::new(),
+                        bidi_cells: Vec::new(),
+                        bidi_used: Vec::new(),
                         maps: Maps {
                             buffers: [first_map, second_map],
                             at: MapSide::FIRST,
@@ -2064,7 +2072,16 @@ impl App {
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
                 let back = self.term.window_back();
-                let view = self.term.view(back);
+                // The window in the order each row is drawn in, laid out once
+                // for this frame: the core's own view when no row is
+                // reordered.
+                self.renderer.lay_out_bidi(&self.term, back);
+                let view = self.renderer.bidi().window(
+                    &self.term,
+                    back,
+                    &mut cell.bidi_cells,
+                    &mut cell.bidi_used,
+                );
                 // Smooth scroll: at the live screen on the primary surface, a
                 // non-zero pan draws one leaving row above the window.
                 // The leaving row's glyphs are one row up, not in `view`, so
@@ -12010,7 +12027,9 @@ impl Driver {
     /// grid is in pixels of the cell size.
     fn cell_under(&self, x: f64, y: f64) -> (Row, Col) {
         let (scale, cell, grid, pad) = self.pointer_geometry();
-        cell_under((x, y), scale, cell, grid, pad)
+        let (row, col) = cell_under((x, y), scale, cell, grid, pad);
+        // The logical cell the visual one shows (`gesture::logical`).
+        (row, self.app.renderer.bidi().logical_col(row, col))
     }
 
     /// **The wheel across**: a tilt, Shift with a mouse wheel, a sideways
@@ -12048,7 +12067,11 @@ impl Driver {
     /// report needs, `?1016`'s pixel included.
     fn pointer_under(&self, x: f64, y: f64) -> (Row, Col, PointerPx) {
         let (scale, cell, grid, pad) = self.pointer_geometry();
-        pointer_under((x, y), scale, cell, grid, pad)
+        crate::gesture::logical(
+            self.app.renderer.bidi(),
+            pointer_under((x, y), scale, cell, grid, pad),
+            cell,
+        )
     }
 
     /// What telling DEC's locator left owed: its report written, and a
@@ -12065,7 +12088,19 @@ impl Driver {
     /// The same point for DEC's locator: `None` off the text area.
     fn locator_under(&self, x: f64, y: f64) -> Option<LocatorAt> {
         let (scale, cell, grid, pad) = self.pointer_geometry();
-        locator_under((x, y), scale, cell, grid, pad)
+        locator_under((x, y), scale, cell, grid, pad).map(|at| {
+            let px = at.px.unwrap_or(PointerPx {
+                x: ImagePx::ZERO,
+                y: ImagePx::ZERO,
+            });
+            let (row, col, px) =
+                crate::gesture::logical(self.app.renderer.bidi(), (at.row, at.col, px), cell);
+            LocatorAt {
+                row,
+                col,
+                px: at.px.map(|_| px),
+            }
+        })
     }
 
     /// What turns a view point into a cell and a pixel.

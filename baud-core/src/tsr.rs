@@ -106,7 +106,7 @@ impl Paint<'_, '_> {
     /// The state DECTSR reports: what DECRQM, DECRQSS and DECRQPSR answer
     /// now.
     pub(crate) fn terminal_state(&self) -> TerminalState {
-        let mut ansi = [TsrMode::Absent; 5];
+        let mut ansi = [TsrMode::Absent; 6];
         for (m, w) in ansi.iter_mut().zip(TSR_ANSI_MODES) {
             *m = tsr_mode(self.mode_state(Marker::Standard, Param::from_raw(w)));
         }

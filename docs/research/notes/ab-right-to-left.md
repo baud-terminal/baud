@@ -1,6 +1,6 @@
 # AB. Right-to-left text
 
-**Status: research. The bidirectional algorithm is built and drawn nowhere yet: UAX #9 in `baud-domain`, passing both conformance files, is step 1 of right-to-left text, and `docs/bidi.md` lists what drawing it needs (2026-10-24). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
+**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`). Three of step 2's choices are open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
 
 - the specifications;
 - terminals that do bidi;
@@ -1524,3 +1524,71 @@ All copied from the session scratchpad on 2026-10-13, except `qc/residuals.py` a
 - `ab/qc-fallback/`, added 2026-10-15 for the fallback placer's Hebrew classes: `corpus_cmp.py`, which shapes `ab/qc/clusters-all.txt` with hb-shape and the `qc` harness built from the commit before and from that commit, on Raanana, Raanana Bold, New Peninim MT, Corsiva Hebrew and Lucida Grande, and its output `corpus.txt`.
 
 Harness sources carry a `.txt` suffix so the formatter leaves the bytes that ran.
+
+## 12. Step 2: drawing the order (2026-10-24)
+
+**12.1 What the texts left open, and who decided.** Q2, Q3 (the direction
+default), Q4, Q8, Q10, Q14, Q15, Q17 and the long-paragraph rule of 2.4
+were put to Jev with renders (`ab/step2/`), each option marked against
+ECMA-48, TR/53, UAX #9 and terminal-wg. TR/53's two "should"s were misread
+in the first request as an unconditional one to start EXPLICIT; the re-ask
+quoted both in full (the first names which state is the reset one, the
+second is conditional on keeping left-to-right behaviour), with ECMA-48
+7.1's "established by agreement between sender and recipient" and the
+finding that no pinned terminfo entry and no application read sends
+`CSI 8 h` (positive controls: IRM's `CSI 4 h` in 7 entries, `?1049` in 4).
+
+- Decided at 0.9 in both orders: Q4 level 2 (1.00/1.00); Q15 logical
+  selection and copy (0.98/0.98); Arabic reordered and drawn isolated until
+  joining (1.00/1.00); a paragraph past the capacity resolved over the drawn
+  rows with whole rows of context, HL5 (0.98/0.98 on the re-ask).
+- Leans taken (owner 2026-10-17, "try to minimize my calls if we have
+  good recommendations"), held in all four answers but for Q8: BDSM
+  terminal-wide, SCP and per-paragraph state the next step (0.72/0.76); Q8
+  erased cells between characters as BN, the first ask's SKIPPED
+  (0.10/0.18 against AS_SPACE) re-offered as AS_BN, the same behaviour
+  named after its class (0.85/0.89); Q17 the alternate screen reordered
+  like the primary (0.79/0.76).
+- **L4, open departures.** The first two requests stated 128 mirrored
+  characters with no Bidi_Mirroring_Glyph, where the pinned 17.0.0 data
+  gives 126 of 554 mirrored (128 is BidiBrackets' count), and premised that
+  the 428 with a glyph draw it, which the build did not meet for a cell
+  carrying attached codepoints: an RLM after a bracket drew the pair facing
+  one way. Their answers (counted, 0.88/0.92, 0.86/0.92) are superseded.
+  The build now draws a cell carrying only bidi controls mirrored. Asked
+  again with the true counts (ab/step2/jev-req3-A.json and -B) and then
+  with the prior art (ab/step2/jev-req4-A.json and -B: VTE's `_vte_unistr_replace_base()` keeps a cell's marks
+  under its mirrored base; HarfBuzz substitutes or applies `rtlm`, which
+  baud's faces lack; no surveyed terminal flips a glyph), Jev leans to
+  build both remaining cases: the 126 flipped (0.58/0.50, 0.70/0.66) and a
+  mirrored base under a mark that draws (0.62/0.54, 0.72/0.66). That lean
+  is to build both; this step built only the bidi-control case, so both
+  stay unbuilt and counted, open departures until built (ab/step2/l4.png).
+- **12.3 Open for the owner**, today's behaviour kept:
+  Q2 the state at power-on (built EXPLICIT; Jev EXPLICIT 0.82/0.82 then
+  0.51/0.37), Q3 the paragraph direction (built level 0; FIRST_STRONG
+  0.56/0.48 then LTR_LEVEL 0.22/0.30), Q14's cursor at a pending wrap on a
+  reordered row (built drawn; hidden 0.28 and drawn 0.73 in the two orders,
+  then hidden 0.52 and drawn 0.30). Q2's lean held in all four answers and
+  is taken; it is asked because the owner's words point the other way.
+
+**12.2 What was built** (`baud-render/src/bidi.rs`; `docs/bidi.md`):
+BDSM in the core, with DECRQM 8 and RIS; a per-frame layout of the window
+read by the cell path's copy, map walk and overlay, by `convert` for the
+instance and CPU paths, and by the mouse on macOS and Linux; Q10 option
+(a), one visual copy of each reordered row, with the selection carried to
+the cell shader in two overlay mask bits and the bar cursor's side in a
+uniform; Q11's mirrored characters by Bidi_Mirroring_Glyph substitution in
+the copy; shaping kept inside level runs. The fast path is UAX #9 5.1's:
+a row is tested for R, AL, AN, RLE, RLO and RLI through a block table
+compiled from the class data (`opens_rtl_is_the_class_table_at_every_code_point`),
+only when it changed.
+
+**12.4 Found and not fixed.** The status line, the row leaving a smooth
+scroll, images, an input method's composition and a predicted echo keep
+their stored columns on a reordered row; a bidi control at a paragraph's
+column 0 is dropped (2.5); a mirrored character carrying a mark that draws
+is drawn unmirrored and counted (12.1); vim-unicode, cat-cjk and less-cjk,
+three of the recordings the benches replay, hold Hebrew and Arabic, so
+their implicit frames lay real right-to-left rows out.
+

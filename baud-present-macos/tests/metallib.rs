@@ -421,6 +421,42 @@ fn the_sized_mask_bit_matches_the_shader() {
     assert_eq!(got, baud_render::MASK_SIZED, "{line:?}");
 }
 
+/// **The two bits a reordered row's selection rides in**: the overlay sets
+/// `baud_render::MASK_BIDI` on every cell of a row drawn in another order
+/// and `MASK_SELECTED` where the logical cell it shows is selected, and
+/// the shader's `selected()` reads them as `MASK_BIDI` and
+/// `MASK_SELECTED`. A bit spelled differently on the two sides would draw
+/// the selection's column range over a reordered row on the cell arm alone.
+#[test]
+fn the_bidi_mask_bits_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, want) in [
+        ("MASK_BIDI", baud_render::MASK_BIDI),
+        ("MASK_SELECTED", baud_render::MASK_SELECTED),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let got: u8 = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .parse()
+            .expect("an unsigned literal");
+        assert_eq!(got, want, "{line:?}");
+    }
+    // Clear of every other bit the mask carries.
+    let others = baud_render::MASK_RECORD
+        | baud_render::MASK_PICTURE
+        | baud_render::MASK_SIZED
+        | baud_render::MASK_BARE;
+    assert_eq!(
+        (baud_render::MASK_BIDI | baud_render::MASK_SELECTED) & others,
+        0
+    );
+}
+
 /// The record bit, which the leaving row's mask reads too (`sized_bits`).
 #[test]
 fn the_record_mask_bit_matches_the_shader() {
