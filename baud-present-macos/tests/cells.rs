@@ -4814,7 +4814,10 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     // draws no glyph again and replaces neither sheet, so both GPU arms draw
     // from the textures they hold, through a map and records rebuilt for
     // the size; the arms agree with each other and with the CPU arm at
-    // every step.
+    // every step. These steps compare the arms with each other only, never
+    // with a fresh draw: were the glyph memo carried to a new size, every
+    // arm would still agree. The fresh-draw guard is
+    // `baud-render/tests/zoom.rs`.
     let drawn = |arms: &Arms<'_, '_>| {
         let s = arms.renderer.atlas_stats();
         s.rasterised.value() + s.coloured.value() + s.synthesised.value()

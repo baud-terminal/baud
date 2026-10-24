@@ -2061,8 +2061,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **And the glyphs already drawn are kept.** Only the atlas holds
     /// pixels, and it holds them per size ([`Atlas::at`]): a zoom to a size
     /// not drawn at rasterises what the frame shows, as it always did, and
-    /// a zoom back to one of the last [`crate::atlas::SIZES`] rasterises
-    /// nothing and replaces neither texture.
+    /// a zoom back to a size held since the atlas last started over (at
+    /// most [`crate::atlas::SIZES`]) rasterises nothing and replaces
+    /// neither texture. This is not a sliding window of the last four
+    /// sizes: walking 14->15->16->17->18 starts over at 18, so going back
+    /// to 17 draws 17 again.
     pub fn rescale(&mut self, size: PxSize) -> Option<()> {
         let metrics = Metrics::of(self.stack.primary(), size)?;
         self.scales = self

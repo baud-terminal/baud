@@ -137,7 +137,8 @@ fn the_shape_slot_count_matches_the_shader() {
         baud_present_macos::metal::SHAPES_PER_CELL,
         "the shader divides by {line:?} and the draw call multiplies by \
          SHAPES_PER_CELL; they must be the same number"
-    ); // The cursor's slot: the one instance a frame with no decoration on
+    );
+    // The cursor's slot: the one instance a frame with no decoration on
     // its table draws of the pass, by its index.
     let prefix = "#define CURSOR_SLOT ";
     let line = src

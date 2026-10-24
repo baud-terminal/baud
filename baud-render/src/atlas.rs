@@ -3,12 +3,13 @@
 //! grow-only, keyed by face and glyph at each pixel size.
 //!
 //! A glyph is resolved the first time it is asked for at a size and never
-//! again while the atlas holds that size: what was drawn at the last
-//! [`SIZES`] sizes stays on the sheets, so a zoom back to one of them draws
-//! nothing ([`Atlas::at`]), and a change of faces starts a new atlas. A
-//! face's bitmap strike (`sbix`, `CBDT`) is tried first, then its `COLR`
-//! layers painted through palette zero, then the outline as a mask -- the
-//! order Apple Color Emoji, Noto Color Emoji and Bungee Tint each need.
+//! again while the atlas holds that size: what was drawn at each size held
+//! since the atlas last started over, at most [`SIZES`], stays on the
+//! sheets, so a zoom back to one of them draws nothing ([`Atlas::at`]), and
+//! a change of faces starts a new atlas. A face's bitmap strike (`sbix`,
+//! `CBDT`) is tried first, then its `COLR` layers painted through palette
+//! zero, then the outline as a mask -- the order Apple Color Emoji, Noto
+//! Color Emoji and Bungee Tint each need.
 //!
 //! **A strike is chosen per glyph, among the strikes that hold it**: the
 //! smallest at or above the cell's size rounded half up to a whole pixel,
@@ -705,7 +706,10 @@ impl Atlas {
     /// the size is the same, every rectangle handed out names another
     /// size's image, so `grown` and the generation move, and whatever
     /// cached one rebuilds -- as after a reset, but over sheets that still
-    /// hold every size's glyphs.
+    /// hold every size's glyphs. The exception is an atlas with nothing
+    /// drawn under the size it holds (a new atlas, or one just reset): its
+    /// memo is only renamed, and since no rectangle names that size,
+    /// neither `grown` nor the generation moves.
     pub fn at(&mut self, size: SizeKey) -> Rescaled {
         if self.held.size == size {
             return Rescaled::Same;
