@@ -41,7 +41,7 @@ result-*
 # would commit all of it. Anchored like the entries above.
 /.claude/
 
-# rustc ICE reports from this nightly's incremental-cache crashes
+# rustc ICE reports, which a crashing compiler leaves where it ran
 rustc-ice-*.txt
 
 # Python bytecode from the driver scripts run as modules
