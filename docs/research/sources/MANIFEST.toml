@@ -46,7 +46,7 @@
 #   AK  the window title: OSC titles, derived facts, platform conventions
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
-#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper (cited by the record; note AN cites C and Y)
+#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper, the nightly's incremental crash, sccache (cited by the record; note AN cites C and Y)
 #   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots (no note)
 #   AS  the glass's legibility: Apple's material, dimming and accessibility settings, Terminal's profiles
 #   AT  a standard material behind the window body: NSVisualEffectView, the material catalogs, TextEdit
@@ -33927,3 +33927,150 @@ status = "external"
 group  = "J"
 # Run 2026-10-23 (lane b176) against the decoder outside the tree, not
 # committed: the record has the result.
+
+[sources.rust-issue-154878]
+key    = "rust-issue-154878"
+title  = "rust-lang/rust issue #154878 \"[ICE]: cannot decode `AttrId` with `CacheDecoder`\" -- the two-run repro (#[expect] and -Cincremental), regression-from-stable-to-nightly, P-critical, closed 2026-04-10"
+author = "matthiaskrgr"
+year   = 2026
+venue  = "github.com/rust-lang/rust (issue, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/issues/154878"
+file   = "rust-issue-154878.json"
+sha256 = "7d67a665877e88fc5e0e9bd446e1f035b600ad591ecc1ab3ca9ea19a9a4de3b8"
+bytes  = 15529
+status = "retrieved"
+group  = "AN"
+
+[sources.rust-issue-155139-comments]
+key    = "rust-issue-155139-comments"
+title  = "rust-lang/rust issue #155139 comments -- nightly-2026-04-03 the last good, 04-04 the first bad; closed as a duplicate of #154878, \"fixed by\" #155056"
+author = "rust-lang/rust contributors"
+year   = 2026
+venue  = "github.com/rust-lang/rust (issue comments, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/issues/155139/comments?per_page=100"
+file   = "rust-issue-155139-comments.json"
+sha256 = "37a459ce02859fcbec5188278099443ac280ae3e82ce637709b5e31752661e98"
+bytes  = 12776
+status = "retrieved"
+group  = "AN"
+
+[sources.rust-pr-155056]
+key    = "rust-pr-155056"
+title  = "rust-lang/rust PR #155056, Revert \"Port lint attributes to attribute parser\" -- reverts #152369 and #154808, closes #154878; merged 2026-04-10T03:09:40Z as dd82fd20"
+author = "JonathanBrouwer"
+year   = 2026
+venue  = "github.com/rust-lang/rust (pull request, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/pulls/155056"
+file   = "rust-pr-155056.json"
+sha256 = "316dc036fe5b9427712d07ef12d105a4e7dd20ce62b4a5f8d7e53c0f69a61701"
+bytes  = 26295
+status = "retrieved"
+group  = "AN"
+
+[sources.rust-pr-162811]
+key    = "rust-pr-162811"
+title  = "rust-lang/rust PR #162811, \"port lint attributes\" -- the port re-landed, merged 2026-10-13T22:03:00Z as 822182db"
+author = "mejrs"
+year   = 2026
+venue  = "github.com/rust-lang/rust (pull request, API JSON)"
+url    = "https://api.github.com/repos/rust-lang/rust/pulls/162811"
+file   = "rust-pr-162811.json"
+sha256 = "ddc125e22131d6dcba0ca47edeab4be8fd4cb409821cb1019e2b457ab6a1b8b8"
+bytes  = 25514
+status = "retrieved"
+group  = "AN"
+
+[sources.rust-nightly-2026-04-07]
+key    = "rust-nightly-2026-04-07"
+title  = "The nightly channel manifest of 2026-04-07 -- rustc 1.96.0-nightly (bcded3316 2026-04-06), the toolchain devenv.lock's rust-overlay pins"
+author = "The Rust Project"
+year   = 2026
+venue  = "static.rust-lang.org"
+url    = "https://static.rust-lang.org/dist/2026-04-07/channel-rust-nightly.toml"
+file   = ""
+sha256 = "6e8956c3d03cb0165fdc90ddec5fce3198107a59ae02e18eee78361d24840c88"
+bytes  = 885701
+status = "external"
+group  = "AN"
+
+[sources.rust-nightly-2026-04-10]
+key    = "rust-nightly-2026-04-10"
+title  = "The nightly channel manifest of 2026-04-10 -- rustc 1.96.0-nightly (f5eca4fcf 2026-04-09), built before the revert merged; crashes on #154878's repro"
+author = "The Rust Project"
+year   = 2026
+venue  = "static.rust-lang.org"
+url    = "https://static.rust-lang.org/dist/2026-04-10/channel-rust-nightly.toml"
+file   = ""
+sha256 = "e1736d2afc903e6634da3724cd8d7d9fd7a95611e43dbb229633b96834638be3"
+bytes  = 885701
+status = "external"
+group  = "AN"
+
+[sources.rust-nightly-2026-04-11]
+key    = "rust-nightly-2026-04-11"
+title  = "The nightly channel manifest of 2026-04-11 -- rustc 1.96.0-nightly (02c7f9bec 2026-04-10), the first built after the revert merged; passes #154878's repro"
+author = "The Rust Project"
+year   = 2026
+venue  = "static.rust-lang.org"
+url    = "https://static.rust-lang.org/dist/2026-04-11/channel-rust-nightly.toml"
+file   = ""
+sha256 = "36f58a57c0978fc0105c44afcf9b86afaaafd0917450751d8d86f69aeac41bf0"
+bytes  = 885701
+status = "external"
+group  = "AN"
+
+[sources.rust-nightly-2026-10-22]
+key    = "rust-nightly-2026-10-22"
+title  = "The nightly channel manifest of 2026-10-22 -- rustc 1.101.0-nightly (1a2c4797e 2026-10-21), built after the port re-landed; passes #154878's repro"
+author = "The Rust Project"
+year   = 2026
+venue  = "static.rust-lang.org"
+url    = "https://static.rust-lang.org/dist/2026-10-22/channel-rust-nightly.toml"
+file   = ""
+sha256 = "57a74bb7cf7f9acce329b607459dace9f49f153be832b4eff68d58e010c23169"
+bytes  = 923466
+status = "external"
+group  = "AN"
+
+[sources.sccache-0-18-rust]
+key    = "sccache-0-18-rust"
+title  = "sccache v0.18.0 docs/Rust.md -- what a Rust compile it caches: incremental off; bin, dylib, cdylib and proc-macro crates not cached"
+author = "Mozilla and the sccache contributors"
+year   = 2026
+venue  = "github.com/mozilla/sccache (tag v0.18.0)"
+url    = "https://raw.githubusercontent.com/mozilla/sccache/v0.18.0/docs/Rust.md"
+file   = ""
+sha256 = "e3a623f2e9593e23885cd75e5c3e9739933741e40359f9033c572394fbdd1410"
+bytes  = 1062
+status = "external"
+group  = "AN"
+
+[sources.sccache-0-18-readme]
+key    = "sccache-0-18-readme"
+title  = "sccache v0.18.0 README -- 'absolute paths to files must match to get a cache hit', and SCCACHE_BASEDIRS to strip a base directory before hashing"
+author = "Mozilla and the sccache contributors"
+year   = 2026
+venue  = "github.com/mozilla/sccache (tag v0.18.0)"
+url    = "https://raw.githubusercontent.com/mozilla/sccache/v0.18.0/README.md"
+file   = ""
+sha256 = "180725aa036853240dc642b97a13d51bf199228ccb395a14f234ad820cf1417f"
+bytes  = 19610
+status = "external"
+group  = "AN"
+[sources.sccache-0-18-rust-rs]
+key    = "sccache-0-18-rust-rs"
+title  = "sccache v0.18.0 src/compiler/rust.rs -- the Rust hash key: the full command line (less -L, --extern, --out-dir), every CARGO_ variable but four, and the working directory ('This will wind up in the rlib'); no base directory applied"
+author = "Mozilla and the sccache contributors"
+year   = 2026
+venue  = "github.com/mozilla/sccache (tag v0.18.0)"
+url    = "https://raw.githubusercontent.com/mozilla/sccache/v0.18.0/src/compiler/rust.rs"
+file   = ""
+sha256 = "8983bb8e593f78a8fbfb9b38c44b4736a68d71ee7c5fe9a543600756c094670f"
+bytes  = 142472
+status = "external"
+group  = "AN"
+
+# Read 2026-10-23 (lane b177) for B6-05 (7): the nightly's incremental
+# crash, its revert, and the re-landed port. The channel manifests and
+# sccache's docs are kept external for size and licence; each hashes as
+# recorded, and what the record cites of each is in its title.

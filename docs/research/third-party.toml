@@ -729,6 +729,10 @@ files   = [
   "kitty-issue-2701-comment-636497270.json",
   "kitty-issue-2701-comment-911089374.json",
   "kitty-issue-2701-comment-912704201.json",
+  "rust-issue-154878.json",
+  "rust-issue-155139-comments.json",
+  "rust-pr-155056.json",
+  "rust-pr-162811.json",
   "terminal-wg-issue-20.json",
   "wezterm-pr-7470-webgpu-present-mode.json",
 ]

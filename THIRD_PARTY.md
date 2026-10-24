@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 314 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 318 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 29 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 303 | 30 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 858 | 41 | |
+| total | 862 | 41 | |
 
 ## Licence texts in LICENSES/
 
@@ -722,7 +722,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 8
+- **Files:** 12
 
 | file | copied from |
 |---|---|
@@ -732,6 +732,10 @@ notice is, and the URL each file was copied from.
 | [kitty-issue-2701-comment-636497270.json](docs/research/sources/kitty-issue-2701-comment-636497270.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/636497270 |
 | [kitty-issue-2701-comment-911089374.json](docs/research/sources/kitty-issue-2701-comment-911089374.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/911089374 |
 | [kitty-issue-2701-comment-912704201.json](docs/research/sources/kitty-issue-2701-comment-912704201.json) | https://api.github.com/repos/kovidgoyal/kitty/issues/comments/912704201 |
+| [rust-issue-154878.json](docs/research/sources/rust-issue-154878.json) | https://api.github.com/repos/rust-lang/rust/issues/154878 |
+| [rust-issue-155139-comments.json](docs/research/sources/rust-issue-155139-comments.json) | https://api.github.com/repos/rust-lang/rust/issues/155139/comments?per_page=100 |
+| [rust-pr-155056.json](docs/research/sources/rust-pr-155056.json) | https://api.github.com/repos/rust-lang/rust/pulls/155056 |
+| [rust-pr-162811.json](docs/research/sources/rust-pr-162811.json) | https://api.github.com/repos/rust-lang/rust/pulls/162811 |
 | [terminal-wg-issue-20.json](docs/research/sources/terminal-wg-issue-20.json) | https://gitlab.freedesktop.org/api/v4/projects/terminal-wg%2Fspecifications/issues/20 |
 | [wezterm-pr-7470-webgpu-present-mode.json](docs/research/sources/wezterm-pr-7470-webgpu-present-mode.json) | https://api.github.com/repos/wezterm/wezterm/pulls/7470 |
 
