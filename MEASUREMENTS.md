@@ -26,6 +26,14 @@ Ranges are quoted as `[min-max]`. **If two ranges overlap there is no result.**
 Apple M5 Max, macOS 27.0. Each section names its own commit and date, and its
 power state where its source states one.
 
+The compiler moved to rustc 1.96.0-nightly 02c7f9bec, the nightly of
+2026-04-11, when devenv.lock moved to it, and no figure here was
+changed: across the two compilers, ingest2 on nine recordings and
+opcost found no rate that moved, and multibench found none where its
+ghostty control held (less-pager, asciiquarium); its other rows were
+void. `docs/record.md`, "The nightly of 2026-04-11 moves where the code
+sits, and no rate with it".
+
 ## Against other implementations, on real capture
 
 **Taken before `multibench` aligned every function to 128 bytes**, as is
