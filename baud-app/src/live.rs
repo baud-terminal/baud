@@ -59,8 +59,8 @@ pub enum Part {
     /// `[images] animation`: the next turn steps or holds a kitty
     /// animation as it says.
     ImageAnimation,
-    /// What the core is told: `[screen] checksum`, `logging` and
-    /// `print_*`, `[window] operations`, `[pointer] hide_while_typing`,
+    /// What the core is told: `[screen] checksum`, `substitute_mark`,
+    /// `substitute_character`, `logging` and `print_*`, `[window] operations`, `[pointer] hide_while_typing`,
     /// `[font] changes` and `[clipboard] osc52`.
     TermOptions,
     Bell,
@@ -196,6 +196,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         screen_transition,
         exit_status,
         checksum,
+        substitute,
         logging,
         printing,
         notifications,
@@ -276,6 +277,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     );
     part(
         old.checksum != *checksum
+            || old.substitute != *substitute
             || old.logging != *logging
             || old.graphics_print != *graphics_print
             || old.window_ops != *window_ops
@@ -319,6 +321,7 @@ pub fn term_options(
     abilities: baud_core::WindowAbilities,
 ) {
     crate::host::set_checksum(term, c.checksum);
+    crate::host::set_substitute(term, c.substitute);
     crate::host::set_window_ops(term, c.window_ops);
     crate::host::set_window_abilities(term, abilities, c.clipboard.osc52);
     crate::host::set_logging(term, c.logging);
@@ -466,6 +469,11 @@ mod tests {
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),
+            ("[screen]\nsubstitute_mark = \"on\"\n", Part::TermOptions),
+            (
+                "[screen]\nsubstitute_character = \"#\"\n",
+                Part::TermOptions,
+            ),
             ("[screen]\nlogging = \"off\"\n", Part::TermOptions),
             ("[window]\noperations = \"off\"\n", Part::TermOptions),
             ("[font]\nchanges = \"off\"\n", Part::TermOptions),

@@ -473,6 +473,7 @@ pub fn run() {
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_substitute(&mut term, cfg.substitute);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_window_abilities(
         &mut term,

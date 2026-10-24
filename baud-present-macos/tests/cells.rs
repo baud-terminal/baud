@@ -3719,6 +3719,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     hollow_cursor_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     status_marks_gate(&mut arms, &mut t);
+    substitute_mark_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
     iterm_file_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
@@ -6074,6 +6075,47 @@ fn status_marks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     assert_eq!(again, off_a, "off draws the frame without the strip");
     feed(t, b"\x1b[2J\x1b[H");
     arms.margin = margin;
+}
+
+/// **`SUB`'s mark draws as the character it names, on all three arms**:
+/// with the mark on, `a SUB b` in bold red is the frame of `a`, the
+/// character and `b` typed in that rendition, and with it off the frame of
+/// `ab` -- the control that the mark reached the pixels. DEC's U+2426, which
+/// this stack has no glyph for and draws as the placeholder TUS §5.3 asks
+/// for, and a `?` the stack draws as a glyph.
+fn substitute_mark_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    use baud_domain::{Codepoint, ErrorCharacter, SubstituteMark};
+    let q = ErrorCharacter::of(Codepoint::from_char('?')).expect("one cell");
+    for (c, typed) in [(ErrorCharacter::DEC, "\u{2426}"), (q, "?")] {
+        let frame = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, text: &str| {
+            feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[1;31m");
+            feed(t, text.as_bytes());
+            feed(t, b"\x1b[m");
+            let (a, b) = arms.draw(t);
+            let c = cpu_frame(arms, t);
+            assert_eq!(differing(&a, &b), 0, "{typed}: the GPU arms agree");
+            assert_eq!(differing(&a, &c), 0, "{typed}: the CPU arm agrees");
+            a
+        };
+        t.set_substitute_mark(SubstituteMark::Off);
+        let off = frame(arms, t, "a\x1ab");
+        let bare = frame(arms, t, "ab");
+        assert_eq!(differing(&off, &bare), 0, "{typed}: off draws nothing");
+        t.set_substitute_mark(SubstituteMark::Drawn(c));
+        let on = frame(arms, t, "a\x1ab");
+        let want = frame(arms, t, &format!("a{typed}b"));
+        assert_eq!(
+            differing(&on, &want),
+            0,
+            "{typed}: the mark is the character"
+        );
+        assert!(
+            differing(&on, &bare) > 0,
+            "{typed}: the mark reached the pixels"
+        );
+    }
+    t.set_substitute_mark(SubstituteMark::Off);
+    feed(t, b"\x1b[2J\x1b[H");
 }
 
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then

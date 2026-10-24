@@ -807,10 +807,8 @@ pub(crate) fn act(
         Act::StrPut => p.str_run(from, left),
         // The three VT52 arms. Each body is `#[cold] #[inline(never)]`, so
         // what lands in the per-byte loop is a call.
-        Act::Bell => {
-            p.bells += 1;
-            ReadLen::ONE
-        }
+        // `BEL` or `SUB`, out of line (`signal`).
+        Act::Signal => signal(p, StreamByte::from_stream(p.arena[from.index()])),
         // **A control went past, and this is where the machine is told**:
         // `Node::AfterControl` names it only for a byte that writes through
         // the machine, which the ground then decodes and writes on the next
@@ -1733,6 +1731,32 @@ fn put_run(
 fn replace(p: &mut Paint<'_, '_>) {
     p.replacements += 1;
     glyph_any(p, Codepoint::REPLACEMENT, Pen::Decoded);
+}
+
+/// **A `BEL` or a `SUB`** (`Act::Signal`). A `BEL` is counted. A `SUB`
+/// writes its mark: with the mark off, nothing; on,
+/// the error character written as `[[source: dec-std-070]]`'s
+/// `insert_or_replace_character()` writes any graphic character (pp.
+/// 5-140-5-141): at the cursor, in the current rendition and under DECSCA,
+/// shifting the line under IRM, the cursor moving on and wrapping as
+/// DECAWM says. Not through GL's set: the character is the one the
+/// embedder named, as xterm's `dotext` leaves U+2426 untranslated in UTF-8
+/// mode. `SUB` is a control, so the mark is a cluster of its own on both
+/// sides (`[[source: uax29]]` GB4, GB5): the machine breaks before it here,
+/// and the node after a control tells it to break after. Out of line: no
+/// recording holds a `SUB`, and none more than twelve `BEL`s.
+#[cold]
+#[inline(never)]
+fn signal(p: &mut Paint<'_, '_>, b: StreamByte) -> ReadLen {
+    if b.is(StreamByte::BEL) {
+        p.bells += 1;
+        return ReadLen::ONE;
+    }
+    if let SubstituteMark::Drawn(c) = p.cold.bell.sub_mark {
+        p.cluster = ClusterBreak::after_control();
+        glyph_any(p, c.codepoint(), Pen::Decoded);
+    }
+    ReadLen::ONE
 }
 
 /// **A step under iTerm2's `UnicodeVersion=8`**, out of line: no recording

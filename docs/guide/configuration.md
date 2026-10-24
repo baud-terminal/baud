@@ -50,8 +50,8 @@ and their size, padding, the cursor's shape, blink and trail, the bell,
 emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width`, and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
-`[screen]`'s logging, checksum, notifications and print choices,
-`[pointer]`), and `[images] animation`.
+`[screen]`'s logging, checksum, substitute mark, notifications and print
+choices, `[pointer]`), and `[images] animation`.
 
 These keep their old value until baud is next started, because the open
 window was built with them: `colorspace`, `[glass] style`,
@@ -175,6 +175,8 @@ unless you name a trail here.
 | `badge` | `"on"`, `"off"` | `"on"` | Whether a program's badge is shown: a large faint label in the top right of the window, behind the text, such as the host you are on or the branch you are working in, which programs and shell scripts written for iTerm2 set. |
 | `exit_status` | `"on"`, `"off"` | `"off"` | Whether each command's result is shown beside its prompt: a filled dot when it succeeded, a cross when it failed and a ring when it was cancelled, in your theme's blue, red and grey, for a shell that marks its prompts (shell integration, which sends `OSC 133`). The marks have a column of their own at the left, so the window has one column fewer for text while this is on; a command still running, or one the shell sent no result for, has no mark. |
 | `checksum` | `"on"`, `"off"` | `"on"` | Whether a program that asks for a checksum of part of the screen gets one. Test suites such as vttest use it to check what they drew. A program can ask about one character at a time and so read back what is on your screen, including what other programs printed there; `"off"` stops that, and the request then gets no answer. |
+| `substitute_mark` | `"on"`, `"off"` | `"off"` | Whether a program's substitute character (SUB, which marks a character lost on the way, and which also cancels an escape sequence cut short) shows as a mark where it arrived, as DEC's terminals and xterm show it. `"off"` shows nothing there. |
+| `substitute_character` | one character, such as `"?"` or `"\u2426"` | `"\u2426"` (␦) | The mark `substitute_mark` shows: one character one cell wide. Anything else is named in the message row and ␦ is used. |
 | `logging` | `"on"`, `"off"` | `"on"` | Whether a program can log everything it sends to a file it names, as xterm's logging does. The log is appended to, and only a file you own that no one else may write is used; with no name it is `baud.log.<host>.<date and time in UTC>.<pid>` in the folder your shell started in, and a relative name is read from there. A program on the other end of an ssh connection, or a file you cat, can otherwise append to any such file, your shell's startup files included; `"off"` stops that. |
 | `printing` | `"on"`, `"off"` | `"on"` | Whether a program can print. Each print opens the macOS print panel, which shows what will print, and nothing reaches paper until you press Print; a program that sends its output straight to the printer hides it from the screen until it is done, and the window's title says "Printing" meanwhile. Programs are told there is a printer only when macOS lists one. `"off"` tells every program there is no printer. Linux has no print panel yet, so programs there are always told there is none. |
 | `notifications` | `"on"`, `"off"` | `"on"` | Whether a program can post a desktop notification, such as a build saying it finished. One shows while baud's window is not focused, or whenever the program asks for that; at most four come at once, then one a second. On macOS the first asks your permission, and the baud app must be the one in its bundle. `"off"` posts none, and a program asking whether baud shows notifications hears nothing back. A program's progress bar shows either way. |

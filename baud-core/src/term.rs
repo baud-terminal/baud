@@ -1440,6 +1440,9 @@ pub struct Cold {
 // beside `history_erasures` that found no padding, bumped by `CSI ? 3 J` --
 // an arm of the dispatch -- and read by the embedder after a read, never by
 // a glyph.
+// `SUB`'s mark is four bytes in `BellState`'s tail padding
+// (`margin::BellState`), so it stays at 936: as a field of its own it took
+// the struct to 944, every field packed and none of its padding free.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 936);
@@ -3812,6 +3815,24 @@ impl<'b> Term<'b> {
     /// What [`Term::set_checksum_report`] last set.
     pub fn checksum_report(&self) -> ChecksumReport {
         self.cold.checksum_report
+    }
+
+    /// **What a `SUB` draws where it arrives**: nothing, the default, the
+    /// owner's call of 2026-10-23, or with `Drawn` the error character,
+    /// written as DEC's terminals write it (`[[source: dec-std-070]]` p.
+    /// 5-132): at the cursor, in the current rendition, the cursor moving
+    /// on. In ground and wherever `SUB` cancels an escape sequence, a
+    /// control sequence or a control string in ANSI mode; a Sixel's body
+    /// keeps its own rule, a blank sixel (070-9 §9.1), and VT52 mode draws
+    /// nothing. The embedder's choice: no sequence changes it, `RIS`
+    /// included.
+    pub fn set_substitute_mark(&mut self, m: baud_domain::SubstituteMark) {
+        self.cold.bell.sub_mark = m;
+    }
+
+    /// What [`Term::set_substitute_mark`] last set.
+    pub fn substitute_mark(&self) -> baud_domain::SubstituteMark {
+        self.cold.bell.sub_mark
     }
 
     /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the

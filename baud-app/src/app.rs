@@ -889,6 +889,9 @@ struct Boot {
     vs16_width: baud_domain::Vs16Width,
     /// Whether DECRQCRA is answered, from `[screen] checksum`.
     checksum: baud_domain::ChecksumReport,
+    /// What a `SUB` draws, from `[screen] substitute_mark` and
+    /// `substitute_character`.
+    substitute: crate::config::Substitute,
     /// Whether a program's window operations are performed, from `[window]
     /// operations`.
     window_ops: baud_domain::WindowOps,
@@ -1098,6 +1101,7 @@ impl Boot {
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
+            substitute: cfg.substitute,
             window_ops: cfg.window_ops,
             logging: cfg.logging,
             printing: cfg.printing,
@@ -1154,6 +1158,7 @@ impl App {
             sixel,
             vs16_width,
             checksum,
+            substitute,
             window_ops,
             logging,
             printing,
@@ -1334,6 +1339,7 @@ impl App {
         term.set_sixel_claim(sixel);
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
+        crate::host::set_substitute(&mut term, substitute);
         crate::host::set_window_ops(&mut term, window_ops);
         crate::host::set_window_abilities(
             &mut term,

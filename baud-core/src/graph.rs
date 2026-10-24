@@ -365,15 +365,30 @@ pub enum Act {
     StrStart,
     /// One byte of a control string's body.
     StrPut,
-    /// `BEL`. Counted, because the core cannot make a sound and an embedder
-    /// can -- a `BEL` consumed silently is a protocol event the application
-    /// has no way to learn was received.
+    /// **`BEL`, and `SUB` in ANSI mode: the two C0 controls whose effect the
+    /// embedder decides**, told apart by the byte in their out-of-line step.
+    /// A `BEL` is counted, because the core cannot make a sound and an
+    /// embedder can -- a `BEL` consumed silently is a protocol event the
+    /// application has no way to learn was received.
     ///
     /// Distinct from the `BEL` inside a control string, which rings nothing:
     /// `StrEnd` in an `OSC`, which it terminates, `StrPut` in a `DCS` body
     /// and `Consume` in the `DCS` prefix and in an `SOS`, `PM` or `APC`. The
     /// node is what tells them apart.
-    Bell,
+    ///
+    /// **A `SUB` writes the error character when the embedder turns the
+    /// mark on** (`Term::set_substitute_mark`), and nothing otherwise, in the
+    /// ground and as the `anywhere` edge that cancels a sequence or a
+    /// control string other than a Sixel's body: `[[source: dec-std-070]]`
+    /// p. 5-132, "placing a reversed question mark in the display at the
+    /// Active Position", and note 2, the sequence "aborted and the
+    /// Substitute control function to be executed instead". VT52 mode keeps
+    /// `Consume` (Jev's lean, ANSI_MODE_ONLY, 0.76 and 0.84, which a re-ask
+    /// split). **One action and not two**:
+    /// a 48th, its own arm in the dispatch, retired 0.7% more instructions on
+    /// `btop` and `cat`, which hold no `SUB`, and sharing this one, whose
+    /// step was already as rare, retired none more.
+    Signal,
     /// A control went past since the machine was last told anything: tell it
     /// so, and dispatch the byte again from the ground, consuming nothing.
     ///
@@ -615,7 +630,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Consume => "Consume",
         Act::StrStart => "StrStart",
         Act::StrPut => "StrPut",
-        Act::Bell => "Bell",
+        Act::Signal => "Signal",
         Act::EndCluster => "EndCluster",
         Act::Vt52Dispatch => "Vt52Dispatch",
         Act::Vt52SetRow => "Vt52SetRow",
@@ -668,7 +683,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Consume,
     Act::StrStart,
     Act::StrPut,
-    Act::Bell,
+    Act::Signal,
     Act::EndCluster,
     Act::Vt52Dispatch,
     Act::Vt52SetRow,
@@ -796,7 +811,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::StrStart => 29,
         Act::StrPut => 30,
         Act::StrEnd => 31,
-        Act::Bell => 32,
+        Act::Signal => 32,
         Act::Vt52Dispatch => 33,
         Act::Vt52SetRow => 34,
         Act::Vt52Address => 35,
@@ -965,7 +980,7 @@ const fn c0(b: StreamByte) -> Act {
         0x09 => Act::Tab,
         0x0e => Act::ShiftOut,
         0x0f => Act::ShiftIn,
-        0x07 => Act::Bell,
+        0x07 | 0x1a => Act::Signal,
         _ => Act::Consume,
     }
 }
@@ -1028,7 +1043,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         return edge(Act::SixelCut, Node::Escape);
     }
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
-        return edge(Act::Consume, after_control_of(node));
+        return edge(cancel(node, b), after_control_of(node));
     }
     // **The same block's `1B`: an `ESC` abandons the sequence in progress
     // and starts a new one**, whose entry *clears* -- williams' reason is
@@ -1472,9 +1487,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // never visits the twin row. Under DECOM a `CR` goes to the left margin
     // instead, and there its arm tells the machine itself.
     if matches!(Route::of(b), Route::Control) {
-        return match c0(b) {
-            Act::Return => edge(Act::Return, g),
-            a => edge(a, after_control_of(g)),
+        return match (c0(b), g) {
+            (Act::Return, _) => edge(Act::Return, g),
+            (Act::Signal, Node::Vt52Ground) if b.is(StreamByte::SUB) => {
+                edge(Act::Consume, after_control_of(g))
+            }
+            (a, _) => edge(a, after_control_of(g)),
         };
     }
     if matches!(Route::of(b), Route::Text) {
@@ -1864,6 +1882,18 @@ const fn waits_for_second(g: Node, lead: StreamByte) -> Node {
         (true, 0xc2..=0xdf) => Node::Vt52Utf8One,
         (true, 0xe1..=0xef) => Node::Vt52Utf8Two,
         (true, _) => Node::Vt52Utf8Three,
+    }
+}
+
+/// **What `CAN` or `SUB` does to the sequence or string it cancels**:
+/// `CAN` consumes itself and nothing more ("No error character is
+/// displayed", `[[source: vt220-rm-ch4]]`); `SUB` in ANSI mode performs
+/// [`Act::Signal`], DEC STD 070's "the Substitute control function to
+/// be executed instead" (p. 5-132, note 2); in VT52 mode it only cancels.
+const fn cancel(node: Node, b: StreamByte) -> Act {
+    match (b.raw_byte(), ground_of(node)) {
+        (0x1a, Node::Ground) => Act::Signal,
+        _ => Act::Consume,
     }
 }
 
@@ -2676,11 +2706,17 @@ mod classes {
         // in the five string bodies take `ShiftOut`/`ShiftIn`. Stride 1 does
         // not move; 2,634 -> 2,639, 82,006 -> 82,870 and 2,257,008 ->
         // 2,307,363 at strides 2 to 4, +2.2% at stride 4.
+        // **`SUB` performs `Act::Signal` in ANSI mode** (2026-10-23): in
+        // the ground and in every cancel edge but VT52's and a Sixel body's
+        // it takes `BEL`'s action where it took `Consume`. Stride 1
+        // does not move, `SUB` being a class of its own already; 2,639 ->
+        // 2,641, 82,870 -> 83,141 and 2,307,363 -> 2,324,725 at strides 2
+        // to 4, +0.8% at stride 4.
         // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_639, "stride 2");
-        assert_eq!(three.len(), 82_870, "stride 3");
-        assert_eq!(four.len(), 2_307_363, "stride 4");
+        assert_eq!(two.len(), 2_641, "stride 2");
+        assert_eq!(three.len(), 83_141, "stride 3");
+        assert_eq!(four.len(), 2_324_725, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2810,9 +2846,17 @@ mod classes {
                         assert_eq!(got, edge(Act::Printer, Node::Printing), "{enc:?}");
                         continue;
                     }
+                    // `SUB` performs the Substitute function in ANSI mode,
+                    // whether or not there was a sequence to cancel
+                    // (`[[source: dec-std-070]]` p. 5-132), and only cancels
+                    // in VT52 mode; `CAN` only ever cancels.
+                    let act = match (b.raw_byte(), g) {
+                        (0x1a, Node::Ground) => Act::Signal,
+                        _ => Act::Consume,
+                    };
                     match ground_like {
-                        // Nothing to cancel: `Ground` consumes it as an
-                        // unrouted C0, a control all the same, and mid-character
+                        // Nothing to cancel: `Ground` takes it as a control
+                        // all the same, and mid-character
                         // it is a byte that cannot continue the character, so
                         // the partial one becomes a replacement and the byte is
                         // re-dispatched from `Ground` without being swallowed.
@@ -2822,9 +2866,7 @@ mod classes {
                                 Node::Ground
                                 | Node::Vt52Ground
                                 | Node::AfterControl
-                                | Node::Vt52AfterControl => {
-                                    edge(Act::Consume, after_control_of(node))
-                                }
+                                | Node::Vt52AfterControl => edge(act, after_control_of(node)),
                                 _ => edge(Act::Resync, g),
                             },
                             "{node:?} {enc:?} byte {:#04x}",
@@ -2838,7 +2880,7 @@ mod classes {
                                 (Node::SixelStr, 0x1a) => edge(Act::StrPut, Node::SixelStr),
                                 (Node::SixelStr, _) => edge(Act::SixelCut, Node::AfterControl),
                                 (Node::SixelEsc, _) => edge(Act::SixelCut, Node::Escape),
-                                _ => edge(Act::Consume, after_control_of(node)),
+                                _ => edge(act, after_control_of(node)),
                             },
                             "{node:?} {enc:?} byte {:#04x} does not cancel",
                             b.raw_byte()
@@ -2883,7 +2925,7 @@ mod classes {
                     | Act::Tab
                     | Act::ShiftOut
                     | Act::ShiftIn
-                    | Act::Bell
+                    | Act::Signal
                     | Act::CsiFinal
                     | Act::EscFinal
                     | Act::StrEnd
@@ -3164,7 +3206,7 @@ mod classes {
                 b"\x1bP0!",
             ] {
                 let n = walk(prefix);
-                assert_eq!(bel(n), edge(Act::Bell, n), "{enc:?} {prefix:?}");
+                assert_eq!(bel(n), edge(Act::Signal, n), "{enc:?} {prefix:?}");
             }
             for body in [b"\x1bP$q".as_slice(), b"\x1bPq", b"\x1bP|", b"\x1bP+q"] {
                 let n = walk(body);

@@ -377,6 +377,14 @@ guide = "off"
 # the branch you are working in, which programs and shell scripts written
 # for iTerm2 set (OSC 1337 ; SetBadgeFormat). "on" by default; "off" hides
 # it.
+#
+# substitute_mark: whether a program's SUB control -- which marks a character
+# lost on the way, and cancels an escape sequence cut short -- shows a mark
+# where it arrived, as DEC's VT220 to VT500 and xterm show one. "off" by
+# default, showing nothing; "on" shows substitute_character there, in the
+# colours around it. substitute_character is one character one cell wide,
+# written as itself or as a \u escape: DEC's reversed question mark, U+2426, by
+# default; anything else is named in the message row and U+2426 is used.
 [screen]
 transition = false
 checksum = "on"
@@ -389,6 +397,8 @@ print_background = "off"
 print_rotated = "off"
 exit_status = "off"
 badge = "on"
+substitute_mark = "off"
+substitute_character = "\u2426"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

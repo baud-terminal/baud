@@ -104,6 +104,63 @@ pub enum ImageAnimation {
     Off,
 }
 
+/// `[screen] substitute_mark` and `substitute_character`: whether a `SUB`
+/// draws the error character where it arrives, and which character. **Off
+/// by default**, with DEC's U+2426, the owner's call of 2026-10-23 ("i
+/// would say keep A as default and add config option and maybe also which
+/// char to show? and default is the reverse question mark"). Two keys and
+/// one value, because the keys may come in either order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Substitute {
+    pub mark: SubstituteShown,
+    pub character: baud_domain::ErrorCharacter,
+}
+
+/// `[screen] substitute_mark`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SubstituteShown {
+    On,
+    Off,
+}
+
+impl Substitute {
+    pub const DEFAULT: Substitute = Substitute {
+        mark: SubstituteShown::Off,
+        character: baud_domain::ErrorCharacter::DEC,
+    };
+
+    /// What the core is told.
+    pub fn mark(self) -> baud_domain::SubstituteMark {
+        match self.mark {
+            SubstituteShown::Off => baud_domain::SubstituteMark::Off,
+            SubstituteShown::On => baud_domain::SubstituteMark::Drawn(self.character),
+        }
+    }
+}
+
+/// **`[screen] substitute_character`'s value**: one character, written as
+/// itself or as TOML's `\uXXXX` or `\UXXXXXXXX` escape, that is one cell of
+/// its own (`baud_domain::ErrorCharacter::of`); anything else is `None`.
+fn error_character(value: &str) -> Option<baud_domain::ErrorCharacter> {
+    let v = value.trim();
+    let v = v.strip_prefix('"')?.strip_suffix('"')?;
+    let c = match v.strip_prefix("\\u").or_else(|| v.strip_prefix("\\U")) {
+        Some(hex) if hex.len() == 4 || hex.len() == 8 => {
+            char::from_u32(u32::from_str_radix(hex, 16).ok()?)?
+        }
+        Some(_) => return None,
+        None => {
+            let mut chars = v.chars();
+            let c = chars.next()?;
+            if chars.next().is_some() {
+                return None;
+            }
+            c
+        }
+    };
+    baud_domain::ErrorCharacter::of(baud_domain::Codepoint::from_char(c)).ok()
+}
+
 /// `[screen] badge`: whether a program's badge is drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BadgeShown {
@@ -274,6 +331,10 @@ pub struct Config {
     /// request unanswered. A checksum of one cell at a time reads the screen
     /// back, other programs' output included.
     pub checksum: baud_domain::ChecksumReport,
+    /// `[screen] substitute_mark` and `substitute_character`: whether a
+    /// `SUB` draws the error character, off by default, and which
+    /// ([`Substitute`]).
+    pub substitute: Substitute,
     /// `[screen] logging`: whether a program may log what it sends to a
     /// file it names (xterm's `?46` and `OSC 46`), `"on"` by default (the
     /// owner's call of 2026-10-20), or `"off"`, which refuses both. A
@@ -834,6 +895,7 @@ impl Config {
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
             checksum: baud_domain::ChecksumReport::On,
+            substitute: Substitute::DEFAULT,
             logging: baud_domain::Logging::On,
             printing: Printing::On,
             notifications: Notifications::On,
@@ -1591,6 +1653,32 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::ChecksumReport::On
+                        }
+                    };
+                }
+                ("screen", "substitute_mark") => {
+                    self.substitute.mark = match value.trim().trim_matches('"') {
+                        "on" => SubstituteShown::On,
+                        "off" => SubstituteShown::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] substitute_mark {other:?} is not on or off; \
+                                 using off"
+                            ));
+                            SubstituteShown::Off
+                        }
+                    };
+                }
+                ("screen", "substitute_character") => {
+                    self.substitute.character = match error_character(&value) {
+                        Some(c) => c,
+                        None => {
+                            said.push(format!(
+                                "config: [screen] substitute_character {} is not one character \
+                                 one cell wide; using U+2426, \u{2426}",
+                                value.trim()
+                            ));
+                            baud_domain::ErrorCharacter::DEC
                         }
                     };
                 }
@@ -4415,6 +4503,57 @@ mod reader {
         );
     }
 
+    /// **`[screen] substitute_mark` is off unless it says on, and
+    /// `substitute_character` is U+2426 unless it names one character one
+    /// cell wide**, the owner's call of 2026-10-23: the mark reads on and
+    /// off; the character reads as itself or as a `\u` or `\U` escape; a
+    /// control, a combining mark, a wide or an ambiguous character, two
+    /// characters or an unquoted one are said and give U+2426. Perturbation:
+    /// default the mark on -- the first assertion fails.
+    #[test]
+    fn the_substitute_mark_is_off_and_dec_s_unless_the_config_says() {
+        use baud_domain::{Codepoint, ErrorCharacter, SubstituteMark};
+        assert_eq!(Config::defaults().substitute.mark(), SubstituteMark::Off);
+        assert_eq!(Config::defaults().substitute.character, ErrorCharacter::DEC);
+        let on = read("[screen]\nsubstitute_mark = \"on\"\n");
+        assert_eq!(
+            on.substitute.mark(),
+            SubstituteMark::Drawn(ErrorCharacter::DEC)
+        );
+        let q = ErrorCharacter::of(Codepoint::from_char('?')).expect("one cell");
+        for text in ["\"?\"", "\"\\u003F\"", "\"\\U0000003f\""] {
+            let c = read(&format!(
+                "[screen]\nsubstitute_character = {text}\nsubstitute_mark = \"on\"\n"
+            ));
+            assert_eq!(c.substitute.mark(), SubstituteMark::Drawn(q), "{text}");
+        }
+        for text in [
+            "\"\\u0007\"",
+            "\"\u{301}\"",
+            "\"\u{4E00}\"",
+            "\"\u{A7}\"",
+            "\"ab\"",
+            "\"\"",
+            "?",
+            "\"\\u12\"",
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(&format!("[screen]\nsubstitute_character = {text}\n"));
+            assert_eq!(c.substitute.character, ErrorCharacter::DEC, "{text}");
+            assert!(
+                said.iter().any(|l| l.contains("substitute_character")),
+                "{text}: {said:?}"
+            );
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nsubstitute_mark = \"yes\"\n");
+        assert_eq!(c.substitute.mark(), SubstituteMark::Off);
+        assert!(
+            said.iter().any(|l| l.contains("substitute_mark")),
+            "{said:?}"
+        );
+    }
+
     /// **`[clipboard] copy_on_select` is on unless it says off**, the
     /// owner's V13: `on` and `off` read, and anything else keeps on and
     /// says so.
@@ -5222,6 +5361,15 @@ shadow     = "never"
             "the [screen] checksum, logging and printing"
         );
         assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
+        assert!(
+            text.contains("\nsubstitute_mark = \"off\"\nsubstitute_character = \"\\u2426\"\n"),
+            "the [screen] substitute lines"
+        );
+        assert_eq!(
+            c.substitute,
+            Substitute::DEFAULT,
+            "the example's mark is the default"
+        );
         assert_eq!(c.logging, baud_domain::Logging::On);
         assert_eq!(c.printing, Printing::On);
         assert!(

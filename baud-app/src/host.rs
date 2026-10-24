@@ -443,6 +443,13 @@ pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::Check
     term.set_checksum_report(checksum);
 }
 
+/// Tell the core what a `SUB` draws, from `[screen] substitute_mark` and
+/// `substitute_character`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_substitute(term: &mut baud_core::Term<'_>, s: crate::config::Substitute) {
+    term.set_substitute_mark(s.mark());
+}
+
 /// Tell the core whether a program's window operations reach the driver,
 /// from `[window] operations`. One function for both drivers, called after
 /// `Term::new` and before the first feed.
@@ -1203,6 +1210,60 @@ mod tests {
             1,
             "macOS carries it from the config"
         );
+    }
+
+    /// **`[screen] substitute_mark` reaches the core, from both drivers.**
+    /// The config read into a `Config`, handed to `set_substitute`, decides
+    /// what a `SUB` draws: nothing by default, DEC's mark with `"on"`, the
+    /// named character with `substitute_character`. Both drivers start
+    /// AppKit or Wayland, which no test drives, so their call is held in
+    /// the source. Perturbation: leave the call out of `term_options` --
+    /// the reload half fails.
+    #[test]
+    fn the_substitute_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let drawn = |t: &Term<'_>| {
+            let row = t.row(baud_core::Row::from_index(0)).expect("a row");
+            t.base_of(row[1]).as_codepoint().map(|c| c.value())
+        };
+        for (text, want) in [
+            ("", Some(u32::from('b'))),
+            ("[screen]\nsubstitute_mark = \"on\"\n", Some(0x2426)),
+            (
+                "[screen]\nsubstitute_mark = \"on\"\nsubstitute_character = \"#\"\n",
+                Some(u32::from('#')),
+            ),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_substitute(&mut t, cfg.substitute);
+            feed(&mut t, b"a\x1ab");
+            assert_eq!(drawn(&t), want, "{text:?}");
+            // A save that turns it off reaches a running core the same way.
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            crate::live::term_options(&mut t, &cfg, baud_core::WindowAbilities::NONE);
+            feed(&mut t, b"a\x1ab");
+            assert_eq!(drawn(&t), want, "reloaded {text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_substitute(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", include_str!("app.rs"), "substitute);"),
+            ("Linux", include_str!("linux.rs"), "cfg.substitute);"),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
     }
 
     /// **A user variable is never read back**, whatever the config says:

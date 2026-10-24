@@ -60,6 +60,11 @@ pub(crate) struct BellState {
     pub(crate) margin_rung: BellsRung,
     /// How many of the read's `BEL`s are credited already, 0 between reads.
     pub(crate) folded: usize,
+    /// **What a `SUB` draws** (`Term::set_substitute_mark`): the other C0
+    /// control whose effect the embedder chooses, beside the bells. Here
+    /// for the struct's tail padding, so `Cold` keeps its size, which has
+    /// none. The embedder's, so no reset touches it.
+    pub(crate) sub_mark: baud_domain::SubstituteMark,
 }
 
 /// The cursor's line as the margin bell tells one line from another.
@@ -96,6 +101,7 @@ impl BellState {
         warning_rung: BellsRung::NONE,
         margin_rung: BellsRung::NONE,
         folded: 0,
+        sub_mark: baud_domain::SubstituteMark::Off,
     };
 
     /// What `RIS` restores, the counts kept: the volumes are set-up

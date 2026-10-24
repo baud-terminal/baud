@@ -338,8 +338,8 @@ half-built protocol feature is finished to the spec, not switched off"):
 Each is a departure from a standard, recorded as a defect. The list moved here
 from the README on 2026-10-12. On the protocol side the full list is the rows
 at **partial** in [vt-coverage.md](vt-coverage.md), which its legend names;
-of those rows the list below repeats DECSC and DECRC, the DEC Special Graphics
-table and the `dcs_passthrough` state.
+of those rows the list below repeats DECSC and DECRC and the DEC Special
+Graphics table.
 
 - **Which wrap state DECSC saves and DECRC restores is open** (note AE's
   Q12). They save G0-G3 and which of them GL and GR invoke; a single shift
@@ -350,11 +350,11 @@ table and the `dcs_passthrough` state.
   replaces it with Blank; which code point Blank stores is the owner's call
   ([the record](record.md), "DEC Special Graphics begins at 0x5F, and what
   it stores there is the owner's call").
-- **A DCS body ignores the C0 that `[[source: williams]]`'s `dcs passthrough`
-  row puts (388), `BEL` and the format effectors `08-0D` excepted**, where
-  `[[source: dec-std-070]]` recommends they be ignored; the texts conflict and
-  the call is the owner's, with SO and SI and GR bytes in a body beside it
-  ([vt-coverage.md](vt-coverage.md), `dcs_passthrough`).
+- **A `SUB` draws no error character by default**, where DEC's VT220 to
+  VT500 display one (`[[source: dec-std-070]]` p. 5-132): the owner's call of
+  2026-10-23, with `[screen] substitute_mark` to draw it, and in VT52 mode
+  it draws none either way, a lean Jev split on
+  ([vt-coverage.md](vt-coverage.md), the SUB rows).
 - **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
   application to the script table for the text's own script and to `DFLT`
   where there is none; `baud-font` takes no script argument
