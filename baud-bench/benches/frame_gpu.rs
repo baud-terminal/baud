@@ -6,23 +6,29 @@
 //! or uploads and draws the whole frame on the GPU into an offscreen
 //! texture, waiting for completion (the `gpu` arm, `Gpu::draw`). A third
 //! arm, `cpu2`, is the CPU arm again -- the A/A control every sweep here
-//! carries. The fourth, `cells`, converts nothing: the terminal's viewport
-//! *is* a shared GPU buffer, the rendition table is resolved into another
-//! and the glyph map lives in a third, and the shader resolves every cell
-//! (`Gpu::draw_cells`); its `convert` column is the map walk and the style
-//! resolve, and nothing is copied. It draws a smaller program (no
-//! ligatures, no marks; see `baud_render::GlyphMap`), and the `marks`
-//! column counts the cells whose marks it skipped. The fifth, `async`, is
-//! the cell path as the app runs it -- committed with a completion handler
-//! and never waited for -- so its `draw` column is the CPU's whole cost of
-//! a frame, and its `wait` column is the time the *bench* idled until the
-//! previous frame completed before it could feed the next read, which a
-//! frame loop spends on other events. The five run interleaved per round,
-//! a fresh renderer per arm per round, and every round is printed so the
-//! reader discards the first. The `cells` arm prints as `waited`, because
-//! that is what it is: the cell path with `waitUntilCompleted` after the
-//! commit, kept so the bench can read the GPU's own start-to-end time --
-//! a measurement arm, and not how the app runs.
+//! carries. The fourth, `cells`, converts nothing: the shader reads the
+//! terminal's own grid, a shared GPU buffer, under its rotation -- the
+//! primary's ring, or the alternate screen's buffer while that is up --
+//! the rendition table is resolved into another and the glyph map lives
+//! in a third, and the shader resolves every cell (`Gpu::draw_cells`);
+//! its `convert` column is the map walk and the style resolve. It draws a
+//! smaller program (no ligatures, no marks; see `baud_render::GlyphMap`),
+//! and the `marks` column counts the cells whose marks it skipped. The
+//! fifth, `async`, is that frame committed with a completion handler and
+//! never waited for, so its `draw` column is the CPU's whole cost of the
+//! bind and commit, and its `wait` column is the time the bench idled
+//! until the previous frame completed before it could feed the next read:
+//! reading the live grid, it must not feed while a frame is in flight,
+//! which is the freeze research decision D4 removed from the app. The
+//! `copied` arm reads a copy of the window instead, and the `app` arm is
+//! the frame loop the app runs since D4: the copy into a set of its own,
+//! the presenter's wheel and surfaces, feeding while a frame is in flight.
+//! The arms run interleaved per round, a fresh renderer per arm per round,
+//! and every round is printed so the reader discards the first. The
+//! `cells` arm prints as `waited`, because that is what it is: the cell
+//! path with `waitUntilCompleted` after the commit, kept so the bench can
+//! read the GPU's own start-to-end time -- a measurement arm, and not how
+//! the app runs.
 //!
 //! What it does not measure: the present. The CPU arm's frame is not
 //! copied into a surface and the GPU arms' texture is not an IOSurface;
@@ -67,9 +73,13 @@ fn main() {
         BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
     };
     use baud_font::{Face, Px};
-    use baud_present_macos::journal::{FrameTag, Journal, SetIx};
-    use baud_present_macos::redraw::{Ages, SurfaceIx};
-    use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
+    use baud_present_macos::journal::{FrameTag, Journal, SetIx, Wheel};
+    use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
+    use baud_present_macos::screens::{Built, Screens};
+    use baud_present_macos::{
+        CellInput, Done, Drawn, Gpu, InFlight, Landing, Presenter, SurfaceHandle, SurfaceSpace,
+        Wake,
+    };
     use baud_render::{
         Blend, Candidate, CursorPhase, Damage, GlyphMap, Instance, Overlay, PxSize, Redraw,
         Renderer, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey,
@@ -309,6 +319,20 @@ fn main() {
         /// draw ((rows+1)/rows) are bounded-negligible by construction and
         /// not modelled here.
         Slide,
+        /// **The frame loop as the app runs it**: a [`Presenter`] over its
+        /// own GPU, its three surfaces and its wheel of two buffer sets;
+        /// each frame built into the set the wheel hands out, the window
+        /// copied into that set's own buffer by `Screens::take` -- the
+        /// app's code, not a copy of it -- and committed with a completion
+        /// handler. Nothing spins before a feed: every read is fed, and a
+        /// frame is built only when none is in flight, as `pump` builds one
+        /// on the completion's wake. Its line counts the frames committed,
+        /// the reads that found one in flight, and the copies made.
+        ///
+        /// What it does not model: the app's refresh-interval gate, which
+        /// holds a frame until a display tick unless a key is owed, so this
+        /// arm commits as fast as the GPU lands frames.
+        App,
     }
     let arms = [
         Arm::Cpu,
@@ -319,6 +343,7 @@ fn main() {
         Arm::Copied,
         Arm::Present,
         Arm::Slide,
+        Arm::App,
     ];
     // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
     // sweep sees one path.
@@ -376,6 +401,7 @@ fn main() {
                     Arm::Copied => "copied",
                     Arm::Present => "present",
                     Arm::Slide => "slide",
+                    Arm::App => "app",
                 };
                 w.split(',').any(|n| n.trim() == name)
             })
@@ -438,13 +464,273 @@ fn main() {
         Arm::Copied => "copied",
         Arm::Present => "present",
         Arm::Slide => "slide",
+        Arm::App => "app",
     };
+    // The app arm's presenter and the memory that outlives a round: the
+    // glyph map's buffer, an overlay and a window copy a set, all from the
+    // presenter's own GPU, as the app lends them.
+    struct Quiet;
+    impl Wake for Quiet {
+        fn present(&self, _: &SurfaceHandle) {}
+        fn wake(&self) {}
+    }
+    struct AppMemory {
+        presenter: Presenter,
+        map_buffer: baud_present_macos::MapBuffer,
+        map: Option<GlyphMap<'static>>,
+        overlays: Vec<baud_present_macos::OverlayBuffer>,
+        overlay_mem: Vec<&'static mut [u8]>,
+        copies: Vec<baud_present_macos::GridBuffer>,
+        copies_mem: Vec<&'static mut [PackedCell]>,
+        /// Frames committed through the presenter, every round: the surface
+        /// the last went to is the one before the presenter's next.
+        commits: usize,
+    }
+    // `FRAME_APP_MBS`: the rate the app arm's reads arrive at, in MB/s;
+    // 198.6 by default, what the Darwin tty delivers to a reader that does
+    // nothing (`transport`'s `null_ceiling`). A replay at memory speed
+    // would feed the whole recording under the first frame in flight.
+    let app_mbs: f64 = std::env::var("FRAME_APP_MBS")
+        .map_or(198.6, |v| v.parse().expect("FRAME_APP_MBS is a rate"));
+    let read_every = Duration::from_secs_f64(4096.0 / (app_mbs * 1e6));
+    let mut app = arms.contains(&Arm::App).then(|| {
+        let presenter = Presenter::with_gpu(w, h, SurfaceSpace::Srgb).expect("a presenter");
+        let g = presenter.gpu().expect("the GPU path");
+        let (map_buffer, map_mem) = g.map().expect("a shared map");
+        let pcols = Cols::of_index(usize::from(prov.ws_col));
+        let prows = usize::from(prov.ws_row);
+        let (overlays, overlay_mem): (Vec<_>, Vec<_>) = (0..Wheel::SETS)
+            .map(|_| g.overlay(pcols, Rows::of_index(prows)).expect("an overlay"))
+            .unzip();
+        // The provisioned height and the status line's row, as the app's.
+        let (copies, copies_mem): (Vec<_>, Vec<_>) = (0..Wheel::SETS)
+            .map(|_| g.grid(Rows::of_index(prows + 1), stride).expect("a copy"))
+            .unzip();
+        AppMemory {
+            presenter,
+            map_buffer,
+            map: Some(GlyphMap::over(map_mem)),
+            overlays,
+            overlay_mem,
+            copies,
+            copies_mem,
+            commits: 0,
+        }
+    });
     for round in 0..rounds {
         // The round's final frames, by arm: a hash of the pixels and how
         // many differ from the first, which is the margin's clear.
         let mut hashes: Vec<(Arm, u64, usize)> = Vec::new();
         for &arm in &arms {
             let mut r = fresh();
+            if let (Arm::App, Some(m)) = (arm, app.as_mut()) {
+                let g = m.presenter.gpu().expect("the GPU path");
+                // Kept for the round: the core writes into their memory.
+                let (_primary, cells) = g.grid(ring, stride).expect("a shared grid");
+                let prows = Rows::of_index(usize::from(prov.ws_row));
+                let (_alternate, alt) = g.grid(prows, stride).expect("a shared alternate");
+                let mut owned = Owned::without_surfaces(&prov, &geom, Depth::DEFAULT);
+                let mut t = Term::new(owned.storage_over(cells, alt), &ws);
+                let (styles, mut styles_mem): (Vec<_>, Vec<_>) = (0..Wheel::SETS)
+                    .map(|_| g.styles(&t).expect("shared styles"))
+                    .unzip();
+                let mut stamps = [StyleStamp::default(); Wheel::SETS];
+                let mut map = GlyphMap::over(m.map.take().expect("the map").into_entries());
+                let mut exceptions = Overlay::new();
+                let mut screens = Screens::new();
+                let (mut committed, mut busy, mut copies) = (0usize, 0usize, 0usize);
+                // Each committed frame's CPU, its copy and its bind plus
+                // commit, for medians: the first frame of a round walks a
+                // cold map and is reported apart.
+                let mut per: Vec<[Duration; 3]> = Vec::new();
+                let mut at = 0usize;
+                let mut total = None;
+                // Whether anything was fed since the last frame was built:
+                // the app builds none over a screen nothing touched.
+                let mut dirty = false;
+                let t0 = Instant::now();
+                let mut due = t0;
+                loop {
+                    if at < data.len() {
+                        if Instant::now() >= due {
+                            let n = 4096.min(data.len() - at);
+                            t.write_at(BytePos::ZERO, &data[at..at + n]);
+                            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+                            at += n;
+                            due += read_every;
+                            dirty = true;
+                            busy += usize::from(m.presenter.in_flight() == InFlight::Busy);
+                        }
+                    } else if total.is_none() {
+                        // The replay is done: its time is taken, and its
+                        // last screen drawn once the frame in flight lands,
+                        // untimed, for `FRAME_HASH`.
+                        while m.presenter.in_flight() == InFlight::Busy {
+                            std::hint::spin_loop();
+                        }
+                        total = Some(t0.elapsed());
+                    }
+                    let fin = total.is_some();
+                    if fin && !dirty {
+                        break;
+                    }
+                    if !dirty || m.presenter.in_flight() == InFlight::Busy {
+                        std::hint::spin_loop();
+                        continue;
+                    }
+                    let tf = Instant::now();
+                    let Some(set) = m.presenter.building() else {
+                        panic!("one frame in flight and every set held");
+                    };
+                    dirty = false;
+                    let si = set.0;
+                    r.sync_styles(&t, &mut styles_mem[si][..], &mut stamps[si]);
+                    let view = t.viewport();
+                    let status = t.status_line();
+                    let lined = usize::from(status.is_some());
+                    let held = screens.holds(set);
+                    let tc = Instant::now();
+                    let built = screens.take(
+                        &mut m.copies_mem,
+                        set,
+                        &view,
+                        status.as_ref(),
+                        t.stride(),
+                        false,
+                    );
+                    let dc = tc.elapsed();
+                    let key = WalkKey {
+                        table: stamps[si],
+                        map: map.generation(),
+                        grown: r.atlas_stats().grown,
+                        clusters: t.cluster_epoch(),
+                        back: Rows::ZERO,
+                        cols: view.cols(),
+                        rows: view.rows(),
+                    };
+                    if built == Built::New || screens.walked != Some(key) {
+                        map.ensure(&t, view, &styles_mem[si][..], &mut r, &mut candidates);
+                        screens.walked = Some(WalkKey {
+                            map: map.generation(),
+                            grown: r.atlas_stats().grown,
+                            ..key
+                        });
+                    }
+                    let cursor = t.cursor_visible().then(|| {
+                        let (row, col) = t.cursor();
+                        (row, col, t.cursor_style())
+                    });
+                    exceptions.ensure(
+                        &Scene {
+                            term: &t,
+                            view,
+                            styles: &styles_mem[si][..],
+                            cursor,
+                            highlight: None,
+                            map: &map,
+                            candidates: &candidates,
+                            pan: Px::of(0),
+                            composition: None,
+                        },
+                        &mut r,
+                        &mut m.overlay_mem[si][..],
+                        &mut records,
+                    );
+                    exceptions.status(
+                        &mut r,
+                        &t,
+                        cursor,
+                        (view.cols(), view.rows()),
+                        &mut m.overlay_mem[si][..],
+                        &mut records,
+                    );
+                    let input = CellInput {
+                        grid: &m.copies[si],
+                        styles: &styles[si],
+                        map: &m.map_buffer,
+                        stride: t.stride(),
+                        rotation: RowRot::NONE,
+                        ring: Rows::of_index(view.rows().index() + lined),
+                        cursor,
+                        highlight: None,
+                        overlay: &m.overlays[si],
+                        records: &records,
+                        grounds: &[],
+                        under: exceptions.under(),
+                        chrome: Tally::default(),
+                        slide: None,
+                        set,
+                        table: stamps[si],
+                        map_gen: map.generation(),
+                        reach: map.reach(),
+                        moving: (records.len(), records.len()),
+                    };
+                    let td = Instant::now();
+                    let drawn = m.presenter.draw_cells(Quiet, &mut r, &input);
+                    let dd = td.elapsed();
+                    let df = tf.elapsed();
+                    match drawn {
+                        Some(Drawn::Frame(_)) => m.commits += 1,
+                        Some(Drawn::Busy) => panic!("built while idle, and refused as busy"),
+                        None => panic!("draw_cells through the presenter"),
+                    }
+                    if fin {
+                        continue;
+                    }
+                    committed += 1;
+                    copies += usize::from(held != Some(screens.now()));
+                    per.push([df, dc, dd]);
+                }
+                while m.presenter.in_flight() == InFlight::Busy {
+                    std::hint::spin_loop();
+                }
+                m.map = Some(GlyphMap::over(map.into_entries()));
+                let total = total.unwrap_or_else(|| t0.elapsed());
+                let us = |d: Duration| d.as_secs_f64() * 1e6;
+                let median = |k: usize| {
+                    let mut v: Vec<Duration> = per.iter().skip(1).map(|f| f[k]).collect();
+                    v.sort();
+                    v.get(v.len() / 2).copied().map_or(f64::NAN, us)
+                };
+                let first = |k: usize| per.first().map_or(f64::NAN, |f| us(f[k]));
+                println!(
+                    "{:<5} {:<6} {:>7} committed, {} reads arrived with one in flight, {} copies, \
+{:.1} us of replay a frame; median of the rest cpu {:.1}, copy {:.2}, draw {:.1} us/frame; \
+the first cpu {:.1}, copy {:.2}",
+                    round,
+                    label(arm),
+                    committed,
+                    busy,
+                    copies,
+                    us(total) / committed.max(1) as f64,
+                    median(0),
+                    median(1),
+                    median(2),
+                    first(0),
+                    first(1),
+                );
+                if hash {
+                    // The surface the last frame went to, its rows cut to
+                    // the target's width: the presenter's next, one back.
+                    let last = (0..(m.commits + SURFACES - 1) % SURFACES)
+                        .fold(SurfaceIx::FIRST, |ix, _| ix.next());
+                    let words = m.presenter.surface_pixels(last).expect("the surface");
+                    let (wide, high) = (
+                        usize::try_from(w.value()).unwrap(),
+                        usize::try_from(h.value()).unwrap(),
+                    );
+                    let pitch = words.len() / high;
+                    let px: Vec<u32> = (0..high)
+                        .flat_map(|y| words[y * pitch..y * pitch + wide].iter().copied())
+                        .collect();
+                    let hsh = px.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
+                        (h ^ u64::from(p)).wrapping_mul(0x0100_0000_01b3)
+                    });
+                    let inked = px.iter().filter(|&&p| p != px[0]).count();
+                    hashes.push((arm, hsh, inked));
+                }
+                continue;
+            }
             // The cell arms lend the terminal its viewport from the GPU;
             // the others take the storage's own.
             let cell_arm = matches!(
@@ -824,7 +1110,12 @@ fn main() {
                         s.gpu += g.gpu.unwrap_or_default();
                         s.inst += g.instances.value();
                     }
-                    Arm::Cells | Arm::Async | Arm::Copied | Arm::Present | Arm::Slide => {
+                    Arm::Cells
+                    | Arm::Async
+                    | Arm::Copied
+                    | Arm::Present
+                    | Arm::Slide
+                    | Arm::App => {
                         unreachable!("the cell arms continue above")
                     }
                 }

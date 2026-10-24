@@ -40,6 +40,7 @@ pub mod metal;
 pub mod notify;
 pub mod print;
 pub mod redraw;
+pub mod screens;
 pub mod selection;
 pub mod settings;
 
@@ -54,7 +55,10 @@ use baud_font::Px;
 use baud_render::{Argb, Renderer};
 use journal::{Counts, FrameTag, Journal, Reshape, SetIx};
 pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
-use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, SurfaceHandle, Waker};
+/// What a [`Wake`] is handed to show, so a caller outside the app -- a
+/// bench driving the real frame loop -- can implement one.
+pub use macos_liquid_glass::drawable::SurfaceHandle;
+use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
 use std::sync::Arc;
 
 /// Who hears that a frame landed: the view's [`Waker`] in the app, and
