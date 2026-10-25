@@ -978,9 +978,11 @@ pub struct Cold {
     /// given. A cell and not a pixel under `?1016` too -- the text's gate,
     /// where xterm's compares pixels (`Term::mouse_report`).
     pub(crate) mouse_at: Option<(Col, Row)>,
-    /// `?1007`, on at power-on and **kept by both resets**, as xterm keeps
-    /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
-    /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
+    /// `?1007`, on at power-on, **on again after `RIS`** and kept by
+    /// `DECSTR`: `RIS` returns to the initial state (`[[source: ecma48]]`
+    /// 8.3.105). xterm keeps `alternateScroll` on both (no `ReallyReset`
+    /// path names it, `[[source: xterm-reset]]`'s file), a practice not
+    /// followed. Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
     /// `?30` ([`baud_domain::ScrollbarShown`]): shown at power-on and **kept
     /// by both resets**, as xterm's scrollbar is a property of its window
@@ -1113,7 +1115,8 @@ pub struct Cold {
     /// **In `Cold` rather than on `Term` because `Paint` has to write it.**
     /// The loop carries a live copy so the table selection is a register
     /// rather than a field read per byte; this is where it persists between
-    /// reads, and `esc_final` sets both.
+    /// reads, and `esc_final` sets both, for `ESC % @`, `ESC % G` and
+    /// `RIS`.
     pub(crate) encoding: InputEncoding,
     /// How East Asian Ambiguous characters are measured.
     ///
@@ -3734,11 +3737,10 @@ impl<'b> Term<'b> {
         })
     }
 
-    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
-    ///
-    /// **This core never changes it**, which is the gap
-    /// `the_known_encoding_gaps` pins: the selectors are not routed, so the
-    /// answer is always UTF-8. The accessor is real and the switch is not.
+    /// How incoming bytes are decoded: UTF-8 at power-on and after `RIS`,
+    /// ISO 8859-1 after `ESC % @` until `ESC % G` or `RIS`. An embedder that
+    /// keeps a line discipline with it, as the app's `IUTF8` does, reads
+    /// this after every read.
     pub fn input_encoding(&self) -> InputEncoding {
         self.cold.encoding
     }
@@ -5213,7 +5215,8 @@ impl<'b> Term<'b> {
     /// the argument `?1` and `?2004` make. `[[source: ctlseqs]]`: "if
     /// Alternate Scroll mode is set, then cursor up/down controls are sent
     /// when the terminal is displaying the Alternate Screen Buffer." On at
-    /// power-on, which is what baud did before it read the mode.
+    /// power-on, which is what baud did before it read the mode, and after
+    /// `RIS`.
     pub fn alternate_scroll(&self) -> AlternateScroll {
         self.cold.alternate_scroll
     }

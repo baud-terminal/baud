@@ -875,8 +875,8 @@ fn with_pwd(mut env: Vec<CString>, start: &StartIn) -> Vec<CString> {
 /// `80`-`BF` as a continuation and takes the character before it too: `a £`
 /// then Backspace left an empty line, where ISO 8859-1 leaves `a`. So the
 /// parent clears the bit when the core's encoding becomes ISO 8859-1 and
-/// sets it when it becomes UTF-8 again, by whatever changed it -- `ESC % @`
-/// and `ESC % G` today, and a reset if one ever restores UTF-8.
+/// sets it when it becomes UTF-8 again, by whatever changed it -- `ESC % @`,
+/// and `ESC % G` or `RIS`, which returns the core to UTF-8.
 ///
 /// **Through the subsidiary, not the manager.** `tcgetattr` takes "an open
 /// file descriptor associated with a terminal" (`[[source:
@@ -2488,6 +2488,58 @@ mod tests {
             })
             .collect();
         assert_eq!(stty_after_latin1(Follow::Encoding), want);
+    }
+
+    /// **A full reset sets `IUTF8` again.** The child switches the core to
+    /// ISO 8859-1 and the parent follows, clearing the bit; then the child
+    /// sends `RIS`, which returns the core to UTF-8, and the parent follows
+    /// again. `stty -a` on the child's `/dev/tty` prints `iutf8`. Each
+    /// switch arrives in a read of its own, so the parent follows both,
+    /// as the app does after every read; the first is the control, which
+    /// prints `-iutf8` once the bit is cleared.
+    #[test]
+    fn a_full_reset_sets_iutf8_again() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(
+                r#"/bin/stty -echo; printf '\033%%@latin\n'; IFS= read -r l; /bin/stty -a < /dev/tty; printf 'cleared\n'; IFS= read -r l; printf '\033creset\n'; IFS= read -r l; exec /bin/stty -a < /dev/tty"#
+                    .into(),
+            ),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        let mut line = LineDiscipline::of(master);
+        let mut s = baud_core::Owned::new(&size);
+        let mut t = baud_core::Term::new(s.storage(), &size);
+        let told = |f: Followed| match f {
+            Followed::Same => false,
+            Followed::Told => true,
+            Followed::Failed(e) => panic!("{e}"),
+        };
+        feed(&mut t, &read_until(master, "latin\r\n"));
+        assert_eq!(t.input_encoding(), InputEncoding::Latin1);
+        assert!(told(line.follow(t.input_encoding())), "cleared");
+        send(master, b"\r");
+        let cleared = read_until(master, "cleared\r\n");
+        let words = String::from_utf8_lossy(&cleared).into_owned();
+        assert!(
+            words.split_whitespace().any(|w| w == "-iutf8"),
+            "the control: the bit is clear under ISO 8859-1: {words:?}"
+        );
+        send(master, b"\r");
+        feed(&mut t, &read_until(master, "reset\r\n"));
+        assert_eq!(t.input_encoding(), InputEncoding::Utf8, "RIS");
+        assert!(told(line.follow(t.input_encoding())), "set again");
+        send(master, b"\r");
+        let after = stty_words(master);
+        assert!(
+            after.iter().any(|w| w == "iutf8"),
+            "the bit is set again: {after:?}"
+        );
     }
 
     /// Whether `master` reads as hung up within two seconds -- a bound, so

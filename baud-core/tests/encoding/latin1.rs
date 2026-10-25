@@ -1059,3 +1059,100 @@ fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
         );
     });
 }
+
+/// What `program` leaves at every read size: the encoding, the first cell's
+/// codepoint, the cursor and the `?1020` answer.
+fn after_reset(program: &[u8], size: usize) -> (InputEncoding, Option<u32>, (Row, Col), Vec<u8>) {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for chunk in program.chunks(size) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+    let first = t.viewport()[0].content.as_codepoint().map(|c| c.value());
+    let at = t.cursor();
+    t.clear_reply();
+    support::feed(&mut t, b"\x1b[?1020$p");
+    (t.input_encoding(), first, at, t.reply().to_vec())
+}
+
+/// **`RIS` returns the input to UTF-8**: ECMA-48 8.3.105 has it return the
+/// terminal "to its initial state, i.e. the state it has after it is made
+/// operational" (`[[source: ecma48]]`), and baud is made operational in
+/// UTF-8. After `ESC % @` and `ESC c`, `D7 99` is `י`, U+05D9, one cell,
+/// where, staying in ISO 8859-1, `D7` was read through G2's DEC
+/// Supplemental in GR as U+0152 and the C1 byte `99` was dropped (the
+/// record's base reading) -- at every read size, so the byte after the
+/// reset in the same read is decoded by the table the reset selected. The
+/// second program starts at Level 1, where ISO 8859-1 strips the eighth
+/// bit, so the reset also ends the strip and holds the rest of the read.
+/// xterm's `ReallyReset` leaves the encoding as it was (`[[source:
+/// xterm-reset]]`'s file), a practice not followed.
+#[test]
+fn a_full_reset_returns_the_input_to_utf8() {
+    let want = |size: usize| {
+        (
+            InputEncoding::Utf8,
+            Some(0x5d9),
+            (Row::ZERO, Col::at_index(1)),
+            b"\x1b[?1020;1$y".to_vec(),
+            size,
+        )
+    };
+    for program in [
+        b"\x1b%@\x1bc\xd7\x99".as_slice(),
+        b"\x1b[61\"p\x1b%@\x1bc\xd7\x99",
+    ] {
+        for size in 1..=program.len() {
+            let (enc, first, at, rqm) = after_reset(program, size);
+            assert_eq!(
+                (enc, first, at, rqm, size),
+                want(size),
+                "{program:?} at read size {size}"
+            );
+        }
+    }
+}
+
+/// **A title sent after `RIS` in the same read is UTF-8**: the control
+/// string takes the encoding it began under from the write loop's live
+/// copy, which the reset sets with the terminal's, so `OSC 2` after
+/// `ESC % @ ESC c` in one read is a UTF-8 title, as it is at every other
+/// read size.
+#[test]
+fn a_title_after_a_full_reset_in_the_same_read_is_utf8() {
+    let program = b"\x1b%@\x1bc\x1b]2;\xd7\x99\x07";
+    for size in 1..=program.len() {
+        fed(program, size, |t| {
+            assert_eq!(
+                (t.title_encoding(), t.title()),
+                (InputEncoding::Utf8, b"\xd7\x99".as_slice()),
+                "read size {size}"
+            );
+        });
+    }
+}
+
+/// **`DECSTR` keeps the encoding**, as its list names none
+/// (`[[source: vt510-decstr]]`): the control for the test above, so a
+/// reset written into the soft reset fails here.
+#[test]
+fn a_soft_reset_keeps_the_input_encoding() {
+    let program = b"\x1b%@\x1b[!p\xe9";
+    for size in 1..=program.len() {
+        let (enc, first, _, rqm) = after_reset(program, size);
+        assert_eq!(
+            (enc, first, rqm),
+            (
+                InputEncoding::Latin1,
+                Some(0xe9),
+                b"\x1b[?1020;2$y".to_vec()
+            ),
+            "read size {size}"
+        );
+    }
+}

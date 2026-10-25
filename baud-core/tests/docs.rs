@@ -845,6 +845,13 @@ fn every_test_named_in_the_docs_exists() {
              mark after a control began to take its own cell (UAX #29 GB4/GB5); \
              the record cites the old name where it describes finding the base",
         ),
+        (
+            "alternate_scroll_survives_both_resets",
+            "a historical name, renamed on 2026-10-24 to \
+             `a_full_reset_sets_alternate_scroll_and_a_soft_one_keeps_it` when \
+             `RIS` began to set `?1007` again; the record cites the old name \
+             where it pinned `?1007` kept by both resets",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

@@ -4201,6 +4201,21 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // **The input encoding back to UTF-8, and `?1007` back on**, the
+        // state baud is made operational in (`Term::new`): `RIS` returns
+        // the terminal "to its initial state, i.e. the state it has after
+        // it is made operational" (`[[source: ecma48]]` 8.3.105). After
+        // `ESC % @` the encoding stayed ISO 8859-1, and after `?1007 l` the
+        // wheel stayed off. The graph follows the encoding here, and it
+        // decodes the byte after the reset in the same read; `esc_final`'s
+        // `RIS` arm sets the write loop's live copy, the encoding a
+        // control string begins under. `DECSTR` keeps both, as its list
+        // names neither. xterm's `ReallyReset` touches neither its UTF-8
+        // mode nor `alternateScroll` (`[[source: xterm-reset]]`'s file), a
+        // practice not followed.
+        self.cold.encoding = InputEncoding::Utf8;
+        self.reselect();
+        self.cold.alternate_scroll = AlternateScroll::On;
         // BDSM to its initial state, set: ECMA-48 8.3.105 resets a device
         // "to its initial state, i.e. the state it has after it is made
         // operational", setting the modes into the reset state being what

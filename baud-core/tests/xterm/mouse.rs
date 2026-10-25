@@ -932,16 +932,20 @@ fn ris_clears_x10_compatibility_and_the_encoding_and_decstr_keeps_them() {
     );
 }
 
-/// **`?1007` survives both resets**, as xterm keeps `alternateScroll`: the
-/// flag is read from its resource in `VTInitialize` and written by
-/// `srm_ALTERNATE_SCROLL` and nothing else -- `ReallyReset`, soft or hard,
-/// never names it (`[[source: xterm-reset]]`'s file). Practice, not text:
-/// ctlseqs gives the mode and its resource and says nothing about a reset.
+/// **`RIS` sets `?1007` again and `DECSTR` keeps it.** `RIS` returns the
+/// terminal "to its initial state, i.e. the state it has after it is made
+/// operational" and may "set the modes into the reset state"
+/// (`[[source: ecma48]]` 8.3.105); baud is made operational with `?1007`
+/// set, so after `?1007 l` a full reset answers `1`. `DECSTR` keeps it, as
+/// its list does not name it (`[[source: vt510-decstr]]`). xterm keeps
+/// `alternateScroll` on both: the flag is read from its resource in
+/// `VTInitialize` and written by `srm_ALTERNATE_SCROLL` and nothing else
+/// (`[[source: xterm-reset]]`'s file), a practice not followed for `RIS`.
 #[test]
-fn alternate_scroll_survives_both_resets() {
+fn a_full_reset_sets_alternate_scroll_and_a_soft_one_keeps_it() {
     assert_eq!(
         rqm(b"\x1b[?1007l\x1bc", b"\x1b[?1007$p"),
-        b"\x1b[?1007;2$y",
+        b"\x1b[?1007;1$y",
         "RIS"
     );
     assert_eq!(
@@ -1002,7 +1006,7 @@ fn herdrs_start_ends_in_sgr_any_event_and_nothing_is_counted() {
 
 /// **The embedder reads both new states**: `?9` is a level
 /// `mouse_tracking` names, and `?1007` is `alternate_scroll`, on at power-on,
-/// off after `?1007 l`, and kept through `RIS`.
+/// off after `?1007 l`, and on again after `RIS`.
 #[test]
 fn the_new_states_are_observable() {
     let mut t = T {
@@ -1017,11 +1021,11 @@ fn the_new_states_are_observable() {
     assert_eq!(term.mouse_tracking(), MouseTracking::Off);
     assert_eq!(
         term.alternate_scroll(),
-        AlternateScroll::Off,
-        "RIS keeps it"
+        AlternateScroll::On,
+        "RIS sets it again"
     );
-    feed(&mut term, b"\x1b[?1007h");
-    assert_eq!(term.alternate_scroll(), AlternateScroll::On);
+    feed(&mut term, b"\x1b[?1007l");
+    assert_eq!(term.alternate_scroll(), AlternateScroll::Off);
 }
 
 // ── motion only into a different cell ───────────────────────────────────────

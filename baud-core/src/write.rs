@@ -2592,9 +2592,15 @@ fn esc_final(
         }
         Esc::TabSet => p.tab_set(),
         Esc::LineTabSet => p.cold.line_stops.set(p.cy),
+        // `RIS` returns the input encoding to UTF-8. The next byte of the
+        // same read is decoded by the table `hard_reset`'s `reselect`
+        // chose; the loop's live copy follows the encoding, as `ESC % G`
+        // sets both, because a control string begins under it
+        // (`str_start`).
         Esc::Reset => {
             let was = p.cold.strips();
             p.hard_reset();
+            *enc = p.cold.encoding;
             p.restrip_from(was, node);
         }
         // **DECKPAM and DECKPNM, recorded and exposed.** They decide what the
