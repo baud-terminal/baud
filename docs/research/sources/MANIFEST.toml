@@ -23105,6 +23105,21 @@ bytes  = 8007
 status = "external"
 group  = "AN"
 
+[sources.dtolnay-rust-toolchain-683b588-action]
+key    = "dtolnay-rust-toolchain-683b588-action"
+title  = "dtolnay/rust-toolchain at 683b588, action.yml -- `toolchain` is a required input; the action runs rustup toolchain install and then rustup default with it"
+author = "David Tolnay"
+year   = 2026
+venue  = "dtolnay/rust-toolchain (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/dtolnay/rust-toolchain/683b588c487a69d01f6c6ddf40f036ff682cc2c8/action.yml"
+file   = ""
+sha256 = "ad8ad6383b6ce8c08579fc6f6a3fabd6a01f90b4007f65e2a5160944ba2988d4"
+bytes  = 7460
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-25, the master branch's head. Read whole: the parse step
+# exits 1 on an empty toolchain; "rustup default" carries continue-on-error.
+
 [sources.release-plz-v0-3-160-config-md]
 key    = "release-plz-v0-3-160-config-md"
 title  = "release-plz 0.3.160, website/docs/config.md -- the `publish`, `release`, `git_tag_enable`, `git_release_enable`, `release_always` and `release_commits` fields"
@@ -23169,6 +23184,21 @@ sha256 = "09a1da0f950dc98ff1a585979f5122c0254ddff8627ec6c6cc6ac48c623c2053"
 bytes  = 17101
 status = "external"
 group  = "AN"
+
+[sources.release-plz-v0-3-160-token-rs]
+key    = "release-plz-v0-3-160-token-rs"
+title  = "release-plz 0.3.160, crates/cargo_utils/src/token.rs -- registry_token_from_env returns any set CARGO_REGISTRY_TOKEN, an empty one included, as the token"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/cargo_utils/src/token.rs"
+file   = ""
+sha256 = "51771a17924a61b315a905e479a085a26f152e5f6de1989d91e4196521212831"
+bytes  = 4793
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-25. Read: registry_token and registry_token_from_env,
+# 'Ok(token.ok().map(|t| t.into()))' -- no test for an empty string.
 
 [sources.release-plz-v0-3-160-config-rs]
 key    = "release-plz-v0-3-160-config-rs"

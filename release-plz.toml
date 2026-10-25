@@ -1,7 +1,8 @@
 # Release configuration. **baud publishes nothing and releases nothing**: the
 # owner's "no publishing, private". The release-plz jobs in ci.yml still run
-# on every master push -- CI is left as it is -- and this file and the
-# manifests are what make each run a no-op. The source lines behind every
+# on every master push, on the dev shell's nightly because stable cargo cannot
+# parse the workspace manifest, and this file and the manifests are what make
+# each run a no-op. The source lines behind every
 # claim here are in docs/record.md, "Nothing is published, and release-plz
 # opens no Release PR".
 #

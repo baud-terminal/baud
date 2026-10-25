@@ -278,7 +278,13 @@ jobs:
           # release-plz diffs against the previous tag, so it needs full history.
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      # Nightly, because the workspace manifest declares
+      # `cargo-features = ["profile-rustflags"]`, which stable cargo
+      # refuses to parse. The nightly devenv.lock's rust-overlay pins
+      # (rustc 02c7f9bec); a bump of that rev moves this string too.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-04-11
       - uses: release-plz/action@v0.5.131
         id: release-plz
         with:
@@ -315,7 +321,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      # The Release job's nightly, for the same manifest.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-04-11
       - uses: release-plz/action@v0.5.131
         id: release-plz
         with:
