@@ -2019,6 +2019,43 @@ group  = "E"
 # a failure returns -1 with errno and say nothing of what the range then
 # holds.
 
+# What a process's resident size counts on Linux, which the page-release
+# tests in `baud-app` `pages.rs` measure. Read for the text and run: the
+# tests read the `Anonymous:` lines of smaps on Linux.
+[sources.linux-proc-pid-smaps-5]
+key    = "linux-proc-pid-smaps-5"
+title  = "Linux man-pages 6.9.1, proc_pid_smaps(5) -- Anonymous"
+author = "Michael Kerrisk and the man-pages contributors"
+year   = 2024
+venue  = "The Linux man-pages project"
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_smaps.5?h=man-pages-6.9.1"
+file   = ""
+sha256 = "1d5f512d0bf0ee313c19e6055370fc5de49deffde3d857e3cf71fbb52e945d6c"
+bytes  = 4128
+status = "external"
+group  = "E"
+# Read and hash-verified; not committed (GPL-3.0-or-later). Lines
+# 55-56: '"Anonymous" shows the amount of memory that does not belong to
+# any file.'
+
+[sources.linux-proc-pid-statm-5]
+key    = "linux-proc-pid-statm-5"
+title  = "Linux man-pages 6.9.1, proc_pid_statm(5) -- resident and shared"
+author = "Michael Kerrisk and the man-pages contributors"
+year   = 2024
+venue  = "The Linux man-pages project"
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_statm.5?h=man-pages-6.9.1"
+file   = ""
+sha256 = "4c12a618124b865ca4226068f992eac3e1f057d75710ee72c3b52b59a2ca8371"
+bytes  = 1577
+status = "external"
+group  = "E"
+# Read and hash-verified; not committed (GPL-3.0-or-later). Lines 20-21:
+# "resident (2) resident set size (inaccurate; same as VmRSS in
+# /proc/pid/status)"; lines 37-42: "Some of these values are inaccurate
+# because of a kernel-internal scalability optimization. If accurate values
+# are required, use /proc/pid/smaps or /proc/pid/smaps_rollup instead".
+
 [sources.darwin-mmap-2]
 key    = "darwin-mmap-2"
 title  = "XNU xnu-12377.121.6, bsd/man/man2/mmap.2 -- MAP_FIXED, RETURN VALUES and ERRORS"

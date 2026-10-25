@@ -355,17 +355,33 @@ mod tests {
         Resident(info.resident_size.0)
     }
 
-    /// This process's resident size: `statm`'s second field, in pages.
+    /// This process's **anonymous** resident size: every mapping's
+    /// `Anonymous:` in `/proc/self/smaps`, the memory "that does not
+    /// belong to any file" (`[[source: linux-proc-pid-smaps-5]]`), which
+    /// is all an image can hold: the arena, the scratch and the probe are
+    /// private anonymous mappings. Not `statm`'s resident size, which
+    /// counts this binary's code as the first decode faults it in (0.4 to
+    /// 0.9 MB in colima; CI's 2.2 MB is inferred to be the same code, not
+    /// measured there) and which its page calls inaccurate
+    /// (`[[source: linux-proc-pid-statm-5]]`). Read a line at a time into
+    /// one small buffer, so the reading commits no memory of its own.
     #[cfg(target_os = "linux")]
     fn resident() -> Resident {
-        let statm = std::fs::read_to_string("/proc/self/statm").expect("statm");
-        let pages: u64 = statm
-            .split(' ')
-            .nth(1)
-            .and_then(|n| n.parse().ok())
-            .expect("rss");
-        let page = release().expect("a release").page();
-        Resident(pages * u64::try_from(page).unwrap())
+        use std::io::BufRead;
+        let smaps = std::fs::File::open("/proc/self/smaps").expect("smaps");
+        let mut smaps = std::io::BufReader::new(smaps);
+        let (mut line, mut kb) = (String::new(), 0u64);
+        while smaps.read_line(&mut line).expect("a line") > 0 {
+            if let Some(v) = line.strip_prefix("Anonymous:") {
+                let n = v
+                    .split_whitespace()
+                    .next()
+                    .and_then(|n| n.parse::<u64>().ok());
+                kb += n.expect("kB");
+            }
+            line.clear();
+        }
+        Resident(kb * 1024)
     }
 
     /// The child's report: resident bytes idle, with the picture shown,
@@ -433,7 +449,8 @@ mod tests {
     /// **A 1920x1080 PNG shown and deleted leaves the terminal within 2 MB
     /// of idle**: its span in the arena and the scratch its decode wrote
     /// both go back. Measured resident, not peak: `/usr/bin/time -l` and
-    /// `getrusage` report the high water, which no release lowers.
+    /// `getrusage` report the high water, which no release lowers. On
+    /// Linux only anonymous memory is counted ([`resident`]).
     #[test]
     fn a_deleted_png_gives_its_pages_back() {
         assert_released("png");
@@ -536,6 +553,92 @@ mod tests {
         }
     }
 
+    /// **The Linux probe counts what a picture can hold, and not code**:
+    /// 4 MB of this binary mapped from its file and read raise it by under
+    /// 256 KB, and 4 MB of private `/dev/zero` written raise it by all
+    /// of it. `statm`'s resident size, which it replaced, counts both.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_probe_counts_written_memory_and_not_mapped_code() {
+        const SPAN: u64 = 4 << 20;
+        for (idle, read, written) in measure("probe") {
+            eprintln!("probe: idle {idle} file read {read} written {written}");
+            assert!(
+                read <= idle + 256 * 1024,
+                "the file's pages were counted: {idle} -> {read}"
+            );
+            // **The control**: the probe sees memory a picture would use.
+            assert!(
+                written >= read + SPAN - 64 * 1024,
+                "the written pages were not counted: {read} -> {written}"
+            );
+        }
+    }
+
+    /// [`rss_child`]'s probe check: three cycles of 4 MB of this binary
+    /// mapped and read, then 4 MB of `/dev/zero` mapped private and
+    /// written, which is anonymous memory, as an image's is; each mapping
+    /// fresh and unmapped, so no allocator's reuse is in the number.
+    #[cfg(target_os = "linux")]
+    fn rss_child_probe() {
+        use crate::sys::{MAP_FAILED, MAP_PRIVATE, MapLen, PROT_READ, PROT_WRITE, mmap, munmap};
+        use std::os::fd::AsRawFd;
+        let span = 4 << 20;
+        let page = release().expect("a release").page();
+        let exe = std::fs::File::open("/proc/self/exe").expect("this binary");
+        let len = usize::try_from(exe.metadata().expect("its size").len()).unwrap();
+        assert!(len >= span, "a binary of {len} bytes");
+        let zero = std::fs::File::open("/dev/zero").expect("/dev/zero");
+        for _ in 0..3 {
+            let idle = resident();
+            // SAFETY: a fresh private read-only mapping of `span` bytes of
+            // an open file at least that long; unmapped below.
+            let code = unsafe {
+                mmap(
+                    core::ptr::null_mut(),
+                    span,
+                    PROT_READ,
+                    MAP_PRIVATE,
+                    exe.as_raw_fd(),
+                    0,
+                )
+            };
+            assert_ne!(code, MAP_FAILED, "mapped");
+            // SAFETY: `code` maps `span` readable bytes until the `munmap`.
+            let bytes = unsafe { core::slice::from_raw_parts(code.cast::<u8>(), span) };
+            let sum: u64 = bytes.iter().step_by(page).map(|&b| u64::from(b)).sum();
+            std::hint::black_box(sum);
+            let read = resident();
+            // SAFETY: a fresh private mapping of `/dev/zero`, read and
+            // write, `span` bytes; unmapped below.
+            let anon = unsafe {
+                mmap(
+                    core::ptr::null_mut(),
+                    span,
+                    PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE,
+                    zero.as_raw_fd(),
+                    0,
+                )
+            };
+            assert_ne!(anon, MAP_FAILED, "mapped");
+            // SAFETY: `anon` maps `span` writable bytes until the `munmap`,
+            // and nothing else refers to them.
+            let pages = unsafe { core::slice::from_raw_parts_mut(anon.cast::<u8>(), span) };
+            for b in pages.iter_mut().step_by(page) {
+                *b = 1;
+            }
+            std::hint::black_box(&pages);
+            let written = resident();
+            // SAFETY: the two mappings made above, with their lengths.
+            unsafe {
+                assert_eq!(munmap(code, MapLen(span)), 0);
+                assert_eq!(munmap(anon, MapLen(span)), 0);
+            }
+            println!("rss {} {} {}", idle.0, read.0, written.0);
+        }
+    }
+
     /// A green Sixel `w` x `h` with its raster given.
     fn green_sixel(w: ImagePx, h: ImagePx) -> Vec<u8> {
         let (w, h) = (w.raw(), h.raw());
@@ -564,6 +667,10 @@ mod tests {
             ws_row: 150,
             ws_col: 400,
         };
+        #[cfg(target_os = "linux")]
+        if kind == "probe" {
+            return rss_child_probe();
+        }
         if kind.starts_with("tiles") || kind.starts_with("sixel") {
             return rss_child_reset(&kind, ws);
         }
