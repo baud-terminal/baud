@@ -361,8 +361,8 @@ mod tests {
     /// is all an image can hold: the arena, the scratch and the probe are
     /// private anonymous mappings. Not `statm`'s resident size, which
     /// counts this binary's code as the first decode faults it in (0.4 to
-    /// 0.9 MB in colima; CI's 2.2 MB is inferred to be the same code, not
-    /// measured there) and which its page calls inaccurate
+    /// 0.9 MB in colima; CI's 2.24 and 2.02 MB are inferred to be the same
+    /// code, not measured there) and which its page calls inaccurate
     /// (`[[source: linux-proc-pid-statm-5]]`). Read a line at a time into
     /// one small buffer, so the reading commits no memory of its own.
     #[cfg(target_os = "linux")]

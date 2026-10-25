@@ -39,9 +39,9 @@ Before the dalet: take the 6-byte hebr script record out of GSUB and of GPOS and
 tables were final3's byte for byte, and every other table but name (nameID 7) and head
 (its checksum) was final3's. The dalet changes that glyph's outline, its anchors in
 GPOS and head's checksum alone; the zayin changes Bold's and Bold Italic's zayin
-outline (with loca), Bold Italic's left side bearing for it, and head's checksum
-alone. The gates were run again on these bytes on 2026-10-08, 2026-10-24 and
-2026-10-25 (CHANGELOG).
+outline (and Bold's loca, for its length), Bold Italic's left side bearing for it,
+and head's checksum alone. The gates were run again on these bytes on 2026-10-08,
+2026-10-24 and 2026-10-25 (CHANGELOG).
 
 Running scripts/build-fonts.sh --check rebuilds all four and compares them with MANIFEST.
 scripts/build-fonts.sh --italics rebuilds the two italics with the rounds' correction
@@ -303,7 +303,7 @@ were fixed; see the CHANGELOG.)
 
 Not the font's defects, but what a reader sees:
 
-- baud has no bidi, so Hebrew draws in typed order.
+- Hebrew lines are drawn right to left from launch (docs/bidi.md).
 - baud-core's cluster store drops vowel points in longer pointed text (note AC,
   decision 16).
 
@@ -361,7 +361,7 @@ CHANGELOG
   curve 22 units further out, as Regular's does: in Bold the points at x 448 and 450
   on y 516-517 moved to 470 and 472, and the neck's own points, x 375-404, did not
   move. Regular.ttf and Italic.ttf are unchanged, byte for byte; in Bold.ttf and
-  BoldItalic.ttf only that glyph's outline (with loca, for its length), Bold Italic's
-  left side bearing for it and head's checksum change. The gates were run again: OTS
-  passes; the generalised and strip-and-compare gates print the same lines as on the
-  files before; the meteg check passes the same clusters (172, 143).
+  BoldItalic.ttf only that glyph's outline (and Bold's loca, for its length), Bold
+  Italic's left side bearing for it and head's checksum change. The gates were run
+  again: OTS passes; the generalised and strip-and-compare gates print the same
+  lines as on the files before; the meteg check passes the same clusters (172, 143).

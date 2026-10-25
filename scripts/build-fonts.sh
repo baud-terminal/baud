@@ -54,11 +54,11 @@
 # points above y 540, under which Bold's thicker head starts (517), so Bold's and Bold
 # Italic's head ends slanted 22 units; the band starts at y 500 now. Regular and
 # Italic come out byte for byte as before; Bold and Bold Italic differ in that glyph's
-# outline (with loca), Bold Italic's side bearing for it and head's checksum alone,
-# and the gates print what they printed before. A build whose bytes differ is not that
-# set, whatever it looks like, so the build refuses to write it. Changing the design
-# means re-running those gates and then these constants, in one change, with the
-# reason.
+# outline (and Bold's loca, for its length), Bold Italic's side bearing for it and
+# head's checksum alone, and the gates print what they printed before. A build whose
+# bytes differ is not that set, whatever it looks like, so the build refuses to write
+# it. Changing the design means re-running those gates and then these constants, in
+# one change, with the reason.
 #
 # **Every byte depends on the environment, so the environment is pinned whole.**
 # - Python and its packages come from one nixpkgs revision fetched by hash. The

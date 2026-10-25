@@ -95,6 +95,9 @@ see `docs/research/notes/y-palettes.md:316-422`.
     `cursor_text_color` (369), `selection_foreground` (2641) and
     `selection_background` (2655).
   - Other files are pulled in with `include` (`kitty-conf`, line 1290).
+  - The `kitty-conf` line numbers are lines of the HTML copy hashed as
+    `kitty-conf`. That copy can no longer be fetched from its URL, so the
+    VERIFIED mark can't be checked again against the exact bytes.
 - **Themes kitten** (kitty@b7a657d, UNPINNED):
   - "A theme in kitty is just a `.conf` file containing kitty settings." The
     kitten copies the chosen file to `current-theme.conf` and `include`s it
