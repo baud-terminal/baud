@@ -421,4 +421,39 @@ else
   echo "  ok   baud-domain/src: 0 bool fields (limit 0)"
 fi
 
+# **The four crates the debug profile optimises have no address backstop
+# but this one.** `Cargo.toml` builds baud-domain, baud-core, baud-font and
+# baud-render at opt-level 1 in `dev`, where opt-level 0 kept a separate
+# copy of a const's bytes in each codegen unit: a test comparing a const's
+# address from two modules was red in a debug run and green in release,
+# which is how the debug gate once caught one in baud-app. Optimised, those
+# crates merge the copies in debug too, so their address operations are
+# held here to the count, each read when the budget was set: heap or
+# caller-supplied buffers, a read buffer handed to a syscall, a font
+# file's bytes, and statics, which have one address in every profile. A new one fails until it is read the same
+# way and the budget moves with it. The pattern is checked on a sample
+# first: an `-E` that stopped matching would count zero and pass.
+addr_pat='\.as_ptr\(\)|\.as_ptr_range\(\)|\.as_mut_ptr\(\)|\.addr\(\)|ptr::eq\(|ptr::addr_eq\(|as \*const|as \*mut|\{:#?p\}'
+if [ "$(printf 'a.as_ptr()\nb.addr()\ncore::ptr::eq(\nx as *const u8\n"{:p}"\n' | grep -cE "$addr_pat")" -ne 5 ]; then
+  echo "  FAIL address operations: the pattern misses its own sample -- this gate counts nothing"
+  fail=1
+fi
+for ad in baud-domain:11 baud-core:13 baud-font:0 baud-render:2; do
+  ad_crate=${ad%%:*}
+  ad_limit=${ad##*:}
+  if [ -z "$(find "$ad_crate" -name '*.rs' 2>/dev/null | head -1)" ]; then
+    echo "  FAIL $ad_crate: no sources found -- this gate audited nothing"
+    fail=1
+    continue
+  fi
+  ad_n=$(grep -rhE --include='*.rs' "$addr_pat" "$ad_crate" | wc -l | tr -d " ")
+  if [ "$ad_n" -gt "$ad_limit" ]; then
+    echo "  FAIL $ad_crate: $ad_n lines with an address operation (limit $ad_limit)"
+    grep -rnE --include='*.rs' "$addr_pat" "$ad_crate"
+    fail=1
+  else
+    echo "  ok   $ad_crate: $ad_n lines with an address operation (limit $ad_limit)"
+  fi
+done
+
 exit $fail

@@ -71,6 +71,33 @@ categories = ["parser-implementations", "no-std", "text-processing"]
 license = "CC-BY-NC-SA-4.0"
 repository = "https://github.com/i-am-logger/baud"
 
+# **The debug suite optimises the four crates its time is spent in, and
+# every dependency.** At opt-level 0 the workspace nextest took 1531 s,
+# and one test was 1503 s of it: `RIS` before every case erases the whole
+# ring, and an unoptimised `fill` writes it a cell at a time. At 1 that
+# test took 37 s alone. Debug assertions and overflow checks stay on: they
+# are what a debug run is for. `baud-app` and the present and window
+# crates stay at 0, so a debug run still lays out their constants
+# unmerged, as it did when it caught a test comparing `include_bytes!`
+# addresses; in the four, `audit_all.sh` holds address operations to
+# their count instead. Only `dev`, and `test` through it, read these;
+# `release` and `bench` do not. The measurement: docs/record.md, "The
+# debug suite spent its time in four crates at opt-level 0".
+[profile.dev.package.baud-domain]
+opt-level = 1
+
+[profile.dev.package.baud-core]
+opt-level = 1
+
+[profile.dev.package.baud-font]
+opt-level = 1
+
+[profile.dev.package.baud-render]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 1
+
 [profile.release]
 opt-level = 3
 lto = true
