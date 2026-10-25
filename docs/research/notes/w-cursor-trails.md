@@ -9,7 +9,8 @@ note recovers what survives, mostly from that session's transcripts, and
 commits the recovered text under `docs/research/notes/w/` so it no longer
 depends on transcripts that will be pruned too. For each trail it says where
 the design came from, who decided what and when, where the measurements are,
-and what is lost.
+and what is lost. Section 8, added 2026-10-25, is the quad's provenance audit
+against kitty and the re-derivation that followed it.
 
 **The letter.** W is shared: `w-fallback-fonts.md` is the note the record
 cites as "note W". Cite this one by its filename. Several letters are already
@@ -39,7 +40,10 @@ it is committed as. Every recovered file is byte for byte the last Write call
 or here-document that made it, except where the "as" column says otherwise.
 An agent's later in-place edits are not in that text. Where they exist the
 column names their transcript lines. Three files are committed with their
-edits replayed, each checked against the SHA-256 its agent printed.
+edits replayed, each checked against the SHA-256 its agent printed. Four
+prototypes no longer equal what was recovered: their copies of the quad's
+rate choice were re-expressed on 2026-10-25 (section 8.6), and nothing else
+in them changed.
 
 | piece | made by | recovered from | committed as |
 |---|---|---|---|
@@ -51,9 +55,9 @@ edits replayed, each checked against the SHA-256 its agent printed.
 | specs for ice, plasma, ufo, lightning and liquid: prior art with SHA-256s, the look, formulas, an MSL sketch, the uniform, reach, life, photosensitivity, the Rust reference, cost, risks, owner questions | the workflow "trail-effects-research", run wf_5d8be472-5b7, 2026-09-26 | the workflow's stored result (the scratchpad's specs/0.json to 4.json were the main session's copies of it, made 2026-09-26 23:30 UTC, and specs/2.txt, 4.txt, ice.txt and lightning.txt were extracts of them) | `docs/research/notes/w/spec-ice.json`, `docs/research/notes/w/spec-plasma.json`, `docs/research/notes/w/spec-ufo.json`, `docs/research/notes/w/spec-lightning.json`, `docs/research/notes/w/spec-liquid.json` (each the spec and its critique, re-serialised) |
 | the plasma spec's adversarial critique (verdict "fix") | same workflow | its stored result | inside `docs/research/notes/w/spec-plasma.json` |
 | the lightning agent's long design note, and its Rust model of the bolt | same workflow | Write call; shell here-document | `docs/research/notes/w/lightning-design.txt`, `docs/research/notes/w/lightning-model.rs.txt` (the here-document of l.169 with the edits of l.175, 194 and 207 replayed; SHA-256 452ad54d…, printed at l.208) |
-| the ice prototype, which the agent's notes call the exact spelling of its formulas, and those two short notes | same workflow | shell here-documents | `docs/research/notes/w/ice-prototype.swift` (the here-document of l.257 with the edits of l.277, 296, 311 and 331 replayed; SHA-256 1eb72d41…, printed at l.339 and cited by the ice spec), `docs/research/notes/w/ice-notes.txt` (the here-document of l.324 and the append of l.339, joined) |
-| the orb agent's notes and its Metal harness: a design and its measurements, never returned as a spec | same workflow | Write calls | `docs/research/notes/w/orb-notes.txt`, `docs/research/notes/w/orb-harness.swift`, `docs/research/notes/w/orb-harness.metal` (the Writes of l.157 and l.161; the edits of l.200, 242 and 257, which the notes' figures rest on, including the ring's 2.2 R start, are not applied) |
-| plasma, ufo and liquid prototypes and sketches | same workflow | Write calls and here-documents | `docs/research/notes/w/plasma-sketch.metal`, `docs/research/notes/w/plasma-area.py`, `docs/research/notes/w/plasma-check.py`, `docs/research/notes/w/ufo-proto.py` (l.147; the edit of l.189 is not applied), `docs/research/notes/w/ufo-proto2.py`, `docs/research/notes/w/ufo-sketch.metal`, `docs/research/notes/w/ufo-reach.py`, `docs/research/notes/w/liquid-proto.py` (l.223 with l.242 and l.264 replayed; SHA-256 b9f6f716…, printed at l.288), `docs/research/notes/w/liquid-proto2.py` (l.260; l.268 not applied), `docs/research/notes/w/liquid-sketch.metal` (l.253; l.291 not applied) |
+| the ice prototype, which the agent's notes call the exact spelling of its formulas, and those two short notes | same workflow | shell here-documents | `docs/research/notes/w/ice-prototype.swift` (the here-document of l.257 with the edits of l.277, 296, 311 and 331 replayed; SHA-256 1eb72d41…, printed at l.339 and cited by the ice spec; that hash and the spec's citation name the recovered text, and the committed file, its rate block re-expressed (section 8.6), is ae6bf89c…), `docs/research/notes/w/ice-notes.txt` (the here-document of l.324 and the append of l.339, joined) |
+| the orb agent's notes and its Metal harness: a design and its measurements, never returned as a spec | same workflow | Write calls | `docs/research/notes/w/orb-notes.txt`, `docs/research/notes/w/orb-harness.swift`, `docs/research/notes/w/orb-harness.metal` (the Writes of l.157 and l.161, orb-harness.swift's rate block re-expressed, section 8.6; the edits of l.200, 242 and 257, which the notes' figures rest on, including the ring's 2.2 R start, are not applied) |
+| plasma, ufo and liquid prototypes and sketches | same workflow | Write calls and here-documents | `docs/research/notes/w/plasma-sketch.metal`, `docs/research/notes/w/plasma-area.py`, `docs/research/notes/w/plasma-check.py`, `docs/research/notes/w/ufo-proto.py` (l.147; the edit of l.189 is not applied), `docs/research/notes/w/ufo-proto2.py` (its rate block re-expressed, section 8.6), `docs/research/notes/w/ufo-sketch.metal`, `docs/research/notes/w/ufo-reach.py`, `docs/research/notes/w/liquid-proto.py` (l.223 with l.242 and l.264 replayed; SHA-256 b9f6f716…, printed at l.288, the recovered text's; the committed file, its rate block re-expressed (section 8.6), is 59a76f83…), `docs/research/notes/w/liquid-proto2.py` (l.260; l.268 not applied), `docs/research/notes/w/liquid-sketch.metal` (l.253; l.291 not applied) |
 
 Left in the transcripts and **not committed**, on purpose:
 
@@ -168,8 +172,10 @@ confirmations file (.claude/research/jev-program/confirms.json, item AL-7,
 uncommitted). Neither `docs/record.md` nor notes V, X, AJ or AL records it.
 Those were the places searched, with the work list and that file. The
 quad's licence options were also put to Jev, in the version plan's scoping
-on the work list, and stayed under the bar ((b) at 0.38 and 0.23). So, apart
-from the splash, every question in section 6 is open.
+on the work list, and stayed under the bar ((b) at 0.38 and 0.23). Asked
+again on 2026-10-25 with the line-by-line comparison of section 8, Jev
+picked (b) at 1.00 both times, and the quad was re-derived. So, apart from
+the splash and the quad's licence, every question in section 6 is open.
 
 ## 4. What every effect shares
 
@@ -239,12 +245,13 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   shader collections at the commits its pins list names. Its closed form for
   kitty's corners, and its finding that a retargeted quad can be concave,
   are what the build took: hence winding, not kitty's triangle fan.
-- **Licence:** kitty is GPL-3.0. The quad takes kitty's formula and
-  constants into a closed form of baud's own. Whether that holds under
-  baud's licence is open. The work list routes it to Jev with three options:
-  (a) a record that the quad takes only the idea and the constants, (b) a
-  clean re-derivation, or (d) leaving it out. The licence itself is the
-  owner's and is not put to Jev. It is not decided here.
+- **Licence:** kitty is GPL-3.0. The quad's rate choice followed kitty's
+  text term for term; its closed form was baud's own. The work list routed
+  it to Jev with three options: (a) a record that the quad takes only the
+  idea and the constants, (b) a clean re-derivation, or (d) leaving it out.
+  The licence itself is the owner's and is not put to Jev. **Decided
+  2026-10-25 (Jev, (b) at 1.00 both times): re-derived**, section 8; the
+  owner may veto.
 - **Decisions:** all styles as config (l.6809). The quad was the interim
   default until the fire.
 - **Measured:** the record, "The quad trail is kitty's four corners in closed
@@ -464,7 +471,7 @@ before it is asked. They are listed so the research behind them is one place.
 |---|---|---|---|
 | all | the flash bound at large sizes | note AL's O1 to O4, a combination, per effect or every effect, and which system setting governs | open; note AL section 8. Jev asked 2026-10-10, none at 0.9 both times |
 | all | whether that bound also covers note AJ's launch splash | it does; it does not, and the splash is counted on its own | **decided (Jev, 2026-10-10, 0.96 and 0.98): not the splash**, on the condition that the splash is counted before it is built; the owner may veto |
-| all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | open; the work list routes (a), (b) or (d) to Jev. The licence itself is the owner's and is not put to Jev |
+| all | the kitty-derived quad under baud's licence | (a) a record that it takes only the idea and the constants; (b) a clean re-derivation; (d) leave it out | **decided (Jev, 2026-10-25, (b) at 1.00 and 1.00): re-derived**, section 8; the owner may veto. The licence itself is the owner's and was not put to Jev. One visible difference: a retarget that lands a corner on its new target leaves it out of the spread, and the corner leading least lags longer (8.4) |
 | all | a trail when the cursor hides | fade over kitty's slow constant, as kitty does; end at once, as baud does | open |
 | all | a trail on a jump scroll | ride it too; ride only a smooth scroll, as now | open; the work list records the owner's lean of 2026-09-27 as riding both |
 | fire | "the fire looks sluggish" | shorten its life; burn out faster; put it out on a keystroke; leave it (it burns 0.83 s on the demo's moves) | open |
@@ -494,7 +501,9 @@ session <session>:
   still changed liquid.py, and each reached the SHA-256 its
   agent printed: 1eb72d416347818a1a4bb8c637d29d8a91c5611e19735bb4c85d75df361c3922,
   452ad54d373ec5bb1635540bf11a81b2c3b14d1c35634673dd6a1ca213f5db09 and
-  b9f6f71666d59f352b525256a5b9ed6782dfa0c5111800518f7da7dc02904b35. Every
+  b9f6f71666d59f352b525256a5b9ed6782dfa0c5111800518f7da7dc02904b35. The
+  first and third no longer match the committed files, whose rate blocks
+  were re-expressed afterwards (section 8.6). Every
   other file with later edits is committed as first written and says so in
   section 1. blackbody.py was taken from its here-document and checked by
   running it against its printed output; bbtable.metal was regenerated by
@@ -512,3 +521,141 @@ session <session>:
 The scripts that did this were scratch and are not kept. Each step above is
 a filter on the transcript's JSON lines, and repeating it needs only the
 paths named here, so long as the transcripts survive.
+
+## 8. The quad's provenance against kitty, and its re-derivation (2026-10-25)
+
+**What a user sees: the same trail on every move from rest, and one rare
+retarget that differs.** Across 64,796 moves from rest on four cell shapes,
+the re-derived rates equal the old ones to 2.4e-7 s, and no corner sits more
+than 0.001 px from where it was in the first 0.6 s. The difference is a
+retarget that lands a corner within 1e-3 px of its new target: that corner no
+longer counts in the spread, so the others' rates change and the corner
+leading least lags longer (8.4). What changed otherwise is the code's
+provenance. It carries kitty's idea and kitty's defaults, and none of kitty's
+text.
+
+### 8.1 The pins
+
+kitty's release tag v0.49.2 (commit b2cb871):
+`cursor_trail.c` ([[source: kitty-cursor-trail-v0492]]),
+kitty/options/definition.py ([[source: kitty-options-definition-v0492]]) and
+kitty/shaders/trail.slang ([[source: kitty-trail-slang-v0492]]). Each is
+hash-verified and not committed. The tag's `cursor_trail.c` matches the
+`1e1486e` copy the quad was written from ([[source: kitty-cursor-trail]]),
+except for one hunk at 163-165, which keeps the previous frame's corners for
+kitty's motion-blur shaders. baud never read that hunk, and line numbers up
+to 162 are the same in both copies. `trail.slang` is the same bytes at both
+commits.
+
+### 8.2 Line by line, at `0c20d017`
+
+| element | kitty v0.49.2 | baud | reading |
+|---|---|---|---|
+| each corner's rate | 91-121: the centre; the half-diagonal; each corner's travel; a corner under 1e-6 on both axes gets 0 and stays in the min and max; `dot = (d . (E - c)) / h / norm(d)`, h the half-diagonal; min and max; `slow + (fast - slow) * (dot - min) / (max - min)`, or slow when they are equal | `Segment::new`: the same terms in the same order, the divisions included; a corner under 1e-3 gets 0 and stays in; the same interpolation, written `FAST * w + SLOW * (1 - w)` | **term for term**. The division by the half-diagonal is one constant over all four corners, and the min-max spread cancels it. It does no work, so it came from kitty's text and not from the idea |
+| the motion | 122-124: a step of `1 - exp2(-10 dt / decay)` each frame; the decay is "the time to reach 1/1024" (80) | the same law in closed form, `T + (P - T) * 2^(-10 t / tau)`, exact at any time | the law and its unit are shared; the closed form is baud's |
+| when the rates are picked | every frame, from where the corners are | once, when the move starts | different |
+| the space | device coordinates, y up | frame pixels, y down | different |
+| the corner order | 78 and 145: top-right, bottom-right, bottom-left, top-left | the same order, which the shaders' uniforms read | one of the 24 ways to order four corners; it is functional |
+| the end | 143-159: drawn while a corner is at least half a pixel off on either axis, tested every frame | `Segment::lasts`: the same rule, solved for the time | same rule, different expression |
+| the start threshold | 66-70: the trail's top-right corner against the cursor's, rounded to cells, skipped within two on both axes | the app's start test: the new rectangle against the last target, rounded to cells, within two, plus a separate test for a trail still in flight | same rule and number, different reference points |
+| the dwell | 174 (171 in the 1e1486e copy, before the 163-165 hunk): a move is followed only after the cursor_trail option's ms at rest | a pending move with its start time, held for 10 ms (sfte's number) | same idea |
+| a hidden cursor, a live resize | 62, 64 and 130-141: skipped during a live resize; the opacity ramps over the slow decay | neither; the trail ends at once | not taken |
+| the fill | `trail.slang`: a four-vertex fan; the fragment masks the cursor's box, both edges inclusive, at a flat opacity | non-zero winding with a pixel of anti-aliased edge; the hole includes its left and top edges | different |
+| the numbers | definition.py: decay `0.1 0.4` (the option at 467-469), start threshold `2` (483-485), the trail in the cursor's colour (500-512) | `TAU_FAST`, `TAU_SLOW`, the app's two-cell threshold, the cursor's colour | numbers and a default, cited |
+
+### 8.3 Jev
+
+Jev got this comparison, the owner's words on the licence and on the plasma
+default, and the three routes. The request was asked twice, the options
+reversed the second time, and neither answer was cached:
+
+- **What the code is:** DERIVATIVE, at confidence 0.67 and 0.56; its
+  probabilities were 0.78 and 0.71, RE_DERIVE's 0.17 and 0.24 and
+  INDEPENDENT's 0.05 and 0.05.
+- **Which route:** B_RE_DERIVE, at confidence 1.00 and 1.00. That is above the bar in
+  both orders, so it is decided under the rule of 2026-10-10. The owner may
+  veto it.
+
+### 8.4 The derivation the rate choice is now written from
+
+At a move's start, each corner of the trail, P_i, chases the same corner of
+the cursor's new rectangle, T_i. The rectangle's centre is C.
+
+- **Travel and outward direction.** A corner travels along d_i = T_i - P_i
+  and points out of the rectangle along o_i = T_i - C.
+- **Lead.** A corner leads the move as far as it travels the way it points:
+  lead_i = (d_i . o_i) / (|d_i| |o_i|), the cosine of the angle between
+  them. It is 1 for a corner travelling straight out past its own side and
+  -1 for one travelling straight in.
+- **No direction.** A corner that does not travel (|d_i| < 1e-3 px) has no
+  direction, so it takes no part in the next step.
+- **Rates.** Over the corners that take part, s_i = (lead_i - lo) / (hi - lo)
+  and tau_i = s_i tau_fast + (1 - s_i) tau_slow. The corner leading most
+  closes fastest and the one leading least slowest, whichever way the move
+  goes. If no two leads differ, no corner leads, and every corner takes
+  tau_slow.
+- **Motion.** Each corner closes its gap exponentially and halves it every
+  tau / 10. tau is the time to close all but 2^-10 of the gap, the unit
+  kitty's cursor_trail_decay option is given in. So P_i(t) = T_i + (P_i - T_i)
+  2^(-10 t / tau_i). A move is over when every gap is under half a pixel on
+  both axes, at tau / 10 log2(gap / 0.5).
+
+Neovide's cursor renderer publishes the same idea under MIT
+([[source: neovide-cursor-renderer]] 191-208 and 504-522): the dot product
+of a corner's normalised travel and its normalised direction, spread over
+the four corners, interpolating two animation lengths. It is cited as a
+published statement of the idea, and none of its lines is ported. Three
+details differ from baud's:
+
+- Its outward direction is the corner's relative position normalised in
+  cell units, so it does not change with the cell's aspect ratio. baud's is
+  the pixel offset T_i - C.
+- It measures travel from the corner's previous destination, not from where
+  the corner is.
+- When the four alignments have no spread, or are NaN, it gives each corner
+  alignment 1.0, the short, leading length. baud gives every corner tau_slow.
+
+Every corner of a rectangle is half a diagonal from C, so |o_i| is one
+number, and the lead equals kitty's dot up to rounding. That is why a move
+from rest draws as it did.
+
+**The one case where it differs from kitty's code** is a corner already at
+its target. kitty gives such a corner 0 and keeps it in the spread; here it
+takes no part (`a_corner_already_home_takes_no_part_in_the_spread`). A long
+move from rest moves every corner, so the case can only arise from a
+retarget whose corner lands within 1e-3 px of its new target. It is visible:
+in that test's retarget the old code gave [0.4, 0.1, 0.117, 0.259] and this
+gives [0.4, 0.1, 0.132, 0.4], so the top-left corner, leading least, takes
+0.4 s where it took 0.259 s, and the bottom-left a little longer too. It is
+on section 6's list for the owner's veto.
+
+### 8.5 What is still kitty's, and the limits of this
+
+kitty contributed the idea of four corners chasing at their own rates, the
+defaults (0.1 s, 0.4 s, two cells), the half-pixel end, the rest before a
+trail follows, and the corner order. These are ideas, rules and numbers, and
+none of them is code. `a_horizontal_move_is_kittys` checks baud against
+numbers printed by a replay of kitty's code, and those numbers stay. The
+re-derivation was written from 8.4 by an agent that had read
+`cursor_trail.c` for the audit. It is not a clean room in the two-team
+sense. None of this is legal advice.
+
+### 8.6 The four prototypes that carried the same block
+
+Four of the research prototypes recovered under `docs/research/notes/w/`
+ported the old `Segment::new`, its division by the half-diagonal included:
+`liquid-proto.py`'s `seg_new`, the `Segment` of `ufo-proto2.py` (headed as
+a port of trail.rs), and the `Segment` initialisers of `ice-prototype.swift`
+and `orb-harness.swift`. Each block is re-expressed from 8.4 in its own
+language, the rest of each file untouched: the cosine lead, a corner that
+does not travel left out of the spread, and tau_slow when no two leads
+differ. The Python two give the same rates as before to 1.1e-16 s over
+19,997 moves from rest each, and the retarget of 8.4 as trail.rs does; both
+Swift files still type-check. ice-prototype.swift and liquid-proto.py no
+longer match the hashes their agents printed (section 7): their SHA-256s
+are now ae6bf89c… and 59a76f83…. `no_model_of_the_quad_divides_by_the_half_diagonal`
+reads these and trail.rs for the division. With them, no code outside the
+pinned sources carries kitty's rate choice; 8.2's table quotes it and the
+quad report (`docs/research/notes/w/quad-report.txt`) describes it, for the
+audit. For code, the licence-trail item is handled, under the owner's veto
+and not as a clean room.

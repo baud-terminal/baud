@@ -10018,6 +10018,50 @@ bytes  = 1303
 status = "retrieved"
 group  = "V"
 
+# The quad's provenance audit (note W, section 8), at kitty's release tag
+# v0.49.2, commit b2cb871: cursor_trail.c differs from the 1e1486e copy above
+# only by the previous frame's corners kept at 163-165, so lines up to 162 read
+# the same in both; trail.slang is the same bytes as `kitty-trail-slang`.
+# Hash-verified, not committed (GPL-3.0). Re-fetch the url and compare.
+[sources.kitty-cursor-trail-v0492]
+key    = "kitty-cursor-trail-v0492"
+title  = "kitty v0.49.2, cursor_trail.c -- four corners chasing the cursor's, each with its own decay"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/cursor_trail.c"
+file   = ""
+sha256 = "9c0c4ae2efc3a37b9322eaac0098cc6d5c4d79971d3b735c292de5b621834ca4"
+bytes  = 7987
+status = "external"
+group  = "V"
+
+[sources.kitty-options-definition-v0492]
+key    = "kitty-options-definition-v0492"
+title  = "kitty v0.49.2, options/definition.py -- the options cursor_trail (445-447), cursor_trail_decay 0.1 0.4 (467-469), cursor_trail_start_threshold 2 (483-485), cursor_trail_color none (500-512)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/options/definition.py"
+file   = ""
+sha256 = "1ff05cd3a58612c0bd12de7a15d9f645ca3f6ebcdbbb5d0a380740730ef22cc5"
+bytes  = 165097
+status = "external"
+group  = "V"
+
+[sources.kitty-trail-slang-v0492]
+key    = "kitty-trail-slang-v0492"
+title  = "kitty v0.49.2, shaders/trail.slang -- the trail's fragment, zero inside the cursor"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/shaders/trail.slang"
+file   = ""
+sha256 = "16a752335c838b57278365593350820390571a587ce8f3fefc107bebd0e35e77"
+bytes  = 1303
+status = "external"
+group  = "V"
+
 # A short move -- at most two columns and no row -- animates every corner over
 # the short length (`jump`, 158-177): the rule a quad trail's step in flight
 # takes, so typing after a jump folds the trail in.
