@@ -72,7 +72,7 @@ impl Paint<'_, '_> {
 
     /// DECTABSR ([`encode_tab_report`]), in the controls `S7C1T`/`S8C1T`
     /// chose, whole or not at all: the reply buffer holds the longest one, a
-    /// stop at every column of the widest screen (`storage::REPLY`).
+    /// stop at every column of the widest screen (`storage::REPLY_MOST`).
     fn report_tab_stops(&mut self) {
         let cols = self.cols.index().min(self.tabs.len());
         let at = self.reply_len.index();

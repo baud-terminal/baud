@@ -3031,6 +3031,32 @@ impl Paint<'_, '_> {
         *node = crate::graph::Node::Held;
     }
 
+    /// **Stop the read for its answers to go out**, under [`ReplyHold::On`],
+    /// once those queued leave less room than one control can owe
+    /// (`REPLY_MOST`): the embedder sends them and feeds the rest, so the
+    /// next control's answer always fits. Called after every control that
+    /// can answer -- the arms of `csi_final` that may, DECID in
+    /// `esc_final`, VT52's identify in `Paint::vt52`, every string's
+    /// terminator in `Paint::str_end` -- and between two ReGIS commands
+    /// (`Paint::regis_hold`), never per byte. One load and a compare when
+    /// the room is there.
+    #[inline(always)]
+    pub(crate) fn hold_for_replies(&mut self, node: &mut crate::graph::Node) {
+        if self.replies_low() {
+            self.hold_read(node);
+        }
+    }
+
+    /// Whether the answers queued leave less room than one control can owe,
+    /// with the hold on. **Against `REPLY`, a constant**, which the buffer
+    /// is at least (`Storage::new` asserts it): one load and a compare when
+    /// the room is there, where the buffer's own length was a second load.
+    #[inline(always)]
+    pub(crate) fn replies_low(&self) -> bool {
+        self.reply_len.index() > crate::storage::REPLY - crate::storage::REPLY_MOST
+            && self.cold.width.reply_hold == ReplyHold::On
+    }
+
     /// DECSCPP, `CSI Pn $ |`: the width asked for and nothing else here.
     /// `[[source: dec-std-070]]` p. 5-73: it "does not cause the Active
     /// position to move" and "does not cause the Right Margin to move",

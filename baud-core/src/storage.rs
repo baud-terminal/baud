@@ -1260,18 +1260,17 @@ pub const NLINK: usize = 128;
 /// The longest URI kept, and the stride of the flat `links` slice.
 pub const LINK_MAX: usize = 256;
 
-/// How many bytes of reply the core will hold before it starts counting
-/// losses: **the longest single reply**, which is XTGETTCAP's answer to a
-/// full list, 10,412 bytes (`tcap_reply_max`), since 2026-10-21; before it,
-/// DECTABSR with a stop at every one of `MAX_COLS` columns, 9,139 bytes
-/// (`tab_report_max`), since 2026-10-19. It was 256, which bounded the
-/// longest before those, a `DECRQSS`
-/// rendition string of at most `DECRQSS_MAX` bytes, const-asserted against
-/// this in `dcs.rs`; a DECTABSR at 2048 columns with the default stops is
-/// 1,144 bytes, so 256 would have dropped it whole. Cold: written by a
-/// report, read by the embedder. Several replies from one read can still
-/// exceed it (note AG).
-pub const REPLY: usize = {
+/// **The most one control can owe**: XTGETTCAP's answer to a full list,
+/// 10,412 bytes (`tcap_reply_max`), since 2026-10-21; before it, DECTABSR
+/// with a stop at every one of `MAX_COLS` columns, 9,139 bytes
+/// (`tab_report_max`), since 2026-10-19; and before those 256, which held a
+/// `DECRQSS` rendition string of at most `DECRQSS_MAX` bytes. Every control
+/// that answers is const-asserted under it where its bound is made
+/// (`dcs.rs`, `tsr.rs`, `colour.rs`, and here). A ReGIS envelope answers
+/// at each `R` command instead, and one host byte can play a macrograph of
+/// them, so the hold stops a read between two ReGIS commands, a macrograph
+/// playing stopped with it.
+pub const REPLY_MOST: usize = {
     let tabs = match tab_report_max(MAX_COLS) > 256 {
         true => tab_report_max(MAX_COLS),
         false => 256,
@@ -1281,6 +1280,27 @@ pub const REPLY: usize = {
         false => tabs,
     }
 };
+
+/// How many bytes of reply the core holds: **twice [`REPLY_MOST`]**, so
+/// a read whose answers have filled half of it has room left for the next
+/// control's whole answer. Under [`crate::ReplyHold::On`] a read stops
+/// there (`Paint::hold_for_replies`), or between two ReGIS commands,
+/// inside a macrograph playing too (`Paint::regis_hold`); the embedder
+/// sends what is owed and feeds the rest, and no answer is dropped however
+/// many questions one read asks. Sizing it to what one read can ask
+/// instead cannot be done: four bytes, `9B 2 $ w` under ISO 8859-1, ask for
+/// a DECTABSR of up to 9,139, so a 4,096-byte read asks for 9.4 MB (note
+/// AG). Off, a reply that does not fit is dropped whole and counted. Cold:
+/// written by a report, read by the embedder.
+pub const REPLY: usize = 2 * REPLY_MOST;
+
+// One control's answers: a `?2048` report for each parameter of one SM,
+// an `OSC 4` with a `?` in every pair its body can hold (a pair and its
+// separator are at least two bytes), and a key, each fit in what a hold
+// leaves.
+const _: () = assert!(baud_domain::ParamIdx::CAPACITY * baud_domain::Report::MAX_LEN <= REPLY_MOST);
+const _: () = assert!(OSC_MAX / 2 * baud_domain::Report::MAX_LEN <= REPLY_MOST);
+const _: () = assert!(baud_domain::KeyBytes::MAX_LEN <= REPLY_MOST);
 
 /// How many images can be live at once. Small: a screen shows a handful, the
 /// table is scanned linearly, and it is tiny (a slot is a span and a refcount),

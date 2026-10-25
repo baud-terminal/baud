@@ -109,6 +109,9 @@ pub use baud_domain::PointerShape;
 /// What [`Term::style_reclaims`] returns: the rendition table's evictions,
 /// sweeps and the slots they freed.
 pub use baud_domain::Reclaims;
+/// The reply hold's switch: an embedder that cannot name a [`ReplyHold`]
+/// cannot call [`Term::set_reply_hold`].
+pub use baud_domain::ReplyHold;
 /// The resources `Term::resource` reads.
 pub use baud_domain::Resource;
 /// What [`Term::set_term_name`] takes: the `TERM` XTGETTCAP's `TN` names.
@@ -238,8 +241,8 @@ pub use dcs::DECRQSS_MAX;
 pub use storage::Owned;
 pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
-    NSTYLE_MAX, OSC_MAX, PALETTE_LEN, READ_CHUNK, REPLY, Storage, StrBuf, StyleBook, StyleTable,
-    TITLE_SLOTS, TITLE_STACK, grid_stride,
+    NSTYLE_MAX, OSC_MAX, PALETTE_LEN, READ_CHUNK, REPLY, REPLY_MOST, Storage, StrBuf, StyleBook,
+    StyleTable, TITLE_SLOTS, TITLE_STACK, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{

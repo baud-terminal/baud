@@ -436,8 +436,9 @@ fn a_report_that_does_not_fit_says_so() {
     let one = b"\x1b[<64;51;16M";
     let fit = REPLY / one.len();
     // 21 in the 256-byte buffer herdr met; 761 once the buffer held the
-    // longest DECTABSR, 867 since it holds the longest XTGETTCAP answer.
-    assert_eq!(fit, 867, "twelve-byte reports into REPLY bytes");
+    // longest DECTABSR, 867 once it held the longest XTGETTCAP answer, and
+    // 1,735 since it holds two of them.
+    assert_eq!(fit, 1735, "twelve-byte reports into REPLY bytes");
     for i in 0..fit {
         assert!(term.mouse_report(wheel), "report {i} fits and is queued");
     }

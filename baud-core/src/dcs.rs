@@ -14,7 +14,7 @@
 
 use crate::osc::StrKind;
 use crate::paint::Paint;
-use crate::storage::{OSC_MAX, REPLY};
+use crate::storage::{OSC_MAX, REPLY_MOST};
 use crate::write::Csi;
 use baud_domain::*;
 
@@ -98,22 +98,22 @@ pub const DECRQSS_MAX: usize = {
     b"\x1bP".len() + b"1$r".len() + body + b"\x1b\\".len()
 };
 
-// **A drained buffer always takes a DECRQSS answer.** `REPLY`'s doc names the
-// rendition string as the longest single thing it holds; this is that claim
-// as a build failure rather than a sentence.
-const _: () = assert!(DECRQSS_MAX <= REPLY);
+// **A DECRQSS answer is one control's answer**, within `REPLY_MOST`, so the
+// room a hold leaves always takes it: that claim as a build failure rather
+// than a sentence.
+const _: () = assert!(DECRQSS_MAX <= REPLY_MOST);
 
 /// The longest XTGETTCAP answer: a list of `OSC_MAX` bytes less its `q`,
 /// every name the shortest and every value the longest one name answers
 /// (`tcap_reply_max`). **The reply buffer holds it**, so a request alone is
 /// never dropped; behind other replies it is sent whole or counted.
 pub const XTGETTCAP_MAX: usize = tcap_reply_max(OSC_MAX - 1);
-const _: () = assert!(XTGETTCAP_MAX <= REPLY);
+const _: () = assert!(XTGETTCAP_MAX <= REPLY_MOST);
 
 /// The longest XTGETXRES answer ([`xres_reply_max`]) to a list of
 /// `OSC_MAX` bytes less its `Q`: the reply buffer holds it.
 pub const XTGETXRES_MAX: usize = xres_reply_max(OSC_MAX - 1);
-const _: () = assert!(XTGETXRES_MAX <= REPLY);
+const _: () = assert!(XTGETXRES_MAX <= REPLY_MOST);
 
 /// What a `DCS +` reads and leaves: the name `TN` answers, the embedder's
 /// (`Term::set_term_name`), which `RIS` keeps; and the XTSETTCAPs refused.

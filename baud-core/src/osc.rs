@@ -498,7 +498,7 @@ impl Paint<'_, '_> {
     /// has to travel with it.
     #[cold]
     #[inline(never)]
-    pub(crate) fn str_end(&mut self, b: StreamByte) {
+    pub(crate) fn str_end(&mut self, b: StreamByte, node: &mut crate::graph::Node) {
         let term = match b.raw_byte() {
             0x07 => StringTerm::Bel,
             _ => StringTerm::St,
@@ -554,6 +554,9 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.str_len = ByteLen::ZERO;
+        // The answers out before the next control, if they fill the buffer
+        // past one control's worth (`Paint::hold_for_replies`).
+        self.hold_for_replies(node);
     }
 
     /// A palette entry written, and the colour epoch moved when it changed:

@@ -216,7 +216,8 @@ impl Paint<'_, '_> {
     /// hands the embedder as it hands a page-width request's, and the ticks
     /// in `regis_wait`, which `Term::take_regis_wait` hands it. The parser
     /// stays in the string's node, so the rest goes on inside the envelope.
-    /// A delay inside a macrograph stops the macrograph where it is, and
+    /// A delay inside a macrograph stops the macrograph where it is, and so
+    /// do its reports once they leave the replies low (`Out::replies_low`);
     /// the next byte plays the rest of it first, the byte itself held if
     /// the macrograph stops again.
     #[cold]
@@ -308,7 +309,7 @@ impl Paint<'_, '_> {
             };
             return left;
         }
-        self.str_end(StreamByte::from_stream(self.arena[from.index()]));
+        self.str_end(StreamByte::from_stream(self.arena[from.index()]), node);
         ReadLen::ONE
     }
 
@@ -317,11 +318,15 @@ impl Paint<'_, '_> {
     /// mode, no further data from the application (screen output) is
     /// processed until the locator input is complete" (070-13 § 5.1). The
     /// embedder reads the second from `Term::regis_input`, where the first
-    /// has its ticks.
+    /// has its ticks. **And under `ReplyHold::On` once its reports fill the
+    /// reply buffer past one control's worth** (`Paint::hold_for_replies`):
+    /// a report goes at each `R` command, inside the string, so this is
+    /// where the read can stop for them to go out, a macrograph playing
+    /// stopped with it.
     fn regis_hold(&mut self, at: BytePos, len: ReadLen) -> Held {
         let wait = self.strs.regis.take_wait();
         let input = self.strs.regis.input(RegisEnvelope::Open) == RegisInput::OneShot;
-        if wait.is_none() && !input {
+        if wait.is_none() && !input && !self.replies_low() {
             return Held::No;
         }
         if let Some(t) = wait {
@@ -330,6 +335,29 @@ impl Paint<'_, '_> {
         }
         self.cold.width.held = Some(crate::term::Rest { at, len });
         Held::Yes
+    }
+
+    /// **A macrograph its reports stopped plays on before the rest of the
+    /// read**, once they have gone out (`Term::take_held`): the rest's first
+    /// byte may leave the envelope -- `CAN`, `SUB`, an `ESC` and a final --
+    /// and the reports the macrograph still holds were owed before it, as
+    /// they are when the whole macrograph fits. If it stops again the read
+    /// it starts, `len` bytes from `at`, is held whole. Returns how much of
+    /// that read the playing on took.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn regis_play_on(&mut self, at: BytePos, len: ReadLen) -> ReadLen {
+        if self.cold.str_kind != crate::osc::StrKind::Regis {
+            return ReadLen::ZERO;
+        }
+        self.regis_run(|regis, out| regis.resume(out));
+        match self.regis_hold(at, len) {
+            Held::Yes => {
+                self.regis_input_shown();
+                len
+            }
+            Held::No => ReadLen::ZERO,
+        }
     }
 
     /// One body byte. **Under ISO 8859-1 a GR byte outside a quoted string
@@ -370,6 +398,7 @@ impl Paint<'_, '_> {
             reply_len: &mut self.reply_len,
             overflows: &mut self.reply_overflows,
             c1: self.cold.replies.c1(),
+            hold: self.cold.width.reply_hold,
             images: &mut *self.images,
             page: &mut self.strs.regis_page,
             second: &mut self.strs.regis_second,
@@ -929,6 +958,8 @@ struct Out<'a, 'b> {
     overflows: &'a mut usize,
     /// How the null button's `CSI` is sent (S7C1T, S8C1T).
     c1: C1Transmit,
+    /// Whether a read stops for its answers (`Paint::replies_low`).
+    hold: ReplyHold,
     images: &'a mut ImageStore<'b>,
     page: &'a mut Page,
     second: &'a mut Second,
@@ -1121,6 +1152,15 @@ impl RegisOut for Out<'_, '_> {
             }
             None => *self.overflows += 1,
         }
+    }
+
+    /// The test `Paint::replies_low` makes between two controls, made
+    /// between two characters of a macrograph playing: with the hold on,
+    /// the playing stops once its reports leave less room than one control
+    /// can owe, and `Paint::regis_hold` stops the read there.
+    fn replies_low(&self) -> bool {
+        self.reply_len.index() > crate::storage::REPLY - crate::storage::REPLY_MOST
+            && self.hold == ReplyHold::On
     }
 
     fn delay(&mut self, _: RegisTicks) {}

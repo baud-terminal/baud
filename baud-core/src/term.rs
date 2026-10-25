@@ -746,6 +746,8 @@ pub(crate) struct WidthAsk {
     pub(crate) requests: WidthRequests,
     pub(crate) last: Option<WidthRequest>,
     pub(crate) hold: WidthHold,
+    /// Whether a read stops for its answers to go out (`Term::set_reply_hold`).
+    pub(crate) reply_hold: baud_domain::ReplyHold,
     /// Set where a held read stopped (`Act::Hold`, or `Term::feed` when the
     /// request was the read's last byte, or a ReGIS delay, `regis_byte`),
     /// and taken by [`Term::take_held`];
@@ -770,6 +772,7 @@ impl WidthAsk {
         requests: WidthRequests::FIRST,
         last: None,
         hold: WidthHold::Off,
+        reply_hold: baud_domain::ReplyHold::Off,
         held: None,
         refused: ColumnRefusals::FIRST,
         resume: Node::AfterControl,
@@ -4396,12 +4399,56 @@ impl<'b> Term<'b> {
         self.cold.width.hold = hold;
     }
 
+    /// **Whether a read stops so its answers can go out.** Set it only if
+    /// you send [`Term::reply`] and feed the rest [`Term::take_held`] hands
+    /// back, as after a page-width request: then no answer is dropped, however
+    /// many questions one read asks. Off, a reply that does not fit is
+    /// dropped whole and counted in `reply_overflows`.
+    pub fn set_reply_hold(&mut self, hold: baud_domain::ReplyHold) {
+        self.cold.width.reply_hold = hold;
+    }
+
     /// The rest of the last read, if a page-width request, a change of
-    /// `?46` or a ReGIS delay held it: `None` when the read was parsed
-    /// whole. Taken once; the next read clears it. A delay's rest goes on
-    /// once its ticks have passed ([`Term::take_regis_wait`]).
+    /// `?46`, a ReGIS delay or the answers owed held it: `None` when the
+    /// read was parsed whole. Taken once; the next read clears it. A delay's
+    /// rest goes on once its ticks have passed ([`Term::take_regis_wait`]).
+    ///
+    /// **A macrograph its reports stopped plays on here**, the answers owed
+    /// having gone out: the rest may begin with a byte that ends the
+    /// envelope, and every report the macrograph holds comes before it. If
+    /// it stops again the rest returned is empty, the answers are sent, and
+    /// the next call plays on again; the rest itself comes once it is done.
     pub fn take_held(&mut self) -> Option<Rest> {
+        if self.store.strs.regis.waits_on_replies() {
+            return self.play_on_held();
+        }
         self.cold.width.held.take()
+    }
+
+    /// [`Term::take_held`] with a macrograph its reports stopped: played
+    /// on, and the rest kept back while it stops again.
+    #[cold]
+    #[inline(never)]
+    fn play_on_held(&mut self) -> Option<Rest> {
+        // The rest this read held, or, after an empty one, the rest kept.
+        let kept = self.store.strs.regis.take_kept();
+        let kept = kept.map(|(at, len)| Rest { at, len });
+        let rest = self.cold.width.held.take().or(kept);
+        let at = rest.map_or(BytePos::ZERO, |r| r.at);
+        self.feed_playing_on(at);
+        if self.store.strs.regis.waits_on_replies() {
+            if let Some(r) = rest {
+                self.store.strs.regis.keep(r.at, r.len);
+            }
+            return Some(Rest {
+                at,
+                len: ReadLen::ZERO,
+            });
+        }
+        // A delay or an input that stopped it holds the rest as it held
+        // the read (`Paint::regis_hold`), at the place it was held from.
+        let _ = self.cold.width.held.take();
+        rest
     }
 
     /// How many `?3`s were ignored because `?40` was reset, as xterm

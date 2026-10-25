@@ -24,6 +24,38 @@ use crate::term::Term;
 use crate::write::{Csi, act};
 use baud_domain::*;
 
+/// Where a read's parse starts: [`Fresh`] at its first byte, every read's;
+/// [`AfterStop`] after playing on a macrograph its reports stopped
+/// (`Term::feed_playing_on`).
+trait ReadStart {
+    fn start(p: &mut Paint<'_, '_>, base: BytePos, n: ReadLen) -> ReadLen;
+}
+
+/// A read parsed from its first byte.
+struct Fresh;
+
+impl ReadStart for Fresh {
+    #[inline(always)]
+    fn start(_: &mut Paint<'_, '_>, _: BytePos, _: ReadLen) -> ReadLen {
+        ReadLen::ZERO
+    }
+}
+
+/// A read that may follow a macrograph its reports stopped
+/// (`Paint::regis_play_on`): how much of it the playing on took, the whole
+/// read if it stopped again.
+struct AfterStop;
+
+impl ReadStart for AfterStop {
+    #[inline(always)]
+    fn start(p: &mut Paint<'_, '_>, base: BytePos, n: ReadLen) -> ReadLen {
+        match p.strs.regis.waits_on_replies() {
+            false => ReadLen::ZERO,
+            true => p.regis_play_on(base, n),
+        }
+    }
+}
+
 impl Term<'_> {
     /// Ingest `n` bytes starting at `base`.
     ///
@@ -41,7 +73,7 @@ impl Term<'_> {
         if self.cold.strips() == crate::term::Strip::Seven {
             return self.feed_stripping(base, n);
         }
-        self.feed_read(base, n);
+        self.feed_read::<Fresh>(base, n);
         if self.cold.restrip == crate::term::Restrip::Held {
             self.feed_restripped();
         }
@@ -103,11 +135,21 @@ impl Term<'_> {
 
     #[inline(never)]
     fn feed_read_outlined(&mut self, base: BytePos, n: ReadLen) {
-        self.feed_read(base, n);
+        self.feed_read::<Fresh>(base, n);
+    }
+
+    /// **A macrograph its reports stopped, played on** before the rest of
+    /// the read it stopped, once the embedder has sent them
+    /// (`Term::take_held`): a read of no bytes that starts by playing on
+    /// (`Paint::regis_play_on`), and holds no bytes if it stops again.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn feed_playing_on(&mut self, at: BytePos) {
+        self.feed_read::<AfterStop>(at, ReadLen::ZERO);
     }
 
     #[inline(always)]
-    fn feed_read(&mut self, base: BytePos, n: ReadLen) {
+    fn feed_read<S: ReadStart>(&mut self, base: BytePos, n: ReadLen) {
         self.bytes_in += n.index();
         // Where this read starts, for a hide looking back past it
         // (`placed.rs`).
@@ -218,9 +260,14 @@ impl Term<'_> {
         }
         // The segment arm below consumes the whole read itself and leaves
         // nothing for the main loop, so the initialiser is dead under it.
+        // **A macrograph its reports stopped plays on before the read's
+        // first byte** (`Paint::regis_play_on`), and holds the whole read if
+        // it stops again: only in the empty read `Term::take_held` makes for
+        // it (`AfterStop`), so every other read starts at zero as it always
+        // did (`Fresh`).
         #[cfg_attr(feature = "ceiling-segment-cache", allow(unused_assignments))]
         #[allow(unreachable_code)]
-        let mut done = ReadLen::ZERO;
+        let mut done = S::start(&mut p, base, n);
         #[cfg(feature = "diag")]
         let mut iters = 0usize;
 

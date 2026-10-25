@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 05bf17a093e657d4024cbefb50faced704fd4b291c3c38a1927216c12f620df9 # shrinks to prog = [3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0, 0, 0, 0, 0, 3, 0, 3, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], chunk = 187
+cc 2a7ceb1b260232ce6e4f6aa114f682360c83cefef40fd6cc2fcd640f1b23ced2 # shrinks to prog = [2, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 14, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 2, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 2, 0, 3, 0, 3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 2, 2, 0, 3, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 4, 0, 4, 0, 3, 0, 0, 2, 0, 4, 0, 4, 2, 3, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 8, 3, 3, 3, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 10, 4, 10, 8, 11, 9, 8, 8, 2, 2, 0, 5, 3, 6, 0, 4, 10, 0, 10, 3, 9, 11, 4, 5, 0, 1, 2, 4, 0, 3, 7, 10, 9, 8, 4, 3, 3, 3, 11, 6, 5, 11, 11, 2, 3, 10, 10, 6, 1, 11, 1, 7, 6, 1, 10, 10, 3, 1, 6], chunk = 65536

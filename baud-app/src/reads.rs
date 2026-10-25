@@ -156,17 +156,15 @@ impl Fed {
 ///
 /// **The reply buffer is drained after every read**, not once after the
 /// batch, and once before the first, so answers an earlier writer left owed
-/// do not share it with the first read's. It is `REPLY` bytes, the longest
-/// single reply (10,412 since 2026-10-21, 9,139 from 2026-10-19; it was
-/// 256), and the macOS pump fed
-/// every read the reader thread had queued and then drained once, so the
-/// answers of all but the first reads were dropped: a burst of `OSC 4`
-/// palette queries, one to each 600 bytes of drawing, had 10 of 256
-/// answered. Several long replies from one read can still overflow it on
-/// their own, and how to hold those is the owner's question in note AG;
-/// this stops the loss between reads. `sink` is the outbox's `push`,
-/// which makes no system call, so draining a read at a time writes no more
-/// often than draining a batch did.
+/// do not share it with the first read's. The macOS pump fed every read the
+/// reader thread had queued and then drained once, so the answers of all
+/// but the first reads were dropped: a burst of `OSC 4` palette queries,
+/// one to each 600 bytes of drawing, had 10 of 256 answered. **And inside
+/// a read, wherever the core stops it for its answers to go out**
+/// ([`hold_replies`]), so one read that asks more than the buffer holds is
+/// answered whole too. `sink` is the outbox's `push`, which makes no
+/// system call, so draining a part at a time writes no more often than
+/// draining a batch did.
 ///
 /// **`after` sees the core after each read**, for what is an event rather
 /// than state: an `OSC 52` write (`clip.rs`). The core keeps only the last
@@ -321,6 +319,15 @@ fn paced_one(
         }
     }
     Fed::Some
+}
+
+/// **A read stops for its answers to go out** (`Term::set_reply_hold`),
+/// and [`paced`] sends them and feeds the rest: one read of questions that
+/// owes more than the core's reply buffer holds -- herdr's palette, a
+/// DECRQSS for each seven bytes -- is answered whole and in order, where
+/// the answers past the buffer were dropped. Both drivers set it.
+pub fn hold_replies(term: &mut Term<'_>) {
+    term.set_reply_hold(baud_core::ReplyHold::On);
 }
 
 /// One input event's answer -- a key, a focus report -- queued into an empty
@@ -518,6 +525,51 @@ mod tests {
         assert!(t.reply().is_empty(), "nothing is left behind");
     }
 
+    /// **One read that owes more than the reply buffer holds is answered
+    /// whole and in order**: a DECRQSS for each seven bytes of four reads,
+    /// 75 bytes an answer: 2,340 questions owe 175,500 bytes, over eight
+    /// times the buffer.
+    /// The control is the same reads with the hold off, which drop.
+    #[test]
+    fn a_read_of_questions_owing_more_than_the_buffer_is_answered_whole() {
+        let rich = b"\x1b[1;2;3;4:3;5;7;8;9;53;58:2::1:2:3;38:2::100:200:255;48:2::10:20:30m";
+        let query = b"\x1bP$qm\x1b\\";
+        let stream = query.repeat(4 * READ_CHUNK / query.len());
+        let run = |hold: bool| {
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            if hold {
+                hold_replies(&mut t);
+            }
+            t.write_at(BytePos::ZERO, rich);
+            t.feed(BytePos::ZERO, ReadLen::from_index(rich.len()));
+            t.write_at(BytePos::ZERO, query);
+            t.feed(BytePos::ZERO, ReadLen::from_index(query.len()));
+            let one = t.reply().to_vec();
+            t.clear_reply();
+            let mut child = Vec::new();
+            feed(
+                &mut t,
+                stream.chunks(READ_CHUNK),
+                |b| child.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            (one, child, t.reply_overflows)
+        };
+        let (one, child, lost) = run(true);
+        let n = stream.len() / query.len();
+        assert!(
+            n * one.len() > 3 * REPLY,
+            "the reads owe {} bytes",
+            n * one.len()
+        );
+        assert_eq!(child, one.repeat(n), "every answer, whole and in order");
+        assert_eq!(lost, 0, "and none dropped");
+        let (_, child, lost) = run(false);
+        assert!(lost > 0 && child.len() < one.len() * n, "the control drops");
+    }
+
     /// **What the core already owed goes ahead of a read's answers, and out
     /// of their way.** Answers left pending by an earlier writer -- 228 bytes
     /// of `DSR 5` here -- plus a read's two palette answers, 25 and 26 bytes,
@@ -595,6 +647,61 @@ mod tests {
             .collect::<String>()
             .trim_end()
             .to_string()
+    }
+
+    /// **A delay a macrograph meets after its reports stopped it still
+    /// holds the reads behind it.** The reports fill the buffer past
+    /// `REPLY_MOST` before the `S(T60)`, so the read stops inside the
+    /// playing and `Term::take_held` plays the rest on, delay and all: the
+    /// 600 reports before it go out at once, the five after it and the text
+    /// after the envelope only once its second has passed.
+    #[test]
+    fn a_delay_in_a_macrograph_its_reports_stopped_still_holds() {
+        let far = b"\x1bPpS(A[-9999999,-9999999][9999999,9999999])P[-9999999,-9999999]";
+        let r = |n: usize| b"R(P)".repeat(n);
+        let read = [
+            far.as_slice(),
+            b"@:A",
+            &r(600),
+            b"S(T60)",
+            &r(5),
+            b"@;@A\x1b\\AB",
+        ]
+        .concat();
+        let report: &[u8] = b"[-9999999,-9999999]\r";
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        hold_replies(&mut t);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = Pace::new();
+        let mut child = Vec::new();
+        let t0 = Instant::now();
+        let mut run = |t: &mut Term<'_>, pace: &mut Pace, now, reads: &[&[u8]]| {
+            paced(
+                t,
+                pace,
+                now,
+                reads.iter().copied(),
+                |b| child.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            // What the driver's tick flushes (`flush_reply`).
+            child.extend_from_slice(t.reply());
+            t.clear_reply();
+            child.len()
+        };
+        let sent = run(&mut t, &mut pace, t0, &[&read]);
+        assert!(600 * report.len() > REPLY / 2, "the reports stop the read");
+        assert_eq!(pace.deadline(), Some(t0 + Duration::from_secs(1)));
+        assert_eq!(sent, 600 * report.len(), "the reports before the delay");
+        assert_eq!(row0(&t), "", "nothing after the delay yet");
+        let done = t0 + Duration::from_secs(1);
+        let sent = run(&mut t, &mut pace, done, &[]);
+        assert_eq!(sent, 605 * report.len(), "and the five after it");
+        assert_eq!(row0(&t), "AB");
+        assert_eq!(t.reply_overflows, 0);
+        assert!(child.chunks(report.len()).all(|c| c == report));
     }
 
     /// **A ReGIS delay holds the rest of its read and every read after it

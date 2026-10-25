@@ -709,6 +709,14 @@ pub trait RegisOut {
     fn recolor(&mut self);
     /// Bytes for the host, a report whole.
     fn reply(&mut self, bytes: &[u8]);
+    /// **Whether the reports sent leave too little room for the next**: a
+    /// macrograph playing then stops where it is, as at a delay, and
+    /// [`Regis::resume`] plays the rest once the caller has sent them. One
+    /// host character plays every command a macrograph holds, so the
+    /// caller cannot stop between two of their reports otherwise.
+    fn replies_low(&self) -> bool {
+        false
+    }
     /// `S(T<n>)`: suspend interpretation for `ticks`.
     fn delay(&mut self, ticks: RegisTicks);
     /// `R(P(I))` in multiple mode: the report `pos`, a bracketed extent,
@@ -974,6 +982,12 @@ pub struct Regis {
     /// them, across the resumes a delay makes: [`MACRO_PLAYED`] bounds
     /// the whole, held or not.
     played: usize,
+    /// Why the macrographs playing stopped last: for the caller's replies
+    /// ([`Regis::waits_on_replies`]), or not.
+    stop: Stop,
+    /// The rest of a read the caller keeps back while a macrograph its
+    /// reports stopped plays on ([`Regis::keep`]).
+    kept: Option<(crate::BytePos, crate::ReadLen)>,
     sem: Sem,
     /// The encoding the envelope began under ([`Regis::set_encoding`]).
     enc: InputEncoding,
@@ -987,6 +1001,16 @@ pub struct Regis {
     /// DECLKD's locator key definitions, the strings graphics input sends
     /// for the pointer's buttons.
     keys: crate::LocatorKeys,
+}
+
+/// Why the macrographs playing stopped.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Stop {
+    /// Their reports left the caller's replies low
+    /// ([`RegisOut::replies_low`]).
+    Replies,
+    /// A delay, an input, or nothing: they played out.
+    Other,
 }
 
 /// Whether the envelope asked for command display.
@@ -1008,6 +1032,8 @@ impl Regis {
         again: [0; 3],
         nagain: 0,
         played: 0,
+        stop: Stop::Other,
+        kept: None,
         sem: Sem::NEW,
         enc: InputEncoding::Utf8,
         utf8: (0, 0),
@@ -1087,14 +1113,34 @@ impl Regis {
 
     /// **Go on with the macrographs a delay stopped**, before the next host
     /// character: under [`RegisHold::On`] a delay inside a macrograph stops
-    /// it there, its place kept.
+    /// it there, its place kept, and so does a report that leaves the
+    /// caller's replies low ([`RegisOut::replies_low`]).
     pub fn resume(&mut self, out: &mut dyn RegisOut) {
         self.drain(out);
     }
 
-    /// Whether a macrograph a delay stopped is still to play.
+    /// Whether a macrograph a delay or a report stopped is still to play.
     pub fn playing(&self) -> bool {
         self.depth > 0
+    }
+
+    /// **Whether a macrograph its reports stopped is still to play**: the
+    /// caller plays it on ([`Regis::resume`]) once it has sent them, and
+    /// before any further host character, which may end the envelope.
+    pub fn waits_on_replies(&self) -> bool {
+        self.depth > 0 && self.stop == Stop::Replies
+    }
+
+    /// Keep the rest of a read, `len` bytes from `at`, while a macrograph
+    /// its reports stopped plays on: the caller plays it on before the
+    /// rest, and keeps the rest here, beside the playing it waits on.
+    pub fn keep(&mut self, at: crate::BytePos, len: crate::ReadLen) {
+        self.kept = Some((at, len));
+    }
+
+    /// The rest [`Regis::keep`] kept, taken once.
+    pub fn take_kept(&mut self) -> Option<(crate::BytePos, crate::ReadLen)> {
+        self.kept.take()
     }
 
     /// Whether the next character is held: a macrograph a delay stopped is
@@ -1116,10 +1162,16 @@ impl Regis {
     }
 
     /// Play the macrographs invoked, a character at a time, until none is,
-    /// a delay stops them, or [`MACRO_PLAYED`] have played.
+    /// a delay stops them, the reports sent leave the caller's replies low,
+    /// or [`MACRO_PLAYED`] have played.
     fn drain(&mut self, out: &mut dyn RegisOut) {
+        self.stop = Stop::Other;
         while self.depth > 0 && self.sem.wait == 0 && self.sem.input.pending == cursor::Pending::No
         {
+            if out.replies_low() {
+                self.stop = Stop::Replies;
+                return;
+            }
             if self.played == MACRO_PLAYED {
                 self.depth = 0;
                 self.sem.counts.macro_cut += 1;

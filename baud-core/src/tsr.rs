@@ -27,9 +27,9 @@ use crate::paint::Paint;
 use crate::write::Csi;
 use baud_domain::*;
 
-/// The reply buffer holds the longest of either report.
-const _: () = assert!(TSR_REPLY_MAX <= crate::storage::REPLY);
-const _: () = assert!(CTR_REPLY_MAX <= crate::storage::REPLY);
+/// One control's answer: the longest of either report.
+const _: () = assert!(TSR_REPLY_MAX <= crate::storage::REPLY_MOST);
+const _: () = assert!(CTR_REPLY_MAX <= crate::storage::REPLY_MOST);
 const _: () = assert!(TSR_DATA_MAX + 2 <= crate::storage::OSC_MAX);
 
 /// What a mode's DECRQM answer is in the report.

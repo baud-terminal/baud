@@ -909,7 +909,7 @@ pub(crate) fn act(
                 p.restore_terminal_state(node, from);
                 *enc = p.cold.encoding;
             }
-            p.str_end(StreamByte::from_stream(p.arena[from.index()]));
+            p.str_end(StreamByte::from_stream(p.arena[from.index()]), node);
             if p.cold.restored_shift.take().is_some() {
                 match *node {
                     Node::Held => p.cold.width.resume = Node::SingleShift,
@@ -2046,6 +2046,13 @@ impl Paint<'_, '_> {
     }
 }
 
+/// **An arm that can answer ends by letting the read stop for its answers to
+/// go out** (`Paint::hold_for_replies`), and only those: the cursor, erasing,
+/// scrolling and tabs, the controls most programs send most, answer nothing
+/// and pay nothing. A check after every arm cost btop 0.4% of its
+/// instructions and vim 1.0%; inside the arms that answer, the counts are
+/// within the parent's range.
+///
 /// **`#[cold]` and out of line.** It runs once a sequence where the loop above
 /// runs once a byte, and this repo has measured that a big `match` inlined into
 /// a per-byte body costs every payload whether or not it executes.
@@ -2204,10 +2211,22 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorTabControl => p.tab_control(csi),
         DomCsi::CursorLineTab(c) => p.line_tab(c),
         DomCsi::TabsEveryEight => p.reset_tabs(),
-        DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node, at),
-        DomCsi::SaveModes => p.save_private_modes(csi),
-        DomCsi::RestoreModes => p.restore_private_modes(csi, node, at),
-        DomCsi::Mode { change, .. } => p.apply_ansi_modes(csi, change),
+        DomCsi::PrivateMode { change, .. } => {
+            p.apply_private_modes(csi, change, node, at);
+            p.hold_for_replies(node);
+        }
+        DomCsi::SaveModes => {
+            p.save_private_modes(csi);
+            p.hold_for_replies(node);
+        }
+        DomCsi::RestoreModes => {
+            p.restore_private_modes(csi, node, at);
+            p.hold_for_replies(node);
+        }
+        DomCsi::Mode { change, .. } => {
+            p.apply_ansi_modes(csi, change);
+            p.hold_for_replies(node);
+        }
         DomCsi::SelectProtection { protect } => {
             p.cold.protect = CellFlags::protection(protect.is_protected());
             p.refresh_flags();
@@ -2228,43 +2247,64 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 *node = Node::Ground;
             }
         }
-        DomCsi::SoftReset => p.soft_reset(),
+        DomCsi::SoftReset => {
+            p.soft_reset();
+            p.hold_for_replies(node);
+        }
         DomCsi::SetConformanceLevel => {
             let was = p.cold.strips();
             p.select_conformance_level(csi);
             p.restrip_from(was, node);
+            p.hold_for_replies(node);
         }
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
-        DomCsi::SetColumnsPerPage(w) => p.set_columns_per_page(w, node),
-        DomCsi::SelectStatusType(t) => p.select_status_type(t),
-        DomCsi::SelectActiveDisplay(d) => p.select_active_display(d),
+        DomCsi::SetColumnsPerPage(w) => {
+            p.set_columns_per_page(w, node);
+            p.hold_for_replies(node);
+        }
+        DomCsi::SelectStatusType(t) => {
+            p.select_status_type(t);
+            p.hold_for_replies(node);
+        }
+        DomCsi::SelectActiveDisplay(d) => {
+            p.select_active_display(d);
+            p.hold_for_replies(node);
+        }
         // **Answered, now that there is a channel.** Each goes through a named
         // `Report`, so the shape is chosen by the variant rather than by the
         // call site -- `docs/vt-coverage.md`'s rule is that answering in the
         // wrong shape is worse than silence, because an application parses
         // whatever arrives as the report it asked for.
-        DomCsi::DeviceAttributes => primary_device_attributes(p),
+        DomCsi::DeviceAttributes => {
+            primary_device_attributes(p);
+            p.hold_for_replies(node);
+        }
         // **`DSR 6` is the cursor, `DSR 5` is health, and nothing else is
         // answered.** An unimplemented `DSR` gets no reply at all rather than
         // a plausible one.
-        DomCsi::DeviceStatus(k) => match k {
-            // **Relative to the origin when DECOM is set**, which is what
-            // `[[source: vt510-decom]]` requires: an application inside a
-            // margin asks where it is and must be told in its own coordinates.
-            Some(StatusKind::CursorPosition) => {
-                let (row, col) = p.reported_cursor();
-                p.want_reply(Report::CursorPosition { row, col });
-            }
-            Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
-            // **A `DSR` this core cannot answer gets silence, and silence is
-            // the right reply** -- an application parses whatever arrives as
-            // the report it asked for, so a wrong shape is worse than none.
-            // What was missing is the *count*: refusing is not the same as not
-            // knowing, and the conformance inventory asks exactly that.
-            _ => p.unsupported_param += 1,
-        },
+        DomCsi::DeviceStatus(k) => {
+            match k {
+                // **Relative to the origin when DECOM is set**, which is
+                // what `[[source: vt510-decom]]` requires: an application
+                // inside a margin asks where it is and must be told in its
+                // own coordinates.
+                Some(StatusKind::CursorPosition) => {
+                    let (row, col) = p.reported_cursor();
+                    p.want_reply(Report::CursorPosition { row, col });
+                }
+                Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
+                // **A `DSR` this core cannot answer gets silence, and silence
+                // is the right reply** -- an application parses whatever
+                // arrives as the report it asked for, so a wrong shape is
+                // worse than none. What was missing is the *count*: refusing
+                // is not the same as not knowing, and the conformance
+                // inventory asks exactly that.
+                _ => p.unsupported_param += 1,
+            };
+            p.hold_for_replies(node);
+        }
         // **The program's answer to a `?1001` press**: it starts the region
         // the embedder draws (`Term::highlight`) and the release reports, or
         // `func` 0 aborts it. An answer no press is owed changes nothing
@@ -2294,7 +2334,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.rehook();
         }
         // MC (`print.rs`).
-        DomCsi::MediaCopy(m) => p.media_copy(m, node),
+        DomCsi::MediaCopy(m) => {
+            p.media_copy(m, node);
+            p.hold_for_replies(node);
+        }
         // **DECRQM, answered from the modes this core actually stores.**
         // `Paint::mode_state` returns `NotRecognized` for everything else,
         // which is the rule `docs/vt-coverage.md` states: answering `Reset`
@@ -2307,6 +2350,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 mode,
                 state,
             });
+            p.hold_for_replies(node);
         }
         // **XTVERSION, and the refusal it replaces was scoped wrongly.** The
         // reason on record was that answering "would name a version this core
@@ -2316,24 +2360,33 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // *program*'s rather than the core's, and the program is baud. Read a
         // refusal against its scope, which this file says to do and which has
         // closed four others.
-        DomCsi::RequestVersion => p.want_reply(Report::Version),
+        DomCsi::RequestVersion => {
+            p.want_reply(Report::Version);
+            p.hold_for_replies(node);
+        }
         // XTSMGRAPHICS, answered under the condition DA's `4` is
         // (`Report::graphics` says what each item answers).
-        DomCsi::Graphics(req) => p.want_reply(Report::graphics(
-            req,
-            p.sixel_claim(),
-            p.rows,
-            p.cols,
-            p.cell_width,
-            p.cell_height,
-        )),
+        DomCsi::Graphics(req) => {
+            p.want_reply(Report::graphics(
+                req,
+                p.sixel_claim(),
+                p.rows,
+                p.cols,
+                p.cell_width,
+                p.cell_height,
+            ));
+            p.hold_for_replies(node);
+        }
         // **XTWINOPS: the window operations queued, the reports, the title
         // stack and the refusals**, out of line (`crate::window`). The size of the text area is what an
         // image client sizes its pictures from: `[[source: yazi-emulator]]`
         // sends `CSI 16 t` in its DA1 burst and takes the cell size from the
         // `CSI 6 ; h ; w t` it gets back; without it, and without pixels in
         // the pty's `winsize`, it draws every image at a fixed 600x900.
-        DomCsi::Window(op) => p.window_op(op, csi),
+        DomCsi::Window(op) => {
+            p.window_op(op, csi);
+            p.hold_for_replies(node);
+        }
         // **XTMODKEYS and XTFMTKEYS: recorded here and read by `Term::key`.**
         // They land in `Cold` rather than on `Paint` because no byte of the
         // ingest loop reads them -- they are written once per control sequence
@@ -2344,7 +2397,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // recorded and never read, which `docs/vt-coverage.md` rates worse than
         // not implementing the sequence at all -- so the two halves landed in
         // one change.
-        DomCsi::KeyControl(op) => p.key_control(op, csi),
+        DomCsi::KeyControl(op) => {
+            p.key_control(op, csi);
+            p.hold_for_replies(node);
+        }
         // XTSHIFTESCAPE: recorded here and read by the embedder's pointer.
         DomCsi::ShiftEscape(e) => p.cold.shift_escape = e,
         DomCsi::PointerMode(m) => p.cold.pointer_mode = m,
@@ -2358,7 +2414,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::KittySet { flags, mode } => p.cold.kitty.set(flags, mode),
         DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
         DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
-        DomCsi::KittyQuery => p.want_reply(Report::KittyFlags(p.cold.kitty.current())),
+        DomCsi::KittyQuery => {
+            p.want_reply(Report::KittyFlags(p.cold.kitty.current()));
+            p.hold_for_replies(node);
+        }
         // The class of what `OSC 10`/`11 ; ?` would answer, and silence where
         // either would be silent -- the `OSC 4` refusal, for the same reason:
         // a terminal told no colours has nothing true to say.
@@ -2366,22 +2425,44 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             if let Some(s) = p.cold.color_scheme() {
                 p.want_reply(Report::ColorScheme(s));
             }
+            p.hold_for_replies(node);
         }
         // The VT420 rectangle operations (`crate::rect`), their parameters
         // read out of line.
-        DomCsi::Area(op) => p.area_op(op, csi),
-        DomCsi::RequestPresentationState => p.request_presentation_state(csi),
-        DomCsi::RequestTerminalState => p.request_terminal_state(csi),
+        DomCsi::Area(op) => {
+            p.area_op(op, csi);
+            p.hold_for_replies(node);
+        }
+        DomCsi::RequestPresentationState => {
+            p.request_presentation_state(csi);
+            p.hold_for_replies(node);
+        }
+        DomCsi::RequestTerminalState => {
+            p.request_terminal_state(csi);
+            p.hold_for_replies(node);
+        }
         // The reports a VT420 and xterm answer (`crate::query`), their
         // parameters read out of line.
-        DomCsi::Query(op) => p.answer_query(op, csi, node),
+        DomCsi::Query(op) => {
+            p.answer_query(op, csi, node);
+            p.hold_for_replies(node);
+        }
         // DEC's text locator (`crate::locator`), its parameters read out
         // of line.
-        DomCsi::Locator(op) => p.locator_op(op, csi),
+        DomCsi::Locator(op) => {
+            p.locator_op(op, csi);
+            p.hold_for_replies(node);
+        }
         // xterm's stack controls (`crate::stack`) and its title modes
         // (`crate::window`), their parameters read out of line.
-        DomCsi::Stack(op) => p.stack_op(op, csi),
-        DomCsi::TitleModes(change) => p.title_modes(change, csi),
+        DomCsi::Stack(op) => {
+            p.stack_op(op, csi);
+            p.hold_for_replies(node);
+        }
+        DomCsi::TitleModes(change) => {
+            p.title_modes(change, csi);
+            p.hold_for_replies(node);
+        }
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
@@ -2630,7 +2711,12 @@ fn esc_final(
         // Level 3 or above", and the algorithm answers only at Level 1 or
         // Level 2, "Ignored above Level 2" (Jev, NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). xterm answers at
         // every level, a departure from the text not followed.
-        Esc::Identify => primary_device_attributes(p),
+        // The one escape that answers, so the one that may hold the read
+        // for its answer to go out (`Paint::hold_for_replies`).
+        Esc::Identify => {
+            primary_device_attributes(p);
+            p.hold_for_replies(node);
+        }
         Esc::StartGuardedArea => p.start_guarded_area(),
         Esc::EndGuardedArea => p.end_guarded_area(),
 

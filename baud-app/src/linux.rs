@@ -408,6 +408,9 @@ pub fn run() {
     // A ReGIS delay stops the read, and the loop feeds the rest on the turn
     // its deadline wakes (`reads::paced`).
     term.set_regis_hold(baud_core::RegisHold::On);
+    // A read stops once its answers fill the reply buffer past one
+    // control's worth, and the loop sends them before the rest is parsed.
+    crate::reads::hold_replies(&mut term);
     // A deleted picture's pages go back to the system (`pages.rs`).
     if let Some(release) = crate::pages::release() {
         term.set_page_release(release);

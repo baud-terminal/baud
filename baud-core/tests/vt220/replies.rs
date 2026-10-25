@@ -285,9 +285,9 @@ fn overflow_is_counted_not_silent() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    // Each CPR is 6-8 bytes and REPLY holds the longest XTGETTCAP answer,
-    // 10,412 bytes, so 2,000 queries overflow it.
-    let flood: Vec<u8> = std::iter::repeat_n(b"\x1b[6n".as_slice(), 2000)
+    // Each CPR is 6-8 bytes and REPLY holds two of the longest XTGETTCAP
+    // answer, 20,824 bytes, so 4,000 queries overflow it.
+    let flood: Vec<u8> = std::iter::repeat_n(b"\x1b[6n".as_slice(), 4000)
         .flatten()
         .copied()
         .collect();

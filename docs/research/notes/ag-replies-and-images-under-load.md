@@ -104,12 +104,15 @@ is sent whole, and the app drains after every read"); the rest are open.
   4096-byte read of herdr's queries still overflows, which is section 3's
   question.
 - **One action can overflow 256 B even drained after every byte**: `?2048` x39
-  in a single SM sent 9 reports and counted 30 (**M**).
+  in a single SM sent 9 reports and counted 30 (**M**). Closed by the larger
+  buffer: one control owes at most `REPLY_MOST`, const-asserted for this
+  case (`baud-core/src/storage.rs`).
 - **Two departures rest on the buffer.** `OSC 4` takes only its first pair
   because "n pairs means n replies from a fixed reply buffer"
   (`baud-domain/src/vt/osc.rs`), where [[source: ctlseqs]] says "Any number of
   c/spec pairs may be given"; and `OSC 10;?;?` answers only 10, where ctlseqs
-  says "Each successive parameter changes the next color".
+  says "Each successive parameter changes the next color". Both built since: the
+  `OSC 4` and `OSC 10` rows of `docs/vt-coverage.md`.
 - **Fixed (2026-10-10): keys stayed seven-bit after `S8C1T`**, found
   correcting the comments: every reply followed `S7C1T`/`S8C1T` and `Term::key`
   passed `C1Transmit::SevenBit`, so after `ESC SP G` a DA answered `9B` and an
@@ -170,6 +173,28 @@ worst -- and a fragment is the wrong shape.
 **Jev, twice, no lean:** A at 0.19, then B at 0.22 (`.claude/research/reply/`).
 The design study recommends A, departures first (the residual overflow outside
 its contract, and the two colour departures until they are built).
+
+**Decided and built, 2026-10-25: B, the hold, off by default.** `REPLY`
+had grown to 10,412 bytes (the longest XTGETTCAP answer; DECTABSR's 9,139
+before it), and DECTABSR made A unbuildable: four bytes, `9B 2 $ w` under
+ISO 8859-1, ask for up to 9,139 bytes at 2,048 columns, so one 4,096-byte
+read can owe 9.36 MB. Measured on the base, in 4,096-byte reads, answers
+dropped: CPR in C1 form 209 of the first read's 1,365, DECRQSS 447 of 585,
+DECTABSR at 200 stops 805 of 819, herdr's palette 22 of 1,024 over all its
+reads, ReGIS `R(P)` 1,920 of 4,000 over all its reads (3,480 in one read).
+Built: `ReplyHold::On` stops a read after a control whose answers
+leave less than `REPLY_MOST` of room, through the page-width request's
+hold (`Term::take_held`), and the app's loop sends them and feeds the
+rest; a ReGIS envelope stops between two commands, and a macrograph
+playing between two of its reports, since one host byte plays all of
+them; taking the rest plays the macrograph on first, since the rest's
+first byte may leave the envelope. `REPLY` is twice
+`REPLY_MOST`, 20,824 bytes. Every flood is answered whole and in order at
+reads of 7 to 65,536 bytes. Jev: B_HOLD 0.97 and 0.97; the default,
+OFF_DEFAULT 0.08 and 0.64, then after research (every in-repo embedder but
+the app ignores `take_held`, and `ingest2` never drains) 0.92 and 0.96
+(log lines 1565-1568). The record has it: "A read stops for its answers
+to go out".
 
 ### 1.6 Red-first tests (either option)
 
@@ -250,7 +275,7 @@ refusal with the limit hit and the sizes. Note S's claim that a refusal is
 
 ## 3. The owner's questions
 
-1. **The reply buffer: A (a derived bound, about 96 KiB) or B (backpressure)?**
+1. **Decided 2026-10-25, B (section 1.5).** ~~The reply buffer: A (a derived bound, about 96 KiB) or B (backpressure)?~~
    Neither departs from a text; A changes nothing per byte and keeps the API, B
    holds for any embedder at the cost of an unmeasured branch and an API change.
 2. **The Sixel body: 3 MiB, 5 MiB, stream-decode, or raise now and stream

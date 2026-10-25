@@ -1236,6 +1236,9 @@ impl App {
         // A read stops at a page-width request, and `pump` resizes the grid
         // before the rest of it is parsed (`width.rs`).
         term.set_width_hold(baud_core::WidthHold::On);
+        // A read stops once its answers fill the reply buffer past one
+        // control's worth, and `pump` sends them before the rest is parsed.
+        crate::reads::hold_replies(&mut term);
         // The kitty file mediums, read with the text's checks; leaked as
         // the storage is, for a `Term<'static>`.
         term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));

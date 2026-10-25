@@ -24,6 +24,20 @@ pub enum StringTerm {
     Bel,
 }
 
+/// **Whether a read stops so its answers can go out**
+/// (`Term::set_reply_hold`): once the replies a read has queued leave less
+/// room than the longest answer one control can owe, the read stops after
+/// that control, and the embedder sends what is owed and feeds the rest.
+/// **Off by default**: an embedder that never feeds the rest of a read is
+/// fed every byte as before, and a reply that does not fit is dropped and
+/// counted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ReplyHold {
+    #[default]
+    Off,
+    On,
+}
+
 /// Whether the terminal's window gained or lost keyboard focus. The two
 /// states have names so a call site cannot pass a `bool` that reads as
 /// nothing in particular; the platform layers (`macos-liquid-glass`'s

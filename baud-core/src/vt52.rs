@@ -64,7 +64,10 @@ impl Paint<'_, '_> {
             Vt52::DirectAddress => {}
             // **The one reply that is neither a CSI nor a control string.**
             // `[[source: ctlseqs]]`: "ESC / Z Report (terminal to host)".
-            Vt52::Identify => self.want_reply(Report::Vt52Identity),
+            Vt52::Identify => {
+                self.want_reply(Report::Vt52Identity);
+                self.hold_for_replies(node);
+            }
             // **`ESC <` returns to Level 1, and so to seven-bit C1**:
             // `[[source: dec-std-070]]` 070-0A EXIT VT52 EMULATION MODE
             // (p. A-15), "causing the terminal to return to Level 1

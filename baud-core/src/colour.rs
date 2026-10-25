@@ -31,7 +31,7 @@
 use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::storage::{
-    CURSOR_TEXT, CURSOR_TEXT_CONFIGURED, EMBEDDER_PALETTE, OSC_MAX, REPLY, SELECTION_PER_CELL,
+    CURSOR_TEXT, CURSOR_TEXT_CONFIGURED, EMBEDDER_PALETTE, OSC_MAX, REPLY_MOST, SELECTION_PER_CELL,
 };
 use baud_domain::themefile::CursorText;
 use baud_domain::*;
@@ -131,8 +131,12 @@ enum Answer {
     Unknown,
 }
 
+/// The longest `OSC 21` reply body: one control's answer less the seven
+/// bytes of `ESC ] 2 1 ;` and `ESC \` round it.
+const BODY_MAX: usize = REPLY_MOST - 7;
+
 /// **The state of one `OSC 21` in flight**, beside the string storage:
-/// the reply as the queries so far leave it, at most `REPLY` bytes of body
+/// the reply as the queries so far leave it, at most `BODY_MAX` bytes of body
 /// (`Paint::colour_reply` says where its framing goes), and the shadow of
 /// the colours its records changed. Not in `Cold`, whose size is pinned and which the
 /// per-glyph write dereferences; behind a reference in `StrBuf`, for the
@@ -140,7 +144,7 @@ enum Answer {
 /// is the protocol's state.
 pub struct KittyColours {
     /// `key=value` entries joined by `;`, the reply's body after `21;`.
-    reply: [u8; REPLY],
+    reply: [u8; BODY_MAX],
     reply_len: ByteLen,
     room: Room,
     record: Record,
@@ -153,7 +157,7 @@ pub struct KittyColours {
 impl KittyColours {
     /// Nothing in flight.
     pub const NEW: KittyColours = KittyColours {
-        reply: [0; REPLY],
+        reply: [0; BODY_MAX],
         reply_len: ByteLen::ZERO,
         room: Room::Fits,
         record: Record::Whole,
@@ -308,18 +312,19 @@ impl Paint<'_, '_> {
 
     /// The reply the queries built, if any, and the state cleared.
     ///
-    /// **The body is bounded by `REPLY`, and the reply area is `REPLY`
-    /// too**: the body goes out with seven framing bytes, `ESC ] 2 1 ;` and
-    /// `ESC \`, behind any reply already waiting, so a body within seven
-    /// bytes of `REPLY` is dropped and counted by `push_reply`, not by
-    /// [`Room::Overflowed`]. Either drops the reply whole, never a cut one.
+    /// **The body is bounded by `BODY_MAX`**, seven bytes under one
+    /// control's answer, `REPLY_MOST`, for the framing it goes out in,
+    /// `ESC ] 2 1 ;` and `ESC \`, so the room a hold leaves always takes
+    /// it. A longer body is dropped and counted by [`Room::Overflowed`], and
+    /// one behind replies that leave it no room by `push_reply`. Either
+    /// drops the reply whole, never a cut one.
     fn colour_reply(&mut self) {
         let c = &*self.strs.colours;
         let len = c.reply_len.index();
         match c.room {
             Room::Overflowed => self.reply_overflows += 1,
             Room::Fits if len > 0 => {
-                let mut body = [0u8; REPLY];
+                let mut body = [0u8; BODY_MAX];
                 body[..len].copy_from_slice(&c.reply[..len]);
                 self.push_reply(&[b"\x1b]21;", &body[..len], b"\x1b\\"]);
             }

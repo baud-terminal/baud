@@ -63,6 +63,11 @@ Run it with `cargo run -p baud-core --example quickstart`.
 
 - `Term::reply` and `Term::clear_reply`: the bytes to write back to the
   program after each feed.
+- `Term::set_reply_hold` and `Term::take_held`: with the hold on, a read
+  that asks more than the reply buffer holds stops where its answers fill
+  it; write them back, then feed the rest `take_held` returns, and every
+  query is answered in order. The rest can be empty while a ReGIS
+  macrograph plays on: feed it all the same.
 - `Term::row`, `Term::cursor` and `Term::scrollback`: reading the screen and
   the history behind it.
 - `Term::resize`: a new window size, with the primary screen's lines

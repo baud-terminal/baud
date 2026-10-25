@@ -210,7 +210,7 @@ pub fn keys(lines: Lines) -> impl Iterator<Item = KeyEvent> {
 /// owed, because a report must not overtake an answer queued before it.
 ///
 /// **The reply buffer is drained after every report**, not once after the
-/// loop. It is `REPLY`, 256 bytes, and an SGR wheel report is ten to sixteen,
+/// loop. It was 256 bytes then, and an SGR wheel report is ten to sixteen,
 /// so the loop that drained it once sent the first 21 lines of a 40-line
 /// fling at column 51 and dropped the other 19 -- herdr's state, 2026-10-09.
 /// Each report lands in an empty buffer now and none can overflow, so a
