@@ -746,11 +746,11 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
 /// the built Regular run everywhere: a Latin mark on a Hebrew letter, which
 /// no lookup places, sits where the pen leaves it, and right to left that
 /// is its letter's left edge -- baud's pen ran left to right inside a
-/// cluster and put it a cell right. And on each of the built Italic and
-/// Bold Italic, everywhere, the 116 of the 215 clusters whose every code
-/// point the face maps -- the 99 left out carry a cantillation mark, which
-/// the built faces do not draw: the italic Hebrew, its points placed as
-/// HarfBuzz places them.
+/// cluster and put it a cell right. And on each of the built Bold, Italic
+/// and Bold Italic, everywhere, the 116 of the 215 clusters whose every
+/// code point the face maps -- the 99 left out carry a cantillation mark,
+/// which the built faces do not draw: the bold and the italic Hebrew, its
+/// points placed as HarfBuzz places them.
 #[test]
 fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -767,7 +767,7 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
         "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
          {system_moved} glyphs offset, {skipped} skipped"
     );
-    assert!(fixtures == 236 && hebrew == 236, "{fixtures} {hebrew}");
+    assert!(fixtures == 352 && hebrew == 352, "{fixtures} {hebrew}");
     // 215 clusters on each of the three faces, every one Hebrew, and the
     // positive control that some point was moved off its pen.
     if on_macos {
