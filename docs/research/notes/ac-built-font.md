@@ -762,9 +762,14 @@ foot is 157 units against he's 90, ayin's base stops at 400 where tsadi's runs t
 495, vav's head stands left of its leg where zayin's passes over both sides, and the
 final forms descend 180. Dalet now stands nearer vav and resh than it did (above).
 
-**Found, not fixed.** Bold's and Bold Italic's zayin head ends slant 22 units: round
-1's widening moved the points above y 540, and Bold's head underside is at 517, so
-only the top corners moved.
+**Found, then fixed (2026-10-25).** Bold's and Bold Italic's zayin head ends slanted
+22 units: round 1's widening moved the points above y 540, and Bold's head underside
+is at 517, so only the top corners moved. The band now starts at y 500, under both
+weights' head, so each end moves whole and stands square, as Regular's does; Regular
+and Italic are byte for byte as before
+(`zayin_head_ends_stand_square_in_every_style`). Jev, with the 12-16 px words and
+the letters at 200 px before and after (`docs/research/notes/ac/zayin/`): FIX_500 at
+probability 1.00 and confidence 1.00 in both orders.
 
 ## 5. The build
 

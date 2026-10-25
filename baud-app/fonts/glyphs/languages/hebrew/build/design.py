@@ -48,7 +48,10 @@ EDITS = {
     0x05DB: [(250, -32, '<')],    # kaf 379 -> 411: wider than nun
     0x05E0: [(200, +15, '<'), (300, +40, '<', 400, 1000)],  # nun 339: shorter base and head than kaf
     0x05D9: [(300, -40, '<', 500, 1000)],                    # yod head 320 -> 360
-    0x05D6: [(240, -22, '<', 540, 1000), (420, +22, '>', 540, 1000)],  # zayin head 336 -> 380
+    # zayin head 336 -> 380; the band starts under the head's underside in both
+    # weights (Regular 548, Bold 517), so each end moves whole; the leg and its
+    # neck lie between the two x cuts, so they stay
+    0x05D6: [(240, -22, '<', 500, 1000), (420, +22, '>', 500, 1000)],
     0x05D2: [(250, -20, '<', 500, 1000), (250, -20, '<', -100, 150)],  # gimel head and foot 348 -> 368
     0x05D5: [(300, +VAV_CUT, '<')],    # vav keeps Cascadia's 293 (0.70 of resh): wider heads read as resh in words
     0x05DF: [(300, +VAV_CUT, '<')],    # final nun, the long vav

@@ -27,8 +27,9 @@
 #
 # **The gate is the sha256 of the gated files, by value.** These outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
-# 4b) with two conformance fixes (2026-10-08) and one letter redrawn (2026-10-24,
-# below), and nothing else. The fixes: nameID 7 carries
+# 4b) with two conformance fixes (2026-10-08), one letter redrawn (2026-10-24,
+# below) and Bold's zayin head ends squared (2026-10-25, below), and nothing else.
+# The fixes: nameID 7 carries
 # Cascadia's trademark notice after JetBrains Mono's, and GSUB and GPOS each carry a
 # hebr script record naming DFLT's Script table (build.py, with_script_copy). Take
 # that 6-byte record out of each table and GSUB and GPOS are final3's byte for byte;
@@ -48,10 +49,16 @@
 # moves to its roof's right end so that it no longer reads as zayin (note AC 4d).
 # Against the build before it each style differs in that glyph's outline, its
 # anchors and head's checksum alone; the generalised and strip-and-compare gates print
-# the same lines on both, OTS passes, and the meteg check passes the same clusters. A
-# build whose bytes differ is not that set, whatever it looks like, so the build
-# refuses to write it. Changing the design means re-running those
-# gates and then these constants, in one change, with the reason.
+# the same lines on both, OTS passes, and the meteg check passes the same clusters.
+# The zayin: round 1's widening of its head (build/design.py, EDITS) moved only the
+# points above y 540, under which Bold's thicker head starts (517), so Bold's and Bold
+# Italic's head ends slanted 22 units; the band starts at y 500 now. Regular and
+# Italic come out byte for byte as before; Bold and Bold Italic differ in that glyph's
+# outline (with loca), Bold Italic's side bearing for it and head's checksum alone,
+# and the gates print what they printed before. A build whose bytes differ is not that
+# set, whatever it looks like, so the build refuses to write it. Changing the design
+# means re-running those gates and then these constants, in one change, with the
+# reason.
 #
 # **Every byte depends on the environment, so the environment is pinned whole.**
 # - Python and its packages come from one nixpkgs revision fetched by hash. The
@@ -83,18 +90,18 @@ NIXPKGS_SHA256=08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
 # (hebrew/SOURCE). The build refuses any other file.
 VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 
-# The gated hashes: the four embedded styles, and for --italics the two italics as
-# the plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b),
-# with round 5's dalet since 2026-10-24, which the italics' recipes reproduce byte for
-# byte with ROUND_K=0 LEVEL=0.
+# The gated hashes: the four embedded styles, and for --italics the two italics as the
+# plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b), with
+# round 5's dalet since 2026-10-24 and Bold's squared zayin since 2026-10-25, which
+# the italics' recipes reproduce byte for byte with ROUND_K=0 LEVEL=0.
 gate_hash() {
   case $1 in
   Regular) echo 769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb ;;
-  Bold) echo 13ce890885c189eeb3c21bef5cca32f4f96c362383fb1ecc7a428154f5575fe8 ;;
+  Bold) echo d515196d2d9de2bc645dd32aba830e56fdf1974f5a16942d58e1ef0082557a5b ;;
   Italic) echo c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be ;;
-  BoldItalic) echo 183877058f5ee024254897522bee85066f5b795350f7bba72e90ca9a45f503f1 ;;
+  BoldItalic) echo ef0675201d2f5f017eb915ddf996caa275b472f4b1e7a967be2e2d14177b2b12 ;;
   Italic-plain) echo c20a35aa4769f7c11c6098e496dd696c8e3b4e7a245020b3be9b74889c190463 ;;
-  BoldItalic-plain) echo 5f83a8f97ca6a10c348bab1428968f8609b13d891256a90eef5efa3d25c35b5d ;;
+  BoldItalic-plain) echo 3710e0d73551b7cfbb7ac4127875bde0b116a220bdb1ee1257c1cfd09af53bd1 ;;
   *) return 1 ;;
   esac
 }

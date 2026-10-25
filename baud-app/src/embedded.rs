@@ -118,9 +118,9 @@ mod tests {
         };
         for (e, len, hash, style) in [
             (REGULAR, 279_896, 0x93ca_b38f_36ee_e20b_u64, 0),
-            (BOLD, 284_460, 0x4085_4d87_8c3f_2868, 1),
+            (BOLD, 284_456, 0xecc5_8bfd_d450_c29e, 1),
             (ITALIC, 283_296, 0xc1cd_4ef4_0248_7116, 2),
-            (BOLD_ITALIC, 286_868, 0x0d2d_8cad_ff35_adc4, 3),
+            (BOLD_ITALIC, 286_868, 0x8b26_3383_d706_5123, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -155,9 +155,9 @@ mod tests {
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
             "output 769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb baud-app/fonts/built/Regular.ttf",
-            "output 13ce890885c189eeb3c21bef5cca32f4f96c362383fb1ecc7a428154f5575fe8 baud-app/fonts/built/Bold.ttf",
+            "output d515196d2d9de2bc645dd32aba830e56fdf1974f5a16942d58e1ef0082557a5b baud-app/fonts/built/Bold.ttf",
             "output c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be baud-app/fonts/built/Italic.ttf",
-            "output 183877058f5ee024254897522bee85066f5b795350f7bba72e90ca9a45f503f1 baud-app/fonts/built/BoldItalic.ttf",
+            "output ef0675201d2f5f017eb915ddf996caa275b472f4b1e7a967be2e2d14177b2b12 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
