@@ -746,11 +746,13 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
 /// the built Regular run everywhere: a Latin mark on a Hebrew letter, which
 /// no lookup places, sits where the pen leaves it, and right to left that
 /// is its letter's left edge -- baud's pen ran left to right inside a
-/// cluster and put it a cell right. And on each of the built Bold, Italic
-/// and Bold Italic, everywhere, the 116 of the 215 clusters whose every
-/// code point the face maps -- the 99 left out carry a cantillation mark,
-/// which the built faces do not draw: the bold and the italic Hebrew, its
-/// points placed as HarfBuzz places them.
+/// cluster and put it a cell right. And on each of the four built faces,
+/// everywhere, all 215 clusters: the upright, bold and italic Hebrew, its
+/// points placed as HarfBuzz places them. 99 of them carry a cantillation
+/// mark, which the built faces do not map; its `.notdef` keeps its
+/// advance, in HarfBuzz as in baud's shaper, and right to left stands a
+/// cell left of its letter in the shaper's output, where the cell keeps
+/// the letter.
 #[test]
 fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -767,7 +769,24 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
         "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
          {system_moved} glyphs offset, {skipped} skipped"
     );
-    assert!(fixtures == 352 && hebrew == 352, "{fixtures} {hebrew}");
+    assert!(fixtures == 864 && hebrew == 864, "{fixtures} {hebrew}");
+    // The positive control that the cantillated clusters were compared: 99
+    // lines on each of the four built faces, 396 in all, whose hb-shape
+    // output holds a `.notdef`.
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/hebrew-faces.txt"
+    ))
+    .unwrap();
+    let notdef = text
+        .lines()
+        .filter(|l| l.starts_with("baud-app/"))
+        .filter(|l| {
+            let shaped = l.rsplit('\t').next().unwrap();
+            shaped.starts_with("[0=") || shaped.contains("|0=")
+        })
+        .count();
+    assert!(notdef == 396, "{notdef}");
     // 215 clusters on each of the three faces, every one Hebrew, and the
     // positive control that some point was moved off its pen.
     if on_macos {
@@ -898,7 +917,14 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         let (buf, out) = shape(&face, &cps, &mut storage);
         assert!(out.declined.is_zero(), "{path} {cps:04X?}");
         // hb-shape's glyphs with their pen positions, in visual order, then
-        // in logical order; each glyph's offset from its cluster's left edge.
+        // in logical order; each glyph's offset from its cluster's first
+        // glyph's pen, the base, which baud puts at its cell's origin. A
+        // cluster holding a glyph that advances besides its base -- the
+        // `.notdef` of a mark the face does not map -- has its left edge
+        // there in a right-to-left run, a cell left of the base, and the
+        // cell keeps the base; every other glyph's offset from the base is
+        // the same as from the left edge, and baud's are not shifted to
+        // match, so a whole cluster a cell off is still a mismatch.
         let expected = parse_positioned(shaped);
         let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
         let mut pen = 0i32;
@@ -909,14 +935,13 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         if rtl {
             placed.reverse();
         }
-        let mut left = std::collections::HashMap::new();
+        let mut base = std::collections::HashMap::new();
         for &(e, pen) in &placed {
-            let l = left.entry(e.cluster).or_insert(pen);
-            *l = (*l).min(pen);
+            base.entry(e.cluster).or_insert(pen);
         }
         let want: Vec<(u16, u16, i32, i32)> = placed
             .iter()
-            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
+            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - base[&e.cluster], e.dy))
             .collect();
         let got: Vec<(u16, u16, i32, i32)> = buf
             .as_slice()

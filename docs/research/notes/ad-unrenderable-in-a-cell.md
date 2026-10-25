@@ -1707,6 +1707,18 @@ inferred, not measured).
     applies to them.
   - Rely on the placeholder chosen in Q2. This carries the verdict of the Q2
     option chosen.
+- Measured 2026-10-25, while the question stays open: on the four built
+  faces, a cantillation mark on a Hebrew letter shapes to the face's
+  `.notdef`, which keeps its 600-unit advance in HarfBuzz 14.5.1 as in
+  baud's shaper, so in the shaper's output it stands one cell left of its
+  letter, right to left. Its offset from the letter is HarfBuzz's in all 99
+  such corpus clusters of each face (the record, "A cantillation mark's box
+  is shaped where HarfBuzz shapes it"). On screen baud draws no box for it:
+  through baud's renderer at 13, 14 and 28 px, alef with etnahta and bet
+  with qamats and merkha show their letters and points and nothing for the
+  mark, the silent drop Q2's placeholder is to replace. The face has no
+  anchor for it, since it maps none of the 31 marks; whether to draw the
+  marks, or what shows in their place, is this question and Q2.
 
 ### 7.3 Renders the owner must see before deciding
 
