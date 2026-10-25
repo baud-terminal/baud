@@ -248,8 +248,9 @@ fn the_lines_a_scroll_brings_in_take_the_direction() {
 
 /// **A line SD or IL brings in under a wrapped row is a paragraph of its
 /// own**, drawn in the direction in force rather than the paragraph
-/// above's: the draft's "wherever lines are removed or inserted, we ensure
-/// that the boundaries are all hard newlines".
+/// above's: the draft's rule for SD and SU ("wherever lines are removed or
+/// inserted, we ensure that the boundaries are all hard newlines"), which
+/// baud applies to IL as well.
 #[test]
 fn a_line_sd_or_il_brings_in_under_a_wrapped_row_is_its_own_paragraph() {
     let wrapped = "\x1b[1 kabcdefghijklmn\x1b[4;1H\x1b[2 k";

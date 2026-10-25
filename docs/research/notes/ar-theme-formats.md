@@ -1073,10 +1073,10 @@ A Lab colour inside sRGB drawn straight from its linear channels, without
 the round trip through OKLCH, alters bytes: on 10,000,000 random Lab
 values, 65 drew one step off kitty, every one of them `in` (for example
 lab(97.0553 0.00731 -0.00644): kitty #f7f6f7, straight #f6f6f7). The
-rewrite therefore keeps the round trip and takes the first four. It does
-not take the fifth: on 30,000 random OKLCH and Lab values run through the
-oracle, that change drew `lab(88.555 46.1727 -63.043)` one step off kitty
-in green. The distance stays as kitty's Go measures it.
+rewrite keeps the round trip. Of the six, it takes the first four. It
+does not take the fifth: on 30,000 random OKLCH and Lab values run
+through the oracle, that change drew `lab(88.555 46.1727 -63.043)` one
+step off kitty in green. The distance stays as kitty's Go measures it.
 
 Twelve changes alter bytes:
 

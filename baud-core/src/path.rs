@@ -160,10 +160,11 @@ impl Paint<'_, '_> {
     }
 
     /// **SU, SD, IL and DL end the lines either side of the `k` lines they
-    /// insert or remove** in rows `top..=bot`, terminal-wg's "wherever
-    /// lines are removed or inserted, we ensure that the boundaries are all
-    /// hard newlines": the row above the band, the row the moved lines end
-    /// on, and, for a scroll down at the primary's top, the history's
+    /// insert or remove** in rows `top..=bot`, terminal-wg's rule for SD
+    /// and SU ("wherever lines are removed or inserted, we ensure that the
+    /// boundaries are all hard newlines"), which baud applies to IL and DL
+    /// as well: the row above the band, the row the moved lines end on,
+    /// and, for a scroll down or IL at the primary's top, the history's
     /// newest line. Each new line is then a paragraph of its own, which
     /// takes the direction in force and not the paragraph's above, and a
     /// moved row that still runs on into the next keeps its wrap. A line

@@ -215,10 +215,11 @@ fn a_line_a_sixel_image_scrolls_in_takes_the_path_in_force() {
 }
 
 /// **SU, SD, IL and DL end the lines either side of what they insert or
-/// remove**, terminal-wg's "wherever lines are removed or inserted, we
-/// ensure that the boundaries are all hard newlines": the row above the
-/// band, the row the moved lines end on, and the history's newest line
-/// when a scroll down brings a line in at the top. A moved row that still
+/// remove**, terminal-wg's rule for SD and SU ("wherever lines are removed
+/// or inserted, we ensure that the boundaries are all hard newlines"),
+/// which baud applies to IL and DL as well: the row above the band, the
+/// row the moved lines end on, and the history's newest line when a
+/// scroll down brings a line in at the top. A moved row that still
 /// runs on into the next keeps its wrap. Every row but the last continues
 /// before each.
 #[test]

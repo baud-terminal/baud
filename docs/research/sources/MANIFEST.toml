@@ -23198,7 +23198,8 @@ bytes  = 4793
 status = "external"
 group  = "AN"
 # Retrieved 2026-10-25. Read: registry_token and registry_token_from_env,
-# 'Ok(token.ok().map(|t| t.into()))' -- no test for an empty string.
+# 'Ok(token.ok().map(|t| t.into()))'. No test sets CARGO_REGISTRY_TOKEN to an
+# empty string; the one empty-string test parses an empty credentials file.
 
 [sources.release-plz-v0-3-160-config-rs]
 key    = "release-plz-v0-3-160-config-rs"
