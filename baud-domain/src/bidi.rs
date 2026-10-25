@@ -231,7 +231,7 @@ pub fn in_rtl_block(cp: u32) -> bool {
 /// entries.
 pub static RTL_BLOCKS: [u64; 68] = rtl_blocks();
 
-const fn rtl_blocks() -> [u64; 68] {
+pub(crate) const fn rtl_blocks() -> [u64; 68] {
     let distinct = BIDI_BLOCKS.len() / 256;
     let mut rtl = [false; 256];
     let mut b = 0;

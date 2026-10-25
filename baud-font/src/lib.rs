@@ -63,6 +63,7 @@ mod compose;
 mod context;
 mod describe;
 mod face;
+mod forms;
 mod glyf;
 mod gpos;
 mod gsub;
@@ -74,6 +75,7 @@ mod layout;
 mod morx;
 mod name;
 pub mod outline;
+mod presentation;
 mod raster;
 mod script;
 mod script_data;
@@ -94,6 +96,7 @@ pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
+pub use forms::{lam_alef_form, presentation_form};
 pub use glyf::VarPoint;
 pub use gpos::Gpos;
 pub use gsub::{Gsub, Walked};

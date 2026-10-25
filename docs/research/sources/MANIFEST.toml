@@ -6452,6 +6452,37 @@ group  = "J"
 # composes a base and its marks the way HarfBuzz's normaliser does before
 # it looks glyphs up.
 
+[sources.unicode-arabicshaping]
+key    = "unicode-arabicshaping"
+title  = "ArabicShaping.txt, Unicode Character Database 17.0.0 -- Joining_Type and Joining_Group"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/ArabicShaping.txt"
+file   = "unicode-arabicshaping.txt"
+sha256 = "39afa01e680e27d0fd10b67a9b27be13fbaa3d0efecfb5be45991de9a0d267d0"
+bytes  = 41441
+status = "retrieved"
+group  = "J"
+# The normative cursive-joining data: scripts/gen-joining-tables.py turns
+# its Joining_Type, its header's T and U defaults and the LAM and ALEF
+# joining groups into baud-domain/src/joining_data.rs.
+
+[sources.unicode-derivedjoiningtype]
+key    = "unicode-derivedjoiningtype"
+title  = "DerivedJoiningType.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedJoiningType.txt"
+file   = "unicode-derivedjoiningtype.txt"
+sha256 = "f39ebe974825d6736aee15582250307aa532b2cfab3caf3f86bd23fddc9c5c4d"
+bytes  = 40635
+status = "retrieved"
+group  = "J"
+# Joining_Type for every code point, the defaults resolved: the generator
+# holds its own reading of ArabicShaping.txt to this file at every code point.
+
 [sources.unicode-dnp]
 key    = "unicode-dnp"
 title  = "DerivedNormalizationProps.txt, Unicode Character Database 17.0.0 -- Full_Composition_Exclusion"
