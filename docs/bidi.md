@@ -257,6 +257,10 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   BidiLineLTR setting is on, its default), at the cost of a row that runs left to right
   with the Hebrew period at its right end. The four options on three
   wrapped paragraphs: `docs/research/notes/ab/b192/wrap.png`.
+  The owner rejected all four (2026-10-24) and asked for a mixed
+  paragraph broken into lines of one direction each; the texts, the prior
+  art, three prototypes and the recommendation are note BD,
+  `docs/research/notes/bd-bidi-wrap.md`.
 - **A direction a program sets**: SCP (per line in ECMA-48), SPD, and
   terminal-wg's per-paragraph modes with `?2501` (autodetection), `?1243`
   (arrow-key swapping) and `?2500` (box mirroring). They need a direction

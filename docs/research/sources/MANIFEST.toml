@@ -35071,3 +35071,305 @@ url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/paragrap
 file   = ""
 sha256 = "f780d8d92d2e3821b6cfe316ecd1e107d8308e13e7fcc8b968aded710cfca8fb"
 bytes  = 20233
+# ── Note BD: a right-to-left paragraph that wraps (2026-10-24) ──────────────
+# Read for docs/research/notes/bd-bidi-wrap.md; each fetched and hash-verified
+# on 2026-10-24, not committed. Five more sources the note reads hash
+# identically to entries above at a newer commit, and the note cites those:
+# mlterm vt_line_bidi.c and vt_bidi.c at 405185a (= the 46cbbc9 keys),
+# Konsole TerminalPainter.cpp at c8bc143 (= konsole-terminalpainter-a88fae0),
+# VTE doc/rewrap.txt at 56bad78 (= vte-rewrap-txt-0-84), and kitty
+# options/definition.py at 6d5d0c4 (= kitty-6d5d0c4-options-definition).
+[sources.terminal-wg-bidi-rtl-text]
+key    = "terminal-wg-bidi-rtl-text"
+title  = "BiDi in terminal emulators v0.1 -- bidi-intro/rtl-bidi-text.html: the first visual line filled from the start of the logical string, characters reordered within each line but not across lines"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/bidi-intro/rtl-bidi-text.html"
+file   = ""
+sha256 = "4de00ab64e591d5df8f3d3eae37c7767251cf0b45b77ab5dee6016a0d8d5e1a3"
+bytes  = 34101
+[sources.terminal-wg-bidi-why-special]
+key    = "terminal-wg-bidi-why-special"
+title  = "BiDi in terminal emulators v0.1 -- bidi-intro/why-terminals-are-special.html: the algorithm run on the entire paragraph, cropping done on its result"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/bidi-intro/why-terminals-are-special.html"
+file   = ""
+sha256 = "175073acaaaff3286094e2916f92866f7df8a5c98e1e81c7a5e12fb00af41459"
+bytes  = 24060
+[sources.terminal-wg-bidi-applications]
+key    = "terminal-wg-bidi-applications"
+title  = "BiDi in terminal emulators v0.1 -- prior-work/applications.html: Emacs reorders a line, then wraps it as if left to right, contrary to UAX #9"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/prior-work/applications.html"
+file   = ""
+sha256 = "962ce91e4d52cd0aa5ff7c4aa0ac066ca61dad7c276ed83d7951fa7d49487e27"
+bytes  = 20841
+[sources.terminal-wg-bidi-terminals]
+key    = "terminal-wg-bidi-terminals"
+title  = "BiDi in terminal emulators v0.1 -- prior-work/terminals.html: Konsole, mlterm, PuTTY and Terminal.app run the algorithm on lines, not paragraphs"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/prior-work/terminals.html"
+file   = ""
+sha256 = "6ea8f4917c2ab2a10e14e8f8bdb866a1996ce356eb2142402a560ff97d916321"
+bytes  = 25407
+[sources.terminal-wg-bidi-how-apply]
+key    = "terminal-wg-bidi-how-apply"
+title  = "BiDi in terminal emulators v0.1 -- rationale-and-dropped-ideas/how-the-escape-sequences-apply.html: with rewrap on resize, the look should depend only on the current width"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/rationale-and-dropped-ideas/how-the-escape-sequences-apply.html"
+file   = ""
+sha256 = "c6e6be8ecfbbe6d2a622e3514b5456d671347c83df515a4ab80d1ad2aabe8ca7"
+bytes  = 23056
+[sources.terminal-wg-bidi-tr53-review]
+key    = "terminal-wg-bidi-tr53-review"
+title  = "BiDi in terminal emulators v0.1 -- ecma-tr53-review.html: TR/53 has no notion of paragraphs and no rewrap on resize"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/ecma-tr53-review.html"
+file   = ""
+sha256 = "a880791ad999be5b77537b8a779b2fb7e6635ebe51337bbf3fbd224adeb145c4"
+bytes  = 29594
+[sources.uax14-tr14-57]
+key    = "uax14-tr14-57"
+title  = "UAX #14 revision 57, Unicode Line Breaking Algorithm -- 3 selection among opportunities left to higher-level software, the emergency mode, 3.1 line breaking independent of directional properties, 8.2 Example 2 terminal-style breaks not a conformant tailoring"
+author = "Robin Leroy (ed.)"
+year   = 2026
+venue  = "Unicode Standard Annex #14, The Unicode Consortium, dated 2026-09-01"
+url    = "https://www.unicode.org/reports/tr14/tr14-57.html"
+file   = ""
+sha256 = "296df5332aefe695b4951b511288b118bc6a7b43db7fadfd60f6062096acc7c0"
+bytes  = 226166
+[sources.unicode-ml-koblinger-2019-02]
+key    = "unicode-ml-koblinger-2019-02"
+title  = "Unicode mailing list, 2019-02-07 -- PuTTY, Konsole, mlterm and Terminal.app do BiDi on the physical lines"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "unicode@unicode.org archive"
+url    = "https://www.unicode.org/mail-arch/unicode-ml/y2019-m02/0124.html"
+file   = ""
+sha256 = "04d3ea8d70b036bb0cfce455ac509a282f1aafd349499f1cc5948d22fd99ecd0"
+bytes  = 19116
+[sources.icu-ubidi-h-4e68996]
+key    = "icu-ubidi-h-4e68996"
+title  = "ICU4C unicode/ubidi.h -- the renderParagraph sample, ubidi_setLine after line breaking, L1 and L2 on a line object"
+author = "The ICU project"
+year   = 2026
+venue  = "unicode-org/icu at 4e68996 (Unicode licence)"
+url    = "https://raw.githubusercontent.com/unicode-org/icu/4e689969f24a31e32efcd590cabd944ca3550352/icu4c/source/common/unicode/ubidi.h"
+file   = ""
+sha256 = "ea8bf13458735dee8695e7099383b02a6ccd6382296c5bc7ef4b5f96ca722517"
+bytes  = 97307
+[sources.icu-brkiter-h-4e68996]
+key    = "icu-brkiter-h-4e68996"
+title  = "ICU4C unicode/brkiter.h -- BreakIterator, the line-break opportunities the caller supplies"
+author = "The ICU project"
+year   = 2026
+venue  = "unicode-org/icu at 4e68996 (Unicode licence)"
+url    = "https://raw.githubusercontent.com/unicode-org/icu/4e689969f24a31e32efcd590cabd944ca3550352/icu4c/source/common/unicode/brkiter.h"
+file   = ""
+sha256 = "96425b73a1bee4d9d177cb865b910a4cc0da89e04e3ad8211165aa73f60f2c04"
+bytes  = 29294
+[sources.blink-inline-node-3a7361d]
+key    = "blink-inline-node-3a7361d"
+title  = "Blink LayoutNG inline_node.cc -- SegmentBidiRuns resolves levels over the whole inline formatting context"
+author = "The Chromium authors"
+year   = 2026
+venue  = "chromium/chromium at 3a7361d (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/3a7361d8d462736ce1425b91e47150903da1e801/third_party/blink/renderer/core/layout/inline/inline_node.cc"
+file   = ""
+sha256 = "91cbad38b613ac550ec04249c70a7d13bc3d90c9e2538f54e97f5316407140c0"
+bytes  = 96068
+[sources.blink-logical-line-builder-3a7361d]
+key    = "blink-logical-line-builder-3a7361d"
+title  = "Blink LayoutNG logical_line_builder.cc -- BidiReorder per line, trailing spaces at the paragraph level"
+author = "The Chromium authors"
+year   = 2026
+venue  = "chromium/chromium at 3a7361d (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/3a7361d8d462736ce1425b91e47150903da1e801/third_party/blink/renderer/core/layout/inline/logical_line_builder.cc"
+file   = ""
+sha256 = "e747baec3d8f884771665c6df6f474f11e3f78b8fcadb1cc1d060e7363fddb1f"
+bytes  = 35731
+[sources.blink-bidi-paragraph-3a7361d]
+key    = "blink-bidi-paragraph-3a7361d"
+title  = "Blink bidi_paragraph.cc -- ubidi_setPara over the paragraph, ubidi_reorderVisual per line"
+author = "The Chromium authors"
+year   = 2026
+venue  = "chromium/chromium at 3a7361d (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/3a7361d8d462736ce1425b91e47150903da1e801/third_party/blink/renderer/platform/text/bidi_paragraph.cc"
+file   = ""
+sha256 = "e99a9305890732e7a7410e367c5f3188b4ca99bb20d33d0a99327da84ec9ecf4"
+bytes  = 4791
+[sources.blink-line-breaker-3a7361d]
+key    = "blink-line-breaker-3a7361d"
+title  = "Blink LayoutNG line_breaker.cc -- breaks at break-iterator opportunities, by character only for break-all or overflow-wrap"
+author = "The Chromium authors"
+year   = 2026
+venue  = "chromium/chromium at 3a7361d (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/3a7361d8d462736ce1425b91e47150903da1e801/third_party/blink/renderer/core/layout/inline/line_breaker.cc"
+file   = ""
+sha256 = "607e8e9fe4b03db57341b114fe7dcc634516309db764855e04868183fd2765a0"
+bytes  = 194854
+[sources.pango-layout-c-8e74c27]
+key    = "pango-layout-c-8e74c27"
+title  = "Pango pango-layout.c -- a paragraph itemized with its base direction, lines broken at UAX #14 opportunities, each line reordered after it is built"
+author = "The Pango authors"
+year   = 2026
+venue  = "GNOME/pango at 8e74c27 (LGPL-2.1-or-later)"
+url    = "https://raw.githubusercontent.com/GNOME/pango/8e74c27c113c98664b77272d16b14bbce542c184/pango/pango-layout.c"
+file   = ""
+sha256 = "bfdc9ffc57ebea066ce2675df39b0ee92b2f290e98fdc1155f58b9bfba705091"
+bytes  = 237154
+[sources.coretext-cttypesetter-h]
+key    = "coretext-cttypesetter-h"
+title  = "CoreText CTTypesetter.h -- CreateLine gives a logical range in visual order; SuggestLineBreak and SuggestClusterBreak as separate steps"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode MacOSX27.0 SDK, CoreText.framework headers, macOS 27.0 (build 26A5425a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreText.framework/Headers/CTTypesetter.h"
+file   = ""
+sha256 = "eb20e3035f3b5e9ada9265b020d4d0918c1e488e8cb90f6fb7e2e04f781523f0"
+bytes  = 10343
+# A header in this Mac's Xcode SDK; hash-verified, not committed.
+[sources.coretext-ctline-h]
+key    = "coretext-ctline-h"
+title  = "CoreText CTLine.h -- the line object the typesetter returns"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode MacOSX27.0 SDK, CoreText.framework headers, macOS 27.0 (build 26A5425a)"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreText.framework/Headers/CTLine.h"
+file   = ""
+sha256 = "416e11cafbf0437b982afe34897294de64d365cdd447cb9f3b69cce589030e83"
+bytes  = 19508
+# A header in this Mac's Xcode SDK; hash-verified, not committed.
+[sources.vte-bidi-hh-56bad78]
+key    = "vte-bidi-hh-56bad78"
+title  = "VTE src/bidi.hh -- BidiRow, one visual line's logical-visual map, and BidiRunner"
+author = "The VTE developers"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/bidi.hh"
+file   = ""
+sha256 = "f8f55150cd283164fbb9c9deeb79273fbc9a47e8059fa1d2fb6d937dd0a140a2"
+bytes  = 9144
+[sources.mlterm-vt-logical-visual-405185a]
+key    = "mlterm-vt-logical-visual-405185a"
+title  = "mlterm vtemu/vt_logical_visual.c -- each row rendered and swapped to visual order with the cursor mapped; vertical mode swaps in a whole visual model"
+author = "Araki Ken"
+year   = 2026
+venue  = "arakiken/mlterm at 405185a (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/405185a30343835322af7f28a9f14eccb648cfb1/vtemu/vt_logical_visual.c"
+file   = ""
+sha256 = "732cedfcd1f161920a216e50f21a900ee7703f25f9b5cde597282e8fda48a000"
+bytes  = 27635
+[sources.mlterm-readme-bidi-405185a]
+key    = "mlterm-readme-bidi-405185a"
+title  = "mlterm doc/en/README.bidi -- bidi through FriBidi, shaping through HarfBuzz"
+author = "Araki Ken"
+year   = 2026
+venue  = "arakiken/mlterm at 405185a (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/405185a30343835322af7f28a9f14eccb648cfb1/doc/en/README.bidi"
+file   = ""
+sha256 = "63ef324e2a6426fd9d48a05fa11a6c7187a335b8d30e9eca77f83c94165f7014"
+bytes  = 1143
+[sources.iterm2-bidi-display-info-91411f5]
+key    = "iterm2-bidi-display-info-91411f5"
+title  = "iTerm2 sources/Drawing/BidiDisplayInfo.swift -- one CTLine over the unwrapped raw line, sliced per wrapped row"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 at 91411f5"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/91411f53619af602bd434ab355e674c1faa831e3/sources/Drawing/BidiDisplayInfo.swift"
+file   = ""
+sha256 = "15b2cd364b6941819ce1504987c182bde6e36ea0f557bb7ce6307354517349d7"
+bytes  = 38843
+[sources.iterm2-lineblock-interop-91411f5]
+key    = "iterm2-lineblock-interop-91411f5"
+title  = "iTerm2 sources/LineBuffer/LineBlock+SwiftInterop.m -- bidi per raw line, a slice per wrapped display row"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 at 91411f5"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/91411f53619af602bd434ab355e674c1faa831e3/sources/LineBuffer/LineBlock+SwiftInterop.m"
+file   = ""
+sha256 = "9c743c4186dacec38456d1babaa31999cbd14cbbcdfbd89cb6b4efe8dcc51453"
+bytes  = 5418
+[sources.iterm2-bidi-selection-91411f5]
+key    = "iterm2-bidi-selection-91411f5"
+title  = "iTerm2 docs/bidi-selection-direction.md -- selection over reordered text"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 at 91411f5"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/91411f53619af602bd434ab355e674c1faa831e3/docs/bidi-selection-direction.md"
+file   = ""
+sha256 = "d6b29c7c4264d869cf0268dea83a9268bee42770a2c9aa80f2ebbceba3a0f4de"
+bytes  = 8230
+[sources.wezterm-cellcluster-cab2516]
+key    = "wezterm-cellcluster-cab2516"
+title  = "WezTerm wezterm-surface/src/cellcluster.rs -- resolve_paragraph per cluster within one line"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm at cab2516 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/cab25161054c50fd6c705db4ceefef0f1e5a9575/wezterm-surface/src/cellcluster.rs"
+file   = ""
+sha256 = "31418d17476a91d6bee6b464a7d239878142483ed14eeb5095972208f80584d1"
+bytes  = 11420
+[sources.kitty-fonts-c-6d5d0c4]
+key    = "kitty-fonts-c-6d5d0c4"
+title  = "kitty kitty/fonts.c -- HarfBuzz guesses each buffer's direction, left to right forced by force_ltr"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 6d5d0c4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/fonts.c"
+file   = ""
+sha256 = "86230a4f3599e330d70718bf1268be299173393017056413bd81a57b32b77e60"
+bytes  = 118951
+[sources.windows-terminal-issue-538]
+key    = "windows-terminal-issue-538"
+title  = "Windows Terminal issue 538, Support Right to Left (RTL) text -- open since 2019-05-07 (an API snapshot)"
+author = "microsoft/terminal contributors"
+year   = 2019
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/538"
+file   = ""
+sha256 = "d38988d90e42ba5df17b27086cfd189ac6acea1605ca9e9f3b8ee73bcccaee89"
+bytes  = 7308
+# An API response: not byte-stable across fetches. Fetched 2026-10-24,
+# updated_at 2026-08-28T14:23:36Z, state open.
+[sources.domterm-texi-f8f84bc]
+key    = "domterm-texi-f8f84bc"
+title  = "DomTerm doc/DomTerm.texi -- its own line breaker, mid-word by default; smart wrapping and application-requested pretty-printing"
+author = "Per Bothner"
+year   = 2026
+venue  = "PerBothner/DomTerm at f8f84bc (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/PerBothner/DomTerm/f8f84bc722b992c75c126e1a4befb13ec52d1bd6/doc/DomTerm.texi"
+file   = ""
+sha256 = "6d55083129620d43eb13a65699dfebfceb31cc17754359b38f4c6d24ee716eae"
+bytes  = 318134
+[sources.domterm-terminal-js-f8f84bc]
+key    = "domterm-terminal-js-f8f84bc"
+title  = "DomTerm hlib/terminal.js -- the line breaker _breakLine1 and _breakAllLines"
+author = "Per Bothner"
+year   = 2026
+venue  = "PerBothner/DomTerm at f8f84bc (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/PerBothner/DomTerm/f8f84bc722b992c75c126e1a4befb13ec52d1bd6/hlib/terminal.js"
+file   = ""
+sha256 = "905966f27fb962b2f23fae4b4bb677dd349e3a20c8311cd8d69f63e2e5a190c8"
+bytes  = 443749
+[sources.domterm-core-css-f8f84bc]
+key    = "domterm-core-css-f8f84bc"
+title  = "DomTerm hlib/domterm-core.css -- the block style, unicode-bidi embed and white-space preserve wrap"
+author = "Per Bothner"
+year   = 2026
+venue  = "PerBothner/DomTerm at f8f84bc (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/PerBothner/DomTerm/f8f84bc722b992c75c126e1a4befb13ec52d1bd6/hlib/domterm-core.css"
+file   = ""
+sha256 = "e2c373fc6c90136a8772135fccb6b70d0e79220900f3bfd36f1ef6b6d9138cac"
+bytes  = 6966

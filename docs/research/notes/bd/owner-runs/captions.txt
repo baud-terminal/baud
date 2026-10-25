@@ -1,0 +1,8 @@
+1-owner.png: 1. The owner's paragraph: Hebrew, English with "mid|dle" split by the wrap, Hebrew (stored rows 2; display rows W1 built 2, A, paragraph edge 3, A, own direction 3, B, paragraph edge 3, B, own direction 3)
+2-hebrew.png: 2. All Hebrew, a word split by the wrap: every arm keeps today's layout (stored rows 2; display rows W1 built 2, A, paragraph edge 2, A, own direction 2, B, paragraph edge 2, B, own direction 2)
+3-phrase.png: 3. Hebrew with a long English phrase across the wrap (stored rows 2; display rows W1 built 2, A, paragraph edge 3, A, own direction 3, B, paragraph edge 3, B, own direction 3)
+3b-narrow.png: 3b. The same at 28 columns: the English run needs two lines (stored rows 3; display rows W1 built 3, A, paragraph edge 4, A, own direction 4, B, paragraph edge 4, B, own direction 4)
+4-url.png: 4. Hebrew with a number and a URL across the wrap (stored rows 3; display rows W1 built 3, A, paragraph edge 3, A, own direction 3, B, paragraph edge 3, B, own direction 3)
+5-english.png: 5. An English paragraph with a Hebrew phrase across the wrap (stored rows 2; display rows W1 built 2, A, paragraph edge 3, A, own direction 3, B, paragraph edge 3, B, own direction 3)
+6-many.png: 6. Hebrew with three short English runs, one split by the wrap (stored rows 2; display rows W1 built 2, A, paragraph edge 7, A, own direction 7, B, paragraph edge 3, B, own direction 3)
+x-1-owner-own-edge-paragraph-order.png: superseded arm: English line flushed left but ordered with the paragraph's levels, so its comma leads the line (",with English ... middle")

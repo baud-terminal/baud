@@ -1,0 +1,465 @@
+--- a/baud-render/src/bidi.rs	2026-10-24 18:12:19.214309693 -0600
++++ b/baud-render/src/bidi.rs	2026-10-24 18:35:31.197218176 -0600
+@@ -150,6 +150,25 @@
+     rows: Vec<Option<RowOrder>>,
+     cols: Cols,
+     any: Any,
++    /// PROTOTYPE (uax14): each display row's content when a paragraph is
++    /// re-broken at UAX #14 opportunities, else `None` (one display row per
++    /// stored row).
++    #[cfg(feature = "proto-uax14-wrap")]
++    cross: Option<Vec<Disp>>,
++}
++
++/// PROTOTYPE (uax14): what one display row shows.
++#[cfg(feature = "proto-uax14-wrap")]
++#[derive(Clone, Debug, PartialEq, Eq)]
++enum Disp {
++    /// A stored window row, in its own per-row order.
++    Row(Row),
++    /// A display line of a re-broken paragraph: each visual column's
++    /// logical column (`from`), level and mirror, and the stored window
++    /// row it comes from (`None`: padding).
++    Line(RowOrder, Vec<Option<Row>>),
++    /// Nothing: a paragraph re-broken into fewer lines than its rows.
++    Blank,
+ }
+ 
+ impl Default for Orders {
+@@ -158,6 +177,8 @@
+             rows: Vec::new(),
+             cols: Cols::of_index(0),
+             any: Any::No,
++            #[cfg(feature = "proto-uax14-wrap")]
++            cross: None,
+         }
+     }
+ }
+@@ -170,13 +191,66 @@
+ 
+     /// Whether row `r` is drawn in another order.
+     pub fn reordered(&self, r: Row) -> bool {
+-        matches!(self.rows.get(r.index()), Some(Some(_)))
++        self.row(r).is_some()
+     }
+ 
+-    fn row(&self, r: Row) -> Option<&RowOrder> {
++    fn stored(&self, r: Row) -> Option<&RowOrder> {
+         self.rows.get(r.index()).and_then(Option::as_ref)
+     }
+ 
++    fn row(&self, r: Row) -> Option<&RowOrder> {
++        #[cfg(feature = "proto-uax14-wrap")]
++        if let Some(c) = &self.cross {
++            return match c.get(r.index()) {
++                Some(Disp::Row(y)) => self.stored(*y),
++                Some(Disp::Line(o, _)) => Some(o),
++                _ => None,
++            };
++        }
++        self.stored(r)
++    }
++
++    /// The stored window row display row `r` shows (its rendition's
++    /// source): itself unless a paragraph above it was re-broken.
++    pub fn source_row(&self, r: Row) -> Row {
++        #[cfg(feature = "proto-uax14-wrap")]
++        if let Some(c) = &self.cross {
++            return match c.get(r.index()) {
++                Some(Disp::Row(y)) => *y,
++                Some(Disp::Line(_, src)) => src.iter().flatten().next().copied().unwrap_or(r),
++                _ => r,
++            };
++        }
++        r
++    }
++
++    /// Display row `r` of the window `vp` into `out`, in its drawn order.
++    pub fn permute_view(&self, r: Row, vp: &Viewport<'_>, out: &mut [PackedCell]) {
++        #[cfg(feature = "proto-uax14-wrap")]
++        if let Some(c) = &self.cross {
++            match c.get(r.index()) {
++                Some(Disp::Row(y)) => self.permute_stored(*y, vp.row(*y), out),
++                Some(Disp::Line(o, src)) => {
++                    for ((d, l), s) in out.iter_mut().zip(&o.from).zip(src) {
++                        *d = match s {
++                            Some(sr) => vp.row(*sr).get(l.index()).copied().unwrap_or(PackedCell::EMPTY),
++                            None => PackedCell::EMPTY,
++                        };
++                    }
++                    for &(v, content) in &o.swaps {
++                        if let Some(d) = out.get_mut(v.index()) {
++                            d.content = content;
++                            d.flags = d.flags.without_cluster();
++                        }
++                    }
++                }
++                _ => out.fill(PackedCell::EMPTY),
++            }
++            return;
++        }
++        self.permute_stored(r, vp.row(r), out)
++    }
++
+     /// The visual column logical column `c` of row `r` is drawn at.
+     pub fn visual_col(&self, r: Row, c: Col) -> Col {
+         self.row(r)
+@@ -229,7 +303,11 @@
+     /// each visual cell the logical cell it shows, a mirrored character
+     /// where L4 gives one. A row drawn in its own order is copied.
+     pub fn permute(&self, r: Row, logical: &[PackedCell], out: &mut [PackedCell]) {
+-        match self.row(r) {
++        self.permute_stored(r, logical, out)
++    }
++
++    fn permute_stored(&self, r: Row, logical: &[PackedCell], out: &mut [PackedCell]) {
++        match self.stored(r) {
+             Some(o) => {
+                 for (d, l) in out.iter_mut().zip(&o.from) {
+                     *d = logical.get(l.index()).copied().unwrap_or(PackedCell::EMPTY);
+@@ -297,9 +375,10 @@
+         used.clear();
+         for y in 0..nrows {
+             let r = Row::from_index(y);
+-            self.permute(r, vp.row(r), &mut cells[y * ncols..(y + 1) * ncols]);
+-            let mut e = RowExtent::of(ncols).with_rendition(vp.rendition(r), vp.cols());
+-            if vp.wrapped(r) == Wrap::Continues {
++            self.permute_view(r, &vp, &mut cells[y * ncols..(y + 1) * ncols]);
++            let s = self.source_row(r);
++            let mut e = RowExtent::of(ncols).with_rendition(vp.rendition(s), vp.cols());
++            if vp.wrapped(s) == Wrap::Continues {
+                 e = e.wrapping(ncols);
+             }
+             used.push(e);
+@@ -356,6 +435,14 @@
+     /// One line piece's order, and every line's levels by text position.
+     piece: Vec<u16>,
+     levels: Vec<BidiLevel>,
++    /// PROTOTYPE (uax14): the paragraphs this layout re-broke, each its
++    /// first and last stored window row and its display lines.
++    #[cfg(feature = "proto-uax14-wrap")]
++    broken: Vec<(Row, Row, Vec<Disp>)>,
++    /// PROTOTYPE (uax14): stored rows re-broken, display lines they took,
++    /// and stored rows pushed out of the window, in the last layout.
++    #[cfg(feature = "proto-uax14-wrap")]
++    proto: (usize, usize, usize),
+ }
+ 
+ /// Whether a codepoint of a paragraph's text is a column rule: a table
+@@ -428,9 +515,20 @@
+             rule: Vec::new(),
+             piece: Vec::new(),
+             levels: Vec::new(),
++            #[cfg(feature = "proto-uax14-wrap")]
++            broken: Vec::new(),
++            #[cfg(feature = "proto-uax14-wrap")]
++            proto: (0, 0, 0),
+         }
+     }
+ 
++    /// PROTOTYPE (uax14): (stored rows re-broken, display lines they took,
++    /// stored rows pushed out of the window) in the last layout.
++    #[cfg(feature = "proto-uax14-wrap")]
++    pub fn proto_rows(&self) -> (usize, usize, usize) {
++        self.proto
++    }
++
+     /// The maps the last layout made.
+     pub fn orders(&self) -> &Orders {
+         &self.orders
+@@ -454,6 +552,12 @@
+         self.unmirrored = Tally::default();
+         self.orders.rows.clear();
+         self.orders.rows.resize_with(nrows, || None);
++        #[cfg(feature = "proto-uax14-wrap")]
++        {
++            self.orders.cross = None;
++            self.broken.clear();
++            self.proto = (0, 0, 0);
++        }
+         if term.bidi_support() == BidiSupport::Explicit {
+             return;
+         }
+@@ -477,6 +581,51 @@
+             );
+             y += 1;
+         }
++        #[cfg(feature = "proto-uax14-wrap")]
++        self.cross(nrows);
++    }
++
++    /// PROTOTYPE (uax14): the display rows, top down: each re-broken
++    /// paragraph's lines where its first row was, the rows below pushed
++    /// down, and what passes the window's last row left out.
++    #[cfg(feature = "proto-uax14-wrap")]
++    fn cross(&mut self, nrows: usize) {
++        if self.broken.is_empty() {
++            return;
++        }
++        let broken = core::mem::take(&mut self.broken);
++        let mut cross: Vec<Disp> = Vec::with_capacity(nrows);
++        let mut shown = 0usize;
++        let (mut y, mut k) = (0usize, 0usize);
++        while y < nrows {
++            match broken.get(k) {
++                Some((first, last, lines)) if first.index() == y => {
++                    let n = last.index() - first.index() + 1;
++                    for l in lines {
++                        cross.push(l.clone());
++                    }
++                    for _ in lines.len()..n {
++                        cross.push(Disp::Blank);
++                    }
++                    if cross.len() <= nrows {
++                        shown += n;
++                    }
++                    y = last.index() + 1;
++                    k += 1;
++                }
++                _ => {
++                    cross.push(Disp::Row(Row::from_index(y)));
++                    if cross.len() <= nrows {
++                        shown += 1;
++                    }
++                    y += 1;
++                }
++            }
++        }
++        cross.truncate(nrows);
++        self.proto.2 = nrows - shown.min(nrows);
++        self.orders.cross = Some(cross);
++        self.orders.any = Any::Yes;
+     }
+ 
+     /// One paragraph whose drawn rows are `first..=last`: resolved, and each
+@@ -681,6 +830,10 @@
+         };
+         let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
+         let cols = self.orders.cols.index();
++        #[cfg(feature = "proto-uax14-wrap")]
++        if !table && rows.len() > 1 && self.rebreak(term, rows, &ranges, level) {
++            return Some(level);
++        }
+         for (p, row) in rows.iter().enumerate() {
+             let Some(y) = row.window else { continue };
+             let (line, end) = (ranges[p].0.clone(), ranges[p].1.index());
+@@ -754,6 +907,183 @@
+         (!table).then_some(level)
+     }
+ 
++    /// **PROTOTYPE (uax14): the paragraph re-broken the way a text engine
++    /// breaks it**: the resolved text cut into lines at UAX #14 break
++    /// opportunities (`[[source: uax14]]`; LB2-LB31, no tailoring) so each
++    /// line fills at most the window's width -- a space at a line's end
++    /// hangs past it and is not drawn, as CSS's `pre-wrap` hangs it -- a
++    /// word wider than the line cut at a cell (UAX #14's emergency break),
++    /// and each line ordered by L1-L2 on its own (UAX #9 3.4). Only a
++    /// paragraph whose rows are all in the window; otherwise W1.
++    #[cfg(feature = "proto-uax14-wrap")]
++    fn rebreak(
++        &mut self,
++        term: &Term<'_>,
++        rows: &[ParaRow<'_>],
++        ranges: &[(core::ops::Range<usize>, Col)],
++        level: BidiLevel,
++    ) -> bool {
++        let _ = term;
++        if rows.iter().any(|r| r.window.is_none()) {
++            return false;
++        }
++        let cols = self.orders.cols.index();
++        let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
++        let begin = ranges.first().map_or(0, |r| r.0.start);
++        let end = ranges.last().map_or(0, |r| r.0.end);
++        let n = end - begin;
++        if n == 0 {
++            return false;
++        }
++        let mut prow = vec![0usize; n];
++        for (p, (rg, _)) in ranges.iter().enumerate() {
++            for t in rg.clone() {
++                prow[t - begin] = p;
++            }
++        }
++        let width: Vec<usize> = (0..n)
++            .map(|k| {
++                let o = self.owner[begin + k];
++                if o.lead != Lead::First {
++                    return 0;
++                }
++                let cells = rows[prow[k]].cells;
++                match cells.get(o.col.index() + 1).is_some_and(|c| c.content.is_wide_tail()) {
++                    true => 2,
++                    false => 1,
++                }
++            })
++            .collect();
++        let mut allow = vec![false; n + 1];
++        baud_domain::line_breaks(&self.text[begin..end], |i, b| {
++            allow[i] = b != baud_domain::LineBreak::Prohibited;
++        });
++        let next_lead = |t: usize| {
++            let mut u = t + 1;
++            while u < n && self.owner[begin + u].lead != Lead::First {
++                u += 1;
++            }
++            u
++        };
++        // Greedy fill: the last opportunity whose ink fits.
++        let mut lines: Vec<core::ops::Range<usize>> = Vec::new();
++        let mut s = 0;
++        while s < n {
++            let (mut w, mut ink) = (0usize, 0usize);
++            let (mut best, mut cut): (Option<usize>, Option<usize>) = (None, None);
++            let mut t = s;
++            while t < n {
++                let u = next_lead(t);
++                let cw: usize = width[t..u].iter().sum();
++                let nw = w + cw;
++                let ni = if self.text[begin + t] == ' ' { ink } else { nw };
++                if ni > cols {
++                    cut = Some(t);
++                    break;
++                }
++                (w, ink, t) = (nw, ni, u);
++                if t < n && allow[t] {
++                    best = Some(t);
++                }
++            }
++            let e = match cut {
++                None => n,
++                Some(c) => match best {
++                    Some(b) if b > s => b,
++                    _ if c > s => c,
++                    _ => next_lead(s),
++                },
++            };
++            lines.push(s..e);
++            s = e;
++        }
++        let mut disp: Vec<Disp> = Vec::with_capacity(lines.len());
++        for line in &lines {
++            // A space at the line's end past its width hangs.
++            let mut hung = vec![false; line.len()];
++            let mut drawn: usize = width[line.clone()].iter().sum();
++            let mut k = line.end;
++            while drawn > cols && k > line.start && self.text[begin + k - 1] == ' ' {
++                k -= 1;
++                hung[k - line.start] = true;
++                drawn -= width[k];
++            }
++            if drawn > cols {
++                return false;
++            }
++            let (ls, le) = (begin + line.start, begin + line.end);
++            if self.order_line(ls..le).is_none() {
++                return false;
++            }
++            let levels = self.levels.clone();
++            let mut o = RowOrder {
++                from: Vec::with_capacity(cols),
++                to: Vec::new(),
++                level: Vec::with_capacity(cols),
++                swaps: Vec::new(),
++            };
++            let mut src: Vec<Option<Row>> = Vec::with_capacity(cols);
++            let pad = cols - drawn;
++            if rtl {
++                for _ in 0..pad {
++                    o.from.push(Col::ZERO);
++                    o.level.push(level);
++                    src.push(None);
++                }
++            }
++            for &t in &self.order {
++                let t = usize::from(t);
++                let own = self.owner[t];
++                if own.lead != Lead::First || hung[t - ls] {
++                    continue;
++                }
++                let l = levels[t - ls];
++                let row = &rows[prow[t - begin]];
++                o.from.push(own.col);
++                o.level.push(l);
++                src.push(row.window);
++                let cell = row.cells[own.col.index()];
++                if l.direction() == baud_domain::BidiDirection::Rtl {
++                    match mirror(term, cell) {
++                        Mirror::Glyph(m) => o.swaps.push((Col::at_index(o.from.len() - 1), m)),
++                        Mirror::Missing => self.unmirrored.bump(),
++                        Mirror::Not => {}
++                    }
++                }
++                if row
++                    .cells
++                    .get(own.col.index() + 1)
++                    .is_some_and(|c| c.content.is_wide_tail())
++                {
++                    o.from.push(Col::at_index(own.col.index() + 1));
++                    o.level.push(l);
++                    src.push(row.window);
++                }
++            }
++            if !rtl {
++                for _ in 0..pad {
++                    o.from.push(Col::ZERO);
++                    o.level.push(level);
++                    src.push(None);
++                }
++            }
++            if o.from.len() != cols {
++                return false;
++            }
++            disp.push(Disp::Line(o, src));
++        }
++        let (Some(first), Some(last)) = (
++            rows.first().and_then(|r| r.window),
++            rows.last().and_then(|r| r.window),
++        ) else {
++            return false;
++        };
++        self.proto.0 += rows.len();
++        self.proto.1 += disp.len();
++        self.broken.push((first, last, disp));
++        true
++    }
++
+     /// **Orders one line of the text last resolved** into `order`, with
+     /// each of its positions' levels in `levels`: the whole line at once
+     /// (L1-L2), or, on a table row, each run between two column rules on
+--- a/baud-render/src/renderer.rs	2026-10-24 18:12:10.158686365 -0600
++++ b/baud-render/src/renderer.rs	2026-10-24 18:35:31.202149350 -0600
+@@ -2501,6 +2501,12 @@
+         }
+     }
+ 
++    /// PROTOTYPE (uax14): the last layout's re-broken rows.
++    #[cfg(feature = "proto-uax14-wrap")]
++    pub fn proto_rows(&self) -> (usize, usize, usize) {
++        self.bidi.proto_rows()
++    }
++
+     /// The order the last layout drew each row in.
+     pub fn bidi(&self) -> &crate::bidi::Orders {
+         self.bidi.orders()
+@@ -5269,8 +5275,8 @@
+         let orders = self.bidi.orders();
+         for r in 0..main.index() {
+             let row = Row::from_index(r);
+-            orders.permute(row, vp.row(row), &mut self.cur[r * ncols..(r + 1) * ncols]);
+-            self.cur_size[r] = vp.rendition(row);
++            orders.permute_view(row, &vp, &mut self.cur[r * ncols..(r + 1) * ncols]);
++            self.cur_size[r] = vp.rendition(orders.source_row(row));
+         }
+         // **The status line's row, below the main display's**, whatever the
+         // window looks back on: it is no line of the history.
+--- a/baud-render/Cargo.toml	2026-10-24 18:12:10.151440460 -0600
++++ b/baud-render/Cargo.toml	2026-10-24 18:35:31.202425519 -0600
+@@ -28,4 +28,7 @@
+ # shaping; the candidate detection in `GlyphMap::ensure` runs unchanged under
+ # it and is priced by neither.
+ ceiling-no-window-cache = []
++# PROTOTYPE, research only (bidi-wrap uax14): a soft-wrapped paragraph the
++# bidi layout resolves is re-broken for display at UAX #14 opportunities.
++proto-uax14-wrap = []
+ ceiling-no-windows = []

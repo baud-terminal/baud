@@ -1,0 +1,8 @@
+1-owner.png  1. Owner's example: W1 splits mid|dle; prototype: a Hebrew, an English, a Hebrew row
+2-hebrew.png  2. All Hebrew: one direction run, so the prototype is pixel-identical to W1
+3-phrase.png  3. Hebrew, English phrase across the wrap: the phrase moves whole to its own row
+4-long.png  4. Long English phrase: starts its own row, wraps at spaces, shares its last row
+5-url.png  5. Hebrew, URL across the wrap: the URL moves whole; the number 1234 is not a trigger
+6-english.png  6. English, Hebrew phrase across the wrap: the phrase moves whole to its own row
+7-full.png  7. The same with no spare row: the extra display row pushes the prompt off the screen
+sheet.png  All seven: W1 (built) on the left, runs-plus-words (prototype) on the right
