@@ -5629,6 +5629,520 @@ mod drag_tests {
 }
 
 #[cfg(test)]
+mod refont_tests {
+    use super::{Builds, Deferred, Pending, Refont, Reshape, builds, read_owes, refont_step};
+    use crate::fonts::Slot;
+    use baud_present_macos::InFlight;
+    use baud_render::Tally;
+
+    /// Where a change of font comes from.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum From {
+        /// The View menu's zoom or its keys: `zoom`, from the event.
+        Zoom,
+        /// A program's `OSC 50`, read in the pump among the bytes around it
+        /// (`font_requests`).
+        Program,
+        /// The config's fonts, read again at the top of the pump
+        /// (`apply_config` through `reload_fonts`, which does not wait).
+        ConfigFonts,
+        /// The config's size alone, which `apply_config` hands to `zoom`.
+        ConfigSize,
+    }
+
+    /// A font: the face a program or the config put in the lead, if any,
+    /// and the size in points.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    struct Font {
+        face: Option<Slot>,
+        points: f32,
+    }
+
+    /// A moment, or a length of time, in the model's steps.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Step(usize);
+
+    /// How many changes are asked at once.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Burst(usize);
+
+    /// Whether the new cell size moves the grid, so `relayout` draws.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Grid {
+        Moves,
+        Stays,
+    }
+
+    /// Whether the program redraws when the first frame lands: bytes in
+    /// the pump that performs a waiting change.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Redraw {
+        Yes,
+        No,
+    }
+
+    /// Whether a frame is in flight when the change arrives.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Start {
+        Busy,
+        Idle,
+    }
+
+    /// Whether a turn of the pump builds the frame owed (`due`).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Due {
+        Yes,
+        No,
+    }
+
+    /// Whether a rescale is one `refont` holds back for a frame in flight.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Held {
+        ByRefont,
+        Not,
+    }
+
+    /// One scenario's knobs.
+    #[derive(Clone, Copy, Debug)]
+    struct Case {
+        from: From,
+        /// Changes asked at once, each a point past the size ahead.
+        burst: Burst,
+        /// Steps a frame takes to land.
+        land: Step,
+        /// The display link ticks every this many steps.
+        tick: Step,
+        grid: Grid,
+        redraw: Redraw,
+        start: Start,
+    }
+
+    /// What the model's driver did after the change arrived.
+    #[derive(Debug, Default)]
+    struct Report {
+        /// Frames built, refused ones included, and the font of each.
+        built: Vec<Font>,
+        /// Frames built while the GPU was still drawing the last.
+        over_live: Tally,
+        /// Rescales and reflows done while a frame was in flight, on the
+        /// paths `refont` holds back for it.
+        reshaped_live: Tally,
+    }
+
+    /// The driver as far as a font change reaches it, over the real
+    /// `refont_step`, `deferred`, `builds` and `read_owes`.
+    struct Driver {
+        case: Case,
+        now: Step,
+        /// When the frame in flight lands.
+        flying: Option<Step>,
+        pending: Pending,
+        deferred: Deferred,
+        /// The font the renderer is built at.
+        font: Font,
+        /// `App::frames`: frames that reached the end of `present`.
+        frames: Tally,
+        /// A config read the watcher saw, for the next pump.
+        config: Option<Font>,
+        /// A read waiting in the channel, with the `OSC 50`s it carries.
+        bytes: Option<Vec<Font>>,
+        r: Report,
+    }
+
+    impl Driver {
+        fn flight(&self) -> InFlight {
+            match self.flying {
+                Some(_) => InFlight::Busy,
+                None => InFlight::Idle,
+            }
+        }
+
+        /// `Presenter::reshape`: a frame in flight is reading.
+        fn reshape(&self) -> Reshape {
+            match self.flying {
+                Some(_) => Reshape::Wait,
+                None => Reshape::Now,
+            }
+        }
+
+        /// The renderer rebuilt at `f`, and what a frame in flight saw.
+        fn refonted(&mut self, f: Font, held: Held) {
+            if held == Held::ByRefont && self.flying.is_some() {
+                self.r.reshaped_live.bump();
+            }
+            self.font = f;
+        }
+
+        /// `App::present`.
+        fn present(&mut self) {
+            if self.pending == Pending::Clean {
+                return;
+            }
+            let flight = self.flight();
+            if builds(Some(flight)) == Builds::Owed {
+                return;
+            }
+            self.r.built.push(self.font);
+            if flight == InFlight::Busy {
+                // Built, and refused by `draw_cells`: still owed.
+                self.r.over_live.bump();
+                return;
+            }
+            self.flying = Some(Step(self.now.0 + self.case.land.0));
+            self.pending = Pending::Clean;
+            self.frames.bump();
+        }
+
+        /// `relayout`, for a new cell size: it draws when the grid moved.
+        fn relayout(&mut self) -> super::Drew {
+            if self.case.grid == Grid::Moves {
+                self.present();
+                return super::Drew::Yes;
+            }
+            super::Drew::No
+        }
+
+        /// `Driver::size_ahead`.
+        fn ahead(&self) -> f32 {
+            match self.deferred {
+                Deferred::Zoom(p) | Deferred::Font(_, p) => p,
+                Deferred::Nothing => self.font.points,
+            }
+        }
+
+        /// `Driver::refont`.
+        fn refont(&mut self, face: Option<Slot>, points: f32) {
+            let leads = self.font.face;
+            let step = refont_step(
+                self.deferred,
+                Some(self.reshape()),
+                face,
+                points,
+                self.font.points,
+                |f| Some(f) == leads,
+            );
+            let face = match step {
+                Refont::Nothing => return,
+                Refont::Wait(d) => {
+                    self.deferred = d;
+                    return;
+                }
+                Refont::Now(face) => face,
+            };
+            let f = Font {
+                face: face.or(self.font.face),
+                points,
+            };
+            self.refonted(f, Held::ByRefont);
+            self.pending = Pending::Dirty;
+            if self.relayout() == super::Drew::No {
+                self.present();
+            }
+        }
+
+        /// `apply_config`'s fonts and size, after every other part.
+        fn config_read(&mut self, f: Font) {
+            let before = self.frames;
+            match self.case.from {
+                From::ConfigFonts => {
+                    self.refonted(f, Held::Not);
+                    self.pending = Pending::Dirty;
+                    if self.relayout() == super::Drew::No {
+                        self.present();
+                    }
+                }
+                _ => self.refont(None, f.points),
+            }
+            self.pending = read_owes(before, self.frames, self.pending);
+        }
+
+        /// `Driver::pump`, in its order: the config, the gate read once,
+        /// the waiting change, the bytes and their `OSC 50`s, the frame.
+        fn pump(&mut self, due: Due) {
+            if let Some(f) = self.config.take() {
+                self.config_read(f);
+            }
+            let busy = self.flight() == InFlight::Busy;
+            if !busy {
+                match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
+                    Deferred::Nothing => {}
+                    Deferred::Zoom(p) => self.refont(None, p),
+                    Deferred::Font(face, p) => self.refont(face, p),
+                }
+            }
+            if let Some(asked) = self.bytes.take() {
+                self.pending = Pending::Dirty;
+                for f in asked {
+                    self.refont(f.face, f.points);
+                }
+            }
+            if due == Due::Yes && !busy {
+                self.present();
+            }
+        }
+
+        fn settled(&self) -> bool {
+            self.flying.is_none()
+                && self.pending == Pending::Clean
+                && matches!(self.deferred, Deferred::Nothing)
+                && self.config.is_none()
+                && self.bytes.is_none()
+        }
+    }
+
+    const OLD: Font = Font {
+        face: None,
+        points: 13.0,
+    };
+
+    /// The change arrives at step 0, over a frame of the old font in
+    /// flight or none; the loop runs until nothing is owed. Returns what
+    /// was built from then on, and the font asked.
+    fn run(case: Case) -> (Report, Font) {
+        let mut d = Driver {
+            case,
+            now: Step(0),
+            flying: match case.start {
+                Start::Busy => Some(case.land),
+                Start::Idle => None,
+            },
+            pending: Pending::Clean,
+            deferred: Deferred::Nothing,
+            font: OLD,
+            frames: Tally::default(),
+            config: None,
+            bytes: None,
+            r: Report::default(),
+        };
+        let face = match case.from {
+            From::Program | From::ConfigFonts => Some(Slot::TEST),
+            From::Zoom | From::ConfigSize => None,
+        };
+        let mut points = OLD.points;
+        for _ in 0..case.burst.0 {
+            points += 1.0;
+        }
+        let asked = Font { face, points };
+        match case.from {
+            From::Zoom => {
+                for _ in 0..case.burst.0 {
+                    let to = d.ahead() + 1.0;
+                    d.refont(None, to);
+                }
+            }
+            From::Program => {
+                let mut reads = Vec::new();
+                let mut points = OLD.points;
+                for _ in 0..case.burst.0 {
+                    points += 1.0;
+                    reads.push(Font { face, points });
+                }
+                d.bytes = Some(reads);
+                d.pump(Due::No);
+            }
+            From::ConfigFonts | From::ConfigSize => {
+                d.config = Some(asked);
+                d.pump(Due::No);
+            }
+        }
+        let mut redrawn = case.redraw == Redraw::No;
+        loop {
+            if d.flying == Some(d.now) {
+                d.flying = None;
+                if !redrawn {
+                    d.bytes = Some(Vec::new());
+                    redrawn = true;
+                }
+                // A frame's time has passed since the last commit, so the
+                // wake draws (`due`).
+                d.pump(Due::Yes);
+            }
+            if d.now.0.is_multiple_of(case.tick.0) {
+                d.pump(Due::Yes);
+            }
+            if d.settled() && redrawn {
+                return (d.r, asked);
+            }
+            d.now = Step(d.now.0 + 1);
+            assert!(d.now.0 < 256, "never settled: {case:?} {:?}", d.r);
+        }
+    }
+
+    fn cases() -> impl Iterator<Item = Case> {
+        let froms = [
+            From::Zoom,
+            From::Program,
+            From::ConfigFonts,
+            From::ConfigSize,
+        ];
+        froms.into_iter().flat_map(|from| {
+            [1, 3, 12].map(Burst).into_iter().flat_map(move |burst| {
+                [1, 3, 7].map(Step).into_iter().flat_map(move |land| {
+                    [1, 2, 5].map(Step).into_iter().flat_map(move |tick| {
+                        [Grid::Stays, Grid::Moves]
+                            .into_iter()
+                            .flat_map(move |grid| {
+                                [Redraw::No, Redraw::Yes]
+                                    .into_iter()
+                                    .flat_map(move |redraw| {
+                                        // A burst over an idle GPU is a change now
+                                        // and then one that waits: two frames, by
+                                        // design. Bursts are asked over a frame.
+                                        [Start::Busy, Start::Idle]
+                                            .into_iter()
+                                            .filter(move |&start| {
+                                                start == Start::Busy || burst == Burst(1)
+                                            })
+                                            .map(move |start| Case {
+                                                from,
+                                                burst,
+                                                land,
+                                                tick,
+                                                grid,
+                                                redraw,
+                                                start,
+                                            })
+                                    })
+                            })
+                    })
+                })
+            })
+        })
+    }
+
+    /// **A zoom, a program's font or the config's, asked while a frame is
+    /// in flight or not, builds one frame**, at the font asked, and none
+    /// over a frame the GPU is still drawing; a burst of them builds one,
+    /// at the last. When the program redraws as the first frame lands --
+    /// in the pump that performs a waiting change, or after the change's
+    /// own frame -- its bytes are a second frame, built once the first has
+    /// landed, at the new font too; a frame still owed takes them in. The zoom and the program's change
+    /// rescale and re-lay nothing under a frame in flight: they wait for
+    /// it (`refont_step`). Over a GPU that lands a frame in one step,
+    /// three and seven, and a display link every step, second and fifth.
+    /// The config's cases over a frame in flight model a read the driver
+    /// never makes: `follow_config` returns while the presenter says
+    /// `Reshape::Wait`. They are kept as over-coverage.
+    #[test]
+    fn a_font_change_builds_one_frame_at_the_font_asked() {
+        let mut n = 0;
+        for case in cases() {
+            let (r, asked) = run(case);
+            let at = format!("{case:?}: {r:?}");
+            assert_eq!(r.over_live, Tally::default(), "{at}");
+            assert!(r.built.iter().all(|f| *f == asked), "{at}");
+            // A frame left owed carries the bytes that arrive before it is
+            // built: the config's fonts over a frame in flight.
+            let carried = case.start == Start::Busy && case.from == From::ConfigFonts;
+            let want = 1 + usize::from(case.redraw == Redraw::Yes && !carried);
+            assert_eq!(r.built.len(), want, "{at}");
+            if case.from != From::ConfigFonts {
+                assert_eq!(r.reshaped_live, Tally::default(), "{at}");
+            }
+            n += 1;
+        }
+        assert_eq!(n, 4 * (3 + 1) * 3 * 3 * 2 * 2);
+    }
+
+    /// **`refont` draws once, after the damage**: the full damage and the
+    /// owed frame are set before `relayout`, which draws the frame when the
+    /// grid moved, and `refont` asks `present` itself only when it did not.
+    /// It is AppKit-bound, so the source is what can fail. A second ask
+    /// after the relayout was the double render: it found the first frame
+    /// in flight and built nothing, or, before the damage moved ahead of
+    /// the relayout, drew the old size first.
+    #[test]
+    fn refont_draws_once_after_the_damage() {
+        const SRC: &str = include_str!("app.rs");
+        let body = SRC
+            .split_once(concat!(
+                "fn refont(&mut self, face: Option<crate::fonts::Slot>, ",
+                "points: f32) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("refont's body");
+        let at = |tok: &str| body.find(tok).unwrap_or_else(|| panic!("{tok} in refont"));
+        let relayout = at(concat!(
+            "if self.relayout(self.view.frame().size, scale) ",
+            "== Drew::No {"
+        ));
+        assert!(at("self.app.next_damage = Damage::Full;") < relayout);
+        assert!(at("self.app.pending = Pending::Dirty;") < relayout);
+        let present = concat!("self.app.", "present(");
+        assert_eq!(body.matches(present).count(), 1, "one present in refont");
+        assert!(
+            relayout < at(present),
+            "only when the relayout drew nothing"
+        );
+    }
+
+    /// **The pump performs a waiting change before it feeds or draws**, so
+    /// the frame a read owes is built at the new font rather than once at
+    /// the old and again at the new; and a config read leaves owed what
+    /// `read_owes` says, measured from after its last part.
+    #[test]
+    fn the_pump_performs_a_waiting_change_before_it_draws() {
+        const SRC: &str = include_str!("app.rs");
+        let pump = SRC
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the pump");
+        let at = |tok: &str| {
+            pump.find(tok)
+                .unwrap_or_else(|| panic!("{tok} in the pump"))
+        };
+        let replay = at(concat!(
+            "Deferred::Font(face, points) => ",
+            "self.refont(face, points),"
+        ));
+        assert!(at("self.follow_config();") < replay, "the config first");
+        assert!(replay < at("let drained = self.app.pty.drain();"));
+        assert!(replay < at(concat!("self.app.", "present(&view, Show::Event);")));
+        let config = SRC
+            .split_once(concat!("    fn apply_", "config("))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("apply_config");
+        let at = |tok: &str| {
+            config
+                .find(tok)
+                .unwrap_or_else(|| panic!("{tok} in apply_config"))
+        };
+        let before = at("let before = self.app.frames;");
+        assert!(at("for &p in parts {") < before, "after every part");
+        assert!(before < at("if parts.contains(&Part::Fonts) {"));
+        let owes = at(concat!(
+            "self.app.pending = read_owes(",
+            "before, self.app.frames, self.app.pending);"
+        ));
+        assert!(
+            at(concat!(
+                "if self.relayout(self.view.frame().size, self.app.scale) ",
+                "== Drew::No {"
+            )) < owes
+        );
+        assert_eq!(
+            config
+                .matches("self.app.pending = Pending::Dirty;\n        said")
+                .count(),
+            0
+        );
+    }
+
+    /// `read_owes` on its own: a read that built a frame owes what is
+    /// pending after it, one that built none owes a frame.
+    #[test]
+    fn a_read_owes_a_frame_only_when_it_built_none() {
+        let (a, b) = (Tally::default(), Tally::of(1));
+        assert!(read_owes(a, a, Pending::Clean) == Pending::Dirty);
+        assert!(read_owes(a, b, Pending::Clean) == Pending::Clean);
+        assert!(read_owes(a, b, Pending::Dirty) == Pending::Dirty);
+    }
+}
+
+#[cfg(test)]
 mod resize_selection_tests {
     use super::kept_across_resize;
     use baud_core::{Owned, Term};
@@ -8050,6 +8564,19 @@ fn refont_step(
 enum Drew {
     Yes,
     No,
+}
+
+/// **What a config read owes once every part is applied**: a frame,
+/// unless the relayout or the zoom its fonts asked for built one after the
+/// last part was applied (`before` and `after` are `App::frames` either
+/// side of them), which then shows every part. Owing one anyway built a
+/// second frame of the screen the relayout had just drawn, on the next
+/// tick. A frame left owed, because one was in flight, stays owed.
+fn read_owes(before: Tally, after: Tally, pending: Pending) -> Pending {
+    match after == before {
+        true => Pending::Dirty,
+        false => pending,
+    }
 }
 
 /// Whether `present` builds the frame it was asked for now, or leaves it
@@ -10830,6 +11357,9 @@ impl Driver {
         // returns to the new configured size either way.
         let points = crate::live::size_after(self.app.font_size, self.app.font_base, c.font_size);
         self.app.font_base = c.font_size;
+        // Every part is applied by here, so a frame the fonts' relayout or
+        // zoom builds below shows them all (`read_owes`).
+        let before = self.app.frames;
         if parts.contains(&Part::Fonts) {
             match self.reload_fonts(c, points) {
                 Ok(()) => relayout = true,
@@ -10851,7 +11381,7 @@ impl Driver {
                 self.app.present(&self.view, Show::Event);
             }
         }
-        self.app.pending = Pending::Dirty;
+        self.app.pending = read_owes(before, self.app.frames, self.app.pending);
         said
     }
 
