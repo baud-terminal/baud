@@ -44,7 +44,7 @@ use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
     Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Transition,
-    WalkKey, Window, copy_for_shader, gutter,
+    WalkKey, Window, gutter,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -1920,7 +1920,16 @@ impl App {
                 // reordered. With BDSM reset, once a letter that takes a
                 // joining form has been drawn, the last frame's joins are
                 // kept for the rows the copy's compare finds changed.
+                // Row 9's predicted echoes, on the live view, are laid out
+                // as written, so a prediction's row is drawn in the order
+                // its echo will be.
                 let joins_seen = self.renderer.joins_seen();
+                self.renderer.set_predicted(
+                    self.predictions
+                        .iter()
+                        .filter(|_| back.index() == 0)
+                        .map(|p| (p.row, p.col, p.cp)),
+                );
                 let rejoin = self.renderer.lay_out_bidi_copied(&self.term, back);
                 let view = self.renderer.bidi().window(
                     &self.term,
@@ -1958,13 +1967,33 @@ impl App {
                     &mut cell.styles_mem[set][..],
                     &mut cell.style_stamps[set],
                 );
+                // **The leaving row**: the line just above the window,
+                // `view(back + 1).row(0)`, appended to the copy at index
+                // `vrows`, where `slide_rows = 1` maps draw row 0 to it with
+                // the identity rotation the copy is read under -- in the
+                // order it was drawn in as the first row of the window one
+                // line up, a marked cell given its base, as the shader reads
+                // it (`Renderer::copy_leaving`). It is never selected and
+                // never holds the cursor (the shader's row there is past
+                // every one). The map is ensured over that row as copied.
                 if sliding {
-                    // The leaving row is never selected and never holds the
-                    // cursor (the shader's row there is past every one).
-                    let above = self.term.view(Rows::of_index(back.index() + 1));
+                    let (vcols, vrows) = (view.cols().index(), view.rows().index());
+                    let at = vrows * self.term.stride().index();
+                    let row = &mut cell.copies_mem[set][at..at + vcols];
+                    self.renderer.copy_leaving(&self.term, back, row);
+                    let used = [baud_domain::RowExtent::of(vcols)];
+                    let leaving = baud_domain::Viewport::new(
+                        row,
+                        &used,
+                        baud_domain::Stride::of_cells(vcols),
+                        view.cols(),
+                        Rows::of_count(1),
+                        Rows::of_count(1),
+                        RowRot::NONE,
+                    );
                     cell.maps.live.ensure(
                         &self.term,
-                        above,
+                        leaving,
                         &cell.styles_mem[set][..],
                         &mut self.renderer,
                         &mut cell.candidates,
@@ -2067,22 +2096,6 @@ impl App {
                     }
                     None => 0,
                 };
-                // The leaving row: the line just above the window,
-                // `view(back + 1).row(0)`, appended at index `vrows`, where
-                // `slide_rows = 1` maps draw row 0 to it with the identity
-                // rotation the copy is read under.
-                // A marked cell there is given its base: the shader draws the
-                // row from the map alone (`copy_for_shader`).
-                if sliding {
-                    let above = self.term.view(Rows::of_index(back.index() + 1));
-                    let src = above.row(Row::from_index(0));
-                    let at = vrows * stride;
-                    copy_for_shader(
-                        &self.term,
-                        &src[..vcols],
-                        &mut cell.copies_mem[set][at..at + vcols],
-                    );
-                }
                 cell.exceptions.ensure(
                     &Scene {
                         term: &self.term,
@@ -2115,12 +2128,16 @@ impl App {
                         // heuristic: what was typed before this is what
                         // this will look like, where the cell under the
                         // cursor may hold the shell's own dimmed guess.
+                        // The logical cell, read from the core's view: the
+                        // window drawn may show another cell there.
                         let at = if p.col.index() > 0 {
                             p.col.index() - 1
                         } else {
                             p.col.index()
                         };
-                        let style = view
+                        let style = self
+                            .term
+                            .view(back)
                             .row(p.row)
                             .get(at)
                             .map_or(PackedCell::EMPTY.style, |c| c.style);
@@ -2147,13 +2164,13 @@ impl App {
                 if let Some(c) = &composition {
                     let under = view
                         .row(c.row)
-                        .get(c.col.index())
+                        .get(self.renderer.bidi().visual_col(c.row, c.col).index())
                         .copied()
                         .unwrap_or(PackedCell::EMPTY);
                     cell.exceptions.composed(
                         &mut self.renderer,
                         &self.term,
-                        c,
+                        (c, baud_render::Laid::AsWritten),
                         under,
                         &cell.styles_mem[set][..],
                         cursor,
@@ -2173,12 +2190,10 @@ impl App {
                 // at its size by its records, its row of the mask the one
                 // after the screen's (`Overlay::leaving`).
                 if sliding {
-                    let above = self.term.view(Rows::of_index(back.index() + 1));
                     cell.exceptions.leaving(
                         &mut self.renderer,
                         &self.term,
-                        above.row(Row::from_index(0)),
-                        above.rendition(Row::from_index(0)),
+                        back,
                         (view.cols(), view.rows()),
                         pan,
                         &mut cell.overlay_mem[set][..],
@@ -2232,7 +2247,7 @@ impl App {
                     cell.exceptions.composed(
                         &mut self.renderer,
                         &self.term,
-                        &c,
+                        (&c, baud_render::Laid::OnScreen),
                         PackedCell::EMPTY,
                         &cell.styles_mem[set][..],
                         None,

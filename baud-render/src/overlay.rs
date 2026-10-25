@@ -244,22 +244,58 @@ struct Geom {
     pan: Px,
 }
 
-/// The cells a composition covers on the view, `row` and `start..end`, or
-/// none: what the walk reads as empty.
-#[derive(Clone, Copy)]
-struct Covered(Option<(usize, usize, usize)>);
+/// The cells a composition covers on the view, its row and the visual
+/// runs it is drawn in, or none: what the walk reads as empty.
+#[derive(Clone)]
+struct Covered(Option<(usize, Vec<(Col, Cols)>)>);
 
 impl Covered {
-    fn of(c: Option<&Composition>, cols: Cols) -> Covered {
-        Covered(c.map(|c| {
+    /// The visual cells `c` covers on a screen `cols` wide, laid as
+    /// written ([`Laid::AsWritten`]) through the row's order: one run on a
+    /// row drawn in its own order, more where the order splits it.
+    fn of(c: Option<&Composition>, cols: Cols, orders: &crate::bidi::Orders) -> Covered {
+        Covered(c.and_then(|c| {
             let (start, end) = c.columns(cols);
-            (c.row.index(), start, end)
+            (end > start).then(|| {
+                (
+                    c.row.index(),
+                    orders.runs(c.row, Col::at_index(start), Col::at_index(end - 1)),
+                )
+            })
         }))
     }
 
-    fn holds(self, y: Row, x: Col) -> bool {
-        self.0
-            .is_some_and(|(row, start, end)| y.index() == row && (start..end).contains(&x.index()))
+    fn holds(&self, y: Row, x: Col) -> bool {
+        self.0.as_ref().is_some_and(|(row, runs)| {
+            y.index() == *row
+                && runs
+                    .iter()
+                    .any(|&(v, n)| (v.index()..v.index() + n.index()).contains(&x.index()))
+        })
+    }
+}
+
+/// **Where a composition's cells are drawn**: as the same text written in
+/// its row would be, through the order the row is laid out in with it
+/// written there ([`crate::bidi::Written`]) -- an input method's -- or at
+/// the screen columns it names, baud's own fields drawn over the text: the
+/// find field, the link preview's bar and the config's notice.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Laid {
+    AsWritten,
+    OnScreen,
+}
+
+impl Laid {
+    /// The visual column logical column `x` of row `r` is drawn at, on a
+    /// line of rendition `size`. A line that is not single-width is drawn
+    /// whole by its own records ([`Renderer::sized_lines`]) at its stored
+    /// columns, so a composition there keeps them.
+    fn column(self, orders: &crate::bidi::Orders, r: Row, x: Col, size: LineRendition) -> Col {
+        match (self, size.is_double()) {
+            (Laid::AsWritten, false) => orders.visual_col(r, x),
+            _ => x,
+        }
     }
 }
 
@@ -523,6 +559,7 @@ impl Overlay {
         let covered = Covered::of(
             scene.composition,
             scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
+            &orders,
         );
         if self.windows.len() > WINDOWS_MAX {
             self.windows.clear();
@@ -627,7 +664,7 @@ impl Overlay {
                     (lo, hi),
                     &geom,
                     block,
-                    covered,
+                    &covered,
                     mask,
                     records,
                     (pictures, &orders),
@@ -763,7 +800,7 @@ impl Overlay {
             self.whole(scene, r, (x, y), mask, records, &paint, &geom);
         }
         if !self.emitted.is_empty() {
-            self.reach(scene, r, mask, records, &paint, &geom, covered);
+            self.reach(scene, r, mask, records, &paint, &geom, &covered);
             self.order(records);
         }
         self.under = Tally::of(records.len());
@@ -792,7 +829,7 @@ impl Overlay {
         records: &mut Vec<Instance>,
         paint: &Paint<'_>,
         geom: &Geom,
-        covered: Covered,
+        covered: &Covered,
     ) {
         let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
         let (cw, ch) = (px(geom.m.cell_w).max(1), px(geom.m.cell_h).max(1));
@@ -1259,7 +1296,7 @@ impl Overlay {
         range: (usize, usize),
         geom: &Geom,
         block: Option<(Row, Col, CursorStyle)>,
-        covered: Covered,
+        covered: &Covered,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
         (pictures, orders): (&Pictures, &crate::bidi::Orders),
@@ -1466,7 +1503,22 @@ impl Overlay {
         let Some(cp) = cell.content.as_codepoint() else {
             return;
         };
-        let (y, x) = (at.0.index(), at.1.index());
+        // **Drawn where the echo will be, as the echo draws it**: `at` is
+        // the logical cell, and the row was laid out with the prediction
+        // written in it ([`crate::bidi::Written`]), so its visual cell and
+        // the block's are the echo's, and so is the mirror UAX #9 L4 gives
+        // the character there, a `(` resolved right to left drawn `)`.
+        let orders = r.bidi();
+        let (y, x) = (at.0.index(), orders.visual_col(at.0, at.1).index());
+        let block = block.map(|(br, bc, s)| (br, orders.visual_col(br, bc), s));
+        let cp = orders
+            .swapped(at.0, Col::at_index(x))
+            .and_then(|s| s.as_codepoint())
+            .unwrap_or(cp);
+        let cell = PackedCell {
+            content: Content::codepoint(cp),
+            ..cell
+        };
         let Some(slot) = mask.get_mut(y * cols.index() + x) else {
             return;
         };
@@ -1528,7 +1580,7 @@ impl Overlay {
         &mut self,
         r: &mut Renderer<'_, '_>,
         term: &Term<'_>,
-        c: &Composition,
+        (c, laid): (&Composition, Laid),
         under: PackedCell,
         styles: &[Resolved],
         block: Option<(Row, Col, CursorStyle)>,
@@ -1540,16 +1592,29 @@ impl Overlay {
     ) {
         let (start, end) = c.columns(size.end_of_line(cols));
         for x in start..end {
-            if let Some(slot) = mask.get_mut(c.row.index() * cols.index() + x) {
+            let v = laid.column(r.bidi(), c.row, Col::at_index(x), size);
+            if let Some(slot) = mask.get_mut(c.row.index() * cols.index() + v.index()) {
                 *slot |= MASK_RECORD;
             }
         }
-        composition_records(r, term, c, under, styles, block, cols, size, pan, records);
+        composition_records(
+            r,
+            term,
+            (c, laid),
+            under,
+            styles,
+            block,
+            cols,
+            size,
+            pan,
+            records,
+        );
     }
 
     /// **The leaving row of a smooth scroll, for the cell path, when its
-    /// line is not single-width**: `cells` and `size`, the line just above
-    /// the window, drawn by the records the instance path converts it to
+    /// line is not single-width**: the line just above the window `back`
+    /// lines into the history, drawn by the records the instance path
+    /// converts it to in the order it was drawn in as that window's first
     /// ([`Renderer::sized_leaving`]) slid by `pan`, and its row of the mask
     /// -- the one after the screen's `rows`, which the shader reads for
     /// draw row -1 -- marked `RECORD` and `SIZED`, so the shader draws its
@@ -1561,14 +1626,18 @@ impl Overlay {
         &mut self,
         r: &mut Renderer<'_, '_>,
         term: &Term<'_>,
-        cells: &[PackedCell],
-        size: LineRendition,
+        back: Rows,
         (cols, rows): (Cols, Rows),
         pan: Px,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        if !size.is_double() {
+        let above = Rows::of_index(back.index() + 1);
+        if !term
+            .view(term.looking_back(above))
+            .rendition(Row::ZERO)
+            .is_double()
+        {
             return;
         }
         let at = rows.index().saturating_mul(cols.index());
@@ -1579,7 +1648,7 @@ impl Overlay {
             *b |= MASK_RECORD | MASK_SIZED;
         }
         let mut lifted = Vec::new();
-        r.sized_leaving(term, cells, size, &mut lifted);
+        r.sized_leaving(term, back, &mut lifted);
         let pan = i16::try_from(pan.value()).unwrap_or(0);
         records.extend(lifted.into_iter().map(|i| Instance {
             y: Screen(i.y.0.saturating_add(pan)),
@@ -1989,6 +2058,30 @@ impl Composition {
         self.hints.iter().copied().chain(core::iter::repeat(rest))
     }
 
+    /// **Its cells as a write of its text leaves them**, from its column on
+    /// a screen `cols` wide, in rendition `style`: each cluster's first
+    /// character in its cell, a wide one's tail after it. What its row is
+    /// laid out with ([`crate::bidi::Written`]); the marks it carries ride
+    /// on their cell there and move with it.
+    pub fn written(&self, cols: Cols, style: baud_domain::StyleId) -> Vec<PackedCell> {
+        let mut out = Vec::new();
+        for p in self.pieces(cols) {
+            out.push(PackedCell {
+                content: Content::codepoint(p.cps[0]),
+                style,
+                flags: baud_domain::CellFlags::NONE,
+            });
+            if p.span == CellSpan::Two {
+                out.push(PackedCell {
+                    content: Content::WIDE_TAIL,
+                    style,
+                    flags: baud_domain::CellFlags::NONE,
+                });
+            }
+        }
+        out
+    }
+
     /// The columns it covers, `start..end`.
     pub fn columns(&self, cols: Cols) -> (usize, usize) {
         let start = self.col.index();
@@ -2101,7 +2194,7 @@ impl Composition {
 pub(crate) fn composition_records(
     r: &mut Renderer<'_, '_>,
     term: &Term<'_>,
-    c: &Composition,
+    (c, laid): (&Composition, Laid),
     under: PackedCell,
     styles: &[Resolved],
     block: Option<(Row, Col, CursorStyle)>,
@@ -2129,6 +2222,31 @@ pub(crate) fn composition_records(
     let base = hinted_base(term, styles, under);
     let y = c.row.index();
     let m = geom.m;
+    // **Each cluster's visual cell, and the character drawn there**: laid
+    // as written, the cell the row's order draws its logical cell at (a
+    // wide one's two cells kept together, its lead on the left) and the
+    // mirror L4 gives it there; on screen, its own column and character.
+    let orders = r.bidi();
+    let placed: Vec<(Piece, usize, Codepoint)> = c
+        .pieces(cols)
+        .into_iter()
+        .map(|p| {
+            let v = laid.column(orders, c.row, p.col, size);
+            let v = match p.span {
+                CellSpan::Two => v.min(laid.column(orders, c.row, p.col.after(), size)),
+                CellSpan::One => v,
+            };
+            let shown = match laid {
+                Laid::AsWritten => orders
+                    .swapped(c.row, v)
+                    .and_then(|s| s.as_codepoint())
+                    .unwrap_or(p.cps[0]),
+                Laid::OnScreen => p.cps[0],
+            };
+            (p, v.index(), shown)
+        })
+        .collect();
+    let block = block.map(|(br, bc, s)| (br, laid.column(orders, br, bc, size), s));
     let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
     let at = |v: i32| Screen(i16::try_from(v).unwrap_or(i16::MAX));
     let (cell_w, cell_h) = (px(m.cell_w), px(m.cell_h));
@@ -2136,10 +2254,12 @@ pub(crate) fn composition_records(
     // The selection's pages under every glyph, the glyphs, then each
     // cell's line over them, as `Renderer::convert_row` orders a row.
     let (mut pages, mut glyphs_out, mut rules) = (Vec::new(), Vec::new(), Vec::new());
-    for p in c.pieces(cols) {
+    for (p, x0, shown) in placed {
         let look = Drawing::of(p.hints);
         let one = [base.of(r, term, look)];
-        let (x0, n) = (p.col.index(), if p.span == CellSpan::Two { 2 } else { 1 });
+        let n = if p.span == CellSpan::Two { 2 } else { 1 };
+        let mut cps = p.cps.clone();
+        cps[0] = shown;
         let drawn = |x: usize| {
             let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
             one[0].drawn(Swaps {
@@ -2156,9 +2276,9 @@ pub(crate) fn composition_records(
                 cursor,
             })
         };
-        let glyphs = r.cluster(&p.cps, one[0].shapes.text_face(), p.span);
+        let glyphs = r.cluster(&cps, one[0].shapes.text_face(), p.span);
         let cell = PackedCell {
-            content: Content::codepoint(p.cps[0]),
+            content: Content::codepoint(cps[0]),
             style: baud_domain::StyleId::DEFAULT,
             flags: baud_domain::CellFlags::NONE,
         };
@@ -2166,7 +2286,7 @@ pub(crate) fn composition_records(
             styles: &one,
             block,
             highlight: (look.selected == Selected::Yes).then_some(Highlight {
-                from: (c.row, p.col),
+                from: (c.row, Col::at_index(x0)),
                 to: (c.row, Col::at_index(x0 + n - 1)),
                 region: crate::select::Region::Stream,
             }),

@@ -9,6 +9,8 @@
 //! cell layer: what a cell gives the algorithm, how whole cells move, and
 //! what a row with no right-to-left character costs (nothing reorders).
 
+mod support;
+
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, Rows, WinSize};
 use baud_render::{CursorSide, Mirrored, Reorder};
@@ -553,4 +555,118 @@ fn a_logical_range_is_drawn_in_its_visual_runs() {
             .collect::<Vec<_>>(),
         vec![(2, 3)]
     );
+}
+
+/// **The row a smooth scroll slides out is laid out as the first row of
+/// the window one line up**: [`Reorder::lay_out_top`] lays out only that
+/// row's paragraph, and reads it whole -- here a row of digits and
+/// brackets, which holds no strong letter of its own, soft-wrapped into a
+/// Hebrew row inside the window, so the paragraph is right to left (P2-P3)
+/// only because of the row below it. Row 0's order is the one the whole
+/// window's layout gives it.
+#[test]
+fn the_leaving_row_is_laid_out_as_the_first_row_one_line_up() {
+    let ws = WinSize {
+        ws_row: 4,
+        ws_col: 12,
+    };
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    // Twelve cells, wrapped into the Hebrew row, then three lines more:
+    // the digits' row is the one line above the live screen.
+    feed(
+        &mut t,
+        "\x1b[8h(12) [34] 56\u{5D0}\u{5D1}\u{5D2} x\r\none\r\ntwo\r\nsix",
+    );
+    let above = Rows::of_index(1);
+    assert_eq!(t.looking_back(above), above, "one line of history");
+    let mut whole = Reorder::new();
+    whole.lay_out(&t, above);
+    let mut top = Reorder::new();
+    top.lay_out_top(&t, above, baud_render::Joins::Seen);
+    assert!(
+        top.orders().reordered(Row::ZERO),
+        "the premise: the row reorders with the row below it"
+    );
+    let vp = t.view(above);
+    let (mut a, mut b) = (vec![PackedCell::EMPTY; 12], vec![PackedCell::EMPTY; 12]);
+    whole.orders().permute(Row::ZERO, vp.row(Row::ZERO), &mut a);
+    top.orders().permute(Row::ZERO, vp.row(Row::ZERO), &mut b);
+    assert_eq!(a, b, "drawn in the order the window one line up draws it");
+    assert!(
+        (0..12).all(|c| top.orders().visual_col(Row::ZERO, Col::at_index(c))
+            == whole.orders().visual_col(Row::ZERO, Col::at_index(c))),
+        "each cell where the window one line up draws it"
+    );
+    assert!(
+        !top.orders().reordered(Row::from_index(2)),
+        "and nothing past its paragraph laid out"
+    );
+}
+
+/// **A composition on a right-to-left row draws as the same text written
+/// there**, on the CPU path: its row is laid out with the composition's
+/// text in its cells (`Written`; Jev AS_WRITTEN, 0.98 in both orders), so
+/// `cd` composed after `ab` in a Hebrew paragraph is drawn `abcd`, the `ab`
+/// moved left to make room, and composed over the `xy` of `abxy` its
+/// records and the cells it blanks are where that order puts them. The
+/// reference is `composition.rs`'s, the same text written underlined at
+/// the cursor, the cursor on the cell after it in logical order, which the
+/// paragraph draws left of `abcd`; the instance and cell arms are held to
+/// it in `baud-present-macos`.
+#[test]
+fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
+    use baud_font::Face;
+    use baud_render::{Caret, Composition, Damage};
+    let data = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = support::renderer(&faces);
+    let frame = |r: &mut baud_render::Renderer<'_, '_>, bytes: &str, composed: bool| {
+        let mut owned = Owned::new(&support::WS);
+        let mut t = Term::new(owned.storage(), &support::WS);
+        feed(&mut t, bytes);
+        let (row, col) = t.cursor();
+        r.set_composition(composed.then(|| Composition {
+            row,
+            col,
+            text: "cd".chars().map(Codepoint::from_char).collect(),
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
+            caret: Caret::End,
+        }));
+        let mut c = support::Canvas::for_renderer(r);
+        support::paint(r, &mut t, &mut c, Damage::Full);
+        let reordered = r.bidi().reordered(row);
+        r.set_composition(None);
+        (c.pixels, reordered)
+    };
+    // After `ab`, on erased cells, where the write moves `ab`; and over
+    // `xy`, whose cells it covers where the order draws them.
+    // `xy` is red, so the composition over it is drawn red, and written
+    // red: the rendition is the logical cell's, wherever it is drawn.
+    for (line, red) in [
+        ("\x1bc\x1b[2 q\x1b[3;1H\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", ""),
+        (
+            "\x1bc\x1b[2 q\x1b[3;1H\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab\x1b[31mxy\x1b[39m\x1b[2D",
+            "\x1b[31m",
+        ),
+    ] {
+        let (composed, reordered) = frame(&mut r, line, true);
+        assert!(reordered, "the premise: the row is reordered");
+        let (plain, _) = frame(&mut r, line, false);
+        let (written, _) = frame(
+            &mut r,
+            &format!("{line}{red}\x1b[4mcd\x1b[24m\x1b[39m"),
+            false,
+        );
+        assert_ne!(composed, plain, "the composition is drawn");
+        assert!(
+            composed == written,
+            "{line:?}: as the same text written underlined, the cursor on the cell after it"
+        );
+    }
 }

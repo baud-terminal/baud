@@ -90,6 +90,30 @@ the screen; step 3 joins Arabic letters.
   click, a drag and a mouse report to a program name the cell the program
   wrote under the pointer (the inverse of the drawn order).
 - **The alternate screen and the scrollback** are drawn the same way.
+- **A line slides out the way it was drawn.** During a smooth scroll the
+  line leaving the top of the window is drawn in the order it had as the
+  window's first line, its paragraph read across the lines below it and
+  the history above, on the cell shader and, for a double-width line, the
+  records it is drawn by
+  (`a_right_to_left_line_slides_out_in_the_order_it_was_drawn`, the
+  leaving row against the same line drawn still, every arm agreeing on
+  that frame).
+- **What you are typing is drawn where it will land.** An input method's
+  composition and a predicted echo are laid out as if they were written
+  in their cells, so their line is drawn in the order a write of the same
+  text gives it: `cd` composed after `ab` in a Hebrew line is drawn
+  `abcd`, the `ab` moved left to make room, and the cursor on the cell
+  after it in logical order, which the paragraph draws left of `abcd`, as
+  the text will be once it is sent and echoed (Jev AS_WRITTEN, 0.98 in
+  both orders for the composition, 1.00 in both for the echo, asked
+  again once the composition was decided; the options rendered in
+  `docs/research/notes/ab/b205/`;
+  `a_composition_on_a_right_to_left_row_draws_as_the_text_written`, on
+  every arm, and
+  `a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo`). A
+  bracket typed after a Hebrew letter is drawn mirrored, as its echo is
+  (UAX #9 L4,
+  `a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo`).
 - **Arabic letters join.** Each letter is drawn in the form its neighbours
   give it, initial, medial, final or alone, by the Unicode Standard's rules
   (`[[source: unicode-ch9]]` 9.2.2, from ArabicShaping.txt, `[[source:
@@ -356,9 +380,22 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 - **A mark on a flipped glyph**: on a flipped base a mark's image is put
   where the flip puts its box, not where the flip puts its attachment
   point, so it is exact only for a mark centred on its attachment point.
-- **Drawn in their stored order still**: the status line, the row leaving
-  the window during a smooth scroll, images placed on a reordered row, and
-  an input method's composition and a predicted echo on one.
+- **Drawn in their stored order still**: the status line and images placed
+  on a reordered row, a decision each: the status line is no line of the
+  data a program writes the screen with, and an image is placed over cells
+  rather than in one.
+- **A line sliding out draws its glyphs from the cell map alone**, at any
+  setting of the mode: no ligature, and a letter's base without its marks.
+  On a right-to-left line its order is the drawn one, but a letter that
+  joins is drawn alone and a mirrored character with no mirroring glyph
+  unflipped until the slide ends. A double-width line, drawn by records,
+  has all of these.
+- **A right-to-left paragraph on a double-width line** is laid out across
+  the screen's width rather than the line's half, so its text lands in the
+  half that is not drawn; a composition on such a line is drawn at its
+  stored columns, the line laid out without it.
+- **A composed Arabic letter is drawn alone**, while the letters beside it
+  join toward it as they will once it is written.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
   terminfo entry says so (note AB Q18).
 

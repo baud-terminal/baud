@@ -16,8 +16,8 @@ use baud_core::{Owned, Term, WrapPending};
 use baud_domain::CacheGeometry;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    Animated, BytePos, Chan, Col, Cols, Depth, HostTime, ImageAlpha, ImageBudget, ImageMotion,
-    ImagePx, PackedCell, Pixel, ReadLen, Row, RowRot, Rows, WinSize,
+    Animated, BytePos, Chan, Codepoint, Col, Cols, Depth, HostTime, ImageAlpha, ImageBudget,
+    ImageMotion, ImagePx, PackedCell, Pixel, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
 use baud_present_macos::journal::SetIx;
@@ -39,8 +39,7 @@ use baud_render::{
     CursorPhase, Damage, FaceRole, FaceStyle, FontSlot, GlyphMap, Highlight, Hover, Instance, Kind,
     Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
     Shape, SixelBg, Smear, SplashLook, SplashPhase, Stack, StatusMarks, StyleStamp, Tally, Target,
-    Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader,
-    quad_coverage,
+    Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -138,6 +137,10 @@ struct Arms<'f, 'a> {
     splash: Option<SplashLook>,
     /// An input method's composition both arms draw, or none.
     composition: Option<Composition>,
+    /// Row 9's predicted echoes, each a codepoint at its logical cell,
+    /// which the cell arm draws as the app draws them; the instance arm
+    /// draws none, as the app's instance and CPU paths draw none.
+    predictions: Vec<(Row, Col, Codepoint)>,
     /// The find field and its marks both arms draw, or none.
     find: Option<baud_render::FindLook>,
     /// The link preview both arms draw, or none.
@@ -240,7 +243,13 @@ impl Arms<'_, '_> {
         // The window in the order each row is drawn in, laid out for this
         // frame as the app lays it out: the core's own view when no row is
         // reordered.
+        // The composition and the predicted echoes, on the live view, laid
+        // out as written: set before the layout, as the app sets them.
+        self.renderer.set_composition(self.composition.clone());
         let joins_seen = self.renderer.joins_seen();
+        let live_back = self.back.index() == 0;
+        self.renderer
+            .set_predicted(self.predictions.iter().copied().filter(|_| live_back));
         let rejoin = self.renderer.lay_out_bidi_copied(t, self.back);
         let view =
             self.renderer
@@ -302,6 +311,35 @@ impl Arms<'_, '_> {
                 .flatten()
                 .map(|(r, c)| (r, c, t.cursor_style()))
         });
+        // The drawn cursor after the last predicted echo, as the app puts it.
+        let shown = match (shown, self.predictions.last().filter(|_| live_back)) {
+            (Some((_, _, style)), Some(&(row, col, _))) => Some((row, col.after(), style)),
+            (c, _) => c,
+        };
+        // A slide's leaving row, as the shader reads it, walked into the map
+        // before the window, as the app walks it.
+        if self.slide.is_some() {
+            let cols = view.cols().index();
+            let mut row = vec![PackedCell::EMPTY; cols];
+            self.renderer.copy_leaving(t, self.back, &mut row);
+            let used = [baud_domain::RowExtent::of(cols)];
+            let leaving = baud_domain::Viewport::new(
+                &row,
+                &used,
+                baud_domain::Stride::of_cells(cols),
+                view.cols(),
+                Rows::of_count(1),
+                Rows::of_count(1),
+                RowRot::NONE,
+            );
+            self.map.ensure(
+                t,
+                leaving,
+                self.styles_mem,
+                &mut self.renderer,
+                &mut self.candidates,
+            );
+        }
         self.map.ensure(
             t,
             view,
@@ -332,18 +370,46 @@ impl Arms<'_, '_> {
             self.overlay_mem,
             &mut self.records,
         );
+        // The predicted echoes as the app draws them on the cell path: each
+        // a masked cell and a record, in the rendition of the logical cell
+        // to its left.
+        if live_back {
+            for &(row, col, cp) in &self.predictions {
+                let at = col.index().saturating_sub(1);
+                let style = t
+                    .view(self.back)
+                    .row(row)
+                    .get(at)
+                    .map_or(PackedCell::EMPTY.style, |c| c.style);
+                self.exceptions.predicted(
+                    &mut self.renderer,
+                    (row, col),
+                    PackedCell {
+                        content: baud_domain::Content::codepoint(cp),
+                        style,
+                        flags: baud_domain::CellFlags::NONE,
+                    },
+                    self.styles_mem,
+                    cursor,
+                    self.highlight,
+                    view.cols(),
+                    self.overlay_mem,
+                    &mut self.records,
+                );
+            }
+        }
         // The composition as the app draws it on the cell path: its cells
         // masked, its records after the walk's.
         if let Some(c) = &composition {
             let under = view
                 .row(c.row)
-                .get(c.col.index())
+                .get(self.renderer.bidi().visual_col(c.row, c.col).index())
                 .copied()
                 .unwrap_or(PackedCell::EMPTY);
             self.exceptions.composed(
                 &mut self.renderer,
                 t,
-                c,
+                (c, baud_render::Laid::AsWritten),
                 under,
                 self.styles_mem,
                 cursor,
@@ -364,12 +430,10 @@ impl Arms<'_, '_> {
         if let Some(pan) = self.slide {
             let above = Rows::of_index(self.back.index() + 1);
             if t.looking_back(above) == above {
-                let up = t.view(above);
                 self.exceptions.leaving(
                     &mut self.renderer,
                     t,
-                    up.row(Row::ZERO),
-                    up.rendition(Row::ZERO),
+                    self.back,
                     (view.cols(), view.rows()),
                     pan,
                     self.overlay_mem,
@@ -416,7 +480,7 @@ impl Arms<'_, '_> {
             self.exceptions.composed(
                 &mut self.renderer,
                 t,
-                &c,
+                (&c, baud_render::Laid::OnScreen),
                 PackedCell::EMPTY,
                 self.styles_mem,
                 None,
@@ -436,7 +500,7 @@ impl Arms<'_, '_> {
         self.chrome = Tally::of(self.records.len() - chrome_from);
         let (grid, rotation, ring) = match self.reads {
             Reads::Copy => {
-                let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
+                let ring = copy_window(t, self.back, self.slide, &mut self.renderer, self.copy_mem);
                 (&self.copy, RowRot::NONE, Rows::of_index(ring))
             }
             Reads::Core => (&self.grid, view.rotation(), t.ring()),
@@ -482,7 +546,7 @@ impl Arms<'_, '_> {
         let view = t.view(self.back);
         self.renderer.set_images(t, self.back);
         self.renderer.lay_out_bidi(t, self.back);
-        let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
+        let ring = copy_window(t, self.back, self.slide, &mut self.renderer, self.copy_mem);
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
@@ -1225,6 +1289,7 @@ macro_rules! arms {
             fade: None,
             splash: None,
             composition: None,
+            predictions: Vec::new(),
             find: None,
             link: None,
             chrome: Tally::default(),
@@ -6514,7 +6579,7 @@ fn copy_window(
     t: &Term<'_>,
     back: Rows,
     slide: Option<Px>,
-    renderer: &Renderer<'_, '_>,
+    renderer: &mut Renderer<'_, '_>,
     copy_mem: &mut [PackedCell],
 ) -> usize {
     let view = t.view(back);
@@ -6530,13 +6595,12 @@ fn copy_window(
     // Smooth scroll: append the leaving row -- the line just above the
     // window, `view(back + 1).row(0)` -- at index `rows`, and read one
     // more row, so the shader's `slide_rows = 1` maps draw row 0 to it
-    // with the identity rotation. Copied as the app copies it, a marked
-    // cell given its base (`copy_for_shader`).
+    // with the identity rotation. Copied as the app copies it, in the order
+    // it was drawn in as the first row of the window one line up, a marked
+    // cell given its base (`Renderer::copy_leaving`).
     let ring = if slide.is_some() {
-        let above = t.view(Rows::of_index(back.index() + 1));
-        let src = above.row(Row::from_index(0));
         let at = rows * stride;
-        copy_for_shader(t, &src[..cols], &mut copy_mem[at..at + cols]);
+        renderer.copy_leaving(t, back, &mut copy_mem[at..at + cols]);
         rows + 1
     } else if let Some(line) = t.status_line() {
         // The status line's row after the screen's, as the app copies
@@ -10022,6 +10086,353 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
             );
             assert!(!changed.contains(&(8 * cw)), "and not on the left");
         }
+    }
+}
+
+/// The faces the right-to-left gates draw with: baud's built face, which
+/// holds the Hebrew letters, and the emoji subset.
+fn rtl_faces() -> (Vec<u8>, Vec<u8>) {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    (
+        read("baud-app/fonts/built/Regular.ttf"),
+        read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf"),
+    )
+}
+
+/// **A right-to-left line slides out in the order it was drawn in**, on
+/// every frame of a smooth scroll: the leaving row is the line just above
+/// the window, and BDSM set (`[[source: ecma48]]` 7.2.1, IMPLICIT, "All
+/// bi-directional aspects of data are handled by the device itself") has
+/// every display line drawn in the order UAX #9 L1-L2 give it
+/// (`[[source: uax9-bidi]]`), the line the slide draws above the window
+/// as much as the lines inside it. The line is a Hebrew paragraph, right
+/// to left against the right edge, with a bracket pair L4 mirrors.
+///
+/// The expected frame is that line drawn still, as the first row of the
+/// window one line up, where every arm agrees: a full-row slide is that
+/// frame exactly, and a half-row slide is it moved down by the pan, pixel
+/// for pixel wherever both draw. Before the leaving row went through the
+/// layout it was drawn in its stored order, the Hebrew letters left to
+/// right from the left edge. The control: with BDSM reset the same slide
+/// draws another frame, so the order is what reached the pixels. A
+/// double-width line (DECDWL) slides out the same way, drawn by the records
+/// its conversion makes through the same order and its map: a Latin line
+/// whose Hebrew run holds an arrow, drawn `<-` with each cell shaped alone
+/// (UAX #9 3.5), and a U+2211, which has no mirroring glyph and is drawn
+/// flipped (L4).
+#[test]
+fn a_right_to_left_line_slides_out_in_the_order_it_was_drawn() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let rows = usize::from(WS.ws_row);
+    // The Hebrew line, then a screen of Latin lines, so it is the one line
+    // the screen has scrolled past: the leaving row of a slide at the live
+    // screen.
+    let hebrew = "\u{5D0}\u{5D1}(\u{5D2})\u{5D3} xy";
+    let arrow = "ab \u{5D4}->\u{5D5}\u{2211}\u{5D6} xy";
+    let scene = |t: &mut Term<'_>, mode: &str, width: &str, line: &str| {
+        feed(t, b"\x1bc\x1b[?25l");
+        feed(t, format!("{mode}{width}{line}").as_bytes());
+        for i in 1..=rows {
+            feed(
+                t,
+                format!("\r\nThe quick brown fox {i:02} jumps 0123456789").as_bytes(),
+            );
+        }
+    };
+    arms!(fresh() => arms, t);
+    arms.reads = Reads::Copy;
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let row = ch * fw;
+    let mut slides = Vec::new();
+    for (mode, width, line) in [
+        ("", "", hebrew),
+        ("\x1b[8l", "", hebrew),
+        ("", "\x1b#6", arrow),
+    ] {
+        scene(&mut t, mode, width, line);
+        // Still: the line as the window's first row, one line up, alike on
+        // every arm.
+        arms.back = Rows::of_count(1);
+        arms.slide = None;
+        let (a, b) = arms.draw(&mut t);
+        let c = arms.draw_copied(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert_eq!(
+            arms.renderer.bidi().reordered(Row::ZERO),
+            mode.is_empty(),
+            "the premise: the line is reordered while BDSM is set"
+        );
+        for (arm, got) in [("cell", &b), ("copied", &c), ("cpu", &cpu)] {
+            let d = differing(&got[..rows * row], &a[..rows * row]);
+            assert_eq!(
+                d, 0,
+                "{mode:?}{width:?}: still, the {arm} arm differs, {d} pixels"
+            );
+        }
+        arms.back = Rows::ZERO;
+        for pan in [ch, ch / 2] {
+            arms.slide = Some(Px::of(u32::try_from(pan).unwrap()));
+            let (_, slid) = arms.draw(&mut t);
+            let copied = arms.draw_copied(&mut t);
+            let off = (ch - pan) * fw;
+            let n = rows * row - off;
+            for (arm, got) in [("cell", &slid), ("copied", &copied)] {
+                let d = differing(&got[..n], &a[off..off + n]);
+                assert_eq!(
+                    d, 0,
+                    "{mode:?}{width:?}: a slide of {pan} on the {arm} arm is not the line drawn \
+                     still, {d} pixels"
+                );
+            }
+            if pan == ch && width.is_empty() {
+                slides.push(slid);
+            }
+        }
+        arms.slide = None;
+    }
+    assert!(
+        differing(&slides[0][..row], &slides[1][..row]) > 0,
+        "the control: with BDSM reset the leaving row draws its stored order"
+    );
+}
+
+/// **An input method's composition on a right-to-left row draws as the
+/// same text written there**, on every arm: the row is laid out with the
+/// composition's text in its cells (Jev AS_WRITTEN, 0.98 in both orders),
+/// so its cells are drawn where UAX #9 puts them and the row's other cells
+/// move as a write would move them -- `cd` composed after `ab` in a Hebrew
+/// paragraph is drawn `abcd`, the `ab` moved left to make room, where
+/// drawing it from the cursor's cell rightward covered the `a` -- and the
+/// cells it covers are hidden where the order draws them: composed over
+/// the `xy` of `abxy`, no `x` shows. The reference is `composition.rs`'s:
+/// the same text written underlined at the cursor, the cursor on the cell
+/// after it in logical order, which the paragraph draws left of `abcd`.
+#[test]
+fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // After `ab`, on erased cells, where the write moves `ab`; and over
+    // `xy`, whose cells it covers where the order draws them.
+    // `xy` is red, so the composition over it is drawn red, and written
+    // red: the rendition is the logical cell's, wherever it is drawn.
+    for (line, red) in [
+        ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", ""),
+        (
+            "\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab\x1b[31mxy\x1b[39m",
+            "\x1b[31m",
+        ),
+    ] {
+        arms!(fresh() => arms, t);
+        feed(
+            &mut t,
+            format!(
+                "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
+            )
+            .as_bytes(),
+        );
+        let (row, col) = t.cursor();
+        arms.composition = Some(Composition {
+            row,
+            col,
+            text: "cd"
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect(),
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            hints: Vec::new(),
+            caret: Caret::End,
+        });
+        let composed = three(&mut arms, &mut t, "composed");
+        assert!(
+            arms.renderer.bidi().reordered(row),
+            "the premise: the row is reordered"
+        );
+        arms.composition = None;
+        let plain = three(&mut arms, &mut t, "plain");
+        feed(&mut t, format!("{red}\x1b[4mcd\x1b[24m\x1b[39m").as_bytes());
+        let written = three(&mut arms, &mut t, "written");
+        assert!(
+            differing(&composed, &plain) > 0,
+            "{line}: the composition is drawn"
+        );
+        let d = differing(&composed, &written);
+        assert_eq!(
+            d, 0,
+            "{line}: as the same text written underlined, {d} pixels"
+        );
+    }
+}
+
+/// **A predicted echo on a right-to-left row draws as its echo will**:
+/// the row is laid out with the predicted character in its cell (Jev
+/// AS_WRITTEN, 1.00 in both orders), so `c` typed after `ab` in a Hebrew
+/// paragraph is drawn right of the `b`, the `ab` moved left, and the
+/// cursor on the cell after it in logical order, which the paragraph draws
+/// left of `abc` -- the frame the shell's echo then draws, pixel for
+/// pixel, on the cell path, which draws the predictions. At the cursor's drawn cell
+/// it read `cab`. The `ab` is red and so is the echo, as Mosh guesses it:
+/// the rendition of the logical cell to its left.
+#[test]
+fn a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \x1b[31mab";
+    arms!(fresh() => arms, t);
+    arms.reads = Reads::Copy;
+    feed(
+        &mut t,
+        format!(
+            "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
+        )
+        .as_bytes(),
+    );
+    let (row, col) = t.cursor();
+    let (_, plain) = arms.draw(&mut t);
+    arms.predictions = vec![(row, col, baud_domain::Codepoint::from_char('c'))];
+    let (_, predicted) = arms.draw(&mut t);
+    assert!(
+        arms.renderer.bidi().reordered(row),
+        "the premise: the row is reordered"
+    );
+    arms.predictions.clear();
+    feed(&mut t, b"c");
+    let (_, echoed) = arms.draw(&mut t);
+    assert!(differing(&predicted, &plain) > 0, "the prediction is drawn");
+    let d = differing(&predicted, &echoed);
+    assert_eq!(d, 0, "the prediction is the echo's frame, {d} pixels");
+}
+
+/// **A predicted bracket on a right-to-left row draws mirrored, as its
+/// echo does**: `(` or `[` typed after a Hebrew letter at the end of a
+/// right-to-left paragraph resolves to R, and UAX #9 L4
+/// (`[[source: uax9-bidi]]`) depicts a character "by a mirrored glyph if
+/// and only if (a) the resolved directionality of that character is R, and
+/// (b) the Bidi_Mirrored property value of that character is Yes". So the
+/// prediction is the character the row's order draws in its cell, `)` or
+/// `]`, and its frame is the echo's, pixel for pixel, on the cell path.
+/// The premise: on both frames the order swaps that cell's character.
+/// The control: a `c` at the same cell, which nothing mirrors.
+#[test]
+fn a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let line = "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5D0}";
+    for (ch, mirrored) in [('(', true), ('[', true), ('c', false)] {
+        arms!(fresh() => arms, t);
+        arms.reads = Reads::Copy;
+        feed(
+            &mut t,
+            format!(
+                "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;7H"
+            )
+            .as_bytes(),
+        );
+        let (row, col) = t.cursor();
+        let (_, plain) = arms.draw(&mut t);
+        arms.predictions = vec![(row, col, baud_domain::Codepoint::from_char(ch))];
+        let (_, predicted) = arms.draw(&mut t);
+        // The order the cell path lays the row out in, the one that draws
+        // the predictions.
+        let swapped = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+            arms.with_cells(t, |_, r, _| {
+                let orders = r.bidi();
+                (
+                    orders.reordered(row),
+                    orders.swapped(row, orders.visual_col(row, col)).is_some(),
+                )
+            })
+        };
+        assert_eq!(
+            swapped(&mut arms, &mut t),
+            (true, mirrored),
+            "{ch:?}: the premise: the row is reordered, and the predicted frame's order \
+             mirrors it"
+        );
+        arms.predictions.clear();
+        feed(&mut t, ch.to_string().as_bytes());
+        let (_, echoed) = arms.draw(&mut t);
+        assert_eq!(
+            swapped(&mut arms, &mut t),
+            (true, mirrored),
+            "{ch:?}: the premise: the echo's order mirrors it"
+        );
+        assert!(
+            differing(&predicted, &plain) > 0,
+            "{ch:?}: the prediction is drawn"
+        );
+        let d = differing(&predicted, &echoed);
+        assert_eq!(
+            d, 0,
+            "{ch:?}: the prediction is the echo's frame, {d} pixels"
+        );
     }
 }
 

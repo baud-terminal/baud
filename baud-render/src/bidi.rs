@@ -312,6 +312,14 @@ impl Orders {
         self.row(r).map_or(&[], |o| o.mirrors.as_slice())
     }
 
+    /// **The character visual column `v` of row `r` is drawn as, where L4
+    /// gives it a mirror its content does not hold** ([`Orders::permute`]
+    /// draws it so): what a record drawn there in place of the cell draws.
+    pub fn swapped(&self, r: Row, v: Col) -> Option<Content> {
+        self.row(r)
+            .and_then(|o| o.swaps.iter().find(|&&(c, _)| c == v).map(|&(_, c)| c))
+    }
+
     /// Whether row `r` is drawn in another order.
     pub fn reordered(&self, r: Row) -> bool {
         matches!(self.rows.get(r.index()), Some(Some(_)))
@@ -486,6 +494,107 @@ struct ParaRow<'t> {
 /// How many codepoints a row gives the algorithm.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 struct Chars(usize);
+
+/// **Cells a layout reads in place of the core's**: an input method's
+/// composition and a predicted echo, each drawn as the same text written
+/// there would be drawn (Jev AS_WRITTEN, 0.98 in both orders for the
+/// composition, 1.00 in both for the echo). The row they are on is laid out
+/// with their characters in the cells they cover, so it is drawn in the
+/// order a write would give it: a Latin letter typed after Latin text in a
+/// right-to-left paragraph lands right of that text, which moves left to
+/// make room, as the echo will draw it. Empty on nearly every frame, and
+/// then a layout reads the core's cells alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Written {
+    rows: Vec<(Row, Vec<PackedCell>)>,
+}
+
+impl Written {
+    /// Nothing written over any row.
+    pub fn clear(&mut self) {
+        self.rows.clear();
+    }
+
+    /// Whether nothing is written over any row.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// **`cells` written over row `r` of `vp` from column `at`**, over what
+    /// an earlier write left there: each cell as a write leaves it, a wide
+    /// character's tail after its lead. A wide character the write covers
+    /// half of is erased whole, as the core erases it, and a cell past the
+    /// row's end is not written.
+    pub fn write(&mut self, vp: &Viewport<'_>, r: Row, at: Col, cells: &[PackedCell]) {
+        if r.index() >= vp.rows().index() || cells.is_empty() {
+            return;
+        }
+        let ncols = vp.cols().index();
+        let i = match self.rows.iter().position(|&(w, _)| w == r) {
+            Some(i) => i,
+            None => {
+                let row = vp.row(r);
+                self.rows.push((r, row[..ncols.min(row.len())].to_vec()));
+                self.rows.len() - 1
+            }
+        };
+        let row = &mut self.rows[i].1;
+        let (from, to) = (at.index(), (at.index() + cells.len()).min(row.len()));
+        if from >= to {
+            return;
+        }
+        if row[from].content.is_wide_tail() && from > 0 {
+            row[from - 1] = PackedCell {
+                content: Content::EMPTY,
+                ..row[from - 1]
+            };
+        }
+        if let Some(next) = row.get_mut(to).filter(|c| c.content.is_wide_tail()) {
+            *next = PackedCell {
+                content: Content::EMPTY,
+                ..*next
+            };
+        }
+        row[from..to].copy_from_slice(&cells[..to - from]);
+    }
+}
+
+/// **Rows a layout reads in place of the core's**: [`Written`]'s, or
+/// none -- `Unwritten`, which a layout over the core's cells alone is
+/// compiled for, so it reads each row as the window holds it and asks
+/// nothing else.
+trait Over {
+    /// Row `r` as written, if anything is written over it.
+    fn row(&self, r: Row) -> Option<&[PackedCell]>;
+}
+
+impl Over for Written {
+    fn row(&self, r: Row) -> Option<&[PackedCell]> {
+        self.rows
+            .iter()
+            .find(|&&(w, _)| w == r)
+            .map(|(_, c)| c.as_slice())
+    }
+}
+
+/// Nothing written over any row.
+struct Unwritten;
+
+impl Over for Unwritten {
+    #[inline(always)]
+    fn row(&self, _: Row) -> Option<&[PackedCell]> {
+        None
+    }
+}
+
+/// How much of a window a layout lays out: every row, or only the
+/// paragraph its first row is in -- the row a smooth scroll's slide draws
+/// above the window, laid out as it was when it was the window's first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Extent {
+    Window,
+    Top,
+}
 
 /// The window's rows in their visual order, for one frame: the maps
 /// ([`Orders`]) and the algorithm's working state.
@@ -680,6 +789,40 @@ impl Reorder {
     /// [`Reorder::lay_out`], where with BDSM reset and `joins`
     /// [`Joins::Unseen`] no row is read at all.
     pub fn lay_out_as(&mut self, term: &Term<'_>, back: Rows, joins: Joins) {
+        self.lay_out_over(term, back, joins, &Unwritten, Extent::Window);
+    }
+
+    /// [`Reorder::lay_out_as`], each row `written` covers read as written
+    /// ([`Written`]).
+    pub fn lay_out_written(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        joins: Joins,
+        written: &Written,
+    ) {
+        self.lay_out_over(term, back, joins, written, Extent::Window);
+    }
+
+    /// **Only the paragraph the window's first row is in**, laid out as
+    /// [`Reorder::lay_out_as`] lays it out: row 0 of the maps is that row
+    /// as a window `back` lines into the history draws it, and the other
+    /// rows are left in their own order. What a smooth scroll's leaving row
+    /// is drawn by, laid out over the window one line up.
+    pub fn lay_out_top(&mut self, term: &Term<'_>, back: Rows, joins: Joins) {
+        self.lay_out_over(term, back, joins, &Unwritten, Extent::Top);
+    }
+
+    // Inlined into each caller, so its `extent` is a constant there.
+    #[inline(always)]
+    fn lay_out_over(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        joins: Joins,
+        written: &impl Over,
+        extent: Extent,
+    ) {
         let back = term.looking_back(back);
         let vp = term.view(back);
         let nrows = vp.rows().index();
@@ -700,11 +843,16 @@ impl Reorder {
             self.seen.opens.clear();
             self.seen.joins.clear();
         }
+        let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         if explicit {
-            for y in 0..nrows {
+            let n = match extent {
+                Extent::Window => nrows,
+                Extent::Top => nrows.min(1),
+            };
+            for y in 0..n {
                 let r = Row::from_index(y);
-                if self.seen.holds(term, r, vp.row(r), &mut self.work).joins == Opens::Yes {
-                    self.join_displayed(term, r, vp.row(r));
+                if self.seen.holds(term, r, row_of(r), &mut self.work).joins == Opens::Yes {
+                    self.join_displayed(term, r, row_of(r));
                 }
             }
             return;
@@ -720,8 +868,12 @@ impl Reorder {
                 term,
                 back,
                 &vp,
+                written,
                 (Row::from_index(first), Row::from_index(y)),
             );
+            if extent == Extent::Top {
+                return;
+            }
             y += 1;
         }
     }
@@ -797,8 +949,10 @@ impl Reorder {
         term: &Term<'_>,
         back: Rows,
         vp: &Viewport<'_>,
+        written: &impl Over,
         (first, last): (Row, Row),
     ) {
+        let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         let nrows = vp.rows().index();
         let budget = CONTEXT / vp.cols().index().max(1);
         let opens = |cells: &[PackedCell]| row_opens(term, cells);
@@ -808,7 +962,7 @@ impl Reorder {
         let mut drawn_joins = false;
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
-            let h = self.seen.holds(term, r, vp.row(r), &mut self.work);
+            let h = self.seen.holds(term, r, row_of(r), &mut self.work);
             drawn_opens |= h.opens == Opens::Yes;
             drawn_joins |= h.joins == Opens::Yes;
         }
@@ -859,7 +1013,7 @@ impl Reorder {
         };
         let drawn: Vec<ParaRow<'_>> = (first.index()..=last.index())
             .map(|y| ParaRow {
-                cells: vp.row(Row::from_index(y)),
+                cells: row_of(Row::from_index(y)),
                 window: Some(Row::from_index(y)),
             })
             .collect();

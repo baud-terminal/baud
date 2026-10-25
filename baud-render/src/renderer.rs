@@ -1117,6 +1117,31 @@ enum ImageRows {
     Repainted,
 }
 
+/// Whether a layout reads the predicted echoes as written: the cell
+/// path's, which draws them, or the instance and CPU paths', which do not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Predicted {
+    Read,
+    Unread,
+}
+
+/// **What a renderer's layout reads besides the window's cells**: the
+/// composition and, on the cell path, the predicted echoes, written over
+/// the rows they are on (`bidi::Written`), and the echoes the cell path
+/// draws this frame ([`Renderer::set_predicted`]); and the row a smooth
+/// scroll's slide draws above the window, laid out over the window one
+/// line up, as it was drawn when it was that window's first
+/// ([`Renderer::copy_leaving`]), with its cells in that order. That
+/// layout is made on the first slide: it holds the algorithm's working
+/// state for a paragraph of [`crate::CONTEXT`] codepoints.
+#[derive(Default)]
+struct Beside {
+    written: crate::bidi::Written,
+    predicted: Vec<(Row, Col, Codepoint)>,
+    leaving: Option<crate::bidi::Reorder>,
+    leaving_cells: Vec<PackedCell>,
+}
+
 /// What [`Renderer::paint_rows`] draws between a repainted row's background
 /// and its glyphs.
 trait Under {
@@ -1671,6 +1696,10 @@ pub struct Renderer<'f, 'a> {
     /// the cursor, the selection, the find marks and the link underline
     /// keep logical columns and are drawn through it (`bidi.rs`).
     bidi: crate::bidi::Reorder,
+    /// **What that layout reads besides the window's cells** (`Beside`),
+    /// made the first time a frame has any: one pointer on a renderer that
+    /// never composes, predicts or slides.
+    beside: Option<Box<Beside>>,
     /// The window in that order, for the pictures drawn in text, which are
     /// found over the cells as they are drawn on every path.
     bidi_cells: Vec<PackedCell>,
@@ -2113,6 +2142,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             prev_size: Vec::new(),
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
+            beside: None,
             bidi_cells: Vec::new(),
             joins_prev: Vec::new(),
             mirrors_prev: Vec::new(),
@@ -2567,6 +2597,70 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.composition = c;
     }
 
+    /// **The predicted echoes the cell path draws on its next frame**, each
+    /// a codepoint at its logical cell, or none: its layout
+    /// ([`Renderer::lay_out_bidi_copied`]) reads each as written there, so a
+    /// prediction's row is drawn in the order its echo will be. The
+    /// instance and CPU paths draw no prediction, and their layout reads
+    /// none.
+    pub fn set_predicted(&mut self, p: impl IntoIterator<Item = (Row, Col, Codepoint)>) {
+        let mut p = p.into_iter().peekable();
+        if self.beside.is_none() && p.peek().is_none() {
+            return;
+        }
+        let beside = self.beside.get_or_insert_with(Box::default);
+        beside.predicted.clear();
+        beside.predicted.extend(p);
+    }
+
+    /// **What the layout of the window `back` lines up reads as written**:
+    /// the composition, on the live view and on a single-width row of the
+    /// main display, in the rendition of the cell it starts on, and, `with`
+    /// the cell path's, each predicted echo on such a row.
+    fn write_over(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
+        let predicting = match self.beside.as_deref_mut() {
+            Some(b) => {
+                b.written.clear();
+                with == Predicted::Read && !b.predicted.is_empty()
+            }
+            None => false,
+        };
+        // Nearly every frame: nothing to write, and no row is read.
+        if self.composition.is_none() && !predicting {
+            return;
+        }
+        let back = term.looking_back(back);
+        if back.index() != 0 {
+            return;
+        }
+        let vp = term.view(back);
+        let beside = self.beside.get_or_insert_with(Box::default);
+        // A line that is not single-width is drawn whole by its own
+        // records at its stored columns, so nothing is written over it.
+        let single = |r: Row| r.index() < vp.rows().index() && !vp.rendition(r).is_double();
+        if let Some(c) = self.composition.as_ref().filter(|c| single(c.row)) {
+            let style = vp
+                .row(c.row)
+                .get(c.col.index())
+                .map_or(PackedCell::EMPTY.style, |cell| cell.style);
+            let cells = c.written(c.width_on(&vp), style);
+            beside.written.write(&vp, c.row, c.col, &cells);
+        }
+        if predicting {
+            let Beside {
+                written, predicted, ..
+            } = &mut **beside;
+            for &(r, col, cp) in predicted.iter().filter(|&&(r, _, _)| single(r)) {
+                let cell = PackedCell {
+                    content: baud_domain::Content::codepoint(cp),
+                    style: PackedCell::EMPTY.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+                written.write(&vp, r, col, &[cell]);
+            }
+        }
+    }
+
     /// **The find overlay for the next frame**, or none: every match but
     /// the current one washed in the palette's yellow, the current one
     /// left to the selection the driver sets ([`Renderer::set_highlight`]),
@@ -2638,8 +2732,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// its last copy to know whether its joins changed: this is the layout
     /// for a caller with no compare of its own.
     pub fn lay_out_bidi(&mut self, term: &Term<'_>, back: Rows) {
+        self.lay_out_bidi_with(term, back, Predicted::Unread);
+    }
+
+    fn lay_out_bidi_with(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
         let was = self.bidi.orders().any();
-        self.bidi.lay_out_as(term, back, self.joins_seen);
+        self.write_over(term, back, with);
+        match self.beside.as_deref().filter(|b| !b.written.is_empty()) {
+            Some(b) => self
+                .bidi
+                .lay_out_written(term, back, self.joins_seen, &b.written),
+            None => self.bidi.lay_out_as(term, back, self.joins_seen),
+        }
         if was || self.bidi.orders().any() {
             self.build_find();
             self.build_link();
@@ -2684,10 +2788,39 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Some(self.keep_bidi_displayed(term, back, crate::bidi::Changes::Copied))
             }
             _ => {
-                self.lay_out_bidi(term, back);
+                self.lay_out_bidi_with(term, back, Predicted::Read);
                 None
             }
         }
+    }
+
+    /// **The row a smooth scroll's slide draws above the window `back`
+    /// lines into the history**, `view(back + 1)`'s first row, into `dst`
+    /// as the cell shader reads it: in the order that row was drawn in when
+    /// it was the window's first -- laid out over the window one line up
+    /// ([`crate::Reorder::lay_out_top`]), its paragraph read across the
+    /// rows below it and the context above, so a right-to-left line slides
+    /// out as it was shown (`[[source: ecma48]]` 7.2.1, IMPLICIT; UAX #9
+    /// L1-L2 order every display line) -- each marked cell given its base
+    /// ([`crate::cellmap::copy_for_shader`]).
+    pub fn copy_leaving(&mut self, term: &Term<'_>, back: Rows, dst: &mut [PackedCell]) {
+        let above = Rows::of_index(back.index() + 1);
+        let Beside {
+            leaving,
+            leaving_cells,
+            ..
+        } = &mut **self.beside.get_or_insert_with(Box::default);
+        let leaving = leaving.get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.lay_out_top(term, above, self.joins_seen);
+        let up = term.view(term.looking_back(above));
+        let src = up.row(Row::ZERO);
+        let n = dst.len().min(src.len());
+        leaving_cells.clear();
+        leaving_cells.resize(n, PackedCell::EMPTY);
+        leaving
+            .orders()
+            .permute(Row::ZERO, &src[..n], leaving_cells);
+        crate::cellmap::copy_for_shader(term, leaving_cells, &mut dst[..n]);
     }
 
     /// The joins [`Renderer::lay_out_bidi_copied`] kept, found again: on
@@ -3930,8 +4063,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let cw = side(self.metrics.cell_w);
             let band = self.band(comp.row);
             let at = |n: usize| i32::try_from(n).unwrap_or(i32::MAX).saturating_mul(cw);
-            self.badge_holes
-                .push([at(start), side(band.top), at(end), side(band.bottom)]);
+            // Each visual run the row's order draws its cells in.
+            let runs = match end > start {
+                true => {
+                    self.bidi
+                        .orders()
+                        .runs(comp.row, Col::at_index(start), Col::at_index(end - 1))
+                }
+                false => vec![(Col::at_index(start), Cols::of_index(0))],
+            };
+            for (v, n) in runs {
+                self.badge_holes.push([
+                    at(v.index()),
+                    side(band.top),
+                    at(v.index() + n.index()),
+                    side(band.bottom),
+                ]);
+            }
         }
         self.cut_badge();
         self.guide_at = self.guide.and_then(|look| {
@@ -5341,9 +5489,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The leaving row of a smooth scroll, when its line is not
-    /// single-width**: `cells`, the line just above the window, converted as
-    /// the instance path converts a line of rendition `size` and lifted one
-    /// row, to draw row -1, where the cell path slides it in. The cell path
+    /// single-width**: the line just above the window `back` lines into the
+    /// history, in the order it was drawn in as that window's first,
+    /// converted as the instance path converts a line of its rendition and
+    /// lifted one row, to draw row -1, where the cell path slides it in. The cell path
     /// draws that row from the map alone, at single width, and masks it for
     /// these when `size` is not ([`crate::Overlay::leaving`]). Nothing for a
     /// single-width line.
@@ -5353,18 +5502,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// -- so the frame the instance path reuses is untouched; with no
     /// picture, as the cell path never takes the leaving row for one, and
     /// no cursor, which is never on it.
-    pub fn sized_leaving(
-        &mut self,
-        term: &Term<'_>,
-        cells: &[PackedCell],
-        size: LineRendition,
-        out: &mut Vec<Instance>,
-    ) {
+    pub fn sized_leaving(&mut self, term: &Term<'_>, back: Rows, out: &mut Vec<Instance>) {
         out.clear();
+        let above = Rows::of_index(back.index() + 1);
+        let up = term.view(term.looking_back(above));
+        let size = up.rendition(Row::ZERO);
         if !size.is_double() {
             return;
         }
         self.sized_ready(term);
+        // The row in the order it was drawn in as the first of the window
+        // one line up, converted through that layout's map -- its seams,
+        // joins and mirrors -- put in place of the window's for the one
+        // conversion.
+        let leaving = self
+            .beside
+            .get_or_insert_with(Box::default)
+            .leaving
+            .get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.lay_out_top(term, above, self.joins_seen);
+        let mut cells = vec![PackedCell::EMPTY; up.cols().index()];
+        leaving
+            .orders()
+            .permute(Row::ZERO, up.row(Row::ZERO), &mut cells);
         let n = self.cols.index().min(cells.len());
         if n == 0 || self.rows.index() == 0 {
             return;
@@ -5388,7 +5548,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur[range.start..range.start + n].copy_from_slice(&cells[..n]);
         self.cur_size[0] = size;
         let mut exc = Exceptions::default();
+        if let Some(leaving) = self.beside.as_deref_mut().and_then(|b| b.leaving.as_mut()) {
+            core::mem::swap(&mut self.bidi, leaving);
+        }
         self.convert_row(term, r0, None, &mut exc);
+        if let Some(leaving) = self.beside.as_deref_mut().and_then(|b| b.leaving.as_mut()) {
+            core::mem::swap(&mut self.bidi, leaving);
+        }
         let ch = i16::try_from(self.metrics.cell_h.value()).unwrap_or(i16::MAX);
         out.extend(self.per_row[0].iter().map(|i| Instance {
             y: Screen(i.y.0.saturating_sub(ch)),
@@ -5559,19 +5725,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .composition
             .clone()
             .filter(|c| back.index() == 0 && c.row.index() < main.index());
+        // Laid out with it written there (`bidi::Written`), its cells are
+        // drawn where the row's order puts them, as the same text written.
         let mut under = PackedCell::EMPTY;
         if let Some(c) = &composition {
             let (start, end) = c.columns(c.width_on(&vp));
             let at = c.row.index() * ncols;
-            if let Some(&cell) = self.cur.get(at + start) {
+            if let Some(&cell) = vp.row(c.row).get(start) {
                 under = cell;
             }
-            for cell in &mut self.cur[at + start..at + end] {
-                *cell = PackedCell {
-                    content: baud_domain::Content::EMPTY,
-                    style: cell.style,
-                    flags: baud_domain::CellFlags::NONE,
+            let orders = self.bidi.orders();
+            for x in start..end {
+                let v = match vp.rendition(c.row).is_double() {
+                    true => x,
+                    false => orders.visual_col(c.row, Col::at_index(x)).index(),
                 };
+                if let Some(cell) = self.cur.get_mut(at + v) {
+                    *cell = PackedCell {
+                        content: baud_domain::Content::EMPTY,
+                        style: cell.style,
+                        flags: baud_domain::CellFlags::NONE,
+                    };
+                }
             }
         }
         // The find field, on whatever view the window shows: the cells
@@ -5867,7 +6042,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             crate::overlay::composition_records(
                 self,
                 term,
-                c,
+                (c, crate::overlay::Laid::AsWritten),
                 under,
                 &styles,
                 cursor,
@@ -5897,7 +6072,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             crate::overlay::composition_records(
                 self,
                 term,
-                c,
+                (c, crate::overlay::Laid::OnScreen),
                 PackedCell::EMPTY,
                 &styles,
                 None,
