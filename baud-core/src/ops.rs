@@ -3772,6 +3772,16 @@ impl Paint<'_, '_> {
             // embedder, and `?1011`, `?1041`, `?2001`, `?2005` and `?2006`
             // by the embedder through `Term::resource`.
             PrivateMode::Resource(r) => self.cold.resources.apply(r, change),
+            // **`?42` DECNRCM is recognised and ignored**, not counted:
+            // "This sequence is ignored when the North American or Dutch
+            // Keyboard Dialect is selected" (`[[source: dec-std-070]]`
+            // DECNRCM note 3, p. 5-126), and baud has no dialect setting,
+            // its keyboard a North American one, for which 7-bit NRCS
+            // "is not available" (070-6 p. 6-58). The national sets act
+            // whenever designated, as SCS's algorithm (p. 5-121) and its
+            // note 5's workstation emulator have them (note AF's
+            // Q-DECNRCM: Jev's lean, C_STD070_NO_DIALECT, 0.37/0.51).
+            PrivateMode::NationalReplacement => {}
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request
             // `vim-unicode.raw` sends on its first line arrived and vanished
@@ -4928,6 +4938,13 @@ impl Paint<'_, '_> {
                 true => ModeState::Set,
                 false => ModeState::Reset,
             },
+            // **`?42` answers `0`**, as STD 070's DECRQM has it: "DEC
+            // Private modes that cannot be set or reset from the host will
+            // report as unknown" (p. 5-193), and no program can set it here
+            // (Jev's lean, UNKNOWN, 0.91/0.89). The arm equals the wildcard
+            // below on purpose, so the answer stays `0` if the wildcard
+            // changes.
+            PrivateMode::NationalReplacement => ModeState::NotRecognized,
             _ => ModeState::NotRecognized,
         }
     }

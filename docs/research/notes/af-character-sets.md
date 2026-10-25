@@ -8,7 +8,11 @@ Supplemental, JIS-Katakana and JIS-Roman (but its 7/14) were built, their
 reserved positions drawing the error character (§3; docs/record.md, "DEC
 Supplemental, JIS-Katakana and JIS-Roman are translated"), and Q-DECNRCM
 was found to rest on DEC texts that disagree (§2.10, "STD 070's algorithms do
-not gate", added that day).** Every question in section 4 is open but
+not gate", added that day). On 2026-10-24 Q-DECNRCM was decided by Jev's
+lean, (c), at 0.37/0.51, below the bar and taken under the lane rule, and is
+on the owner's veto list: `?42` recognised and ignored, the sets acting
+whenever designated (Q-DECNRCM; docs/record.md, "DECNRCM is recognised, and ignored as DEC ignores it for a
+North American keyboard").** Every other question in section 4 is open but
 Q-UNDEF's reserved positions of those two sets; the error character's
 codepoint is decided, U+2426 by Jev at 1.00 twice, and built as a constant on
 2026-10-10 (Q-UNDEF; note AE's AE8.1).
@@ -949,9 +953,10 @@ Q-SCS-Russian.
 **baud.**
 
 - baud translates whatever set is designated, in every mode.
-- `?42` is not recognised: `PrivateMode::from_wire` sends it to
-  `PrivateMode::Other` (`baud-domain/src/vt/mode.rs:369-400`). Nothing under
-  `baud-core/src` or `baud-domain/src` names DECNRCM.
+- `?42` was not recognised until 2026-10-24: `PrivateMode::from_wire` sent
+  it to `PrivateMode::Other`, counted. Since then it is
+  `PrivateMode::NationalReplacement`, recognised and ignored (Q-DECNRCM,
+  decided below).
 - baud has no keyboard dialect.
 
 **Practice: xterm gates.**
@@ -1762,7 +1767,70 @@ below is **inferred** on that name.
   - Which texts govern, and whether the NS 4551-1 inference holds, is the
     owner's.
 
-### Q-DECNRCM. Whether the NRC sets act only in national mode (owner)
+### Q-DECNRCM. Whether the NRC sets act only in national mode (Jev's lean; the owner's veto)
+
+**Decided 2026-10-24: (c), by Jev's lean, on the owner's veto list.** It
+was routed to the owner, whatever Jev says, and the owner's 2026-10-10 rule
+sends such a question to Jev, decided at 0.9 or better on two askings. Jev
+gave 0.37/0.51, so the lean was taken under the lane rule (below 0.9:
+research, re-ask once, take the lean). TODO.md's 2026-10-23 beta audit
+still lists B2-31 (Q-DECNRCM) as an owner decision; the owner may veto
+(c). Asked at source with the
+options below and D, (c) with a keyboard dialect the embedder sets; both
+orders, uncached:
+
+- first ask: (c) C_STD070_NO_DIALECT at confidence 0.36 and 0.35
+  (probabilities (a) 0.41/0.38, (b) 0.06/0.09, D 0.01/0.02); DECRQM
+  between 2 and 4 at 0.02 and 0.42.
+- research added (below), then the one re-ask: (c) at 0.37 and 0.51
+  ((a) 0.36/0.25, (b) 0.09/0.10, D 0.02/0.02); DECRQM UNKNOWN, `0`, at
+  0.91 and 0.89. Under (b) the sub-forks leaned WITHDRAWN (0.90/0.88),
+  REINIT (0.96/0.94), ASCII outside national mode (0.08/0.08) and UTF-8
+  kept (0.28/0.30); none is built.
+- Below 0.9 both times, the lean is taken because it keeps STD 070's
+  algorithms (pp. 5-119 to 5-128) and note 5, under the rule written into
+  the request before it was sent. It departs from §3.6.4.4 if that prose
+  is read as a gate, and reading no dialect as North American is
+  inferred. At Level 1 the sets act by the DECSCL row's lean, LEVEL_1
+  (0.84/0.82), where p. 5-119 enters NRCS only at Level 2 or above.
+  `?42` is recognised and changes nothing; `DECRQM ?42` answers `0`; the
+  national sets act whenever designated. The keyboard's side, `DECNRCM
+  (keyboard)` (PDF 539), and a dialect setting are not built.
+- **The NRCS Extension.** Both algorithms, set_character_set_mode() and
+  reset_character_set_mode(), run only "if
+  (level_1_extensions[NRCS_EXT]==TRUE)" (p. 5-127) **[text]**, and the
+  field "1x, 2x, 3x, 4x (NRCS Extension)" (PDF 381) names an extension at
+  every level. baud's DA1 answer, `?6c` (the owner's pick), claims none.
+  The level row, Since(One), reads the `1x` as the level table reads every
+  `x`, an extension baud has (docs/vt-coverage.md, the DECSCL row, Jev's
+  LOWEST_ONLY at 0.90/0.92): it covers the mark as the level `?42` is
+  recognised from, and does not make DA1 claim the extension. Either way
+  the mode changes nothing: without the extension neither body runs, and
+  with it note 3 ignores the mode for a North American keyboard.
+
+**The research the re-ask added** (page images and text layer of the
+hash-checked copy):
+
+- 070-6 §6.7.6, p. 6-58: "When 7-bit Characters and Typewriter mode are
+  in effect, the Keyboard Dialect also selects the corresponding National
+  Replacement Character Set (new for Level 3)", and its VT320 guideline,
+  "1. North American - 7-bit Characters mode is not available. (ASCII is
+  the left hand graphic set for both DEC Multinational and ISO Latin-1)"
+  and "8. Dutch - 7-bit Characters mode is not available (same as North
+  American)" **[text]**.
+- DECRQM, p. 5-193: "(0) Unknown (mode is not recognized by terminal);
+  (1) Set; (2) Reset; (3) Set and cannot be changed; or (4) Reset and
+  cannot be changed. ... DEC Private modes that cannot be set or reset
+  from the host will report as unknown" **[img]**. p. 5-194's VT420
+  guideline lists `?42` among the modes it reports, on a terminal with
+  dialects **[img]**.
+- The type definitions (PDF 210) define `KEYBOARD_UNDEFINED 0` beside
+  `NORTH_AMERICAN 1`; no text read says what DECNRCM does under it.
+- Both resets return DECNRCM to multinational: `host_state_init` (PDF 219)
+  from NVM, DECSTR's table (PDF 235) "8-bit Multinational (ignore NVM)";
+  VT220 Table 4-10 and the VT510's DECSTR table agree. xterm's RIS
+  restores its initial flags and its DECSTR keeps NATIONAL; its
+  `srm_DECNRCM` acts only above level 1 and re-initialises nothing.
 
 The evidence is in §2.10.
 
@@ -2025,7 +2093,8 @@ The evidence is in §3.6.
 
 | Question | Who decides | Why |
 |---|---|---|
-| Q-Greek, Q-ND-backtick, Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, Q-Technical (layout) | **Owner, whatever Jev says** | No option is free of a departure, or every option rests on an unread text. For Q-ND-backtick, STD 070's one set (inferred to be the ISO repertoire) conflicts with VT220, EK-PPLV2-PM and VT420 (the last by name, inferred) at `E` and `6` |
+| Q-Greek, Q-ND-backtick, Q-SCS-Russian, Q-JIS-Roman, Q-Technical (layout) | **Owner, whatever Jev says** | No option is free of a departure, or every option rests on an unread text. For Q-ND-backtick, STD 070's one set (inferred to be the ISO repertoire) conflicts with VT220, EK-PPLV2-PM and VT420 (the last by name, inferred) at `E` and `6` |
+| Q-DECNRCM | **Decided 2026-10-24 by Jev's lean, (c), 0.37/0.51; the owner may veto** | Routed to the owner, whatever Jev says, for the departure every option carries; below 0.9 after the re-ask, the lean was taken under the lane rule. TODO.md's 2026-10-23 beta audit still lists B2-31 as an owner decision |
 | Q-UNDEF | **Owner, whatever Jev says** | DEC gives no codepoint, and each option that departs from no text is an identification DEC does not make. The choice also settles note AE's Q8 codepoint row and the SUB row |
 | Q-Unlisted, Q-French-f, Q-Technical (hooks) | **Jev, at 0.9 or better** | The recommended option departs from no DEC text, only from practice. For Q-French-f that is (b2), not (b1), which departs from DEC |
 | Q-Order | **Jev, then the owner** | A priority, not a conformance mark; the owner sets the work order |

@@ -515,6 +515,13 @@ pub enum PrivateMode {
     /// `?44`: "Turn on margin bell, xterm" (`[[source: ctlseqs]]`), one of
     /// the margin bell's two switches ([`MarginBell`]).
     MarginBell,
+    /// `?42` DECNRCM, national replacement character set mode
+    /// (`[[source: dec-std-070]]` pp. 5-126 to 5-128): the 7-bit NRC set of
+    /// the keyboard dialect in G0-G3, and "ignored when the North American
+    /// or Dutch Keyboard Dialect is selected" (note 3). baud has no dialect
+    /// setting and its keyboard is a North American one, so the core
+    /// recognises it and changes nothing (note AF's Q-DECNRCM, (c)).
+    NationalReplacement,
     /// `?46`: "Start logging (XTLOGGING), xterm", and reset "Stop logging"
     /// (`[[source: ctlseqs]]`): the host's bytes appended to the file
     /// `OSC 46` names ([`LogMode`]).
@@ -1252,6 +1259,7 @@ impl PrivateMode {
             | PrivateMode::CursorBlinkXor
             | PrivateMode::FastScroll
             | PrivateMode::KeepClipboard
+            | PrivateMode::NationalReplacement
             | PrivateMode::Other(_) => {
                 return None;
             }
@@ -1277,6 +1285,7 @@ impl PrivateMode {
             30 => PrivateMode::Scrollbar,
             41 => PrivateMode::MoreFix,
             44 => PrivateMode::MarginBell,
+            42 => PrivateMode::NationalReplacement,
             46 => PrivateMode::Logging,
             18 => PrivateMode::PrintFormFeed,
             19 => PrivateMode::PrintExtent,

@@ -10,8 +10,8 @@
 //! `[[source: xterm-charsets]]` itself and shares no code with the generator.
 //!
 //! Nothing here renders through `Term`. Whether a national set acts outside
-//! national mode is note AF's Q-DECNRCM, open, and a test that drew a
-//! designated set would build an answer in.
+//! national mode was note AF's Q-DECNRCM, decided (c) on 2026-10-24, and
+//! the tests that draw a designated set are in `baud-core`.
 use baud_domain::{Nrcs, nrcs_table};
 
 const CHARSETS_H: &str = include_str!(concat!(

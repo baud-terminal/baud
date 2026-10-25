@@ -187,6 +187,7 @@ functions! {
     Sgr "SGR" Since(One), Field(358);
     Scs "SCS" Since(One), Field(372);
     Decrqupss "DECRQUPSS" Since(Two), Field(380);
+    Decnrcm "DECNRCM" Since(One), Field(381);
     Srm "SRM" Since(One), Field(390);
     Irm "IRM" Since(One), Field(393);
     Ich "ICH" Since(Two), Field(397);
@@ -480,6 +481,7 @@ impl PrivateMode {
             PrivateMode::PrintExtent => Function::Decpex,
             PrivateMode::CursorVisible => Function::Dectcem,
             PrivateMode::GraphicsExpandedPrint => Function::Decgepm,
+            PrivateMode::NationalReplacement => Function::Decnrcm,
             PrivateMode::NumericKeypad => Function::Decnkm,
             PrivateMode::BackarrowKey => Function::Decbkm,
             PrivateMode::LeftRightMargin => Function::Declrmm,

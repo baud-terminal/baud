@@ -11,12 +11,11 @@
 //! (note AF §2.3, D2).
 //!
 //! **It compares tables. It never renders through `Term`.** Whether a
-//! designated national set acts outside national mode is note AF's
-//! Q-DECNRCM, open; whether a final takes effect at the level baud claims is
-//! open too (§2.8). Both would be gates built in `Term`, after
-//! `Charset::from_final`, which takes the byte and nothing else -- so the
-//! content of a set and the set a final names are what can be checked now,
-//! and all this file checks.
+//! designated national set acts outside national mode was note AF's
+//! Q-DECNRCM, decided (c) on 2026-10-24: it does. Gates of that kind are
+//! built in `Term`, after `Charset::from_final`, which takes the byte and
+//! nothing else -- so the content of a set and the set a final names are
+//! what this file checks.
 use baud_domain::{Charset, DEC_ERROR_CHARACTER, Nrcs, StreamByte, nrcs_table, uk_table};
 use std::collections::{BTreeMap, BTreeSet};
 

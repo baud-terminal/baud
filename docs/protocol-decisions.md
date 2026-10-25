@@ -283,16 +283,18 @@ Declining is a decision and belongs in the record.
 |---|---|
 | **ReGIS** | Vector graphics. No modern application emits it. |
 | **DECUDK**, user-defined keys | It redefines what a key sends, which needs a table of user-programmable strings and a policy for who may set them. Out on scope, not for want of an input path: `Term::key` is one. |
-| **DECNRCM**, the national replacement mode | Superseded by UTF-8. Documented here because `[[source: ctlseqs]]` carries it and a reader will ask. The national *sets* are not declined: each is designated and translated (above). |
 | **Tektronix mode** (`ESC [ ? 3 8 h`) | A different terminal emulated inside this one. Historical. |
 
-Three rows that stood here are no longer declined. **Highlight tracking**
+Four rows that stood here are no longer declined. **Highlight tracking**
 (`CSI ? 1001`) is built to the spec, the region drawn and the release
 reported (V12): the "xterm will hang" warning describes an event loop, and
 `baud-core` has none. **Sixel** is
 decoded into caller memory with no external decoder and drawn by all three
 render paths. **Kitty graphics** (`APC G`) is out today, consumed without
-being executed and counted; the owner's call is to build it (below).
+being executed and counted; the owner's call is to build it (below). **DECNRCM**, `?42`, was declined as "superseded by UTF-8": since
+2026-10-24 it is recognised and changes nothing, as DEC STD 070 ignores it
+for a North American keyboard and baud has no other (the `?42` row in
+`docs/vt-coverage.md`).
 
 ---
 

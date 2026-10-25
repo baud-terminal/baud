@@ -391,10 +391,11 @@ pub enum DeviceAttribute {
     /// 132-column mode.
     ///
     /// This also said baud had no NRCS. It translates fourteen national
-    /// replacement sets and UK, whatever level this answer claims, and without
-    /// DECNRCM, which it does not recognise. Which level this answer amounts
-    /// to is the level reading behind note AE's Q9, and whether the sets act
-    /// outside national mode is note AF's Q-DECNRCM; both are open.
+    /// replacement sets and UK, whatever level this answer claims, whenever
+    /// designated: DECNRCM, `?42`, is recognised and ignored, as DEC STD 070
+    /// ignores it for a North American keyboard (note AF's Q-DECNRCM, (c)).
+    /// Which level this answer amounts to is the level reading behind note
+    /// AE's Q9.
     Vt102,
 }
 

@@ -538,14 +538,12 @@ fn the_line_drawing_table_covers_the_whole_set() {
 /// typed from `[[source: dec-pplv2-pm]]` Figure A-26, which xterm's table
 /// lacks.
 ///
-/// **It pins note AF's Q-DECNRCM (a).** It designates UK, German and French
-/// with no `CSI ? 42 h`, so it holds only while the national sets act outside
-/// national mode, which conforms to `[[source: dec-std-070]]`'s SCS algorithm
-/// (p. 5-121, no mode test, at Level 2 or above per p. 5-119) and departs from
-/// the VT220 and VT420 manuals' gate (note AF §2.10). Under (b) its German and
-/// French cases fail, and its UK case turns on (b.4). This said the ungated
-/// sets departed from every DEC text read, before STD 070's algorithms were
-/// read.
+/// **It pins note AF's Q-DECNRCM, (c).** It designates UK, German and French
+/// with no `CSI ? 42 h`: the national sets act outside national mode, as
+/// `[[source: dec-std-070]]`'s SCS algorithm has it (p. 5-121, no mode
+/// test), and departing from the VT220 and VT420 manuals' gate (note AF
+/// §2.10). This said the ungated sets departed from every DEC text read,
+/// before STD 070's algorithms were read.
 #[test]
 fn the_national_sets_substitute() {
     // The canonical one: `#` is `£` in the United Kingdom set.
@@ -569,6 +567,53 @@ fn the_national_sets_substitute() {
         Some(0x00e0),
         "French maps 0x40 to A WITH GRAVE"
     );
+}
+
+/// **DECNRCM is recognised, and with no keyboard dialect it is ignored**
+/// (note AF's Q-DECNRCM, (c)): `[[source: dec-std-070]]`'s DECNRCM note 3,
+/// p. 5-126, "This sequence is ignored when the North American or Dutch
+/// Keyboard Dialect is selected", and baud has no dialect setting, its
+/// keyboard a North American one, for which 070-6 p. 6-58 has "7-bit
+/// Characters mode is not available". So `CSI ? 42 h` and `l` change
+/// nothing -- no re-initialisation of G0-G3 (note 1), German still in G0
+/// -- and are not counted as a mode baud lacks, at Level 4 and at Level 1,
+/// DECNRCM's "1x". `DECRQM ?42` answers `0` at Level 4: "DEC Private
+/// modes that cannot be set or reset from the host will report as unknown"
+/// (p. 5-193).
+#[test]
+fn decnrcm_is_recognised_and_ignored_with_no_keyboard_dialect() {
+    // DECRQM is not recognised at Level 1, so it answers nothing there
+    // (the DECSCL row).
+    for (level, prefix, rqm) in [
+        ("Level 4", b"".as_slice(), b"\x1b[?42;0$y".as_slice()),
+        ("Level 1", b"\x1b[61\"p", b""),
+    ] {
+        for mode in [b"\x1b[?42h".as_slice(), b"\x1b[?42l"] {
+            let ws = support::CORPUS;
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            let program = [prefix, b"\x1b(K", mode, b"[\x1b[?42$p"].concat();
+            support::feed(&mut t, &program);
+            let what = format!("{level}, {mode:?}");
+            assert_eq!(t.unsupported_param, 0, "{what}: not counted");
+            assert_eq!(
+                support::screen(&t)[0]
+                    .content
+                    .as_codepoint()
+                    .map(|c| c.value()),
+                Some(0x00c4),
+                "{what}: German stays in G0"
+            );
+            assert_eq!(t.reply(), rqm, "{what}: DECRQM");
+        }
+    }
+    // The positive control: a private mode baud has no meaning for is
+    // counted, so the count above can fire.
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b[?9999h");
+    assert_eq!(t.unsupported_param, 1, "?9999 is counted");
 }
 
 /// A byte the set does not replace is itself.
@@ -596,12 +641,9 @@ fn an_unreplaced_byte_is_ascii_under_a_national_set() {
 /// reads that field, so the name and the doc described a mechanism the test
 /// never reached (note AF §3.8).
 ///
-/// **It pins note AF's Q-DECNRCM (a).** It designates German with no
-/// `CSI ? 42 h`, and under (b), which gates the national sets on national
-/// mode, German would not act and the test would fail. Sending `?42` first
-/// would not make it independent of the answer: `?42` is not recognised
-/// today, and under (b) the one-set-per-keyboard question, (b.3), can still
-/// change what `ESC ( K` does.
+/// **It pins note AF's Q-DECNRCM, (c).** It designates German with no
+/// `CSI ? 42 h`, as the national sets act whenever designated; under (b),
+/// the manuals' gate, German would not act and the test would fail.
 #[test]
 fn a_cell_written_under_ungated_german_keeps_its_glyph_when_g0_is_designated_again() {
     let ws = support::CORPUS;
