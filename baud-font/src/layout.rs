@@ -45,7 +45,7 @@
 
 use crate::bytes::{Array, Bytes, Count, FromBe, Index, Len, Offset};
 use crate::script::Script;
-use baud_domain::GlyphId;
+use baud_domain::{GlyphId, JoiningForm};
 
 /// A four-byte OpenType script tag, as a `ScriptRecord` spells it:
 /// `hebr`, `latn`, `DFLT` (`[[source: ms-opentype-scripttags]]`).
@@ -70,6 +70,36 @@ impl FeatureTag {
     pub const LIGA: FeatureTag = FeatureTag(*b"liga");
     pub const MARK: FeatureTag = FeatureTag(*b"mark");
     pub const MKMK: FeatureTag = FeatureTag(*b"mkmk");
+    pub const ISOL: FeatureTag = FeatureTag(*b"isol");
+    pub const FINA: FeatureTag = FeatureTag(*b"fina");
+    pub const MEDI: FeatureTag = FeatureTag(*b"medi");
+    pub const INIT: FeatureTag = FeatureTag(*b"init");
+    pub const RLIG: FeatureTag = FeatureTag(*b"rlig");
+
+    /// The feature that draws a joining letter in `form`: OpenType's names
+    /// for the Unicode Standard's Xn, Xr, Xm and Xl in a right-to-left run.
+    pub fn of_form(form: JoiningForm) -> FeatureTag {
+        match form {
+            JoiningForm::Isolated => FeatureTag::ISOL,
+            JoiningForm::Final => FeatureTag::FINA,
+            JoiningForm::Medial => FeatureTag::MEDI,
+            JoiningForm::Initial => FeatureTag::INIT,
+        }
+    }
+
+    /// Whether this is one of the joining features: the four forms and
+    /// the required ligatures, which [`Features::joining`] turns on.
+    #[inline]
+    pub fn is_joining(self) -> bool {
+        matches!(
+            self,
+            FeatureTag::ISOL
+                | FeatureTag::FINA
+                | FeatureTag::MEDI
+                | FeatureTag::INIT
+                | FeatureTag::RLIG
+        )
+    }
 }
 
 impl FromBe for FeatureTag {
@@ -594,6 +624,7 @@ impl Kind {
     pub const CHAINED: Kind = Kind(6);
     pub const GSUB_EXTENSION: Kind = Kind(7);
     pub const MARK_TO_BASE: Kind = Kind(4);
+    pub const MARK_TO_LIGATURE: Kind = Kind(5);
     pub const MARK_TO_MARK: Kind = Kind(6);
     pub const GPOS_EXTENSION: Kind = Kind(9);
     pub const PAIR: Kind = Kind(2);
@@ -650,6 +681,10 @@ pub struct Features {
     pub ccmp: Enabled,
     pub calt: Enabled,
     pub liga: Enabled,
+    /// The joining forms, `isol`, `fina`, `medi` and `init`, each applied
+    /// only to a glyph the caller gave that form, and the required
+    /// ligatures, `rlig`.
+    pub joining: Enabled,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -665,9 +700,37 @@ impl Features {
         ccmp: Enabled::On,
         calt: Enabled::On,
         liga: Enabled::Off,
+        joining: Enabled::Off,
     };
 
-    fn wants(self, tag: FeatureTag) -> bool {
+    /// [`Features::GRID`] with the joining features on: what a renderer
+    /// shapes with, so a letter given a joining form is drawn in it
+    /// (`[[source: unicode-ch9]]` 9.2.2, "a display process must select an
+    /// appropriate glyph to depict each Arabic letter according to its
+    /// immediate joining context") and the lam-alef ligature forms (9.2.3).
+    pub const JOINING: Features = Features {
+        joining: Enabled::On,
+        ..Features::GRID
+    };
+
+    /// These features with the joining ones off.
+    pub fn without_joining(self) -> Features {
+        Features {
+            joining: Enabled::Off,
+            ..self
+        }
+    }
+
+    #[inline]
+    pub fn wants(self, tag: FeatureTag) -> bool {
+        self.wants_but_joining(tag) || (self.joining == Enabled::On && tag.is_joining())
+    }
+
+    /// [`Features::wants`] for every feature but the joining ones, which it
+    /// answers no for: the test a run with no joining letter asks of each
+    /// feature its language system names, as it did before joining existed.
+    #[inline]
+    pub fn wants_but_joining(self, tag: FeatureTag) -> bool {
         match tag {
             FeatureTag::CCMP => self.ccmp == Enabled::On,
             FeatureTag::CALT => self.calt == Enabled::On,
@@ -676,6 +739,14 @@ impl Features {
             _ => false,
         }
     }
+}
+
+/// Whether a language system's required feature is added to the lookups a
+/// set of features names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Required {
+    Added,
+    Left,
 }
 
 /// The highest lookup index a feature may name: a bitset of this many
@@ -789,10 +860,27 @@ impl<'a> Layout<'a> {
     }
 
     /// The lookups the selected features name for text in `script`, sorted.
+    #[inline]
     pub fn lookups_for(&self, script: Script, wanted: Features) -> LookupSet {
+        match wanted.joining {
+            Enabled::Off => {
+                self.lookups_where(script, Required::Added, |t| wanted.wants_but_joining(t))
+            }
+            Enabled::On => self.lookups_where(script, Required::Added, |t| wanted.wants(t)),
+        }
+    }
+
+    /// The lookups the features `wanted` accepts name for text in `script`,
+    /// sorted, with the language system's required feature added or not.
+    pub fn lookups_where(
+        &self,
+        script: Script,
+        required: Required,
+        wanted: impl Fn(FeatureTag) -> bool,
+    ) -> LookupSet {
         let mut set = LookupSet::EMPTY;
         if let Some(lang) = self.lang_sys(script) {
-            self.add_lang_sys(lang, wanted, &mut set);
+            self.add_lang_sys(lang, required, wanted, &mut set);
         }
         set
     }
@@ -809,7 +897,7 @@ impl<'a> Layout<'a> {
         let mut k = Index::ZERO;
         while let Some(r) = scripts.get(k) {
             if let Some(lang) = self.default_lang_sys(r.offset) {
-                self.add_lang_sys(lang, wanted, &mut set);
+                self.add_lang_sys(lang, Required::Added, |t| wanted.wants(t), &mut set);
             }
             k = k.next();
         }
@@ -843,7 +931,13 @@ impl<'a> Layout<'a> {
     }
 
     /// Adds what one language system's selected features name to `set`.
-    fn add_lang_sys(&self, lang: Bytes<'a>, wanted: Features, set: &mut LookupSet) {
+    fn add_lang_sys(
+        &self,
+        lang: Bytes<'a>,
+        with_required: Required,
+        wanted: impl Fn(FeatureTag) -> bool,
+        set: &mut LookupSet,
+    ) {
         let Some(features) = Layout::records(self.features) else {
             return;
         };
@@ -856,7 +950,8 @@ impl<'a> Layout<'a> {
             let Some(rec) = features.get(Index::of(fi)) else {
                 return;
             };
-            if fi != required && !wanted.wants(rec.tag) {
+            let named = fi == required && with_required == Required::Added;
+            if !named && !wanted(rec.tag) {
                 return;
             }
             let Some(feature) = self.features.tail(rec.offset) else {
@@ -871,7 +966,7 @@ impl<'a> Layout<'a> {
                 }
             }
         };
-        if required != 0xFFFF {
+        if required != 0xFFFF && with_required == Required::Added {
             add_feature(required);
         }
         let mut k = Index::ZERO;

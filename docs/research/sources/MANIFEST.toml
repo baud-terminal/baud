@@ -6310,6 +6310,24 @@ group  = "J"
 # reduced image (9.2), no filter byte in an empty pass (9.1, 13.10), and
 # 13.10's and 15.2.3's requirement that a decoder read interlaced images.
 
+[sources.w3c-css-text-3]
+key    = "w3c-css-text-3"
+title  = "CSS Text Module Level 3 -- W3C Candidate Recommendation Draft, 14 August 2026"
+author = "E. J. Etemad, K. Ishii and F. Rivoal, eds."
+year   = 2026
+venue  = "www.w3.org/TR/2026/CRD-css-text-3-20260814"
+url    = "https://www.w3.org/TR/2026/CRD-css-text-3-20260814/"
+file   = ""
+sha256 = "17c26f1b41455947f106dac81736944b12da328ee4892c7c5b601f5b65ced55a"
+bytes  = 540326
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed. Section 5's rule for a cursive word
+# an unforced soft wrap splits: "the characters must still be shaped (their
+# joining forms chosen) as if the word were still whole", which baud's
+# joining across a terminal's soft wrap follows (note AB section 13).
+# Byte-identical to www.w3.org/TR/css-text-3/ on 2026-10-24.
+
 [sources.w3c-compositing-1]
 key    = "w3c-compositing-1"
 title  = "Compositing and Blending Level 1 -- W3C Candidate Recommendation Draft, 21 March 2024"

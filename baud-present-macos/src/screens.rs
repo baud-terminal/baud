@@ -12,10 +12,16 @@
 //! frame's copy. Such a frame skips the copy into a set that already holds
 //! that screen, and the caller skips the glyph map's walk when nothing
 //! else the walk reads changed ([`Screens::walked`]).
+//!
+//! The same compare says which rows changed, when a frame asks
+//! ([`Compare::Rows`]): with BDSM reset, after the renderer's first letter
+//! that takes a joining form, a row's joins are found again only where its
+//! cells changed (`Renderer::rejoin_bidi`), and no other compare reads the
+//! window for them.
 
 use baud_core::StatusLine;
 use baud_domain::{LineRendition, PackedCell, Row, Stride, Viewport};
-use baud_render::{Leaving, WalkKey};
+use baud_render::{Leaving, Rejoin, WalkKey};
 
 use crate::journal::{SetIx, Wheel};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,6 +31,34 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub enum Built {
     Last,
     New,
+}
+
+/// **What a frame's compare with the last frame's copy answers**: whether
+/// the screen is the last's, stopping at the first row that differs, or
+/// that and which rows differ, every row compared -- for a frame whose
+/// joins are kept from the last ([`Compare::for_rejoin`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Compare {
+    Screen,
+    Rows,
+}
+
+impl Compare {
+    /// [`Compare::Rows`] when the layout kept the last frame's joins for
+    /// the rows that changed (`Renderer::lay_out_bidi_copied`).
+    pub fn for_rejoin(rejoin: Option<Rejoin>) -> Compare {
+        match rejoin {
+            Some(_) => Compare::Rows,
+            None => Compare::Screen,
+        }
+    }
+}
+
+/// Whether a row differs from the last frame's copy of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RowChange {
+    Same,
+    Changed,
 }
 
 /// A screen frames were built from: a new one whenever a frame's screen
@@ -57,6 +91,11 @@ pub struct Screens {
     /// What the last walk read, as it left the map; none after a frame
     /// that slid, whose walks listed another window. The caller's to keep.
     pub walked: Option<WalkKey>,
+    /// What the next frame's compare answers. The caller's to set.
+    pub compare: Compare,
+    /// Each row of the last frame taken under [`Compare::Rows`]: whether
+    /// it differs from the copy the frame before left.
+    changed: Vec<RowChange>,
 }
 
 impl Default for Screens {
@@ -75,6 +114,8 @@ impl Screens {
             renditions: Vec::new(),
             status: None,
             walked: None,
+            compare: Compare::Screen,
+            changed: Vec::new(),
         }
     }
 
@@ -96,6 +137,12 @@ impl Screens {
     /// screen of its own: its copy holds a leaving row and its walk another
     /// window.
     ///
+    /// Under [`Compare::Rows`] every row is compared with the last copy's,
+    /// before this frame's copy can overwrite it -- `set` may be the set the
+    /// last frame was built into -- and a frame that slides is compared too,
+    /// its window's rows being where the last copy has them; each row is
+    /// [`Screens::changed`] where there is no last copy.
+    ///
     /// `Viewport::row` resolves a row through the rotation and the ring,
     /// so the wrap at the ring's end costs nothing here: it is two slices
     /// either side of it, and this walks rows rather than one span.
@@ -108,8 +155,25 @@ impl Screens {
         stride: Stride,
         leaving: Leaving,
     ) -> Built {
-        let built = match (leaving, self.last.and_then(|ps| copies.get(ps))) {
-            (Leaving::None, Some(copy)) => self.is_last(copy, view, status, stride),
+        let last = self.last.and_then(|ps| copies.get(ps));
+        self.changed.clear();
+        if self.compare == Compare::Rows {
+            let (cols, stride) = (view.cols().index(), stride.index());
+            self.changed.extend((0..view.rows().index()).map(|y| {
+                let now = view.row(Row::from_index(y)).get(..cols);
+                match last.map(|copy| copy.get(y * stride..y * stride + cols)) {
+                    Some(kept) if kept == now => RowChange::Same,
+                    _ => RowChange::Changed,
+                }
+            }));
+        }
+        let built = match (leaving, last) {
+            (Leaving::None, Some(copy)) => match self.compare {
+                Compare::Screen => self.is_last(copy, view, status, stride),
+                Compare::Rows => self.is_last_by(copy, view, status, stride, |y, _| {
+                    self.changed[y] == RowChange::Same
+                }),
+            },
             _ => Built::New,
         };
         self.built(built, view, status);
@@ -149,14 +213,29 @@ impl Screens {
         status: Option<&StatusLine<'_>>,
         stride: Stride,
     ) -> Built {
+        let (cols, at) = (view.cols().index(), stride.index());
+        self.is_last_by(copy, view, status, stride, |y, r| {
+            copy.get(y * at..y * at + cols) == view.row(r).get(..cols)
+        })
+    }
+
+    /// [`Screens::is_last`], with whether row `y` holds the cells it held
+    /// the last frame answered by `cells_same`.
+    fn is_last_by(
+        &self,
+        copy: &[PackedCell],
+        view: &Viewport<'_>,
+        status: Option<&StatusLine<'_>>,
+        stride: Stride,
+        cells_same: impl Fn(usize, Row) -> bool,
+    ) -> Built {
         let (cols, rows) = (view.cols().index(), view.rows().index());
         let stride = stride.index();
         let same = self.status == status.map(|l| l.rendition)
             && self.renditions.len() == rows
             && (0..rows).all(|y| {
                 let r = Row::from_index(y);
-                self.renditions[y] == view.rendition(r)
-                    && copy.get(y * stride..y * stride + cols) == view.row(r).get(..cols)
+                self.renditions[y] == view.rendition(r) && cells_same(y, r)
             })
             && status.is_none_or(|line| {
                 let n = cols.min(line.cells.len());
@@ -166,6 +245,13 @@ impl Screens {
             true => Built::Last,
             false => Built::New,
         }
+    }
+
+    /// Whether row `r` of the last frame taken under [`Compare::Rows`]
+    /// differs from the copy the frame before left: every row when there
+    /// was none, or the frame was taken under [`Compare::Screen`].
+    pub fn changed(&self, r: Row) -> bool {
+        self.changed.get(r.index()) != Some(&RowChange::Same)
     }
 
     /// A frame built from `view` and `status`, the last frame's screen when
@@ -184,7 +270,7 @@ impl Screens {
 
 #[cfg(test)]
 mod tests {
-    use super::{Built, Screens};
+    use super::{Built, Compare, Screens};
     use crate::journal::SetIx;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, PackedCell, ReadLen, Row, WinSize};
@@ -311,5 +397,49 @@ mod tests {
         );
         assert_ne!(s.now(), second, "is a screen of its own");
         assert_eq!(sets[1], copy(&t));
+    }
+
+    /// **Under [`Compare::Rows`] the compare names the rows that changed**:
+    /// against the last frame's copy, also when this frame goes into the
+    /// same set and overwrites it, and on a frame that slides; every row
+    /// with no last copy, or when the frame was not compared by row.
+    #[test]
+    fn the_rows_compare_names_the_rows_that_changed() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let stride = t.stride();
+        let len = stride.index() * (usize::from(WS.ws_row) + 1);
+        let mut sets = [vec![PackedCell::EMPTY; len], vec![PackedCell::EMPTY; len]];
+        let mut s = Screens::new();
+        s.compare = Compare::Rows;
+        let take = |s: &mut Screens, t: &Term<'_>, sets: &mut [Vec<PackedCell>; 2], set, slide| {
+            let [a, b] = sets;
+            let mut copies: [&mut [PackedCell]; 2] = [a, b];
+            s.take(&mut copies, SetIx(set), &t.viewport(), None, stride, slide)
+        };
+        let rows = usize::from(WS.ws_row);
+        let changed = |s: &Screens| -> Vec<usize> {
+            (0..rows)
+                .filter(|&y| s.changed(Row::from_index(y)))
+                .collect()
+        };
+        let every: Vec<usize> = (0..rows).collect();
+        feed(&mut t, b"hello\r\nworld");
+        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::New);
+        assert_eq!(changed(&s), every, "no last copy");
+        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::Last);
+        assert_eq!(changed(&s), Vec::<usize>::new(), "the same screen");
+        feed(&mut t, b"\x1b[2;1HW");
+        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::New);
+        assert_eq!(changed(&s), vec![1], "one row, into the set it was in");
+        assert_eq!(sets[0], copy(&t), "and copied after it was compared");
+        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
+        assert_eq!(changed(&s), Vec::<usize>::new(), "the other set");
+        feed(&mut t, b"\x1b[1;1HH");
+        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::Drawn), Built::New);
+        assert_eq!(changed(&s), vec![0], "a slide, compared by row");
+        s.compare = Compare::Screen;
+        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
+        assert_eq!(changed(&s), every, "not compared by row");
     }
 }

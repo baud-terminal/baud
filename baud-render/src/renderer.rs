@@ -30,7 +30,7 @@ use crate::stack::{FaceStyle, FontSlot, Presentation, TextFace};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
-use baud_core::{PaintRole, ProgramPaint, Term};
+use baud_core::{BidiSupport, PaintRole, ProgramPaint, Term};
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
@@ -700,6 +700,77 @@ struct ClusterIn {
     at: CellIx,
 }
 
+/// What a joining form is folded into a run's key for: a joined cell or a
+/// lam-alef pair, so neither shares an entry with a run of the same
+/// codepoints. The word folded has bit 30 set, which no codepoint has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FormKey {
+    Cell,
+    Pair,
+}
+
+/// `key` with a joining form folded in for `what`, the form in the word's
+/// low two bits.
+fn fold_form(key: Key, what: FormKey, form: baud_domain::JoiningForm) -> Key {
+    let mark = match what {
+        FormKey::Cell => 1 << 30,
+        FormKey::Pair => 1 << 29 | 1 << 30,
+    };
+    key.fold(
+        mark | match form {
+            baud_domain::JoiningForm::Isolated => 0,
+            baud_domain::JoiningForm::Final => 1,
+            baud_domain::JoiningForm::Initial => 2,
+            baud_domain::JoiningForm::Medial => 3,
+        },
+    )
+}
+
+/// Which side of a lam-alef pair its lam is drawn on: the right in a
+/// right-to-left run, the left where the pair is drawn in its stored order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum LamAt {
+    Left,
+    Right,
+}
+
+/// Whether a face formed a lam-alef pair's ligature.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Ligated {
+    No,
+    Yes,
+}
+
+/// A lam-alef pair's glyphs: those its lam's cell draws, those its alef's
+/// does, and whether they are the ligature.
+#[derive(Clone, Debug)]
+pub(crate) struct PairGlyphs {
+    pub(crate) lams: Vec<ClusterGlyph>,
+    pub(crate) alefs: Vec<ClusterGlyph>,
+    pub(crate) ligated: Ligated,
+}
+
+/// **Where a lam-alef pair's ligature is drawn**: over the cells from the
+/// lam's to the alef's, so many of them, the lam on the given side -- two
+/// for a pair in adjacent cells, more where erased cells lie between them
+/// (Jev CENTRED and LIGATED_CENTRED); or in the lam's cell alone, for a pair
+/// a soft wrap parts (Jev's lean LIGATED_LAM_ROW).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PairSpan {
+    Cells(LamAt, Cols),
+    LamCell,
+}
+
+impl PairSpan {
+    /// The cells the ligature is centred over.
+    fn cells(self) -> Cols {
+        match self {
+            PairSpan::Cells(_, n) => n,
+            PairSpan::LamCell => Cols::of_index(1),
+        }
+    }
+}
+
 /// Which lookups a script selects on one face, how they place its marks
 /// and which way it runs, numbered: two scripts with the same number shape
 /// alike there, since those are all a script changes in baud's shaper, so a
@@ -751,8 +822,8 @@ impl Selections {
                 Some(&(_, i)) => i,
                 None => {
                     let key = (
-                        face.gsub().map(|g| g.lookups(s, Features::GRID)),
-                        face.gpos().map(|g| g.lookups(s, Features::GRID)),
+                        face.gsub().map(|g| g.lookups(s, Features::JOINING)),
+                        face.gpos().map(|g| g.lookups(s, Features::JOINING)),
                         chosen.2,
                     );
                     let i = match seen.iter().position(|k| *k == key) {
@@ -826,6 +897,16 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
         .drawn()
         .as_codepoint()
         .filter(|c| !baud_domain::is_placeholder(*c))
+}
+
+/// A cell's base and the codepoints attached to it, as the shaper takes a
+/// cluster.
+pub(crate) fn cell_cps(term: &Term<'_>, cell: PackedCell) -> Vec<Codepoint> {
+    let mut cps: Vec<Codepoint> = drawn_base(term, cell).into_iter().collect();
+    if cell.flags.is_marked() {
+        cps.extend(term.cluster_marks(cell).filter_map(Codepoint::new));
+    }
+    cps
 }
 
 /// Whether the cell at `at` of `row` carries a run of `shape` on: it has
@@ -1555,6 +1636,18 @@ pub struct Renderer<'f, 'a> {
     /// The window in that order, for the pictures drawn in text, which are
     /// found over the cells as they are drawn on every path.
     bidi_cells: Vec<PackedCell>,
+    /// Each row's joined cells as the last conversion drew them: a form
+    /// moves with no cell of its row changing -- a letter typed on the next
+    /// row of a wrapped word -- so a row whose joins moved is converted
+    /// again.
+    joins_prev: Vec<Option<Vec<Option<crate::bidi::Joined>>>>,
+    /// Whether `joins_prev` holds a row's joins: a frame whose window holds
+    /// none, after one that held none, compares no row's.
+    joins_held: crate::bidi::Joins,
+    /// Whether this renderer has shaped a letter that takes a joining form:
+    /// until it has, a layout with BDSM reset reads no row for joins
+    /// ([`crate::bidi::Joins`]).
+    joins_seen: crate::bidi::Joins,
     bidi_used: Vec<baud_domain::RowExtent>,
     /// The find marks' wash, from the palette `set_find` read, so a frame's
     /// layout can draw the marks again through its order.
@@ -1871,7 +1964,7 @@ impl PerFace {
                 let mut d = Vec::new();
                 if let Some(gsub) = f.gsub() {
                     d.resize(MAX_LOOKUPS, LookupDigest::EMPTY);
-                    gsub.digests(Features::GRID, &mut d);
+                    gsub.digests(Features::JOINING, &mut d);
                 }
                 d
             })
@@ -1976,6 +2069,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
             bidi_cells: Vec::new(),
+            joins_prev: Vec::new(),
+            joins_held: crate::bidi::Joins::Unseen,
+            joins_seen: crate::bidi::Joins::Unseen,
             bidi_used: Vec::new(),
             find_wash: Argb(0),
             styles: Vec::new(),
@@ -2490,20 +2586,117 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// UAX #9 gives each row**, for the frame about to be drawn, and draws
     /// the find marks and the link underline through it. [`Renderer::convert`]
     /// calls it; the cell path calls it before it reads the window
-    /// ([`crate::Orders::window`]). While BDSM is reset nothing is
-    /// reordered.
+    /// ([`crate::Orders::window`]) through [`Renderer::lay_out_bidi_copied`].
+    /// While BDSM is reset nothing is reordered, and once the renderer has
+    /// shaped a letter that takes a joining form each row is compared with
+    /// its last copy to know whether its joins changed: this is the layout
+    /// for a caller with no compare of its own.
     pub fn lay_out_bidi(&mut self, term: &Term<'_>, back: Rows) {
         let was = self.bidi.orders().any();
-        self.bidi.lay_out(term, back);
+        self.bidi.lay_out_as(term, back, self.joins_seen);
         if was || self.bidi.orders().any() {
             self.build_find();
             self.build_link();
         }
     }
 
+    /// **The window laid out with BDSM reset for [`Renderer::convert`]**,
+    /// the last frame's joins kept for it to find again on the rows its
+    /// compare finds changed ([`crate::Reorder::keep_displayed`]), and the
+    /// find marks and the link underline drawn again if the frame before
+    /// was reordered.
+    fn keep_bidi_displayed(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        changes: crate::bidi::Changes,
+    ) -> crate::bidi::Rejoin {
+        let was = self.bidi.orders().any();
+        let rejoin = self.bidi.keep_displayed(term, back, changes);
+        if was {
+            self.build_find();
+            self.build_link();
+        }
+        rejoin
+    }
+
+    /// **The window laid out for the cell path**, which compares each
+    /// frame's screen with the copy its last frame made (research decision
+    /// D4): [`Renderer::lay_out_bidi`], except with BDSM reset once the
+    /// renderer has shaped a letter that takes a joining form. Then nothing
+    /// is reordered and no row is read: the last frame's joins are kept,
+    /// and the answer says whether the caller finds them again on the rows
+    /// its compare finds changed or on every row
+    /// ([`Renderer::rejoin_bidi`]).
+    pub fn lay_out_bidi_copied(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+    ) -> Option<crate::bidi::Rejoin> {
+        match (term.bidi_support(), self.joins_seen) {
+            (BidiSupport::Explicit, crate::bidi::Joins::Seen) => {
+                Some(self.keep_bidi_displayed(term, back, crate::bidi::Changes::Copied))
+            }
+            _ => {
+                self.lay_out_bidi(term, back);
+                None
+            }
+        }
+    }
+
+    /// The joins [`Renderer::lay_out_bidi_copied`] kept, found again: on
+    /// every row for [`crate::Rejoin::Every`], else on each row `changed`
+    /// says changed since the last frame, one test of the row each.
+    pub fn rejoin_bidi(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        how: crate::bidi::Rejoin,
+        changed: impl Fn(Row) -> bool,
+    ) {
+        let vp = term.view(term.looking_back(back));
+        for y in 0..vp.rows().index() {
+            let r = Row::from_index(y);
+            if how == crate::bidi::Rejoin::Every || changed(r) {
+                self.bidi.rejoin(term, &vp, r);
+            }
+        }
+        self.bidi.rejoined();
+    }
+
+    /// **The first letter that takes a joining form, shaped by the cell
+    /// path's walk with BDSM reset**, after the window was laid out with
+    /// none seen (`before`), and so unjoined: the window laid out again,
+    /// every row joined, and kept for the next frame's compare
+    /// ([`Renderer::lay_out_bidi_copied`]). Once a renderer's life.
+    pub fn join_after_walk(&mut self, term: &Term<'_>, back: Rows, before: crate::bidi::Joins) {
+        if before == crate::bidi::Joins::Unseen
+            && self.joins_seen == crate::bidi::Joins::Seen
+            && term.bidi_support() == BidiSupport::Explicit
+        {
+            if let Some(how) = self.lay_out_bidi_copied(term, back) {
+                self.rejoin_bidi(term, back, how, |_| true);
+            }
+        }
+    }
+
     /// The order the last layout drew each row in.
     pub fn bidi(&self) -> &crate::bidi::Orders {
         self.bidi.orders()
+    }
+
+    /// Whether this renderer has shaped a letter that takes a joining form,
+    /// so a layout with BDSM reset reads rows for their joins: a caller
+    /// that lays out before it draws and sees this change while it draws
+    /// lays out again ([`crate::bidi::Joins`]).
+    pub fn joins_seen(&self) -> crate::bidi::Joins {
+        self.joins_seen
+    }
+
+    /// What the last layout read to find its answers
+    /// ([`crate::Reorder::work`]).
+    pub fn bidi_work(&self) -> crate::bidi::Work {
+        self.bidi.work()
     }
 
     /// Bidi_Mirrored characters the last layout drew unmirrored
@@ -3599,7 +3792,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
                 col += run;
                 let script = Script::of_cluster(&clusters[0].cps);
-                let shaped = self.shape(face, script, &clusters, ..);
+                let shaped = self.shape(face, script, &clusters, &[], ..);
                 let f = self.stack.face(face);
                 let scale = Scale::of(px, f.units_per_em());
                 for p in shaped.glyphs() {
@@ -5265,7 +5458,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the program that owns it owns the cursor.
         let back = term.looking_back(back);
         let vp = term.view(back);
-        self.lay_out_bidi(term, back);
+        // With BDSM reset no row is reordered and each row's joins are its
+        // own, so they are kept from the last frame and found again below
+        // only for the rows this frame's compare finds changed: a row that
+        // did not change is not read for them.
+        // Until the renderer has shaped a letter that takes a form, no row
+        // can hold one it has drawn, and none is read for joins: a frame
+        // that shapes the first is converted again below, every row joined.
+        let seen = self.joins_seen;
+        let rejoin = match (term.bidi_support(), seen) {
+            (BidiSupport::Explicit, crate::bidi::Joins::Seen) => {
+                Some(self.keep_bidi_displayed(term, back, crate::bidi::Changes::Converted))
+            }
+            _ => {
+                self.lay_out_bidi(term, back);
+                None
+            }
+        };
+        // Whether any row's joins are compared with the last frame's: none
+        // while neither frame holds one.
+        let joins_kept = rejoin.is_some()
+            || self.bidi.orders().any_joined()
+            || self.joins_held == crate::bidi::Joins::Seen;
         let orders = self.bidi.orders();
         for r in 0..main.index() {
             let row = Row::from_index(r);
@@ -5440,6 +5654,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range]
                 || self.cur_size[r] != self.prev_size[r];
+            // A window row's joins found again, with BDSM reset, where its
+            // cells changed -- or may have: a composition, the find field
+            // or the link bar blanks part of a row this frame or blanked it
+            // the last, and the compare cannot see a cell change under it.
+            if let Some(how) = rejoin.filter(|_| r < main.index()) {
+                let row = Row::from_index(r);
+                let on = |c: &Option<Composition>| c.as_ref().is_some_and(|c| c.row == row);
+                let veiled = on(&composition)
+                    || on(&self.last_composition)
+                    || field_on(&self.find, row).is_some()
+                    || field_on(&self.last_find, row).is_some()
+                    || bar_on(&self.link, row).is_some()
+                    || bar_on(&self.last_link, row).is_some();
+                if how == crate::bidi::Rejoin::Every || full || changed || veiled {
+                    self.bidi.rejoin(term, &vp, row);
+                }
+            }
             let cursor_here = cursor_row(cursor) == Some(r);
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved = cursor_here != cursor_was
@@ -5494,6 +5725,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     || bar_on(&self.link, row) != bar_on(&self.last_link, row));
             // The notice come, gone or changed on this row.
             let noticed = field_at(&notice, row) != field_at(&self.last_notice, row);
+            // A joining form moved on this row.
+            let rejoined = joins_kept
+                && self.bidi.orders().joins(row)
+                    != self.joins_prev.get(r).and_then(Option::as_deref);
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -5538,12 +5773,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || composed
                 || found
                 || linked
-                || noticed;
+                || noticed
+                || rejoined;
             beyond_cursor |= beyond;
             self.dirty[r] =
                 full || beyond || cursor_moved || glow_moved || guide_moved || trail_moved;
         }
         self.place_diff = diff;
+        if rejoin.is_some() {
+            self.bidi.rejoined();
+        }
+        if joins_kept {
+            self.joins_prev.clear();
+            self.joins_prev.extend((0..rows.index()).map(|r| {
+                self.bidi
+                    .orders()
+                    .joins(Row::from_index(r))
+                    .map(<[_]>::to_vec)
+            }));
+            self.joins_held = match self.bidi.orders().any_joined() {
+                true => crate::bidi::Joins::Seen,
+                false => crate::bidi::Joins::Unseen,
+            };
+        }
         if images == ImageRows::Repainted {
             self.last_image_places.clone_from(&self.image_places);
         }
@@ -5659,6 +5911,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
         self.last_notice = notice;
+        // **The first letter that takes a form, shaped this frame with BDSM
+        // reset**, was drawn unjoined, since no row was read for joins: the
+        // frame again, every row read for its joins this time, and the rows
+        // that join converted again, since their joins moved. Once a
+        // renderer's life.
+        // The rows this pass dirtied stay dirty, for the paint after.
+        if seen == crate::bidi::Joins::Unseen
+            && self.joins_seen == crate::bidi::Joins::Seen
+            && term.bidi_support() == BidiSupport::Explicit
+        {
+            let dirtied = self.dirty.clone();
+            let mut again = self.convert_with(term, back, damage, images);
+            for (d, was) in self.dirty.iter_mut().zip(dirtied) {
+                *d |= was;
+            }
+            // Both passes' rows and time.
+            again.rows_dirty.add(rows_dirty);
+            again.convert = t0.elapsed();
+            return again;
+        }
         Converted {
             rows_dirty,
             rows_partial,
@@ -5935,7 +6207,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }];
         // A marked cell alone: the script its own code points name (UAX #24
         // 5.2), or `DFLT`'s for one that names none.
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -5986,7 +6258,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cps: cps.to_vec(),
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -6002,6 +6274,160 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         }
         out
+    }
+
+    /// [`Renderer::cluster`] for a cell whose letter the layout joined:
+    /// shaped alone in `form` ([`crate::bidi::Orders::joined`]).
+    pub fn cluster_joined(
+        &mut self,
+        cps: &[Codepoint],
+        style: impl Into<TextFace>,
+        form: baud_domain::JoiningForm,
+    ) -> Vec<ClusterGlyph> {
+        let style = style.into();
+        let Some(&base) = cps.first() else {
+            return Vec::new();
+        };
+        let face = self.face_for(cps, style);
+        let phase = self.phase_in(face, base, CellSpan::One);
+        let clusters = [ClusterIn {
+            cps: cps.to_vec(),
+            at: CellIx(0),
+        }];
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[Some(form)], ..);
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let mut out = Vec::new();
+        for p in shaped.glyphs() {
+            let slot = self.atlas.slot(f, face, p.id, scale, phase);
+            out.push(ClusterGlyph {
+                id: p.id,
+                source: GlyphSource::Face(face),
+                slot,
+                dx: scale.px(f32::from(p.dx)).round() as i32,
+                dy: scale.px(f32::from(p.dy)).round() as i32,
+                phase,
+            });
+        }
+        out
+    }
+
+    /// **A lam-alef pair drawn together** (`[[source: unicode-ch9]]` 9.2.3):
+    /// the lam's codepoints, in `lam_form`, and the alef's, final, shaped
+    /// as one run in that order, so the face's `rlig` -- or the presentation
+    /// form, on a face without `GSUB` forms -- forms the obligatory ligature.
+    /// The ligature is centred over the cells `span` gives (Jev CENTRED,
+    /// 0.96/0.97), as a character two cells wide is, and the marks placed
+    /// on it move with it; a face that forms none draws each letter in its
+    /// own cell. Answers the glyphs the lam's cell draws and those the
+    /// alef's does, each from its own cell's origin -- both from the lam's
+    /// for [`PairSpan::LamCell`] -- on a line drawn at `stretch`, and
+    /// whether the face formed the ligature; `None` when the two letters
+    /// are drawn by different faces, and are drawn each alone.
+    pub(crate) fn lam_alef(
+        &mut self,
+        (lam, alef): (&[Codepoint], &[Codepoint]),
+        lam_form: baud_domain::JoiningForm,
+        style: TextFace,
+        span: PairSpan,
+        stretch: Stretch,
+    ) -> Option<PairGlyphs> {
+        let face = self.face_for(lam, style);
+        if self.face_for(alef, style) != face {
+            return None;
+        }
+        let mut key = fold_form(
+            Key::start().fold(u32::try_from(face.index()).unwrap_or(0)),
+            FormKey::Pair,
+            lam_form,
+        );
+        for c in lam
+            .iter()
+            .chain([Codepoint::from_char('\u{FFFF}')].iter())
+            .chain(alef)
+        {
+            key = key.fold(c.value());
+        }
+        let shaped = match self.cache.get(key) {
+            Some(s) => s,
+            None => {
+                let clusters = [
+                    ClusterIn {
+                        cps: lam.to_vec(),
+                        at: CellIx(0),
+                    },
+                    ClusterIn {
+                        cps: alef.to_vec(),
+                        at: CellIx(1),
+                    },
+                ];
+                let forms = [Some(lam_form), Some(baud_domain::JoiningForm::Final)];
+                let s = self.shape(face, Script::of_cluster(lam), &clusters, &forms, ..);
+                self.cache.put(key, s);
+                s
+            }
+        };
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * stretch.x();
+        let ligature = shaped.glyphs().iter().find(|p| p.last != p.cell).copied();
+        let grid = match stretch.x() {
+            1 => self.metrics.phase,
+            _ => self.metrics.phase.doubled(),
+        };
+        let cells = u32::try_from(span.cells().index()).unwrap_or(u32::MAX);
+        let phase = match ligature {
+            Some(l) => {
+                let over = Px::of(self.metrics.cell_w.value().saturating_mul(cells));
+                let centred = f
+                    .default_advance(l.id)
+                    .and_then(|adv| Phase::in_span(scale, adv, over))
+                    .unwrap_or(self.metrics.phase);
+                match stretch.x() {
+                    1 => centred,
+                    _ => centred.doubled(),
+                }
+            }
+            None => grid,
+        };
+        let (mut lams, mut alefs) = (Vec::new(), Vec::new());
+        // The cells from the span's left one to its right one.
+        let across = i32::try_from(cells.saturating_sub(1)).unwrap_or(0) * cell_w;
+        for p in shaped.glyphs() {
+            let of_lam = p.cell == CellIx(0);
+            // A ligature and what is placed on it are drawn from the span's
+            // left cell; each is answered from its own cell.
+            let right = match span {
+                PairSpan::Cells(lam_at, _) => of_lam == (lam_at == LamAt::Right),
+                PairSpan::LamCell => false,
+            };
+            let shift = match (ligature.is_some(), right) {
+                (true, true) => -across,
+                _ => 0,
+            };
+            let slot = self.atlas.slot_at(f, face, p.id, scale, phase, stretch);
+            let g = ClusterGlyph {
+                id: p.id,
+                source: GlyphSource::Face(face),
+                slot,
+                dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x() + shift,
+                dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
+                phase,
+            };
+            match of_lam {
+                true => lams.push(g),
+                false => alefs.push(g),
+            }
+        }
+        let ligated = match ligature {
+            Some(_) => Ligated::Yes,
+            None => Ligated::No,
+        };
+        Some(PairGlyphs {
+            lams,
+            alefs,
+            ligated,
+        })
     }
 
     /// The glyph a codepoint draws as a cluster of one: the
@@ -6041,7 +6467,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // lookups; on STIX Two Math, the one embedded face whose scripts
         // differ, the only lookup `DFLT` adds to `latn` is a ligature that
         // begins on a Greek capital, which no Common code point is.
-        let shaped = self.shape(face, Script::of(cp), &clusters, ..);
+        let shaped = self.shape(face, Script::of(cp), &clusters, &[], ..);
         let p = *shaped.glyphs().first()?;
         let glyphs = match shaped.glyphs().len() {
             1 => Glyphs::One,
@@ -6185,7 +6611,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // cut.
             let own = CellIx(u8::try_from(at - lo).unwrap_or(u8::MAX))
                 ..CellIx(u8::try_from(end - lo).unwrap_or(u8::MAX));
-            let shaped = self.shape(facex, script, &clusters, own);
+            let shaped = self.shape(facex, script, &clusters, &[], own);
             for p in shaped.glyphs() {
                 let cell = lo + usize::from(p.cell.0);
                 // Only this chunk's own cells; the context either side
@@ -6585,7 +7011,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let cursor_visual = cursor.map(|(cr, cc, s)| (cr, cc, orders.visual_col(cr, cc), s));
         let logical_of = |v: Col| logical.get(v.index()).copied().unwrap_or(v);
-        let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
         let mut instances = core::mem::take(&mut self.per_row[r.index()]);
         instances.clear();
         // **The line's rendition** (`[[source: dec-std-070]]` § 5.6.1): on a
@@ -6782,6 +7207,67 @@ impl<'f, 'a> Renderer<'f, 'a> {
         shapes.extend(rings);
         shapes.extend(cursor_shapes);
         self.row_blinks[r.index()] = blinks;
+        self.row_runs(term, r, (&row, &seams), (st, line_end), &mut instances, exc);
+        self.glyph_ends[r.index()] = instances.len();
+        self.reach[r.index()] = Reach::of(&instances);
+        instances.extend(shapes);
+        self.per_row[r.index()] = instances;
+    }
+
+    /// **One row's runs of cells shaped by one face**, for
+    /// [`Renderer::convert_row`]: a row that holds no joined cell by the
+    /// loop that reads no join, as it ran before joining existed, and one
+    /// that holds one by [`Renderer::joined_runs`]. The row's joined cells
+    /// are copied, so shaping may borrow the renderer mutably.
+    #[inline(never)]
+    fn row_runs(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        (row, seams): (&[PackedCell], &[bool]),
+        at: (Stretch, usize),
+        instances: &mut Vec<Instance>,
+        exc: &mut Exceptions,
+    ) {
+        match self.bidi.orders().joins(r).map(<[_]>::to_vec) {
+            None => self.runs::<false>(term, r, (row, seams, &[]), at, instances, exc),
+            Some(joins) => self.joined_runs(term, r, (row, seams, &joins), at, instances, exc),
+        }
+    }
+
+    /// [`Renderer::row_runs`] for a row that holds a joined cell: each
+    /// joined cell shaped alone in its form, and a lam-alef pair drawn
+    /// together. Out of line, so the loop every other row runs holds none
+    /// of it.
+    #[inline(never)]
+    fn joined_runs(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        cells: (&[PackedCell], &[bool], &[Option<crate::bidi::Joined>]),
+        at: (Stretch, usize),
+        instances: &mut Vec<Instance>,
+        exc: &mut Exceptions,
+    ) {
+        self.runs::<true>(term, r, cells, at, instances, exc);
+    }
+
+    /// The runs of one row, `JOINED` for a row that holds a joined cell.
+    #[inline(always)]
+    fn runs<const JOINED: bool>(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        (row, seams, joins): (&[PackedCell], &[bool], &[Option<crate::bidi::Joined>]),
+        (st, line_end): (Stretch, usize),
+        instances: &mut Vec<Instance>,
+        exc: &mut Exceptions,
+    ) {
+        let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
+        let joined = |v: usize| match JOINED {
+            true => joins.get(v).copied().flatten(),
+            false => None,
+        };
         // Then runs of cells shaped by one face, in one selection of its
         // lookups. The row's scripts are settled the first time a run is on
         // a face whose scripts select different lookups, and not at all on a
@@ -6798,17 +7284,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // Box drawing, a block element or braille: baud's own mask
                 // at the cell origin, never shaped, never in a run.
                 if let Some(slot) = self.procedural_at(base, st) {
-                    self.emit_at(r, Col::at_index(c), slot, &mut instances);
+                    self.emit_at(r, Col::at_index(c), slot, instances);
                 }
-                c = CellSpan::at(&row, Col::at_index(c))
+                c = CellSpan::at(row, Col::at_index(c))
                     .after(Col::at_index(c))
                     .index();
+                continue;
+            }
+            // **A lam-alef pair**, drawn together over its cells from its
+            // left one, out of line: a row with no joined cell asks once.
+            if JOINED && self.pair_at(term, r, (row, joins), (c, line_end), instances) {
+                c += 1;
                 continue;
             }
             let face = self.face_of_cell(term, row[c], base);
             let varies = self.varies(face);
             if !settled && varies == Varies::Yes {
-                self.settle_row(term, &row);
+                self.settle_row(term, row);
                 settled = true;
             }
             let (script, selection) = self.script_at(face, Col::at_index(c));
@@ -6858,8 +7350,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // a wrong pixel, if the two ever disagreed. Both ask
                 // `face_of_cell`, so a marked cell is asked with its whole
                 // cluster both times.
+                // **A joined cell is shaped alone**, in its form: a form
+                // is the layout's, from the logical text, and a run in the
+                // drawn order would show a face's contextual lookups the
+                // letters reversed.
                 if c > start
                     && (seam(c)
+                        || (JOINED && (joined(c).is_some() || joined(start).is_some()))
                         || crate::boxes::covers(cp)
                         || self.face_of_cell(term, cell, cp) != face
                         || (varies == Varies::Yes
@@ -6867,7 +7364,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 {
                     break;
                 }
-                let next = CellSpan::at(&row, Col::at_index(c))
+                let next = CellSpan::at(row, Col::at_index(c))
                     .after(Col::at_index(c))
                     .index();
                 #[cfg(feature = "exceptions")]
@@ -6911,10 +7408,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 });
                 c = next;
             }
+            // A joined cell is a run of its own (above), shaped in its form,
+            // which its key folds.
+            let form = [match JOINED {
+                true => joined(start).map(|j| j.form),
+                false => None,
+            }];
+            if let Some(f) = form[0] {
+                key = fold_form(key, FormKey::Cell, f);
+            }
+            let form: &[Option<baud_domain::JoiningForm>] = match form[0] {
+                Some(_) => &form,
+                None => &[],
+            };
             let shaped = match self.cache.get(key) {
                 Some(s) => s,
                 None => {
-                    let s = self.shape(face, script, &clusters, ..);
+                    let s = self.shape(face, script, &clusters, form, ..);
                     self.cache.put(key, s);
                     s
                 }
@@ -6937,15 +7447,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             #[cfg(feature = "exceptions")]
             self.count_differs(term, r, Col::at_index(start), &clusters, &shaped, exc);
-            self.emit(term, face, r, Col::at_index(start), &shaped, &mut instances);
+            self.emit(term, face, r, Col::at_index(start), &shaped, instances);
         }
-        self.glyph_ends[r.index()] = instances.len();
-        self.reach[r.index()] = Reach::of(&instances);
-        instances.extend(shapes);
-        self.per_row[r.index()] = instances;
     }
 
-    /// `clusters` shaped as one run on `face`; what a face that keeps a
+    /// `clusters` shaped as one run on `face`, each in the joining form
+    /// `forms` gives it at its index, if any; what a face that keeps a
     /// cluster cannot draw is left out and counted for the clusters `own`
     /// holds -- all of them, except in a ligature window's chunk, whose
     /// context cells are another chunk's to count.
@@ -6954,6 +7461,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         face: FaceIx,
         script: Script,
         clusters: &[ClusterIn],
+        forms: &[Option<baud_domain::JoiningForm>],
         own: impl core::ops::RangeBounds<CellIx>,
     ) -> Shaped {
         // **A refused glyph box is shaped again with the scratch it named,
@@ -6969,8 +7477,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             shaper.accelerate(&self.digests[face.index()]);
             shaper.scratch(&mut self.ink_scratch);
             let mut unmapped = 0usize;
-            for cl in clusters {
+            for (i, cl) in clusters.iter().enumerate() {
                 let at = Cluster(u16::from(cl.at.0));
+                let form = forms.get(i).copied().flatten();
                 // **A mark the face cannot draw is left out, and counted.** A
                 // cluster reaches a face that cannot draw it whole only when no
                 // face can -- `face_for` would have chosen that one -- and the
@@ -6991,6 +7500,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // are that composite's one `.notdef`, nothing left out: A +
                 // U+0311 is Ȃ's box. Only a mark with no composite is left out
                 // and counted.
+                let push = |shaper: &mut Shaper<'_, '_, '_>, cps: &[Codepoint]| match form {
+                    Some(f) => shaper.push_joined(cps, at, f),
+                    None => shaper.push_cluster(cps, at),
+                };
                 let pushed = match cl.cps.as_slice() {
                     [_, _, ..] => {
                         let cover = self.cluster_covers.answer(face, &cl.cps, || {
@@ -7000,10 +7513,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                             }
                         });
                         if cover == Cover::Whole {
-                            shaper.push_cluster(&cl.cps, at)
+                            push(&mut shaper, &cl.cps)
                         } else {
                             let kept = Normalised::without_unmapped(f, &cl.cps);
-                            let pushed = shaper.push_cluster(kept.as_slice(), at);
+                            let pushed = push(&mut shaper, kept.as_slice());
                             if pushed.is_some() && own.contains(&cl.at) {
                                 unmapped = unmapped.saturating_add(
                                     usize::try_from(kept.dropped().value()).unwrap_or(0),
@@ -7012,13 +7525,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
                             pushed
                         }
                     }
-                    cps => shaper.push_cluster(cps, at),
+                    cps => push(&mut shaper, cps),
                 };
                 if pushed.is_none() {
                     break;
                 }
             }
-            let (buf, shaped) = shaper.finish(Features::GRID, script);
+            // **A run that holds a letter that takes a joining form** is
+            // shaped with the joining features, and marks the renderer as
+            // having drawn one; any other with the grid's, as before joining
+            // existed. The shaper tested each base as it was pushed.
+            let features = match shaper.joins() {
+                true => {
+                    self.joins_seen = crate::bidi::Joins::Seen;
+                    Features::JOINING
+                }
+                false => Features::GRID,
+            };
+            let (buf, shaped) = shaper.finish(features, script);
             // A need past the budget grows the scratch to the budget, so the
             // boxes within it still draw and only the one past it is refused.
             let want = shaped.ink_need.value().min(crate::atlas::VAR_POINTS_MAX);
@@ -7087,7 +7611,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         at: CellIx(0),
                     }];
                     let s = self
-                        .shape(face, Script::of(cp), &one, ..)
+                        .shape(face, Script::of(cp), &one, &[], ..)
                         .glyphs()
                         .first()
                         .map(|p| (face, *p));
@@ -7386,6 +7910,170 @@ impl<'f, 'a> Renderer<'f, 'a> {
             _ => clip_to(inst, self.band(r)),
         };
         out.extend(inst);
+    }
+
+    /// The lam-alef pair visual cell `c` of row `r` holds a letter of,
+    /// drawn into `out` through [`Renderer::lam_alef`] from its left cell:
+    /// whether the cell is drawn by it -- the left cell drawing both, the
+    /// right one, drawn already, nothing. A pair a soft wrap parts draws its
+    /// ligature in the lam's cell and nothing in the alef's, when
+    /// [`Renderer::wrapped_ligates`] says the face forms it.
+    #[inline(never)]
+    fn pair_at(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        (row, joins): (&[PackedCell], &[Option<crate::bidi::Joined>]),
+        (c, line_end): (usize, usize),
+        out: &mut Vec<Instance>,
+    ) -> bool {
+        use crate::bidi::{Joined, PairEnd, PairPart};
+        let joined = |v: usize| joins.get(v).copied().flatten();
+        let Some(Joined {
+            form,
+            pair: Some((part, kind)),
+        }) = joined(c)
+        else {
+            return false;
+        };
+        let st = Stretch::of(self.size_of(r));
+        let (span, end) = match part {
+            PairPart::Lam(n, e) | PairPart::Alef(n, e) => (n, e),
+            PairPart::LamWrapped(alef) => {
+                let lam = row[c];
+                let style = self.face_style(lam);
+                if !self.wrapped_ligates(term, (lam, alef), kind, style, st) {
+                    return false;
+                }
+                let lam_cps = cell_cps(term, lam);
+                let alef_cps = cell_cps(term, alef);
+                let Some(g) =
+                    self.lam_alef((&lam_cps, &alef_cps), form, style, PairSpan::LamCell, st)
+                else {
+                    return false;
+                };
+                self.emit_glyphs(r, Col::at_index(c), &g.lams, out);
+                self.emit_glyphs(r, Col::at_index(c), &g.alefs, out);
+                return true;
+            }
+            PairPart::AlefWrapped(lam) => {
+                let style = self.face_style(lam);
+                return self.wrapped_ligates(term, (lam, row[c]), kind, style, st);
+            }
+        };
+        // The pair's other cell, at the span's other end, holding the other
+        // letter at the other end of the same span.
+        let far = span.index().saturating_sub(1);
+        let o = match end {
+            PairEnd::Left => c.checked_add(far),
+            PairEnd::Right => c.checked_sub(far),
+        };
+        let Some(o) = o.filter(|&o| o != c && o < line_end) else {
+            return false;
+        };
+        let (lam_c, alef_c) = match (part, joined(o).and_then(|j| j.pair)) {
+            (PairPart::Lam(..), Some((PairPart::Alef(h, e), _))) if h == span && e != end => (c, o),
+            (PairPart::Alef(..), Some((PairPart::Lam(h, e), _))) if h == span && e != end => (o, c),
+            _ => return false,
+        };
+        let lam_form = joined(lam_c).map_or(form, |j| j.form);
+        let lam_cps = cell_cps(term, row[lam_c]);
+        let alef_cps = cell_cps(term, row[alef_c]);
+        let style = self.face_style(row[lam_c]);
+        let lam_at = match lam_c > alef_c {
+            true => LamAt::Right,
+            false => LamAt::Left,
+        };
+        let Some(g) = self.lam_alef(
+            (&lam_cps, &alef_cps),
+            lam_form,
+            style,
+            PairSpan::Cells(lam_at, span),
+            st,
+        ) else {
+            return false;
+        };
+        // The left cell draws both; the right one was drawn with it.
+        if end == PairEnd::Left {
+            self.emit_glyphs(r, Col::at_index(lam_c), &g.lams, out);
+            self.emit_glyphs(r, Col::at_index(alef_c), &g.alefs, out);
+        }
+        true
+    }
+
+    /// **Whether a lam-alef pair a soft wrap parts is drawn as the
+    /// ligature**, in the lam's cell: the two cells' base letters shaped
+    /// together, the lam in the form `kind` gives, on the lam's face in
+    /// `style`. Both letters' rows ask with the same cells, so the alef's
+    /// cell draws nothing exactly when the lam's draws the ligature, and
+    /// each draws its own letter on a face that forms none.
+    pub(crate) fn wrapped_ligates(
+        &mut self,
+        term: &Term<'_>,
+        (lam, alef): (PackedCell, PackedCell),
+        kind: baud_domain::LamAlef,
+        style: TextFace,
+        stretch: Stretch,
+    ) -> bool {
+        let (Some(l), Some(a)) = (drawn_base(term, lam), drawn_base(term, alef)) else {
+            return false;
+        };
+        let form = match kind {
+            baud_domain::LamAlef::Joined => baud_domain::JoiningForm::Medial,
+            baud_domain::LamAlef::Nominal => baud_domain::JoiningForm::Initial,
+        };
+        self.lam_alef((&[l], &[a]), form, style, PairSpan::LamCell, stretch)
+            .is_some_and(|g| g.ligated == Ligated::Yes)
+    }
+
+    /// Glyphs placed from cell `col`'s origin, drawn in that cell's
+    /// colours, as [`Renderer::emit`] draws a run's: a lam-alef pair's,
+    /// whose glyphs [`Renderer::lam_alef`] placed.
+    fn emit_glyphs(&self, r: Row, col: Col, glyphs: &[ClusterGlyph], out: &mut Vec<Instance>) {
+        let col = col.index();
+        let size = self.size_of(r);
+        let st = Stretch::of(size);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * st.x();
+        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0) * st.y();
+        let band = self.band(r);
+        let top = box_top(size, band);
+        let range = self.row_cells(r);
+        if self.text.get(range.start + col).is_some_and(|t| !t.draws()) {
+            return;
+        }
+        let color = self
+            .fg
+            .get(range.start + col)
+            .copied()
+            .unwrap_or(self.defaults.0);
+        let curve = self
+            .curve
+            .get(range.start + col)
+            .copied()
+            .unwrap_or_default();
+        for g in glyphs {
+            let Some(slot) = g.slot else {
+                continue;
+            };
+            let x = i32::try_from(col).unwrap_or(0) * cell_w + g.dx + slot.left;
+            let y = top + baseline - g.dy + slot.top;
+            let inst = Instance {
+                x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
+                y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color,
+                kind: slot.kind,
+                curve,
+            };
+            let inst = match st.y() {
+                1 => Some(inst),
+                _ => clip_to(inst, band),
+            };
+            out.extend(inst);
+        }
     }
 
     /// Instances for a shaped run starting at column `start` of row `r`.

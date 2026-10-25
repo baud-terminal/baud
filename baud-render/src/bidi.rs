@@ -64,14 +64,54 @@
 //! whose level differs from the one to its left and before every cell at
 //! an odd level, so no run, ligature or contextual form crosses a level
 //! run, and a right-to-left run's cells are shaped one at a time rather
-//! than in their visual order. Arabic letters draw in the isolated forms
-//! they draw in today; joining is a separate item.
+//! than in their visual order.
+//!
+//! **Joining (`[[source: unicode-ch9]]` 9.2.2 and 9.2.3).** Each letter of
+//! a cursive script is drawn in the form rules R1-R7 give it among its
+//! neighbours, and a lam joined to an alef forms the obligatory lam-alef
+//! ligature, centred over the two cells the pair holds (Jev CENTRED,
+//! 0.96/0.97) -- over the cells from one to the other where erased cells
+//! part them (Jev LIGATED_CENTRED, 0.91/0.93), and in the lam's cell where
+//! a soft wrap does, the alef's cell drawing nothing (Jev's lean
+//! LIGATED_LAM_ROW, 0.84/0.80). The forms are found here, once a layout, over the logical
+//! text, and every draw path reads them per visual cell
+//! ([`Orders::joined`]): with BDSM set, over the paragraph across its soft
+//! wraps, which CSS Text 3 asks of a word an unforced break splits ("as if
+//! the word were still whole", `[[source: w3c-css-text-3]]`; Jev
+//! ACROSS_WRAP, 0.96/0.90), and within each level run (UAX #9 3.5); an
+//! erased cell between letters is transparent, the boundary neutral it is
+//! given (Jev TRANSPARENT, 0.96/0.96). With BDSM reset each row is joined
+//! in the order it is displayed, the order 9.2.2 states the rules in (Jev's
+//! lean DISPLAY_ORDER_JOINING, 0.66/0.58): a program that wrote Arabic in
+//! visual order is drawn joined, and presentation forms, joining type U,
+//! are drawn as sent. A letter given no form is drawn non-joining (R7),
+//! which is every Arabic letter on a row this finds nothing to join.
+//!
+//! **What joining costs a row with no joining letter.** With BDSM set a
+//! row is compared with its last copy once a frame and tested only when it
+//! changed, as it was before joining existed, by the same pass with one
+//! load a cell: the table it loads from, [`baud_domain::LAYOUT_BLOCKS`], is
+//! the right-to-left blocks and the joining blocks together, compiled at
+//! build time, so a row of Latin, Han, box drawing or braille is let go
+//! after that one pass, and only a row it holds back is read for either
+//! answer. With BDSM reset no row is read for joins until the renderer has
+//! shaped a letter that takes a form ([`Joins`]). After that the last
+//! frame's joins are kept ([`Reorder::keep_displayed`]) and found again
+//! only on the rows the caller's own compare finds changed: the
+//! conversion's, against the frame it converted last, or the cell path's,
+//! against the copy of the screen its last frame made (research decision
+//! D4), which then compares every row of a frame that changed instead of
+//! stopping at the first that differs. A frame whose screen is the last's
+//! reads no row for its joins. A caller with no compare of its own lays
+//! out with [`Reorder::lay_out`], which compares each row with its last
+//! copy.
 
 use baud_core::{BidiSupport, Term};
 use baud_domain::{
-    Bidi, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, ClusterEpoch, ClusterSlot, Codepoint,
-    Col, Cols, Content, PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap,
-    in_rtl_block, mirroring_glyph, opens_rtl,
+    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, ClusterEpoch, ClusterSlot,
+    Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef, PackedCell, Row, RowExtent,
+    RowRot, Rows, Stride, Viewport, Wrap, in_layout_block, join, lam_alefs, mirroring_glyph,
+    opens_rtl, takes_form,
 };
 
 use crate::units::Tally;
@@ -143,6 +183,48 @@ enum Any {
     Yes,
 }
 
+/// Which end of a pair's cells, as drawn, a letter's cell is at: the left
+/// one draws the pair, and the right one was drawn with it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PairEnd {
+    Left,
+    Right,
+}
+
+/// Which letter of a lam-alef pair a cell holds, and where the other one
+/// is: the two are drawn as the ligature.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PairPart {
+    /// The lam, its alef on the same row, the cells from one to the other,
+    /// both counted -- two for adjacent cells, more where erased cells,
+    /// which are transparent, lie between them -- and which end the lam is
+    /// at. The ligature is centred over them (Jev CENTRED, 0.96/0.97, and
+    /// LIGATED_CENTRED for a pair erased cells part, 0.91/0.93).
+    Lam(Cols, PairEnd),
+    /// The alef of such a pair.
+    Alef(Cols, PairEnd),
+    /// The lam of a pair a soft wrap parts, with its alef's cell: the
+    /// ligature is drawn in the lam's cell (Jev's lean LIGATED_LAM_ROW,
+    /// 0.84/0.80).
+    LamWrapped(PackedCell),
+    /// The alef of such a pair, with its lam's cell: its letter is drawn
+    /// in the lam's ligature, and its own cell draws no glyph.
+    AlefWrapped(PackedCell),
+}
+
+/// **What joining gives one visual cell**: the form its letter is drawn
+/// in, and its part in a lam-alef ligature if it has one. A cell whose
+/// letter is drawn non-joining, or that holds none, has no entry: R7's form
+/// is what a letter draws given none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Joined {
+    pub form: JoiningForm,
+    pub pair: Option<(PairPart, LamAlef)>,
+}
+
+/// One row's joined cells, by visual column.
+type RowJoins = Vec<Option<Joined>>;
+
 /// **Which logical cell each visual cell of the window shows**, for the
 /// rows that are drawn in another order: what every consumer of a frame
 /// maps through. Cheap to clone: a row in its own order holds nothing.
@@ -151,6 +233,9 @@ pub struct Orders {
     rows: Vec<Option<RowOrder>>,
     cols: Cols,
     any: Any,
+    /// Each window row's joined cells, for the rows that hold one.
+    joins: Vec<Option<RowJoins>>,
+    joined_any: Any,
 }
 
 impl Default for Orders {
@@ -159,6 +244,8 @@ impl Default for Orders {
             rows: Vec::new(),
             cols: Cols::of_index(0),
             any: Any::No,
+            joins: Vec::new(),
+            joined_any: Any::No,
         }
     }
 }
@@ -167,6 +254,28 @@ impl Orders {
     /// Whether any row of the window is drawn in another order.
     pub fn any(&self) -> bool {
         self.any == Any::Yes
+    }
+
+    /// Whether any cell of the window is drawn joined.
+    pub fn any_joined(&self) -> bool {
+        self.joined_any == Any::Yes
+    }
+
+    /// What joining gives visual column `v` of row `r`: its form and its
+    /// part in a lam-alef pair, or `None` for a cell drawn as it would be
+    /// alone.
+    pub fn joined(&self, r: Row, v: Col) -> Option<Joined> {
+        self.joins
+            .get(r.index())
+            .and_then(Option::as_ref)
+            .and_then(|j| j.get(v.index()).copied().flatten())
+    }
+
+    /// Row `r`'s joined cells, by visual column, if it holds any: what a
+    /// renderer compares from frame to frame, since a form can change with
+    /// no cell of the row changing.
+    pub fn joins(&self, r: Row) -> Option<&[Option<Joined>]> {
+        self.joins.get(r.index()).and_then(Option::as_deref)
     }
 
     /// Whether row `r` is drawn in another order.
@@ -329,6 +438,8 @@ enum Lead {
 struct Owner {
     col: Col,
     lead: Lead,
+    /// The paragraph row it is in, counted from the first gathered.
+    row: Row,
 }
 
 /// One row of a paragraph: its cells, and its row in the window if it is
@@ -348,6 +459,9 @@ pub struct Reorder {
     orders: Orders,
     seen: Seen,
     unmirrored: Tally,
+    work: Work,
+    /// How the joins the maps hold were found.
+    last: Last,
     bidi: Box<Bidi<CONTEXT>>,
     text: Vec<char>,
     owner: Vec<Owner>,
@@ -373,6 +487,46 @@ impl Default for Reorder {
     }
 }
 
+/// **What a layout read to find its answers**: the rows it compared with
+/// their last copy, and the rows it tested cell by cell for a character
+/// that reorders or joins. What a frame with no row changed should cost is
+/// none of the second, and with BDSM reset none of the first either.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Work {
+    pub compared: Tally,
+    pub tested: Tally,
+}
+
+/// How the joins the maps hold were found: by [`Reorder::lay_out`], which
+/// finds every row's, or kept from the frame before by
+/// [`Reorder::keep_displayed`] for a window of this size and cluster epoch,
+/// the caller rejoining the rows its compare saw change.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Last {
+    LaidOut,
+    Kept(Cols, ClusterEpoch, Rows, Changes),
+}
+
+/// **Whose compare says which rows changed** after
+/// [`Reorder::keep_displayed`]: the conversion's, against the frame it
+/// converted last, or the cell path's, against the copy of the screen its
+/// last frame made (research decision D4). Each says what changed since
+/// its own last frame, so joins kept under one are found again whole
+/// under the other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Changes {
+    Converted,
+    Copied,
+}
+
+/// Whether [`Reorder::keep_displayed`] kept the last frame's joins, so
+/// that only the rows that changed need [`Reorder::rejoin`], or kept none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Rejoin {
+    Changed,
+    Every,
+}
+
 /// Whether a row holds a character that can make its paragraph reorder.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Opens {
@@ -381,39 +535,75 @@ enum Opens {
     Yes,
 }
 
-/// **Each window row's answer, kept while the row is unchanged**: the rows
-/// as last tested and what the test said, so a frame tests only the rows
-/// that changed since -- a row is compared with its copy, a whole row at a
-/// time, and read cell by cell only when it differs. A cluster's id can
-/// name another cluster after a sweep, so a moved epoch tests every row
+/// **Each window row's answers, kept while the row is unchanged**: the
+/// rows as last tested and what the test said, so a frame tests only the
+/// rows that changed since -- a row is compared with its copy, a whole row
+/// at a time, and read cell by cell only when it differs. A cluster's id
+/// can name another cluster after a sweep, so a moved epoch tests every row
 /// again.
 #[derive(Default)]
 struct Seen {
     cells: Vec<PackedCell>,
     opens: Vec<Opens>,
+    /// Whether each row holds a letter that takes a joining form, found by
+    /// the same test as `opens`.
+    joins: Vec<Opens>,
     width: Option<(Cols, ClusterEpoch)>,
 }
 
+/// What a row holds that its layout reads: whether it can make its
+/// paragraph reorder, and whether it holds a letter that takes a joining
+/// form.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Holds {
+    opens: Opens,
+    joins: Opens,
+}
+
+impl Holds {
+    const NOTHING: Holds = Holds {
+        opens: Opens::No,
+        joins: Opens::No,
+    };
+}
+
 impl Seen {
-    /// Whether row `y`, `cells`, can reorder: the kept answer when the row
-    /// is the one last tested, else the test, kept.
-    fn opens(&mut self, term: &Term<'_>, row: Row, cells: &[PackedCell]) -> bool {
+    /// What row `y`, `cells`, holds: the kept answers when the row is the
+    /// one last tested, else the test, kept.
+    fn holds(&mut self, term: &Term<'_>, row: Row, cells: &[PackedCell], work: &mut Work) -> Holds {
         let (y, n) = (row.index(), cells.len());
         if self.opens.len() <= y {
             self.opens.resize(y + 1, Opens::Unknown);
+            self.joins.resize(y + 1, Opens::Unknown);
         }
         if self.cells.len() < (y + 1) * n {
             self.cells.resize((y + 1) * n, PackedCell::EMPTY);
         }
         let kept = &mut self.cells[y * n..(y + 1) * n];
+        work.compared.bump();
         if self.opens[y] != Opens::Unknown && PackedCell::same_cells(kept, cells) {
-            return self.opens[y] == Opens::Yes;
+            return Holds {
+                opens: self.opens[y],
+                joins: self.joins[y],
+            };
         }
         kept.copy_from_slice(cells);
-        let yes = row_opens(term, cells);
-        self.opens[y] = if yes { Opens::Yes } else { Opens::No };
-        yes
+        work.tested.bump();
+        let h = row_holds(term, cells);
+        (self.opens[y], self.joins[y]) = (h.opens, h.joins);
+        h
     }
+}
+
+/// **Whether a layout with BDSM reset reads rows for their joins**: not
+/// until the renderer has shaped a letter that takes a joining form
+/// (Joining_Type D, R or L), since a screen none of whose letters has been
+/// drawn holds none to join -- what a session that never shows one pays
+/// for joining with the mode reset is nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Joins {
+    Unseen,
+    Seen,
 }
 
 impl Reorder {
@@ -422,6 +612,8 @@ impl Reorder {
             orders: Orders::default(),
             seen: Seen::default(),
             unmirrored: Tally::default(),
+            work: Work::default(),
+            last: Last::LaidOut,
             bidi: Box::new(Bidi::new()),
             text: Vec::new(),
             owner: Vec::new(),
@@ -445,24 +637,54 @@ impl Reorder {
         self.unmirrored
     }
 
+    /// What the last layout read to find its answers.
+    pub fn work(&self) -> Work {
+        self.work
+    }
+
     /// **Lays out the window `back` lines into the history**, as
-    /// [`Term::view`] draws it. Nothing is reordered while BDSM is reset.
+    /// [`Term::view`] draws it, each row compared with its last copy once
+    /// to know whether it changed. Nothing is reordered while BDSM is
+    /// reset, and each row that holds a joining letter is joined as it is
+    /// displayed. A caller with a compare of its own -- the conversion's,
+    /// or the cell path's copy of the screen -- lays out with
+    /// [`Reorder::keep_displayed`] then, and nothing here compares a row.
     pub fn lay_out(&mut self, term: &Term<'_>, back: Rows) {
+        self.lay_out_as(term, back, Joins::Seen);
+    }
+
+    /// [`Reorder::lay_out`], where with BDSM reset and `joins`
+    /// [`Joins::Unseen`] no row is read at all.
+    pub fn lay_out_as(&mut self, term: &Term<'_>, back: Rows, joins: Joins) {
         let back = term.looking_back(back);
         let vp = term.view(back);
         let nrows = vp.rows().index();
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
         self.unmirrored = Tally::default();
+        self.work = Work::default();
+        self.last = Last::LaidOut;
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
-        if term.bidi_support() == BidiSupport::Explicit {
+        self.forget_joins(vp.rows());
+        let explicit = term.bidi_support() == BidiSupport::Explicit;
+        if explicit && joins == Joins::Unseen {
             return;
         }
         let width = Some((vp.cols(), term.cluster_epoch()));
         if self.seen.width != width {
             self.seen.width = width;
             self.seen.opens.clear();
+            self.seen.joins.clear();
+        }
+        if explicit {
+            for y in 0..nrows {
+                let r = Row::from_index(y);
+                if self.seen.holds(term, r, vp.row(r), &mut self.work).joins == Opens::Yes {
+                    self.join_displayed(term, r, vp.row(r));
+                }
+            }
+            return;
         }
         let mut y = 0;
         while y < nrows {
@@ -481,6 +703,71 @@ impl Reorder {
         }
     }
 
+    /// **Lays out the window with BDSM reset for a caller that knows which
+    /// rows changed**: nothing is reordered, and each row's joins, which
+    /// with the mode reset are its own (one row, one run), are kept from the
+    /// frame before -- [`Rejoin::Changed`] -- for the caller to find again
+    /// by [`Reorder::rejoin`] on each row that changed, then
+    /// [`Reorder::rejoined`]. [`Rejoin::Every`] when there is no frame
+    /// before to keep: the last was laid out otherwise, or at another width,
+    /// height or cluster epoch, or kept for the other compare (`changes`).
+    /// A row that did not change is neither compared nor tested here.
+    pub fn keep_displayed(&mut self, term: &Term<'_>, back: Rows, changes: Changes) -> Rejoin {
+        let vp = term.view(term.looking_back(back));
+        let nrows = vp.rows().index();
+        self.orders.cols = vp.cols();
+        self.orders.any = Any::No;
+        self.unmirrored = Tally::default();
+        self.work = Work::default();
+        self.orders.rows.clear();
+        self.orders.rows.resize_with(nrows, || None);
+        let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
+        let rejoin = match self.last == now {
+            true => Rejoin::Changed,
+            false => {
+                self.forget_joins(vp.rows());
+                Rejoin::Every
+            }
+        };
+        self.last = now;
+        rejoin
+    }
+
+    /// Row `r` of the window `vp` joined again, with BDSM reset, after
+    /// [`Reorder::keep_displayed`]: one test of the row, and the row joined
+    /// in display order if it holds a joining letter.
+    pub fn rejoin(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
+        let Some(slot) = self.orders.joins.get_mut(r.index()) else {
+            return;
+        };
+        *slot = None;
+        self.work.tested.bump();
+        if row_joins(term, vp.row(r)) {
+            self.join_displayed(term, r, vp.row(r));
+        }
+    }
+
+    /// No row of a window `rows` high holds a joined cell: the maps
+    /// emptied only where the last layout left one, or made at a new
+    /// height, so a window that never held one costs one test.
+    fn forget_joins(&mut self, rows: Rows) {
+        let nrows = rows.index();
+        if self.orders.joined_any == Any::Yes || self.orders.joins.len() != nrows {
+            self.orders.joins.clear();
+            self.orders.joins.resize_with(nrows, || None);
+            self.orders.joined_any = Any::No;
+        }
+    }
+
+    /// The rejoining after [`Reorder::keep_displayed`] done: whether any
+    /// row holds a joined cell, found again.
+    pub fn rejoined(&mut self) {
+        self.orders.joined_any = match self.orders.joins.iter().any(Option::is_some) {
+            true => Any::Yes,
+            false => Any::No,
+        };
+    }
+
     /// One paragraph whose drawn rows are `first..=last`: resolved, and each
     /// of those rows ordered, if any of its rows can reorder.
     fn paragraph(
@@ -496,9 +783,12 @@ impl Reorder {
         // Every drawn row is asked, so each keeps its answer for the next
         // frame.
         let mut drawn_opens = false;
+        let mut drawn_joins = false;
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
-            drawn_opens |= self.seen.opens(term, r, vp.row(r));
+            let h = self.seen.holds(term, r, vp.row(r), &mut self.work);
+            drawn_opens |= h.opens == Opens::Yes;
+            drawn_joins |= h.joins == Opens::Yes;
         }
         // The rows above the window the paragraph starts in, and below it
         // when the window looks back, nearest first: context, read only
@@ -534,9 +824,17 @@ impl Reorder {
                 k += 1;
             }
         }
-        if !drawn_opens && !above.iter().any(|c| opens(c)) && !below.iter().any(|c| opens(c)) {
-            return;
-        }
+        let any_opens =
+            drawn_opens || above.iter().any(|c| opens(c)) || below.iter().any(|c| opens(c));
+        // A paragraph that nothing reorders but whose drawn rows hold a
+        // joining letter -- Mongolian, whose class is L -- is joined in its
+        // stored order, every character at the paragraph's level, and drawn
+        // where it is.
+        let resolves = match (any_opens, drawn_joins) {
+            (true, _) => Resolves::Levels,
+            (false, true) => Resolves::JoinOnly,
+            (false, false) => return,
+        };
         let drawn: Vec<ParaRow<'_>> = (first.index()..=last.index())
             .map(|y| ParaRow {
                 cells: vp.row(Row::from_index(y)),
@@ -593,7 +891,7 @@ impl Reorder {
                     });
                 }
             }
-            if let Some(level) = self.resolve(term, &rows, dir) {
+            if let Some(level) = self.resolve(term, &rows, dir, resolves) {
                 dir = match level.direction() {
                     baud_domain::BidiDirection::Rtl => BidiParagraph::Rtl,
                     baud_domain::BidiDirection::Ltr => BidiParagraph::Ltr,
@@ -603,25 +901,28 @@ impl Reorder {
         }
     }
 
-    /// Resolves `rows` as one paragraph at `dir` and orders each drawn one;
-    /// answers the paragraph's level.
+    /// Resolves `rows` as one paragraph at `dir` and orders each drawn one,
+    /// or with [`Resolves::JoinOnly`] only joins it; answers the
+    /// paragraph's level.
     fn resolve(
         &mut self,
         term: &Term<'_>,
         rows: &[ParaRow<'_>],
         dir: BidiParagraph,
+        resolves: Resolves,
     ) -> Option<BidiLevel> {
         self.text.clear();
         self.owner.clear();
         self.rule.clear();
         let mut ranges: Vec<(core::ops::Range<usize>, Col)> = Vec::with_capacity(rows.len());
-        for row in rows {
+        for (p, row) in rows.iter().enumerate() {
             let begin = self.text.len();
             let end = row_end(row.cells);
             for (c, &cell) in row.cells[..end.index()].iter().enumerate() {
                 let at = |lead| Owner {
                     col: Col::at_index(c),
                     lead,
+                    row: Row::from_index(p),
                 };
                 if cell.content.is_wide_tail() {
                     continue;
@@ -663,6 +964,26 @@ impl Reorder {
             }
             ranges.push((begin..self.text.len(), end));
         }
+        let cell_of = |o: Owner| {
+            let row = rows.get(o.row.index());
+            let cell = row
+                .and_then(|r| r.cells.get(o.col.index()))
+                .copied()
+                .unwrap_or(PackedCell::EMPTY);
+            match row.and_then(|r| r.window) {
+                Some(_) => (cell, Drawn::Yes),
+                None => (cell, Drawn::No),
+            }
+        };
+        if resolves == Resolves::JoinOnly {
+            let joined = self.join_text(None);
+            for (p, row) in rows.iter().enumerate() {
+                if let Some(y) = row.window {
+                    self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);
+                }
+            }
+            return None;
+        }
         // **A table row**: a paragraph holding a column rule keeps its
         // columns. Each cell is a paragraph of its own, at the level its
         // own first strong letter gives it (UAX #9 section 3: "the text in
@@ -681,6 +1002,8 @@ impl Reorder {
             true => BidiLevel::LTR,
             false => level,
         };
+        let levels: Vec<BidiLevel> = self.bidi.levels().to_vec();
+        let joined = self.join_text(Some(&levels));
         let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
         let cols = self.orders.cols.index();
         for (p, row) in rows.iter().enumerate() {
@@ -742,6 +1065,7 @@ impl Reorder {
                 }
             }
             if !reorders || out.from.len() != cols {
+                self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);
                 continue;
             }
             for (v, l) in out.from.iter().enumerate() {
@@ -749,6 +1073,14 @@ impl Reorder {
                     *slot = Col::at_index(v);
                 }
             }
+            let to = out.to.clone();
+            self.store_joins(
+                y,
+                &ranges[p].0,
+                &joined,
+                |c| to.get(c.index()).copied().unwrap_or(c),
+                cell_of,
+            );
             self.orders.rows[y.index()] = Some(out);
             self.orders.any = Any::Yes;
         }
@@ -787,6 +1119,224 @@ impl Reorder {
         }
         Some(())
     }
+
+    /// **The joining forms of the paragraph text last gathered**
+    /// (`self.text`, `self.owner`): rules R1-R7 over each level run in
+    /// logical order (UAX #9 3.5's "limited to characters within the same
+    /// level run", read from `levels`, the levels after I2, or one run
+    /// with none), a character X9 removes kept in the run it sits in, and
+    /// the lam-alef ligatures L1-L3 among them. Each text position's form,
+    /// and each pair's lam and alef: every pair the rules form, whatever
+    /// erased cells or soft wrap lie between its two letters.
+    fn join_text(&self, levels: Option<&[BidiLevel]>) -> JoinedText {
+        let n = self.text.len();
+        let cps: Vec<u32> = self.text.iter().map(|&c| u32::from(c)).collect();
+        let types: Vec<JoiningType> = cps.iter().map(|&c| JoiningType::of(c)).collect();
+        let mut forms: Vec<Option<JoiningForm>> = vec![None; n];
+        let mut pairs: Vec<Pair> = Vec::new();
+        let removed = |i: usize| {
+            matches!(
+                BidiClass::of(self.text[i]),
+                BidiClass::BN
+                    | BidiClass::LRE
+                    | BidiClass::RLE
+                    | BidiClass::LRO
+                    | BidiClass::RLO
+                    | BidiClass::PDF
+            )
+        };
+        let mut start = 0;
+        while start < n {
+            let mut end = start + 1;
+            let mut level = levels.and_then(|l| (!removed(start)).then(|| l[start]));
+            while end < n {
+                if let Some(l) = levels.filter(|_| !removed(end)).map(|l| l[end]) {
+                    match level {
+                        Some(run) if run != l => break,
+                        _ => level = Some(l),
+                    }
+                }
+                end += 1;
+            }
+            join(&types[start..end], &mut forms[start..end]);
+            lam_alefs(&cps[start..end], &forms[start..end], |i, j, kind| {
+                let (lam, alef) = (start + i, start + j);
+                // A pair is two cells' letters, not a mark attached to one.
+                if self.owner[lam].lead == Lead::First && self.owner[alef].lead == Lead::First {
+                    pairs.push(Pair {
+                        lam: At(lam),
+                        alef: At(alef),
+                        kind,
+                    });
+                }
+            });
+            start = end;
+        }
+        let forms = forms
+            .iter()
+            .map(|f| {
+                f.filter(|&f| f != JoiningForm::Isolated)
+                    .map(|form| Joined { form, pair: None })
+            })
+            .collect();
+        JoinedText { forms, pairs }
+    }
+
+    /// Stores the joins of window row `y`, whose text is `line` of
+    /// `self.text`, each cell's at the visual column `to` maps its logical
+    /// column to, and each pair's part: a pair on this row with the cells
+    /// it spans as drawn, and a pair a soft wrap parts with the other
+    /// letter's cell, which `cell_of` reads with whether its row is drawn.
+    /// An alef whose lam is on a row of context, which is not drawn, keeps
+    /// its final form, so its letter is not lost with the ligature. A row
+    /// with none stores nothing.
+    fn store_joins(
+        &mut self,
+        y: Row,
+        line: &core::ops::Range<usize>,
+        joined: &JoinedText,
+        to: impl Fn(Col) -> Col,
+        cell_of: impl Fn(Owner) -> (PackedCell, Drawn),
+    ) {
+        let cols = self.orders.cols.index();
+        let mut row: Option<RowJoins> = None;
+        for t in line.clone() {
+            let (Some(j), Some(own)) = (joined.forms.get(t).copied().flatten(), self.owner.get(t))
+            else {
+                continue;
+            };
+            if own.lead != Lead::First {
+                continue;
+            }
+            let v = to(own.col).index();
+            let slots = row.get_or_insert_with(|| vec![None; cols]);
+            if let Some(slot) = slots.get_mut(v) {
+                *slot = Some(j);
+            }
+        }
+        if let Some(slots) = row.as_mut() {
+            for p in &joined.pairs {
+                let (lam, alef) = (self.owner[p.lam.0], self.owner[p.alef.0]);
+                let (lam_here, alef_here) = (line.contains(&p.lam.0), line.contains(&p.alef.0));
+                let mut set = |at: Col, part: PairPart| {
+                    if let Some(Some(j)) = slots.get_mut(to(at).index()) {
+                        j.pair = Some((part, p.kind));
+                    }
+                };
+                match (lam_here, alef_here) {
+                    (true, true) => {
+                        let (l, a) = (to(lam.col).index(), to(alef.col).index());
+                        let span = Cols::of_index(l.abs_diff(a) + 1);
+                        let (lam_end, alef_end) = match l < a {
+                            true => (PairEnd::Left, PairEnd::Right),
+                            false => (PairEnd::Right, PairEnd::Left),
+                        };
+                        set(lam.col, PairPart::Lam(span, lam_end));
+                        set(alef.col, PairPart::Alef(span, alef_end));
+                    }
+                    (true, false) => set(lam.col, PairPart::LamWrapped(cell_of(alef).0)),
+                    (false, true) => match cell_of(lam) {
+                        (cell, Drawn::Yes) => set(alef.col, PairPart::AlefWrapped(cell)),
+                        (_, Drawn::No) => {}
+                    },
+                    (false, false) => {}
+                }
+            }
+        }
+        if let Some(r) = row {
+            if let Some(slot) = self.orders.joins.get_mut(y.index()) {
+                *slot = Some(r);
+                self.orders.joined_any = Any::Yes;
+            }
+        }
+    }
+
+    /// **Row `r` joined in the order it is displayed**, with BDSM reset:
+    /// its cells read right to left are the logical order 9.2.2's rules,
+    /// stated in display order, are restated in, so a program that wrote
+    /// Arabic already reversed sees it joined. One row, one run.
+    fn join_displayed(&mut self, term: &Term<'_>, r: Row, cells: &[PackedCell]) {
+        self.text.clear();
+        self.owner.clear();
+        let end = row_end(cells).index();
+        for c in (0..end).rev() {
+            let cell = cells[c];
+            let at = |lead| Owner {
+                col: Col::at_index(c),
+                lead,
+                row: Row::ZERO,
+            };
+            if cell.content.is_wide_tail() {
+                continue;
+            }
+            if cell.content.is_empty() {
+                self.text.push(ERASED);
+                self.owner.push(at(Lead::First));
+                continue;
+            }
+            let base = term
+                .base_of(cell)
+                .drawn()
+                .as_codepoint()
+                .and_then(|c| char::from_u32(c.value()))
+                .unwrap_or('\u{FFFD}');
+            // Read right to left, a cell's attached codepoints come before
+            // its base: what follows the base in the cell is on its right.
+            if cell.flags.is_marked() {
+                let marks: Vec<char> = term
+                    .cluster_marks(cell)
+                    .filter_map(char::from_u32)
+                    .collect();
+                for &m in marks.iter().rev() {
+                    self.text.push(m);
+                    self.owner.push(at(Lead::Attached));
+                }
+            }
+            self.text.push(base);
+            self.owner.push(at(Lead::First));
+        }
+        let joined = self.join_text(None);
+        let line = 0..self.text.len();
+        let cell_of = |o: Owner| {
+            let cell = cells.get(o.col.index()).copied();
+            (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
+        };
+        self.store_joins(r, &line, &joined, |c| c, cell_of);
+    }
+}
+
+/// A position in the paragraph text last gathered (`Reorder::text`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct At(usize);
+
+/// A lam-alef pair the rules formed: the text positions of its lam and its
+/// alef, and the ligature's form.
+#[derive(Clone, Copy, Debug)]
+struct Pair {
+    lam: At,
+    alef: At,
+    kind: LamAlef,
+}
+
+/// Whether a paragraph row is drawn in the window, or read only as context.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Drawn {
+    Yes,
+    No,
+}
+
+/// A paragraph's text joined: each position's form, and the pairs.
+struct JoinedText {
+    forms: Vec<Option<Joined>>,
+    pairs: Vec<Pair>,
+}
+
+/// Whether a paragraph is resolved for its order and joined, or, holding no
+/// character that reorders, only joined.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Resolves {
+    Levels,
+    JoinOnly,
 }
 
 /// What L4 draws for a cell resolved right to left.
@@ -861,20 +1411,67 @@ fn chars_of(term: &Term<'_>, cells: &[PackedCell]) -> Chars {
     )
 }
 
-/// Whether a row holds a character that can make its paragraph reorder:
-/// one test of each cell's word, and a cluster's codepoints read only for
-/// a cell that holds one.
-fn row_opens(term: &Term<'_>, cells: &[PackedCell]) -> bool {
-    // A pass with no early exit and one load a cell from the compiled
-    // block table: a row none of whose characters is in a block that
-    // holds a right-to-left one, and which holds no cluster, holds nothing
-    // that can reorder -- a row of Latin or of Han alike.
-    let maybe = cells.iter().fold(false, |any, c| {
-        any | in_rtl_block(c.content.bits()) | c.flags.is_marked()
-    });
-    if !maybe {
-        return false;
+/// **What a row holds that its layout reads**: one pass with no early
+/// exit and one load a cell from [`baud_domain::LAYOUT_BLOCKS`], and only
+/// for a row it holds back -- one with a character in a block that holds a
+/// right-to-left character or a joining letter, or one with a cluster --
+/// each answer's test of its cells. A row of Latin, of Han or of box
+/// drawing holds nothing.
+fn row_holds(term: &Term<'_>, cells: &[PackedCell]) -> Holds {
+    if !may_hold(cells) {
+        return Holds::NOTHING;
     }
+    let yes = |b: bool| match b {
+        true => Opens::Yes,
+        false => Opens::No,
+    };
+    Holds {
+        opens: yes(opens_in(term, cells)),
+        joins: yes(joins_in(term, cells)),
+    }
+}
+
+/// Whether any of `cells` is in a block [`baud_domain::LAYOUT_BLOCKS`]
+/// sets or holds a cluster: the one pass, which lets most rows go.
+fn may_hold(cells: &[PackedCell]) -> bool {
+    cells.iter().fold(false, |any, c| {
+        any | in_layout_block(c.content.bits()) | c.flags.is_marked()
+    })
+}
+
+/// **Whether a row holds a letter that takes a joining form**: the one
+/// pass of [`may_hold`], then a test of each cell, a cluster's base read
+/// for a cell that holds one -- the joining form is the base's.
+fn row_joins(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+    may_hold(cells) && joins_in(term, cells)
+}
+
+/// Whether one of `cells` takes a joining form.
+fn joins_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+    cells.iter().any(|c| {
+        let w = c.content.bits();
+        if w <= 0x10_FFFF {
+            takes_form(w)
+        } else if c.flags.is_marked() {
+            term.base_of(*c)
+                .drawn()
+                .as_codepoint()
+                .is_some_and(|b| takes_form(b.value()))
+        } else {
+            false
+        }
+    })
+}
+
+/// Whether a row holds a character that can make its paragraph reorder:
+/// the one pass of [`may_hold`], then a test of each cell's word, and a
+/// cluster's codepoints read only for a cell that holds one.
+fn row_opens(term: &Term<'_>, cells: &[PackedCell]) -> bool {
+    may_hold(cells) && opens_in(term, cells)
+}
+
+/// Whether one of `cells` can make its paragraph reorder.
+fn opens_in(term: &Term<'_>, cells: &[PackedCell]) -> bool {
     cells.iter().any(|c| {
         let w = c.content.bits();
         if w <= 0x10_FFFF {

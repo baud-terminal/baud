@@ -21,8 +21,11 @@
 //! reading the live grid, it must not feed while a frame is in flight,
 //! which is the freeze research decision D4 removed from the app. The
 //! `copied` arm reads a copy of the window instead, and the `app` arm is
-//! the frame loop the app runs since D4: the copy into a set of its own,
-//! the presenter's wheel and surfaces, feeding while a frame is in flight.
+//! the frame loop the app runs since D4: the window laid out in the order
+//! UAX #9 gives each row, the copy into a set of its own, the presenter's
+//! wheel and surfaces, feeding while a frame is in flight.
+//! `FRAME_BIDI=explicit` resets BDSM before the app arm's recording, as
+//! `frame`'s does.
 //! The arms run interleaved per round, a fresh renderer per arm per round,
 //! and every round is printed so the reader discards the first. The
 //! `cells` arm prints as `waited`, because that is what it is: the cell
@@ -75,7 +78,7 @@ fn main() {
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx, Wheel};
     use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-    use baud_present_macos::screens::{Built, Screens};
+    use baud_present_macos::screens::{Built, Compare, Screens};
     use baud_present_macos::{
         CellInput, Done, Drawn, Gpu, InFlight, Landing, Presenter, SurfaceHandle, SurfaceSpace,
         Wake,
@@ -531,6 +534,13 @@ fn main() {
                 let (_alternate, alt) = g.grid(prows, stride).expect("a shared alternate");
                 let mut owned = Owned::without_surfaces(&prov, &geom, Depth::DEFAULT);
                 let mut t = Term::new(owned.storage_over(cells, alt), &ws);
+                // `FRAME_BIDI=explicit` resets BDSM before the recording, as
+                // `frame`'s does.
+                if std::env::var("FRAME_BIDI").as_deref() == Ok("explicit") {
+                    let bdsm = b"\x1b[8l";
+                    t.write_at(BytePos::ZERO, bdsm);
+                    t.feed(BytePos::ZERO, ReadLen::from_index(bdsm.len()));
+                }
                 let (styles, mut styles_mem): (Vec<_>, Vec<_>) = (0..Wheel::SETS)
                     .map(|_| g.styles(&t).expect("shared styles"))
                     .unzip();
@@ -585,11 +595,16 @@ fn main() {
                     dirty = false;
                     let si = set.0;
                     r.sync_styles(&t, &mut styles_mem[si][..], &mut stamps[si]);
+                    // The window laid out in the order each row is drawn
+                    // in, once a frame, as the app lays it out.
+                    let joins_seen = r.joins_seen();
+                    let rejoin = r.lay_out_bidi_copied(&t, Rows::ZERO);
                     let view = t.viewport();
                     let status = t.status_line();
                     let lined = usize::from(status.is_some());
                     let held = screens.holds(set);
                     let tc = Instant::now();
+                    screens.compare = Compare::for_rejoin(rejoin);
                     let built = screens.take(
                         &mut m.copies_mem,
                         set,
@@ -599,6 +614,11 @@ fn main() {
                         Leaving::None,
                     );
                     let dc = tc.elapsed();
+                    // The kept joins found again where that compare found
+                    // a row changed, as the app finds them.
+                    if let Some(how) = rejoin {
+                        r.rejoin_bidi(&t, Rows::ZERO, how, |row| screens.changed(row));
+                    }
                     let key = WalkKey {
                         table: stamps[si],
                         map: map.generation(),
@@ -616,6 +636,9 @@ fn main() {
                             ..key
                         });
                     }
+                    // And again once the walk shaped the first letter that
+                    // takes a joining form with BDSM reset, as the app does.
+                    r.join_after_walk(&t, Rows::ZERO, joins_seen);
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())

@@ -37,7 +37,7 @@ use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer, SurfaceSpace,
     journal::{Reshape, Wheel},
-    screens::{Built, Screens},
+    screens::{Built, Compare, Screens},
 };
 use baud_render::Place;
 use baud_render::{
@@ -1935,8 +1935,11 @@ impl App {
                 let back = self.term.window_back();
                 // The window in the order each row is drawn in, laid out once
                 // for this frame: the core's own view when no row is
-                // reordered.
-                self.renderer.lay_out_bidi(&self.term, back);
+                // reordered. With BDSM reset, once a letter that takes a
+                // joining form has been drawn, the last frame's joins are
+                // kept for the rows the copy's compare finds changed.
+                let joins_seen = self.renderer.joins_seen();
+                let rejoin = self.renderer.lay_out_bidi_copied(&self.term, back);
                 let view = self.renderer.bidi().window(
                     &self.term,
                     back,
@@ -2018,6 +2021,7 @@ impl App {
                 let status = self.term.status_line();
                 let lined = usize::from(status.is_some());
                 let screens = &mut cell.screens;
+                screens.compare = Compare::for_rejoin(rejoin);
                 let built = screens.take(
                     &mut cell.copies_mem,
                     at,
@@ -2026,6 +2030,12 @@ impl App {
                     self.term.stride(),
                     leaving,
                 );
+                // The kept joins found again on the rows that compare found
+                // changed, before the walk and the records read the forms.
+                if let Some(how) = rejoin {
+                    self.renderer
+                        .rejoin_bidi(&self.term, back, how, |r| screens.changed(r));
+                }
                 let key = WalkKey {
                     table: cell.style_stamps[set],
                     map: cell.maps.live.generation(),
@@ -2049,6 +2059,11 @@ impl App {
                         ..key
                     });
                 }
+                // **The first letter that takes a joining form**, shaped by
+                // the walk with BDSM reset, was laid out unjoined, since no
+                // row is read for joins before one is drawn: laid out again,
+                // before the records draw the forms. Once a renderer's life.
+                self.renderer.join_after_walk(&self.term, back, joins_seen);
                 let cursor = cursor_at.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
                 // **The config's notice row, after the status line's**:
                 // blank cells, whose default background the shader draws,

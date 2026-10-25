@@ -22,7 +22,7 @@ use baud_domain::{
 use baud_font::{Face, Px};
 use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-use baud_present_macos::screens::Screens;
+use baud_present_macos::screens::{Compare, Screens};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
@@ -240,7 +240,8 @@ impl Arms<'_, '_> {
         // The window in the order each row is drawn in, laid out for this
         // frame as the app lays it out: the core's own view when no row is
         // reordered.
-        self.renderer.lay_out_bidi(t, self.back);
+        let joins_seen = self.renderer.joins_seen();
+        let rejoin = self.renderer.lay_out_bidi_copied(t, self.back);
         let view =
             self.renderer
                 .bidi()
@@ -266,6 +267,27 @@ impl Arms<'_, '_> {
         // reads each cell's face style from the synced table.
         self.renderer
             .sync_styles(t, self.styles_mem, &mut self.stamp);
+        // Whether this frame's screen is the last's, as the app decides it:
+        // the window as drawn, its status line and line renditions.
+        self.screens.compare = Compare::for_rejoin(rejoin);
+        self.screens.take(
+            &mut [&mut self.screen[..]],
+            SetIx(0),
+            &view,
+            t.status_line().as_ref(),
+            t.stride(),
+            match self.slide {
+                Some(_) => baud_render::Leaving::Drawn,
+                None => baud_render::Leaving::None,
+            },
+        );
+        // The kept joins found again where that compare found a row changed,
+        // before the walk and the records, as the app finds them.
+        if let Some(how) = rejoin {
+            let screens = &self.screens;
+            self.renderer
+                .rejoin_bidi(t, self.back, how, |r| screens.changed(r));
+        }
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
@@ -287,6 +309,9 @@ impl Arms<'_, '_> {
             &mut self.renderer,
             &mut self.candidates,
         );
+        // Laid out again once the walk shaped the renderer's first letter
+        // that takes a joining form with BDSM reset, as the app does.
+        self.renderer.join_after_walk(t, self.back, joins_seen);
         let cursor = shown.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         self.exceptions.ensure(
             &Scene {
@@ -409,19 +434,6 @@ impl Arms<'_, '_> {
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
         self.chrome = Tally::of(self.records.len() - chrome_from);
-        // Whether this frame's screen is the last's, as the app decides it:
-        // the window as drawn, its status line and line renditions.
-        self.screens.take(
-            &mut [&mut self.screen[..]],
-            SetIx(0),
-            &view,
-            t.status_line().as_ref(),
-            t.stride(),
-            match self.slide {
-                Some(_) => baud_render::Leaving::Drawn,
-                None => baud_render::Leaving::None,
-            },
-        );
         let (grid, rotation, ring) = match self.reads {
             Reads::Copy => {
                 let ring = copy_window(t, self.back, self.slide, &self.renderer, self.copy_mem);
@@ -10329,4 +10341,447 @@ fn the_cursor_on_a_right_to_left_row_is_drawn_in_its_shape_on_every_arm() {
             }
         }
     }
+}
+
+/// **Arabic letters are drawn joined, alike on every arm**
+/// (`[[source: unicode-ch9]]` 9.2.2: "a display process must select an
+/// appropriate glyph to depict each Arabic letter according to its
+/// immediate joining context"), on Courier New, the face macOS gives
+/// Arabic beside JetBrains Mono, whose `GSUB` forms are the glyphs its
+/// `cmap` maps the presentation forms to (`baud-font/tests/arabic.rs`
+/// asserts it glyph for glyph).
+///
+/// So the expected frame is the presentation forms written in their visual
+/// order with BDSM reset, which the paths draw as they drew any character
+/// before joining existed: each word with BDSM set, in its logical order,
+/// must draw exactly that on the instance arm, the cell arm and the CPU
+/// arm. A row whose first strong letter is Arabic runs right to left
+/// against the right edge (UAX #9 P2-P3), so each word written from column
+/// 3 is drawn ending two cells from the right edge, and the expected
+/// frame writes it there. The words hold a dual-joining run, a right-joining letter that
+/// breaks it, a letter carrying a fatha, which the cell arm draws by a
+/// record, and a beh made initial by a ZWJ after it. With BDSM reset a word
+/// already written in its visual order is joined as it is displayed (Jev's
+/// lean DISPLAY_ORDER_JOINING) and draws the same. A lam-alef pair draws
+/// the ligature centred over its two cells, alike on every arm.
+#[test]
+fn arabic_letters_draw_joined_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&courier).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // Each word as stored, and its presentation forms in the order drawn,
+    // left to right: "bayt" (teh final, yeh medial, beh initial);
+    // "muhammad"; "marhaba", whose reh joins only the meem before it, so
+    // the hah after it starts again; beh-fatha-beh; beh with ZWJ, alone and
+    // initial.
+    let rows: [(&str, &str); 5] = [
+        ("\u{0628}\u{064A}\u{062A}", "\u{FE96}\u{FEF4}\u{FE91}"),
+        (
+            "\u{0645}\u{062D}\u{0645}\u{062F}",
+            "\u{FEAA}\u{FEE4}\u{FEA4}\u{FEE3}",
+        ),
+        (
+            "\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}",
+            "\u{FE8E}\u{FE92}\u{FEA3}\u{FEAE}\u{FEE3}",
+        ),
+        ("\u{0628}\u{064E}\u{0628}", "\u{FE90}\u{FE91}\u{064E}"),
+        ("\u{0628}\u{200D}", "\u{FE91}"),
+    ];
+    // The cells a word takes: a fatha and a ZWJ ride on the cell before.
+    let cells = |w: &str| {
+        w.chars()
+            .filter(|&c| c != '\u{064E}' && c != '\u{200D}')
+            .count()
+    };
+    // Column 3 with BDSM set, where its paragraph is laid out from; with it
+    // reset, the column the word is drawn from with it set: its last cell
+    // two from the right edge, as columns 1 and 2 are drawn there.
+    let cols = usize::from(WS.ws_col);
+    let scene = |t: &mut Term<'_>, implicit: bool, pick: &dyn Fn(&(&str, &str)) -> String| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+        feed(t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
+        for (i, row) in rows.iter().enumerate() {
+            let word = pick(row);
+            let at = match implicit {
+                true => 3,
+                false => cols - 1 - cells(&word),
+            };
+            feed(t, format!("\x1b[{};{at}H{word}", i + 2).as_bytes());
+        }
+        feed(
+            t,
+            "\x1b[9;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+    };
+    // Each word as an application writes it in its visual order: the
+    // stored letters reversed, a cell's marks kept on it. The ZWJ word is
+    // written in its forms: in display order a ZWJ stored after a letter
+    // is on its right, which makes it final.
+    let displayed = |r: &(&str, &str)| {
+        if r.0.contains('\u{200D}') {
+            return r.1.to_string();
+        }
+        let mut cells: Vec<String> = Vec::new();
+        for c in r.0.chars() {
+            match c {
+                '\u{064E}' | '\u{200D}' => cells.last_mut().unwrap().push(c),
+                c => cells.push(c.to_string()),
+            }
+        }
+        cells.reverse();
+        cells.concat()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    {
+        arms!(fresh() => arms, t);
+        scene(&mut t, true, &|r| r.0.to_string());
+        let got = three(&mut arms, &mut t, "joined");
+        scene(&mut t, false, &|r| r.1.to_string());
+        let want = three(&mut arms, &mut t, "the presentation forms");
+        assert_eq!(differing(&got, &want), 0, "the joined forms drawn");
+        // With BDSM reset, a word an application wrote in its visual order
+        // is joined as displayed: the stored letters reversed draw it too.
+        scene(&mut t, false, &displayed);
+        let displayed = three(&mut arms, &mut t, "joined as displayed");
+        assert_eq!(differing(&displayed, &want), 0, "joined in display order");
+        // The control: the letters drawn alone are not the forms.
+        scene(&mut t, false, &|r| r.0.chars().rev().collect());
+        let _ = three(&mut arms, &mut t, "explicit, logical");
+        feed(&mut t, b"\x1b[2J");
+        for (i, (word, _)) in rows.iter().enumerate() {
+            let alone: String = word
+                .chars()
+                .filter(|&c| c != '\u{064E}' && c != '\u{200D}')
+                .flat_map(|c| [c, ' '])
+                .collect();
+            let at = cols - 1 - cells(&alone);
+            feed(&mut t, format!("\x1b[{};{at}H{alone}", i + 2).as_bytes());
+        }
+        let apart = three(&mut arms, &mut t, "letters apart");
+        assert!(
+            differing(&apart, &want) > 0,
+            "the control: a letter alone is not its form"
+        );
+    }
+    // **The first joining letter a renderer draws, with BDSM reset**: no
+    // row is read for joins before one is drawn, so the frame that draws
+    // the first lays out again -- the cell arm after its walk, as the app
+    // does, the CPU arm by converting again -- and draws it joined. Each
+    // arm first, on a renderer that has drawn only the presentation forms,
+    // which take no form.
+    for first in ["cell", "cpu"] {
+        arms!(fresh() => arms, t);
+        arms.reads = Reads::Copy;
+        let draw = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| match first {
+            // The cell arm, drawn before the instance arm converts.
+            "cell" => arms.draw(t).1,
+            _ => cpu_frame(arms, t),
+        };
+        scene(&mut t, false, &|r| r.1.to_string());
+        let want = draw(&mut arms, &mut t);
+        assert_eq!(
+            arms.renderer.joins_seen(),
+            baud_render::Joins::Unseen,
+            "{first}: the presentation forms take no form"
+        );
+        scene(&mut t, false, &displayed);
+        let got = draw(&mut arms, &mut t);
+        assert_eq!(
+            differing(&got, &want),
+            0,
+            "{first}: the first joining letters drawn are joined"
+        );
+    }
+    // **A lam-alef pair**: "salam" (seen, lam, alef, meem) alike on every
+    // arm, and "la" alone, whose ligature is the presentation form U+FEFB
+    // drawn half a cell right of where a one-cell character draws it:
+    // centred over the pair's two cells. Each paragraph is laid out
+    // against the right edge: "la" written from column 4 is drawn with its
+    // alef in column 116, where U+FEFB is written for the control.
+    {
+        arms!(fresh() => arms, t);
+        let ink = |arms: &Arms<'_, '_>, got: &[u32], blank: &[u32], row: usize| -> (usize, usize) {
+            let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+            let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+            let inked: Vec<usize> = (0..w)
+                .filter(|&x| (row * ch..(row + 1) * ch).any(|y| got[y * w + x] != blank[y * w + x]))
+                .collect();
+            (*inked.first().unwrap(), *inked.last().unwrap())
+        };
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            &mut t,
+            "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        let blank = three(&mut arms, &mut t, "no word");
+        feed(
+            &mut t,
+            "\x1b[2;3H\u{0633}\u{0644}\u{0627}\u{0645}".as_bytes(),
+        );
+        let _ = three(&mut arms, &mut t, "salam");
+        feed(
+            &mut t,
+            "\x1b[2;1H\x1b[K\x1b[2;4H\u{0644}\u{0627}".as_bytes(),
+        );
+        let pair = three(&mut arms, &mut t, "la");
+        feed(
+            &mut t,
+            "\x1b[2;1H\x1b[K\x1b[8l\x1b[2;116H\u{FEFB}".as_bytes(),
+        );
+        let one = three(&mut arms, &mut t, "U+FEFB in one cell");
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let (lo, hi) = ink(&arms, &pair, &blank, 1);
+        let (lo1, hi1) = ink(&arms, &one, &blank, 1);
+        let half = cw as f32 / 2.0;
+        for (a, b) in [(lo, lo1), (hi, hi1)] {
+            assert!(
+                ((a as f32 - b as f32) - half).abs() <= 1.0,
+                "the pair's ink {lo}..={hi} is U+FEFB's {lo1}..={hi1} moved half of {cw}"
+            );
+        }
+    }
+    // **A pair an erased cell or a soft wrap parts** forms the ligature too
+    // (L1: the erased cell is transparent; Jev ACROSS_WRAP). With an erased
+    // cell between them, "la" draws U+FEFB centred over the three cells,
+    // where a one-cell character draws it in the middle one (Jev
+    // LIGATED_CENTRED); with the lam at the margin and its alef wrapped,
+    // U+FEFB in the lam's cell and nothing in the alef's (Jev's lean
+    // LIGATED_LAM_ROW). The pair with a gap is drawn against the right
+    // edge, its middle cell column 116; the wrapped one's row starts with
+    // Latin and is drawn from the left.
+    {
+        arms!(fresh() => arms, t);
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let ink = |got: &[u32], blank: &[u32], row: usize| -> Option<(usize, usize)> {
+            let inked: Vec<usize> = (0..w)
+                .filter(|&x| (row * ch..(row + 1) * ch).any(|y| got[y * w + x] != blank[y * w + x]))
+                .collect();
+            Some((*inked.first()?, *inked.last()?))
+        };
+        let near = |what: &str, got: Option<(usize, usize)>, want: Option<(usize, usize)>| {
+            let (Some((lo, hi)), Some((lo1, hi1))) = (got, want) else {
+                panic!("{what}: ink {got:?} against {want:?}");
+            };
+            assert!(
+                lo.abs_diff(lo1) <= 1 && hi.abs_diff(hi1) <= 1,
+                "{what}: the pair's ink {lo}..={hi} is U+FEFB's {lo1}..={hi1}"
+            );
+        };
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            &mut t,
+            "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        let blank = three(&mut arms, &mut t, "no word");
+        feed(&mut t, "\x1b[2;4H\u{0644}\x1b[C\u{0627}".as_bytes());
+        let gap = three(&mut arms, &mut t, "la, an erased cell between");
+        feed(
+            &mut t,
+            "\x1b[2;1H\x1b[K\x1b[8l\x1b[2;116H\u{FEFB}".as_bytes(),
+        );
+        let middle = three(&mut arms, &mut t, "U+FEFB in the middle cell");
+        near(
+            "an erased cell between",
+            ink(&gap, &blank, 1),
+            ink(&middle, &blank, 1),
+        );
+        // The lam in the last column, the alef wrapped to the next row.
+        let xs = "x".repeat(usize::from(WS.ws_col) - 1);
+        feed(
+            &mut t,
+            format!("\x1b[2;1H\x1b[K\x1b[8h\x1b[2;1H{xs}").as_bytes(),
+        );
+        let lined = three(&mut arms, &mut t, "the row before the lam");
+        feed(&mut t, "\u{0644}\u{0627}".as_bytes());
+        let wrapped = three(&mut arms, &mut t, "la, a soft wrap between");
+        feed(
+            &mut t,
+            format!("\x1b[2;1H\x1b[K\x1b[3;1H\x1b[K\x1b[8l\x1b[2;1H{xs}\u{FEFB}").as_bytes(),
+        );
+        let lams = three(&mut arms, &mut t, "U+FEFB in the lam's cell");
+        // The lam's row is U+FEFB in the lam's cell, pixel for pixel.
+        let band = |f: &[u32]| f[ch * w..2 * ch * w].to_vec();
+        assert_eq!(
+            differing(&band(&wrapped), &band(&lams)),
+            0,
+            "a soft wrap between: the lam's row"
+        );
+        assert_eq!(
+            ink(&wrapped, &lined, 2),
+            None,
+            "the alef's cell draws nothing"
+        );
+    }
+    // **Two pairs side by side** -- lam, alef, lam, alef, as in "salalat"
+    // -- are two ligatures on every arm: each lam finds its own alef, not
+    // the alef of the pair beside it. With BDSM set the word is stored in
+    // logical order, from column 4, and drawn against the right edge; with
+    // it reset, in display order where that draws it, which draws the same.
+    {
+        arms!(fresh() => arms, t);
+        let mut frames = Vec::new();
+        for (bdsm, word, at) in [
+            ("\x1b[8h", "\u{0644}\u{0627}\u{0644}\u{0627}", 4),
+            ("\x1b[8l", "\u{0627}\u{0644}\u{0627}\u{0644}", 114),
+        ] {
+            feed(&mut t, format!("\x1b[?25l\x1b[2J\x1b[H{bdsm}").as_bytes());
+            feed(
+                &mut t,
+                "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+            );
+            feed(&mut t, format!("\x1b[2;{at}H{word}").as_bytes());
+            frames.push(three(&mut arms, &mut t, "two pairs side by side"));
+        }
+        assert_eq!(
+            differing(&frames[0], &frames[1]),
+            0,
+            "two pairs: logical order with BDSM set, display order reset"
+        );
+    }
+    // **After a word wraps on, the three arms agree**: the last beh of a
+    // row ends a word until a beh written on the next row, the row the word
+    // wraps to, makes it medial (Jev ACROSS_WRAP), and each arm drawn after
+    // the second write must be what a fresh renderer draws of the same
+    // screen. This block stays green with the renderer's repaint of a row
+    // whose forms moved taken out, so it does not hold that repaint;
+    // `a_moved_joining_form_repaints_its_row` does.
+    {
+        let row1 = format!("{}{}", "x".repeat(117), "\u{0628}\u{0628}\u{0628}");
+        let screen = |t: &mut Term<'_>| {
+            feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+            feed(
+                t,
+                "\x1b[4;3HThe quick brown fox jumps 0123456789".as_bytes(),
+            );
+            feed(t, format!("\x1b[1;1H{row1}").as_bytes());
+        };
+        arms!(fresh() => arms, t);
+        screen(&mut t);
+        let _ = three(&mut arms, &mut t, "a word at the margin");
+        // The cursor waits past the margin: the next beh wraps.
+        feed(&mut t, "\u{0628}".as_bytes());
+        let moved = three(&mut arms, &mut t, "the word wrapped on");
+        arms!(fresh() => fresh_arms, u);
+        screen(&mut u);
+        feed(&mut u, "\u{0628}".as_bytes());
+        let fresh_frame = three(&mut fresh_arms, &mut u, "drawn fresh");
+        assert_eq!(
+            differing(&moved, &fresh_frame),
+            0,
+            "the moved form is drawn"
+        );
+    }
+}
+
+/// **The cell path with BDSM reset finds a row's joins again only when the
+/// copy's compare finds the row changed** (`Screens::take`, research
+/// decision D4): once the renderer has shaped a letter that takes a joining
+/// form, a frame whose screen is the last's reads no row for its joins, a
+/// frame that changed one row tests that row alone, and the joins it keeps
+/// are always the ones a fresh layout finds. The frame is the app's own
+/// sequence, through the functions the app calls.
+#[test]
+fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let rows = u64::from(WS.ws_row);
+    let mut screens = Screens::new();
+    let mut copy = vec![PackedCell::EMPTY; t.stride().index() * (usize::from(WS.ws_row) + 2)];
+    let (mut cells, mut used) = (Vec::new(), Vec::new());
+    // One frame of the cell path as the app builds it, to the walk: what
+    // the layout read, and whether its joins are a fresh layout's.
+    let mut frame = |r: &mut Renderer<'_, '_>, t: &Term<'_>| {
+        let rejoin = r.lay_out_bidi_copied(t, Rows::ZERO);
+        let view = r.bidi().window(t, Rows::ZERO, &mut cells, &mut used);
+        screens.compare = Compare::for_rejoin(rejoin);
+        screens.take(
+            &mut [&mut copy[..]],
+            SetIx(0),
+            &view,
+            t.status_line().as_ref(),
+            t.stride(),
+            baud_render::Leaving::None,
+        );
+        if let Some(how) = rejoin {
+            r.rejoin_bidi(t, Rows::ZERO, how, |row| screens.changed(row));
+        }
+        let mut fresh = baud_render::Reorder::new();
+        fresh.lay_out(t, Rows::ZERO);
+        for y in 0..usize::from(WS.ws_row) {
+            let row = Row::from_index(y);
+            assert_eq!(
+                r.bidi().joins(row),
+                fresh.orders().joins(row),
+                "row {y}: the kept joins are not the screen's"
+            );
+        }
+        let w = r.bidi_work();
+        (w.compared.value(), w.tested.value())
+    };
+    feed(
+        &mut t,
+        "\x1b[?25l\x1b[8l\x1b[3;1H\u{0628}\u{0628}".as_bytes(),
+    );
+    r.convert(&t, Rows::ZERO, Damage::Full);
+    assert_eq!(r.joins_seen(), baud_render::Joins::Seen, "a beh was shaped");
+    assert_eq!(
+        frame(&mut r, &t),
+        (0, rows),
+        "after a conversion: every row"
+    );
+    assert_eq!(frame(&mut r, &t), (0, 0), "the same screen");
+    assert_eq!(frame(&mut r, &t), (0, 0), "and again");
+    feed(&mut t, b"\x1b[1;1Hj");
+    assert_eq!(frame(&mut r, &t), (0, 1), "one Latin row changed");
+    feed(&mut t, b"\x1b[3;1Hxx");
+    assert_eq!(frame(&mut r, &t), (0, 1), "the Arabic row made Latin");
+    feed(&mut t, "\x1b[5;1H\u{0628}\u{0628}\u{0628}".as_bytes());
+    assert_eq!(frame(&mut r, &t), (0, 1), "a Latin row made Arabic");
+    assert!(
+        r.bidi().joins(Row::from_index(4)).is_some(),
+        "its behs joined"
+    );
+    assert_eq!(frame(&mut r, &t), (0, 0), "the same screen, a row joined");
+    r.convert(&t, Rows::ZERO, Damage::Incremental);
+    assert_eq!(frame(&mut r, &t), (0, rows), "after a conversion again");
+    assert_eq!(frame(&mut r, &t), (0, 0), "and the same screen");
 }

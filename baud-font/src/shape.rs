@@ -25,11 +25,12 @@
 //! cluster's advance to its cell span -- is the renderer's to apply, since
 //! only it knows the cell size.
 
-use crate::buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
+use crate::buffer::{Attached, Buffer, Cluster, Forms, Glyph, Ignorable, Mark, Positioned};
 use crate::bytes::Count;
 use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
 use crate::face::Face;
+use crate::forms::{lam_alef_form, presentation_form};
 use crate::glyf::VarPoint;
 use crate::gpos::Gpos;
 use crate::layout::{Digest, Features};
@@ -37,7 +38,7 @@ use crate::morx::Whole;
 use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
 use crate::script::{Direction, RunText, Script};
-use baud_domain::{Codepoint, GlyphId};
+use baud_domain::{Codepoint, GlyphId, JoiningForm, LamAlef, takes_form};
 
 /// Hangul syllables compose by arithmetic
 /// (`[[source: unicode-ch3]]` 3.12).
@@ -859,6 +860,10 @@ pub struct Shaper<'f, 'a, 'b> {
     /// What the run's characters say about its direction, which `morx`
     /// reads; noted only on a face that shapes through `morx`.
     run: RunText,
+    /// Each cell's joining form, from the first glyph pushed with one: a
+    /// run with none is substituted as it was before forms existed, and
+    /// asks nothing.
+    forms: Option<Forms>,
 }
 
 impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
@@ -872,6 +877,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             ink_refused: Count::ZERO,
             ink_need: Count::ZERO,
             run: RunText::EMPTY,
+            forms: None,
         }
     }
 
@@ -920,8 +926,52 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// `cell`, mapping the sequence [`Normalised::of`] makes of it. `None`
     /// when the storage is full, leaving the buffer as it was before the
     /// call; the run's direction has still noted the refused cluster's
-    /// characters.
+    /// characters. A base that takes a joining form and is given none is
+    /// drawn in its non-joining form, Xn (`[[source: unicode-ch9]]` 9.2.2,
+    /// R7): the form of a letter with nothing to join.
     pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
+        self.push(cps, cell, None)
+    }
+
+    /// [`Shaper::push_cluster`] for a cluster whose base the caller has
+    /// joined: drawn in `form`, which rules R1-R7 gave it in its context
+    /// ([`baud_domain::join`]). A base that takes no form ignores it.
+    ///
+    /// **Through the face's own forms where it has them**, the `GSUB`
+    /// feature of that name under the base's script, applied to this glyph
+    /// alone; **else through the presentation form**, the character
+    /// UnicodeData.txt decomposes to the letter in that form, where the
+    /// face's `cmap` maps it -- the face that names none of the four, or
+    /// that shapes through `morx` or neither table. HarfBuzz falls back
+    /// the same way for a face with none of the four
+    /// (`arabic_fallback_shape()`, read as reference); a `morx` face joins
+    /// through its own chains in HarfBuzz, which need the run's other
+    /// letters, and is drawn here through the presentation forms its `cmap`
+    /// maps.
+    pub fn push_joined(
+        &mut self,
+        cps: &[Codepoint],
+        cell: Cluster,
+        form: JoiningForm,
+    ) -> Option<()> {
+        self.push(cps, cell, Some(form))
+    }
+
+    /// Whether a cluster pushed so far has a base that takes a joining form
+    /// (Joining_Type D, R or L): what a caller shapes the run's joining
+    /// features for, and the run is substituted with them.
+    pub fn joins(&self) -> bool {
+        self.forms.is_some()
+    }
+
+    /// Whether this face draws a letter of `script`'s joining forms through
+    /// its own `GSUB` features.
+    fn draws_forms(&self, script: Script) -> bool {
+        Substitution::of(self.face) == Substitution::Gsub
+            && self.face.gsub().is_some_and(|g| g.draws_forms(script))
+    }
+
+    fn push(&mut self, cps: &[Codepoint], cell: Cluster, given: Option<JoiningForm>) -> Option<()> {
         if shapes_through_morx(self.face) {
             for &c in cps {
                 self.run.push(c);
@@ -943,11 +993,27 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                     id = g;
                 }
             }
+            // The base's joining form: given, or Xn for a letter that takes
+            // one; drawn by the face's `GSUB` forms, else by its
+            // presentation-form glyph.
+            let mut form = None;
+            if i == 0 && takes_form(c.value()) {
+                let f = given.unwrap_or(JoiningForm::Isolated);
+                form = Some(f);
+                if !self.draws_forms(Script::of(c)) {
+                    if let Some(g) = presentation_form(c, f).and_then(|p| self.face.glyph(p)) {
+                        id = g;
+                    }
+                }
+            }
             let mut glyph = if i == 0 {
                 Glyph::new(id, cell, ignorable)
             } else {
                 Glyph::new(id, cell, ignorable).attached()
             };
+            if let Some(f) = form {
+                self.forms.get_or_insert(Forms::NONE).set(cell, f);
+            }
             glyph.ccc = combining_class(c);
             // A face with `GDEF` classes names its marks; without them
             // HarfBuzz synthesises the class from Unicode, and so does
@@ -974,6 +1040,61 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             i += 1;
         }
         Some(())
+    }
+
+    /// **The obligatory lam-alef ligature through the presentation forms**,
+    /// for a face that draws its forms that way: a lam's initial or medial
+    /// presentation glyph followed, past any mark, by an alef's final one
+    /// becomes the ligature's presentation glyph, U+FEF5..U+FEFC, where the
+    /// face's `cmap` maps it (`[[source: unicode-ch9]]` 9.2.3, L1-L3). The
+    /// ligature keeps the lam's cell and spans to the alef's.
+    fn presentation_lam_alef(&mut self) {
+        let lam = Codepoint::from_char('\u{0644}');
+        let glyph = |c: Option<Codepoint>| c.and_then(|c| self.face.glyph(c));
+        let mut at = crate::bytes::Index::ZERO;
+        while let Some(g) = self.buf.get(at) {
+            let form = self.forms.as_ref().and_then(|f| f.of(&g));
+            let kind = match form {
+                Some(JoiningForm::Initial) => LamAlef::Nominal,
+                Some(JoiningForm::Medial) => LamAlef::Joined,
+                _ => {
+                    at = at.next();
+                    continue;
+                }
+            };
+            let lam_glyph = glyph(form.and_then(|f| presentation_form(lam, f)));
+            if lam_glyph != Some(g.id) {
+                at = at.next();
+                continue;
+            }
+            // The next glyph that is not a mark (L1).
+            let mut next = at.next();
+            while self.buf.get(next).is_some_and(|n| n.mark == Mark::Yes) {
+                next = next.next();
+            }
+            let Some(n) = self.buf.get(next) else {
+                break;
+            };
+            let ligature = crate::presentation::LAM_ALEF
+                .iter()
+                .find_map(|&(alef, _, _)| {
+                    let alef = Codepoint::new(alef)?;
+                    let final_glyph = glyph(presentation_form(alef, JoiningForm::Final));
+                    (self.forms.as_ref().and_then(|f| f.of(&n)) == Some(JoiningForm::Final)
+                        && final_glyph == Some(n.id))
+                    .then(|| glyph(lam_alef_form(alef, kind)))
+                    .flatten()
+                });
+            if let Some(id) = ligature {
+                if let Some(first) = self.buf.get_mut(at) {
+                    first.id = id;
+                    first.last = n.last;
+                    first.class = self.face.gdef().class(id);
+                }
+                self.buf.remove(next);
+            }
+            at = at.next();
+        }
     }
 
     /// Every glyph's `dx` becomes its pen position within its cluster, from
@@ -1081,9 +1202,21 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 self.buf.retag(&self.face.gdef());
                 declined
             }
-            (Some(gsub), _) => gsub.apply_with(&mut self.buf, script, features, self.digests),
+            (Some(gsub), _) => match &self.forms {
+                Some(forms) => {
+                    gsub.apply_joined(&mut self.buf, script, features, self.digests, forms)
+                }
+                None => gsub.apply_with(&mut self.buf, script, features, self.digests),
+            },
             (None, _) => Count::ZERO,
         };
+        // A run with no joining letter never asks.
+        if features.joining == crate::layout::Enabled::On
+            && self.forms.is_some()
+            && !self.draws_forms(script)
+        {
+            self.presentation_lam_alef();
+        }
         let gpos = match MarkPlacement::of(self.face, script) {
             MarkPlacement::Gpos => self.face.gpos(),
             MarkPlacement::Fallback => None,

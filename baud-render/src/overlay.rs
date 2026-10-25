@@ -122,9 +122,14 @@ pub struct Scene<'s, 't> {
     pub composition: Option<&'s Composition>,
 }
 
+use crate::renderer::PairGlyphs;
+
 /// The cluster map and the walk that fills the overlay from it.
 pub struct Overlay {
     clusters: HashMap<ClusterKey, Vec<ClusterGlyph>>,
+    /// A lam-alef pair's content to the glyphs its lam's cell and its
+    /// alef's cell draw, or `None` where the two take different faces.
+    pairs: HashMap<ClusterKey, Option<PairGlyphs>>,
     /// A window's content to what each of its cells draws: `None` where
     /// the map already draws it, the glyphs where it does not.
     windows: HashMap<ClusterKey, Vec<Option<Vec<ClusterGlyph>>>>,
@@ -318,6 +323,23 @@ impl ClusterKey {
         ClusterKey(h)
     }
 
+    /// A joining form: a cell drawn in one is a different cluster from the
+    /// same codepoints drawn alone.
+    fn joined(self, form: baud_domain::JoiningForm) -> ClusterKey {
+        let code: u64 = match form {
+            baud_domain::JoiningForm::Isolated => 0xf0,
+            baud_domain::JoiningForm::Final => 0xf1,
+            baud_domain::JoiningForm::Initial => 0xf2,
+            baud_domain::JoiningForm::Medial => 0xf3,
+        };
+        ClusterKey((self.0 ^ code).wrapping_mul(ClusterKey::PRIME))
+    }
+
+    /// A lam-alef pair, its lam in `form`: two cells drawn together.
+    fn paired(self, form: baud_domain::JoiningForm) -> ClusterKey {
+        ClusterKey((self.joined(form).0 ^ 0x08).wrapping_mul(ClusterKey::PRIME))
+    }
+
     /// A wide base is a different cluster from a narrow one with the
     /// same codepoints: one byte past any codepoint's.
     fn wide(self) -> ClusterKey {
@@ -341,6 +363,7 @@ impl Overlay {
     pub fn new() -> Overlay {
         Overlay {
             clusters: HashMap::new(),
+            pairs: HashMap::new(),
             windows: HashMap::new(),
             grown: Tally::default(),
             stats: OverlayStats::default(),
@@ -394,6 +417,7 @@ impl Overlay {
             if r.atlas_stats().grown.value() != self.grown.value() {
                 self.grown = r.atlas_stats().grown;
                 self.clusters.clear();
+                self.pairs.clear();
                 self.windows.clear();
             }
             self.walk(scene, r, mask, records, &pictures);
@@ -462,7 +486,7 @@ impl Overlay {
         // selection, kept by logical cells, are mapped through it. A copy,
         // so the walk may borrow the renderer mutably; none while no row
         // is reordered.
-        let orders = match r.bidi().any() {
+        let orders = match r.bidi().any() || r.bidi().any_joined() {
             true => r.bidi().clone(),
             false => crate::bidi::Orders::default(),
         };
@@ -621,6 +645,55 @@ impl Overlay {
             block_paint: r.block_paint(),
             orders: Some(&orders),
         };
+        // **The joined cells**, before the marked ones, so a letter that
+        // carries marks is drawn in its form too: each by a record of its
+        // form, a lam-alef pair as one (`bidi.rs`). A list of rows, so a
+        // screen with none pays one test.
+        if orders.any_joined() {
+            for y in 0..rows {
+                let row = Row::from_index(y);
+                if orders.joins(row).is_none() || view.rendition(row).is_double() {
+                    continue;
+                }
+                let mut x = 0;
+                while x < cols {
+                    let held = |x: usize| {
+                        mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0)
+                            || covered.holds(row, Col::at_index(x))
+                    };
+                    let Some(j) = orders.joined(row, Col::at_index(x)).filter(|_| !held(x)) else {
+                        x += 1;
+                        continue;
+                    };
+                    // A pair's partner on this row is masked when the pair
+                    // is drawn, and so passed over as held.
+                    let partner_held = match j.pair {
+                        Some((
+                            crate::bidi::PairPart::Lam(n, _) | crate::bidi::PairPart::Alef(n, _),
+                            _,
+                        )) => held(x + n.index().saturating_sub(1)),
+                        _ => false,
+                    };
+                    if j.pair.is_some()
+                        && self.pair(
+                            scene,
+                            r,
+                            (x, y),
+                            (&orders, partner_held),
+                            mask,
+                            records,
+                            &paint,
+                            &geom,
+                        )
+                    {
+                        x += 1;
+                        continue;
+                    }
+                    self.whole_joined(scene, r, (x, y), j.form, mask, records, &paint, &geom);
+                    x += 1;
+                }
+            }
+        }
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
@@ -858,6 +931,230 @@ impl Overlay {
         ));
     }
 
+    /// The cell at `at`, whose letter the layout joined, drawn by records in
+    /// `form`: [`Overlay::whole`]'s, through [`Renderer::cluster_joined`].
+    #[allow(clippy::too_many_arguments)]
+    fn whole_joined(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        at: (usize, usize),
+        form: baud_domain::JoiningForm,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let (x, y) = at;
+        let cell = scene.view.row(Row::from_index(y))[x];
+        let cps = crate::renderer::cell_cps(scene.term, cell);
+        if cps.is_empty() {
+            return;
+        }
+        let style = crate::cellmap::face_of(scene.styles, cell);
+        let mut key = ClusterKey::start().word(style.code());
+        for &c in &cps {
+            key = key.fold(c);
+        }
+        let key = key.joined(form);
+        let glyphs = match self.clusters.get(&key) {
+            Some(g) => g.clone(),
+            None => {
+                self.stats.misses.bump();
+                let g = r.cluster_joined(&cps, style, form);
+                self.clusters.insert(key, g.clone());
+                g
+            }
+        };
+        self.stats.cells.bump();
+        mask[y * geom.cols.index() + x] |= MASK_RECORD;
+        let (inside, above) = (records.len(), self.over.len());
+        Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
+        self.emitted.push(Emitted::of(
+            (Row::from_index(y), Col::at_index(x)),
+            records,
+            &self.over,
+            inside..records.len(),
+            above..self.over.len(),
+        ));
+    }
+
+    /// **The lam-alef pair one of whose cells is `at`**, the left one of a
+    /// pair on one row, drawn together by records through
+    /// [`Renderer::lam_alef`], its cells masked: over the cells from its lam
+    /// to its alef, or, for a pair a soft wrap parts, the ligature in the
+    /// lam's cell and nothing in the alef's. False, and nothing drawn, where
+    /// the two take different faces, the partner is not where the part
+    /// says or is held, or a face forms no ligature for a parted pair
+    /// ([`Renderer::wrapped_ligates`]).
+    #[allow(clippy::too_many_arguments)]
+    fn pair(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        at: (usize, usize),
+        (orders, partner_held): (&crate::bidi::Orders, bool),
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) -> bool {
+        use crate::bidi::{PairEnd, PairPart};
+        use crate::renderer::{LamAt, PairSpan};
+        let (x, y) = at;
+        let window_row = Row::from_index(y);
+        let row = scene.view.row(window_row);
+        let Some(j) = orders.joined(window_row, Col::at_index(x)) else {
+            return false;
+        };
+        let Some((part, kind)) = j.pair else {
+            return false;
+        };
+        let Some(&here) = row.get(x) else {
+            return false;
+        };
+        let stretch = crate::atlas::Stretch::One;
+        // The cells drawn, each with its glyphs, and the key and the
+        // arguments the glyphs are found by.
+        let (lam_x, alef_x, lam_form, lam_cell, alef_cell, span) = match part {
+            // The right end is drawn by the left one, which masks it: one
+            // reached here was not, and is drawn alone.
+            PairPart::Lam(_, PairEnd::Right) | PairPart::Alef(_, PairEnd::Right) => return false,
+            PairPart::Lam(cells, PairEnd::Left) | PairPart::Alef(cells, PairEnd::Left) => {
+                let o = x + cells.index().saturating_sub(1);
+                let partner = orders
+                    .joined(window_row, Col::at_index(o))
+                    .and_then(|p| p.pair);
+                let (Some(&there), false, true) = (row.get(o), partner_held, o > x) else {
+                    return false;
+                };
+                match (part, partner) {
+                    (PairPart::Lam(..), Some((PairPart::Alef(h, PairEnd::Right), _)))
+                        if h == cells =>
+                    {
+                        (
+                            x,
+                            o,
+                            j.form,
+                            here,
+                            there,
+                            PairSpan::Cells(LamAt::Left, cells),
+                        )
+                    }
+                    (PairPart::Alef(..), Some((PairPart::Lam(h, PairEnd::Right), _)))
+                        if h == cells =>
+                    {
+                        let lam_form = orders
+                            .joined(window_row, Col::at_index(o))
+                            .map_or(j.form, |l| l.form);
+                        (
+                            o,
+                            x,
+                            lam_form,
+                            there,
+                            here,
+                            PairSpan::Cells(LamAt::Right, cells),
+                        )
+                    }
+                    _ => return false,
+                }
+            }
+            PairPart::LamWrapped(alef) => {
+                let style = crate::cellmap::face_of(scene.styles, here);
+                if !r.wrapped_ligates(scene.term, (here, alef), kind, style, stretch) {
+                    return false;
+                }
+                (x, x, j.form, here, alef, PairSpan::LamCell)
+            }
+            PairPart::AlefWrapped(lam) => {
+                let style = crate::cellmap::face_of(scene.styles, lam);
+                if !r.wrapped_ligates(scene.term, (lam, here), kind, style, stretch) {
+                    return false;
+                }
+                // Its letter is in the lam's ligature, on the row before:
+                // the cell draws no glyph.
+                self.stats.cells.bump();
+                mask[y * geom.cols.index() + x] |= MASK_RECORD;
+                let (inside, above) = (records.len(), self.over.len());
+                self.emitted.push(Emitted::of(
+                    (window_row, Col::at_index(x)),
+                    records,
+                    &self.over,
+                    inside..records.len(),
+                    above..self.over.len(),
+                ));
+                return true;
+            }
+        };
+        let lam = crate::renderer::cell_cps(scene.term, lam_cell);
+        let alef = crate::renderer::cell_cps(scene.term, alef_cell);
+        let style = crate::cellmap::face_of(scene.styles, lam_cell);
+        let mut key = ClusterKey::start().word(style.code());
+        for &c in &lam {
+            key = key.fold(c);
+        }
+        key = key.next_cell();
+        for &c in &alef {
+            key = key.fold(c);
+        }
+        let key = match span {
+            PairSpan::Cells(LamAt::Right, _) => key.wide(),
+            _ => key,
+        }
+        .paired(lam_form);
+        // A span wider than the pair's two cells, or the lam's cell alone,
+        // places the same glyphs elsewhere: one word past any codepoint's.
+        let key = match span {
+            PairSpan::Cells(_, n) if n.index() == 2 => key,
+            PairSpan::Cells(_, n) => {
+                key.word(Code(0x8000_0000 | u32::try_from(n.index()).unwrap_or(0)))
+            }
+            PairSpan::LamCell => key.word(Code(0xC000_0000)),
+        };
+        let drawn = match self.pairs.get(&key) {
+            Some(d) => d.clone(),
+            None => {
+                self.stats.misses.bump();
+                let d = r.lam_alef((&lam, &alef), lam_form, style, span, stretch);
+                self.pairs.insert(key, d.clone());
+                d
+            }
+        };
+        let Some(g) = drawn else {
+            return false;
+        };
+        let cells: Vec<(usize, Vec<ClusterGlyph>, PackedCell)> = match span {
+            PairSpan::LamCell => {
+                let mut both = g.lams;
+                both.extend(g.alefs);
+                vec![(lam_x, both, lam_cell)]
+            }
+            PairSpan::Cells(..) => vec![(lam_x, g.lams, lam_cell), (alef_x, g.alefs, alef_cell)],
+        };
+        for (cx, glyphs, cell) in &cells {
+            self.stats.cells.bump();
+            mask[y * geom.cols.index() + cx] |= MASK_RECORD;
+            let (inside, above) = (records.len(), self.over.len());
+            Overlay::emit(
+                records,
+                &mut self.over,
+                (*cx, y),
+                glyphs,
+                *cell,
+                paint,
+                geom,
+            );
+            self.emitted.push(Emitted::of(
+                (window_row, Col::at_index(*cx)),
+                records,
+                &self.over,
+                inside..records.len(),
+                above..self.over.len(),
+            ));
+        }
+        true
+    }
+
     /// One window of a row: its cells' clusters gathered, cut where the
     /// face changes or a cell holds no codepoint, each piece shaped or
     /// found, and the cells whose glyphs are not the map's masked and
@@ -1024,6 +1321,11 @@ impl Overlay {
                         entry = None;
                     }
                 }
+            }
+            // A joined cell is drawn alone in its form, by the joined
+            // cells' pass, as the run path draws it.
+            if orders.any_joined() && orders.joined(y, Col::at_index(x)).is_some() {
+                entry = None;
             }
             let cut = match entry {
                 None => true,

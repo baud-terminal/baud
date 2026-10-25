@@ -71,7 +71,10 @@ pub use atlas::{
     Slot, Stretch, Tex, TexRect, VAR_POINTS_MAX,
 };
 pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
-pub use bidi::{CONTEXT, CursorSide, Orders, Reorder};
+pub use bidi::{
+    CONTEXT, Changes, CursorSide, Joined, Joins, Orders, PairEnd, PairPart, Rejoin, Reorder,
+    Work as BidiWork,
+};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{

@@ -20,17 +20,17 @@
 //! ligature inside a matched input sequence reports how many glyphs it
 //! took, and the positions after it move down by that many.
 
-use crate::buffer::{Buffer, Cluster};
+use crate::buffer::{Buffer, Cluster, Forms};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::context::{
     Applied, Depth, Matched, Nested, Which, bump, chained, coverage_at, match_input, same, seen,
 };
 use crate::layout::{
-    Class, ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, LookupSet,
-    MAX_LOOKUPS, ScriptTag, Skip,
+    Class, ClassDef, Coverage, Digest, Enabled, FeatureTag, Features, Filter, Gdef, Kind, Layout,
+    Lookup, LookupSet, MAX_LOOKUPS, Required, ScriptTag, Skip,
 };
 use crate::script::Script;
-use baud_domain::GlyphId;
+use baud_domain::{GlyphId, JoiningForm};
 
 /// Whether a lookup substituted anything, which is when the buffer's
 /// digest has to be taken again.
@@ -71,6 +71,20 @@ impl<'a> Gsub<'a> {
         self.layout.chosen(script)
     }
 
+    /// Whether the language system text in `script` selects names any of
+    /// the four joining forms, `isol`, `fina`, `medi` or `init`: whether the
+    /// face draws a joining letter's form itself.
+    pub fn draws_forms(&self, script: Script) -> bool {
+        [
+            FeatureTag::ISOL,
+            FeatureTag::FINA,
+            FeatureTag::MEDI,
+            FeatureTag::INIT,
+        ]
+        .into_iter()
+        .any(|t| self.layout.names(script, t))
+    }
+
     /// [`Gsub::apply`] with a digest per lookup, as [`Gsub::digests`]
     /// fills them: a lookup whose digest cannot meet the buffer's is not
     /// opened. An empty slice accelerates nothing, and a shorter one
@@ -82,7 +96,77 @@ impl<'a> Gsub<'a> {
         features: Features,
         digests: &[Digest],
     ) -> Count {
-        let set = self.layout.lookups_for(script, features);
+        let set = self.layout.lookups_for(script, features.without_joining());
+        self.apply_set::<false>(buf, &set, (JoiningForm::Isolated, &Forms::NONE), digests);
+        set.declined()
+    }
+
+    /// **A buffer holding a joining letter, in the Arabic shaping order**:
+    /// `ccmp` first, with the language system's required feature; then
+    /// `isol`, `fina`, `medi` and `init`, each a stage of its own and each
+    /// applied only to the glyphs given its form; then `rlig`; then the rest
+    /// of `features`. That is the order the OpenType Arabic model applies
+    /// its features in, and HarfBuzz's Arabic shaper's stages
+    /// (`collect_features()` in hb-ot-shaper-arabic.cc, read as reference):
+    /// a form's lookups never meet a glyph another stage has yet to give
+    /// its form. A form's lookup is tried only where its first input glyph
+    /// carries the form; the glyphs it reads around that are not filtered.
+    pub(crate) fn apply_joined(
+        &self,
+        buf: &mut Buffer<'_>,
+        script: Script,
+        features: Features,
+        digests: &[Digest],
+        forms: &Forms,
+    ) -> Count {
+        if features.joining == Enabled::Off {
+            return self.apply_with(buf, script, features, digests);
+        }
+        let mut declined = Count::ZERO;
+        let mut stage = |set: LookupSet, mask: Option<JoiningForm>, buf: &mut Buffer<'_>| {
+            match mask {
+                Some(form) => self.apply_set::<true>(buf, &set, (form, forms), digests),
+                None => self.apply_set::<false>(buf, &set, (JoiningForm::Isolated, forms), digests),
+            }
+            declined = Count::of(declined.value().saturating_add(set.declined().value()));
+        };
+        let ccmp = self.layout.lookups_where(script, Required::Added, |t| {
+            t == FeatureTag::CCMP && features.wants(t)
+        });
+        stage(ccmp, None, buf);
+        for form in [
+            JoiningForm::Isolated,
+            JoiningForm::Final,
+            JoiningForm::Medial,
+            JoiningForm::Initial,
+        ] {
+            let tag = FeatureTag::of_form(form);
+            let set = self
+                .layout
+                .lookups_where(script, Required::Left, |t| t == tag);
+            stage(set, Some(form), buf);
+        }
+        let rlig = self
+            .layout
+            .lookups_where(script, Required::Left, |t| t == FeatureTag::RLIG);
+        stage(rlig, None, buf);
+        let rest = self.layout.lookups_where(script, Required::Left, |t| {
+            t != FeatureTag::CCMP && !t.is_joining() && features.wants(t)
+        });
+        stage(rest, None, buf);
+        declined
+    }
+
+    /// Every lookup of `set`, in lookup order, over the whole buffer, or,
+    /// `MASKED`, over the glyphs carrying `mask`'s form: two copies of the
+    /// walk, so the test a glyph is never in the one every run takes.
+    fn apply_set<const MASKED: bool>(
+        &self,
+        buf: &mut Buffer<'_>,
+        set: &LookupSet,
+        mask: (JoiningForm, &Forms),
+        digests: &[Digest],
+    ) {
         let mut have = Gsub::buffer_digest(buf);
         for i in set.iter() {
             if let Some(d) = digests.get(i.slot()) {
@@ -91,14 +175,18 @@ impl<'a> Gsub<'a> {
                 }
             }
             if let Some(lookup) = self.layout.lookup(i) {
-                if self.apply_lookup(&lookup, buf, Depth::TOP, digests.get(i.slot()).copied())
-                    == Changed::Yes
+                if self.apply_lookup::<MASKED>(
+                    &lookup,
+                    buf,
+                    Depth::TOP,
+                    digests.get(i.slot()).copied(),
+                    mask,
+                ) == Changed::Yes
                 {
                     have = Gsub::buffer_digest(buf);
                 }
             }
         }
-        set.declined()
     }
 
     fn buffer_digest(buf: &Buffer<'_>) -> Digest {
@@ -483,18 +571,20 @@ impl<'a> Gsub<'a> {
     /// the glyph there, which is HarfBuzz's per-position test and what
     /// keeps a face with hundreds of contextual lookups from searching
     /// every subtable's coverage at every glyph.
-    fn apply_lookup(
+    fn apply_lookup<const MASKED: bool>(
         &self,
         lookup: &Lookup<'a>,
         buf: &mut Buffer<'_>,
         depth: Depth,
         digest: Option<Digest>,
+        (mask, forms): (JoiningForm, &Forms),
     ) -> Changed {
         let mut changed = Changed::No;
         let mut pos = Index::ZERO;
         while let Some(g) = buf.get(pos) {
             if seen(&lookup.filter, g) == Skip::Yes
                 || digest.is_some_and(|d| !d.may_have(Digest::of(g.id)))
+                || (MASKED && forms.of(&g) != Some(mask))
             {
                 pos = pos.next();
                 continue;

@@ -1,6 +1,6 @@
 # AB. Right-to-left text
 
-**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`), and since the owner's answer of 2026-10-24 BDSM is set at power-on (12.3). One of step 2's choices, the paragraph direction, is open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
+**Status: research, and step 2 built. The bidirectional algorithm, UAX #9 in `baud-domain`, is step 1; since 2026-10-24 BDSM's IMPLICIT state draws each line in its order on every draw path, with the cursor, the selection and the mouse following (step 2, section 12; `docs/bidi.md`), since step 3 Arabic letters join (section 13), and since the owner's answer of 2026-10-24 BDSM is set at power-on (12.3). One of step 2's choices, the paragraph direction, is open for the owner (12.3). Phase 0 of per-script shaping is (Q6's postscript), and section 11 records the four choices it left: Jev decided three, and the owner picked C2 for the fourth on 2026-10-13, built 2026-10-14 (11.4).** This note brings together five research reports and a critic's checks of them, all taken on 2026-10-06 and 2026-10-07. The five reports cover:
 
 - the specifications;
 - terminals that do bidi;
@@ -1607,3 +1607,77 @@ is drawn unmirrored and counted (12.1); vim-unicode, cat-cjk and less-cjk,
 three of the recordings the benches replay, hold Hebrew and Arabic, so
 their implicit frames lay real right-to-left rows out.
 
+## 13. Step 3: Arabic joining (2026-10-24)
+
+**13.1 What the texts left open, and who decided.** One letter a cell is
+given (widths come from East Asian Width and the general category). The
+four questions a fixed-cell grid leaves open went to Jev with renders drawn
+by baud's own CPU renderer on Courier New (`ab/joining/`), each option
+marked against chapter 9.2 (`[[source: unicode-ch9]]`), UAX #9 3.5
+(`[[source: uax9-bidi]]`), ECMA-48's SAPV and terminal-wg's basic modes.
+
+- Decided at 0.9 in both orders: an erased cell between letters is
+  transparent, the boundary neutral step 2 gives it (0.96/0.96, first ask).
+  On the one re-ask, with prior art and CSS Text 3's rule for a word an
+  unforced break splits ("must still be shaped ... as if the word were
+  still whole", `[[source: w3c-css-text-3]]`): the lam-alef ligature centred
+  over its two cells (0.55/0.68, then 0.96/0.97; no surveyed terminal draws
+  it so: VTE and Konsole drop it, FriBidi's console mode and ICU leave a
+  cell beside it), and joining across a soft wrap (0.06/0.04, then
+  0.96/0.90).
+- Asked after a review found it built without a decision: a lam and an
+  alef erased cells part form the ligature (L1: transparent characters "do
+  not affect the ligating behavior"), centred over the cells from one to
+  the other, decided at 0.91/0.93 on the first ask.
+- The leans taken (owner 2026-10-17, "try to minimize my calls if we have
+  good recommendations"): with BDSM reset, each row joined in the order it
+  is displayed, the order 9.2.2 states the rules in (0.24/0.16, then
+  0.66/0.58); and a lam and an alef a soft wrap parts drawn as the
+  ligature in the lam's cell, the alef's cell blank (0.19/0.15, then
+  0.84/0.80 with CSS Text 3's rule that a character unit an element
+  boundary divides "may be rendered as belonging to either side of the
+  boundary", and HarfBuzz giving the ligature the lam's cluster). terminal-wg's text says the emulator does not shape in
+  explicit mode; its author's issue #7 reverses that, and VTE shapes there.
+  Presentation forms are joining type U, so text a program shaped itself
+  is drawn as sent.
+
+**13.2 What was built.** Joining_Type and the LAM and ALEF joining groups
+compiled from ArabicShaping.txt into a two-stage trie, held to
+DerivedJoiningType.txt at every code point (`baud-domain/src/joining.rs`);
+R1-R7 and L1-L3 in logical order, found once a layout over each
+paragraph's text in level runs, or a displayed row reversed with BDSM
+reset (`baud-render/src/bidi.rs`); the forms applied by the face's `GSUB`
+`isol`, `fina`, `medi` and `init`, each stage only to the glyphs given its
+form, then `rlig`, in the Arabic shaping order, with the presentation forms
+of UnicodeData.txt as the fallback for a face with none of the four; GPOS
+mark-to-ligature (type 5) for a mark on the ligature. A joined cell is
+shaped alone and a lam-alef pair together, on all three paths, over the
+cells from lam to alef or, for a wrapped pair, in the lam's cell. Exact
+against hb-shape on 198 fixtures (`baud-font/tests/arabic.rs`), four
+departures listed there, none from the standard.
+
+**13.3 Found and not fixed.** Syriac's alaph forms (9.3) are not drawn; a
+face's contextual lookups across letters are not run; a `morx` face is
+drawn through its presentation forms, which differ from Geeza Pro's own
+chains for a final farsi yeh and for its Allah ligature without shadda; SF
+Arabic draws through a `rclt` the grid leaves off and a multiple
+substitution baud does not implement, and is not among the fixtures; Mongolian and Phags-pa with BDSM reset are read right to left as Arabic is,
+so their forms come out mirrored.
+
+**13.4 What a screen with no joining letter pays.** Built first, joining
+cost the `frame` bench 0.14% to 0.28% more instructions on recordings with
+no Arabic: a second test of every changed row, a compare of every row with
+BDSM reset, the joining features on every run and the joins' bookkeeping
+every frame. Now the test is the step-2 pass itself, loading a table of the
+right-to-left blocks and the joining blocks together; with BDSM reset no
+row is read until the renderer has shaped a letter that takes a form, the
+frame that shapes the first converted again; a row with no joined cell runs
+the run loop with no join in it, and a run with no joining letter is shaped
+with the grid's features. btop, cava and git-log read within base's spread
+(cava, BDSM set) or up to 0.24% fewer in both modes; against base with only
+the run loop moved out of line, btop and cava overlap it. With BDSM reset
+after the first joining letter, the conversion and the cell path each
+find a row's joins again only where their own compare of the screen with
+the last frame's finds the row changed. The app arm of `frame_gpu` base's
+CPU time a frame within one binary's spread (docs/record.md, "Arabic
+letters are joined, one letter a cell").

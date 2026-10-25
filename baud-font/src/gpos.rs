@@ -1,8 +1,9 @@
 //! `GPOS` (`[[source: ms-opentype-gpos]]`): what a mark feature runs.
 //!
-//! **Types 1, 2, 4, 6, 8 and 9.** Single and pair adjustment, mark-to-base
-//! and mark-to-mark attachment through anchors, chained contexts in all
-//! three formats, and the extension wrapper. A grid has no use for kerning
+//! **Types 1, 2, 4, 5, 6, 8 and 9.** Single and pair adjustment,
+//! mark-to-base, mark-to-ligature and mark-to-mark attachment through
+//! anchors, chained contexts in all three formats, and the extension
+//! wrapper. A grid has no use for kerning
 //! between cells or for cursive attachment (3): every base glyph sits at
 //! its cell origin by Windows Terminal's rule (D8), and what is left to
 //! position is where a combining mark goes relative to that base. But a
@@ -11,7 +12,8 @@
 //! letter by chained contexts that run single and pair adjustments, and a
 //! feature names whatever lookups it names. So every lookup the grid's
 //! features name runs, whatever its type, except contexts without a chain
-//! (7) and mark-to-ligature (5), which no measured face's Hebrew reaches.
+//! (7), which no measured face reaches. Mark-to-ligature places a mark on
+//! the lam-alef ligature: Courier New's `arab` `mark` names it.
 //! Anchors are read in their design-unit form (formats 1, 2 and 3 all start
 //! with one); the contour point and the hinting devices are hinting's and
 //! D7 has none.
@@ -229,14 +231,16 @@ impl<'a> Gpos<'a> {
             let Some((kind, sub)) = lookup.subtable(i, Kind::GPOS_EXTENSION) else {
                 return;
             };
-            let target = match kind {
-                Kind::MARK_TO_BASE => Target::Base,
-                _ => Target::Mark,
+            let attached = match kind {
+                Kind::MARK_TO_BASE => {
+                    self.mark_to(sub, &lookup.filter, buf, pos, Target::Base, vary)
+                }
+                Kind::MARK_TO_LIGATURE => {
+                    self.mark_to_ligature(sub, &lookup.filter, buf, pos, vary)
+                }
+                _ => self.mark_to(sub, &lookup.filter, buf, pos, Target::Mark, vary),
             };
-            if self
-                .mark_to(sub, &lookup.filter, buf, pos, target, vary)
-                .is_some()
-            {
+            if attached.is_some() {
                 return;
             }
             i = i.next();
@@ -337,6 +341,83 @@ impl<'a> Gpos<'a> {
     }
 }
 
+impl<'a> Gpos<'a> {
+    /// `MarkLigPosFormat1` (`[[source: ms-opentype-gpos]]`, lookup type 5):
+    /// mark coverage, ligature coverage, class count, mark array, ligature
+    /// array, whose `LigatureAttach` holds an anchor a class for each of a
+    /// ligature's components. The mark attaches to the nearest earlier
+    /// glyph that is not a mark, at the component its own cell gave the
+    /// ligature: a ligature keeps the cell of its first component and spans
+    /// to its last, one component a cell, so a mark of the second cell
+    /// takes the second component's anchor, and one past the last takes the
+    /// last's. An anchor offset of zero attaches nothing there.
+    fn mark_to_ligature(
+        &self,
+        sub: Bytes<'a>,
+        filter: &Filter<'_>,
+        buf: &mut Buffer<'_>,
+        pos: Index,
+        vary: Vary<'_, 'a>,
+    ) -> Option<()> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let cov = |at: u32| -> Option<Coverage<'a>> {
+            let off: u16 = sub.read(Offset::of(at))?;
+            Coverage::parse(sub.tail(Offset::of(u32::from(off)))?)
+        };
+        let mark_cov = cov(2)?;
+        let lig_cov = cov(4)?;
+        let classes: u16 = sub.read(Offset::of(6u32))?;
+        let mark_array_off: u16 = sub.read(Offset::of(8u32))?;
+        let lig_array_off: u16 = sub.read(Offset::of(10u32))?;
+        let mark = buf.get(pos)?;
+        let mi = mark_cov.index(mark.id)?;
+        let (lpos, li) = self.attach_target(filter, buf, pos, &lig_cov, Target::Base)?;
+        let marks = sub.tail(Offset::of(u32::from(mark_array_off)))?;
+        let mark_count: u16 = marks.read(Offset::ZERO)?;
+        if !Count::of(mark_count).holds(mi) {
+            return None;
+        }
+        let rec = Offset::of(2u32).at(mi, Len::of(4))?;
+        let class: u16 = marks.read(rec)?;
+        if class >= classes {
+            return None;
+        }
+        let mark_anchor = anchor(marks, rec.plus(Len::of(2))?, vary)?;
+        // LigatureArray: count, then an offset to each LigatureAttach.
+        let ligs = sub.tail(Offset::of(u32::from(lig_array_off)))?;
+        let lig_count: u16 = ligs.read(Offset::ZERO)?;
+        if !Count::of(lig_count).holds(li) {
+            return None;
+        }
+        let attach_off: u16 = ligs.read(Offset::of(2u32).at(li, Len::of(2))?)?;
+        let attach = ligs.tail(Offset::of(u32::from(attach_off)))?;
+        let components: u16 = attach.read(Offset::ZERO)?;
+        let lig = buf.get(lpos)?;
+        let last = components.checked_sub(1)?;
+        let comp = match mark.cluster.0.checked_sub(lig.cluster.0) {
+            Some(k) if mark.cluster.0 <= lig.last.0 => k.min(last),
+            _ => last,
+        };
+        let row = Len::of(2).times(Count::of(classes))?;
+        let rec = Offset::of(2u32)
+            .at(Index::of(comp), row)?
+            .at(Index::of(class), Len::of(2))?;
+        let lig_anchor = anchor(attach, rec, vary)?;
+        let g: &mut Glyph = buf.get_mut(pos)?;
+        g.dx = lig
+            .dx
+            .saturating_add(lig_anchor.x.saturating_sub(mark_anchor.x));
+        g.dy = lig
+            .dy
+            .saturating_add(lig_anchor.y.saturating_sub(mark_anchor.y));
+        g.positioned = Positioned::Yes;
+        Some(())
+    }
+}
+
 /// What one lookup's subtables can do, read once a lookup before the walk
 /// over the run rather than at every glyph.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -354,7 +435,7 @@ impl Reach {
         let mut i = Index::ZERO;
         while lookup.subtable_count().holds(i) {
             match lookup.subtable(i, Kind::GPOS_EXTENSION) {
-                Some((Kind::MARK_TO_BASE | Kind::MARK_TO_MARK, _)) => {}
+                Some((Kind::MARK_TO_BASE | Kind::MARK_TO_LIGATURE | Kind::MARK_TO_MARK, _)) => {}
                 Some(_) => return Reach::Any,
                 None => return Reach::Attachments,
             }
@@ -407,6 +488,10 @@ impl<'a> Run<'_, '_, 'a> {
                 Kind::MARK_TO_MARK => self
                     .gpos
                     .mark_to(sub, &lookup.filter, buf, pos, Target::Mark, self.vary)
+                    .map(|()| Applied::after(pos)),
+                Kind::MARK_TO_LIGATURE => self
+                    .gpos
+                    .mark_to_ligature(sub, &lookup.filter, buf, pos, self.vary)
                     .map(|()| Applied::after(pos)),
                 Kind::CHAINED_POS => chained(self, sub, &lookup.filter, buf, pos, depth),
                 _ => None,

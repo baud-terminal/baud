@@ -7,15 +7,15 @@ the window's right edge, its closing period at its left end, after its last
 word. A table drawn with box-drawing lines keeps its columns, and a Hebrew
 name in one of its cells reads right to left against the cell's right side.
 A Hebrew word in an English line reads right to left in its place, brackets
-around Hebrew face the right way, vowel points stay on their letters, and
-the cursor, the selection, the find marks, the link underline and the mouse
-all follow what is drawn. A copy gives the text in the order the program
-wrote it. A program that lays out its own right-to-left text turns the mode
-off with `CSI 8 l`, and every line is then drawn in the order its cells
-hold; `CSI 8 h` turns it back on, and a reset (`RIS`) returns it to on.
-
-This is step 2 of right-to-left text. Step 1 built the Unicode
-Bidirectional Algorithm; step 2 puts its order on the screen.
+around Hebrew face the right way, vowel points stay on their letters,
+Arabic letters join into words, and the cursor, the selection, the find
+marks, the link underline and the mouse all follow what is drawn. A copy
+gives the text in the order the program wrote it. A program that lays out
+its own right-to-left text turns the mode off with `CSI 8 l`, and every
+line is then drawn in the order its cells hold; `CSI 8 h` turns it back on,
+and a reset (`RIS`) returns it to on. This is step 3 of right-to-left text.
+Step 1 built the Unicode Bidirectional Algorithm; step 2 put its order on
+the screen; step 3 joins Arabic letters.
 
 ## What you see
 
@@ -74,7 +74,7 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   erased cells after a line's text stay at the line's end.
 - **No ligature or contextual form crosses from one direction run to
   another**, and the cells of a right-to-left run are shaped one at a time
-  rather than in their drawn order (UAX #9 3.5).
+  rather than in their drawn order, a lam-alef pair together (UAX #9 3.5).
 - **The cursor** is drawn over the cell it is on, wherever that cell is
   drawn, in its own shape: a block over the cell, an underline under it,
   and a bar on the right side of a right-to-left letter. On a full line,
@@ -86,8 +86,29 @@ Bidirectional Algorithm; step 2 puts its order on the screen.
   click, a drag and a mouse report to a program name the cell the program
   wrote under the pointer (the inverse of the drawn order).
 - **The alternate screen and the scrollback** are drawn the same way.
-- **Arabic** is reordered like Hebrew and drawn in the isolated letter forms
-  it draws in today: joining is a separate item, not built.
+- **Arabic letters join.** Each letter is drawn in the form its neighbours
+  give it, initial, medial, final or alone, by the Unicode Standard's rules
+  (`[[source: unicode-ch9]]` 9.2.2, from ArabicShaping.txt, `[[source:
+  unicode-arabicshaping]]`), one letter a cell: a mark between two letters
+  does not part them, ZWJ joins and ZWNJ parts. A lam joined to an alef
+  forms the lam-alef ligature the standard makes obligatory (9.2.3), drawn
+  centred over the two cells the pair holds. A word split by a soft wrap
+  stays joined across it, as CSS Text 3 asks of a word an unforced break
+  splits (`[[source: w3c-css-text-3]]`), and an erased cell between two
+  letters does not part them either. A lam and an alef still form the
+  ligature with erased cells between them, drawn centred over the cells
+  from one to the other, and with a soft wrap between them, drawn in the
+  lam's cell at the end of its row, the alef's cell on the next row left
+  blank. The forms come from the face's own
+  `isol`, `fina`, `medi` and `init` features, the ligature from its `rlig`,
+  and from the presentation forms its `cmap` maps on a face with no such
+  features. `arabic_letters_draw_joined_on_every_arm` holds the three draw
+  paths to the same pixels, and to the presentation forms written out.
+- **With the mode off, Arabic still joins, in the order it is displayed**,
+  the order 9.2.2 states the rules in: a program that writes Arabic already
+  reversed sees it joined, and one that sends presentation forms (vim's
+  `arabicshape`) sees them as sent. Each row is joined alone, so with the
+  mode off a word split by a soft wrap is not joined across it.
 
 ## What decided each choice
 
@@ -111,6 +132,10 @@ requests and the renders it was shown are in
 | selection and copy | logical: kept and copied as written, highlighted where drawn | 0.98 / 0.98 |
 | Arabic in this step | reordered, drawn isolated until joining | 1.00 / 1.00 |
 | a paragraph past the capacity | the drawn rows with whole rows of context (UAX #9 HL5) | 0.98 / 0.98 |
+| the lam-alef ligature in a grid | centred over the two cells the pair holds | 0.96 / 0.97 (re-ask) |
+| a soft wrap inside a word | joined across it (CSS Text 3) | 0.96 / 0.90 (re-ask) |
+| an erased cell between letters | transparent, as the boundary neutral it is given | 0.96 / 0.96 |
+| a lam and an alef erased cells part | the ligature, centred over the cells from one to the other | 0.91 / 0.93 |
 
 **Decided by the owner** (2026-10-24):
 
@@ -144,6 +169,11 @@ owner can veto each:**
 | where BDSM lives | terminal-wide, as an ECMA-48 mode; per-paragraph state is the next step | 0.86 / 0.82, 0.72 / 0.76 |
 | an erased cell between characters | a boundary neutral, moved with the character before it | (SKIPPED) 0.10 / 0.18, (AS_BN) 0.85 / 0.89 |
 | the alternate screen | drawn like the primary ("The two screens should behave identically") | 0.58 / 0.34, 0.79 / 0.76 |
+| Arabic with the mode off | joined in display order (terminal-wg's text says no shaping; its author's issue #7 reverses it) | 0.24 / 0.16, 0.66 / 0.58 |
+| a lam and an alef a soft wrap parts | the ligature in the lam's cell, the alef's cell left blank | 0.19 / 0.15, 0.84 / 0.80 |
+
+The joining questions, their renders and Jev's answers are in
+`docs/research/notes/ab/joining/`.
 
 **The table row, taken from Jev's lean, which held in all four answers;
 the owner can veto each.** Jev was shown the owner's table, a psql-style
@@ -228,6 +258,29 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 - Reading a program's output is unchanged: the core's only change is BDSM's
   state, and the instructions `ingest2` retires overlap base's on five
   recordings.
+- **A session that has drawn no joining letter pays nothing measurable
+  for joining.** With the mode on, a row is compared with its last copy each frame and
+  tested only when it changed, as step 2 already did for reordering; the
+  one pass that lets a row of Latin, Han or box drawing go loads a table
+  that holds the joining blocks with the right-to-left ones, so it asks
+  both questions for the price of one. With the mode off nothing is read
+  for joins until the first joining letter is drawn. After that each path
+  keeps the last frame's joins and reads again only the rows its own
+  compare finds changed: the conversion's, and on the GPU's cell path,
+  the default, the compare of the screen with the copy the last frame
+  made, which then reads every row of a frame that changed rather than
+  stopping at the first row that differs. That cost is unmeasured; a
+  frame whose screen did not change reads no row for joins.
+  A row that holds no joined cell runs the loop that gathers its runs as
+  before, and a run with no joining letter is shaped with the grid's
+  features. On btop and cava, which hold no joining letter, and git-log,
+  which holds one, the `frame` bench retires instructions within step 2's
+  spread on cava with the mode on and up to 0.24% fewer elsewhere, in both
+  modes. Against step 2 with only the loop that gathers a row's runs moved
+  out of line, as it now is, btop and cava overlap it in both modes. A screen that holds Arabic pays for
+  joining it: vim-unicode +0.6% with the mode on and +1.6% with it off,
+  where the first joining letter a renderer draws has its rows converted
+  twice, once.
 - **Two rules scan more than once.** N0 scans every bracket pair's
   contents, and the text before it for context, so it is quadratic in the
   worst case. X5c scans ahead from every FSI to its matching PDI. Section
@@ -266,9 +319,24 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   each row keeps. Until then they are counted and `DECRQM` says they are
   not recognised (`docs/vt-coverage.md`).
 - SRS, SDS, SAPV and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
-- **Arabic joining** (its own item); L4's two open departures, a flipped
-  glyph for the 126 mirrored characters with no mirroring glyph and a
-  mirrored base under a mark that draws.
+- L4's two open departures, a flipped glyph for the 126 mirrored
+  characters with no mirroring glyph and a mirrored base under a mark that
+  draws.
+- **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
+  Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a
+  selection that covers only one cell of a lam-alef pair colours the whole
+  ligature in the lam cell's colours; an alef whose lam has scrolled above
+  the window, or is above it while looking back, keeps its final form, the
+  ligature being on a row not drawn; no discretionary ligature is drawn (the grid's `liga` is off); a
+  face's contextual lookups across letters (`calt`, `rclt`) are not run,
+  each letter being shaped alone; a face that joins through `morx` (Geeza
+  Pro) is drawn through its presentation forms, which differ from its own
+  chains where those pick an alternate (a final farsi yeh) or form the
+  Allah ligature without the shadda 9.2.11 asks for.
+- **Mongolian and Phags-pa with the mode off** are joined as Arabic is, in
+  the row read right to left, so their forms come out mirrored: the first
+  letter, on the left, is drawn final. With the mode on they join in their
+  stored order.
 - **Drawn in their stored order still**: the status line, the row leaving
   the window during a smooth scroll, images placed on a reordered row, and
   an input method's composition and a predicted echo on one.

@@ -134,3 +134,150 @@ fn the_painted_bands_hold_every_pixel_a_frame_changes() {
     assert!(changed >= 40, "{changed}");
     assert!(narrow >= 10, "{narrow}");
 }
+
+/// **A joining form that moves with no cell of its row changing repaints
+/// the row.** The last beh of a row is final until a beh written past the
+/// margin wraps onto the next row and makes it medial: the word is joined
+/// across the wrap (`bidi.rs`), so the row above changes form though none
+/// of its cells did. The incremental frame equals a full one, and the
+/// premise holds: the full frames differ in the row above. On Courier New,
+/// macOS's, whose `GSUB` draws the forms.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_moved_joining_form_repaints_its_row() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen};
+    let data = font("JetBrainsMono-Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&courier).unwrap()];
+    let mut inc = renderer(&faces);
+    let mut full = renderer(&faces);
+    let mut a = Canvas::for_renderer(&inc);
+    let mut b = Canvas::for_renderer(&full);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let band = usize::try_from(inc.metrics().cell_h.value()).unwrap() * a.width;
+    let first = |c: &Canvas| c.pixels[..band].to_vec();
+    let row = format!(
+        "\x1b[?25l\x1b[8h{}\u{0628}\u{0628}\u{0628}",
+        "x".repeat(usize::from(WS.ws_col) - 3)
+    );
+    let mut was: Option<Vec<u32>> = None;
+    for (step, bytes) in [row.as_str(), "\u{0628}"].iter().enumerate() {
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+        paint(&mut full, &mut t, &mut b, Damage::Full);
+        assert!(
+            a.pixels == b.pixels,
+            "step {step}: the incremental frame differs from a full repaint"
+        );
+        let now = first(&b);
+        if let Some(w) = &was {
+            assert!(*w != now, "the premise: the form on the first row moved");
+        }
+        was = Some(now);
+    }
+}
+
+/// **A frame reads only the rows that changed to find what joins, and with
+/// BDSM reset none until a joining letter is drawn.** With the mode reset
+/// no row is compared or tested while the renderer has shaped no letter
+/// that takes a form; the frame that shapes the first is converted again,
+/// every row tested, and after it each frame tests only the rows its own
+/// compare finds changed. With BDSM set each row is compared with its last
+/// copy once a frame, as before joining existed, and a row that changed is
+/// tested once, for what reorders and what joins together.
+#[test]
+fn a_frame_reads_only_the_rows_that_changed_for_joining() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen};
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let rows = u64::from(WS.ws_row);
+    let mut step = |bytes: &str| {
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        paint(&mut r, &mut t, &mut c, Damage::Incremental);
+        let w = r.bidi_work();
+        (w.compared.value(), w.tested.value())
+    };
+    let none = "no joining letter drawn, BDSM reset";
+    assert_eq!(step("\x1b[?25l\x1b[8lhello"), (0, 0), "{none}");
+    assert_eq!(step("\r\nworld"), (0, 0), "{none}, a row changed");
+    assert_eq!(step("\x1b[8h"), (rows, rows), "the first frame, BDSM set");
+    assert_eq!(step(""), (rows, 0), "nothing changed, BDSM set");
+    assert_eq!(step("\x1b[1;1Hy"), (rows, 1), "one row changed, BDSM set");
+    assert_eq!(
+        step("\x1b[8l\x1b[3;1H\u{0628}\u{0628}"),
+        (0, rows),
+        "the first joining letter, BDSM reset: every row"
+    );
+    assert_eq!(step(""), (0, 0), "nothing changed, BDSM reset");
+    assert_eq!(step("\x1b[1;1Hj"), (0, 1), "one row changed, BDSM reset");
+}
+
+/// **With BDSM reset, the joins the renderer keeps are the screen's**:
+/// Arabic written in display order is changed a letter at a time, erased,
+/// scrolled, and veiled by the find field over a cell whose letter then
+/// changes under it, and every incremental frame equals a fresh renderer's
+/// full one. On Courier New, macOS's, whose `GSUB` draws the forms.
+#[cfg(target_os = "macos")]
+#[test]
+fn joins_kept_with_bdsm_reset_follow_the_screen() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, Col, ReadLen, Row};
+    let data = font("JetBrainsMono-Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&courier).unwrap()];
+    let mut inc = renderer(&faces);
+    let mut a = Canvas::for_renderer(&inc);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let last = usize::from(WS.ws_row);
+    let steps: Vec<String> = vec![
+        "\x1b[?25l\x1b[8l\x1b[3;5H\u{062A}\u{064A}\u{0628}".into(),
+        "\x1b[3;6H\u{0628}".into(),
+        "\x1b[3;6H\x1b[X".into(),
+        "\x1b[3;6H\u{0644}\x1b[3;5H\u{0627}".into(),
+        format!("\x1b[{last};1H\n\n"),
+        "\x1b[1;5H\u{0628}\u{0628}\u{0628}".into(),
+    ];
+    // The find field over row 1's middle cell, the fourth step's beh, under
+    // which an `x` is then written: the compare sees the field's blank
+    // cell, not the letter under it, and the behs beside it, joined to
+    // the letter, are drawn alone once it is an `x`.
+    let field = baud_render::FindLook {
+        marks: Vec::new(),
+        field: baud_render::Field {
+            row: Row::from_index(0),
+            col: Col::at_index(5),
+            text: vec![baud_domain::Codepoint::from_char('F')],
+            hints: vec![baud_render::Hints::default()],
+            caret: Col::at_index(6),
+        },
+    };
+    let veiled: Vec<(String, Option<baud_render::FindLook>)> = vec![
+        (String::new(), Some(field.clone())),
+        ("\x1b[1;6Hx".into(), Some(field.clone())),
+        (String::new(), None),
+    ];
+    let shown = steps.into_iter().map(|s| (s, None));
+    for (i, (bytes, look)) in shown.chain(veiled).enumerate() {
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        inc.set_find(&t, look.clone());
+        paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+        let mut fresh = renderer(&faces);
+        fresh.set_find(&t, look);
+        let mut b = Canvas::for_renderer(&fresh);
+        paint(&mut fresh, &mut t, &mut b, Damage::Full);
+        assert!(a.pixels == b.pixels, "step {i}: the kept joins differ");
+    }
+}

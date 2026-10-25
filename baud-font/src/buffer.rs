@@ -18,7 +18,7 @@ use crate::bytes::{Count, Index};
 use crate::ignorable::DEFAULT_IGNORABLE;
 use crate::layout::{Gdef, GlyphClass};
 use crate::shape::CombiningClass;
-use baud_domain::{Codepoint, GlyphId};
+use baud_domain::{Codepoint, GlyphId, JoiningForm};
 
 /// A cell index within the run: the input cluster a glyph came from.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -95,6 +95,45 @@ pub struct Glyph {
     /// the fallback moved the glyph by.
     pub dx: i16,
     pub dy: i16,
+}
+
+/// **The joining form of each cell a pass shapes**, by the cell's index in
+/// the run: kept beside the buffer rather than in each glyph, which a form
+/// would make a seventeenth byte wide, so a glyph's copy in every lookup
+/// stays one sixteen-byte move. A cell's form is its base glyph's: the
+/// glyph of the cell that is not attached.
+#[derive(Clone, Copy)]
+pub struct Forms {
+    by_cell: [Option<JoiningForm>; Forms::CELLS],
+}
+
+impl Forms {
+    /// The most cells a run gives forms to; a cell past it takes none. A
+    /// renderer shapes a joined cell alone and a lam-alef pair together,
+    /// and a run of its is 32 cells at most.
+    pub const CELLS: usize = 64;
+
+    pub const NONE: Forms = Forms {
+        by_cell: [None; Forms::CELLS],
+    };
+
+    pub fn set(&mut self, cell: Cluster, form: JoiningForm) {
+        if let Some(slot) = self.by_cell.get_mut(usize::from(cell.0)) {
+            *slot = Some(form);
+        }
+    }
+
+    /// The form glyph `g` is drawn in: its cell's, for the cell's base.
+    pub fn of(&self, g: &Glyph) -> Option<JoiningForm> {
+        match g.attached {
+            Attached::No => self
+                .by_cell
+                .get(usize::from(g.cluster.0))
+                .copied()
+                .flatten(),
+            Attached::Yes => None,
+        }
+    }
 }
 
 impl Glyph {
