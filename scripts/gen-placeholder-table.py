@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate baud-domain/src/placeholder_data.rs from the pinned diacritic list.
+"""Generate baud-domain/src/placeholder_data.rs from baud's diacritic list.
 
 `[[source: kitty-graphics]]`, "Unicode placeholders": "The row and column
 values are specified with diacritics listed in rowcolumn-diacritics.txt",
@@ -7,27 +7,69 @@ pinned as `[[source: kitty-rowcolumn-diacritics]]`. The data line at index n,
 from zero, is the diacritic for the number n ("U+305 is the diacritic
 corresponding to the number 0 and U+30D corresponds to 1").
 
+baud keeps that list's codepoints, and nothing else of the file, in
+docs/data/placeholder-diacritics.txt. `--fetch` rewrites it from the pinned
+file, fetched by its URL and refused unless it hashes to the manifest's
+SHA-256; `--fetch --check` compares instead. Without `--fetch` nothing is
+fetched, and the tables are written (or, with `--check`, compared) from the
+committed list.
+
 Two tables come out, both indexed and neither searched: the number to its
 codepoint, and the codepoint to its number as a two-stage trie on
 `codepoint >> 6`, which is what a mark after U+10EEEE asks.
 """
-import pathlib, sys
+import hashlib, pathlib, sys, tomllib, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "docs/research/sources/kitty-rowcolumn-diacritics.txt"
+LIST = ROOT / "docs/data/placeholder-diacritics.txt"
 OUT = ROOT / "baud-domain/src/placeholder_data.rs"
+with open(ROOT / "docs/research/sources/MANIFEST.toml", "rb") as _f:
+    _PIN = tomllib.load(_f)["sources"]["kitty-rowcolumn-diacritics"]
+URL, SHA256 = _PIN["url"], _PIN["sha256"]
 SHIFT = 6
 BLOCK = 1 << SHIFT
 
-cps = []
-for line in SRC.read_text().splitlines():
-    if not line or line.startswith("#"):
-        continue
-    cps.append(int(line.split(";")[0], 16))
-if len(cps) != 297 or cps[0] != 0x305 or cps[1] != 0x30D or cps[2] != 0x30E:
-    sys.exit(f"unexpected list: {len(cps)} entries starting {[hex(c) for c in cps[:3]]}")
-if len(set(cps)) != len(cps):
-    sys.exit("a diacritic is listed twice")
+
+def codepoints(text):
+    """The first field of every data line, as an integer."""
+    return [int(ln.split(";")[0], 16) for ln in text.splitlines()
+            if ln and not ln.startswith("#")]
+
+
+def valid(cps):
+    if len(cps) != 297 or cps[0] != 0x305 or cps[1] != 0x30D or cps[2] != 0x30E:
+        sys.exit(f"unexpected list: {len(cps)} entries starting {[hex(c) for c in cps[:3]]}")
+    if len(set(cps)) != len(cps):
+        sys.exit("a diacritic is listed twice")
+    return cps
+
+
+if "--fetch" in sys.argv:
+    with urllib.request.urlopen(URL, timeout=60) as r:
+        raw = r.read()
+    got = hashlib.sha256(raw).hexdigest()
+    if got != SHA256:
+        sys.exit(f"the pinned list hashes {got}, the pin is {SHA256}")
+    cps = valid(codepoints(raw.decode("utf-8")))
+    text = (
+        "# The Unicode placeholder diacritics: data line n, from zero, is the\n"
+        "# diacritic for the number n ([[source: kitty-graphics]], \"Unicode\n"
+        "# placeholders\"). The first field of each data line of\n"
+        f"# [[source: kitty-rowcolumn-diacritics]], sha256 {SHA256}.\n"
+        "# Written by scripts/gen-placeholder-table.py --fetch; do not edit.\n"
+        + "".join(f"{c:04X}\n" for c in cps)
+    )
+    if "--check" in sys.argv:
+        if not LIST.exists() or LIST.read_text() != text:
+            print("STALE")
+            sys.exit(1)
+        print("OK")
+    else:
+        LIST.write_text(text)
+        print(f"{len(cps)} diacritics written to {LIST.relative_to(ROOT)}")
+    sys.exit(0)
+
+cps = valid(codepoints(LIST.read_text()))
 
 pages = (max(cps) >> SHIFT) + 1
 blocks = [[0] * BLOCK]
@@ -50,12 +92,13 @@ def rows(values, per, fmt):
 
 
 lines = [
-    "//! The Unicode placeholder diacritics, generated from the list pinned in",
-    "//! `docs/research/sources/MANIFEST.toml` (`[[source: kitty-rowcolumn-diacritics]]`).",
+    "//! The Unicode placeholder diacritics, generated from",
+    "//! `docs/data/placeholder-diacritics.txt`, the codepoints of the list pinned",
+    "//! as `[[source: kitty-rowcolumn-diacritics]]`.",
     "//!",
     "//! **Do not edit by hand.** Regenerate with `scripts/gen-placeholder-table.py`;",
     "//! `placeholder_table_matches_the_pinned_list` fails if this file and the",
-    "//! pinned list disagree.",
+    "//! list disagree.",
     "",
     f"/// The diacritic for each number, `0..{len(cps)}`: the list's data lines in order.",
     "#[rustfmt::skip]",

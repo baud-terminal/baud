@@ -904,7 +904,8 @@ fn kitty_disambiguated(code: KeyCode, mods: Modifiers, text: Option<Codepoint>) 
 
 /// A functional key's CSI-u number and final byte, from the "Functional key
 /// definitions" table. `functional_keys_match_the_source` gates every row
-/// against `scripts/extract-kitty-keys.py`, so a transcription slip fails the
+/// against the table `scripts/extract-kitty-keys.py` wrote from the pinned
+/// source (`[[source: kitty-keyboard-rst]]`), so a transcription slip fails the
 /// build rather than sending a wrong key.
 fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
     Some(match code {

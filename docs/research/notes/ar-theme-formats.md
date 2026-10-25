@@ -93,7 +93,7 @@ and tinted's third system.
 |---|---|---|
 | `Tinted8` | tinted8 styling and builder, v0.2.0-beta11 | UNPINNED home@38fdf7d; a beta spec |
 | `ColorNN` (Gogh, iTerm2-Color-Schemes `.yml`) | `iterm2cs-gen-py` gen.py:387-416 (the key map is the definition) | pinned. Gogh `themes/0x96f.yml:2-29` is UNPINNED Gogh@2fbe9bb |
-| `Kitty` | `kitty-conf` kitty-docs-conf.html:1286; `kitty-options-definition` definition.py:2470, :2688 | pinned |
+| `Kitty` | `kitty-conf` line 1286; `kitty-options-definition` definition.py:2470, :2688 | pinned |
 | `Foot` | `foot-2705e36-foot-ini-5` foot.ini.5.scd:1025-1105 | pinned |
 | `Alacritty` (TOML) | `alacritty-0c405d5-man-5` alacritty.5.scd:297-475 | pinned |
 | `AlacrittyYaml` (alacritty's config before 0.13) | `alacritty/src/migrate/mod.rs:67-76` | UNPINNED alacritty@5421470 |

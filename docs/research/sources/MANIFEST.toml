@@ -2075,17 +2075,37 @@ author = "Kovid Goyal"
 year   = 2025
 venue  = "kitty documentation"
 url    = "https://sw.kovidgoyal.net/kitty/keyboard-protocol/"
-file   = "kitty-keyboard-protocol.html"
+file   = ""
 sha256 = "1178a0b1c861cf31710feca2edec7d3b4e54998e6e4f1da24169ffc5766d9b46"
 bytes  = 240076
-status = "retrieved"
+status = "external"
 group  = "H"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); the digest is of the copy then
+# held. The page has changed since, and this URL no longer serves it.
 # The progressive-enhancement protocol: `CSI > flags u` to push a mode,
 # `CSI < u` to pop, with flags for disambiguation, event types, alternate keys
 # and associated text. Pinned because it is the only input specification that
 # enumerates its own escape hatch -- an application asks for exactly the
 # enhancements it can parse -- which is the shape baud's output side already
 # uses for DECRQM. Retrieved 2026-08-27.
+
+[sources.kitty-keyboard-rst]
+key    = "kitty-keyboard-rst"
+title  = "kitty v0.49.2, docs/keyboard-protocol.rst -- the keyboard protocol page's source: the functional key codes and the C0 controls tables"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/keyboard-protocol.rst"
+file   = ""
+sha256 = "1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd"
+bytes  = 36771
+status = "external"
+group  = "H"
+# What scripts/extract-kitty-keys.py fetches, refusing it unless it hashes to
+# this, since the page's own URL no longer serves the pinned copy. Its two
+# csv-tables gave the same 111 functional keys as the copy of the page did,
+# and the 35 C0 cells key_encode.rs had read from it. Fetched 2026-10-25.
 
 # Group F was declared when the corpus was set up and stood empty for the life
 # of the project, while `CLAUDE.md` refused a per-row used-extent twice on the
@@ -2218,10 +2238,12 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty terminal emulator"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/text-cache.c"
-file   = "kitty-text-cache.c"
+file   = ""
 sha256 = "2a40225571f5ce4c874c56388579556052cb08b91da79d98af3867966d981c2a"
-status = "retrieved"
+status = "external"
 group  = "F"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 
 [sources.kitty-line]
 key    = "kitty-line"
@@ -7553,11 +7575,13 @@ author = "Kovid Goyal"
 year   = 2024
 venue  = "github.com/kovidgoyal/kitty @ f5ae245"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/f5ae245f65a7c30f7cf1a2b17ab4eae1d60181d1/docs/performance.rst"
-file   = "kitty-docs-performance.rst"
+file   = ""
 sha256 = "fec97b9d4b1d70eed958301606464eab854ff2343d01429f8b658faa4682ea98"
 bytes  = 6611
-status = "retrieved"
+status = "external"
 group  = "O"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 
 [sources.kitty-conf]
 key    = "kitty-conf"
@@ -7566,11 +7590,14 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "sw.kovidgoyal.net"
 url    = "https://sw.kovidgoyal.net/kitty/conf/"
-file   = "kitty-docs-conf.html"
+file   = ""
 sha256 = "4c9eab40da7c0f2e2dede04450988988e5694c448c59e74195a50fa440848b9b"
 bytes  = 550570
-status = "retrieved"
+status = "external"
 group  = "O"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); the digest is of the copy then
+# held. The page has changed since, and this URL no longer serves it.
 
 [sources.kitty-2701-hardware-latency]
 key    = "kitty-2701-hardware-latency"
@@ -8444,11 +8471,14 @@ author = "Kovid Goyal"
 year   = 2025
 venue  = "kitty documentation"
 url    = "https://sw.kovidgoyal.net/kitty/underlines/"
-file   = "kitty-underlines.html"
+file   = ""
 sha256 = "73c2eb31824a9594f256693dd55d990acd3cc0094345f3b61a0f8d2c5c2a6546"
 bytes  = 156855
-status = "retrieved"
+status = "external"
 group  = "C"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); the digest is of the copy then
+# held. The page has changed since, and this URL no longer serves it.
 # The colon underline styles: `CSI 4:0m` none, `4:1` straight, `4:2` double,
 # `4:3` curly, `4:4` dotted, `4:5` dashed, with `4m` and `24m` kept for
 # backward compatibility, and the rule that the underline colour "must remain
@@ -8754,11 +8784,14 @@ author = "Kovid Goyal"
 year   = 2025
 venue  = "kitty documentation"
 url    = "https://sw.kovidgoyal.net/kitty/graphics-protocol/"
-file   = "kitty-graphics-protocol.html"
+file   = ""
 sha256 = "1e7c751498e93ea358d8d611aa3da824b9c91afc815447fca343a9b2146a4a32"
 bytes  = 300190
-status = "retrieved"
+status = "external"
 group  = "C"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); the digest is of the copy then
+# held. The page has changed since, and this URL no longer serves it.
 # The Kitty graphics protocol, the second image protocol the Images phase
 # covers and the one whose *transmission mediums* are the zero-copy question:
 # `APC G <keys> ; <payload> ST`, with `t=d` direct base64, `t=f`/`t=t` a file,
@@ -9056,11 +9089,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt"
-file   = "kitty-rowcolumn-diacritics.txt"
+file   = ""
 sha256 = "a80368b3272c41d8b50f3f640cf4305b6423e5a1aae6b72a405129bc29425f2c"
 bytes  = 18056
-status = "retrieved"
+status = "external"
 group  = "C"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 # The file `[[source: kitty-graphics]]`'s "Unicode placeholders" links as
 # rowcolumn-diacritics.txt; the copy the documentation serves
 # (https://sw.kovidgoyal.net/kitty/_downloads/f0a0de9ec8d9ff4456206db8e0814937/rowcolumn-diacritics.txt)
@@ -9986,11 +10021,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty terminal emulator"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cursor_trail.c"
-file   = "kitty-cursor-trail.c"
+file   = ""
 sha256 = "66b73c132a5b139fa297cd1d595331f8718b5c379cde40fe1008a769dfe37aed"
 bytes  = 7730
-status = "retrieved"
+status = "external"
 group  = "V"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 
 [sources.kitty-options-definition]
 key    = "kitty-options-definition"
@@ -9999,11 +10036,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty terminal emulator"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/options/definition.py"
-file   = "kitty-options-definition.py"
+file   = ""
 sha256 = "322b4af9667818d1961e556a7c26f65a668da34e071f52f6acc1a4d819727533"
 bytes  = 163193
-status = "retrieved"
+status = "external"
 group  = "V"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 
 [sources.kitty-trail-slang]
 key    = "kitty-trail-slang"
@@ -10012,11 +10051,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty terminal emulator"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders/trail.slang"
-file   = "kitty-trail.slang"
+file   = ""
 sha256 = "16a752335c838b57278365593350820390571a587ce8f3fefc107bebd0e35e77"
 bytes  = 1303
-status = "retrieved"
+status = "external"
 group  = "V"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 
 # The quad's provenance audit (note W, section 8), at kitty's release tag
 # v0.49.2, commit b2cb871: cursor_trail.c differs from the 1e1486e copy above
@@ -31668,11 +31709,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty v0.49.2 documentation (docs/desktop-notifications.rst)"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/docs/desktop-notifications.rst"
-file   = "kitty-desktop-notifications.rst"
+file   = ""
 sha256 = "57188360fc9466f4e2324457ca38f7d25de5383eeedd6b982bbea8af9fc60b51"
 bytes  = 26196
-status = "retrieved"
+status = "external"
 group  = "AX"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 # Read whole, 2026-10-21 (lane b139). The governing text for OSC 99; its keys table and
 # the query table are what baud-domain/src/vt/notify.rs implements key by key.
 
@@ -31683,11 +31726,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty v0.49.2 source"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/notifications.py"
-file   = "kitty-notifications.py"
+file   = ""
 sha256 = "1cd750e60dbf8e77e70edc62e06c75780091324d26de6e86f2547c8d02b971a0"
 bytes  = 47959
-status = "retrieved"
+status = "external"
 group  = "AX"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 # Practice, read for what the text leaves open: one pending command per window, merged
 # while the id matches; 1024-character text limits, 8 buttons; untracked closes sent at
 # once; the query answer composed from what the platform integration supports.
@@ -31699,11 +31744,13 @@ author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty v0.49.2 source"
 url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/progress.py"
-file   = "kitty-progress.py"
+file   = ""
 sha256 = "710926826f7be5e21bc83bba286a81e8366e0819059342bbdcac6b701b146275"
 bytes  = 1622
-status = "retrieved"
+status = "external"
 group  = "AX"
+# kitty's own file, removed from the repository on 2026-10-25 (the owner:
+# "remove the kitty reference files"); this URL serves these bytes.
 # The timeouts are kitty practice and no text; baud has none (Jev, 0.98 both orders).
 
 [sources.kitten-notify-go]

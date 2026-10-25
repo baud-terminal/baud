@@ -43,10 +43,16 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 `scripts/extract-kitty-keys.py` does the same for
 `[[source: kitty-keyboard]]`'s "Functional key definitions" table -- **111
 rows** mapping a key name to the number and final byte its `CSI` form uses,
-from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u`. It carries its own
-positive control (`ESCAPE`, `CAPS_LOCK` and `ISO_LEVEL5_SHIFT` at known values,
-and a floor on the row count) so a broken extraction fails loudly rather than
-reporting a plausible subset. It is the source of truth the kitty encoder's
+from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u` -- and for its 35
+legacy C0 cells. It reads the page's source at kitty v0.49.2
+(`[[source: kitty-keyboard-rst]]`), fetched by URL and refused unless it
+hashes to the manifest's SHA-256, and writes the two tables as baud's own data,
+`baud-core/tests/kitty_functional_keys.tsv` and
+`baud-core/tests/kitty_legacy_c0.tsv`, which the tests read without fetching.
+It and the tests carry positive controls (`ESCAPE`, `CAPS_LOCK` and
+`ISO_LEVEL5_SHIFT` at known values, and the exact row count) so a broken
+extraction fails loudly rather than reporting a plausible subset. It is the
+source of truth the kitty encoder's
 functional-key table is gated against, the way the base rows above are gated
 against `extract-keys.py`. ~~The encoder that consumes it is not built yet.~~
 It is built, and three tests in `baud-core/tests/kitty_encode.rs` read the
@@ -55,7 +61,7 @@ arrows, the editing keys and F1-F20), `keypad_keys_match_the_source` (the
 digits, operators and `KP_LEFT` to `KP_BEGIN`) and `pua_keys_match_the_source`
 (the locks, F21-F35, the media and modifier keys). A fourth,
 `every_row_of_the_table_is_gated`, requires the names those three map to be
-exactly the extractor's rows: the navigation rows sat ungated while the
+exactly the table's rows: the navigation rows sat ungated while the
 protocol was called complete, because each test named its own keys and none
 asked which rows no test named.
 

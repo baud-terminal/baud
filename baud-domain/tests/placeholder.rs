@@ -13,7 +13,7 @@ use baud_domain::{
 fn pinned() -> Vec<u32> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/research/sources/kitty-rowcolumn-diacritics.txt"
+        "/../docs/data/placeholder-diacritics.txt"
     );
     std::fs::read_to_string(path)
         .unwrap()

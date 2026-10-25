@@ -88,13 +88,13 @@ see `docs/research/notes/y-palettes.md:316-422`.
 - **Syntax.**
   - A line is `name value`, separated by whitespace.
   - A comment counts only if `#` "is the first character in the line"
-    (`kitty-conf`, kitty-docs-conf.html:1286, VERIFIED).
+    (`kitty-conf`, line 1286, VERIFIED).
   - Colours: `foreground` and `background`, then `color0` to `color255`.
     `color0` is `#000000` (`kitty-options-definition`@1e1486e,
     definition.py:2470, 2688, VERIFIED). Also `cursor` (353),
     `cursor_text_color` (369), `selection_foreground` (2641) and
     `selection_background` (2655).
-  - Other files are pulled in with `include` (kitty-docs-conf.html:1290).
+  - Other files are pulled in with `include` (`kitty-conf`, line 1290).
 - **Themes kitten** (kitty@b7a657d, UNPINNED):
   - "A theme in kitty is just a `.conf` file containing kitty settings." The
     kitten copies the chosen file to `current-theme.conf` and `include`s it

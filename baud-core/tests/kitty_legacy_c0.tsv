@@ -1,0 +1,38 @@
+# kitty's legacy C0 table: key, modifier column, bytes as the table
+# spells them. Written by scripts/extract-kitty-keys.py; do not edit.
+# From [[source: kitty-keyboard-rst]], sha256 1feb3aea4a1c7e4cca524524d65a71e1a7b87b4fa2a13194df923817d08fe8bd.
+Enter	No mods	0xd
+Enter	Ctrl	0xd
+Enter	Alt	0x1b 0xd
+Enter	Shift	0xd
+Enter	Ctrl + Shift	0xd
+Enter	Alt + Shift	0x1b 0xd
+Enter	Ctrl + Alt	0x1b 0xd
+Escape	No mods	0x1b
+Escape	Ctrl	0x1b
+Escape	Alt	0x1b 0x1b
+Escape	Shift	0x1b
+Escape	Ctrl + Shift	0x1b
+Escape	Alt + Shift	0x1b 0x1b
+Escape	Ctrl + Alt	0x1b 0x1b
+Backspace	No mods	0x7f
+Backspace	Ctrl	0x8
+Backspace	Alt	0x1b 0x7f
+Backspace	Shift	0x7f
+Backspace	Ctrl + Shift	0x8
+Backspace	Alt + Shift	0x1b 0x7f
+Backspace	Ctrl + Alt	0x1b 0x8
+Tab	No mods	0x9
+Tab	Ctrl	0x9
+Tab	Alt	0x1b 0x9
+Tab	Shift	CSI Z
+Tab	Ctrl + Shift	CSI Z
+Tab	Alt + Shift	0x1b CSI Z
+Tab	Ctrl + Alt	0x1b 0x9
+Space	No mods	0x20
+Space	Ctrl	0x0
+Space	Alt	0x1b 0x20
+Space	Shift	0x20
+Space	Ctrl + Shift	0x0
+Space	Alt + Shift	0x1b 0x20
+Space	Ctrl + Alt	0x1b 0x0

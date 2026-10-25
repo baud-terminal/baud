@@ -1,9 +1,10 @@
-//! The Unicode placeholder diacritics, generated from the list pinned in
-//! `docs/research/sources/MANIFEST.toml` (`[[source: kitty-rowcolumn-diacritics]]`).
+//! The Unicode placeholder diacritics, generated from
+//! `docs/data/placeholder-diacritics.txt`, the codepoints of the list pinned
+//! as `[[source: kitty-rowcolumn-diacritics]]`.
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-placeholder-table.py`;
 //! `placeholder_table_matches_the_pinned_list` fails if this file and the
-//! pinned list disagree.
+//! list disagree.
 
 /// The diacritic for each number, `0..297`: the list's data lines in order.
 #[rustfmt::skip]

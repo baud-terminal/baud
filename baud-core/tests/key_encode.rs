@@ -461,36 +461,22 @@ fn the_remaining_text_keys() {
 type C0Row = (String, Vec<(String, Vec<u8>)>);
 
 /// `[[source: kitty-keyboard]]`'s legacy table of the C0 keys and Space:
-/// `(key, [(column, bytes)])`, every cell read from the pinned page.
+/// `(key, [(column, bytes)])`, every cell as `scripts/extract-kitty-keys.py`
+/// read it from the pinned source (`[[source: kitty-keyboard-rst]]`) into
+/// `kitty_legacy_c0.tsv`.
 ///
-/// The page's cells spell bytes as `0x1b` and `CSI`, separated by spaces;
+/// The table's cells spell bytes as `0x1b` and `CSI`, separated by spaces;
 /// a letter stands for itself.
 fn kitty_c0_table() -> Vec<C0Row> {
-    let html = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../docs/research/sources/kitty-keyboard-protocol.html"
-    ))
-    .expect("the pinned kitty page");
-    let mut text = String::new();
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => text.push(c),
-            _ => {}
-        }
-    }
-    let cells: Vec<String> = text
-        .lines()
-        .map(|l| l.trim().replace("&nbsp;", " "))
-        .filter(|l| !l.is_empty())
-        .collect();
-    let at = cells
-        .windows(7)
-        .position(|w| w[0] == "No mods" && w[6] == "Ctrl + Alt")
-        .expect("the legacy C0 table's header");
-    let header = cells[at..at + 7].to_vec();
+    let header = [
+        "No mods",
+        "Ctrl",
+        "Alt",
+        "Shift",
+        "Ctrl + Shift",
+        "Alt + Shift",
+        "Ctrl + Alt",
+    ];
     let bytes = |cell: &str| -> Vec<u8> {
         let mut v = Vec::new();
         for t in cell.split_whitespace() {
@@ -504,18 +490,34 @@ fn kitty_c0_table() -> Vec<C0Row> {
         }
         v
     };
+    let cells: Vec<(&str, &str, &str)> = include_str!("kitty_legacy_c0.tsv")
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| {
+            let mut f = l.split('\t');
+            let cell = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
+            assert!(f.next().is_none(), "a cell is key, column, bytes: {l}");
+            cell
+        })
+        .collect();
     let mut rows = Vec::new();
-    let mut i = at + 7;
+    let mut at = cells.iter();
     for key in ["Enter", "Escape", "Backspace", "Tab", "Space"] {
-        assert_eq!(cells[i], key, "the table's rows, in its order");
         let row = header
             .iter()
-            .zip(&cells[i + 1..i + 8])
-            .map(|(h, c)| (h.clone(), bytes(c)))
+            .map(|h| {
+                let (k, col, cell) = at.next().expect("a cell for every column");
+                assert_eq!(
+                    (*k, *col),
+                    (key, *h),
+                    "the table's rows and columns, in its order"
+                );
+                (h.to_string(), bytes(cell))
+            })
             .collect();
         rows.push((key.to_string(), row));
-        i += 8;
     }
+    assert!(at.next().is_none(), "no cell past Space's last column");
     rows
 }
 

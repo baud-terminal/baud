@@ -5,10 +5,10 @@
 //! placeholder cells resolves to, inheritance included; and which deletes
 //! reach a virtual placement.
 //!
-//! The diacritics are read from the pinned list
-//! (`docs/research/sources/kitty-rowcolumn-diacritics.txt`), never from
-//! the table generated from it, so a generator that drifted is caught here
-//! too.
+//! The diacritics are read from the pinned list's codepoints
+//! (`docs/data/placeholder-diacritics.txt`, from `[[source:
+//! kitty-rowcolumn-diacritics]]`), never from the table generated from
+//! them, so a generator that drifted is caught here too.
 
 use baud_core::*;
 use baud_domain::{
@@ -25,7 +25,7 @@ const WS: WinSize = WinSize {
 fn diacritics() -> Vec<char> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../docs/research/sources/kitty-rowcolumn-diacritics.txt"
+        "/../docs/data/placeholder-diacritics.txt"
     );
     std::fs::read_to_string(path)
         .unwrap()

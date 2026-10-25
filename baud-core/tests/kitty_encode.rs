@@ -3,8 +3,10 @@
 //! all five flags: disambiguate, event types, alternate keys, all-keys and
 //! associated text.
 //!
-//! The table of key numbers is gated against `scripts/extract-kitty-keys.py`
-//! through the encoded output rather than by inspecting a private function: for
+//! The table of key numbers is gated against `kitty_functional_keys.tsv`,
+//! which `scripts/extract-kitty-keys.py` writes from the pinned source
+//! (`[[source: kitty-keyboard-rst]]`, fetched and hash-checked), through the
+//! encoded output rather than by inspecting a private function: for
 //! each functional key the test looks up the spec's number and final byte and
 //! asserts the bytes `Term::key` produces are exactly that CSI-u form. A
 //! transcription slip in the encoder then fails against the source, the same
@@ -37,22 +39,29 @@ fn pressed(setup: &[u8], e: KeyEvent) -> Vec<u8> {
     t.reply().to_vec()
 }
 
-/// name -> (number, final byte), read live from the pinned source.
+/// name -> (number, final byte), the pinned source's table as
+/// `scripts/extract-kitty-keys.py` wrote it into `kitty_functional_keys.tsv`.
 fn functional_table() -> HashMap<String, (u32, u8)> {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/extract-kitty-keys.py"))
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the extractor");
-    assert!(out.status.success(), "extract-kitty-keys.py failed");
-    let text = String::from_utf8(out.stdout).unwrap();
     let mut map = HashMap::new();
-    for line in text.lines() {
+    for line in include_str!("kitty_functional_keys.tsv").lines() {
+        if line.starts_with('#') {
+            continue;
+        }
         let mut f = line.split('\t');
         let (name, num, fin) = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
-        map.insert(name.to_string(), (num.parse().unwrap(), fin.as_bytes()[0]));
+        assert!(
+            f.next().is_none() && fin.len() == 1,
+            "a row is name, number, final: {line}"
+        );
+        let old = map.insert(name.to_string(), (num.parse().unwrap(), fin.as_bytes()[0]));
+        assert!(old.is_none(), "{name} is listed twice");
     }
+    // The control: every row, the first, the start of the Private Use Area
+    // and the last, so a truncated or garbled file fails here.
+    assert_eq!(map.len(), 111);
+    assert_eq!(map["ESCAPE"], (27, b'u'));
+    assert_eq!(map["CAPS_LOCK"], (57358, b'u'));
+    assert_eq!(map["ISO_LEVEL5_SHIFT"], (57454, b'u'));
     map
 }
 
