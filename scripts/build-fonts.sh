@@ -58,16 +58,18 @@
 # outline (and Bold's loca, for its length), Bold Italic's side bearing for it and
 # head's checksum alone, and the gates print what they printed before. cover.py's
 # glyphs (2026-10-25): U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
-# TRIANGLE and the Yiddish ligatures U+05F0-U+05F2, appended after every glyph
-# before them, so no glyph ID moves and no existing glyph, advance, cmap entry,
-# class or GSUB byte changes; GPOS changes only in the appended mark-to-base lookup,
-# which gains the four new letters' base records (measured against the builds before
-# them). The generalised gate's counts change (58 code points added) and it fails
-# one check more, that the Hebrew block maps round 4's 52 code points (it maps 57);
-# cgate.py adds "non-Hebrew cmap entry added" for U+20AA in each of the four cmap
-# subtables and "Hebrew cmap 57 != r4 52"; OTS passes. A build whose bytes differ is
-# not that set, whatever it looks like, so the build refuses to write it. Changing
-# the design
+# TRIANGLE, the Yiddish ligatures U+05F0-U+05F2 and the presentation forms
+# U+FB1D-U+FB4F, appended after every glyph before them, so no glyph ID moves and no
+# existing glyph, advance, cmap entry, class or GSUB byte changes; GPOS changes only
+# in the appended mark-to-base lookup, which gains the new letters' and forms' base
+# records and varika's mark class, and OS/2 gains the Alphabetic Presentation Forms
+# range bit (measured against the builds before them). The generalised gate's counts
+# change (104 code points added) and it fails one check more, that the Hebrew block
+# maps round 4's 52 code points (it maps 57); cgate.py adds "non-Hebrew cmap entry
+# added" in each of the four cmap subtables, "Hebrew cmap 57 != r4 52" and "OS/2
+# other fields ['ulUnicodeRange2']"; OTS passes. A build whose bytes differ is not
+# that set, whatever it looks like, so the build refuses to write it. Changing the
+# design
 # means re-running those gates and then these constants, in one change, with the
 # reason.
 #
@@ -108,12 +110,12 @@ VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 # LEVEL=0.
 gate_hash() {
   case $1 in
-  Regular) echo 0769ffedc56bbee7ef76c5f33b9c1b44598675659bdfe3924290a6ae20e9ea02 ;;
-  Bold) echo eedc0b0eb7bdcbcee339e5998cfe3e04bb13a00811e6d55b2140afa68756a04c ;;
-  Italic) echo 6c358d304ff725e65337e3c5d100227c426f8cd38548349bce3cdcf01cdd43e9 ;;
-  BoldItalic) echo 5519f07ddbf26dce7137c91ee06ee6d60ff86107487450724576eaa836737543 ;;
-  Italic-plain) echo 859df16de6ebd3f2fb6abd25bf0a13fd34e2f81b985163b9b5225ddfa6d301a0 ;;
-  BoldItalic-plain) echo 4be50b6244a7255b5447072c8965759da48c89de271b81d651345958721fe258 ;;
+  Regular) echo 5858df1c27c15273b771fdf752337040fb1c33dfee3372233fb2ebe1092f0fd2 ;;
+  Bold) echo efb197bf62808896d58b32a1bbde70f25aaead82d2e1645f5932eb76eb8bd65a ;;
+  Italic) echo 936dab7e43d9a0e948e8417db2d385f638a2e53fcbb51d973dc04500d177acb5 ;;
+  BoldItalic) echo 5765ec4726fea9702f0062c80c100eea717769bd96904cd51c8733e0ad6aeec7 ;;
+  Italic-plain) echo 915bcc6e2ea16d693862fd5a5dbe59376d11adecfb2f65ed5ab75db5173c7eb6 ;;
+  BoldItalic-plain) echo 6e88c1b336891a0d35502093300fa973fdc8636d4d60ccdd771d0ea5c54eced4 ;;
   *) return 1 ;;
   esac
 }

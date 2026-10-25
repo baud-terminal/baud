@@ -35622,6 +35622,22 @@ status = "external"
 group  = "J"
 # Read: "20AA NEW SHEQEL SIGN / = shekel / • Israel" (text layer), and its reference
 # glyph, two interlocking hooks (page 2 rendered at 200 dpi).
+# b207 (2026-10-25): the reference glyphs of the Hebrew presentation forms, which
+# baud's embedded font now maps. Not committed: the charts' Terms of Use forbid copies
+# for public distribution.
+[sources.unicode18-chart-fb00]
+key    = "unicode18-chart-fb00"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Alphabetic Presentation Forms (FB00-FB4F)"
+author = "The Unicode Consortium"
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/UFB00.pdf"
+sha256 = "0be8093ad01c899415900b6a7f7a28da38ae4af75d623764ddce9bfd6f60ec6a"
+bytes  = 130364
+status = "external"
+group  = "J"
+# Read: the reference glyphs at FB1D-FB4F (page 2 rendered at 200 dpi): FB1E a breve
+# above, FB20 an ayin without a descender, FB21-FB28 the letters wider, FB29 an
+# inverted T, FB4F an alef with a lamed's ascender at its upper left.
 [sources.shulchan-arukh-oc-36]
 key    = "shulchan-arukh-oc-36"
 title  = "Shulchan Arukh, Orach Chayim 36 -- the precision of the letters' writing (Hebrew, Lemberg 1893, and the Sefaria Community Translation)"

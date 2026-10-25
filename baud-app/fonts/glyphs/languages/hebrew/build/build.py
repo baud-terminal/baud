@@ -34,9 +34,10 @@ edits, to the outline and its anchor points alike. It moves dalet's leg to the
 roof's right end, so that ד no longer reads as ז; no other letter changes.
 
 Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
-TRIANGLE, U+05F0-U+05F2) are appended after every glyph above, so no glyph ID moves; an outline drawn
-upright there takes the italics' shear and correction as the letters do, and its letters join the
-anchor search.
+TRIANGLE, U+05F0-U+05F2, U+FB1D-U+FB4F) are appended after every glyph above, so no glyph ID moves;
+an outline drawn upright there takes the italics' shear and correction as the letters do, its letters
+join the anchor search, its marks are placed as the points are, and each presentation form that has
+a canonical decomposition is a composite of it at the mark lookup's own offsets.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -352,6 +353,24 @@ def make_marks():
     # round every outline the way the font will store it, so anchors, heights
     # and gaps are computed on the compiled shape (integer points)
     return {u: compiled(r) for u, r in out.items()}
+
+
+def is_above(m):
+    """Whether mark m sits above its letter: the above dots, rafe, and cover.py's above marks."""
+    return m in E.ABOVE_DOTS or m == 0x05BF or m in CV.ABOVE
+
+
+def composite_glyph(parts):
+    """A TrueType composite of (glyph name, (dx, dy), flags) parts."""
+    from fontTools.ttLib.tables._g_l_y_f import Glyph, GlyphComponent
+    g = Glyph()
+    g.numberOfContours = -1
+    g.components = []
+    for name, (dx, dy), flags in parts:
+        c = GlyphComponent()
+        c.glyphName, c.x, c.y, c.flags = name, int(dx), int(dy), flags
+        g.components.append(c)
+    return g
 
 
 def compiled(rec):
@@ -757,7 +776,7 @@ def homes(marks):
     out = {}
     for m, r in marks.items():
         b = rec_bounds(r)
-        if m in E.ABOVE_DOTS or m == 0x05BF:
+        if is_above(m):
             out[m] = E.HOME_ABOVE_BOTTOM
         elif m == 0x05BC:
             out[m] = round(E.HOME_BELOW_TOP - (b[3] - b[1]) / 2)
@@ -856,7 +875,9 @@ def build(out, letter_hook=None, tag=''):
     built = dict(letters)
     letters.update(extra)
     marks = make_marks()
+    marks.update(CV.late_marks(sys.modules[__name__], ST))   # placed as the points are, emitted late
     base_a, report = anchors(letters, marks)
+    CV.late_anchors(base_a, report)
     home = homes(marks)
     # ---- the italics: one shear for every outline and every anchor (after the
     # upright anchor search), plus, per point, an x shift `delta` that moves its
@@ -877,7 +898,7 @@ def build(out, letter_hook=None, tag=''):
             b = rec_bounds(rec)
             yc = home[m] + (b[1] + b[3]) / 2          # the unattached ink centre's height
             xc = E.MARK_SHIFT + (b[0] + b[2]) / 2     # -300: every point is centred on its anchor x
-            cx, cy = axis['above' if (m in E.ABOVE_DOTS or m == 0x05BF) else 'below']
+            cx, cy = axis['above' if is_above(m) else 'below']
             want = cx + ST.TAN * (yc - cy)            # JBM Italic's mark axis (its marks lean right)
             delta[m] = want - ST.shear_xy(xc, yc)[0]
         # the letters and the marks of punctuation drawn as letters take the rounds' correction;
@@ -897,8 +918,12 @@ def build(out, letter_hook=None, tag=''):
         sx, sy = ST.shear_xy(x, y) if ST.ITALIC else (x, y)
         return (sx + delta[m], sy)
 
-    for u, rec in marks.items():
-        new['heb_%04X' % u] = (map_rec(at(rec, E.MARK_SHIFT, home[u]), lambda x, y, u=u: mark_xy(u, x, y)), 0, u, 3)
+    def placed_mark(u):
+        return map_rec(at(marks[u], E.MARK_SHIFT, home[u]), lambda x, y, u=u: mark_xy(u, x, y))
+
+    for u in marks:
+        if u not in CV.LATE_MARKS:
+            new['heb_%04X' % u] = (placed_mark(u), 0, u, 3)
 
     # cover.py: appended after every glyph above, so no glyph ID moves; an upright outline takes
     # the italics' shear and correction as the letters do
@@ -911,14 +936,49 @@ def build(out, letter_hook=None, tag=''):
         order.append(name)
         g.recalcBounds(glyf)
         hmtx.metrics[name] = (adv, g.xMin if g.numberOfContours else 0)
+
+    # cover.py's later glyphs, after all of those: its marks, its outlines and its composites,
+    # each composite its letter and its points at the offsets the mark lookup gives them
+    def mark_anchor(m):
+        return tuple(round(c) for c in mark_xy(m, E.MARK_SHIFT, home[m]))
+
+    late, anchors_from = {}, {}
+    for spec in CV.later(sys.modules[__name__], ST, built, letters):
+        name, u, cls = spec['name'], spec['u'], spec['cls']
+        if spec['kind'] == 'mark':
+            g, adv = to_glyph(placed_mark(u)), 0
+        elif spec['kind'] == 'outline':
+            rec = italic_outline(spec['rec'], chr(u)) if ST.ITALIC else spec['rec']
+            g, adv = to_glyph(rec), 600
+        elif spec['kind'] == 'plain':                         # already this style's outline
+            g, adv = to_glyph(spec['rec']), 600
+        else:
+            b = spec['base']
+            parts = [('heb_%04X' % b, (0, 0), 0x0204)]          # USE_MY_METRICS | ROUND_XY_TO_GRID, as JetBrains Mono's
+            for m in spec['marks']:
+                ax, ay = base_a[b][m]
+                mx, my = mark_anchor(m)
+                parts.append(('heb_%04X' % m, (ax - mx, ay - my), 0x0004))
+            g, adv = composite_glyph(parts), 600
+        if 'anchors_from' in spec:
+            anchors_from[name] = 'heb_%04X' % spec['anchors_from']
+        glyf.glyphs[name] = g
+        order.append(name)
+        g.recalcBounds(glyf)
+        hmtx.metrics[name] = (adv, g.xMin if g.numberOfContours else 0)
+        late[name] = (u, cls)
     jbm.setGlyphOrder(order)
     glyf.glyphOrder = order
     for t in jbm['cmap'].tables:
         if t.isUnicode():
             for name, (rec, adv, u, cls) in new.items():
                 t.cmap[u] = name
+            for name, (u, cls) in late.items():
+                t.cmap[u] = name
     gdef = jbm['GDEF'].table
     for name, (rec, adv, u, cls) in new.items():
+        gdef.GlyphClassDef.classDefs[name] = cls
+    for name, (u, cls) in late.items():
         gdef.GlyphClassDef.classDefs[name] = cls
     gmap = {n: i for i, n in enumerate(order)}
 
@@ -926,6 +986,8 @@ def build(out, letter_hook=None, tag=''):
     cls_ids = {m: i for i, m in enumerate(sorted(marks))}
     mk = {('heb_%04X' % m): (cls_ids[m], otl.buildAnchor(*[round(c) for c in mark_xy(m, E.MARK_SHIFT, home[m])])) for m in marks}
     bs = {('heb_%04X' % u): {cls_ids[m]: otl.buildAnchor(*xy) for m, xy in d.items()} for u, d in base_a.items()}
+    for name, frm in anchors_from.items():      # a presentation form takes its letter's anchors
+        bs[name] = bs[frm]
     lk = ot.Lookup()
     lk.LookupType = 4
     lk.LookupFlag = 0
@@ -990,6 +1052,7 @@ def build(out, letter_hook=None, tag=''):
 
     os2 = jbm['OS/2']
     os2.ulUnicodeRange1 |= 1 << 11
+    os2.ulUnicodeRange2 |= 1 << 30          # bit 62, Alphabetic Presentation Forms: cover.py's U+FB1D-FB4F
     os2.ulCodePageRange1 |= 1 << 5
 
     fam = E.FAMILY

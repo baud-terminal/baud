@@ -27,10 +27,10 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     0769ffedc56bbee7ef76c5f33b9c1b44598675659bdfe3924290a6ae20e9ea02
-  Bold.ttf        eedc0b0eb7bdcbcee339e5998cfe3e04bb13a00811e6d55b2140afa68756a04c
-  Italic.ttf      6c358d304ff725e65337e3c5d100227c426f8cd38548349bce3cdcf01cdd43e9
-  BoldItalic.ttf  5519f07ddbf26dce7137c91ee06ee6d60ff86107487450724576eaa836737543
+  Regular.ttf     5858df1c27c15273b771fdf752337040fb1c33dfee3372233fb2ebe1092f0fd2
+  Bold.ttf        efb197bf62808896d58b32a1bbde70f25aaead82d2e1645f5932eb76eb8bd65a
+  Italic.ttf      936dab7e43d9a0e948e8417db2d385f638a2e53fcbb51d973dc04500d177acb5
+  BoldItalic.ttf  5765ec4726fea9702f0062c80c100eea717769bd96904cd51c8733e0ad6aeec7
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
@@ -53,24 +53,26 @@ so the correction is the only thing the italics add to the shear.
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
 (each file against the stock file of its own style, measured with fontTools 4.63.0)
 
-- 58 code points added, 57 of them in U+05B0-U+05F4:
+- 104 code points added, 57 of them in U+05B0-U+05F4:
   - the 27 letters, U+05D0-U+05EA, and U+05EF YOD TRIANGLE and the Yiddish
     ligatures U+05F0-U+05F2 (BAUD'S OWN GLYPHS);
   - the points: the vowels (nikud), dagesh, meteg, rafe, the shin and sin dots, the
     upper and lower dots and qamats qatan (U+05B0-U+05BD, U+05BF, U+05C1, U+05C2,
     U+05C4, U+05C5, U+05C7);
   - maqaf, paseq, sof pasuq, nun hafukha, geresh and gershayim;
-  - and U+20AA NEW SHEQEL SIGN, baud's own drawing (BAUD'S OWN GLYPHS).
-  The glyph count goes from 1743 to 1801, and the stock glyph order is an exact
+  - U+20AA NEW SHEQEL SIGN, baud's own drawing (BAUD'S OWN GLYPHS);
+  - and the 46 Hebrew presentation forms in U+FB1D-U+FB4F (BAUD'S OWN GLYPHS).
+  The glyph count goes from 1743 to 1847, and the stock glyph order is an exact
   prefix, so every existing glyph keeps its ID.
 - No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
   lost. GSUB is byte-identical but for one added script record, hebr (below): with it
-  taken out, every byte is stock's. The 20 combining points advance 0, and the 31
-  letters, 6 punctuation marks and the sheqel sign advance 600 (one cell).
+  taken out, every byte is stock's. The 20 combining points and varika advance 0,
+  and the 31 letters, 6 punctuation marks, the sheqel sign and the 45 other
+  presentation forms advance 600 (one cell).
 - GPOS goes from 5 lookups to 7. The 5 stock lookups are unchanged. The two new ones
   are mark-to-base (type 4), for the points on the letters, and mark-to-mark (type 6),
   for meteg on the vowel before it. They are appended to the existing mark and mkmk
-  features. GDEF classes the 58 new glyphs (38 base, 20 mark; every stock glyph keeps
+  features. GDEF classes the 104 new glyphs (83 base, 21 mark; every stock glyph keeps
   its class) and gains a fourth mark filtering set, which only the new mark-to-mark
   lookup uses.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
@@ -78,7 +80,8 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   and mkmk). Microsoft's 'Developing OpenType Fonts for Hebrew Script' registers hebr,
   and HarfBuzz's Hebrew shaper applies GPOS only when the script it chose is hebr.
   baud selects latn first, so what baud draws does not change.
-- OS/2 sets the Hebrew Unicode range bit (ulUnicodeRange1 bit 11) and the Hebrew code
+- OS/2 sets the Hebrew Unicode range bit (ulUnicodeRange1 bit 11), the Alphabetic
+  Presentation Forms range bit (bit 62, ulUnicodeRange2 bit 30) and the Hebrew code
   page bit (ulCodePageRange1 bit 5).
 - In the name table, the family is "Proto Hebrew Mono C", and the same in Italic.ttf
   and BoldItalic.ttf (below). nameID 3 carries the
@@ -158,6 +161,23 @@ and correction of rounds.
 - The ligatures and the yod triangle take the points by the same anchor search as
   the letters, so a point under one sits at the font's below-point height, as under
   yod.
+- U+FB1D-U+FB4F, the presentation forms. The 34 with a canonical decomposition are
+  TrueType composites of it -- the letter and its points at exactly the offsets the
+  mark-to-base lookup gives them -- so each draws as HarfBuzz draws its decomposition
+  typed apart; each form is a base in that lookup with its letter's anchors, so a
+  further point lands as on the letter. GSUB is not touched: Microsoft's Hebrew
+  specification offers ccmp to compose or decompose them, but HarfBuzz composes a
+  letter and point into a form only for a face with no mark feature, which this
+  face has. U+FB1E VARIKA, "a glyphic variant of rafe" (Unicode 9.1), is a mark: a
+  crescent opening upward, rafe's width, as thick as rafe's bar at its foot, at
+  every letter's rafe anchor. U+FB20, the alternative ayin, is the ayin, which has no
+  descender here. U+FB21-U+FB28, the wide letters, are their letters stretched across
+  the cell to ink 20 to 580, stems eroded back to their weight, as Courier New, a
+  monospace face, stretches its wide alef across its cell. U+FB29, the alternative
+  plus sign, is JetBrains Mono's own plus of the style without its lower arm, lowered
+  so its bar lies at the plus's foot, as Arial, Times New Roman and Courier New set
+  theirs. U+FB4F, the alef lamed ligature, is the built alef with the built lamed's
+  mast set on its upper-left stroke, rising to 794.
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
 
@@ -197,6 +217,14 @@ interim)
   narrow-letter variant A has it (ZKEEP, 0.75 and 0.92), and no other sister pair is
   redrawn (NONE, 0.79 and 0.87). Re-asked with dalet's nearness to vav, which the second
   ask left out: H45 again, 0.70 and 0.81. Note AC 4d.
+- Presentation forms: GSUB untouched (A), settled, Jev 0.98 and 0.96 (confidence
+  0.97 and 0.94); the canonical forms as composites, interim, the lean taken: 0.94
+  and 0.97 (confidence 0.88 and 0.94) on the second ask; the alternative plus
+  lowered, settled, 0.98 and 0.97; the alef lamed ligature, settled, 0.98 and 0.96;
+  varika, settled, 0.97 and 0.97. The wide letters stretched across the cell,
+  interim, the lean taken: the first ask leaned to each as its letter (0.68 and
+  0.88), the second, with Courier New's measured, to stretched (0.72 and 0.72,
+  confidence 0.44).
 - Nun hafukha: the built nun reversed, settled, Jev SHIP 0.98 in both orders
   (confidence 0.96) on the second ask (0.81 and 0.78 on the first).
 - Yiddish ligatures: B (each letter 252.5 wide, 45 apart), interim, the lean taken:
@@ -295,8 +323,9 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the last three -- meteg with CGJ, the unmapped code
-points and nun hafukha's dot -- and the Bold meteg item's detail, which were measured
+(From note AC 4a and 4b, except the last four -- meteg with CGJ, the unmapped code
+points, nun hafukha's dot and a form followed by a point -- and the Bold meteg item's
+detail, which were measured
 on these files on 2026-10-08 or later and are not in note AC. None of these is fixed
 by this build. Two earlier gaps, the missing hebr script record and Cascadia's
 dropped trademark notice, were fixed; see the CHANGELOG.)
@@ -341,11 +370,13 @@ dropped trademark notice, were fixed; see the CHANGELOG.)
   bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
   left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
   segol -20..62, 20 out).
-- The cantillation marks U+0591-U+05AF and the presentation forms U+FB1D-U+FB4F
-  are not mapped.
+- The cantillation marks U+0591-U+05AF are not mapped.
 - A dot above nun hafukha, which the Unicode Standard spells U+0307 (9.1), is
   JetBrains Mono's combining dot, and no lookup places it on U+05C6: it sits where
   the pen leaves it, offset 0 in HarfBuzz 14.5.1, as on nun.
+- A presentation form followed by a further point (FB31 then qamats, FB2E then
+  meteg) is kept whole and the point placed by the form's anchors, where HarfBuzz
+  decomposes the cluster; whether the two draw alike is unmeasured.
 
 Not the font's defects, but what a reader sees:
 
@@ -430,3 +461,14 @@ CHANGELOG
   points, five glyphs more) and it fails one check more, that the Hebrew block maps
   round 4's 52 code points, since it maps 57; the strip-and-compare gate adds
   "Hebrew cmap 57 != r4 52".
+2026-10-25 (i-am-logger, baud): the 46 Hebrew presentation forms U+FB1D-U+FB4F are
+  mapped in all four files (BAUD'S OWN GLYPHS): the 34 canonical ones as composites
+  of their decompositions at the mark lookup's offsets, varika a mark, the others
+  drawn from this font's own parts. 46 glyphs are appended in each file: no existing
+  glyph, advance, cmap entry or GDEF class changes, GSUB is as before, GPOS changes
+  only in the appended mark-to-base lookup (varika's class and the forms' base
+  records), and OS/2 gains the Alphabetic Presentation Forms range bit. HarfBuzz now
+  composes a letter and point into its form where GPOS is taken away, as it does for
+  any face with no mark feature. The gates were run again: OTS passes; the
+  generalised gate's counts change; the strip-and-compare gate adds "OS/2 other
+  fields ['ulUnicodeRange2']".

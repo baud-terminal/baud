@@ -584,6 +584,15 @@ platform = "both"
 tests = ["baud-render/tests/hebrew_embedded.rs::nun_hafukha_the_yod_triangle_and_the_ligatures_draw_in_every_style", "baud-app/src/embedded.rs::every_style_maps_the_hebrew_it_ships"]
 
 [[feature]]
+id = "hebrew-presentation-forms"
+area = "text"
+name = "Hebrew presentation forms built in"
+does = "Text that spells Hebrew with the precomposed presentation forms -- a letter with its dagesh or vowel in one character, the wide letters, the alef lamed ligature and the alternative plus sign -- draws from the built-in font in every style; each form with a dagesh or vowel is drawn exactly as its letter and points typed apart, and the wide letters, the alef lamed and the alternative plus as the Standard describes them."
+status = "built"
+platform = "both"
+tests = ["baud-font/tests/hebrew_presentation.rs::each_canonical_presentation_form_draws_its_decomposition", "baud-font/tests/hebrew_presentation.rs::the_other_presentation_forms_draw_what_the_standard_describes"]
+
+[[feature]]
 id = "pointed-hebrew"
 area = "text"
 name = "Pointed Hebrew keeps every point"

@@ -720,14 +720,19 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
     // bit 30 and not bit 28, "reverse layout order", and form them only
     // when a right-to-left run is walked in logical order
     // (`[[source: apple-ttrm-morx]]`).
+    // And on the built Regular, which maps the presentation forms, nineteen
+    // letters with a point compose to their form, as HarfBuzz's Hebrew
+    // shaper composes them for a face with no mark feature
+    // (`[[source: harfbuzz-hb-ot-shaper-hebrew]]`), its GPOS stripped here.
     if on_macos {
         assert!(
             system_fixtures == 228 && system_hebrew == 228,
             "{system_fixtures} {system_hebrew}"
         );
-        assert!(ligated == 108, "{ligated}");
+        assert!(ligated == 108 + 19, "{ligated}");
     } else {
         assert!(skipped == 228 && system_fixtures == 0, "{skipped}");
+        assert!(ligated == 19, "{ligated}");
     }
 }
 
@@ -771,10 +776,10 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
         "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
          {system_moved} glyphs offset, {skipped} skipped"
     );
-    // 215 clusters and the 11 lines of what baud draws itself on each of
+    // 215 clusters and the 94 lines of what baud draws itself on each of
     // the four, the 4 Latin-mark lines on the Regular; every one Hebrew but
     // the sheqel sign's 4.
-    assert!(fixtures == 908 && hebrew == 904, "{fixtures} {hebrew}");
+    assert!(fixtures == 1240 && hebrew == 1236, "{fixtures} {hebrew}");
     // The positive control that the cantillated clusters were compared: 99
     // lines on each of the four built faces, 396 in all, whose hb-shape
     // output holds a `.notdef`.
@@ -917,7 +922,9 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
             .split_whitespace()
             .map(|h| u32::from_str_radix(h, 16).unwrap())
             .collect();
-        let rtl = cps.iter().any(|c| (0x0590..=0x05FF).contains(c));
+        let rtl = cps
+            .iter()
+            .any(|c| (0x0590..=0x05FF).contains(c) || (0xFB1D..=0xFB4F).contains(c));
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
         let (buf, out) = shape(&face, &cps, &mut storage);
         assert!(out.declined.is_zero(), "{path} {cps:04X?}");

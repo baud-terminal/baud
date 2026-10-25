@@ -700,7 +700,9 @@ print("%016x" % h)' "$face")
     done <docs/research/notes/ab/qc/clusters-all.txt
     # And the characters baud draws itself (build/cover.py), alone and
     # carrying a point: placed by the build's own anchor search, so held to
-    # HarfBuzz like the letters.
+    # HarfBuzz like the letters; the presentation forms U+FB1D-FB4F, each
+    # alone, and the decomposition of each canonical one, whose drawing its
+    # composite must equal; and varika on the letters it is read with.
     while IFS= read -r cps; do
       [ -z "$cps" ] && continue
       shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
@@ -717,6 +719,89 @@ print("%016x" % h)' "$face")
 05F1 05B7
 05F2 05B7
 05F2 05B8 05BD
+FB1D
+FB1E
+FB1F
+FB20
+FB21
+FB22
+FB23
+FB24
+FB25
+FB26
+FB27
+FB28
+FB29
+FB2A
+FB2B
+FB2C
+FB2D
+FB2E
+FB2F
+FB30
+FB31
+FB32
+FB33
+FB34
+FB35
+FB36
+FB38
+FB39
+FB3A
+FB3B
+FB3C
+FB3E
+FB40
+FB41
+FB43
+FB44
+FB46
+FB47
+FB48
+FB49
+FB4A
+FB4B
+FB4C
+FB4D
+FB4E
+FB4F
+05D9 05B4
+05F2 05B7
+05E9 05C1
+05E9 05C2
+05E9 05BC 05C1
+05E9 05BC 05C2
+05D0 05B7
+05D0 05B8
+05D0 05BC
+05D1 05BC
+05D2 05BC
+05D3 05BC
+05D4 05BC
+05D5 05BC
+05D6 05BC
+05D8 05BC
+05D9 05BC
+05DA 05BC
+05DB 05BC
+05DC 05BC
+05DE 05BC
+05E0 05BC
+05E1 05BC
+05E3 05BC
+05E4 05BC
+05E6 05BC
+05E7 05BC
+05E8 05BC
+05E9 05BC
+05EA 05BC
+05D5 05B9
+05D1 05BF
+05DB 05BF
+05E4 05BF
+05D1 FB1E
+05DB FB1E
+05E4 FB1E
 COVER
   done
 } >"$HX_OUT"
