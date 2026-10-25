@@ -84,7 +84,10 @@
 //! in the order it is displayed, the order 9.2.2 states the rules in (Jev's
 //! lean DISPLAY_ORDER_JOINING, 0.66/0.58): a program that wrote Arabic in
 //! visual order is drawn joined, and presentation forms, joining type U,
-//! are drawn as sent. A letter given no form is drawn non-joining (R7),
+//! are drawn as sent. A Mongolian or Phags-pa letter is read left to right
+//! there, the way those scripts run on a horizontal line
+//! (`[[source: unicode-ch13]]` 13.5, `[[source: unicode-ch14]]` 14.4), and
+//! joins no letter of the other reading. A letter given no form is drawn non-joining (R7),
 //! which is every Arabic letter on a row this finds nothing to join.
 //!
 //! **What joining costs a row with no joining letter.** With BDSM set a
@@ -976,7 +979,7 @@ impl Reorder {
             }
         };
         if resolves == Resolves::JoinOnly {
-            let joined = self.join_text(None);
+            let joined = self.join_text(None, None);
             for (p, row) in rows.iter().enumerate() {
                 if let Some(y) = row.window {
                     self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);
@@ -1003,7 +1006,7 @@ impl Reorder {
             false => level,
         };
         let levels: Vec<BidiLevel> = self.bidi.levels().to_vec();
-        let joined = self.join_text(Some(&levels));
+        let joined = self.join_text(Some(&levels), None);
         let rtl = level.direction() == baud_domain::BidiDirection::Rtl;
         let cols = self.orders.cols.index();
         for (p, row) in rows.iter().enumerate() {
@@ -1128,10 +1131,22 @@ impl Reorder {
     /// the lam-alef ligatures L1-L3 among them. Each text position's form,
     /// and each pair's lam and alef: every pair the rules form, whatever
     /// erased cells or soft wrap lie between its two letters.
-    fn join_text(&self, levels: Option<&[BidiLevel]>) -> JoinedText {
+    /// With `reading`, only the letters read that way join: the others
+    /// are given type U, so no letter joins one of the other reading.
+    fn join_text(&self, levels: Option<&[BidiLevel]>, reading: Option<Reading>) -> JoinedText {
         let n = self.text.len();
         let cps: Vec<u32> = self.text.iter().map(|&c| u32::from(c)).collect();
-        let types: Vec<JoiningType> = cps.iter().map(|&c| JoiningType::of(c)).collect();
+        let types: Vec<JoiningType> = self
+            .text
+            .iter()
+            .map(|&c| match (JoiningType::of(u32::from(c)), reading) {
+                (
+                    JoiningType::DualJoining | JoiningType::RightJoining | JoiningType::LeftJoining,
+                    Some(r),
+                ) if Reading::of(c) != r => JoiningType::NonJoining,
+                (t, _) => t,
+            })
+            .collect();
         let mut forms: Vec<Option<JoiningForm>> = vec![None; n];
         let mut pairs: Vec<Pair> = Vec::new();
         let removed = |i: usize| {
@@ -1254,12 +1269,67 @@ impl Reorder {
     /// **Row `r` joined in the order it is displayed**, with BDSM reset:
     /// its cells read right to left are the logical order 9.2.2's rules,
     /// stated in display order, are restated in, so a program that wrote
-    /// Arabic already reversed sees it joined. One row, one run.
+    /// Arabic already reversed sees it joined. One row, one run. A letter
+    /// of Mongolian or Phags-pa is read left to right instead, the way
+    /// those scripts run in a horizontal line (`[[source: unicode-ch13]]`
+    /// 13.5, `[[source: unicode-ch14]]` 14.4): the row is read a second
+    /// time in its stored order for them, and no letter joins one of the
+    /// other reading ([`Reading`]).
     fn join_displayed(&mut self, term: &Term<'_>, r: Row, cells: &[PackedCell]) {
+        let end = row_end(cells).index();
+        self.displayed_text(term, cells, (0..end).rev(), Reading::RightToLeft);
+        let ltr = self
+            .text
+            .iter()
+            .any(|&c| Reading::of(c) == Reading::LeftToRight);
+        let joined = self.join_text(None, Some(Reading::RightToLeft));
+        let line = 0..self.text.len();
+        let cell_of = |o: Owner| {
+            let cell = cells.get(o.col.index()).copied();
+            (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
+        };
+        self.store_joins(r, &line, &joined, |c| c, cell_of);
+        if !ltr {
+            return;
+        }
+        let right_to_left = self.orders.joins.get_mut(r.index()).and_then(Option::take);
+        self.displayed_text(term, cells, 0..end, Reading::LeftToRight);
+        let joined = self.join_text(None, Some(Reading::LeftToRight));
+        let line = 0..self.text.len();
+        self.store_joins(r, &line, &joined, |c| c, cell_of);
+        // Each cell's letter is one reading's, so the two never both name
+        // a form for one cell.
+        let Some(slot) = self.orders.joins.get_mut(r.index()) else {
+            return;
+        };
+        match (slot.as_mut(), right_to_left) {
+            (Some(now), Some(before)) => {
+                for (n, b) in now.iter_mut().zip(before) {
+                    if n.is_none() {
+                        *n = b;
+                    }
+                }
+            }
+            (None, before) => *slot = before,
+            (Some(_), None) => {}
+        }
+    }
+
+    /// The text of `cells` in the order `cols` reads them, into
+    /// `self.text` and `self.owner`: an erased cell a boundary neutral, a
+    /// wide tail left out, and a cell's attached codepoints after its base
+    /// read left to right, before it read right to left -- what follows
+    /// the base in the cell is on its right.
+    fn displayed_text(
+        &mut self,
+        term: &Term<'_>,
+        cells: &[PackedCell],
+        cols: impl Iterator<Item = usize>,
+        reading: Reading,
+    ) {
         self.text.clear();
         self.owner.clear();
-        let end = row_end(cells).index();
-        for c in (0..end).rev() {
+        for c in cols {
             let cell = cells[c];
             let at = |lead| Owner {
                 col: Col::at_index(c),
@@ -1280,13 +1350,14 @@ impl Reorder {
                 .as_codepoint()
                 .and_then(|c| char::from_u32(c.value()))
                 .unwrap_or('\u{FFFD}');
-            // Read right to left, a cell's attached codepoints come before
-            // its base: what follows the base in the cell is on its right.
-            if cell.flags.is_marked() {
-                let marks: Vec<char> = term
+            let marks: Vec<char> = match cell.flags.is_marked() {
+                true => term
                     .cluster_marks(cell)
                     .filter_map(char::from_u32)
-                    .collect();
+                    .collect(),
+                false => Vec::new(),
+            };
+            if reading == Reading::RightToLeft {
                 for &m in marks.iter().rev() {
                     self.text.push(m);
                     self.owner.push(at(Lead::Attached));
@@ -1294,14 +1365,38 @@ impl Reorder {
             }
             self.text.push(base);
             self.owner.push(at(Lead::First));
+            if reading == Reading::LeftToRight {
+                for &m in &marks {
+                    self.text.push(m);
+                    self.owner.push(at(Lead::Attached));
+                }
+            }
         }
-        let joined = self.join_text(None);
-        let line = 0..self.text.len();
-        let cell_of = |o: Owner| {
-            let cell = cells.get(o.col.index()).copied();
-            (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
-        };
-        self.store_joins(r, &line, &joined, |c| c, cell_of);
+    }
+}
+
+/// **Which way a row drawn as it is stored is read for its joins**, with
+/// BDSM reset: right to left for every joining script but two, whose
+/// letters a program writes left to right on a horizontal line -- the
+/// Mongolian and Phags-pa blocks, the scripts of ArabicShaping.txt's two
+/// sections that are not right to left (`[[source:
+/// unicode-arabicshaping]]`; `[[source: unicode-ch13]]` 13.5: "When
+/// rendering Mongolian text in a system that does not support vertical
+/// layout, the text should be laid out in horizontal lines running left
+/// to right"; `[[source: unicode-ch14]]` 14.4, Phags-pa "may be laid out
+/// horizontally from left to right").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reading {
+    RightToLeft,
+    LeftToRight,
+}
+
+impl Reading {
+    fn of(c: char) -> Reading {
+        match c {
+            '\u{1800}'..='\u{18AF}' | '\u{A840}'..='\u{A87F}' => Reading::LeftToRight,
+            _ => Reading::RightToLeft,
+        }
     }
 }
 

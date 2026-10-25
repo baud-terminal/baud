@@ -1661,8 +1661,12 @@ face's contextual lookups across letters are not run; a `morx` face is
 drawn through its presentation forms, which differ from Geeza Pro's own
 chains for a final farsi yeh and for its Allah ligature without shadda; SF
 Arabic draws through a `rclt` the grid leaves off and a multiple
-substitution baud does not implement, and is not among the fixtures; Mongolian and Phags-pa with BDSM reset are read right to left as Arabic is,
-so their forms come out mirrored.
+substitution baud does not implement, and is not among the fixtures.
+~~Mongolian and Phags-pa with BDSM reset are read right to left as Arabic
+is, so their forms come out mirrored.~~ Read left to right since
+2026-10-24, the way 13.5 and 14.4 lay the two scripts out on a horizontal
+line, and held to hb-shape on Noto Sans Mongolian and Noto Sans PhagsPa
+(`baud-font/tests/shape/mongolian.txt`).
 
 **13.4 What a screen with no joining letter pays.** Built first, joining
 cost the `frame` bench 0.14% to 0.28% more instructions on recordings with

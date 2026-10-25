@@ -1470,6 +1470,44 @@ group  = "G"
 # Read and hash-verified; not committed -- 1.2 MB of HTML. Re-fetch at the
 # pinned url and compare the sha256.
 
+# Mongolian's direction on a horizontal line, 13.5: "When rendering
+# Mongolian text in a system that does not support vertical layout, the
+# text should be laid out in horizontal lines running left to right", and
+# its Joining_Type values are ArabicShaping.txt's. Why baud-render joins a
+# Mongolian word left to right with BDSM reset.
+[sources.unicode-ch13]
+key    = "unicode-ch13"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 13, South and Central Asia-II"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-13/"
+file   = ""
+sha256 = "06925c42b87da1c93965c7d1e2349b9a16427c224ff7a5c8c11700c104830668"
+bytes  = 1201253
+status = "external"
+group  = "G"
+# Read and hash-verified; not committed -- 1.2 MB of HTML. Re-fetch at the
+# pinned url and compare the sha256.
+
+# Phags-pa, 14.4: "when embedded in horizontally oriented scripts, short
+# sections of Phags-pa text may be laid out horizontally from left to
+# right", and its Joining_Type L and R read as bottom and top joining.
+[sources.unicode-ch14]
+key    = "unicode-ch14"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 14, South and Central Asia-III"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-14/"
+file   = ""
+sha256 = "06f600a4686e8b9de880499f65939686f81d138f298767f2bcc8b2d5baebcc09"
+bytes  = 531759
+status = "external"
+group  = "G"
+# Read and hash-verified; not committed -- 0.5 MB of HTML. Re-fetch at the
+# pinned url and compare the sha256.
+
 # The codepoints DEC's manuals do not give, from an implementation that does.
 # **Cited as foot's, not as DEC's** -- it is foot's judgement about which
 # Unicode character each DEC glyph is, and agreement between implementations is

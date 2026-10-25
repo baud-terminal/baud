@@ -236,16 +236,93 @@ const DEPARTURES: [(&str, bool, &[u32], &str); 4] = [
     ),
 ];
 
+/// Which way hb-shape laid a fixture file's words out: right to left,
+/// its glyphs in visual order, or left to right, in logical order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Laid {
+    RightToLeft,
+    LeftToRight,
+}
+
+/// A count of lines, letters or ligatures a fixture file reached.
+#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug)]
+struct Count(usize);
+
+/// What one fixture file's lines reached.
+#[derive(Default)]
+struct Reached {
+    compared: Count,
+    by_outline: Count,
+    fallback: Count,
+    joined_forms: Count,
+    ligatures: Count,
+    departed: Count,
+}
+
 /// **Every line of `arabic.txt` joins as hb-shape joined it.** The macOS
 /// faces' lines run on macOS only, as `script.txt`'s do; the built
 /// Regular's run everywhere and are the control, a face with no Arabic.
 #[test]
 fn every_arabic_fixture_joins_as_harfbuzz_does() {
-    let text = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/shape/arabic.txt"
-    ))
-    .unwrap();
+    let on_macos = cfg!(target_os = "macos");
+    let r = joins_as_harfbuzz_does("arabic.txt", Laid::RightToLeft);
+    let [
+        compared,
+        by_outline,
+        fallback,
+        joined_forms,
+        ligatures,
+        departed,
+    ] = [
+        r.compared,
+        r.by_outline,
+        r.fallback,
+        r.joined_forms,
+        r.ligatures,
+        r.departed,
+    ]
+    .map(|c| c.0);
+    // The fixtures reach what they are for: on macOS every face and the
+    // fallback, joined letters and ligatures among them.
+    match on_macos {
+        true => {
+            assert_eq!(departed, DEPARTURES.len(), "every departure is met");
+            assert!(compared >= 190 && by_outline >= 30 && fallback >= 30);
+            assert!(
+                joined_forms >= 300 && ligatures >= 40,
+                "{joined_forms} {ligatures}"
+            );
+        }
+        false => assert!(compared >= 30),
+    }
+}
+
+/// **Every line of `mongolian.txt` joins as hb-shape joined it**: Mongolian
+/// and Phags-pa words on the macOS system faces Noto Sans Mongolian and
+/// Noto Sans PhagsPa, which hb-shape lays out left to right, the first
+/// letter initial and the last final. The built Regular's lines are the
+/// control, a face with neither script.
+#[test]
+fn every_mongolian_and_phags_pa_fixture_joins_as_harfbuzz_does() {
+    let r = joins_as_harfbuzz_does("mongolian.txt", Laid::LeftToRight);
+    match cfg!(target_os = "macos") {
+        true => assert!(
+            r.compared.0 >= 25 && r.joined_forms.0 >= 30,
+            "{:?} {:?}",
+            r.compared,
+            r.joined_forms
+        ),
+        false => assert!(r.compared.0 >= 10),
+    }
+    assert_eq!(r.departed, Count(0));
+}
+
+/// Every line of `file`, laid out by hb-shape the way `laid` says, joined
+/// and shaped cell by cell and held to it.
+fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
+    let text =
+        std::fs::read_to_string(format!("{}/tests/shape/{file}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap();
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
     let on_macos = cfg!(target_os = "macos");
     let mut files: std::collections::HashMap<(String, bool), Vec<u8>> = Default::default();
@@ -309,7 +386,9 @@ fn every_arabic_fixture_joins_as_harfbuzz_does() {
             placed.push((e, pen));
             pen += e.ax;
         }
-        placed.reverse();
+        if laid == Laid::RightToLeft {
+            placed.reverse();
+        }
         let mut left = std::collections::BTreeMap::new();
         for &(e, pen) in &placed {
             let l = left.entry(e.cluster).or_insert(pen);
@@ -320,10 +399,10 @@ fn every_arabic_fixture_joins_as_harfbuzz_does() {
             .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
             .collect();
         let morx = face.morx().is_some() && face.gsub().is_none();
-        // The control, a face with no Arabic: every glyph a `.notdef`, whose
-        // offsets say nothing -- a renderer leaves out the marks a face
-        // cannot draw -- so its glyphs and cells are compared.
-        let control = face.glyph(Codepoint::from_char('\u{0628}')).is_none();
+        // The control, a face without the word's script: every glyph a
+        // `.notdef`, whose offsets say nothing -- a renderer leaves out the
+        // marks a face cannot draw -- so its glyphs and cells are compared.
+        let control = face.glyph(cps[0]).is_none();
         let same = match morx {
             _ if control => got
                 .iter()
@@ -378,22 +457,17 @@ fn every_arabic_fixture_joins_as_harfbuzz_does() {
     }
     assert!(
         mismatches.is_empty(),
-        "{} of arabic.txt's lines differ:\n{}",
+        "{} of {file}'s lines differ:\n{}",
         mismatches.len(),
         mismatches.join("\n")
     );
-    // The fixtures reach what they are for: on macOS every face and the
-    // fallback, joined letters and ligatures among them.
-    match on_macos {
-        true => {
-            assert_eq!(departed, DEPARTURES.len(), "every departure is met");
-            assert!(compared >= 190 && by_outline >= 30 && fallback >= 30);
-            assert!(
-                joined_forms >= 300 && ligatures >= 40,
-                "{joined_forms} {ligatures}"
-            );
-        }
-        false => assert!(compared >= 30),
+    Reached {
+        compared: Count(compared),
+        by_outline: Count(by_outline),
+        fallback: Count(fallback),
+        joined_forms: Count(joined_forms),
+        ligatures: Count(ligatures),
+        departed: Count(departed),
     }
 }
 

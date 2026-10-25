@@ -238,3 +238,33 @@ fn an_alef_whose_lam_scrolled_away_keeps_its_form() {
 fn a_mongolian_word_is_joined_where_nothing_reorders() {
     assert_eq!(forms("\u{1820}\u{1821}\u{1822}", true, 0), "imf.........");
 }
+
+/// **With BDSM reset a Mongolian or Phags-pa word is joined in its stored
+/// order**: the two scripts are written left to right when laid out in
+/// horizontal lines (`[[source: unicode-ch13]]` 13.5, "the text should be
+/// laid out in horizontal lines running left to right";
+/// `[[source: unicode-ch14]]` 14.4), so the row as displayed reads left to
+/// right there: the first letter, on the left, initial, and the last
+/// final. Read right to left, as an Arabic row is, the forms come out
+/// mirrored.
+#[test]
+fn with_bdsm_reset_a_mongolian_word_is_joined_left_to_right() {
+    assert_eq!(forms("\u{1820}\u{1821}\u{1822}", false, 0), "imf.........");
+    assert_eq!(forms("\u{A840}\u{A841}\u{A842}", false, 0), "imf.........");
+    // A word of each, a space between: each joined its own way.
+    assert_eq!(
+        forms(&format!("\u{1820}\u{1821} {TEH}{YEH}{BEH}"), false, 0),
+        "if.fmi......"
+    );
+}
+
+/// **A Mongolian letter and an Arabic one side by side do not join**: each
+/// script is read in its own direction, a run of its own, as a level run
+/// ends the joins with BDSM set (UAX #9 3.5).
+#[test]
+fn with_bdsm_reset_two_directions_of_joining_do_not_join() {
+    assert_eq!(
+        forms(&format!("\u{1820}\u{1821}{BEH}{BEH}"), false, 0),
+        "iffi........"
+    );
+}

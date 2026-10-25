@@ -109,6 +109,19 @@ the screen; step 3 joins Arabic letters.
   reversed sees it joined, and one that sends presentation forms (vim's
   `arabicshape`) sees them as sent. Each row is joined alone, so with the
   mode off a word split by a soft wrap is not joined across it.
+- **With the mode off, a Mongolian or Phags-pa word joins left to right**,
+  its first letter, on the left, initial and its last final: the two
+  scripts run left to right on a horizontal line (`[[source:
+  unicode-ch13]]` 13.5, "the text should be laid out in horizontal lines
+  running left to right"; `[[source: unicode-ch14]]` 14.4), so a program
+  writes them in the order they read
+  (`with_bdsm_reset_a_mongolian_word_is_joined_left_to_right`). A
+  Mongolian letter and an Arabic one side by side do not join
+  (`with_bdsm_reset_two_directions_of_joining_do_not_join`). With the mode
+  on both scripts already joined in their stored order. The forms the
+  face is given, in logical order, are exact against hb-shape on the
+  macOS faces Noto Sans Mongolian and Noto Sans PhagsPa
+  (`every_mongolian_and_phags_pa_fixture_joins_as_harfbuzz_does`).
 
 ## What decided each choice
 
@@ -333,10 +346,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   Pro) is drawn through its presentation forms, which differ from its own
   chains where those pick an alternate (a final farsi yeh) or form the
   Allah ligature without the shadda 9.2.11 asks for.
-- **Mongolian and Phags-pa with the mode off** are joined as Arabic is, in
-  the row read right to left, so their forms come out mirrored: the first
-  letter, on the left, is drawn final. With the mode on they join in their
-  stored order.
 - **Drawn in their stored order still**: the status line, the row leaving
   the window during a smooth scroll, images placed on a reordered row, and
   an input method's composition and a predicted echo on one.
