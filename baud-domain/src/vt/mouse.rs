@@ -451,9 +451,11 @@ pub enum AlternateScroll {
 /// program that tracks the mouse (`[[source: ctlseqs]]`, "This corresponds
 /// to the shiftEscape resource").
 ///
-/// **Kept by both resets**, as xterm writes `shift_escape` only at start-up
-/// and in `CASE_XTERM_SHIFT_ESCAPE` (`[[source: xterm-reset]]`'s file).
-/// Read by the embedder's pointer, never here.
+/// **Back to `Override` on `RIS` and kept by `DECSTR`**: `RIS` returns to
+/// the state at power-on (`[[source: ecma48]]` 8.3.105), and `DECSTR`'s
+/// table does not name it. xterm writes `shift_escape` only at start-up and
+/// in `CASE_XTERM_SHIFT_ESCAPE` (`[[source: xterm-reset]]`'s file), a
+/// practice not followed. Read by the embedder's pointer, never here.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ShiftEscape {
     /// `Ps = 0`, and an omitted `Ps`: "allow shift-key to override mouse

@@ -569,9 +569,11 @@ impl Paint<'_, '_> {
     /// Every `OSC 4` override cleared, which is every entry a rendition
     /// resolves through: `OSC 104` with no parameter, and both resets, as
     /// xterm's `ReallyReset` calls `ResetAnsiColorRequest` in its common path
-    /// (`[[source: xterm-reset]]`). The dynamic colours are not touched --
-    /// neither xterm path resets them. Through [`Paint::set_palette`], so the
-    /// colour epoch moves only if some entry was overridden.
+    /// (`[[source: xterm-reset]]`). The dynamic colours are not touched
+    /// here: `DECSTR` keeps them, and `RIS` clears them on its own path
+    /// (`hard_reset`), where neither xterm path resets them. Through
+    /// [`Paint::set_palette`], so the colour epoch moves only if some entry
+    /// was overridden.
     pub(crate) fn reset_palette(&mut self) {
         clear_palette(self.strs.palette, self.style_log);
         clear_specials(self.strs.palette, self.style_log);

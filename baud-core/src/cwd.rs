@@ -19,8 +19,10 @@
 //! embedder knows and a no_std core does not. [`FileHost::Local`] is the
 //! two forms the RFC itself calls local, no host and `localhost`.
 //!
-//! `RIS` and `DECSTR` keep it: they reset the terminal, and the shell is
-//! still where it said it was.
+//! `RIS` forgets it, with the host `OSC 1337 ; RemoteHost` named: a
+//! terminal made operational has no directory reported
+//! (`[[source: ecma48]]` 8.3.105), and a shell reports it again at its next
+//! prompt (Jev's lean, RESTORES, 0.80/0.86). `DECSTR` keeps both.
 
 use crate::logging::Body;
 use crate::paint::Paint;

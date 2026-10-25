@@ -153,7 +153,7 @@ fn highlight_cursor_line_shows_and_hides_the_guide() {
 
 /// **`SetBadgeFormat=base64` keeps the badge's format, decoded**, for the
 /// embedder to evaluate: none until a program sets one, an empty one
-/// clearing it, `RIS` keeping it as iTerm2's reset does. A value that is
+/// clearing it, `RIS` clearing it (`ris_power_on.rs`). A value that is
 /// not base64 of UTF-8, or one that calls a function, leaves the format as
 /// it was and is counted under its key, as iTerm2 refuses both.
 #[test]
@@ -183,11 +183,7 @@ fn set_badge_format_keeps_the_format_and_refuses_a_call() {
                 Messages::of(3)
             );
             feed(t, b"\x1bc", size);
-            assert_eq!(
-                t.badge_format(),
-                Some("\\(user.host) on main"),
-                "RIS keeps it"
-            );
+            assert_eq!(t.badge_format(), None, "RIS clears it");
             feed(t, &set(""), size);
             assert_eq!(t.badge_format(), Some(""), "an empty one clears it");
             assert_eq!(t.iterm_counts().badge_unevaluated, Messages::NONE);

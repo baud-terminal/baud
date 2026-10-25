@@ -129,6 +129,14 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **`RIS`**: a file still arriving is abandoned and its scratch given
+    /// back, uncounted, as `RIS` drops the kitty transmission in flight.
+    pub(crate) fn file_reset(&mut self) {
+        if let Some(used) = self.strs.iterm_file.abandon() {
+            self.give_back(used);
+        }
+    }
+
     /// `APC G` began: a file still arriving gives the scratch up, counted.
     pub(crate) fn file_yield(&mut self) {
         if self.strs.iterm_file.holds_scratch() {

@@ -1,10 +1,13 @@
-//! `DECSTR` and `RIS` clear every `OSC 4` override and keep `OSC 10`/`11`/`12`.
+//! `DECSTR` and `RIS` clear every `OSC 4` override; `DECSTR` keeps
+//! `OSC 10`/`11`/`12` and `RIS` clears them.
 //!
 //! `[[source: xterm-reset]]`'s `ReallyReset` calls `ResetAnsiColorRequest` in
-//! its common path, so both resets return every palette entry to the table,
-//! and nothing in either path resets the dynamic colours. baud kept every
-//! override across both, so a program that recolours the sixteen and is reset
-//! left its colours on everything drawn after it.
+//! its common path, so both resets return every palette entry to the table.
+//! baud kept every override across both, so a program that recolours the
+//! sixteen and is reset left its colours on everything drawn after it. The
+//! dynamic colours go with `RIS` alone, as the state a terminal is made
+//! operational in has none (`[[source: ecma48]]` 8.3.105), where xterm keeps
+//! them in both paths; `DECSTR`'s list names none of them.
 
 mod support;
 
@@ -15,7 +18,7 @@ use baud_core::*;
 const SET: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]4;9;rgb:ab/cd/ef\x07\
 \x1b]4;100;rgb:01/02/03\x07\x1b]4;255;rgb:fe/fd/fc\x07";
 
-/// The dynamic colours the test sets, and the three it expects kept.
+/// The dynamic colours the test sets: `DECSTR` keeps all three.
 const DYN: &[u8] = b"\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07";
 
 const DECSTR: &[u8] = b"\x1b[!p";
@@ -52,26 +55,30 @@ fn both_resets_clear_every_palette_override() {
 }
 
 #[test]
-fn both_resets_keep_the_dynamic_colours() {
-    for (name, reset) in [("DECSTR", DECSTR), ("RIS", RIS)] {
-        each_read_size(&[DYN, SET, reset].concat(), |t| {
-            assert_eq!(
-                t.dynamic_color(DynamicColor::Foreground),
-                Some((0x11, 0x22, 0x33)),
-                "{name}"
-            );
-            assert_eq!(
-                t.dynamic_color(DynamicColor::Background),
-                Some((0x44, 0x55, 0x66)),
-                "{name}"
-            );
-            assert_eq!(
-                t.dynamic_color(DynamicColor::Cursor),
-                Some((0x77, 0x88, 0x99)),
-                "{name}"
-            );
-        });
-    }
+fn decstr_keeps_the_dynamic_colours_and_ris_clears_them() {
+    each_read_size(&[DYN, SET, DECSTR].concat(), |t| {
+        assert_eq!(
+            t.dynamic_color(DynamicColor::Foreground),
+            Some((0x11, 0x22, 0x33))
+        );
+        assert_eq!(
+            t.dynamic_color(DynamicColor::Background),
+            Some((0x44, 0x55, 0x66))
+        );
+        assert_eq!(
+            t.dynamic_color(DynamicColor::Cursor),
+            Some((0x77, 0x88, 0x99))
+        );
+    });
+    each_read_size(&[DYN, SET, RIS].concat(), |t| {
+        for which in [
+            DynamicColor::Foreground,
+            DynamicColor::Background,
+            DynamicColor::Cursor,
+        ] {
+            assert_eq!(t.dynamic_color(which), None, "RIS");
+        }
+    });
 }
 
 /// A query after a reset answers the embedder's table, not the override.
@@ -113,4 +120,11 @@ fn a_reset_moves_the_colour_epoch_only_when_it_clears_something() {
             );
         });
     }
+    // `RIS` clearing a text colour alone moves it too.
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b]10;rgb:11/22/33\x07");
+        let set = t.color_epoch();
+        support::feed(t, RIS);
+        assert_ne!(t.color_epoch(), set, "RIS cleared OSC 10 and moved nothing");
+    });
 }

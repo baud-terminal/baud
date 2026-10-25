@@ -133,6 +133,15 @@ impl Iterm {
         counts: ItermCounts::NONE,
     };
 
+    /// **What `RIS` takes**: the badge and its colour, and the host
+    /// `RemoteHost` named, none of which a terminal made operational has.
+    /// The `UnicodeVersion` stack, the backing scale and the counts stay.
+    pub(crate) fn forget_session(&mut self) {
+        self.badge_at = Badge::Unset;
+        self.badge_colour = None;
+        self.host_at = Host::Local;
+    }
+
     /// The badge format a program set, `None` while none has.
     pub(crate) fn badge(&self) -> Option<&str> {
         match self.badge_at {
@@ -557,7 +566,8 @@ impl Paint<'_, '_> {
     /// not properly base64 encoded"), when it calls a function ("For
     /// security reasons, this is not allowed and the badge was not
     /// updated"), or when its body was cut at `OSC_MAX`. An empty one
-    /// clears the badge. `RIS` keeps it, as iTerm2's reset does. Each
+    /// clears the badge. `RIS` clears it (Jev, RESTORES, 0.94/0.96), where
+    /// iTerm2's reset keeps it. Each
     /// expression in it but a user variable's is counted
     /// (`ItermCounts::badge_unevaluated`): the embedder draws those as
     /// nothing (Jev's lean, LITERAL_AND_USER).

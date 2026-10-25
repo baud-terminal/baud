@@ -208,7 +208,7 @@ pub use baud_domain::{RegisHold, RegisInput, RegisTicks};
 pub use clip::ClipboardWrites;
 pub use cwd::{DirectoriesRefused, WorkingDirectory};
 pub use dcs::TcapSetsRefused;
-pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
+pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontFamily, FontsRefused};
 pub use graph::Node;
 pub use iterm::ItermCounts;
 pub use logging::LogsRefused;

@@ -43,6 +43,26 @@ pub struct FontChange {
     pub size: SizeStep,
     name: [u8; FONT_NAME_MAX],
     len: ByteLen,
+    lead: Lead,
+}
+
+/// Which family a [`FontChange`] leads the chain with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FontFamily<'a> {
+    /// The family in force: a change of size alone.
+    Kept,
+    /// The family `Pt` named.
+    Named(&'a [u8]),
+    /// The family the embedder is configured with, which `RIS` asks back
+    /// for after a program changed the font.
+    Configured,
+}
+
+/// Whether a change leads with the family it names or the configured one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Lead {
+    AsNamed,
+    Configured,
 }
 
 impl core::fmt::Debug for FontChange {
@@ -50,16 +70,27 @@ impl core::fmt::Debug for FontChange {
         f.debug_struct("FontChange")
             .field("size", &self.size)
             .field("name", &self.name().map(core::str::from_utf8))
+            .field("lead", &self.lead)
             .finish()
     }
 }
 
 impl FontChange {
-    /// The family named, or `None` for a change of size alone.
+    /// The family named, or `None` for a change of size alone or one to
+    /// the configured family.
     pub fn name(&self) -> Option<&[u8]> {
-        match self.len.index() {
-            0 => None,
-            n => Some(&self.name[..n]),
+        match self.family() {
+            FontFamily::Named(n) => Some(n),
+            FontFamily::Kept | FontFamily::Configured => None,
+        }
+    }
+
+    /// The family the change leads with.
+    pub fn family(&self) -> FontFamily<'_> {
+        match (self.lead, self.len.index()) {
+            (Lead::Configured, _) => FontFamily::Configured,
+            (Lead::AsNamed, 0) => FontFamily::Kept,
+            (Lead::AsNamed, n) => FontFamily::Named(&self.name[..n]),
         }
     }
 }
@@ -82,7 +113,24 @@ pub(crate) struct FontAsks {
     queue: [FontChange; FONT_QUEUE],
     queued: ByteLen,
     pub(crate) refused: FontsRefused,
+    moved: FontMoved,
 }
+
+/// Whether a program has queued a change since power-on or the last
+/// `RIS`, for `RIS` to ask for the configured font back.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FontMoved {
+    No,
+    Yes,
+}
+
+/// The configured family at the configured size: what `RIS` asks for.
+const CONFIGURED: FontChange = FontChange {
+    size: SizeStep::Configured,
+    name: [0; FONT_NAME_MAX],
+    len: ByteLen::ZERO,
+    lead: Lead::Configured,
+};
 
 impl FontAsks {
     pub(crate) const NONE: FontAsks = FontAsks {
@@ -94,9 +142,11 @@ impl FontAsks {
             size: SizeStep::Keep,
             name: [0; FONT_NAME_MAX],
             len: ByteLen::ZERO,
+            lead: Lead::AsNamed,
         }; FONT_QUEUE],
         queued: ByteLen::ZERO,
         refused: FontsRefused(0),
+        moved: FontMoved::No,
     };
 
     /// What the embedder draws in; a name past [`FONT_NAME_MAX`] is kept
@@ -125,6 +175,17 @@ impl FontAsks {
 
     pub(crate) fn clear(&mut self) {
         self.queued = ByteLen::ZERO;
+    }
+
+    /// **`RIS`**: after a program queued a change since power-on or the
+    /// last `RIS`, the queue holds the configured font alone, which
+    /// supersedes whatever it held; with none, nothing is asked.
+    pub(crate) fn reset(&mut self) {
+        if self.moved == FontMoved::Yes {
+            self.queue[0] = CONFIGURED;
+            self.queued = ByteLen::from_index(1);
+            self.moved = FontMoved::No;
+        }
     }
 
     pub(crate) fn refuse(&mut self) {
@@ -212,10 +273,12 @@ impl Paint<'_, '_> {
                     size,
                     name: [0; FONT_NAME_MAX],
                     len: ByteLen::from_index(name.len()),
+                    lead: Lead::AsNamed,
                 };
                 c.name[..name.len()].copy_from_slice(name);
                 asks.queue[at] = c;
                 asks.queued = ByteLen::from_index(at + 1);
+                asks.moved = FontMoved::Yes;
             }
             _ => asks.refuse(),
         }

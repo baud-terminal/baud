@@ -145,13 +145,14 @@ fn a_repeated_set_is_not_a_flip() {
 }
 
 /// `RIS` under `?5` goes back to normal through the same rule, as xterm's
-/// hard reset calls `ReverseVideo` (charproc.c 14507-14508) and keeps
-/// `OSC 12`; XTRESTORE's flip is the same writer.
+/// hard reset calls `ReverseVideo` (charproc.c 14507-14508), and then drops
+/// the program's `OSC 12` with whatever the flip moved into it, where
+/// xterm keeps it; XTRESTORE's flip is the same writer, and keeps it.
 #[test]
 fn ris_and_xtrestore_flip_through_the_rule() {
     each_read_size(b"\x1b[?5h\x1b]12;rgb:10/10/10\x07\x1bc", |t| {
         assert!(!t.reverse_video());
-        assert_eq!(cursor(t), Some(FG));
+        assert_eq!(cursor(t), None);
     });
     each_read_size(b"\x1b[?5s\x1b[?5h\x1b]12;rgb:10/10/10\x07\x1b[?5r", |t| {
         assert!(!t.reverse_video());

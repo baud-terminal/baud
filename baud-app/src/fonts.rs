@@ -40,7 +40,7 @@
 
 use crate::config::Config;
 use crate::discover::{Catalogue, NamedAt};
-use baud_core::{FontChange, FontSize, SizeStep};
+use baud_core::{FontChange, FontFamily, FontSize, SizeStep};
 use baud_font::var::Variation;
 use baud_font::{Face, FaceIndex};
 use baud_render::FaceRole;
@@ -205,16 +205,22 @@ impl Fonts {
     /// What `change` does at `points`, with `configured` the config's size;
     /// refused whole when its name is none baud has or its step leaves the
     /// bounds. A change taken with a name keeps it for the query, which
-    /// answers it once that face leads.
+    /// answers it once that face leads. One to the configured family, which
+    /// `RIS` asks for, leads with the config's first face and forgets every
+    /// name a program sent.
     pub fn plan(
         &mut self,
         change: &FontChange,
         points: f32,
         configured: f32,
     ) -> Result<Plan, Refused> {
-        let face = match change.name() {
-            Some(n) => Some(self.resolve(n).ok_or(Refused::Unknown)?),
-            None => None,
+        let face = match change.family() {
+            FontFamily::Named(n) => Some(self.resolve(n).ok_or(Refused::Unknown)?),
+            FontFamily::Kept => None,
+            FontFamily::Configured => {
+                self.asked.fill(None);
+                Some(Slot(0))
+            }
         };
         let points = match change.size {
             SizeStep::Keep => points,
@@ -715,5 +721,41 @@ mod tests {
         });
         assert_eq!(size_of(13.0, 13.0), FontSize::Configured);
         assert_eq!(size_of(14.0, 13.0), FontSize::Stepped);
+    }
+
+    /// **`RIS` after a program's change plans the configured font**: the
+    /// face the config leads with, at the configured size, and a query
+    /// answers its family again rather than a name a program sent for it.
+    /// Perturbations: plan the configured family as none -- the face stays
+    /// the program's and the plan's assertion fails; keep the names sent --
+    /// the last assertion reads the PostScript name.
+    #[test]
+    fn a_reset_plans_the_configured_font() {
+        let mut f = fonts("");
+        with_term(|t| {
+            let c = change(t, b"protohebrewmonoc-regular");
+            let first = f.plan(&c, 13.0, 13.0).expect("planned");
+            assert_eq!(first.face, Some(Slot(0)));
+            let stix = f.resolve(b"STIX Two Math").expect("loaded");
+            let c = change(t, b"#+2 STIX Two Math");
+            let plan = f.plan(&c, 13.0, 13.0).expect("planned");
+            f.set(plan.face.expect("the face"));
+            assert!(f.leads(stix));
+            assert_eq!(f.answer(), "STIX Two Math", "the name the program sent");
+            t.write_at(baud_core::BytePos::ZERO, b"\x1bc");
+            t.feed(baud_core::BytePos::ZERO, baud_core::ReadLen::from_index(2));
+            let c = t.font_requests()[0];
+            assert_eq!(c.family(), baud_core::FontFamily::Configured);
+            let plan = f.plan(&c, 15.0, 13.0).expect("planned");
+            assert_eq!(
+                plan,
+                Plan {
+                    face: Some(Slot(0)),
+                    points: 13.0
+                }
+            );
+            f.set(Slot(0));
+            assert_eq!(f.answer(), "Proto Hebrew Mono C", "the configured family");
+        });
     }
 }

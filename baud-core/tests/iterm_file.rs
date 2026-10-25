@@ -664,6 +664,44 @@ fn a_multipart_file_is_the_same_picture() {
     }
 }
 
+/// **`RIS` abandons a file in parts**: a terminal made operational has
+/// none open (`[[source: ecma48]]` 8.3.105), so the parts after it and its
+/// `FileEnd` are counted, none open, and nothing is placed; `DECSTR` keeps
+/// it open, and the picture is shown.
+#[test]
+fn ris_abandons_a_file_in_parts_and_decstr_keeps_it() {
+    let (png, px) = picture(30, 40, 11);
+    let coded = b64(&png);
+    let (head, tail) = coded.split_at(coded.len() / 2 / 4 * 4);
+    let file = |reset: &[u8]| {
+        let mut bytes = b"\x1b]1337;MultipartFile=inline=1\x07".to_vec();
+        for (n, part) in [head, tail].into_iter().enumerate() {
+            if n == 1 {
+                bytes.extend(reset);
+            }
+            bytes.extend(b"\x1b]1337;FilePart=");
+            bytes.extend(part);
+            bytes.extend(b"\x07");
+        }
+        bytes.extend(b"\x1b]1337;FileEnd\x07");
+        bytes
+    };
+    for size in SIZES {
+        with(1 << 16, |t| {
+            feed(t, &file(b"\x1bc"), size);
+            assert_eq!(t.images().placements().count(), 0, "reads of {size}");
+            assert_eq!(t.iterm_counts().of(ItermKey::FilePart), ONE);
+            assert_eq!(t.iterm_counts().of(ItermKey::FileEnd), ONE);
+        });
+        with(1 << 16, |t| {
+            feed(t, &file(b"\x1b[!p"), size);
+            let (_, w, h, got) = placed(t);
+            assert_eq!((w, h), (30, 40), "DECSTR, reads of {size}");
+            assert!(got == px, "the pixels, reads of {size}");
+        });
+    }
+}
+
 /// **"Otherwise, it will be downloaded"**: refused, counted, nothing placed
 /// and the cursor where it was; so is a file past the scratch, whole.
 #[test]

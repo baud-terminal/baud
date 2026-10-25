@@ -1357,10 +1357,12 @@ fn a_configured_selection_colour_answers_and_is_what_117_and_119_restore() {
     assert_eq!(drain(&mut t), &b"\x1b]17;rgb:e0e0/e0e0/e0e0\x07"[..]);
 }
 
-/// **`RIS` keeps the selection's colours, the application's and the
-/// theme's**, as xterm's `ReallyReset` leaves every dynamic colour
-/// (`[[source: xterm-reset]]`); a light/dark flip that drops the
-/// application's colours keeps the theme's new one.
+/// **`RIS` keeps the theme's selection colours and drops the
+/// application's**: the embedder's are the state a terminal is made
+/// operational in (`[[source: ecma48]]` 8.3.105), and a program's are not,
+/// where xterm's `ReallyReset` leaves every dynamic colour (`[[source:
+/// xterm-reset]]`). A light/dark flip that drops the application's colours
+/// keeps the theme's new one.
 #[test]
 fn ris_and_a_theme_flip_keep_the_configured_selection() {
     let ws = support::CORPUS;
@@ -1373,8 +1375,10 @@ fn ris_and_a_theme_flip_keep_the_configured_selection() {
     );
     assert_eq!(
         drain(&mut t),
-        &b"\x1b]17;rgb:0101/0202/0303\x07\x1b]19;rgb:4040/5050/6060\x07"[..]
+        &b"\x1b]17;rgb:0101/0202/0303\x07\x1b]19;rgb:1111/1111/1111\x07"[..]
     );
+    assert_eq!(t.highlight_colors(), colors(None, None), "RIS");
+    support::feed(&mut t, b"\x1b]19;#405060\x07");
     t.set_theme(&theme_with(Some((7, 8, 9)), None), Overrides::Drop);
     support::feed(&mut t, b"\x1b]17;?\x07\x1b]19;?\x07");
     assert_eq!(
@@ -1390,8 +1394,9 @@ fn ris_and_a_theme_flip_keep_the_configured_selection() {
 /// the colour in use, at start its `cursorColor` resource, and its
 /// `ResetColorsRequest` allocates `Tcolors[ndx].resource` again
 /// (`[[source: xterm-misc]]` 3568-3595, 3718-3750). With none configured,
-/// the query answers nothing, as before. `RIS` keeps it, and a light/dark
-/// flip that drops the program's colour draws the theme's new one.
+/// the query answers nothing, as before. `RIS` returns to it from a
+/// program's, and a light/dark flip that drops the program's colour draws
+/// the theme's new one.
 #[test]
 fn a_configured_cursor_colour_is_drawn_answered_and_what_112_restores() {
     let ws = support::CORPUS;
@@ -1417,9 +1422,10 @@ fn a_configured_cursor_colour_is_drawn_answered_and_what_112_restores() {
     support::feed(&mut t, b"\x1b]12;#00ff00\x07\x1bc");
     assert_eq!(
         t.cursor_color_in(Video::Normal),
-        Some((0, 0xff, 0)),
-        "RIS keeps a program's"
+        Some((0x52, 0x8b, 0xff)),
+        "RIS returns to the configured one"
     );
+    support::feed(&mut t, b"\x1b]12;#00ff00\x07");
     t.set_theme(&theme_with_cursor(Some((1, 2, 3))), Overrides::Drop);
     assert_eq!(t.cursor_color_in(Video::Normal), Some((1, 2, 3)));
     t.set_theme(&theme_with_cursor(None), Overrides::Keep);

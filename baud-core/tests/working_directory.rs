@@ -102,14 +102,15 @@ fn a_report_is_chunk_invariant() {
     });
 }
 
-/// **`RIS` and `DECSTR` keep it**: the terminal is reset, and the shell is
-/// still where it said it was.
+/// **`RIS` forgets it and `DECSTR` keeps it**: `RIS` returns to the state
+/// at power-on (`[[source: ecma48]]` 8.3.105), which has no directory
+/// reported, and the shell reports it again at its next prompt.
 #[test]
-fn the_resets_keep_the_directory() {
+fn ris_forgets_the_directory_and_decstr_keeps_it() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b]7;file:///tmp\x07\x1bc");
-        assert_eq!(dir(t), Some((FileHost::Local, &b"/tmp"[..])), "RIS");
-        support::feed(t, b"\x1b[!p");
+        assert_eq!(dir(t), None, "RIS");
+        support::feed(t, b"\x1b]7;file:///tmp\x07\x1b[!p");
         assert_eq!(dir(t), Some((FileHost::Local, &b"/tmp"[..])), "DECSTR");
     });
 }

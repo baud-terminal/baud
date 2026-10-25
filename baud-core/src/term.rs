@@ -984,10 +984,12 @@ pub struct Cold {
     /// path names it, `[[source: xterm-reset]]`'s file), a practice not
     /// followed. Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
-    /// `?30` ([`baud_domain::ScrollbarShown`]): shown at power-on and **kept
-    /// by both resets**, as xterm's scrollbar is a property of its window
-    /// that no reset path touches (Jev's lean, KEPT, 0.90/0.74 and
-    /// 0.92/0.58). Read by the embedder, never here.
+    /// `?30` ([`baud_domain::ScrollbarShown`]): shown at power-on, **shown
+    /// again by `RIS`** (`[[source: ecma48]]` 8.3.105) and kept by
+    /// `DECSTR`. xterm keeps it across both, its scrollbar a property of
+    /// its window, a practice not followed: Jev's lean to keep it, 0.90/0.74
+    /// and 0.92/0.58, is below the 0.9 a departure needs. Read by the
+    /// embedder, never here.
     pub(crate) scrollbar: baud_domain::ScrollbarShown,
     /// `?41`, xterm's more(1) fix ([`MoreFix`]): read by `HT` and `CHT` at a
     /// pending wrap only. Off at power-on and after `RIS`, kept by
@@ -999,8 +1001,9 @@ pub struct Cold {
     /// path's hook, the moves of rows in place and a top region's scroll,
     /// and the counts credited at DECSWBV, `RIS` and a read's end.
     pub(crate) bell: crate::margin::BellState,
-    /// XTSHIFTESCAPE, `CSI > Ps s`, kept by both resets as xterm keeps
-    /// `shift_escape`. Read by the embedder's pointer, never here.
+    /// XTSHIFTESCAPE, `CSI > Ps s`: back to `Override` on `RIS`, kept by
+    /// `DECSTR` ([`ShiftEscape`]). Read by the embedder's pointer, never
+    /// here.
     pub(crate) shift_escape: ShiftEscape,
     /// XTSMPOINTER, `CSI > Ps p`, and the value `RIS` returns it to, the
     /// embedder's ([`Term::set_initial_pointer_mode`]). Read by the
@@ -1275,7 +1278,8 @@ pub struct Cold {
     /// the shell's. Written by the negotiation forms, and read by `Term::key`,
     /// which hands the active flags to the encoder, and by `CSI ? u`, which
     /// replies with them -- `[[source: kitty-keyboard]]`: "The terminal will
-    /// reply with: CSI ? flags u".
+    /// reply with: CSI ? flags u". `RIS` empties both, and `DECSTR` keeps
+    /// them.
     pub(crate) kitty: KittyStack,
     pub(crate) kitty_alt: KittyStack,
     /// Where a program put the cursor before it hid it (`placed.rs`):
@@ -5634,7 +5638,8 @@ impl<'b> Term<'b> {
         self.cold.pointer
     }
 
-    /// The window title, as the application set it. Bounded by `OSC_MAX`.
+    /// The window title, as the application set it, empty at power-on and
+    /// after `RIS`. Bounded by `OSC_MAX`.
     pub fn title(&self) -> &[u8] {
         &self.store.strs.title[..self.title_len.index()]
     }
@@ -5804,7 +5809,8 @@ impl<'b> Term<'b> {
 
     /// **The value a program gave `user.<name>`** with iTerm2's
     /// `SetUserVar`, decoded: what an embedder shows where iTerm2 would
-    /// substitute the variable. `None` for a name no program set.
+    /// substitute the variable. `None` for a name no program set since
+    /// power-on or the last `RIS`.
     pub fn user_var(&self, name: &[u8]) -> Option<&[u8]> {
         user_var(self.store.strs.user_vars, name)
     }

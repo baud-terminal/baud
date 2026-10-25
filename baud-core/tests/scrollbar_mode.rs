@@ -3,8 +3,10 @@
 //! `[[source: ctlseqs]]`: DECSET `?30` "Show scrollbar (rxvt)", DECRST
 //! "Don't show scrollbar (rxvt)". xterm toggles its scrollbar and answers
 //! `DECRQM` from whether one is shown (`[[source: xterm-misc]]`
-//! 5553-5554); no reset path touches it. Every test here fails on a `?30`
-//! that does nothing, which is what it was: counted and dropped.
+//! 5553-5554). `RIS` shows it again, the state at power-on
+//! (`[[source: ecma48]]` 8.3.105), and `DECSTR` keeps it. Every test here
+//! fails on a `?30` that does nothing, which is what it was: counted and
+//! dropped.
 mod support;
 use baud_core::{Owned, ScrollbarShown, Term, WinSize};
 
@@ -48,11 +50,18 @@ fn reset_hides_it_and_set_shows_it() {
     );
 }
 
-/// **Both resets keep it**, as xterm's do, the scrollbar being the
-/// window's; XTSAVE and XTRESTORE keep and bring it back.
+/// **`RIS` shows it again and `DECSTR` keeps it**: `RIS` returns to the
+/// state at power-on (`[[source: ecma48]]` 8.3.105), and `DECSTR`'s table
+/// does not name the mode. xterm keeps it across both, its scrollbar a
+/// property of the window, a practice not followed. XTSAVE and XTRESTORE
+/// keep and bring it back.
 #[test]
-fn resets_keep_it_and_xtsave_restores_it() {
-    assert_eq!(after(b"\x1b[?30l\x1bc").0, ScrollbarShown::Hidden, "RIS");
+fn ris_shows_it_decstr_keeps_it_and_xtsave_restores_it() {
+    assert_eq!(
+        after(b"\x1b[?30l\x1bc"),
+        (ScrollbarShown::Shown, b"\x1b[?30;1$y".to_vec(), 0),
+        "RIS"
+    );
     assert_eq!(
         after(b"\x1b[?30l\x1b[!p").0,
         ScrollbarShown::Hidden,

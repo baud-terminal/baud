@@ -1320,8 +1320,10 @@ fn sgr_pixels_motion_is_gated_by_the_cell_as_the_text_says() {
 /// protocol. Ps = 1 -> conditionally allow shift-key as modifier in mouse
 /// protocol", 2 and 3 "disallowed in the control sequence", and "If no
 /// parameter is given, xterm uses the default, which is 0". An explicit 0
-/// is 0 too, where xterm's `one_if_default` reads it as 1. Both resets
-/// keep it, as xterm writes `shift_escape` nowhere else; it is no SCOSC.
+/// is 0 too, where xterm's `one_if_default` reads it as 1. `DECSTR` keeps
+/// it, as its table does not name it, and `RIS` returns it to 0, the state
+/// at power-on (`[[source: ecma48]]` 8.3.105), where xterm keeps it; it is
+/// no SCOSC.
 #[test]
 fn xtshiftescape_is_the_state_the_pointer_reads() {
     support::with_corpus(|t| {
@@ -1337,13 +1339,11 @@ fn xtshiftescape_is_the_state_the_pointer_reads() {
             ShiftEscape::Conditional,
             "and changes nothing"
         );
-        support::feed(t, b"\x1b[!p\x1bc");
-        assert_eq!(
-            t.shift_escape(),
-            ShiftEscape::Conditional,
-            "kept by DECSTR and RIS"
-        );
-        support::feed(t, b"\x1b[>0s");
+        support::feed(t, b"\x1b[!p");
+        assert_eq!(t.shift_escape(), ShiftEscape::Conditional, "DECSTR");
+        support::feed(t, b"\x1bc");
+        assert_eq!(t.shift_escape(), ShiftEscape::Override, "RIS");
+        support::feed(t, b"\x1b[>1s\x1b[>0s");
         assert_eq!(t.shift_escape(), ShiftEscape::Override, "an explicit 0");
         support::feed(t, b"\x1b[>1s\x1b[>s");
         assert_eq!(t.shift_escape(), ShiftEscape::Override, "no parameter is 0");

@@ -4179,6 +4179,17 @@ impl Paint<'_, '_> {
         // committing it, so a reverse video that only ever existed inside one
         // is not a flip anything could have shown.
         self.flip_reverse_video(ModeChange::Reset, during);
+        // **And the colours a program set with `OSC 10`, `11`, `12`, `17`
+        // and `19`**, which `OSC 21` and iTerm2's `SetColors` write too,
+        // and the text under the cursor: none is set in "the state it has
+        // after it is made operational" (`[[source: ecma48]]` 8.3.105), so
+        // the embedder's colours stand again. After the flip, which can
+        // move the cursor's colour into the program's slot. xterm's
+        // `ReallyReset` keeps every dynamic colour (`[[source:
+        // xterm-reset]]`'s file), a practice not followed. `DECSTR` keeps
+        // them, as its list names none.
+        crate::osc::clear_dynamic(self.cold, self.style_log);
+        self.strs.palette[crate::storage::CURSOR_TEXT] = ColorWord::DEFAULT;
         // `?1042` and `?1043` go back to reset with the rest: ECMA-48
         // § 8.3.105 has `RIS` "set the modes into the reset state"
         // (`[[source: ecma48]]`). xterm keeps both -- no `ReallyReset` path
@@ -4237,6 +4248,38 @@ impl Paint<'_, '_> {
         // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
         // it, as iTerm2's `softReset` does not.
         self.cold.cursor_guide = None;
+        // **And what else a program set that the initial state has none
+        // of** (`[[source: ecma48]]` 8.3.105), the program's colours above
+        // among it; `DECSTR`'s table (`[[source: vt510-decstr]]`) names
+        // none of it, so it keeps all of it. Both kitty keyboard stacks, the parked one too, so the shell a
+        // crashed program leaves in the protocol gets its keys back at
+        // `reset`, the case `[[source: kitty-keyboard]]` keeps Enter, Tab
+        // and Backspace legacy for. XTSHIFTESCAPE and `?30`, which xterm
+        // keeps (`[[source: xterm-reset]]`'s file), a practice not followed:
+        // `?30`'s lean to keep it (0.90/0.74, then 0.92/0.58) is below the
+        // 0.9 a departure needs. The title and icon name, the badge and its
+        // colour (Jev, RESTORES, 0.94/0.96), the user variables, and the
+        // reported directory with the host `RemoteHost` named: none of it
+        // is set at power-on, and Jev leans the same way on each but the
+        // badge (title 0.68/0.80, user variables 0.54/0.72, directory
+        // 0.80/0.86). xterm keeps the title and iTerm2 the rest.
+        self.cold.kitty = baud_domain::KittyStack::new();
+        self.cold.kitty_alt = baud_domain::KittyStack::new();
+        self.cold.shift_escape = ShiftEscape::Override;
+        self.cold.scrollbar = baud_domain::ScrollbarShown::Shown;
+        self.title_len = ByteLen::ZERO;
+        self.icon_len = ByteLen::ZERO;
+        self.strs.title_enc = InputEncoding::Utf8;
+        self.strs.icon_enc = InputEncoding::Utf8;
+        self.strs.iterm.forget_session();
+        self.strs.user_vars.fill(baud_domain::UserVar::FREE);
+        self.forget_directory();
+        // **And the font, when a program changed it**: the configured one,
+        // asked of the embedder in place of whatever is still queued, as
+        // "RIS replaces all set-up features with their saved settings"
+        // (`[[source: vt510-rm-b]]` p. 5-184). xterm keeps a font a program
+        // set, a practice not followed (Jev's lean, RESTORES, 0.84/0.90).
+        self.strs.fonts.reset();
         // The xterm resources a program set go back with the modes, as
         // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
         // state". `DECSTR` keeps them, as its list names none.
@@ -4442,6 +4485,10 @@ impl Paint<'_, '_> {
         // its claim go first, while its rows are still its own.
         self.strs.sixel.abandon(self.images);
         self.images.reset();
+        // An iTerm2 file in parts is abandoned: a terminal made operational
+        // has none open (`[[source: ecma48]]` 8.3.105), and after it the
+        // file's parts and `FileEnd` are counted, none open.
+        self.file_reset();
         // The kitty transmission in flight and any decode pending name
         // images the reset just dropped; the scratch a PNG wrote goes back.
         let s = &mut *self.strs;
