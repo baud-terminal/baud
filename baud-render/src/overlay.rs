@@ -335,6 +335,12 @@ impl ClusterKey {
         ClusterKey((self.0 ^ code).wrapping_mul(ClusterKey::PRIME))
     }
 
+    /// A cell drawn flipped left to right (UAX #9 L4): a different cluster
+    /// from the same codepoints drawn as they are.
+    fn flipped(self) -> ClusterKey {
+        ClusterKey((self.0 ^ 0xf8).wrapping_mul(ClusterKey::PRIME))
+    }
+
     /// A lam-alef pair, its lam in `form`: two cells drawn together.
     fn paired(self, form: baud_domain::JoiningForm) -> ClusterKey {
         ClusterKey((self.joined(form).0 ^ 0x08).wrapping_mul(ClusterKey::PRIME))
@@ -645,6 +651,28 @@ impl Overlay {
             block_paint: r.block_paint(),
             orders: Some(&orders),
         };
+        // **The mirrored cells L4 draws other than by their content**,
+        // before the marked ones, so a mirrored base under its marks is
+        // drawn with its mirror: each by a record, flipped or with the
+        // mirror for its base (`Orders::mirrored`). A list a reordered row,
+        // so a screen with none pays one test a row.
+        if orders.any() {
+            for y in 0..rows {
+                let row = Row::from_index(y);
+                if view.rendition(row).is_double() {
+                    continue;
+                }
+                for &(v, m) in orders.mirrors(row) {
+                    let x = v.index();
+                    if mask.get(y * cols + x).is_none_or(|b| b & MASK_RECORD != 0)
+                        || covered.holds(row, v)
+                    {
+                        continue;
+                    }
+                    self.whole_mirrored(scene, r, (x, y), m, mask, records, &paint, &geom);
+                }
+            }
+        }
         // **The joined cells**, before the marked ones, so a letter that
         // carries marks is drawn in its form too: each by a record of its
         // form, a lam-alef pair as one (`bidi.rs`). A list of rows, so a
@@ -914,6 +942,69 @@ impl Overlay {
             None => {
                 self.stats.misses.bump();
                 let g = r.cluster(&cps, style, span);
+                self.clusters.insert(key, g.clone());
+                g
+            }
+        };
+        self.stats.cells.bump();
+        mask[y * geom.cols.index() + x] |= MASK_RECORD;
+        let (inside, above) = (records.len(), self.over.len());
+        Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
+        self.emitted.push(Emitted::of(
+            (Row::from_index(y), Col::at_index(x)),
+            records,
+            &self.over,
+            inside..records.len(),
+            above..self.over.len(),
+        ));
+    }
+
+    /// The cell at `at`, which L4 mirrors as `m`, drawn by records:
+    /// [`Overlay::whole`]'s, flipped through [`Renderer::cluster_flipped`],
+    /// or with the mirror for its base under its marks.
+    #[allow(clippy::too_many_arguments)]
+    fn whole_mirrored(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        at: (usize, usize),
+        m: crate::bidi::Mirrored,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let (x, y) = at;
+        let row = scene.view.row(Row::from_index(y));
+        let cell = row[x];
+        let mut cps = crate::renderer::cell_cps(scene.term, cell);
+        if let (crate::bidi::Mirrored::Under(base), Some(first)) = (m, cps.first_mut()) {
+            *first = base;
+        }
+        if cps.is_empty() {
+            return;
+        }
+        let style = crate::cellmap::face_of(scene.styles, cell);
+        let mut key = ClusterKey::start().word(style.code());
+        for &c in &cps {
+            key = key.fold(c);
+        }
+        let span = CellSpan::at(row, Col::at_index(x));
+        if span == CellSpan::Two {
+            key = key.wide();
+        }
+        let flipped = m == crate::bidi::Mirrored::Flipped;
+        if flipped {
+            key = key.flipped();
+        }
+        let glyphs = match self.clusters.get(&key) {
+            Some(g) => g.clone(),
+            None => {
+                self.stats.misses.bump();
+                let g = match flipped {
+                    true => r.cluster_flipped(&cps, style, span),
+                    false => r.cluster(&cps, style, span),
+                };
                 self.clusters.insert(key, g.clone());
                 g
             }

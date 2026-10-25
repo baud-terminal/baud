@@ -10,8 +10,8 @@
 //! what a row with no right-to-left character costs (nothing reorders).
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Col, PackedCell, ReadLen, Row, Rows, WinSize};
-use baud_render::{CursorSide, Reorder};
+use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, Rows, WinSize};
+use baud_render::{CursorSide, Mirrored, Reorder};
 
 const WS: WinSize = WinSize {
     ws_row: 4,
@@ -337,7 +337,10 @@ fn a_bracket_carrying_a_bidi_control_draws_its_mirror() {
     ] {
         let (s, o) = drawn_with(&WS, bytes, 0, Rows::ZERO);
         assert_eq!(s, want, "{what}");
-        assert_eq!(o.unmirrored().value(), 0, "{what}: nothing unmirrored");
+        assert!(
+            o.orders().mirrors(Row::ZERO).is_empty(),
+            "{what}: drawn as its mirroring glyph"
+        );
     }
     // The mirror is drawn as a cell of its own: no draw path reads the
     // cluster it no longer shows.
@@ -353,18 +356,33 @@ fn a_bracket_carrying_a_bidi_control_draws_its_mirror() {
     assert!(!out[8].flags.is_marked(), "the mirror is unmarked");
 }
 
-/// **The departure that is left, counted**: a mirrored character carrying
-/// a mark that draws -- `<` and U+0338, the decomposed form of U+226E,
-/// whose precomposed form mirrors to U+226F -- is drawn as written, its
-/// cell whole, and counted in [`Reorder::unmirrored`].
+/// **L4 for the cells a mirroring glyph alone cannot draw**: a mirrored
+/// character carrying a mark that draws -- `<` and U+0338, the decomposed
+/// form of U+226E, whose precomposed form mirrors to U+226F -- keeps its
+/// cell, marks and all, and is drawn with `>` for its base
+/// ([`Mirrored::Under`]); U+2211, which has no Bidi_Mirroring_Glyph, is
+/// drawn flipped ([`Mirrored::Flipped`]), and so is U+2211 carrying an RLM,
+/// its cell given the base alone as a bracket's is. A mirrored character
+/// at an even level is drawn as it is.
 #[test]
-fn a_mirrored_character_carrying_a_drawn_mark_is_counted() {
-    let (s, o) = drawn_with(&WS, "\u{5D0}<\u{338}\u{5D1}", 0, Rows::ZERO);
-    assert_eq!(s, ".........\u{5D1}<\u{5D0}");
-    assert_eq!(o.unmirrored().value(), 1);
+fn a_mirrored_character_a_glyph_alone_cannot_draw_is_drawn_mirrored() {
+    let (s, o) = drawn_with(&WS, "\u{5D0}\u{2211}<\u{338}\u{5D1}", 0, Rows::ZERO);
+    assert_eq!(s, "........\u{5D1}<\u{2211}\u{5D0}");
+    let at = |v: usize| o.orders().mirrored(Row::ZERO, Col::at_index(v));
+    assert_eq!(at(9), Some(Mirrored::Under(Codepoint::from_char('>'))));
+    assert_eq!(at(10), Some(Mirrored::Flipped));
+    assert_eq!((at(8), at(11)), (None, None), "the letters are not");
     let (s, o) = drawn_with(&WS, "\u{5D0}\u{226E}\u{5D1}", 0, Rows::ZERO);
     assert_eq!(s, ".........\u{5D1}\u{226F}\u{5D0}", "the control");
-    assert_eq!(o.unmirrored().value(), 0);
+    assert!(o.orders().mirrors(Row::ZERO).is_empty());
+    let (s, o) = drawn_with(&WS, "\u{5D0}\u{2211}\u{200F}\u{5D1}", 0, Rows::ZERO);
+    assert_eq!(s, ".........\u{5D1}\u{2211}\u{5D0}", "the RLM left out");
+    assert_eq!(
+        o.orders().mirrors(Row::ZERO),
+        &[(Col::at_index(10), Mirrored::Flipped)]
+    );
+    let (_, o) = drawn_with(&WS, "x\u{2211}<\u{338}", 0, Rows::ZERO);
+    assert!(!o.orders().any(), "at level 0 nothing is mirrored");
 }
 
 /// A wide character in a right-to-left run moves as one, its lead on the

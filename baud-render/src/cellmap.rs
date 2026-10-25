@@ -28,7 +28,7 @@ use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
-use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, PackedCell, Row, Viewport};
+use baud_domain::{Chan, Codepoint, Col, Cols, Content, GlyphId, PackedCell, Row, Viewport};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
 /// second of the two, on the screen the map was ensured for.
@@ -124,6 +124,14 @@ impl CellSpan {
         match row.get(x.index() + 1) {
             Some(c) if c.content == Content::WIDE_TAIL => CellSpan::Two,
             _ => CellSpan::One,
+        }
+    }
+
+    /// How many cells the span takes.
+    pub fn cells(self) -> Cols {
+        match self {
+            CellSpan::One => Cols::of_index(1),
+            CellSpan::Two => Cols::of_index(2),
         }
     }
 

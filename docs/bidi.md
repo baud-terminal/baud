@@ -59,15 +59,19 @@ the screen; step 3 joins Arabic letters.
   isolates that baud stores on the cell before them are given to the
   algorithm with that cell's character. One at the start of a line, with no
   cell before it to be stored on, is still dropped and counted.
-- **Brackets and other mirrored characters** resolved right to left draw
-  their Bidi_Mirroring_Glyph (L4), a bracket carrying only bidi controls
-  (LRM, RLM, ALM, the embeddings, overrides and isolates) included. Two
-  kinds still draw as they are, counted in `Renderer::bidi_unmirrored`:
-  the 126 mirrored characters with no such glyph (N-ary sums, roots,
-  integrals and the like), and a mirrored character carrying an attached
-  codepoint other than a bidi control (a combining mark such as U+0338,
-  as in `<` followed by it; text in composed form writes U+226E, which is
-  mirrored). Both are open departures from L4 (below).
+- **Brackets, sums, roots and every other mirrored character face the
+  right way** in right-to-left text (L4). A bracket draws its
+  Bidi_Mirroring_Glyph, a bracket carrying only bidi controls (LRM, RLM,
+  ALM, the embeddings, overrides and isolates) included. A mirrored
+  character carrying a mark keeps it, its mirror under it: `<` followed
+  by U+0338 draws as `>` followed by it, as the composed U+226E draws
+  U+226F. The 126 mirrored characters with no such glyph (N-ary sums,
+  roots, integrals and the like), which BidiMirroring.txt leaves "up to
+  the rendering system to provide mirrored glyphs", draw their own glyph
+  flipped left to right in their cell; a mark one carries is drawn as it
+  is, where the flip puts it (Jev BASE_FLIPPED, 0.91 / 0.94). The three
+  draw paths match pixel for pixel, a flipped glyph the left-to-right
+  one mirrored (`mirrored_characters_draw_mirrored_on_every_arm`).
 - **A cell moves whole**: a letter with its points, a wide character with
   its right half, kept on its left.
 - **An erased cell between characters** moves with the character before it;
@@ -211,21 +215,25 @@ higher-level protocol allows.
 | how a row is known to be a table row | any rule in the paragraph (not a rule lined up with one in the row above or below) | 0.52 / 0.44, 0.42 / 0.30 |
 | where a right-to-left cell's text sits | against its cell's right side, the cell its own paragraph (not mlterm's, at the cell's left) | 0.50 / 0.42, 0.52 / 0.22 |
 
-**Open departures from UAX #9 L4, which Jev leans to build.** The 126
-mirrored characters with no mirroring glyph, and a mirrored character
-carrying an attached codepoint other than a bidi control (a combining
-mark such as U+0338), are drawn unmirrored and counted. The first two
-asks put only the first case, as 128 characters, and on the premise
-that every character with a mirroring glyph draws it, which the build did
-not then meet for a cell carrying an RLM; their answers (counted, 0.88 /
-0.92 and 0.86 / 0.92) are superseded. Asked with the true counts, and
-again with the prior art (VTE swaps a cell's base and keeps its marks;
-HarfBuzz substitutes or applies the font's `rtlm`, which baud's faces do
-not carry; no terminal surveyed flips a glyph), Jev leans to build both: a
-flipped glyph 0.58 / 0.50 then 0.70 / 0.66, a substitute base under the
-marks 0.62 / 0.54 then 0.72 / 0.66. That lean is to build both; this step
-built only the bidi-control case, so both stay open departures until they
-are built (`docs/research/notes/ab/step2/l4.png` shows both).
+**L4 for every mirrored character, built to the text.** The 126 mirrored
+characters with no mirroring glyph draw their glyph flipped, and a
+mirrored character carrying a mark draws its mirror under the mark. The
+first two asks put only the first case, as 128 characters, and on the
+premise that every character with a mirroring glyph draws it, which the
+build did not then meet for a cell carrying an RLM; their answers
+(counted, 0.88 / 0.92 and 0.86 / 0.92) are superseded. Asked with the true
+counts, and again with the prior art (VTE swaps a cell's base and keeps
+its marks; HarfBuzz substitutes or applies the font's `rtlm`, which baud's
+faces do not carry; no terminal surveyed flips a glyph), Jev leaned to
+build both: a flipped glyph 0.58 / 0.50 then 0.70 / 0.66, a substitute
+base under the marks 0.62 / 0.54 then 0.72 / 0.66. A departure Jev did not
+decide at 0.9 is a defect (the owner, 2026-10-10), so both are built as
+L4 reads (`docs/research/notes/ab/step2/l4.png` showed both). One case
+neither settled, one of the 126 carrying a mark the face draws apart, Jev
+decided at 0.91 / 0.94: the base flipped and the mark not, which is
+Bidi_Mirrored=N and so not "depicted by a mirrored glyph", over the whole
+cell flipped (0.06 / 0.04) and the cell left unmirrored (0.00 / 0.00);
+the renders and answers are in `docs/research/notes/ab/b197/`.
 
 terminal-wg prefers hiding the cursor on a full reordered line ("It's
 more consistent to make it disappear"); the owner chose it drawn.
@@ -332,9 +340,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   each row keeps. Until then they are counted and `DECRQM` says they are
   not recognised (`docs/vt-coverage.md`).
 - SRS, SDS, SAPV and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
-- L4's two open departures, a flipped glyph for the 126 mirrored
-  characters with no mirroring glyph and a mirrored base under a mark that
-  draws.
 - **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
   Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a
   selection that covers only one cell of a lam-alef pair colours the whole
@@ -346,6 +351,9 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   Pro) is drawn through its presentation forms, which differ from its own
   chains where those pick an alternate (a final farsi yeh) or form the
   Allah ligature without the shadda 9.2.11 asks for.
+- **A mark on a flipped glyph**: on a flipped base a mark's image is put
+  where the flip puts its box, not where the flip puts its attachment
+  point, so it is exact only for a mark centred on its attachment point.
 - **Drawn in their stored order still**: the status line, the row leaving
   the window during a smooth scroll, images placed on a reordered row, and
   an input method's composition and a predicted echo on one.

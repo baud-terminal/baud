@@ -47,17 +47,18 @@
 //! section 5.1's "first test for right-to-left characters and invoke the
 //! Bidirectional Algorithm only if they are present".
 //!
-//! **Mirroring (L4).** A character resolved right to left that has a
-//! Bidi_Mirroring_Glyph draws it, and so does one whose cell carries only
-//! bidi controls (an RLM after a bracket), which draw nothing of their
-//! own: the drawn cell is the mirror alone. The 126 Bidi_Mirrored
-//! characters with no such glyph, and a mirrored character carrying an
-//! attached codepoint other than a bidi control (a combining mark such as
-//! U+0338 after `<`), are drawn as they are and counted in
-//! [`Reorder::unmirrored`]: two open departures from L4, until the glyph
-//! key can carry a flipped glyph and the draw paths a substitute base for
-//! a marked cell. Jev, asked with these counts, leans to build both
-//! (below 0.9; `docs/bidi.md`).
+//! **Mirroring (L4).** Every Bidi_Mirrored character resolved right to
+//! left is drawn mirrored. One that has a Bidi_Mirroring_Glyph draws it,
+//! and so does one whose cell carries only bidi controls (an RLM after a
+//! bracket), which draw nothing of their own: the drawn cell is the mirror
+//! alone. One that has a mark that draws keeps it, the mirror its base
+//! ([`Mirrored::Under`]), as VTE's `_vte_unistr_replace_base()` does: `<`
+//! and U+0338 draw as `>` and U+0338, as U+226E's mirror U+226F does. The
+//! 126 with no such glyph, for which BidiMirroring.txt leaves it "up to the
+//! rendering system to provide mirrored glyphs"
+//! (`[[source: unicode-bidimirroring]]`), draw their own glyph flipped left
+//! to right in their span ([`Mirrored::Flipped`]), a mark they carry kept
+//! unflipped at the mirrored place.
 //!
 //! **Shaping stays inside a level run** (UAX #9 3.5, "limited to characters
 //! within the same level run"): [`Reorder::seam`] is set before every cell
@@ -176,6 +177,23 @@ struct RowOrder {
     /// character: drawn as a cell of its own, any bidi control its cell
     /// carried left out.
     swaps: Vec<(Col, Content)>,
+    /// The visual columns drawn mirrored some other way, left to right:
+    /// flipped, or a mirror under the cell's marks.
+    mirrors: Vec<(Col, Mirrored)>,
+}
+
+/// **How a cell L4 mirrors is drawn, where its content alone cannot say**
+/// ([`Orders::mirrored`]): a cell drawn as its Bidi_Mirroring_Glyph alone
+/// holds that glyph instead ([`Orders::permute`]) and needs neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mirrored {
+    /// The cell's base, one of the 126 Bidi_Mirrored characters with no
+    /// Bidi_Mirroring_Glyph, drawn flipped left to right in its span; a
+    /// mark it carries is drawn unflipped where the flip puts it.
+    Flipped,
+    /// The cell's base drawn as its Bidi_Mirroring_Glyph, under the marks
+    /// the cell carries.
+    Under(Codepoint),
 }
 
 /// Whether any row of a window is drawn in another order.
@@ -279,6 +297,19 @@ impl Orders {
     /// no cell of the row changing.
     pub fn joins(&self, r: Row) -> Option<&[Option<Joined>]> {
         self.joins.get(r.index()).and_then(Option::as_deref)
+    }
+
+    /// **How visual column `v` of row `r` is mirrored**, where its
+    /// content does not say so: flipped, or a mirror under its marks.
+    pub fn mirrored(&self, r: Row, v: Col) -> Option<Mirrored> {
+        self.row(r)
+            .and_then(|o| o.mirrors.iter().find(|&&(c, _)| c == v).map(|&(_, m)| m))
+    }
+
+    /// Row `r`'s mirrored cells, by visual column, left to right: none on
+    /// a row in its own order.
+    pub fn mirrors(&self, r: Row) -> &[(Col, Mirrored)] {
+        self.row(r).map_or(&[], |o| o.mirrors.as_slice())
     }
 
     /// Whether row `r` is drawn in another order.
@@ -461,7 +492,6 @@ struct Chars(usize);
 pub struct Reorder {
     orders: Orders,
     seen: Seen,
-    unmirrored: Tally,
     work: Work,
     /// How the joins the maps hold were found.
     last: Last,
@@ -614,7 +644,6 @@ impl Reorder {
         Reorder {
             orders: Orders::default(),
             seen: Seen::default(),
-            unmirrored: Tally::default(),
             work: Work::default(),
             last: Last::LaidOut,
             bidi: Box::new(Bidi::new()),
@@ -630,14 +659,6 @@ impl Reorder {
     /// The maps the last layout made.
     pub fn orders(&self) -> &Orders {
         &self.orders
-    }
-
-    /// Bidi_Mirrored characters drawn unmirrored in the last layout, L4's
-    /// departure: those with no Bidi_Mirroring_Glyph, and those carrying an
-    /// attached codepoint other than a bidi control (a combining mark such
-    /// as U+0338).
-    pub fn unmirrored(&self) -> Tally {
-        self.unmirrored
     }
 
     /// What the last layout read to find its answers.
@@ -664,7 +685,6 @@ impl Reorder {
         let nrows = vp.rows().index();
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
-        self.unmirrored = Tally::default();
         self.work = Work::default();
         self.last = Last::LaidOut;
         self.orders.rows.clear();
@@ -720,7 +740,6 @@ impl Reorder {
         let nrows = vp.rows().index();
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
-        self.unmirrored = Tally::default();
         self.work = Work::default();
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
@@ -1022,6 +1041,7 @@ impl Reorder {
                 to: vec![Col::ZERO; cols],
                 level: Vec::with_capacity(cols),
                 swaps: Vec::new(),
+                mirrors: Vec::new(),
             };
             // The erased cells past the text go at the line's end in the
             // paragraph direction: before the text on a right-to-left line,
@@ -1046,9 +1066,16 @@ impl Reorder {
                 out.level.push(l);
                 let cell = row.cells[own.col.index()];
                 if odd {
+                    let v = Col::at_index(out.from.len() - 1);
                     match mirror(term, cell) {
-                        Mirror::Glyph(m) => out.swaps.push((Col::at_index(out.from.len() - 1), m)),
-                        Mirror::Missing => self.unmirrored.bump(),
+                        Mirror::Glyph(m) => out.swaps.push((v, m)),
+                        Mirror::Flipped(alone) => {
+                            if let Some(base) = alone {
+                                out.swaps.push((v, base));
+                            }
+                            out.mirrors.push((v, Mirrored::Flipped));
+                        }
+                        Mirror::Under(m) => out.mirrors.push((v, Mirrored::Under(m))),
                         Mirror::Not => {}
                     }
                 }
@@ -1436,12 +1463,16 @@ enum Resolves {
 
 /// What L4 draws for a cell resolved right to left.
 enum Mirror {
-    /// Its character's Bidi_Mirroring_Glyph.
+    /// Its character's Bidi_Mirroring_Glyph, alone: the cell carries no
+    /// mark that draws.
     Glyph(Content),
-    /// Nothing else: it is Bidi_Mirrored with no such glyph, or carries an
-    /// attached codepoint other than a bidi control (a combining mark such
-    /// as U+0338), and is drawn as it is.
-    Missing,
+    /// Its glyph flipped, for a character with no Bidi_Mirroring_Glyph:
+    /// with the base alone to draw where the cell carries only bidi
+    /// controls, and `None` where its content is already that or it
+    /// carries a mark that draws.
+    Flipped(Option<Content>),
+    /// Its Bidi_Mirroring_Glyph under the marks the cell carries.
+    Under(Codepoint),
     /// Itself: it is not Bidi_Mirrored.
     Not,
 }
@@ -1462,10 +1493,17 @@ fn mirror(term: &Term<'_>, cell: PackedCell) -> Mirror {
         || term
             .cluster_marks(cell)
             .all(|m| char::from_u32(m).is_some_and(is_bidi_control));
-    match (bare, mirroring_glyph(c)) {
-        (true, Some(m)) => Codepoint::new(u32::from(m))
-            .map_or(Mirror::Missing, |cp| Mirror::Glyph(Content::codepoint(cp))),
-        _ => Mirror::Missing,
+    let glyph = mirroring_glyph(c).and_then(|m| Codepoint::new(u32::from(m)));
+    match (bare, glyph) {
+        (true, Some(m)) => Mirror::Glyph(Content::codepoint(m)),
+        (false, Some(m)) => Mirror::Under(m),
+        (true, None) => Mirror::Flipped(
+            cell.flags
+                .is_marked()
+                .then(|| Codepoint::new(u32::from(c)).map(Content::codepoint))
+                .flatten(),
+        ),
+        (false, None) => Mirror::Flipped(None),
     }
 }
 

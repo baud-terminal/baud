@@ -1564,6 +1564,11 @@ finding that no pinned terminfo entry and no application read sends
   mirrored base under a mark that draws (0.62/0.54, 0.72/0.66). That lean
   is to build both; this step built only the bidi-control case, so both
   stay unbuilt and counted, open departures until built (ab/step2/l4.png).
+  ~~Open departures.~~ Built to L4 on 2026-10-24 (lane b197): a flipped
+  glyph, each row of texels reversed and placed mirrored in its span, on
+  all three draw paths, and the mirror under a cell's marks. One of the 126
+  carrying a mark the face draws apart: the base flipped and the mark not,
+  Jev BASE_FLIPPED 0.91/0.94 (ab/b197/).
 - **12.3 Open for the owner**, today's behaviour kept:
   ~~Q2 the state at power-on (built EXPLICIT; Jev EXPLICIT 0.82/0.82 then
   0.51/0.37)~~ answered 2026-10-24, "Should right-to-left lines be on
@@ -1602,8 +1607,9 @@ only when it changed.
 **12.4 Found and not fixed.** The status line, the row leaving a smooth
 scroll, images, an input method's composition and a predicted echo keep
 their stored columns on a reordered row; a bidi control at a paragraph's
-column 0 is dropped (2.5); a mirrored character carrying a mark that draws
-is drawn unmirrored and counted (12.1); vim-unicode, cat-cjk and less-cjk,
+column 0 is dropped (2.5); ~~a mirrored character carrying a mark that
+draws is drawn unmirrored and counted (12.1)~~, drawn with its mirror
+under the mark since lane b197; vim-unicode, cat-cjk and less-cjk,
 three of the recordings the benches replay, hold Hebrew and Arabic, so
 their implicit frames lay real right-to-left rows out.
 

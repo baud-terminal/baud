@@ -281,3 +281,45 @@ fn joins_kept_with_bdsm_reset_follow_the_screen() {
         assert!(a.pixels == b.pixels, "step {i}: the kept joins differ");
     }
 }
+
+/// **A mirrored cell that turns with no cell of its row changing repaints
+/// the row.** The second row is a soft-wrapped continuation of U+2211, the
+/// same cells read either way round, so its paragraph's direction alone
+/// decides whether each is flipped (UAX #9 L4): while the paragraph starts
+/// with an alef it is at level 1 and they are, and once an `x` is written
+/// over the alef it is at level 0 and they are not. The incremental frame
+/// equals a full one, and the premise holds: the full frames differ in the
+/// second row.
+#[test]
+fn a_turned_mirror_repaints_its_row() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen};
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut inc = renderer(&faces);
+    let mut full = renderer(&faces);
+    let mut a = Canvas::for_renderer(&inc);
+    let mut b = Canvas::for_renderer(&full);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let band = usize::try_from(inc.metrics().cell_h.value()).unwrap() * a.width;
+    let second = |c: &Canvas| c.pixels[band..2 * band].to_vec();
+    let cols = usize::from(WS.ws_col);
+    let text = format!("\x1b[?25l\x1b[8h\u{5D0}{}", "\u{2211}".repeat(2 * cols - 1));
+    let mut was: Option<Vec<u32>> = None;
+    for (step, bytes) in [text.as_str(), "\x1b[1;1Hx"].iter().enumerate() {
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+        paint(&mut full, &mut t, &mut b, Damage::Full);
+        assert!(
+            a.pixels == b.pixels,
+            "step {step}: the incremental frame differs from a full repaint"
+        );
+        let now = second(&b);
+        if let Some(w) = &was {
+            assert!(*w != now, "the premise: the second row's cells turned");
+        }
+        was = Some(now);
+    }
+}

@@ -879,6 +879,44 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
     }
 }
 
+/// A row's cells as [`Renderer::runs`] reads them: the cells in their
+/// drawn order, where shaping must stop, and the joined and mirrored
+/// cells, by visual column.
+type RowCells<'a> = (
+    &'a [PackedCell],
+    &'a [bool],
+    &'a [Option<crate::bidi::Joined>],
+    &'a [(Col, crate::bidi::Mirrored)],
+);
+
+/// How a run's cell is drawn beyond its shaping: mirrored, and the base it
+/// was shaped from.
+#[derive(Clone, Copy)]
+struct CellDrawn {
+    mirrored: crate::bidi::Mirrored,
+    base: Codepoint,
+}
+
+/// **Where a glyph sits in its span**, in pixels: the span's width, a
+/// cell's for each cell it takes, and the glyph's offset from its left
+/// edge, before its slot's `left`.
+#[derive(Clone, Copy)]
+pub(crate) struct InSpan {
+    pub width: i32,
+    pub dx: i32,
+}
+
+impl InSpan {
+    /// **The offset mirrored in the span**: the image, `dx` plus `slot`'s
+    /// `left` from the left edge, put as far from the right edge, so a
+    /// flipped image there is the unflipped one's pixels mirrored about
+    /// the span's centre. Answered as an offset still to be added to
+    /// `left`, as every path places a glyph.
+    pub(crate) fn mirrored(self, slot: crate::atlas::Slot) -> i32 {
+        self.width - self.dx - 2 * slot.left - i32::from(slot.w.0)
+    }
+}
+
 /// **The character a cell draws**: its base ([`Term::base_of`]), and none
 /// for a kitty Unicode placeholder, U+10EEEE, whose cell shows a slice of
 /// an image or nothing (`[[source: kitty-graphics]]`, "Unicode
@@ -1641,6 +1679,13 @@ pub struct Renderer<'f, 'a> {
     /// row of a wrapped word -- so a row whose joins moved is converted
     /// again.
     joins_prev: Vec<Option<Vec<Option<crate::bidi::Joined>>>>,
+    /// Each row's mirrored cells as the last conversion drew them
+    /// ([`crate::bidi::Orders::mirrors`]): a cell is flipped or given a
+    /// mirror for its base by its level, which can change with no cell of
+    /// its row changing -- a row of the same characters either way round,
+    /// its paragraph's direction set by the row before -- so a row whose
+    /// mirrors moved is converted again. Empty while no row holds one.
+    mirrors_prev: Vec<Vec<(Col, crate::bidi::Mirrored)>>,
     /// Whether `joins_prev` holds a row's joins: a frame whose window holds
     /// none, after one that held none, compares no row's.
     joins_held: crate::bidi::Joins,
@@ -2070,6 +2115,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bidi: crate::bidi::Reorder::new(),
             bidi_cells: Vec::new(),
             joins_prev: Vec::new(),
+            mirrors_prev: Vec::new(),
             joins_held: crate::bidi::Joins::Unseen,
             joins_seen: crate::bidi::Joins::Unseen,
             bidi_used: Vec::new(),
@@ -2697,12 +2743,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// ([`crate::Reorder::work`]).
     pub fn bidi_work(&self) -> crate::bidi::Work {
         self.bidi.work()
-    }
-
-    /// Bidi_Mirrored characters the last layout drew unmirrored
-    /// ([`crate::Reorder::unmirrored`]).
-    pub fn bidi_unmirrored(&self) -> Tally {
-        self.bidi.unmirrored()
     }
 
     /// The find overlay's marks, each match's wash, for a path that draws
@@ -5480,6 +5520,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let joins_kept = rejoin.is_some()
             || self.bidi.orders().any_joined()
             || self.joins_held == crate::bidi::Joins::Seen;
+        // Whether any row's mirrors are compared with the last frame's: none
+        // while neither frame holds one.
+        let mirrors_now = self.bidi.orders().any()
+            && (0..main.index())
+                .any(|r| !self.bidi.orders().mirrors(Row::from_index(r)).is_empty());
+        let mirrors_kept = mirrors_now || !self.mirrors_prev.is_empty();
         let orders = self.bidi.orders();
         for r in 0..main.index() {
             let row = Row::from_index(r);
@@ -5729,6 +5775,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let rejoined = joins_kept
                 && self.bidi.orders().joins(row)
                     != self.joins_prev.get(r).and_then(Option::as_deref);
+            // Or a mirrored cell.
+            let remirrored = mirrors_kept
+                && self.bidi.orders().mirrors(row)
+                    != self.mirrors_prev.get(r).map_or(&[][..], Vec::as_slice);
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -5774,7 +5824,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || found
                 || linked
                 || noticed
-                || rejoined;
+                || rejoined
+                || remirrored;
             beyond_cursor |= beyond;
             self.dirty[r] =
                 full || beyond || cursor_moved || glow_moved || guide_moved || trail_moved;
@@ -5782,6 +5833,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.place_diff = diff;
         if rejoin.is_some() {
             self.bidi.rejoined();
+        }
+        if mirrors_kept {
+            self.mirrors_prev.clear();
+            if mirrors_now {
+                self.mirrors_prev.extend(
+                    (0..rows.index())
+                        .map(|r| self.bidi.orders().mirrors(Row::from_index(r)).to_vec()),
+                );
+            }
         }
         if joins_kept {
             self.joins_prev.clear();
@@ -6270,6 +6330,54 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 slot,
                 dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x(),
                 dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
+                phase,
+            });
+        }
+        out
+    }
+
+    /// **[`Renderer::cluster`] drawn flipped**, for a cell L4 mirrors that
+    /// has no Bidi_Mirroring_Glyph ([`crate::bidi::Mirrored::Flipped`]): the
+    /// first glyph, the base's, flipped left to right
+    /// ([`Atlas::slot_flipped_at`]), and every glyph's place mirrored in
+    /// `span` ([`InSpan::mirrored`]), a mark keeping its own image -- what
+    /// [`Renderer::emit`] draws for the same cell on the instance path.
+    pub fn cluster_flipped(
+        &mut self,
+        cps: &[Codepoint],
+        style: impl Into<TextFace>,
+        span: CellSpan,
+    ) -> Vec<ClusterGlyph> {
+        let style = style.into();
+        let Some(&base) = cps.first() else {
+            return Vec::new();
+        };
+        let face = self.face_for(cps, style);
+        let phase = self.phase_in(face, base, span);
+        let clusters = [ClusterIn {
+            cps: cps.to_vec(),
+            at: CellIx(0),
+        }];
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
+        let width = cell_w * i32::try_from(span.cells().index()).unwrap_or(1);
+        let mut out = Vec::new();
+        for (i, p) in shaped.glyphs().iter().enumerate() {
+            let slot = match i {
+                0 => self
+                    .atlas
+                    .slot_flipped_at(f, face, p.id, scale, phase, Stretch::One),
+                _ => self.atlas.slot(f, face, p.id, scale, phase),
+            };
+            let dx = scale.px(f32::from(p.dx)).round() as i32;
+            out.push(ClusterGlyph {
+                id: p.id,
+                source: GlyphSource::Face(face),
+                slot,
+                dx: slot.map_or(dx, |s| InSpan { width, dx }.mirrored(s)),
+                dy: scale.px(f32::from(p.dy)).round() as i32,
                 phase,
             });
         }
@@ -7215,10 +7323,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **One row's runs of cells shaped by one face**, for
-    /// [`Renderer::convert_row`]: a row that holds no joined cell by the
-    /// loop that reads no join, as it ran before joining existed, and one
-    /// that holds one by [`Renderer::joined_runs`]. The row's joined cells
-    /// are copied, so shaping may borrow the renderer mutably.
+    /// [`Renderer::convert_row`]: a row that holds no joined or mirrored
+    /// cell by the loop that reads neither, as it ran before joining
+    /// existed, and one that holds one by [`Renderer::joined_runs`].
     #[inline(never)]
     fn row_runs(
         &mut self,
@@ -7229,44 +7336,67 @@ impl<'f, 'a> Renderer<'f, 'a> {
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
-        match self.bidi.orders().joins(r).map(<[_]>::to_vec) {
-            None => self.runs::<false>(term, r, (row, seams, &[]), at, instances, exc),
-            Some(joins) => self.joined_runs(term, r, (row, seams, &joins), at, instances, exc),
+        // The test alone here, nothing kept from it: the loop every other row
+        // runs is inlined below, and holds no copy of a row's joins live.
+        let orders = self.bidi.orders();
+        match orders.joins(r).is_none() && orders.mirrors(r).is_empty() {
+            true => self.runs::<false>(term, r, (row, seams, &[], &[]), at, instances, exc),
+            false => self.joined_runs(term, r, (row, seams), at, instances, exc),
         }
     }
 
-    /// [`Renderer::row_runs`] for a row that holds a joined cell: each
-    /// joined cell shaped alone in its form, and a lam-alef pair drawn
-    /// together. Out of line, so the loop every other row runs holds none
-    /// of it.
+    /// [`Renderer::row_runs`] for a row that holds a joined or a mirrored
+    /// cell: each joined cell shaped alone in its form, a lam-alef pair
+    /// drawn together, and a mirrored cell drawn as L4 has it
+    /// ([`crate::bidi::Mirrored`]). Out of line, so the loop every other row
+    /// runs holds none of it. The row's joined and mirrored cells are
+    /// copied, so shaping may borrow the renderer mutably.
     #[inline(never)]
     fn joined_runs(
         &mut self,
         term: &Term<'_>,
         r: Row,
-        cells: (&[PackedCell], &[bool], &[Option<crate::bidi::Joined>]),
+        (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
-        self.runs::<true>(term, r, cells, at, instances, exc);
+        let orders = self.bidi.orders();
+        let joins = orders.joins(r).map(<[_]>::to_vec).unwrap_or_default();
+        let mirrors = orders.mirrors(r).to_vec();
+        self.runs::<true>(term, r, (row, seams, &joins, &mirrors), at, instances, exc);
     }
 
-    /// The runs of one row, `JOINED` for a row that holds a joined cell.
+    /// The runs of one row, `LAID` for a row that holds a joined or a
+    /// mirrored cell.
     #[inline(always)]
-    fn runs<const JOINED: bool>(
+    fn runs<const LAID: bool>(
         &mut self,
         term: &Term<'_>,
         r: Row,
-        (row, seams, joins): (&[PackedCell], &[bool], &[Option<crate::bidi::Joined>]),
+        (row, seams, joins, mirrors): RowCells<'_>,
         (st, line_end): (Stretch, usize),
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
     ) {
         let seam = |v: usize| seams.get(v).copied().unwrap_or(false);
-        let joined = |v: usize| match JOINED {
+        let joined = |v: usize| match LAID {
             true => joins.get(v).copied().flatten(),
             false => None,
+        };
+        // A mirrored cell is at an odd level, so a seam stands before it and
+        // after it: it is a run of its own, and only a run's first cell is
+        // asked.
+        let mirrored = |v: usize| match LAID {
+            true => mirrors
+                .iter()
+                .find(|&&(c, _)| c.index() == v)
+                .map(|&(_, m)| m),
+            false => None,
+        };
+        let under = |v: usize| match mirrored(v) {
+            Some(crate::bidi::Mirrored::Under(m)) => Some(m),
+            _ => None,
         };
         // Then runs of cells shaped by one face, in one selection of its
         // lookups. The row's scripts are settled the first time a run is on
@@ -7276,7 +7406,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut settled = false;
         let mut c = 0usize;
         while c < line_end {
-            let Some(base) = drawn_base(term, row[c]) else {
+            let Some(base) = under(c).or_else(|| drawn_base(term, row[c])) else {
                 c += 1;
                 continue;
             };
@@ -7293,7 +7423,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             // **A lam-alef pair**, drawn together over its cells from its
             // left one, out of line: a row with no joined cell asks once.
-            if JOINED && self.pair_at(term, r, (row, joins), (c, line_end), instances) {
+            if LAID && self.pair_at(term, r, (row, joins), (c, line_end), instances) {
                 c += 1;
                 continue;
             }
@@ -7341,7 +7471,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let mut pair_here = Tally::default();
             while c < line_end && c - start < RUN_CELLS {
                 let cell = row[c];
-                let Some(cp) = drawn_base(term, cell) else {
+                let Some(cp) = under(c).or_else(|| drawn_base(term, cell)) else {
                     break;
                 };
                 // The run's first cell is taken whatever the test says: the
@@ -7356,7 +7486,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // letters reversed.
                 if c > start
                     && (seam(c)
-                        || (JOINED && (joined(c).is_some() || joined(start).is_some()))
+                        || (LAID && (joined(c).is_some() || joined(start).is_some()))
                         || crate::boxes::covers(cp)
                         || self.face_of_cell(term, cell, cp) != face
                         || (varies == Varies::Yes
@@ -7410,7 +7540,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             // A joined cell is a run of its own (above), shaped in its form,
             // which its key folds.
-            let form = [match JOINED {
+            let form = [match LAID {
                 true => joined(start).map(|j| j.form),
                 false => None,
             }];
@@ -7447,7 +7577,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             #[cfg(feature = "exceptions")]
             self.count_differs(term, r, Col::at_index(start), &clusters, &shaped, exc);
-            self.emit(term, face, r, Col::at_index(start), &shaped, instances);
+            // A mirrored cell's run is drawn by the loop that reads its
+            // mirror; every other run by the loop that reads none.
+            let at = Col::at_index(start);
+            match mirrored(start) {
+                None => self.emit::<false>(term, face, r, at, (&shaped, None), instances),
+                Some(m) => {
+                    let drawn = CellDrawn { mirrored: m, base };
+                    self.emit::<true>(term, face, r, at, (&shaped, Some(drawn)), instances);
+                }
+            }
         }
     }
 
@@ -8076,16 +8215,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Instances for a shaped run starting at column `start` of row `r`.
-    fn emit(
+    /// Instances for a shaped run starting at column `start` of row `r`;
+    /// with `MIRRORED`, drawn as `drawn` says: flipped, for a mirrored cell
+    /// ([`crate::bidi::Mirrored::Flipped`]), its first glyph's image
+    /// reversed and every glyph's place mirrored in the span. A run with
+    /// no mirrored cell takes the arm that reads no mirror.
+    fn emit<const MIRRORED: bool>(
         &mut self,
         term: &Term<'_>,
         face: FaceIx,
         r: Row,
         start: Col,
-        shaped: &Shaped,
+        (shaped, drawn): (&Shaped, Option<CellDrawn>),
         out: &mut Vec<Instance>,
     ) {
+        let drawn = drawn.filter(|_| MIRRORED);
+        let flipped = drawn.is_some_and(|d| d.mirrored == crate::bidi::Mirrored::Flipped);
         let size = self.size_of(r);
         let st = Stretch::of(size);
         let scale = self.scales[face.index()];
@@ -8095,7 +8240,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let band = self.band(r);
         let top = box_top(size, band);
         let range = self.row_cells(r);
-        for p in shaped.glyphs() {
+        for (i, p) in shaped.glyphs().iter().enumerate() {
             let col = start.index() + usize::from(p.cell.0);
             // A glyph belongs to the cell it is placed at; a hidden cell's
             // are dropped here rather than kept out of the run, so a run
@@ -8117,6 +8262,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // writes: a mark at that cell moves with it.
             let span = CellSpan::at(&self.cur[range.clone()], Col::at_index(col));
             let phase = match self.cur.get(range.start + col).copied() {
+                Some(_) if MIRRORED && span == CellSpan::Two && drawn.is_some() => {
+                    let base = drawn.map_or(Codepoint::from_char(' '), |d| d.base);
+                    self.phase_in(face, base, CellSpan::Two)
+                }
                 Some(cell) if span == CellSpan::Two => term
                     .base_of(cell)
                     .as_codepoint()
@@ -8131,11 +8280,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 1 => phase,
                 _ => phase.doubled(),
             };
-            let Some(slot) = self.atlas.slot_at(f, face, p.id, scale, phase, st) else {
+            // A flipped cell's base is its first glyph; its marks keep their
+            // own images.
+            let slot = match MIRRORED && flipped && i == 0 {
+                true => self.atlas.slot_flipped_at(f, face, p.id, scale, phase, st),
+                false => self.atlas.slot_at(f, face, p.id, scale, phase, st),
+            };
+            let Some(slot) = slot else {
                 continue;
             };
             let dx = scale.px(f32::from(p.dx)).round() as i32 * st.x();
             let dy = scale.px(f32::from(p.dy)).round() as i32 * st.y();
+            let dx = match MIRRORED && flipped {
+                true => InSpan {
+                    width: cell_w * i32::try_from(span.cells().index()).unwrap_or(1),
+                    dx,
+                }
+                .mirrored(slot),
+                false => dx,
+            };
             let x = i32::try_from(col).unwrap_or(0) * cell_w + dx + slot.left;
             let y = top + baseline - dy + slot.top;
             let inst = Instance {

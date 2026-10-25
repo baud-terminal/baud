@@ -9859,10 +9859,13 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
         scene(&mut t, true, "");
         let got = three(&mut arms, &mut t, "reordered");
         assert!(arms.renderer.bidi().any(), "the rows were reordered");
-        assert_eq!(
-            arms.renderer.bidi_unmirrored().value(),
-            0,
-            "every bracket has a mirror"
+        assert!(
+            (0..usize::from(WS.ws_row)).all(|r| arms
+                .renderer
+                .bidi()
+                .mirrors(Row::from_index(r))
+                .is_empty()),
+            "every bracket is drawn as its mirroring glyph"
         );
         scene(&mut t, false, "");
         let want = three(&mut arms, &mut t, "written in visual order");
@@ -10784,4 +10787,163 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
     r.convert(&t, Rows::ZERO, Damage::Incremental);
     assert_eq!(frame(&mut r, &t), (0, rows), "after a conversion again");
     assert_eq!(frame(&mut r, &t), (0, 0), "and the same screen");
+}
+
+/// **A mirrored character resolved right to left is drawn mirrored on every
+/// arm** (UAX #9 L4, `[[source: uax9-bidi]]`): U+2211, one of the 126
+/// Bidi_Mirrored characters with no Bidi_Mirroring_Glyph, which
+/// BidiMirroring.txt leaves "up to the rendering system to provide
+/// mirrored glyphs" for (`[[source: unicode-bidimirroring]]`), draws its
+/// own glyph flipped left to right in its cell, as U+221A does; U+2203
+/// carrying U+0338,
+/// the decomposed U+2204 which has none either, draws the glyph the face
+/// composes flipped; and `<` carrying U+0338, whose base has a mirroring
+/// glyph, draws `>` under the mark, as `>` and U+0338 written in its place
+/// draw. Each is after an alef, at the end of a right-to-left paragraph,
+/// so N2 gives it R.
+///
+/// The expected frame is the same rows written in their visual order with
+/// BDSM reset, the flipped cells mirrored in the frame by hand, pixel for
+/// pixel: the instance arm, the cell arm and the CPU arm must each be it.
+#[test]
+fn mirrored_characters_draw_mirrored_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let cols = usize::from(WS.ws_col);
+    let alef = "\u{5D0}";
+    // Each row as written with BDSM set, from column 1, and as drawn,
+    // written with it reset two cells from the right edge; and whether its
+    // first cell there is drawn flipped.
+    let rows: [(String, String, bool); 4] = [
+        (format!("{alef}\u{2211}"), format!("\u{2211}{alef}"), true),
+        (format!("{alef}\u{221A}"), format!("\u{221A}{alef}"), true),
+        (
+            format!("{alef}\u{2203}\u{338}"),
+            format!("\u{2203}\u{338}{alef}"),
+            true,
+        ),
+        (format!("{alef}<\u{338}"), format!(">\u{338}{alef}"), false),
+    ];
+    let scene = |t: &mut Term<'_>, implicit: bool| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+        feed(t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
+        for (i, (logical, visual, _)) in rows.iter().enumerate() {
+            let (text, col) = match implicit {
+                true => (logical, 1),
+                false => (visual, cols - 1),
+            };
+            feed(t, format!("\x1b[{};{col}H{text}", 2 * i + 2).as_bytes());
+        }
+        feed(t, b"\x1b[10;3HThe quick brown fox jumps 0123456789");
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    arms!(fresh() => arms, t);
+    scene(&mut t, true);
+    let got = three(&mut arms, &mut t, "mirrored");
+    assert!(arms.renderer.bidi().any(), "the rows were reordered");
+    scene(&mut t, false);
+    let mut want = three(&mut arms, &mut t, "written in visual order");
+    let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+    let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let col = cols - 2;
+    for (i, (_, _, flipped)) in rows.iter().enumerate() {
+        if !flipped {
+            continue;
+        }
+        let r = 2 * i + 1;
+        for y in r * ch..(r + 1) * ch {
+            let at = y * w + col * cw;
+            want[at..at + cw].reverse();
+        }
+    }
+    // The control: each flipped cell is not its own mirror, so its row
+    // tests the flip.
+    let plain = three(&mut arms, &mut t, "unmirrored");
+    for (i, (logical, _, flipped)) in rows.iter().enumerate() {
+        let band = (2 * i + 1) * ch * w..(2 * i + 2) * ch * w;
+        assert!(
+            !flipped || differing(&want[band.clone()], &plain[band]) > 0,
+            "the control: {logical:?}'s glyph is not its own mirror"
+        );
+    }
+    assert_eq!(
+        diff_box(&got, &want, w, (cw, ch)),
+        None,
+        "each mirrored character drawn mirrored"
+    );
+    // **A mark on a flipped base is not flipped** (L4 mirrors a character
+    // "if and only if" it is Bidi_Mirrored, which U+0301 is not): U+2211
+    // carrying an acute, which the face draws as two glyphs, is drawn
+    // alike on every arm, its base mirrored and its acute neither left as
+    // drawn nor mirrored with the base.
+    let marked = |t: &mut Term<'_>, implicit: bool| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+        feed(t, if implicit { b"\x1b[8h" } else { b"\x1b[8l" });
+        let text = match implicit {
+            true => format!("\x1b[2;1H{alef}\u{2211}\u{301}"),
+            false => format!("\x1b[2;{}H\u{2211}\u{301}{alef}", cols - 1),
+        };
+        feed(t, text.as_bytes());
+        feed(t, b"\x1b[10;3HThe quick brown fox jumps 0123456789");
+    };
+    marked(&mut t, true);
+    let got = three(&mut arms, &mut t, "a flipped base with a mark");
+    marked(&mut t, false);
+    let plain = three(&mut arms, &mut t, "a base with a mark, unflipped");
+    let mut whole = plain.clone();
+    for y in ch..2 * ch {
+        let at = y * w + col * cw;
+        whole[at..at + cw].reverse();
+    }
+    assert!(differing(&got, &plain) > 0, "the base is flipped");
+    assert!(differing(&got, &whole) > 0, "the acute is not");
+    // The base mirrored: in the cell's pixel rows the acute leaves alone,
+    // where the base drawn with it and the base drawn alone agree, the
+    // flipped cell is the bare U+2211 mirrored.
+    feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8l");
+    feed(
+        &mut t,
+        format!("\x1b[2;{}H\u{2211}{alef}", cols - 1).as_bytes(),
+    );
+    feed(&mut t, b"\x1b[10;3HThe quick brown fox jumps 0123456789");
+    let bare = three(&mut arms, &mut t, "the base alone, unflipped");
+    let line = |f: &[u32], y: usize| f[y * w + col * cw..y * w + (col + 1) * cw].to_vec();
+    let (mut alone, mut tested) = (0, 0);
+    for y in ch..2 * ch {
+        if line(&plain, y) != line(&bare, y) {
+            continue;
+        }
+        alone += 1;
+        let mut mirrored = line(&bare, y);
+        mirrored.reverse();
+        tested += usize::from(mirrored != line(&bare, y));
+        assert_eq!(line(&got, y), mirrored, "the base mirrored, pixel row {y}");
+    }
+    assert!(alone < ch, "the control: the acute inks a row of the cell");
+    assert!(
+        tested > 0,
+        "the control: a row only the base inks is not its own mirror"
+    );
 }

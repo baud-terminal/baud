@@ -523,6 +523,12 @@ struct Memo {
     /// The same for a line not single-width: drawn at the doubled cell,
     /// by codepoint, or a ring part's key, and stretch.
     procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+    /// **The glyphs drawn flipped left to right**, under the key their
+    /// unflipped image is kept by: a Bidi_Mirrored character with no
+    /// Bidi_Mirroring_Glyph resolved right to left (UAX #9 L4,
+    /// [`Atlas::slot_flipped_at`]). A map of its own, so the key every other
+    /// glyph is looked up by is no wider for it.
+    flipped: HashMap<GlyphKey, Option<Slot>>,
 }
 
 impl Memo {
@@ -532,11 +538,15 @@ impl Memo {
             map: HashMap::new(),
             procedural: HashMap::new(),
             procedural_stretched: HashMap::new(),
+            flipped: HashMap::new(),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.map.is_empty() && self.procedural.is_empty() && self.procedural_stretched.is_empty()
+        self.map.is_empty()
+            && self.procedural.is_empty()
+            && self.procedural_stretched.is_empty()
+            && self.flipped.is_empty()
     }
 }
 
@@ -918,6 +928,137 @@ impl Atlas {
             self.held.map.insert(key, slot);
         }
         slot
+    }
+
+    /// **[`Atlas::slot_at`]'s image flipped left to right**, for a
+    /// Bidi_Mirrored character with no Bidi_Mirroring_Glyph resolved right
+    /// to left, for which BidiMirroring.txt leaves it "up to the rendering
+    /// system to provide mirrored glyphs" (`[[source:
+    /// unicode-bidimirroring]]`). Each row of texels reversed, on the same
+    /// sheet, at the same `left` and `top`: the caller places it mirrored in
+    /// its span (`InSpan::mirrored` in the renderer), so its pixels are the
+    /// unflipped glyph's mirrored about the span's centre, at any phase.
+    /// Drawn once and kept, as an unflipped glyph is.
+    pub fn slot_flipped_at(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        phase: Phase,
+        stretch: Stretch,
+    ) -> Option<Slot> {
+        let key = GlyphKey {
+            face: ix,
+            glyph: GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX)),
+            stretch,
+            phase,
+        };
+        if let Some(known) = self.held.flipped.get(&key) {
+            return *known;
+        }
+        let Some(own) = self.slot_at(face, ix, id, scale, phase, stretch) else {
+            // Nothing to flip: recorded only where the unflipped answer is.
+            if self.held.map.contains_key(&key) {
+                self.held.flipped.insert(key, None);
+            }
+            return None;
+        };
+        let flipped = self.flip(own);
+        if flipped.is_some() {
+            self.held.flipped.insert(key, flipped);
+        }
+        flipped
+    }
+
+    /// `own`'s texels, each row reversed, in a slot of their own on its
+    /// sheet; `None` where the sheet cannot grow to hold them.
+    fn flip(&mut self, own: Slot) -> Option<Slot> {
+        let (w, h) = (
+            slots(Px::of(u32::from(own.w.0))),
+            slots(Px::of(u32::from(own.h.0))),
+        );
+        let (x0, y0) = (
+            slots(Px::of(u32::from(own.x.0))),
+            slots(Px::of(u32::from(own.y.0))),
+        );
+        let at = Origin {
+            left: own.left,
+            top: own.top,
+        };
+        match own.kind {
+            Kind::Mask => {
+                let side = slots(Px::of(self.mask.side.0));
+                let mut image = Vec::with_capacity(w * h);
+                for row in 0..h {
+                    let from = (y0 + row) * side + x0;
+                    image.extend(self.pixels.get(from..from + w)?.iter().rev());
+                }
+                self.place_mask(
+                    &image,
+                    Px::of(u32::from(own.w.0)),
+                    Px::of(u32::from(own.h.0)),
+                    at,
+                )
+            }
+            Kind::Color => {
+                let side = slots(Px::of(self.color.side.0));
+                let mut image = Vec::with_capacity(w * h);
+                for row in 0..h {
+                    let from = (y0 + row) * side + x0;
+                    image.extend(self.argb.get(from..from + w)?.iter().rev());
+                }
+                self.place_color(
+                    &image,
+                    Px::of(u32::from(own.w.0)),
+                    Px::of(u32::from(own.h.0)),
+                    at,
+                )
+            }
+            // A glyph's image is a mask or colour; any other has no texels.
+            _ => Some(own),
+        }
+    }
+
+    /// Packs a coverage mask onto the mask sheet, growing it as needed:
+    /// [`Atlas::place_color`]'s twin.
+    fn place_mask(&mut self, image: &[u8], w: Px, h: Px, at: Origin) -> Option<Slot> {
+        let (x, y) = loop {
+            if let Some(at) = self.mask.take(w, h) {
+                break at;
+            }
+            let next = Side(self.mask.side.0.checked_mul(2)?);
+            if next.0 > Side::LIMIT.0 {
+                return None;
+            }
+            self.grow_mask(next)?;
+        };
+        let side = slots(Px::of(self.mask.side.0));
+        let (xs, ys, ws, hs) = (slots(x), slots(y), slots(w), slots(h));
+        for row in 0..hs {
+            let src = &image[row * ws..(row + 1) * ws];
+            let at = (ys + row) * side + xs;
+            if let Some(dst) = self.pixels.get_mut(at..at + ws) {
+                dst.copy_from_slice(src);
+            }
+        }
+        self.touched();
+        let rect = TexRect {
+            x: Tex(u16::try_from(x.value()).ok()?),
+            y: Tex(u16::try_from(y.value()).ok()?),
+            w: Tex(u16::try_from(w.value()).ok()?),
+            h: Tex(u16::try_from(h.value()).ok()?),
+        };
+        Atlas::dirtied(&mut self.dirty.mask, rect);
+        Some(Slot {
+            kind: Kind::Mask,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            left: at.left,
+            top: at.top,
+        })
     }
 
     /// The glyph's image from a strike that holds it: among the strikes
