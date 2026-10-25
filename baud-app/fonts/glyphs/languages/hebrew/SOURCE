@@ -52,14 +52,17 @@ only this file and OFL.txt):
       That reader.
   build/
       The build modules. build.py is the build; style.py the STYLE parameter; design.py,
-      design2.py and design3.py are rounds 1-3; narrow.py, field.py and geom.py are
+      design2.py and design3.py are rounds 1-3; distinct.py is round 5 (2026-10-24),
+      which moves dalet's leg so that it does not read as zayin; optical.py is the
+      italics' correction of rounds; narrow.py, field.py and geom.py are
       helpers; pin.py is the fontTools setting the bytes depend on; instance.py makes
       the instances. design*.py, narrow.py and field.py are byte-identical to the
       research tree's copies, and so is casanchors.py. In build.py and style.py the
       port changed only the paths, the imports and the save's repacker pin. Since the
       port, build.py also writes Cascadia's trademark notice into nameID 7 and adds a
       hebr script record to GSUB and GPOS (2026-10-08, conformance fixes; no outline,
-      anchor, lookup or feature changed). build.py's docstring lists the changes.
+      anchor, lookup or feature changed), and since 2026-10-24 applies distinct.py's
+      edit after design.py's. build.py's docstring lists the changes.
       geom.py gains flatten, segs and pt_seg_min, moved verbatim from the research
       tree's v4_clear.py, which imported uharfbuzz, so that the build imports no
       HarfBuzz. pin.py and instance.py are new.

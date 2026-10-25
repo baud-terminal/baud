@@ -35373,3 +35373,62 @@ url    = "https://raw.githubusercontent.com/PerBothner/DomTerm/f8f84bc722b992c75
 file   = ""
 sha256 = "e2c373fc6c90136a8772135fccb6b70d0e79220900f3bfd36f1ef6b6d9138cac"
 bytes  = 6966
+# Note AC 4d (2026-10-24): which letterforms keep Hebrew sister letters apart, read
+# for the embedded font's ד and ז. None is committed: the chart's Terms of Use forbid
+# copies for public distribution, the scribe's page asks for no re-use, and the
+# others are vendor pages. Each was fetched twice the same day to the same bytes.
+[sources.unicode18-chart-0590]
+key    = "unicode18-chart-0590"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Hebrew (0590-05FF)"
+author = "The Unicode Consortium"
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/U0590.pdf"
+sha256 = "cd1edaa861805a47b8c653a13d1c263968c071f083be9f98a42ff618db8d5c4e"
+bytes  = 127986
+status = "external"
+group  = "J"
+# Read: page 1, "The shapes of the reference glyphs used in these code charts are
+# not prescriptive. Considerable variation is to be expected in actual fonts."; the
+# reference glyphs at 05D3, 05D5, 05D6 and 05E8 (page 2 rendered at 150 dpi).
+[sources.shulchan-arukh-oc-36]
+key    = "shulchan-arukh-oc-36"
+title  = "Shulchan Arukh, Orach Chayim 36 -- the precision of the letters' writing (Hebrew, Lemberg 1893, and the Sefaria Community Translation)"
+author = "Joseph Karo; Sefaria"
+venue  = "sefaria.org API, v3 texts"
+url    = "https://www.sefaria.org/api/v3/texts/Shulchan_Arukh,_Orach_Chayim.36?version=english&version=hebrew"
+sha256 = "50838bdc563525647759cf91587f4b10c82d3d063d0cc856753cd0a5d6ccb4c5"
+bytes  = 11022
+status = "external"
+group  = "J"
+# Read: 36:1, "One must be precise in the writing of the letters such that no
+# letter's shape should change and no letter should resemble another" (Hebrew: "שלא
+# תשתנה צורת שום אחת מהן ולא תדמה לאחר'").
+[sources.sofer-alefbet]
+key    = "sofer-alefbet"
+title  = "Alefbet -- the form of each letter, the scribal rules in English"
+author = "Mordechai Pinchas (Marc Michaels), Sofer STa\"M"
+venue  = "sofer.co.uk"
+url    = "https://www.sofer.co.uk/alefbet"
+sha256 = "524426ba20574f8c1fe9dfcaa9f87b01cd50ca6b422536a1c0834af413d1a7f1"
+bytes  = 104601
+status = "external"
+group  = "J"
+# Read: DALET "1. Its roof should be long 2. and its leg short ... 5. One must be
+# very careful with the squaring [of the letter] so that it doesn't look like a
+# resh... 6. ... also there should be there a good heel"; ZAYIN "2. And its head
+# should pass over on both sides so it doesn't resemble a vav"; VAV and RESH on the
+# same pairs. The page does not name the work it renders.
+[sources.dmh-letters-typefaces-with-character]
+key    = "dmh-letters-typefaces-with-character"
+title  = "Letters -- Type(face)s with Character"
+author = "Design Museum Holon"
+venue  = "dmh.org.il, WordPress API (mt_article 21961)"
+url    = "https://www.dmh.org.il/en/wp-json/wp/v2/mt_article/21961"
+sha256 = "a0fbe5fd5513b77a47ae94a87c016aa76841770d5e5d375b1b6825a74090168b"
+bytes  = 28557
+status = "external"
+group  = "J"
+# Read: "about two thirds of the Hebrew letters resemble 'sister letters', such as
+# heh and het, bet and kaf, dalet and resh, gimel and nun, vav and zayin, and samekh
+# and final mem ... The success of a Hebrew letter typeface, therefore, depends
+# considerably on the designer's ability to create a distinction between the letters."

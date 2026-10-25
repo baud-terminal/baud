@@ -28,6 +28,10 @@ defect): nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
 (OFL-FAQ 1.1-update7 Q3.7, "Any trademark notices must remain in any derivative
 fonts"), and GSUB and GPOS each gain a 'hebr' script record naming DFLT's Script
 table (with_script_copy). No outline, anchor, lookup or feature changed.
+
+Round 5 (2026-10-24): letter_rec_r1 applies distinct.py's map after design.py's
+edits, to the outline and its anchor points alike. It moves dalet's leg to the
+roof's right end, so that ד no longer reads as ז; no other letter changes.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -44,6 +48,7 @@ import design as D          # round 1: letter weights, widths, edits
 import design3 as E         # round 3 (round 2's values, then round 3's)
 import narrow as N          # narrow-letter variants
 import style as ST          # the STYLE parameter
+import distinct as DS       # round 5: letters kept apart
 import optical as OP        # the italics' correction of rounds (JetBrains Mono Italic's)
 import field as FD
 from geom import FlatPen, runs_at_y
@@ -206,6 +211,10 @@ def letter_rec_r1(u):
         if edit:
             rec = D.edit_letter(u, rec)
             pts = {k: D.edit_letter(u, [('moveTo', (v,))])[0][1][0] for k, v in pts.items()}
+            f = DS.point_map(u, rec)
+            if f:
+                rec = map_rec(rec, f)
+                pts = {k: f(*v) for k, v in pts.items()}
         b = rec_bounds(rec)
         cx = (b[0] + b[2]) / 2
         shift = 300 + (D.NUDGE.get(u, 0) if edit else 0) - cx

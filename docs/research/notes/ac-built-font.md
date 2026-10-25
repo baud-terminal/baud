@@ -686,6 +686,84 @@ a channel. Levelling by 13 changes 345 more, by at most 17 (Bold Italic 259, 16)
 large sizes the bowl bottoms of samekh, tet and shin read fuller at the obtuse
 corner.
 
+## 4d. Dalet and zayin, kept apart (2026-10-24)
+
+**The defect.** As round 1 left them, ד (U+05D3) and ז (U+05D6) were each a bar over
+one leg, the roofs 418 and 380 wide, both centred on the cell, and dalet's leg 64
+units right of zayin's (Bold 60). Round 1 had made them so: it evened dalet 458 ->
+418 with the other wide letters and widened zayin's head 336 -> 380
+(`baud-app/fonts/glyphs/languages/hebrew/build/design.py`, EDITS). At 14 px, baud's
+rasteriser put the two legs' offsets under their roofs 0.80-0.92 px apart over the
+four styles, and "זו" read "דו" (found by the bidi wrap research).
+
+**What governs.** The Unicode chart's reference glyphs are "not prescriptive"
+(`[[source: unicode18-chart-0590]]`, page 1); its ז is narrow, its ד as wide as ר
+with the leg at the right. The rule for the letters' form is "no letter should
+resemble another" (`[[source: shulchan-arukh-oc-36]]`, 36:1), and the scribal rules
+name what keeps each pair apart (`[[source: sofer-alefbet]]`): dalet's roof long and
+its corner square "so that it doesn't look like a resh", with "a good heel"; zayin's
+head passing "over on both sides so it doesn't resemble a vav". Design Museum Holon
+lists dalet/resh and vav/zayin among the sister letters whose distinction a Hebrew
+typeface's success rests on (`[[source: dmh-letters-typefaces-with-character]]`).
+These are identity criteria, not proportions for a monospaced sans.
+
+**Prior art, measured from the outlines.** In Arial Hebrew, Noto Sans Hebrew, Rubik,
+Heebo, SF Hebrew and Courier New the dalet roof is 1.48-1.85 times the zayin head,
+and in the proportional sans faces the roof passes dalet's leg by about one stem
+(0.95-1.24). A monospaced cell cannot give dalet that width, so its leg's place has
+to carry the distinction.
+
+**The options**, all built and drawn through baud
+(`docs/research/notes/ac/dalet/options-14.png`, the words at 14 px in four styles;
+`docs/research/notes/ac/dalet/options-120.png`, the letters at 120 px): keep; H45
+and H30, the leg moved right until the roof passes it by 45 or 30 units; W40H60 and
+W40H45, the roof widened back to 458 with heels of 60 or 45; Z40, zayin's head
+shortened to 300. Legs apart at 14 px: H45 1.41-1.51 px, H30 1.61-1.72, W40H60
+1.49-1.59, W40H45 1.64-1.80; Z40 alone 0.83-0.90. Moving dalet's leg right brings it
+toward resh's, whose leg ends the roof (dalet against resh: 1.88/1.81 px as built,
+1.24/1.18 with H45, 1.07/1.00 with H30, Regular/Bold); in the renders a heel of 15
+or 0 made ד read as ר, and Z40 makes zayin's head as wide as vav's (300 against
+292).
+
+**Jev**, with four renders, in both orders each time: H45 0.68/0.74 at confidence
+0.60/0.68; then, with the dalet-resh, 26 px, vav-zayin and other-pair measurements,
+H45 0.83/0.81 at 0.79/0.76, ZKEEP 0.75/0.92, NONE 0.79/0.87. That ask left out the
+pair the change moves dalet toward besides resh: vav, a 292-wide head over a
+right-end leg with no heel. With the leg at the right end, ד and ו are told apart by
+width and heel, 418 against 292 (1.76 px at 14 px) with H45 or H30 and 458 against
+292 (2.32 px) with the W40 options; the shift-minimised coverage difference between
+them, a before/after screen only (it ranks ח/ם closest in the font), is 0.154-0.156
+as built, 0.122-0.129 with H45 and 0.157-0.218 with W40 (Regular, Bold). Re-asked on
+the dalet alone with that premise and a render of words where the two touch: H45
+0.70/0.81 at 0.62/0.76. Under the bar each time, so the lean is taken: **H45**.
+Zayin stays variant A's, so the owner's open call 1a is untouched, and no other pair
+is redrawn.
+
+**Built** as round 5, `baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`:
+dalet's leg and the roof's underside where it meets the leg move right until the
+roof passes the leg by 45 units, in the frame round 1 edits in, so Bold reads its
+own leg and the italics shear the result. Each style changes in that glyph, its
+anchors and head's checksum alone. The dagesh moves 24 units right (Bold 32); in the
+italics the cell fit moves hataf segol 58 units right (Bold Italic 74). OTS passes;
+gate.py and cgate.py print the same lines as before; the meteg check passes the same
+217, 172, 185 and 143 clusters; the italics still differ from the plain shear in 12
+and 14 glyphs. The legs stand 1.41-1.51 px apart at 14 px
+(`zayin_and_dalet_legs_stand_apart_at_14_px`).
+
+**The other sister pairs** at 12-16 px, four styles
+(`docs/research/notes/ac/dalet/groups-before.png`,
+`docs/research/notes/ac/dalet/groups-after.png`): each keeps a feature it is told
+by. He's gap is 200 units (2.8 px at 14 px; Bold 183), final mem closes its base
+where het is open, bet's base passes its leg by 82 where kaf stops at a round
+corner, gimel's foot stands apart from its leg where nun's base runs whole, samekh's
+corners are rounded 58-61 units in where final mem's lower ones are square, tav's
+foot is 157 units against he's 90, ayin's base stops at 400 where tsadi's runs to
+495, vav's head stands left of its leg where zayin's passes over both sides, and the
+final forms descend 180. Dalet now stands nearer vav and resh than it did (above).
+
+**Found, not fixed.** Bold's and Bold Italic's zayin head ends slant 22 units: round
+1's widening moved the points above y 540, and Bold's head underside is at 517, so
+only the top corners moved.
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools

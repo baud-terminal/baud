@@ -27,7 +27,8 @@
 #
 # **The gate is the sha256 of the gated files, by value.** These outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
-# 4b) with two conformance fixes and nothing else (2026-10-08): nameID 7 carries
+# 4b) with two conformance fixes (2026-10-08) and one letter redrawn (2026-10-24,
+# below), and nothing else. The fixes: nameID 7 carries
 # Cascadia's trademark notice after JetBrains Mono's, and GSUB and GPOS each carry a
 # hebr script record naming DFLT's Script table (build.py, with_script_copy). Take
 # that 6-byte record out of each table and GSUB and GPOS are final3's byte for byte;
@@ -43,8 +44,13 @@
 # render reads the hebr record. Overpaint ran on them too, but through baud-render it
 # cannot fail for any font: the composite clips each glyph to its own row's band
 # (baud-render/src/composite.rs, `Composite::over`), so ink below a row is cut, not
-# painted over the next. A build whose bytes differ is not that set, whatever it looks
-# like, so the build refuses to write it. Changing the design means re-running those
+# painted over the next. The letter: dalet (U+05D3), whose leg build/distinct.py
+# moves to its roof's right end so that it no longer reads as zayin (note AC 4d).
+# Against the build before it each style differs in that glyph's outline, its
+# anchors and head's checksum alone; the generalised and strip-and-compare gates print
+# the same lines on both, OTS passes, and the meteg check passes the same clusters. A
+# build whose bytes differ is not that set, whatever it looks like, so the build
+# refuses to write it. Changing the design means re-running those
 # gates and then these constants, in one change, with the reason.
 #
 # **Every byte depends on the environment, so the environment is pinned whole.**
@@ -79,15 +85,16 @@ VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 
 # The gated hashes: the four embedded styles, and for --italics the two italics as
 # the plain 9-degree shear the earlier gated right-lean recipes built (note AC 4b),
-# which the italics' recipes reproduce byte for byte with ROUND_K=0 LEVEL=0.
+# with round 5's dalet since 2026-10-24, which the italics' recipes reproduce byte for
+# byte with ROUND_K=0 LEVEL=0.
 gate_hash() {
   case $1 in
-  Regular) echo df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f ;;
-  Bold) echo a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 ;;
-  Italic) echo f0743aa5f7c156f283553c45d9eae7d77e79660f885bd763b2ccf515c1200e5c ;;
-  BoldItalic) echo 43a3aade8d8d459d7546cb53bb1064fac464c1cc97883ea9e73886e8b8c844b2 ;;
-  Italic-plain) echo 852093090230e9c5f427fc1b3e70b1d5640d97ac280060fe6869c4f1e2bac001 ;;
-  BoldItalic-plain) echo 6175bc972ced48e18f7bdc141699775e4c6174821b05fdb47e23ea8d9905dd48 ;;
+  Regular) echo 769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb ;;
+  Bold) echo 13ce890885c189eeb3c21bef5cca32f4f96c362383fb1ecc7a428154f5575fe8 ;;
+  Italic) echo c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be ;;
+  BoldItalic) echo 183877058f5ee024254897522bee85066f5b795350f7bba72e90ca9a45f503f1 ;;
+  Italic-plain) echo c20a35aa4769f7c11c6098e496dd696c8e3b4e7a245020b3be9b74889c190463 ;;
+  BoldItalic-plain) echo 5f83a8f97ca6a10c348bab1428968f8609b13d891256a90eef5efa3d25c35b5d ;;
   *) return 1 ;;
   esac
 }
