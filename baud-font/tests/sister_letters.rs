@@ -6,13 +6,33 @@
 //! roof, which passes it by only a heel. As round 1 left them the two legs
 //! sat 60-64 units apart under roofs of the same centre, and "זו" read "דו"
 //! (`baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`).
+//!
+//! ד (dalet) and ר (resh) are each a roof ending in a leg at the right.
+//! What tells them apart is the corner: dalet's square, with a heel, "so
+//! that it doesn't look like a resh", and resh's round. Moving dalet's leg
+//! to its roof's right end brought it beside resh's, so the legs no longer
+//! tell the two apart and the corner is what is held.
 
 use baud_domain::Codepoint;
-use baud_font::{Canvas, Extent, Face, Px, Rasterizer, Scale};
+use baud_font::{Canvas, Extent, Face, Px, Rasterizer, Scale, Sink};
 
 const STYLES: [&str; 4] = ["Regular", "Bold", "Italic", "BoldItalic"];
 const ZAYIN: char = '\u{05D6}';
 const DALET: char = '\u{05D3}';
+const RESH: char = '\u{05E8}';
+/// The tangent of each style's lean: the italics are the uprights sheared
+/// 9 degrees right about half the letter height, y 315 (note AC, 4c).
+const LEAN: [f32; 4] = [0.0, 0.0, 0.158_384_4, 0.158_384_4];
+const SHEAR_Y0: f32 = 315.0;
+/// The top of a Hebrew letter, in font units.
+const TOP: f32 = 630.0;
+/// The side of the corner square read, in font units: under either
+/// weight's roof (Regular 82 thick, Bold 113) and narrower than its leg.
+const CORNER: f32 = 60.0;
+/// A square corner fills at least this much of its square at 14 px...
+const SQUARE: f32 = 0.5;
+/// ...and a round one at most this much.
+const ROUND: f32 = 0.25;
 /// The text size the check is taken at, in pixels per em.
 const PX: f32 = 14.0;
 /// The canvas, square, in pixels: a 600-unit cell and a 630-unit letter at
@@ -119,5 +139,101 @@ fn zayin_and_dalet_legs_stand_apart_at_14_px() {
     assert!(
         short.is_empty(),
         "zayin's and dalet's legs stand under {APART:.2} px apart: {short:?}"
+    );
+}
+
+/// Every on-curve point of an outline, in font units.
+#[derive(Default)]
+struct Points(Vec<(f32, f32)>);
+
+impl Sink for Points {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.push((x, y));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.push((x, y));
+    }
+    fn quad_to(&mut self, _: f32, _: f32, x: f32, y: f32) {
+        self.0.push((x, y));
+    }
+    fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, x: f32, y: f32) {
+        self.0.push((x, y));
+    }
+    fn close(&mut self) {}
+}
+
+/// How much of the `CORNER` square at `c`'s outer top-right corner its
+/// ink fills at `PX`, 0 to 1. The square's right side is the letter's
+/// rightmost extent and its top the letter's top, with the lean taken out
+/// and put back row by row, so an italic reads the corner it shears.
+fn corner_fill(face: &Face<'_>, c: char, lean: f32) -> f32 {
+    let g = face
+        .glyph(Codepoint::from_char(c))
+        .unwrap_or_else(|| panic!("U+{:04X} is not mapped", u32::from(c)));
+    let mut pts = Points::default();
+    face.outline(g, &mut pts);
+    let right = pts
+        .0
+        .iter()
+        .map(|&(x, y)| x - lean * (y - SHEAR_Y0))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let cov = coverage(face, c);
+    let side = usize::try_from(SIDE).unwrap();
+    let units = 1000.0 / PX;
+    // Each pixel is split 8 by 8; a sample whose point, unsheared, lies in
+    // the square counts its pixel's coverage at a 64th of the pixel.
+    let (mut ink, mut area) = (0.0f32, 0.0f32);
+    for (row, line) in cov.chunks(side).enumerate() {
+        for (col, &value) in line.iter().enumerate() {
+            let mut inside = 0u32;
+            for sy in 0..8 {
+                for sx in 0..8 {
+                    let fx = col as f32 + (sx as f32 + 0.5) / 8.0;
+                    let fy = row as f32 + (sy as f32 + 0.5) / 8.0;
+                    let y = (BASELINE - fy) * units;
+                    let x = (fx - LEFT) * units - lean * (y - SHEAR_Y0);
+                    if (right - CORNER..=right).contains(&x) && (TOP - CORNER..=TOP).contains(&y) {
+                        inside += 1;
+                    }
+                }
+            }
+            let part = inside as f32 / 64.0;
+            ink += part * value;
+            area += part;
+        }
+    }
+    // The square spans 0.84 px a side at 14 px, so about 0.7 px of area: a
+    // square that missed the canvas cannot pass for an empty corner.
+    assert!(
+        area > 0.5,
+        "U+{:04X}: the corner square covers {area} px",
+        u32::from(c)
+    );
+    ink / area
+}
+
+/// **At 14 px, in each of the four embedded styles, dalet's corner is
+/// square and resh's round.** Dalet's roof meets its leg at a square corner
+/// with a 45-unit heel; resh's roof curves into its leg. At 14 px dalet's
+/// corner square is 0.64-0.74 full and resh's 0.00-0.09, so a dalet whose
+/// corner rounded, or a resh whose corner squared, fails. The legs' places
+/// cannot tell the two apart: they stand 1.24 px (Regular) and 1.18 px
+/// (Bold) apart by `roof_over_leg`, under the 1.26 px the zayin and dalet
+/// test asks, because both legs end their roofs.
+#[test]
+fn dalet_corner_is_square_and_resh_corner_round_at_14_px() {
+    let mut wrong = vec![];
+    for (style, lean) in STYLES.into_iter().zip(LEAN) {
+        let data = built(style);
+        let face = Face::parse(&data).unwrap();
+        let dalet = corner_fill(&face, DALET, lean);
+        let resh = corner_fill(&face, RESH, lean);
+        if dalet < SQUARE || resh > ROUND {
+            wrong.push(format!("{style}: dalet {dalet:.2}, resh {resh:.2}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "dalet's corner fills under {SQUARE} or resh's over {ROUND}: {wrong:?}"
     );
 }

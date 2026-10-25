@@ -771,6 +771,23 @@ and Italic are byte for byte as before
 the letters at 200 px before and after (`docs/research/notes/ac/zayin/`): FIX_500 at
 probability 1.00 and confidence 1.00 in both orders.
 
+**Dalet and resh, kept apart by the corner (2026-10-25).** Round 5 put dalet's leg
+at its roof's right end, where resh's stands, so their legs' offsets under their roofs
+are 1.24 px (Regular) and 1.18 px (Bold) apart at 14 px, under the 1.26 px the zayin
+test asks. The scribal rule names the corner, not the leg: dalet's square "so that it
+doesn't look like a resh", with a heel. Read at 14 px as the ink filling a 60-unit
+square at each letter's outer top-right corner, the italics' lean taken out, dalet's
+is 0.72, 0.65, 0.64 and 0.74 full (Regular, Bold, Italic, Bold Italic) and resh's
+0.06, 0.09, 0.03 and 0.00; vav's 0.58-0.76, kaf's and final kaf's 0.00-0.09, bet's
+0.00 (12 px: dalet 0.37-0.50, resh 0.05-0.13; 16 px: 0.71-0.85 and 0.03-0.11). The
+option of a rounder resh, both corner arcs 50 units larger (R50, drawn only as a
+render), takes resh's square from nearly empty to empty and its top past kaf's and
+final kaf's, which share its corner now. Rendered at 12-16 px in four styles and at
+200 px (`docs/research/notes/ac/resh/`). Jev: KEEP at probability 1.00, confidence
+1.00, in both orders. Resh is unchanged, and
+`dalet_corner_is_square_and_resh_corner_round_at_14_px` holds dalet's square at least
+half full and resh's at most a quarter, in all four styles.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools
