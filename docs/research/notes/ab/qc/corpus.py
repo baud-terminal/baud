@@ -1,10 +1,11 @@
 import sys, unicodedata, re, hashlib, json, collections
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 Q = sys.argv[1]
 C = Q + "/pins/corpus"
 raw = open(C + "/t-gen5.txt", encoding="utf-8").read()
 gen5 = raw.replace("\x1b[?25l", "")
 # the untracked test's constant, read-only from the main checkout
-src = open("baud-core/tests/pointed_hebrew.rs", encoding="utf-8").read()
+src = open(REPO + "/baud-core/tests/pointed_hebrew.rs", encoding="utf-8").read()
 m = re.search(r"const GENESIS_1_1_TO_5: \[&str; 5\] = \[(.*?)\];", src, re.S)
 lines = re.findall(r'"([^"]*)"', m.group(1))
 gen5_lines = [l for l in gen5.split("\n") if l.strip()]

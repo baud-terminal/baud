@@ -68,8 +68,7 @@ each a Sixel `ESC P 9;1 q "1;1;W;H` -- `P2 = 1`, so an unset bit keeps what is
 under the image -- cleared with spaces and the next drawn at the same cell.
 The replies it was sent are not in the file; one gave the cell as 17x34
 (`CSI 6 ; 34 ; 17 t`); the file's first screen shows the capture's scratch
-directory,
-`$TMPDIR/scratch`.
+directory, a yazi/files folder in the session's scratchpad.
 It is committed whole because a recording is not edited before it is measured,
 and because `every_preview_in_a_yazi_walk_is_its_own_body_alone`
 (`baud-core/tests/sixel_reuse.rs`) needs both directions of the walk: it

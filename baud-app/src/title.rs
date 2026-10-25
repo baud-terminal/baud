@@ -499,7 +499,7 @@ mod tests {
         d.check(&shell);
         assert_eq!(shell.names.get(), 2, "an exec may have renamed it");
         assert!(!d.moved_since_check());
-        let job = Fake::new(9, "vim", "/Users/me/Code/baud");
+        let job = Fake::new(9, "vim", "/Users/me/src/baud");
         d.owe();
         assert_eq!(d.check(&job), Changed::Yes);
         assert_eq!(job.names.get(), 1, "a new group is read");
@@ -516,7 +516,7 @@ mod tests {
     fn a_local_osc_7_names_the_folder_and_a_remote_one_does_not() {
         use baud_core::{FileHost, WorkingDirectory};
         let mut d = Derive::new();
-        d.check(&Fake::new(7, "ssh", "/Users/me/Code"));
+        d.check(&Fake::new(7, "ssh", "/Users/me/src"));
         let at = |host, path| WorkingDirectory { host, path };
         let local = at(FileHost::Named(b"MAC.local"), b"/Users/me/My Code");
         assert_eq!(
@@ -615,13 +615,13 @@ mod tests {
     #[test]
     fn past_three_folders_the_last_three_after_an_ellipsis() {
         for (path, want) in [
-            (&b"/Users/me/Code/baud"[..], "~/src/baud"),
+            (&b"/Users/me/src/baud"[..], "~/src/baud"),
             (
-                b"/Users/me/Code/baud/baud-core",
-                "\u{2026}/Code/baud/baud-core",
+                b"/Users/me/src/baud/baud-core",
+                "\u{2026}/src/baud/baud-core",
             ),
             (
-                b"/Users/me/Code/baud/baud-core/src",
+                b"/Users/me/src/baud/baud-core/src",
                 "\u{2026}/baud/baud-core/src",
             ),
             (b"/", "/"),
@@ -684,7 +684,7 @@ mod tests {
         );
         let reported = baud_core::WorkingDirectory {
             host: baud_core::FileHost::Local,
-            path: b"/Users/me/Code",
+            path: b"/Users/me/src",
         };
         assert_eq!(
             d.title(Some(reported), &names(&["mac"]), HOME).as_deref(),

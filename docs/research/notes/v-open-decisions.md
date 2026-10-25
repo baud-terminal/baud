@@ -5699,7 +5699,7 @@ cite.
 - **B. The same, but bundle `backup-pre-squash-smooth-scroll` first**, into
   one file outside the repo. It keeps the original messages and is reversible,
   at the cost of one extra file. A bundle is a different form from the
-  existing mirror-clone backup (`~/src/baud-backup-pre-S-rewrite.git`); it is
+  existing mirror-clone backup (baud-backup-pre-S-rewrite.git, outside the repository); it is
   not the same convention.
 - **B2. Keep a tag instead of a bundle**, such as
   `archive/pre-squash-smooth-scroll`, if you want the messages kept inside the
@@ -5720,8 +5720,8 @@ included.
 
 The commands, in order:
 
-1. `git bundle create ~/src/baud-pre-squash-smooth-scroll.bundle backup-pre-squash-smooth-scroll`
-2. `git bundle verify ~/src/baud-pre-squash-smooth-scroll.bundle`
+1. `git bundle create ../baud-pre-squash-smooth-scroll.bundle backup-pre-squash-smooth-scroll`
+2. `git bundle verify ../baud-pre-squash-smooth-scroll.bundle`
 3. `git branch -D backup-pre-squash-smooth-scroll backup-pre-fixup-squash backup-pre-split-ris-prompt sfte-oracle backup-pre-trailer-rewrite`
 4. `git stash drop stash@{0}`
 5. `git branch -d row0-keystroke-instrument row1-shader-cache row2-bundle-icon row3-early-spawn row4-overlap-nsapp row5-dead-strip row6-pace-by-completion row7-window-miss row8-map-warm row9-local-echo row10-stale-redraws note-n-and-gate-audit`

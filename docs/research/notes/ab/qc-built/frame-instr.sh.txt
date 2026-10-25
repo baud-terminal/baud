@@ -1,6 +1,6 @@
 #!/bin/bash
 Q=$1; cd $Q
-CN="/System/Library/Fonts/Supplemental/Courier New.ttf"; JR=baud-app/fonts/built/Regular.ttf
+CN="/System/Library/Fonts/Supplemental/Courier New.ttf"; JR=../../baud-app/fonts/built/Regular.ttf
 G=../../docs/research/notes/ab/qc/t-gen5.txt
 order=(f1 f2 f2b)
 for r in 1 2 3 4 5 6; do

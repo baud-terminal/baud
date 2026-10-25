@@ -119,7 +119,7 @@ with the rest; `baud` is the one binary. A bare `cargo test`, `cargo build` or
 names only it; the gate passes `--workspace`.
 
 That is new, and the reason it is worth a paragraph: it used to pin alacritty by
-the absolute path `/home/user/t/alacritty/alacritty_terminal`, which no
+the absolute path `/home/<user>/t/alacritty/alacritty_terminal`, which no
 checkout has, so **it had never compiled** while this table listed it as "the
 only oracle outside this repo" and its own doc comment described what it fed to
 `baud-core`. Being excluded from the workspace is what kept that quiet. Running

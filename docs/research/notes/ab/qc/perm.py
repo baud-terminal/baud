@@ -1,4 +1,5 @@
 import sys, json, itertools, unicodedata, subprocess, collections
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 Q = sys.argv[1]
 occ = {}
 for n in ("gen5", "pango"): occ.update(json.load(open(f"{Q}/corpus-{n}-occ.json")))
@@ -16,7 +17,7 @@ for k in sorted(occ):
         if ok and tuple(seq) not in seen:
             seen.add(tuple(seq)); rows.append([cps[0]] + seq); owner.append(k)
 open(f"{Q}/perms.txt", "w").write("\n".join(" ".join("%04X" % c for c in r) for r in rows) + "\n")
-faces = [("baud-app/fonts/built/Regular.ttf", 0), ("/System/Library/Fonts/Supplemental/Courier New.ttf", 0), ("/System/Library/Fonts/ArialHB.ttc", 0), ("/System/Library/Fonts/SFHebrew.ttf", 0)]
+faces = [(REPO + "/baud-app/fonts/built/Regular.ttf", 0), ("/System/Library/Fonts/Supplemental/Courier New.ttf", 0), ("/System/Library/Fonts/ArialHB.ttc", 0), ("/System/Library/Fonts/SFHebrew.ttf", 0)]
 print("clusters with >=2 marks:", len(set(owner)), "canonically equivalent spellings:", len(rows))
 for path, idx in faces:
     for arm in ("c1", "c2"):

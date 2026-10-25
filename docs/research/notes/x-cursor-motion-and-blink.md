@@ -341,7 +341,7 @@ Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stop
 
 ## The blink from the OS
 
-The repository is `.` at `1ce14c8`. It was read only: nothing in it was edited and no cargo was run there. The runs below are standalone `rustc` programs under `scratchpad/cursorq/review/` (`frames.rs`, `conv.rs`, `stop.rs`). A copy of this design is at `scratchpad/cursorq/review/corrected-design.md`.
+The repository is baud at `1ce14c8`. It was read only: nothing in it was edited and no cargo was run there. The runs below are standalone `rustc` programs under `scratchpad/cursorq/review/` (`frames.rs`, `conv.rs`, `stop.rs`). A copy of this design is at `scratchpad/cursorq/review/corrected-design.md`.
 
 Claims carry one of three labels:
 - **[source]**: read at source;
@@ -793,7 +793,7 @@ Q5 settles it; any split leaves an asymmetry to document.
 
 ## `?12`, the configured blink, and the cursor after vim and helix
 
-This is a read-only brief against `.` at `8fab372`. Nothing in the repository was edited and cargo was not run. Scratch work is under `…/scratchpad/blink12/`: the byte captures are `verify/cap.py` and `verify/cap12.py`, and the fetched tmux and neovim sources are in `ext/`.
+This is a read-only brief against baud at `8fab372`. Nothing in the repository was edited and cargo was not run. Scratch work is under `…/scratchpad/blink12/`: the byte captures are `verify/cap.py` and `verify/cap12.py`, and the fetched tmux and neovim sources are in `ext/`.
 
 Every claim is labelled **run** (captured in a pty here) or **by reading** (from source).
 
@@ -1044,7 +1044,7 @@ This is a recommendation, not a decision.
 ## Ride-scroll
 
 Labels: **[R]** read at source, **[run]** run here, **[inf]** inferred. Line numbers are baud at `1ce14c8`. Nothing in the repository was edited and no cargo command was run there.
-- A durable copy of this review is at `$TMPDIR/scratch/cursorq/rv2/ride-scroll-design-reviewed.md`.
+- A durable copy of this review is at <scratchpad>/cursorq/rv2/ride-scroll-design-reviewed.md.
 - The streaming simulation is `ride_sim.py`, beside it.
 
 ### A. What the review found

@@ -1,12 +1,13 @@
 import sys, json, re, subprocess, collections, os
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 from fontTools.ttLib import TTFont
 from fontTools.pens.boundsPen import BoundsPen
 Q = sys.argv[1]
 H = "/nix/store/lk0d3svdv7gqk6472n4n1zr6nip1jd57-harfbuzz-13.2.1-dev/bin/hb-shape"
 FEAT = "-abvm,-blwm,-locl,-rlig,-clig,-curs,-dist,-kern,-liga,-rclt,-rvrn,-dlig,-hlig"
 FACES = [
- ("baud-app/fonts/built/Regular.ttf", 0, "built Regular"),
- ("baud-app/fonts/built/Bold.ttf", 0, "built Bold"),
+ (REPO + "/baud-app/fonts/built/Regular.ttf", 0, "built Regular"),
+ (REPO + "/baud-app/fonts/built/Bold.ttf", 0, "built Bold"),
  ("/System/Library/Fonts/Supplemental/Courier New.ttf", 0, "Courier New"),
  ("/System/Library/Fonts/Supplemental/Courier New Bold.ttf", 0, "Courier New Bold"),
  ("/System/Library/Fonts/ArialHB.ttc", 0, "Arial Hebrew"),

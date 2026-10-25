@@ -1,9 +1,10 @@
 import json, sys, re, collections, unicodedata
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 from fontTools.ttLib import TTFont
 Q = sys.argv[1]
 R = json.load(open(f"{Q}/measure.json"))
 corp = {n: json.load(open(f"{Q}/corpus-{n}-occ.json")) for n in ("gen5", "pango")}
-FACES = {"built Regular": ("baud-app/fonts/built/Regular.ttf", 0), "built Bold": ("baud-app/fonts/built/Bold.ttf", 0),
+FACES = {"built Regular": (REPO + "/baud-app/fonts/built/Regular.ttf", 0), "built Bold": (REPO + "/baud-app/fonts/built/Bold.ttf", 0),
  "Courier New": ("/System/Library/Fonts/Supplemental/Courier New.ttf", 0), "Courier New Bold": ("/System/Library/Fonts/Supplemental/Courier New Bold.ttf", 0),
  "Arial Hebrew": ("/System/Library/Fonts/ArialHB.ttc", 0), "Arial Hebrew Scholar": ("/System/Library/Fonts/ArialHB.ttc", 6),
  "SF Hebrew": ("/System/Library/Fonts/SFHebrew.ttf", 0), "SF Hebrew Rounded": ("/System/Library/Fonts/SFHebrewRounded.ttf", 0),

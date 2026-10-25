@@ -3,7 +3,7 @@
 Read-only research for the owner's "we probably want to autodetect
 ansi/base16/base24" and "we might want to research on that" (2026-10-16;
 TODO.md:2106-2108). Read at HEAD `33975a05`. The last commit that touched the
-files below is `8c8fe760`. Nothing in `~/src/baud` was edited:
+files below is `8c8fe760`. Nothing in the repository was edited:
 `git status --short` still shows only the two entries that were there at the
 start (the owner's uncommitted edits to the coverage test and an untracked Hebrew test file).
 

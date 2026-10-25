@@ -954,7 +954,7 @@ on a timer.**
 
 ### 5.1 The title bar strip
 
-**glassnote's titled shape** (`~/src/test/glassnote/src/window.rs`
+**glassnote's titled shape** (glassnote's src/window.rs
 262-276, read only):
 
 - It calls `setTitlebarAppearsTransparent(true)` and

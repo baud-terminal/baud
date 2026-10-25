@@ -13,7 +13,7 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # **A member, because the reason it was excluded expired.** That reason was
   # "pins alacritty by absolute path, so it cannot resolve on a checkout that
   # has not set that path" -- and the path was
-  # `/home/user/t/alacritty/alacritty_terminal`, which no checkout has,
+  # `/home/<user>/t/alacritty/alacritty_terminal`, which no checkout has,
   # including the one it was written on. So the crate never compiled, while
   # `BUILD.md` (now `docs/contributing/build.md`) listed it as "the only
   # oracle outside this repo". Pinned to the

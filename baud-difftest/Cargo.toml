@@ -14,7 +14,7 @@ publish = false
 baud-core = { path = "../baud-core", features = ["alloc"] }
 # From crates.io rather than a sibling checkout, for the reason `multibench`'s
 # manifest already records: the absolute path it carried
-# (`/home/user/t/alacritty/alacritty_terminal`) made this crate unbuildable on
+# (`/home/<user>/t/alacritty/alacritty_terminal`) made this crate unbuildable on
 # every machine that was not the one it was written on -- which is all of them,
 # including this one. It had therefore **never compiled**, while `BUILD.md`
 # (now `docs/contributing/build.md`) listed it as "the only oracle outside this repo" and its own doc comment

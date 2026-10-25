@@ -846,7 +846,7 @@ option B, ctlseqs' default and a departure from § 9).
 
 baud links the owner's crate as `macos-liquid-glass` 1.0.0-beta.5
 (`Cargo.lock` 424-426), whose `src/window.rs` is byte-identical to
-`~/src/test/glassnote` at 5fa641f ([[source: ak-obs-observations]]). It sets
+glassnote's own checkout at 5fa641f ([[source: ak-obs-observations]]). It sets
 `setTitlebarAppearsTransparent(true)` and
 `setTitleVisibility(NSWindowTitleVisibility::Hidden)` for the titled shape,
 "drop the title text — the surface draws its own" (`src/window.rs` 266-270),

@@ -1,8 +1,9 @@
 import sys
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 from fontTools.ttLib import TTFont, TTCollection
 out = []
 paths = [l.strip() for l in open(sys.argv[1]) if l.strip()]
-paths += ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf"]
+paths += [REPO + "/baud-app/fonts/built/Regular.ttf", REPO + "/baud-app/fonts/built/Bold.ttf"]
 seen = set()
 for p in paths:
     if p in seen: continue

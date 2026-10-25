@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # **A path dependency that leaves the repository resolves on the machine it
 # was written on and nowhere else.** This repo has paid for that twice:
-# `baud-difftest` pinned alacritty at an absolute `/home/user/...` and never
+# `baud-difftest` pinned alacritty at an absolute `/home/<user>/...` and never
 # compiled anywhere, while `BUILD.md` (now `docs/contributing/build.md`)
 # called it "the only oracle outside this repo"; `bench-others/alacritty-bench` pinned it at `../../../alacritty`, a
 # sibling checkout no machine here has, and was excluded from the workspace so

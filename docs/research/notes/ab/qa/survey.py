@@ -2,7 +2,7 @@ import sys, os, re, json, glob, bisect, hashlib
 sys.path.insert(0, "/nix/store/v8mbi1jnamp837ncvppww8vj9aq9xczs-python3.14-fonttools-4.63.0/lib/python3.14/site-packages")
 from fontTools.ttLib import TTFont, TTCollection
 
-REPO = "."
+REPO = str(__import__('pathlib').Path(__file__).resolve().parents[5])
 SD = open(f"{REPO}/baud-font/src/script_data.rs").read()
 def lit(name):
     m = re.search(r'pub static %s: &\[u8; \d+\] = b"\\\n(.*?)";' % name, SD, re.S)
