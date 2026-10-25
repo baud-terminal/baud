@@ -481,6 +481,15 @@ fn pins() -> Vec<Pin> {
     // pin holds the count so the day it moves somebody reads why.
     const CLUSTERING: &str = "sfte has no UAX #29: ZWJ families, flags and \
                               combining marks each take their own cells";
+    // **How far the first divergence of the two Devanagari recordings
+    // reaches is the host's `wcwidth`**, which sfte measures every character
+    // with (sfte.h's `_SFTE_CHAR_WIDTH`). glibc's C.UTF-8 gives the vowel
+    // signs AA and II, U+093E and U+0940, one column each and macOS's gives
+    // them none; they are the only characters in these two recordings the
+    // two tables disagree on, so sfte's rows run on by a cell at each and
+    // the boundary's divergence covers 250 cells on Linux and 165 on
+    // macOS. Which boundaries diverge is the same on both.
+    let devanagari = Cells::of(if cfg!(target_os = "linux") { 250 } else { 165 });
     vec![
         Pin {
             path: "ascii/asciiquarium.raw",
@@ -515,7 +524,7 @@ fn pins() -> Vec<Pin> {
         Pin {
             path: "utf8/cat-cjk.raw",
             diverging_boundaries: Boundary::of(80),
-            first_cells: Cells::of(165),
+            first_cells: devanagari,
             reason: CLUSTERING,
         },
         Pin {
@@ -527,7 +536,7 @@ fn pins() -> Vec<Pin> {
         Pin {
             path: "utf8/less-cjk.raw",
             diverging_boundaries: Boundary::of(21),
-            first_cells: Cells::of(165),
+            first_cells: devanagari,
             reason: CLUSTERING,
         },
         Pin {
@@ -777,7 +786,16 @@ mod tests {
         // four `BEL in ...` fixtures, measured: 39,980 more, four screens less
         // the five cells of `AFTER` on each. 410,277 since the four margin
         // fixtures, measured: 39,996 more, four screens less one `X` each.
-        assert_eq!(norm.blanks.get(), 410_277, "zero-rune blanks normalised");
+        // 410,269 on Linux: the cells glibc's `wcwidth` gives the two
+        // Devanagari vowel signs (see `pins`) are written rather than blank,
+        // 8 of them; with those two at macOS's 0 (an `LD_PRELOAD`ed
+        // `wcwidth`), Linux reads 410,277 and every pin above as macOS does.
+        let blanks = if cfg!(target_os = "linux") {
+            410_269
+        } else {
+            410_277
+        };
+        assert_eq!(norm.blanks.get(), blanks, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

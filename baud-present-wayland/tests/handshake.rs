@@ -152,9 +152,28 @@ impl Server {
     }
 }
 
+/// **Every byte the server has sent, not one read's worth.** Linux ends a
+/// stream read after the message that carried a descriptor
+/// (`unix_stream_read_generic()`, [[source: linux-af-unix]]), so a keymap
+/// arrives alone and the keys sent after it wait for the next read; macOS
+/// returns them together. The app's loop reads again whenever its wait
+/// says the socket is readable, so the pump reads until nothing is left:
+/// the server is this thread, so what it sent is already queued.
 fn pump(conn: &mut Connection, w: &mut Window) {
     conn.flush().unwrap();
     conn.receive().unwrap();
+    // The rest, until a read that does not wait finds nothing queued.
+    let probe = UnixStream::from(conn.as_fd().try_clone_to_owned().unwrap());
+    probe.set_nonblocking(true).unwrap();
+    loop {
+        match conn.receive() {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(e) => panic!("receive: {e}"),
+        }
+    }
+    probe.set_nonblocking(false).unwrap();
     conn.dispatch(w).unwrap();
     conn.flush().unwrap();
 }

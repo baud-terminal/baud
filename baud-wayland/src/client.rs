@@ -291,12 +291,21 @@ impl Connection {
         Ok(())
     }
 
-    /// Block for more bytes from the server. `Ok(0)` is the peer gone.
+    /// Block for more bytes from the server. `Ok(0)` is the peer gone. A
+    /// read that fails -- `WouldBlock` on a socket set not to wait, an
+    /// interrupted call -- leaves the inbox as it was: the space the read
+    /// was given is not bytes the server sent.
     pub fn receive(&mut self) -> io::Result<usize> {
         let start = self.inbox.len();
         self.inbox.resize(start + 4096, 0);
         let mut fds = Vec::new();
-        let n = sys::recv(&self.sock, &mut self.inbox[start..], &mut fds)?;
+        let n = match sys::recv(&self.sock, &mut self.inbox[start..], &mut fds) {
+            Ok(n) => n,
+            Err(e) => {
+                self.inbox.truncate(start);
+                return Err(e);
+            }
+        };
         self.inbox.truncate(start + n);
         self.in_fds.extend(fds);
         Ok(n)

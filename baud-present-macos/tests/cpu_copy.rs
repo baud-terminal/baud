@@ -10,6 +10,9 @@
 //! the copy of a frame a second renderer draws whole, through the same
 //! with iTerm2's cursor guide on, the badge set and the config's notice
 //! row shown.
+//!
+//! macOS only: the presenter it drives is.
+#![cfg(target_os = "macos")]
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Codepoint, Cols, ReadLen, Rows, WinSize};

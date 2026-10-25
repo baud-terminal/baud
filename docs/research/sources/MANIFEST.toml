@@ -25974,6 +25974,8 @@ status = "external"
 group  = "E"
 # Read for 2.4.3's list of async-signal-safe functions, which names tcgetattr() and
 # tcsetattr() (and neither ioctl() nor login_tty()).
+# Read again 2026-10-24 (lane b196), the same bytes: 2.2.1.2 The _XOPEN_SOURCE Feature Test
+# Macro, 'defined with the value 800 before inclusion of any header'.
 
 [sources.linux-tty-ioctl]
 key    = "linux-tty-ioctl"
@@ -35481,3 +35483,37 @@ group  = "J"
 # heh and het, bet and kaf, dalet and resh, gimel and nun, vav and zayin, and samekh
 # and final mem ... The success of a Hebrew letter typeface, therefore, depends
 # considerably on the designer's ability to create a distinction between the letters."
+
+# The sfte oracle's shim on glibc (2026-10-24, lane b196): sfte.h calls wcwidth(), which
+# POSIX marks XSI, and a strict -std=c11 build on glibc declares it only under
+# _XOPEN_SOURCE (XSH 2.2.1.2, posix-xsh-2 above). External: hash-verified, not committed.
+[sources.posix-wcwidth]
+key    = "posix-wcwidth"
+title  = "wcwidth -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: SYNOPSIS '[XSI] #include <wchar.h>'"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcwidth.html"
+file   = ""
+sha256 = "2a46145b54990543a28d217febf495803dd20c69b82a0bf6c1870ffcc7966fdb"
+bytes  = 6206
+status = "external"
+group  = "E"
+# Retrieved 2026-10-24. Read: SYNOPSIS (XSI-shaded), DESCRIPTION, RETURN VALUE.
+
+# The Wayland handshake tests' socket pair on Linux (2026-10-24, lane b196). External:
+# hash-verified, not committed (GPL-2.0).
+[sources.linux-af-unix]
+key    = "linux-af-unix"
+title  = "Linux cf72cbb, net/unix/af_unix.c -- unix_stream_read_generic: a read ends after the message whose descriptors it took ('if (scm.fp) break;')"
+author = "Linus Torvalds and the Linux contributors"
+year   = 2026
+venue  = "Linux kernel"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/net/unix/af_unix.c"
+file   = ""
+sha256 = "05a9dd99d8cffacb41e0a0127f597998f93a3f01634d083d528ff0efbb573760"
+bytes  = 93547
+status = "external"
+group  = "E"
+# Retrieved 2026-10-24. Read: unix_stream_read_generic, lines 2914-3110: after a skb is
+# consumed, 'if (scm.fp) break;' (line 3080); 'Never glue messages from different writers'.

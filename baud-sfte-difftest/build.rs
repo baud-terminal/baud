@@ -46,12 +46,28 @@ fn main() {
     fs::write(&header, patched).unwrap();
 
     let obj = out.join("sfte_shim.o");
+    // **`_XOPEN_SOURCE=800`, because sfte.h calls `wcwidth`**, which POSIX
+    // declares only under the XSI option ([[source: posix-wcwidth]]), and
+    // an XSI application "shall ensure that the feature test macro
+    // _XOPEN_SOURCE is defined with the value 800 before inclusion of any
+    // header" ([[source: posix-xsh-2]], 2.2.1.2). `-std=c11` turns glibc's
+    // GNU defaults off, so without it gcc 15 on Linux stops at "implicit
+    // declaration of function 'wcwidth'"; `_POSIX_C_SOURCE=200809L` alone
+    // stops there too. glibc reads 800 as its 700 level, and on macOS the
+    // object is the same byte for byte with it or without.
     let mut cc = Command::new("cc");
-    cc.args(["-std=c11", "-O2", "-Wall", "-Wextra", "-c"])
-        .arg(&shim_c)
-        .arg("-o")
-        .arg(&obj)
-        .arg(format!("-DSFTE_HDR=\"{}\"", header.display()));
+    cc.args([
+        "-std=c11",
+        "-D_XOPEN_SOURCE=800",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-c",
+    ])
+    .arg(&shim_c)
+    .arg("-o")
+    .arg(&obj)
+    .arg(format!("-DSFTE_HDR=\"{}\"", header.display()));
     // The two stub headers exist only for hosts without <pty.h> and
     // <sys/timerfd.h>. On Linux the real ones exist and must not be shadowed.
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {

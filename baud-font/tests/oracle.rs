@@ -696,8 +696,16 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
         "glyph metrics compared: {}",
         t.glyphs_agreed
     );
-    assert!(t.cmap_hits > 10_000, "cmap hits: {}", t.cmap_hits);
-    assert!(t.variation_hits > 0, "variation hits: {}", t.variation_hits);
+    // **The floors are the corpus's.** Off macOS it is the nine committed
+    // faces alone, which reach 9,611 cmap hits and 12,804 outlines and
+    // carry no format 14 subtable, so no variation sequence is met; this
+    // Mac's system faces take all three past the macOS floors.
+    let system = cfg!(target_os = "macos");
+    let cmap_floor = if system { 10_000 } else { 9_000 };
+    assert!(t.cmap_hits > cmap_floor, "cmap hits: {}", t.cmap_hits);
+    if system {
+        assert!(t.variation_hits > 0, "variation hits: {}", t.variation_hits);
+    }
     // The normalisation must have fired: a corpus where it never did would
     // mean the oracle's semantics changed under this test, and the note above
     // would be describing something that no longer happens.
@@ -706,8 +714,9 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
         "glyph-0 normalisations: {}",
         t.notdef_normalised
     );
+    let outline_floor = if system { 100_000 } else { 10_000 };
     assert!(
-        t.outline_hits > 100_000,
+        t.outline_hits > outline_floor,
         "outlines drawn: {}",
         t.outline_hits
     );
