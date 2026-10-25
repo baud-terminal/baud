@@ -2231,16 +2231,30 @@ mod classes {
         (acts, n)
     }
 
-    /// The signature of a word across every node and both encodings.
+    /// Every outcome a word has had from one node, `(actions, end)`, by the
+    /// index it was first given.
+    type Outcomes = HashMap<(Vec<Act>, Node), usize>;
+
+    /// The signature of a word across every node and both encodings: each
+    /// node's outcome, by its index in `outcomes`.
     ///
     /// **Typed, not cast to bytes.** A discriminant cast would be one more
     /// raw-integer site in a crate whose budget is a floor, and the action is
     /// already the value being compared.
-    fn full_signature(word: &[StreamByte]) -> Vec<(Vec<Act>, Node)> {
-        let mut sig = Vec::new();
+    ///
+    /// **Interned, so two words share a class exactly when their outcomes
+    /// do.** An index names one outcome and one outcome has one index, so
+    /// comparing indices is comparing outcomes; the counts are the ones the
+    /// outcomes themselves gave. Keyed by the outcomes, the stride-4 map
+    /// held a vector of 78 vectors for each of 2,324,725 classes: the test
+    /// peaked at 15.2 GB in a Linux container, and CI's runner was shut
+    /// down while it ran. Interned, it peaks at 1.7 GB.
+    fn full_signature(outcomes: &mut Outcomes, word: &[StreamByte]) -> Vec<usize> {
+        let mut sig = Vec::with_capacity(2 * NNODE);
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             for n in Node::FROM_INDEX {
-                sig.push(word_signature(enc, n, word));
+                let next = outcomes.len();
+                sig.push(*outcomes.entry(word_signature(enc, n, word)).or_insert(next));
             }
         }
         sig
@@ -2259,34 +2273,38 @@ mod classes {
     /// is 380 KB or unaffordable, and a number nothing checks drifts.
     #[test]
     fn the_alphabet_reduces_as_the_stride_doubles() {
+        let mut outcomes = Outcomes::new();
         // Stride 1: every byte, by the edge it takes from every node.
-        let mut one: HashMap<Vec<(Vec<Act>, Node)>, usize> = HashMap::new();
+        let mut one: HashMap<Vec<usize>, usize> = HashMap::new();
         for b in 0..256usize {
-            let k = full_signature(&[StreamByte::ALL[b]]);
+            let k = full_signature(&mut outcomes, &[StreamByte::ALL[b]]);
             let n = one.len();
             one.entry(k).or_insert(n);
         }
 
         // Stride 2: every byte *pair*, by what the two of them do.
-        let mut two: HashMap<Vec<(Vec<Act>, Node)>, usize> = HashMap::new();
+        let mut two: HashMap<Vec<usize>, usize> = HashMap::new();
         for b0 in 0..256usize {
             for b1 in 0..256usize {
-                let k = full_signature(&[StreamByte::ALL[b0], StreamByte::ALL[b1]]);
+                let k = full_signature(&mut outcomes, &[StreamByte::ALL[b0], StreamByte::ALL[b1]]);
                 let n = two.len();
                 two.entry(k).or_insert(n);
             }
         }
 
         // Stride 3, for the edge that actually shipped.
-        let mut three: HashMap<Vec<(Vec<Act>, Node)>, usize> = HashMap::new();
+        let mut three: HashMap<Vec<usize>, usize> = HashMap::new();
         for b0 in 0..256usize {
             for b1 in 0..256usize {
                 for b2 in 0..256usize {
-                    let k = full_signature(&[
-                        StreamByte::ALL[b0],
-                        StreamByte::ALL[b1],
-                        StreamByte::ALL[b2],
-                    ]);
+                    let k = full_signature(
+                        &mut outcomes,
+                        &[
+                            StreamByte::ALL[b0],
+                            StreamByte::ALL[b1],
+                            StreamByte::ALL[b2],
+                        ],
+                    );
                     let n = three.len();
                     three.entry(k).or_insert(n);
                 }
@@ -2299,21 +2317,21 @@ mod classes {
         // cover the space exactly.
         let mut reps: Vec<[StreamByte; 2]> = Vec::new();
         {
-            let mut seen: HashMap<Vec<(Vec<Act>, Node)>, ()> = HashMap::new();
+            let mut seen: HashMap<Vec<usize>, ()> = HashMap::new();
             for b0 in 0..256usize {
                 for b1 in 0..256usize {
                     let w = [StreamByte::ALL[b0], StreamByte::ALL[b1]];
-                    if seen.insert(full_signature(&w), ()).is_none() {
+                    if seen.insert(full_signature(&mut outcomes, &w), ()).is_none() {
                         reps.push(w);
                     }
                 }
             }
         }
-        let mut four: HashMap<Vec<(Vec<Act>, Node)>, usize> = HashMap::new();
+        let mut four: HashMap<Vec<usize>, usize> = HashMap::new();
         for a in &reps {
             for b in &reps {
                 let w = [a[0], a[1], b[0], b[1]];
-                let k = full_signature(&w);
+                let k = full_signature(&mut outcomes, &w);
                 let n = four.len();
                 four.entry(k).or_insert(n);
             }
