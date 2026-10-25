@@ -1243,6 +1243,10 @@ pub struct Cold {
     /// [`ModeBit`]: the mode word is read by the per-byte path and full,
     /// and nothing on that path reads this.
     pub(crate) bidi: BidiSupport,
+    /// SCP's and SPD's character path in force: the one the lines that
+    /// follow take (`crate::path`). None at power-on and after `RIS`
+    /// and `DECSTR`.
+    pub(crate) path: CharacterPath,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1989,6 +1993,7 @@ impl Cold {
             // rendered (`tests/golden.rs`) compares like with like.
             modes: Modes::default(),
             bidi: BidiSupport::POWER_ON,
+            path: CharacterPath::Default,
             xtsave: SavedModes::NONE,
         }
     }

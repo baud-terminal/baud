@@ -393,6 +393,8 @@ impl Csi {
             | RestoreCursor
             | ScrollLeft(_)
             | ScrollRight(_)
+            | SelectCharacterPath { .. }
+            | SelectPresentationDirections { .. }
             | RequestVersion
             | KeyControl(_)
             | ShiftEscape(_)

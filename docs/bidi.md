@@ -38,8 +38,30 @@ the screen; step 3 joins Arabic letters.
   letter, or holds no strong letter, is at level 0 and stays at the left
   edge. The letter is looked for in the text the layout reads, the
   paragraph's drawn rows and the context around them; a paragraph resolved
-  in more than one piece keeps the first piece's level. Until a program
-  can set a direction (SCP, next step), this is every paragraph's.
+  in more than one piece keeps the first piece's level. This is every
+  paragraph's until a program sets its lines' direction.
+- **A program can set which way its lines run.** SCP 2 (`CSI 2 SP k`)
+  draws the line the cursor is on, and the new lines after it, right to
+  left against the right edge whatever they hold, an English line included;
+  SCP 1 keeps them left to right, a Hebrew line included; SPD 3 and SPD 0
+  (`CSI 3 SP S`, `CSI SP S`) turn every line of the screen at once
+  (`[[source: ecma48]]` 8.3.111, 8.3.130). The direction is the
+  paragraph's level, set outright (UAX #9 HL1). It turns the paragraph
+  holding the cursor's line at once and becomes the direction new lines
+  take: a line feed into a new line, a line a scroll brings in, the lines
+  an erase of the screen clears, the lines SU, SD, IL and DL bring in,
+  each a line of its own, and the screen a clear leaves; a wrapped row keeps its paragraph's, and an
+  erase inside a line keeps the line's. A cursor move takes nothing, so a
+  line a program only moves to keeps its own. Each row keeps its
+  paragraph's direction beside its mark, so scrolling, scrollback and a
+  change of width carry it. On a table row each cell takes it. `DECSTR`
+  returns new lines to first strong and leaves the lines on screen as they
+  are; `RIS` returns every line to first strong. With BDSM reset a line
+  set right to left is drawn in reverse, its first cell at the right edge,
+  its brackets mirrored and a bar cursor on its cell's right side,
+  terminal-wg's explicit RTL (`[[source: terminal-wg-bidi-basic-modes]]`).
+  `CSI 0 SP k` and `CSI SP k` are refused and counted: ECMA-48 defines
+  only 1 and 2 and gives SCP no default (`docs/vt-coverage.md`).
 - **A table row keeps its columns.** A paragraph holding a box-drawing
   character (U+2500-U+257F: `│`, `┃`, `║`, the dashed verticals, the
   junctions, and DEC Special Graphics line drawing, which is stored as
@@ -360,11 +382,15 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   paragraph broken into lines of one direction each; the texts, the prior
   art, three prototypes and the recommendation are note BD,
   `docs/research/notes/bd-bidi-wrap.md`.
-- **A direction a program sets**: SCP (per line in ECMA-48), SPD, and
-  terminal-wg's per-paragraph modes with `?2501` (autodetection), `?1243`
-  (arrow-key swapping) and `?2500` (box mirroring). They need a direction
-  each row keeps. Until then they are counted and `DECRQM` says they are
-  not recognised (`docs/vt-coverage.md`).
+- **terminal-wg's per-paragraph modes**: `?2501` (autodetection), `?1243`
+  (arrow-key swapping) and `?2500` (box mirroring). Each row keeps its
+  paragraph's direction beside its mark now, where these would ride too.
+  Until they are built they are counted and `DECRQM` says they are not
+  recognised (`docs/vt-coverage.md`).
+- **SCP's edges**: `CSI 0 SP k`, which terminal-wg reads as the terminal's
+  default, is refused, so a program that restores the default that way
+  leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
+  save the direction (terminal-wg's open issue 3).
 - SRS, SDS, SAPV and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
 - **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
   Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a

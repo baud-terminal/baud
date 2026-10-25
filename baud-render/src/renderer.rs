@@ -2754,7 +2754,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the last frame's joins kept for it to find again on the rows its
     /// compare finds changed ([`crate::Reorder::keep_displayed`]), and the
     /// find marks and the link underline drawn again if the frame before
-    /// was reordered.
+    /// was reordered or this one is: a line SCP set right to left is drawn
+    /// in reverse with the mode reset.
     fn keep_bidi_displayed(
         &mut self,
         term: &Term<'_>,
@@ -2763,7 +2764,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) -> crate::bidi::Rejoin {
         let was = self.bidi.orders().any();
         let rejoin = self.bidi.keep_displayed(term, back, changes);
-        if was {
+        if was || self.bidi.orders().any() {
             self.build_find();
             self.build_link();
         }

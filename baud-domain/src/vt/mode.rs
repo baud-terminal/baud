@@ -338,21 +338,33 @@ pub enum ModeBit {
     /// path tests one word it loads anyway; the run itself is
     /// `crate::PrintRun`'s. Reset at power-on and by `RIS`, kept by `DECSTR`.
     AutoPrint,
+    /// **Whether SCP or SPD has selected a character path** since power-on
+    /// or `RIS` (`[[source: ecma48]]` 8.3.111, 8.3.130). Not a mode the host
+    /// names: a fact the line rules read, **a bit here for AutoPrint's
+    /// reason**, so a line feed, a `CR LF` and a wrap test it in the test
+    /// they already make, and a program that never selects a path pays no
+    /// instruction for the rules. Set by SCP and SPD, reset only by `RIS`;
+    /// no `DECRQM` or XTSAVE reaches it.
+    PathSelected,
 }
 
 impl ModeBit {
-    const fn bit(self) -> u32 {
-        1 << (self as u32)
+    const fn bit(self) -> u64 {
+        1 << (self as u64)
     }
 }
 
-/// `Modes` is a `u32`, so a 33rd mode bit would shift off the end: `1u32 << 32`
+/// `Modes` is a `u64`, so a 65th mode bit would shift off the end: `1u64 << 64`
 /// panics in debug and yields nothing useful in release, and the mode would
 /// simply stop working with no diagnostic. Widen `Modes` before adding one.
 ///
 /// It was a `u16` and the seventeenth bit is what widened it -- `?1034`, the
-/// mode terminfo's `smm`/`rmm` send. The instruction cost is the same: a bit
-/// test against a register-width immediate either way.
+/// mode terminfo's `smm`/`rmm` send -- and a `u32` until the 33rd,
+/// [`ModeBit::PathSelected`]. What that cost was not read from the machine
+/// code; a line feed, a `CR LF` and a wrap make one test of the mode word
+/// where they already tested LNM and autoprint, cells written were equal
+/// and the timing gave no result (docs/record.md, "SCP and SPD set which
+/// way a line runs").
 ///
 /// **The bound counts the variants rather than naming the last one.** It
 /// named one, `LAST`, for its whole life, and named the wrong one twice:
@@ -362,8 +374,8 @@ impl ModeBit {
 /// `variant_count` cannot go stale, because the variants carry no explicit
 /// discriminants and so number `0..count` in declaration order.
 const _: () = assert!(
-    core::mem::variant_count::<ModeBit>() <= 32,
-    "ModeBit has outgrown the u32 bitset in Modes -- widen Modes to u64"
+    core::mem::variant_count::<ModeBit>() <= 64,
+    "ModeBit has outgrown the u64 bitset in Modes -- widen Modes to u128"
 );
 
 /// Terminal mode state as a bitset.
@@ -372,7 +384,7 @@ const _: () = assert!(
 /// the audit gate exists to prevent: each would be an untyped flag, and
 /// `self.lnm = self.decom` would compile.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Modes(pub(crate) u32);
+pub struct Modes(pub(crate) u64);
 
 impl Default for Modes {
     /// DECAWM and DECTCEM are set on a fresh terminal, and so are both
@@ -414,6 +426,10 @@ impl Modes {
     /// `is_set` calls are two.
     pub fn either_set(self, a: ModeBit, b: ModeBit) -> bool {
         self.0 & (a.bit() | b.bit()) != 0
+    }
+    /// Whether any of three modes is set: one test of the word.
+    pub fn any_of_three(self, a: ModeBit, b: ModeBit, c: ModeBit) -> bool {
+        self.0 & (a.bit() | b.bit() | c.bit()) != 0
     }
     pub fn set(&mut self, m: ModeBit) {
         self.0 |= m.bit();

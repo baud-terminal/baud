@@ -30,6 +30,12 @@
 //! context before and after them as fit, UAX #9 HL5's "piece of text that
 //! is extracted from a longer sequence" (Jev CONTEXT_WINDOW, 0.98/0.98).
 //!
+//! **A line's character path** (SCP, SPD; `baud_core`'s line rules keep
+//! it on every row of a paragraph): with BDSM set a selected path is the
+//! paragraph's level, set outright (UAX #9 HL1), and none selected the
+//! level P2-P3 finds; with BDSM reset a right-to-left line is drawn in
+//! reverse (`Reorder::reverse_paths`).
+//!
 //! **A table row keeps its columns.** A paragraph holding a box-drawing
 //! character ([`is_column_rule`]) is a table row: each rule is given to
 //! the algorithm as a paragraph separator, so each cell between two rules
@@ -112,10 +118,10 @@
 
 use baud_core::{BidiSupport, Term};
 use baud_domain::{
-    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, ClusterEpoch, ClusterSlot,
-    Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef, PackedCell, Row, RowExtent,
-    RowRot, Rows, Stride, Viewport, Wrap, in_layout_block, join, lam_alefs, mirroring_glyph,
-    opens_rtl, takes_form,
+    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, CharacterPath,
+    ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
+    PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, in_layout_block, join,
+    lam_alefs, mirroring_glyph, opens_rtl, takes_form,
 };
 
 use crate::units::Tally;
@@ -136,7 +142,8 @@ pub enum CursorSide {
     Right,
 }
 
-/// **The paragraph level an implicit paragraph gets: found from its text**,
+/// **The paragraph level an implicit paragraph gets where no SCP or SPD set
+/// its lines' path ([`level_of`]): found from its text**,
 /// UAX #9 P2-P3 -- level 1 when its first strong letter, isolates skipped,
 /// is R or AL, else level 0 -- the standard's own default and the owner's
 /// answer of 2026-10-24 ("all match C besides these 2"). A right-to-left
@@ -146,6 +153,17 @@ pub enum CursorSide {
 /// context around them ([`CONTEXT`]); a paragraph resolved in more than
 /// one piece keeps the first piece's level for the rest (HL1).
 const DIRECTION: BidiParagraph = BidiParagraph::FirstStrong;
+
+/// **The level a paragraph of character path `path` is resolved at**: the
+/// path, set outright (UAX #9 HL1), where SCP or SPD selected one, and
+/// [`DIRECTION`] where none did.
+fn level_of(path: CharacterPath) -> BidiParagraph {
+    match path {
+        CharacterPath::Default => DIRECTION,
+        CharacterPath::LeftToRight => BidiParagraph::Ltr,
+        CharacterPath::RightToLeft => BidiParagraph::Rtl,
+    }
+}
 
 /// The stand-in for an erased cell between characters: U+200B ZERO WIDTH
 /// SPACE, of class BN and no bracket.
@@ -613,6 +631,9 @@ pub struct Reorder {
     /// One line piece's order, and every line's levels by text position.
     piece: Vec<u16>,
     levels: Vec<BidiLevel>,
+    /// Each window row's character path at the last
+    /// [`Reorder::keep_displayed`].
+    paths: Vec<CharacterPath>,
 }
 
 /// Whether a codepoint of a paragraph's text is a column rule: a table
@@ -762,6 +783,7 @@ impl Reorder {
             rule: Vec::new(),
             piece: Vec::new(),
             levels: Vec::new(),
+            paths: Vec::new(),
         }
     }
 
@@ -834,6 +856,9 @@ impl Reorder {
         self.orders.rows.resize_with(nrows, || None);
         self.forget_joins(vp.rows());
         let explicit = term.bidi_support() == BidiSupport::Explicit;
+        if explicit {
+            self.reverse_paths(term, &vp);
+        }
         if explicit && joins == Joins::Unseen {
             return;
         }
@@ -852,7 +877,7 @@ impl Reorder {
             for y in 0..n {
                 let r = Row::from_index(y);
                 if self.seen.holds(term, r, row_of(r), &mut self.work).joins == Opens::Yes {
-                    self.join_displayed(term, r, row_of(r));
+                    self.join_shown(term, r, row_of(r));
                 }
             }
             return;
@@ -895,8 +920,15 @@ impl Reorder {
         self.work = Work::default();
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
+        self.reverse_paths(term, &vp);
         let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
-        let rejoin = match self.last == now {
+        // A row whose path changed is shown in another order with the same
+        // cells, which no caller's compare sees: its joins are found again.
+        let paths = (0..nrows).map(|y| vp.path(Row::from_index(y)));
+        let same_paths = self.paths.len() == nrows && self.paths.iter().copied().eq(paths.clone());
+        self.paths.clear();
+        self.paths.extend(paths);
+        let rejoin = match self.last == now && same_paths {
             true => Rejoin::Changed,
             false => {
                 self.forget_joins(vp.rows());
@@ -917,8 +949,84 @@ impl Reorder {
         *slot = None;
         self.work.tested.bump();
         if row_joins(term, vp.row(r)) {
-            self.join_displayed(term, r, vp.row(r));
+            self.join_shown(term, r, vp.row(r));
         }
+    }
+
+    /// **With BDSM reset, each row whose line runs right to left drawn in
+    /// reverse**: terminal-wg's explicit RTL, "Cells are laid out in the
+    /// exact reverse order than in explicit LTR. The model's first column is
+    /// displayed in the rightmost cell ... Mirrorable glyphs are mirrored.
+    /// The I-Beam shaped cursor is displayed on the right side of its cell"
+    /// (`[[source: terminal-wg-bidi-basic-modes]]`). A wide character's two
+    /// cells keep their order, its lead on the left. Every cell is at level
+    /// 1, so each is shaped on its own and a bar cursor sits on its right.
+    /// One read of each row's path a frame, and the cells of the rows that
+    /// hold one.
+    fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>) {
+        let cols = vp.cols().index();
+        for y in 0..vp.rows().index() {
+            let r = Row::from_index(y);
+            if vp.path(r) != CharacterPath::RightToLeft {
+                continue;
+            }
+            let cells = vp.row(r);
+            let mut out = RowOrder {
+                from: Vec::with_capacity(cols),
+                to: vec![Col::ZERO; cols],
+                level: vec![BidiLevel::RTL; cols],
+                swaps: Vec::new(),
+                mirrors: Vec::new(),
+            };
+            let mut c = cols;
+            while c > 0 {
+                c -= 1;
+                match c > 0 && cells[c].content.is_wide_tail() {
+                    true => {
+                        out.from.push(Col::at_index(c - 1));
+                        out.from.push(Col::at_index(c));
+                        c -= 1;
+                    }
+                    false => out.from.push(Col::at_index(c)),
+                }
+            }
+            for (v, l) in out.from.iter().enumerate() {
+                let v = Col::at_index(v);
+                if let Some(slot) = out.to.get_mut(l.index()) {
+                    *slot = v;
+                }
+                let cell = cells[l.index()];
+                if cell.content.is_wide_tail() {
+                    continue;
+                }
+                match mirror(term, cell) {
+                    Mirror::Glyph(m) => out.swaps.push((v, m)),
+                    Mirror::Flipped(alone) => {
+                        if let Some(base) = alone {
+                            out.swaps.push((v, base));
+                        }
+                        out.mirrors.push((v, Mirrored::Flipped));
+                    }
+                    Mirror::Under(m) => out.mirrors.push((v, Mirrored::Under(m))),
+                    Mirror::Not => {}
+                }
+            }
+            self.orders.rows[y] = Some(out);
+            self.orders.any = Any::Yes;
+        }
+    }
+
+    /// Row `r`, `cells` as stored, joined in the order it is shown with
+    /// BDSM reset: as stored, or reversed on a right-to-left line, whose
+    /// joins are then found over the cells as [`Reorder::reverse_paths`]
+    /// lays them out, by the visual column every draw path reads.
+    fn join_shown(&mut self, term: &Term<'_>, r: Row, cells: &[PackedCell]) {
+        if !self.orders.reordered(r) {
+            return self.join_displayed(term, r, cells);
+        }
+        let mut shown = vec![PackedCell::EMPTY; cells.len()];
+        self.orders.permute(r, cells, &mut shown);
+        self.join_displayed(term, r, &shown);
     }
 
     /// No row of a window `rows` high holds a joined cell: the maps
@@ -1000,8 +1108,16 @@ impl Reorder {
                 k += 1;
             }
         }
-        let any_opens =
-            drawn_opens || above.iter().any(|c| opens(c)) || below.iter().any(|c| opens(c));
+        // **The paragraph's character path** (SCP, SPD): every row of a
+        // paragraph holds it, so its first drawn row says. A path set
+        // outright is the paragraph's level (UAX #9 HL1), and a right-to-left
+        // one lays a paragraph out against the right edge whatever its
+        // letters, so it is resolved even when nothing in it opens.
+        let path = vp.path(first);
+        let any_opens = path == CharacterPath::RightToLeft
+            || drawn_opens
+            || above.iter().any(|c| opens(c))
+            || below.iter().any(|c| opens(c));
         // A paragraph that nothing reorders but whose drawn rows hold a
         // joining letter -- Mongolian, whose class is L -- is joined in its
         // stored order, every character at the paragraph's level, and drawn
@@ -1021,7 +1137,7 @@ impl Reorder {
         // fits around it: the rows above before the first chunk, the rows
         // below after the last.
         let cap = Chars(CONTEXT);
-        let mut dir = DIRECTION;
+        let mut dir = level_of(path);
         let mut start = 0;
         while start < drawn.len() {
             let mut used = Chars::default();
@@ -1067,7 +1183,7 @@ impl Reorder {
                     });
                 }
             }
-            if let Some(level) = self.resolve(term, &rows, dir, resolves) {
+            if let Some(level) = self.resolve(term, &rows, (dir, path), resolves) {
                 dir = match level.direction() {
                     baud_domain::BidiDirection::Rtl => BidiParagraph::Rtl,
                     baud_domain::BidiDirection::Ltr => BidiParagraph::Ltr,
@@ -1084,7 +1200,7 @@ impl Reorder {
         &mut self,
         term: &Term<'_>,
         rows: &[ParaRow<'_>],
-        dir: BidiParagraph,
+        (dir, path): (BidiParagraph, CharacterPath),
         resolves: Resolves,
     ) -> Option<BidiLevel> {
         self.text.clear();
@@ -1165,10 +1281,12 @@ impl Reorder {
         // own first strong letter gives it (UAX #9 section 3: "the text in
         // two different cells of a table will be in different
         // paragraphs"), each is ordered inside its own columns, and the
-        // row runs left to right, every rule where it was written.
+        // row runs left to right, every rule where it was written. A path
+        // SCP or SPD set is each cell's level, HL1 on each cell's paragraph
+        // (Jev's lean, CELLS_AT_SCP, 0.57/0.71).
         let table = self.rule.contains(&Rule::Yes);
         let dir = match table {
-            true => BidiParagraph::FirstStrong,
+            true => level_of(path),
             false => dir,
         };
         let Ok(level) = self.bidi.resolve(&self.text, dir) else {

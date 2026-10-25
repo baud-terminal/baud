@@ -474,11 +474,19 @@ pub(crate) fn act(
                     if p.view.extent(p.cy).wrapped() {
                         p.view.set_ended(p.cy);
                     }
-                    // Autoprint prints the line the `LF` leaves (`print.rs`).
-                    if p.cold.modes.is_set(ModeBit::AutoPrint) {
-                        p.autoprint(crate::print::LineEnd::LineFeed);
+                    // Autoprint prints the line the `LF` leaves (`print.rs`),
+                    // and a selected character path goes to the line it
+                    // reaches (`crate::path`): one test, both out of line.
+                    match p
+                        .cold
+                        .modes
+                        .either_set(ModeBit::AutoPrint, ModeBit::PathSelected)
+                    {
+                        true => p.cr_lf_moded(),
+                        false => {
+                            p.index();
+                        }
                     }
-                    p.index();
                     ReadLen::from_index(2)
                 }
                 false => ReadLen::ONE,
@@ -2190,11 +2198,17 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // The cursor stays and its row's text moves under it.
         DomCsi::ScrollUp(c) => {
             p.scroll_region_up(c);
+            p.scrolled_lines_bounded(c, BandMove::Up);
             p.row_changed_to(p.cy);
         }
         DomCsi::ScrollDown(c) => {
             p.scroll_region_down(c);
+            p.scrolled_lines_bounded(c, BandMove::Down);
             p.row_changed_to(p.cy);
+        }
+        DomCsi::SelectCharacterPath { path, cursor } => p.select_path(path, cursor),
+        DomCsi::SelectPresentationDirections { path, cursor } => {
+            p.select_presentation(path, cursor)
         }
         DomCsi::ScrollLeft(c) => p.scroll_columns(c, ColumnShift::Delete),
         DomCsi::ScrollRight(c) => p.scroll_columns(c, ColumnShift::Insert),
@@ -2659,9 +2673,7 @@ fn esc_final(
             None => p.restore_unsaved(),
         },
         Esc::ReverseIndex => p.reverse_index(),
-        Esc::Index => {
-            p.index();
-        }
+        Esc::Index => p.index_bringing_in(),
         // **`CR` and then `LF`, so the line it leaves decides**:
         // `[[source: dec-std-070]]` NEL, p. 5-64, "If the Active Position is
         // before the left margin, or outside the top and bottom margins, it
@@ -2669,7 +2681,7 @@ fn esc_final(
         // is `carriage_return(); line_feed();`.
         Esc::NextLine => {
             p.carriage_return();
-            p.index();
+            p.index_bringing_in();
         }
         Esc::TabSet => p.tab_set(),
         Esc::LineTabSet => p.cold.line_stops.set(p.cy),

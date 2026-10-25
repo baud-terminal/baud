@@ -71,6 +71,7 @@ mod notice;
 mod ops;
 mod osc;
 mod paint;
+mod path;
 mod placed;
 mod presentation;
 mod print;

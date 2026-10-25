@@ -1697,7 +1697,24 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.erase_span(Row::from_index(y), Col::ZERO, cols, blank);
         }
         if from < to {
+            // The lines it erases whole take the direction in force, the
+            // draft's "spreads the current BiDi modes into the entire
+            // cleared area" (`crate::path`).
+            self.path_rows(Row::from_index(from), Row::from_index(to - 1));
             self.wrote_rows(Row::from_index(from), Row::from_index(to - 1));
+        }
+        // **ED 1 and ED 2 end the history's newest line**, which a wrap may
+        // have left continuing onto the first row they erase: "the last
+        // scrolled out line also needs to change its ending to hard newline
+        // in modes 1 and 2", even with the cursor on the top row
+        // (`[[source: terminal-wg-bidi-escape-sequences]]`), so the screen's
+        // first line is a paragraph of its own.
+        if e != EraseExtent::ToEnd
+            && self.cold.screen == crate::term::Screen::Normal
+            && !self.on_status()
+            && self.book.hist.index() > 0
+        {
+            self.view.set_ended_behind(Rows::of_count(0));
         }
         // The cursor's own row is a partial erase either side of it. The whole
         // screen takes its kitty images with it (`Paint::kitty_clear`).
@@ -1790,16 +1807,54 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cx = CursorCol::written(self.cold.fence);
             return;
         }
-        // Autoprint prints the line an autowrap leaves, ended by `LF`
-        // (070-7 § 7.3.7, "or LF if Auto Wrap").
-        if self.cold.modes.is_set(ModeBit::AutoPrint) {
-            self.autoprint(crate::print::LineEnd::LineFeed);
+        // Autoprint and a selected character path out of line, one test.
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::AutoPrint, ModeBit::PathSelected)
+        {
+            return self.wrap_moded();
         }
         self.cx = CursorCol::moved(self.cold.left);
         // The row being left continues onto the next: the fact a reflow
         // needs, kept in the mark the write already touched.
         self.view.set_wrapped(self.cy);
         self.index();
+    }
+
+    /// [`Paint::wrap`] under autoprint or a selected character path.
+    /// Autoprint prints the line an autowrap leaves, ended by `LF` (070-7
+    /// § 7.3.7, "or LF if Auto Wrap"); the row the wrap brings in takes the
+    /// direction of the paragraph it joins (`crate::path`).
+    #[cold]
+    #[inline(never)]
+    fn wrap_moded(&mut self) {
+        if self.cold.modes.is_set(ModeBit::AutoPrint) {
+            self.autoprint(crate::print::LineEnd::LineFeed);
+        }
+        self.cx = CursorCol::moved(self.cold.left);
+        self.view.set_wrapped(self.cy);
+        self.index();
+        if self.cold.modes.is_set(ModeBit::PathSelected) {
+            self.wrapped_into_path();
+        }
+    }
+
+    /// The `LF` of a `CR LF` the loop folds into one step, under autoprint
+    /// or a selected character path: the line printed, then the line feed
+    /// the path rules follow (`crate::path`).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn cr_lf_moded(&mut self) {
+        if self.cold.modes.is_set(ModeBit::AutoPrint) {
+            self.autoprint(crate::print::LineEnd::LineFeed);
+        }
+        match self.cold.modes.is_set(ModeBit::PathSelected) {
+            true => self.line_fed_into_path(),
+            false => {
+                self.index();
+            }
+        }
     }
 
     /// One row up, scrolling the region when the cursor is on its first row.
@@ -2155,17 +2210,18 @@ impl<'a, 'b> Paint<'a, 'b> {
     ///
     /// **Autoprint is read with LNM, one test of the mode word**, and both
     /// are out of line behind it ([`Paint::line_feed_moded`]): `by` says
-    /// which byte moved the cursor, which is the line's ending in print.
+    /// which byte moved the cursor, which is the line's ending in print. A
+    /// selected character path is a third bit of the same test.
     #[inline(always)]
     pub(crate) fn line_feed(&mut self, by: Feed) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        if self
-            .cold
-            .modes
-            .either_set(ModeBit::LineFeedNewLine, ModeBit::AutoPrint)
-        {
-            self.line_feed_moded(by);
+        if self.cold.modes.any_of_three(
+            ModeBit::LineFeedNewLine,
+            ModeBit::AutoPrint,
+            ModeBit::PathSelected,
+        ) {
+            return self.line_feed_moded(by);
         }
         self.index();
     }
@@ -2193,6 +2249,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
             self.carriage_return();
+        }
+        // **A selected character path** goes to the line the cursor reaches
+        // (`crate::path`).
+        match self.cold.modes.is_set(ModeBit::PathSelected) {
+            true => self.line_fed_into_path(),
+            false => {
+                self.index();
+            }
         }
     }
 

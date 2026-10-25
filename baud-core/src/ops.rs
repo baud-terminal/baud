@@ -943,6 +943,7 @@ impl Paint<'_, '_> {
                 self.warm_incoming();
                 self.fill_row_counted(Row::from_index(last));
             }
+            self.path_rows(Row::from_index(last + 1 - k), Row::from_index(last));
             return;
         }
         // **A region anchored at the top is a rotation plus a repair**, and
@@ -1025,6 +1026,7 @@ impl Paint<'_, '_> {
                 false => self.rotate_top_region::<false>(Rows::of_count(k), bot, reach),
                 true => self.rotate_top_region_past_edge(Rows::of_count(k), bot, reach),
             }
+            self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
             return;
         }
         #[cfg(feature = "diag")]
@@ -1063,6 +1065,7 @@ impl Paint<'_, '_> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
+        self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         // **The whole region, not `k` rows.** `delete_lines_in` moves every
         // row inside the region and blanks `k`; counting only the blanks
         // undercounted the copying path by the height of the region, which is
@@ -1399,6 +1402,7 @@ impl Paint<'_, '_> {
             // down tests the edge once").
             if self.past_edge() {
                 self.scroll_down_past_edge(Rows::of_count(k));
+                self.path_rows(Row::ZERO, Row::from_index(k - 1));
                 return;
             }
             for _ in 0..k {
@@ -1407,6 +1411,7 @@ impl Paint<'_, '_> {
                 self.watch_taken_back();
                 self.fill_row_counted(Row::ZERO);
             }
+            self.path_rows(Row::ZERO, Row::from_index(k - 1));
             return;
         }
         #[cfg(feature = "diag")]
@@ -1432,6 +1437,7 @@ impl Paint<'_, '_> {
         if self.cold.placement.is_placed() {
             self.placement_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
+        self.path_rows(top, Row::from_index(top.index() + k - 1));
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
@@ -1505,6 +1511,8 @@ impl Paint<'_, '_> {
         }
         let b = self.blank();
         self.view.insert_lines_in(at, n, bot, b);
+        self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Down);
+        self.path_rows(at, Row::from_index(at.index() + k - 1));
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Down);
         }
@@ -1548,6 +1556,8 @@ impl Paint<'_, '_> {
         }
         let b = self.blank();
         self.view.delete_lines_in(at, n, bot, b);
+        self.lines_bounded(at, bot, Rows::of_count(k), BandMove::Up);
+        self.path_rows(Row::from_index(bot.index() + 1 - k), bot);
         if self.past_edge() {
             self.lines_moved_past_edge(at, n, bot, BandMove::Up);
         }
@@ -2549,7 +2559,7 @@ impl Paint<'_, '_> {
         let wraps = self.cold.more_fix == baud_domain::MoreFix::On
             && self.cold.modes.is_set(ModeBit::AutoWrap);
         if wraps {
-            self.index();
+            self.index_bringing_in();
             self.set_col(CursorCol::moved(Col::ZERO));
         }
         wraps
@@ -4097,6 +4107,7 @@ impl Paint<'_, '_> {
             let n = self.view.fill_row(Row::from_index(y), b);
             self.cells = self.cells.plus(n.index());
         }
+        self.path_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
         self.wrote_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
     }
 
@@ -4269,6 +4280,10 @@ impl Paint<'_, '_> {
         // that "may imply, if applicable". `DECSTR` keeps it, as its DEC
         // table names no BDSM.
         self.cold.bidi = BidiSupport::POWER_ON;
+        // No character path, in force or on any line: the mode word above
+        // took `ModeBit::PathSelected` back, and the rows below are erased
+        // with their marks, which carry the lines' paths.
+        self.cold.path = CharacterPath::Default;
         // iTerm2's cursor guide goes back to the embedder's setting: its
         // reset sets the profile's again (`screenDidReset`, `[[source:
         // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
@@ -4617,6 +4632,13 @@ impl Paint<'_, '_> {
         // so a program recovering with `CSI ! p` lost its bracketed paste.
         // `?2026` has no xterm precedent, and a held frame is released: a soft
         // reset is a recovery.
+        // **The character path in force returns to none** (`crate::path`):
+        // DEC's DECSTR table returns its own right-to-left setting, "Cursor
+        // direction DECRLM Reset (Left-to-right)" (`[[source: vt510-decstr]]`
+        // Table 5-9), and VTE's soft reset its current direction; the lines
+        // keep theirs, drawn as they are (Jev's lean, RESET_CURRENT,
+        // 0.70/0.77).
+        self.cold.path = CharacterPath::Default;
         let power_on = Modes::default();
         for m in [
             ModeBit::CursorVisible,

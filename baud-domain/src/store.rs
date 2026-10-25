@@ -140,30 +140,56 @@ pub struct RunRange {
 /// `Grid::insert_lines_in`/`delete_lines_in` and `Term::viewport`'s
 /// un-rotation -- permute the marks in the same loop that permutes the rows.
 ///
-/// `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it fits, and at
-/// `MAX_ROWS` entries per buffer and two buffers the narrow form is 2.5 KB of
-/// working set against 10 KB. That is the "thousands are stored" case
+/// The word is a `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it
+/// fits, and with the path beside it an entry is 4 bytes, so at `MAX_ROWS`
+/// entries per buffer and two buffers the narrow form is 5 KB of working set
+/// against the 20 KB a `usize` word and its padding would take. That is the
+/// "thousands are stored" case
 /// `CLAUDE.md` names as the one where narrowing earns its place, and it is read
 /// once per row operation rather than once per cell.
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
+///
+/// **Beside the word, the row's character path** ([`CharacterPath`]): the
+/// direction SCP and SPD give a line (`[[source: ecma48]]` 8.3.111 and
+/// 8.3.130), which belongs to the row the way the wrap and the rendition do
+/// and so rides where every move of a row already carries them. A field of
+/// its own rather than bits of the word, because the word has none free --
+/// its mark reaches the pitch, past 2048 columns, beside the wrap and the
+/// rendition -- and a flag above the mark would win `reached`'s bare `max`
+/// and freeze it. A write updates the word and leaves the path; a fill
+/// keeps it (an erased line is the same paragraph, terminal-wg's "both new
+/// paragraphs receive the old one's BiDi properties"); only the core's line
+/// rules set it ([`RowExtent::with_path`]).
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(C)]
+pub struct RowExtent {
+    word: u16,
+    path: CharacterPath,
+}
+
+/// **Which way a line's characters run**: SCP's `Ps1`, ECMA-48 8.3.111's
+/// "character path", or none selected. With BDSM set (IMPLICIT) a selected
+/// path is the paragraph's level, set outright (`[[source: uax9-bidi]]`
+/// HL1); none selected, the level its first strong letter gives it (P2-P3).
+/// With BDSM reset (EXPLICIT) a right-to-left line is drawn in reverse,
+/// terminal-wg's explicit RTL (`[[source: terminal-wg-bidi-basic-modes]]`),
+/// and the others in the order the cells hold.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(u8)]
+pub enum CharacterPath {
+    /// None selected: the power-on state, and what RIS and DECSTR return to.
+    #[default]
     Default,
-    Debug,
-    FromBytes,
-    IntoBytes,
-    Immutable,
-    KnownLayout,
-)]
-#[repr(transparent)]
-pub struct RowExtent(pub(crate) u16);
+    /// SCP 1, SPD 0: left to right.
+    LeftToRight,
+    /// SCP 2, SPD 3: right to left.
+    RightToLeft,
+}
 
 impl RowExtent {
-    pub const ZERO: RowExtent = RowExtent(0);
+    pub const ZERO: RowExtent = RowExtent {
+        word: 0,
+        path: CharacterPath::Default,
+    };
     /// **The row continues onto the next one**: text reached its last column
     /// and wrapped, rather than ending at a newline. The fact a reflow needs
     /// and the cells do not carry, kept in the mark's top bit because the
@@ -209,21 +235,42 @@ impl RowExtent {
     /// past `u16` must end up with a mark that is too *large*, never one that
     /// wraps to a small number and leaves text behind it.
     pub fn reached(self, to: usize) -> RowExtent {
-        RowExtent(
-            self.0
+        RowExtent {
+            word: self
+                .word
                 .max(u16::try_from(to).unwrap_or(Self::MARK).min(Self::MARK)),
-        )
+            path: self.path,
+        }
     }
     /// The mark: where the row stops being uniform.
     pub fn index(self) -> usize {
-        (self.0 & Self::MARK) as usize
+        (self.word & Self::MARK) as usize
     }
-    /// A mark with no wrap: what a fill leaves.
+    /// A mark with no wrap, and no path: a count of columns.
     pub fn of(n: usize) -> RowExtent {
-        RowExtent(u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK))
+        RowExtent {
+            word: u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK),
+            path: CharacterPath::Default,
+        }
+    }
+    /// **What a fill leaves**: the mark at `n` with no wrap and no
+    /// rendition, and the row's path kept.
+    pub fn refilled(self, n: usize) -> RowExtent {
+        RowExtent {
+            path: self.path,
+            ..RowExtent::of(n)
+        }
+    }
+    /// The row's character path.
+    pub fn path(self) -> CharacterPath {
+        self.path
+    }
+    /// The mark with path `p`: the word as it is.
+    pub fn with_path(self, p: CharacterPath) -> RowExtent {
+        RowExtent { path: p, ..self }
     }
     pub fn wrapped(self) -> bool {
-        self.0 & Self::WRAP != 0
+        self.word & Self::WRAP != 0
     }
     /// The mark flagged as continuing, raised to `cols`: the width the row
     /// wrapped at, which is what lets `reached` keep the flag by `max` alone.
@@ -231,40 +278,59 @@ impl RowExtent {
     /// Loose by the cells between a side margin and the edge, once, which is
     /// the safe direction -- a mark too large blanks more, never less.
     pub fn wrapping(self, cols: usize) -> RowExtent {
-        RowExtent(self.reached(cols).0 | Self::WRAP)
+        let r = self.reached(cols);
+        RowExtent {
+            word: r.word | Self::WRAP,
+            ..r
+        }
     }
     /// The mark with the wrap cleared and the rendition kept: a newline
     /// ends the line, it does not change its size. `& !WRAP` is the
     /// immediate the mask before the rendition was, `0x7fff`.
     pub fn ended(self) -> RowExtent {
-        RowExtent(self.0 & !Self::WRAP)
+        RowExtent {
+            word: self.word & !Self::WRAP,
+            ..self
+        }
     }
     /// The mark raised to at least `n`, the wrap and the rendition kept:
     /// the cold path's form of `reached`, for a raise that may exceed a
     /// flagged mark.
     pub fn raised_to(self, n: usize) -> RowExtent {
         let n = u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK);
-        RowExtent((self.0 & (Self::WRAP | Self::SIZE)) | (self.0 & Self::MARK).max(n))
+        RowExtent {
+            word: (self.word & (Self::WRAP | Self::SIZE)) | (self.word & Self::MARK).max(n),
+            ..self
+        }
     }
     /// Whether the word carries a flag above its mark, the wrap or a
     /// rendition other than single-width: a mark `reached` cannot raise,
     /// which a growth past the width it was flagged at has to.
     pub fn flagged(self) -> bool {
-        self.0 & (Self::WRAP | Self::SIZE) != 0
+        self.word & (Self::WRAP | Self::SIZE) != 0
     }
     /// The row's line rendition.
     pub fn rendition(self) -> LineRendition {
-        LineRendition::from_bits((self.0 & Self::SIZE) >> Self::SIZE_SHIFT)
+        LineRendition::from_bits((self.word & Self::SIZE) >> Self::SIZE_SHIFT)
     }
     /// The word with rendition `r`, and with any rendition but single-width
     /// the mark raised to `cols`, the live width: the one way a rendition
     /// gets into a mark (see [`RowExtent::SIZE`]). Single-width clears the
     /// bits and keeps the mark, which is already true of the row.
     pub fn with_rendition(self, r: LineRendition, cols: Cols) -> RowExtent {
-        let bare = RowExtent(self.0 & !Self::SIZE);
+        let bare = RowExtent {
+            word: self.word & !Self::SIZE,
+            ..self
+        };
         match r {
             LineRendition::Single => bare,
-            _ => RowExtent(bare.raised_to(cols.index()).0 | (r.bits() << Self::SIZE_SHIFT)),
+            _ => {
+                let raised = bare.raised_to(cols.index());
+                RowExtent {
+                    word: raised.word | (r.bits() << Self::SIZE_SHIFT),
+                    ..raised
+                }
+            }
         }
     }
 }

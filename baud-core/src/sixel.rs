@@ -278,15 +278,17 @@ impl Paint<'_, '_> {
         let edge = Col::at_index(
             at.index() + usize::from(w.raw()).div_ceil(self.cell_width.index().max(1)),
         );
+        // A line an image scrolls in takes the direction in force, as a
+        // line feed's does (`crate::path`).
         for _ in 0..rows - usize::from(right_of) {
-            self.index();
+            self.index_bringing_in();
         }
         if right_of {
             // As a column of the row the cursor ends on: a character
             // position on a double line (`Paint::char_at_display`).
             let right = self.char_at_display(edge);
             if right > self.line_fence() {
-                self.index();
+                self.index_bringing_in();
                 self.cx = CursorCol::moved(self.cold.left);
             } else {
                 self.cx = CursorCol::moved(right);

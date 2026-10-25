@@ -260,7 +260,7 @@ impl Paint<'_, '_> {
         let end = Col::at_index((at.index() + g.cols.index()).min(self.cols.index()));
         for y in 0..g.rows.index() {
             if y > 0 {
-                self.index();
+                self.index_bringing_in();
             }
             let r = self.cy;
             let n = self.view.fill(r, at, end, PackedCell::EMPTY);

@@ -852,6 +852,29 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SCP and SPD**, last so no atom above moves: a direction selected
+    // on the line the cursor is on and carried by the line rules -- a line
+    // feed, a wrap, the lines a scroll or an erase brings in -- must not
+    // depend on where the reads fell. Right to left, back to left to right
+    // with the cursor sent to the line's start, and the whole screen.
+    Atom {
+        name: "scp-rtl",
+        bytes: b"\x1b[2 k",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "scp-ltr-home",
+        bytes: b"\x1b[1;1 k",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "spd-rtl",
+        bytes: b"\x1b[3 S",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -887,7 +910,7 @@ type Seen = (
     Vec<u8>,
     Vec<u8>,
     Clipped,
-    Vec<LineRendition>,
+    Vec<(LineRendition, baud_domain::CharacterPath)>,
     baud_domain::RegisCounts,
     Status,
 );
@@ -908,10 +931,11 @@ fn status(t: &Term<'_>) -> Status {
     )
 }
 
-/// Every row's line rendition, which the cells do not show -- and the
-/// promise the rendition's bits ride on: a sized row's mark is at least the
-/// width, so `RowExtent::reached`'s bare `max` never has to raise it.
-fn renditions(t: &Term<'_>) -> Vec<LineRendition> {
+/// Every row's line rendition and character path, which the cells do not
+/// show -- and the promise the rendition's bits ride on: a sized row's mark
+/// is at least the width, so `RowExtent::reached`'s bare `max` never has to
+/// raise it.
+fn renditions(t: &Term<'_>) -> Vec<(LineRendition, baud_domain::CharacterPath)> {
     (0..ROWS)
         .map(|y| {
             let r = t.line_rendition(Row::from_index(y)).expect("a row");
@@ -919,7 +943,7 @@ fn renditions(t: &Term<'_>) -> Vec<LineRendition> {
                 let mark = t.row_extent(Row::from_index(y)).index();
                 assert!(mark >= COLS, "row {y} is {r:?} under a mark of {mark}");
             }
-            r
+            (r, t.row_extent(Row::from_index(y)).path())
         })
         .collect()
 }
@@ -1316,6 +1340,34 @@ fn the_status_atoms_reach_the_line() {
     assert_eq!(t.status_type(), StatusType::Indicator);
     support::feed(&mut t, &bytes_of(&[atom("status-none")]));
     assert!(t.status_line().is_none());
+}
+
+/// **The path atoms reach the rows**, the control the status atoms have:
+/// `scp-rtl` turns the cursor's line and a line feed carries it, a line the
+/// cursor moves to stays as it was until `scp-ltr-home` turns it and sends
+/// the cursor to its start, and `spd-rtl` turns every line. An atom that
+/// never reached SCP would leave every row without a path, and every
+/// property would compare rows that hold none.
+#[test]
+fn the_path_atoms_reach_the_rows() {
+    use baud_domain::CharacterPath::{Default as None_, LeftToRight, RightToLeft};
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let path = |t: &Term<'_>, y: usize| t.row_extent(Row::from_index(y)).path();
+    support::feed(&mut t, &bytes_of(&[atom("scp-rtl")]));
+    support::feed(&mut t, b"ab\r\n\x1b[4;3H");
+    assert_eq!(
+        (path(&t, 0), path(&t, 1), path(&t, 3)),
+        (RightToLeft, RightToLeft, None_)
+    );
+    support::feed(&mut t, &bytes_of(&[atom("scp-ltr-home")]));
+    assert_eq!(
+        (path(&t, 3), t.cursor()),
+        (LeftToRight, (Row::from_index(3), Col::ZERO))
+    );
+    support::feed(&mut t, &bytes_of(&[atom("spd-rtl")]));
+    assert!((0..ROWS).all(|y| path(&t, y) == RightToLeft));
 }
 
 /// **The guarded-area atoms reach the guard**, the control the C1 atoms

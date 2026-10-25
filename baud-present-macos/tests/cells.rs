@@ -11358,3 +11358,115 @@ fn mirrored_characters_draw_mirrored_on_every_arm() {
         "the control: a row only the base inks is not its own mirror"
     );
 }
+
+/// **A line SCP turns draws alike on every arm** (`[[source: ecma48]]`
+/// 8.3.111): with BDSM set, an all-Latin line SCP 2 sets right to left is
+/// drawn as the same text written in its visual order against the right
+/// edge, though no cell of it opens a right-to-left run; with BDSM reset a
+/// line SCP 2 sets is drawn in reverse, its bracket mirrored and its wide
+/// character's cells in order (terminal-wg's explicit RTL,
+/// `[[source: terminal-wg-bidi-basic-modes]]`), before and after the
+/// renderer has seen a joining letter, which moves the cell arm onto the
+/// kept layout; and a bar cursor there is drawn on its cell's right side.
+#[test]
+fn a_line_scp_turns_draws_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let cols = usize::from(WS.ws_col);
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // The glyphs the harness requires of a scene, on a row of their own,
+    // after a reset, with the cursor hidden.
+    let prelude = |t: &mut Term<'_>, joining: bool| {
+        feed(
+            t,
+            b"\x1bc\x1b[?25l\x1b[8;1HThe quick brown fox jumps 0123456789",
+        );
+        if joining {
+            feed(t, "\x1b[6;1H\u{628}\u{628}\u{628}".as_bytes());
+        }
+    };
+    // Implicit: `abc def!` at level 1 is `!abc def` at the right edge.
+    {
+        arms!(fresh() => arms, t);
+        prelude(&mut t, false);
+        feed(&mut t, b"\x1b[2;1H\x1b[2 kabc def!\x1b[4;1H");
+        let got = three(&mut arms, &mut t, "SCP 2, implicit");
+        prelude(&mut t, false);
+        feed(&mut t, format!("\x1b[2;{}H!abc def", cols - 7).as_bytes());
+        let want = three(&mut arms, &mut t, "written in visual order");
+        assert_eq!(differing(&got, &want), 0, "the visual order drawn");
+        prelude(&mut t, false);
+        feed(&mut t, b"\x1b[2;1Habc def!");
+        let stored = three(&mut arms, &mut t, "first strong");
+        assert!(differing(&stored, &want) > 0, "the control: first strong");
+    }
+    // Explicit: `ab(` and a wide character, reversed whole.
+    for joining in [false, true] {
+        let what = |s: &str| format!("{s}, joining letter seen: {joining}");
+        arms!(fresh() => arms, t);
+        // Twice where a joining letter is on the screen: the first frame
+        // sees it, and the second is drawn by the kept layout.
+        let draw = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, s: &str| {
+            if joining {
+                three(arms, t, &what(&format!("{s}, first")));
+            }
+            three(arms, t, &what(s))
+        };
+        prelude(&mut t, joining);
+        feed(&mut t, "\x1b[8l\x1b[2;1H\x1b[2 kab(\u{4E00}".as_bytes());
+        let got = draw(&mut arms, &mut t, "SCP 2, explicit");
+        assert!(arms.renderer.bidi().reordered(Row::from_index(1)));
+        // The bar cursor on `a`, drawn at the right edge on its right side.
+        feed(&mut t, b"\x1b[6 q\x1b[2;1H\x1b[?25h");
+        let bar = draw(&mut arms, &mut t, "SCP 2, explicit, bar");
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let changed: Vec<(usize, usize)> = (0..bar.len())
+            .filter(|&i| bar[i] != got[i])
+            .map(|i| (i % w, i / w))
+            .collect();
+        let (left, right) = ((cols - 1) * cw, cols * cw);
+        assert!(
+            changed
+                .iter()
+                .all(|&(x, y)| x >= left && x < right && (ch..2 * ch).contains(&y)),
+            "{}",
+            what("the bar in the last column")
+        );
+        let xs = |x: usize| changed.iter().any(|&(cx, _)| cx == x);
+        assert!(xs(right - 1) && !xs(left), "{}", what("on the right side"));
+        prelude(&mut t, joining);
+        feed(
+            &mut t,
+            format!("\x1b[8l\x1b[2;{}H\u{4E00})ba", cols - 4).as_bytes(),
+        );
+        let want = draw(&mut arms, &mut t, "written in visual order");
+        assert_eq!(differing(&got, &want), 0, "{}", what("the reverse drawn"));
+    }
+}

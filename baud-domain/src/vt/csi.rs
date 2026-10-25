@@ -669,6 +669,31 @@ impl EraseExtent {
 
 /// A CSI sequence, resolved.
 ///
+/// **What SCP's and SPD's `Ps2` does with the cursor**
+/// (`[[source: ecma48]]` 8.3.111, 8.3.130). 0 is "implementation-dependent",
+/// and here the direction takes effect at once with the cursor where it is,
+/// as terminal-wg's draft has it ("no cursor movement is involved"). 1
+/// updates the presentation from the data, which a display-only model
+/// already does, and moves "the active data position ... to the first
+/// character position": of the active line for SCP, of the first line for
+/// SPD (Jev, 0.94/0.97).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PathCursor {
+    Stays,
+    ToStart,
+}
+
+impl PathCursor {
+    /// `Ps2`: omitted or 0, or 1; 2, and anything past it, is refused.
+    pub fn from_param(p: Option<Param>) -> Option<PathCursor> {
+        match p.map_or(0, |x| x.0) {
+            0 => Some(PathCursor::Stays),
+            1 => Some(PathCursor::ToStart),
+            _ => None,
+        }
+    }
+}
+
 /// `Unsupported` is a variant rather than a `_ => {}` arm on purpose: the set of
 /// operations not yet implemented becomes *enumerable*, so the differential test
 /// can report which finals are being dropped instead of silently diverging from
@@ -833,6 +858,26 @@ pub enum Csi {
     WarningBellVolume(BellVolume),
     /// DECSMBV, `CSI Ps SP u`: the margin bell's volume (p. 5-138).
     MarginBellVolume(BellVolume),
+    /// SCP, `CSI Ps1 ; Ps2 SP k` (`[[source: ecma48]]` 8.3.111): the
+    /// character path "for the active line ... and subsequent lines".
+    /// `Ps1` 1 or 2, and nothing else: SCP has "No parameter default
+    /// values" and defines no 0 (Jev's lean, REFUSE, 0.90/0.84). `Ps2` 0,
+    /// omitted (Jev, AS_ZERO, 0.90/0.90) or 1; 2 updates the data
+    /// from the presentation, which a display-only model never does. Any
+    /// other is [`Csi::Unsupported`].
+    SelectCharacterPath {
+        path: CharacterPath,
+        cursor: PathCursor,
+    },
+    /// SPD, `CSI Ps1 ; Ps2 SP S` (8.3.130): the presentation directions of
+    /// the whole presentation component. `Ps1` 0 (its default) and 3, the
+    /// two horizontal, top-to-bottom ones, left to right and right to
+    /// left; `Ps2` 0 (its default) or 1. A vertical or bottom-to-top `Ps1`,
+    /// and `Ps2` 2, are [`Csi::Unsupported`].
+    SelectPresentationDirections {
+        path: CharacterPath,
+        cursor: PathCursor,
+    },
     /// MC, `CSI Ps i` and `CSI ? Ps i`: a print function
     /// ([`crate::MediaCopy`]), a `Ps` it does not name being
     /// [`Csi::Unsupported`].
@@ -1070,6 +1115,36 @@ impl Csi {
                     match BellVolume::warning(p.at(ParamIdx::FIRST)) {
                         Some(v) => Csi::WarningBellVolume(v),
                         None => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
+                }
+                (b' ', b'k') if marker == Marker::Standard => {
+                    let path = match p.at(ParamIdx::FIRST).map(|x| x.0) {
+                        Some(1) => Some(CharacterPath::LeftToRight),
+                        Some(2) => Some(CharacterPath::RightToLeft),
+                        _ => None,
+                    };
+                    match (path, PathCursor::from_param(p.at(ParamIdx::SECOND))) {
+                        (Some(path), Some(cursor)) => Csi::SelectCharacterPath { path, cursor },
+                        _ => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
+                }
+                (b' ', b'S') if marker == Marker::Standard => {
+                    let path = match p.at(ParamIdx::FIRST).map_or(0, |x| x.0) {
+                        0 => Some(CharacterPath::LeftToRight),
+                        3 => Some(CharacterPath::RightToLeft),
+                        _ => None,
+                    };
+                    match (path, PathCursor::from_param(p.at(ParamIdx::SECOND))) {
+                        (Some(path), Some(cursor)) => {
+                            Csi::SelectPresentationDirections { path, cursor }
+                        }
+                        _ => Csi::Unsupported {
                             marker,
                             final_byte: f,
                         },
@@ -1688,6 +1763,8 @@ impl Csi {
             | ScrollDown(_)
             | ScrollLeft(_)
             | ScrollRight(_)
+            | SelectCharacterPath { .. }
+            | SelectPresentationDirections { .. }
             | SetScrollRegion { .. }
             | CursorForwardTab(_)
             | CursorBackTab(_)

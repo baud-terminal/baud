@@ -485,6 +485,12 @@ impl<'a> Viewport<'a> {
         }
     }
 
+    /// Screen row `y`'s character path: which way SCP or SPD set its line
+    /// to run ([`CharacterPath`]), or none.
+    pub fn path(&self, y: Row) -> CharacterPath {
+        self.used[self.phys(y.index())].path()
+    }
+
     /// Screen row `y`'s line rendition: how wide, and which half tall, its
     /// characters are drawn ([`LineRendition`]). A line not single-width
     /// holds [`LineRendition::end_of_line`] characters, each drawn two
@@ -678,8 +684,10 @@ impl<'a> View<'a> {
     #[inline(never)]
     fn fill_past_edge(&mut self, p: usize, a: usize, cell: PackedCell) -> usize {
         let base = p * self.stride.index();
-        let to = self.used[p].index();
-        self.used[p] = self.mark_after_fill(base, to, cell, RowExtent::of(a));
+        let (to, path) = (self.used[p].index(), self.used[p].path());
+        self.used[p] = self
+            .mark_after_fill(base, to, cell, RowExtent::of(a))
+            .with_path(path);
         if a >= to {
             return 0;
         }
@@ -847,7 +855,7 @@ impl<'a> View<'a> {
             // not erase the line (`[[source: dec-std-070]]` resets a rendition
             // only where a line is erased whole or scrolled in, pp. 5-156 and
             // 5-210).
-            self.used[p] = RowExtent::of(a).with_rendition(kept, self.cols);
+            self.used[p] = self.used[p].refilled(a).with_rendition(kept, self.cols);
         }
         self.rows = rows;
     }
@@ -1442,6 +1450,57 @@ impl<'a> View<'a> {
     /// Screen row `r`'s line rendition.
     pub fn rendition(&self, r: Row) -> LineRendition {
         self.used[self.phys(r)].rendition()
+    }
+
+    /// Screen row `r`'s character path.
+    pub fn path(&self, r: Row) -> CharacterPath {
+        self.used[self.phys(r)].path()
+    }
+
+    /// Give screen row `r` path `to`: the cells and the mark as they are.
+    #[cold]
+    #[inline(never)]
+    pub fn set_path(&mut self, r: Row, to: CharacterPath) {
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let p = self.phys(r);
+        self.used[p] = self.used[p].with_path(to);
+    }
+
+    /// The path of the row `back` rows behind the window's top, the newest
+    /// at zero: a line of the history, read as [`View::set_path_behind`]
+    /// writes it.
+    pub fn path_behind(&self, back: Rows) -> CharacterPath {
+        self.used[self.rot.retreat(back.index() + 1, self.ring).index()].path()
+    }
+
+    /// Give the row `back` rows behind the window's top path `to`: a line
+    /// of the history that begins the paragraph a screen row continues.
+    /// The caller bounds `back` by the lines the history holds.
+    #[cold]
+    #[inline(never)]
+    pub fn set_path_behind(&mut self, back: Rows, to: CharacterPath) {
+        let p = self.rot.retreat(back.index() + 1, self.ring).index();
+        self.used[p] = self.used[p].with_path(to);
+    }
+
+    /// The row `back` rows behind the window's top ends where it stops: a
+    /// line of the history no longer continues onto the screen.
+    #[cold]
+    #[inline(never)]
+    pub fn set_ended_behind(&mut self, back: Rows) {
+        let p = self.rot.retreat(back.index() + 1, self.ring).index();
+        self.used[p] = self.used[p].ended();
+    }
+
+    /// Whether the row `back` rows behind the window's top continues onto
+    /// the next.
+    pub fn wrapped_behind(&self, back: Rows) -> Wrap {
+        match self.used[self.rot.retreat(back.index() + 1, self.ring).index()].wrapped() {
+            true => Wrap::Continues,
+            false => Wrap::Ended,
+        }
     }
 
     /// Give screen row `r` rendition `to`, through
@@ -2330,7 +2389,7 @@ impl<'a> View<'a> {
             false => b,
         };
         match to_end {
-            true => self.used[p] = RowExtent::of(a),
+            true => self.used[p] = self.used[p].refilled(a),
             false => self.used[p] = self.used[p].reached(b),
         }
         if a >= b {
@@ -2409,10 +2468,10 @@ impl<'a> View<'a> {
         // existed to measure.
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = match blanking {
-            true => RowExtent::ZERO,
-            false => RowExtent::of(cols),
-        };
+        self.used[p] = self.used[p].refilled(match blanking {
+            true => 0,
+            false => cols,
+        });
         RowExtent::of(to)
     }
 
@@ -2495,7 +2554,7 @@ impl<'a> View<'a> {
         };
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = RowExtent::ZERO;
+        self.used[p] = self.used[p].refilled(0);
         RowExtent::of(to)
     }
 
@@ -2507,10 +2566,10 @@ impl<'a> View<'a> {
     #[inline(never)]
     fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {
         let base = p * self.stride.index();
-        let to = self.used[p].index();
+        let (to, path) = (self.used[p].index(), self.used[p].path());
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = self.mark_after_fill(base, to, cell, low);
+        self.used[p] = self.mark_after_fill(base, to, cell, low).with_path(path);
         to
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
@@ -2719,10 +2778,10 @@ impl<'a> View<'a> {
             let p = self.phys(Row::from_index(y));
             let a = p * s;
             self.cells[a..a + cols].fill(blank);
-            self.used[p] = match blank.content == Content::EMPTY {
-                true => RowExtent::ZERO,
-                false => RowExtent::of(cols),
-            };
+            self.used[p] = self.used[p].refilled(match blank.content == Content::EMPTY {
+                true => 0,
+                false => cols,
+            });
         }
     }
 
@@ -2756,10 +2815,10 @@ impl<'a> View<'a> {
             let p = self.phys(Row::from_index(y));
             let a = p * s;
             self.cells[a..a + cols].fill(blank);
-            self.used[p] = match blank.content == Content::EMPTY {
-                true => RowExtent::ZERO,
-                false => RowExtent::of(cols),
-            };
+            self.used[p] = self.used[p].refilled(match blank.content == Content::EMPTY {
+                true => 0,
+                false => cols,
+            });
         }
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {

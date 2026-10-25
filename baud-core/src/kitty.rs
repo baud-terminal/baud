@@ -158,14 +158,14 @@ impl Paint<'_, '_> {
                 .saturating_add(m.cols.index()),
         );
         for _ in 0..m.rows.index().min(self.view.ring().index()) {
-            self.index();
+            self.index_bringing_in();
         }
         if m.cols.index() == 0 {
             return;
         }
         let right = self.char_at_display(edge);
         if right > self.line_fence() {
-            self.index();
+            self.index_bringing_in();
             self.cx = CursorCol::moved(self.cold.left);
         } else {
             self.cx = CursorCol::moved(right);
