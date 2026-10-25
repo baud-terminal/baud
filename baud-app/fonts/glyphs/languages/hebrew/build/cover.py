@@ -2,6 +2,10 @@
 each drawn by baud from its own parts, none taken from another font.
 
   U+20AA NEW SHEQEL SIGN   sheqel_rec: two interlocking hooks, drawn here.
+  U+05C6 NUN HAFUKHA       nun_hafukha_rec: the built nun, reversed.
+  U+05EF YOD TRIANGLE      letters(): three of the built yods, a triangle.
+  U+05F0-U+05F2            letters(): the Yiddish double vav, vav yod and double yod, two of the
+                           built letters side by side in the cell.
 
 Every glyph here is appended after every glyph the earlier rounds made, so no existing glyph ID
 moves. An outline is drawn upright; the italics take it through build.italic_outline, the shear and
@@ -70,9 +74,75 @@ def sheqel_rec(upright):
     return left, right
 
 
-def glyphs(B, ST):
+def nun_hafukha_rec(B, nun):
+    """U+05C6, upright: the built nun reversed about the cell's centre line. The Unicode Standard
+    (9.1, 'Nun Hafukha'): 'There is also variation in the glyph used: it often has the appearance of
+    a rotated or reversed nun and is very often called inverted nun'; the Hebrew chart's reference
+    glyph is the reversed form, its stem on the left and its roof and base reaching right."""
+    return B.map_rec(nun, lambda x, y: (600 - x, y))      # to_glyph re-winds every contour
+
+
+def squeezed(B, rec, kx, ky=1.0):
+    """`rec` scaled about its ink's centre by kx across and ky up (ky about its top), its strokes then
+    thickened back to the weight they had: the letters' own way to change a width (build.py's
+    XSCALE, which erodes what a widening adds)."""
+    x0, y0, x1, y1 = B.rec_bounds(rec)
+    cx = (x0 + x1) / 2
+    rec = B.map_rec(rec, lambda x, y: (cx + (x - cx) * kx, y1 + (y - y1) * ky))
+    p = B.rec_to_path(rec)
+    p = B.dilate(p, (1 - kx) * B.E.STEM_V, (1 - ky) * B.E.BAR)
+    return B.path_rec(p)
+
+
+def placed(B, rec, cx):
+    """`rec` moved across so that its ink is centred on x = cx."""
+    x0, _, x1, _ = B.rec_bounds(rec)
+    return B.map_rec(rec, lambda x, y: (x - (x0 + x1) / 2 + cx, y))
+
+
+PAIR_INK = (25, 575)     # a digraph's two letters, across the cell: each 252.5 wide, so a vav
+PAIR_GAP = 45            # keeps 0.86 of its width and a yod 0.70; 45 apart, half a stem
+TRIANGLE_K = 0.70        # the yod triangle's three yods, against the built yod, 30 apart
+TRIANGLE_GAP = 30
+
+
+def letters(B, ST, built):
+    """{codepoint: upright outline} for the letters this module adds, made from the round-5 letters
+    in `built`, so that the build's anchor search places points on them as on any letter."""
+    vav, yod = built[0x05D5], built[0x05D9]
+    w = (PAIR_INK[1] - PAIR_INK[0] - PAIR_GAP) / 2
+    right_cx, left_cx = PAIR_INK[1] - w / 2, PAIR_INK[0] + w / 2
+
+    def pair(first, second):
+        # right to left: the first letter on the right
+        a = squeezed(B, first, w / (B.rec_bounds(first)[2] - B.rec_bounds(first)[0]))
+        b = squeezed(B, second, w / (B.rec_bounds(second)[2] - B.rec_bounds(second)[0]))
+        return B.union_recs(placed(B, a, right_cx), placed(B, b, left_cx))
+
+    out = {0x05F0: pair(vav, vav), 0x05F1: pair(vav, yod), 0x05F2: pair(yod, yod)}
+    # U+05EF: two yods below and one above between them, as the chart draws it
+    small = squeezed(B, yod, TRIANGLE_K, TRIANGLE_K)
+    sx0, sy0, sx1, sy1 = B.rec_bounds(small)
+    sw, sh = sx1 - sx0, sy1 - sy0
+    top = B.at(placed(B, small, 300), 0, 630 - sy1)
+    drop = 630 - sh - TRIANGLE_GAP - sy1          # the lower row's top, below the upper yod's base
+    lo_l = B.at(placed(B, small, 300 - (sw + TRIANGLE_GAP) / 2), 0, drop)
+    lo_r = B.at(placed(B, small, 300 + (sw + TRIANGLE_GAP) / 2), 0, drop)
+    out[0x05EF] = B.union_recs(top, lo_l, lo_r)
+    # the dagesh search's box (build.anchors): the letter's own ink
+    for u, rec in out.items():
+        B.E.DAGESH_BOX.setdefault(u, tuple(round(v) for v in B.rec_bounds(rec)))
+    return {u: [(op, tuple((round(x, 1), round(y, 1)) for x, y in args)) for op, args in rec]
+            for u, rec in sorted(out.items())}
+
+
+def glyphs(B, ST, built, extra):
     """(name, rec, advance, codepoint, GDEF class) for every glyph this module adds, in the order
-    they are appended. `B` is the build module (its helpers), `ST` the style."""
+    they are appended: `built` the round-5 letters, `extra` what letters() made. `B` is the build
+    module (its helpers), `ST` the style."""
     left, right = sheqel_rec(ST.UPRIGHT)
     out = [('heb_20AA', B.union_recs(left, right), 600, 0x20AA, 1)]
+    out.append(('heb_05C6', nun_hafukha_rec(B, built[0x05E0]), 600, 0x05C6, 1))
+    for u, rec in extra.items():
+        out.append(('heb_%04X' % u, rec, 600, u, 1))
     return out

@@ -57,13 +57,17 @@
 # Italic come out byte for byte as before; Bold and Bold Italic differ in that glyph's
 # outline (and Bold's loca, for its length), Bold Italic's side bearing for it and
 # head's checksum alone, and the gates print what they printed before. cover.py's
-# glyphs: U+20AA NEW SHEQEL SIGN (2026-10-25), appended after every glyph before it,
-# so no glyph ID moves and no existing glyph, advance, cmap entry, class, GSUB or
-# GPOS byte changes (measured against the build before it). The generalised gate
-# prints what it printed before but the counts (53 code points added, one glyph
-# more), cgate.py adds "non-Hebrew cmap entry added" for U+20AA in each of the four
-# cmap subtables, and OTS passes. A build whose bytes differ is not that set,
-# whatever it looks like, so the build refuses to write it. Changing the design
+# glyphs (2026-10-25): U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
+# TRIANGLE and the Yiddish ligatures U+05F0-U+05F2, appended after every glyph
+# before them, so no glyph ID moves and no existing glyph, advance, cmap entry,
+# class or GSUB byte changes; GPOS changes only in the appended mark-to-base lookup,
+# which gains the four new letters' base records (measured against the builds before
+# them). The generalised gate's counts change (58 code points added) and it fails
+# one check more, that the Hebrew block maps round 4's 52 code points (it maps 57);
+# cgate.py adds "non-Hebrew cmap entry added" for U+20AA in each of the four cmap
+# subtables and "Hebrew cmap 57 != r4 52"; OTS passes. A build whose bytes differ is
+# not that set, whatever it looks like, so the build refuses to write it. Changing
+# the design
 # means re-running those gates and then these constants, in one change, with the
 # reason.
 #
@@ -104,12 +108,12 @@ VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 # LEVEL=0.
 gate_hash() {
   case $1 in
-  Regular) echo 30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4 ;;
-  Bold) echo 7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4 ;;
-  Italic) echo 11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4 ;;
-  BoldItalic) echo 91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23 ;;
-  Italic-plain) echo b126111a095a80ed0d0c2626202bb5c1d7afde82e2451b621d26f27fc503b933 ;;
-  BoldItalic-plain) echo 966f47b88a122dc91fc50f6513d41996d4b283a8e79f2a83235f00c488faa146 ;;
+  Regular) echo 0769ffedc56bbee7ef76c5f33b9c1b44598675659bdfe3924290a6ae20e9ea02 ;;
+  Bold) echo eedc0b0eb7bdcbcee339e5998cfe3e04bb13a00811e6d55b2140afa68756a04c ;;
+  Italic) echo 6c358d304ff725e65337e3c5d100227c426f8cd38548349bce3cdcf01cdd43e9 ;;
+  BoldItalic) echo 5519f07ddbf26dce7137c91ee06ee6d60ff86107487450724576eaa836737543 ;;
+  Italic-plain) echo 859df16de6ebd3f2fb6abd25bf0a13fd34e2f81b985163b9b5225ddfa6d301a0 ;;
+  BoldItalic-plain) echo 4be50b6244a7255b5447072c8965759da48c89de271b81d651345958721fe258 ;;
   *) return 1 ;;
   esac
 }

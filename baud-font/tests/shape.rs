@@ -752,7 +752,9 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
 /// mark, which the built faces do not map; its `.notdef` keeps its
 /// advance, in HarfBuzz as in baud's shaper, and right to left stands a
 /// cell left of its letter in the shaper's output, where the cell keeps
-/// the letter.
+/// the letter. And on each, the characters baud draws itself
+/// (`baud-app/fonts/glyphs/languages/hebrew/build/cover.py`), alone and
+/// carrying a point.
 #[test]
 fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -769,7 +771,10 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
         "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
          {system_moved} glyphs offset, {skipped} skipped"
     );
-    assert!(fixtures == 864 && hebrew == 864, "{fixtures} {hebrew}");
+    // 215 clusters and the 11 lines of what baud draws itself on each of
+    // the four, the 4 Latin-mark lines on the Regular; every one Hebrew but
+    // the sheqel sign's 4.
+    assert!(fixtures == 908 && hebrew == 904, "{fixtures} {hebrew}");
     // The positive control that the cantillated clusters were compared: 99
     // lines on each of the four built faces, 396 in all, whose hb-shape
     // output holds a `.notdef`.

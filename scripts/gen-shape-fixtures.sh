@@ -698,6 +698,26 @@ print("%016x" % h)' "$face")
       shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
       printf '%s\t0\t%s\t%s\t%s\n' "$face" "$fnv" "$cps" "$shaped"
     done <docs/research/notes/ab/qc/clusters-all.txt
+    # And the characters baud draws itself (build/cover.py), alone and
+    # carrying a point: placed by the build's own anchor search, so held to
+    # HarfBuzz like the letters.
+    while IFS= read -r cps; do
+      [ -z "$cps" ] && continue
+      shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
+      printf '%s\t0\t%s\t%s\t%s\n' "$face" "$fnv" "$cps" "$shaped"
+    done <<'COVER'
+20AA
+05C6
+05EF
+05F0
+05F1
+05F2
+05EF 05B4
+05F0 05B8
+05F1 05B7
+05F2 05B7
+05F2 05B8 05BD
+COVER
   done
 } >"$HX_OUT"
 wc -l "$HX_OUT"

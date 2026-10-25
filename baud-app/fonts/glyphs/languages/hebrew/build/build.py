@@ -33,9 +33,10 @@ Round 5 (2026-10-24): letter_rec_r1 applies distinct.py's map after design.py's
 edits, to the outline and its anchor points alike. It moves dalet's leg to the
 roof's right end, so that ד no longer reads as ז; no other letter changes.
 
-Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN) are appended after every glyph above,
-so no glyph ID moves; an outline drawn upright there takes the italics' shear and correction as the
-letters do.
+Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
+TRIANGLE, U+05F0-U+05F2) are appended after every glyph above, so no glyph ID moves; an outline drawn
+upright there takes the italics' shear and correction as the letters do, and its letters join the
+anchor search.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -850,6 +851,10 @@ def build(out, letter_hook=None, tag=''):
     r = DecomposingRecordingPen(jgs)
     jgs['colon'].draw(r)
     new['heb_05C3'] = (r.value, 600, 0x05C3, 1)
+    # cover.py's letters: placed by the anchor search with the rest, appended after every glyph
+    extra = CV.letters(sys.modules[__name__], ST, letters)
+    built = dict(letters)
+    letters.update(extra)
     marks = make_marks()
     base_a, report = anchors(letters, marks)
     home = homes(marks)
@@ -897,7 +902,7 @@ def build(out, letter_hook=None, tag=''):
 
     # cover.py: appended after every glyph above, so no glyph ID moves; an upright outline takes
     # the italics' shear and correction as the letters do
-    for name, rec, adv, u, cls in CV.glyphs(sys.modules[__name__], ST):
+    for name, rec, adv, u, cls in CV.glyphs(sys.modules[__name__], ST, built, extra):
         new[name] = (italic_outline(rec, chr(u)) if ST.ITALIC else rec, adv, u, cls)
 
     for name, (rec, adv, u, cls) in new.items():

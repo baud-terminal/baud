@@ -575,6 +575,15 @@ platform = "both"
 tests = ["baud-render/tests/hebrew_embedded.rs::the_sheqel_sign_draws_from_the_embedded_font_in_every_style"]
 
 [[feature]]
+id = "hebrew-yiddish"
+area = "text"
+name = "Yiddish ligatures and nun hafukha built in"
+does = "The Yiddish double vav, vav yod and double yod, the yod triangle and the nun hafukha are drawn by the built-in font in every style, where they showed as boxes."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hebrew_embedded.rs::nun_hafukha_the_yod_triangle_and_the_ligatures_draw_in_every_style", "baud-app/src/embedded.rs::every_style_maps_the_hebrew_it_ships"]
+
+[[feature]]
 id = "pointed-hebrew"
 area = "text"
 name = "Pointed Hebrew keeps every point"

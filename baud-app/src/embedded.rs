@@ -11,7 +11,8 @@
 //! The Regular and Bold are `fonts/built/Regular.ttf` and `Bold.ttf`:
 //! JetBrains Mono v2.304's Regular and Bold with the Hebrew added -- the
 //! letters drawn from Cascadia Mono's Hebrew, the points redrawn on JetBrains
-//! Mono's dot, and the new sheqel sign baud's own -- and every stock glyph, advance, mapping and GSUB
+//! Mono's dot, and the rest of the block and the new sheqel sign baud's own
+//! -- and every stock glyph, advance, mapping and GSUB
 //! byte kept (`the_built_font_keeps_jetbrains_mono`), save one script
 //! record: GSUB and GPOS each name DFLT's Script under `hebr` too, and
 //! nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
@@ -117,10 +118,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 280_080, 0xa7d9_8571_0f4e_ffc1_u64, 0),
-            (BOLD, 284_640, 0xe4da_b48d_a139_e036, 1),
-            (ITALIC, 283_496, 0x0a41_6170_f9eb_1f86, 2),
-            (BOLD_ITALIC, 287_072, 0x5fe8_9b41_b3be_3573, 3),
+            (REGULAR, 281_088, 0xf23f_4fb7_41fc_4da7_u64, 0),
+            (BOLD, 286_496, 0xde36_5ef7_a30b_08a5, 1),
+            (ITALIC, 284_584, 0xdc6d_1c35_1446_00be, 2),
+            (BOLD_ITALIC, 288_984, 0x922c_1b7a_e622_4b22, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -154,10 +155,10 @@ mod tests {
         // which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4 baud-app/fonts/built/Regular.ttf",
-            "output 7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4 baud-app/fonts/built/Bold.ttf",
-            "output 11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4 baud-app/fonts/built/Italic.ttf",
-            "output 91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23 baud-app/fonts/built/BoldItalic.ttf",
+            "output 0769ffedc56bbee7ef76c5f33b9c1b44598675659bdfe3924290a6ae20e9ea02 baud-app/fonts/built/Regular.ttf",
+            "output eedc0b0eb7bdcbcee339e5998cfe3e04bb13a00811e6d55b2140afa68756a04c baud-app/fonts/built/Bold.ttf",
+            "output 6c358d304ff725e65337e3c5d100227c426f8cd38548349bce3cdcf01cdd43e9 baud-app/fonts/built/Italic.ttf",
+            "output 5519f07ddbf26dce7137c91ee06ee6d60ff86107487450724576eaa836737543 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -236,16 +237,16 @@ mod tests {
         }
     }
 
-    /// What `scripts/build-fonts.sh` adds to JetBrains Mono, 53 code points:
-    /// the 20 points, and maqaf, paseq and sof pasuq, in U+05B0-05C5 and
-    /// U+05C7; the 27 letters U+05D0-05EA; geresh and gershayim U+05F3-05F4;
-    /// and U+20AA NEW SHEQEL SIGN. Read from the four built styles with
-    /// fontTools 4.63.0, a reader that is not baud's.
+    /// What `scripts/build-fonts.sh` adds to JetBrains Mono, 58 code points:
+    /// the 20 points, and maqaf, paseq, sof pasuq and nun hafukha, in
+    /// U+05B0-05C7; the 27 letters U+05D0-05EA; the yod triangle, the three
+    /// Yiddish ligatures, geresh and gershayim, U+05EF-05F4; and U+20AA NEW
+    /// SHEQEL SIGN. Read from the four built styles with fontTools 4.63.0, a
+    /// reader that is not baud's.
     fn shipped() -> Vec<Codepoint> {
-        (0x05B0..=0x05C5)
-            .chain([0x05C7])
+        (0x05B0..=0x05C7)
             .chain(0x05D0..=0x05EA)
-            .chain([0x05F3, 0x05F4])
+            .chain(0x05EF..=0x05F4)
             .chain([0x20AA])
             .map(|v| Codepoint::new(v).unwrap())
             .collect()
@@ -261,10 +262,9 @@ mod tests {
     }
 
     /// **Every style maps the Hebrew it ships** -- the owner's boxes, read
-    /// at the font. Regular, Bold, Italic and Bold Italic each map all 53
-    /// code points, and nothing else in the Hebrew block but the 52 of them
-    /// there (U+05C6, nun hafukha, is one the build does not draw); the stock
-    /// files they were
+    /// at the font. Regular, Bold, Italic and Bold Italic each map all 58
+    /// code points, and nothing else in the Hebrew block but the 57 of them
+    /// there; the stock files they were
     /// built from map none, the control that the Hebrew is the build's. So
     /// italic Hebrew is drawn from the italic faces, not upright from the
     /// chain.
@@ -274,7 +274,7 @@ mod tests {
             .into_iter()
             .filter(|c| (0x0590..=0x05FF).contains(&c.value()))
             .collect();
-        assert_eq!(hebrew.len(), 52, "the list itself");
+        assert_eq!(hebrew.len(), 57, "the list itself");
         let block = |f: &Face<'_>| -> Vec<Codepoint> {
             (0x0590..=0x05FF)
                 .filter_map(Codepoint::new)
@@ -299,7 +299,7 @@ mod tests {
             assert_eq!(
                 block(&f),
                 hebrew,
-                "{}: the Hebrew block maps exactly the 52",
+                "{}: the Hebrew block maps exactly the 57",
                 e.name
             );
             let data = stock(base);

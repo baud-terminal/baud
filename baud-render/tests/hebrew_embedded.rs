@@ -493,3 +493,44 @@ fn the_sheqel_sign_draws_from_the_embedded_font_in_every_style() {
         }
     }
 }
+
+/// **Nun hafukha, the yod triangle and the Yiddish ligatures draw in every
+/// style.** U+05C6, U+05EF and U+05F0-05F2 are mapped in each of the four
+/// built faces, and each, painted alone with the face as the only text
+/// face, puts ink in its cell that is not the face's `.notdef` box -- the
+/// box being what a character no face maps draws as. Before, all five drew
+/// the box.
+#[test]
+fn nun_hafukha_the_yod_triangle_and_the_ligatures_draw_in_every_style() {
+    let nerd = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
+        let file = app_font(&format!("built/{style}.ttf"));
+        let faces = [Face::parse(&file).unwrap(), Face::parse(&nerd).unwrap()];
+        // The cursor hidden, so only a glyph's ink can differ. U+0378 is
+        // unassigned: no face maps it, so it paints the box.
+        let alone = |c: char| painted(&faces, &plain, format!("\x1b[?25l{c}").as_bytes());
+        let boxed = alone('\u{378}');
+        let blank = alone(' ');
+        assert!(boxed != blank, "the control: the box has ink");
+        for c in ['\u{5C6}', '\u{5EF}', '\u{5F0}', '\u{5F1}', '\u{5F2}'] {
+            let cp = Codepoint::new(u32::from(c)).unwrap();
+            assert!(
+                faces[0].glyph(cp).is_some(),
+                "{style}: U+{:04X} is not mapped",
+                u32::from(c)
+            );
+            let got = alone(c);
+            assert!(
+                got != boxed,
+                "{style}: U+{:04X} paints the box",
+                u32::from(c)
+            );
+            assert!(
+                got != blank,
+                "{style}: U+{:04X} paints nothing",
+                u32::from(c)
+            );
+        }
+    }
+}

@@ -27,10 +27,10 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4
-  Bold.ttf        7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4
-  Italic.ttf      11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4
-  BoldItalic.ttf  91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23
+  Regular.ttf     0769ffedc56bbee7ef76c5f33b9c1b44598675659bdfe3924290a6ae20e9ea02
+  Bold.ttf        eedc0b0eb7bdcbcee339e5998cfe3e04bb13a00811e6d55b2140afa68756a04c
+  Italic.ttf      6c358d304ff725e65337e3c5d100227c426f8cd38548349bce3cdcf01cdd43e9
+  BoldItalic.ttf  5519f07ddbf26dce7137c91ee06ee6d60ff86107487450724576eaa836737543
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
@@ -53,24 +53,24 @@ so the correction is the only thing the italics add to the shear.
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
 (each file against the stock file of its own style, measured with fontTools 4.63.0)
 
-- 53 code points added, 52 of them in U+05B0-U+05F4:
-  - the 27 letters, U+05D0-U+05EA;
+- 58 code points added, 57 of them in U+05B0-U+05F4:
+  - the 27 letters, U+05D0-U+05EA, and U+05EF YOD TRIANGLE and the Yiddish
+    ligatures U+05F0-U+05F2 (BAUD'S OWN GLYPHS);
   - the points: the vowels (nikud), dagesh, meteg, rafe, the shin and sin dots, the
     upper and lower dots and qamats qatan (U+05B0-U+05BD, U+05BF, U+05C1, U+05C2,
     U+05C4, U+05C5, U+05C7);
-  - maqaf, paseq, sof pasuq, geresh and gershayim;
+  - maqaf, paseq, sof pasuq, nun hafukha, geresh and gershayim;
   - and U+20AA NEW SHEQEL SIGN, baud's own drawing (BAUD'S OWN GLYPHS).
-  U+05C6, U+05EF and the Yiddish ligatures U+05F0-U+05F2 are not mapped. The glyph
-  count goes from 1743 to 1796, and the stock glyph order is an exact prefix, so every
-  existing glyph keeps its ID.
+  The glyph count goes from 1743 to 1801, and the stock glyph order is an exact
+  prefix, so every existing glyph keeps its ID.
 - No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
   lost. GSUB is byte-identical but for one added script record, hebr (below): with it
-  taken out, every byte is stock's. The 20 combining points advance 0, and the 27
-  letters, 5 punctuation marks and the sheqel sign advance 600 (one cell).
+  taken out, every byte is stock's. The 20 combining points advance 0, and the 31
+  letters, 6 punctuation marks and the sheqel sign advance 600 (one cell).
 - GPOS goes from 5 lookups to 7. The 5 stock lookups are unchanged. The two new ones
   are mark-to-base (type 4), for the points on the letters, and mark-to-mark (type 6),
   for meteg on the vowel before it. They are appended to the existing mark and mkmk
-  features. GDEF classes the 53 new glyphs (33 base, 20 mark; every stock glyph keeps
+  features. GDEF classes the 58 new glyphs (38 base, 20 mark; every stock glyph keeps
   its class) and gains a fourth mark filtering set, which only the new mark-to-mark
   lookup uses.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
@@ -131,10 +131,11 @@ style's own build tag (WHAT CHANGED).
 BAUD'S OWN GLYPHS
 
 What the Hebrew repertoire needs beyond Cascadia's letters and the redrawn points is
-drawn by baud (build/cover.py) from no other font's outlines, the owner's rule of
-2026-10-07 ("create our own so it looks better and align with jetbrains"), and
-appended after every other glyph, so no glyph ID moves. Each is drawn upright; the
-italics take it through the letters' shear and correction of rounds.
+made by baud (build/cover.py) -- drawn, or built from this font's own letters -- and
+taken from no other font, the owner's rule of 2026-10-07 ("create our own so it looks
+better and align with jetbrains"). Each is appended after every other glyph, so no
+glyph ID moves, and is drawn upright; the italics take it through the letters' shear
+and correction of rounds.
 
 - U+20AA NEW SHEQEL SIGN: two interlocking hooks, a full stem, an arch and an inner
   stem each, the right hook the left turned half a turn about the cell's centre. 630
@@ -143,6 +144,20 @@ italics take it through the letters' shear and correction of rounds.
   Regular and 104 in Bold, a little lighter than a letter's 90 and 125 so four stems
   and three gaps fit the cell, and arch crowns 78 and 100; shoulders 0.72 of the arch's
   half-width, squarer than a circle, as JetBrains Mono's n and the built het.
+- U+05C6 NUN HAFUKHA: the built nun reversed about the cell's centre line. The
+  Unicode Standard (9.1): "it often has the appearance of a rotated or reversed nun";
+  the Hebrew chart's reference glyph is reversed. No point anchors: it is punctuation,
+  and its dot above is U+0307, JetBrains Mono's own mark, which this font does not
+  place on it (KNOWN DEFECTS).
+- U+05F0, U+05F1, U+05F2, the Yiddish double vav, vav yod and double yod: two built
+  letters side by side, the first on the right, each squeezed across to 252.5 units
+  (a vav to 0.86 of its width, a yod to 0.70) and thickened back to the letters'
+  stem weight, 45 apart within ink 25 to 575; full height kept.
+- U+05EF YOD TRIANGLE: three built yods at 0.70 scale, weight restored, two side by
+  side under one between them, 30 apart, the top yod at the letters' 630.
+- The ligatures and the yod triangle take the points by the same anchor search as
+  the letters, so a point under one sits at the font's below-point height, as under
+  yod.
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
 
@@ -182,6 +197,12 @@ interim)
   narrow-letter variant A has it (ZKEEP, 0.75 and 0.92), and no other sister pair is
   redrawn (NONE, 0.79 and 0.87). Re-asked with dalet's nearness to vav, which the second
   ask left out: H45 again, 0.70 and 0.81. Note AC 4d.
+- Nun hafukha: the built nun reversed, settled, Jev SHIP 0.98 in both orders
+  (confidence 0.96) on the second ask (0.81 and 0.78 on the first).
+- Yiddish ligatures: B (each letter 252.5 wide, 45 apart), interim, the lean taken:
+  0.80 and 0.83 (confidence 0.70 and 0.74), against the first design's 230 and 60.
+- Yod triangle: B (yods at 0.70, 30 apart), interim, the lean taken: 0.53 and 0.58
+  (confidence 0.30 and 0.37), against 0.62 and 40.
 - Sheqel sign: shape B (squarer shoulders) at 630, interim. Jev with renders: shape B
   at probability 0.91 and 0.90 in the two orders, height 630 at 0.77 and 0.90, and
   whether to ship split, REDRAW 0.52 and 0.54. Shape B (confidence 0.82/0.80) and
@@ -274,11 +295,11 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the last two -- meteg with CGJ and the unmapped code
-points -- and the Bold meteg item's detail, which were measured on these
-files on 2026-10-08 and are not in note AC. None of these is fixed by this build. Two
-earlier gaps, the missing hebr script record and Cascadia's dropped trademark notice,
-were fixed; see the CHANGELOG.)
+(From note AC 4a and 4b, except the last three -- meteg with CGJ, the unmapped code
+points and nun hafukha's dot -- and the Bold meteg item's detail, which were measured
+on these files on 2026-10-08 or later and are not in note AC. None of these is fixed
+by this build. Two earlier gaps, the missing hebr script record and Cascadia's
+dropped trademark notice, were fixed; see the CHANGELOG.)
 
 - Meteg fails on 80 of 297 clusters in Regular. With hataf segol it sits 20 units out
   of the cell and with qubuts 6, and on final letters it leaves the cell. On qof it
@@ -320,8 +341,11 @@ were fixed; see the CHANGELOG.)
   bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
   left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
   segol -20..62, 20 out).
-- U+05C6, U+05EF, the Yiddish ligatures U+05F0-U+05F2, the cantillation marks
-  U+0591-U+05AF and the presentation forms U+FB1D-U+FB4F are not mapped.
+- The cantillation marks U+0591-U+05AF and the presentation forms U+FB1D-U+FB4F
+  are not mapped.
+- A dot above nun hafukha, which the Unicode Standard spells U+0307 (9.1), is
+  JetBrains Mono's combining dot, and no lookup places it on U+05C6: it sits where
+  the pen leaves it, offset 0 in HarfBuzz 14.5.1, as on nun.
 
 Not the font's defects, but what a reader sees:
 
@@ -396,3 +420,13 @@ CHANGELOG
   generalised gate prints what it printed before but its counts (53 code points
   added, one glyph more); the strip-and-compare gate adds "non-Hebrew cmap entry
   added" for U+20AA in each of the four cmap subtables.
+2026-10-25 (i-am-logger, baud): U+05C6 NUN HAFUKHA, U+05EF YOD TRIANGLE and the
+  Yiddish ligatures U+05F0-U+05F2 are mapped in all four files, made from the
+  built letters (BAUD'S OWN GLYPHS); the anchor search places the points on the
+  four letters. Five glyphs are appended in each file: no existing glyph, advance,
+  cmap entry or GDEF class changes, GSUB is as before, and GPOS changes only in the
+  appended mark-to-base lookup, which gains the four letters' base records. The
+  gates were run again: OTS passes; the generalised gate's counts change (58 code
+  points, five glyphs more) and it fails one check more, that the Hebrew block maps
+  round 4's 52 code points, since it maps 57; the strip-and-compare gate adds
+  "Hebrew cmap 57 != r4 52".
