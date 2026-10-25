@@ -34,8 +34,9 @@ jobs:
     # features 1391s. Still to fit, and never timed cold: workspace
     # clippy, check, unit's release build and run, and the +avx2 rebuild
     # and run. Partly warm, unit alone took 716s (09-20) and the two AVX2
-    # steps 5m27s (09-11). 45 left 17 minutes for all four; 120 holds them
-    # at four times unit's partly warm figure. A warm run took 15 minutes.
+    # steps 5m27s (09-11). 45 left 17 minutes for all four. 120 fits them
+    # even if each takes as long as unit's partly warm 716s:
+    # 28 + 4 x 12 = 76. A warm run took 15 minutes.
     timeout-minutes: 120
     env:
       # CI never opens a debugger, and debuginfo is most of the codegen time and

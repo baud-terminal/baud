@@ -391,7 +391,7 @@ in
     # `the_table_read_writes_what_the_computing_path_writes` is red under it.
     # Run by hand (`devenv tasks run test:feature-suites`) and not in
     # `enterTest`: in `devenv test` it would run on every push and in CI's
-    # 45-minute job, which it outlasts on two CPUs. Where it runs is the
+    # Lint/UT job, whose timeout is sized without it. Where it runs is the
     # owner's call (record, "baud-core's suite runs under its arms").
     "test:feature-suites" = {
       exec = "bash ./scripts/test-features.sh";

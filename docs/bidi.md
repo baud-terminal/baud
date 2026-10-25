@@ -295,13 +295,15 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   A row that holds no joined cell runs the loop that gathers its runs as
   before, and a run with no joining letter is shaped with the grid's
   features. On btop and cava, which hold no joining letter, and git-log,
-  which holds one, the `frame` bench retires instructions within step 2's
-  spread on cava with the mode on and up to 0.24% fewer elsewhere, in both
-  modes. Against step 2 with only the loop that gathers a row's runs moved
-  out of line, as it now is, btop and cava overlap it in both modes. A screen that holds Arabic pays for
-  joining it: vim-unicode +0.6% with the mode on and +1.6% with it off,
-  where the first joining letter a renderer draws has its rows converted
-  twice, once.
+  which holds one, the `frame` bench retires fewer instructions than
+  step 2 on all three in both modes, each outside step 2's own spread:
+  btop 0.24% fewer with the mode on and 0.25% with it off, cava 0.06%
+  and git-log 0.23% in both. On an earlier build of the change, against
+  step 2 with only the loop that gathers a row's runs moved out of line,
+  as it now is, btop and cava overlapped it in both modes, and a screen
+  that holds Arabic paid for joining it: vim-unicode +0.6% with the mode
+  on and +1.6% with it off, where the first joining letter a renderer
+  draws has its rows converted twice, once.
 - **Two rules scan more than once.** N0 scans every bracket pair's
   contents, and the text before it for context, so it is quadratic in the
   worst case. X5c scans ahead from every FSI to its matching PDI. Section
