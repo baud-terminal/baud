@@ -1264,12 +1264,14 @@ pub const LINK_MAX: usize = 256;
 /// 10,412 bytes (`tcap_reply_max`), since 2026-10-21; before it, DECTABSR
 /// with a stop at every one of `MAX_COLS` columns, 9,139 bytes
 /// (`tab_report_max`), since 2026-10-19; and before those 256, which held a
-/// `DECRQSS` rendition string of at most `DECRQSS_MAX` bytes. Every control
-/// that answers is const-asserted under it where its bound is made
-/// (`dcs.rs`, `tsr.rs`, `colour.rs`, and here). A ReGIS envelope answers
-/// at each `R` command instead, and one host byte can play a macrograph of
-/// them, so the hold stops a read between two ReGIS commands, a macrograph
-/// playing stopped with it.
+/// `DECRQSS` rendition string of at most `DECRQSS_MAX` bytes. The controls
+/// with long answers are held under it where their bound is made (`dcs.rs`
+/// and `tsr.rs` by const assert, `colour.rs` by the size of the `OSC 21`
+/// body, and here); the rest answer far less, a notification's step at most
+/// `NOTICE_CHUNK_MAX`, 4,096. A ReGIS envelope answers at each `R` command
+/// instead, and one host byte can play a macrograph of them, so the hold
+/// stops a read between two ReGIS commands, a macrograph playing stopped
+/// with it.
 pub const REPLY_MOST: usize = {
     let tabs = match tab_report_max(MAX_COLS) > 256 {
         true => tab_report_max(MAX_COLS),

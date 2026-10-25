@@ -649,11 +649,11 @@ a port of trail.rs), and the `Segment` initialisers of `ice-prototype.swift`
 and `orb-harness.swift`. Each block is re-expressed from 8.4 in its own
 language, the rest of each file untouched: the cosine lead, a corner that
 does not travel left out of the spread, and tau_slow when no two leads
-differ. The Python two give the same rates as before to 1.1e-16 s over
-19,997 moves from rest each, and the retarget of 8.4 as trail.rs does; both
-Swift files still type-check. ice-prototype.swift and liquid-proto.py no
-longer match the hashes their agents printed (section 7): their SHA-256s
-are now ae6bf89c… and 59a76f83…. `no_model_of_the_quad_divides_by_the_half_diagonal`
+differ. The Python two give the same rates as before to rounding on moves
+from rest, and the retarget of 8.4 as trail.rs does; both Swift files still
+type-check. ice-prototype.swift and liquid-proto.py no longer match the
+hashes their agents printed (section 7): their SHA-256s are now ae6bf89c…
+and 59a76f83…. `no_model_of_the_quad_divides_by_the_half_diagonal`
 reads these and trail.rs for the division. With them, no code outside the
 pinned sources carries kitty's rate choice; 8.2's table quotes it and the
 quad report (`docs/research/notes/w/quad-report.txt`) describes it, for the

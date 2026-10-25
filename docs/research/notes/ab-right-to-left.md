@@ -1683,11 +1683,12 @@ right-to-left blocks and the joining blocks together; with BDSM reset no
 row is read until the renderer has shaped a letter that takes a form, the
 frame that shapes the first converted again; a row with no joined cell runs
 the run loop with no join in it, and a run with no joining letter is shaped
-with the grid's features. btop, cava and git-log read within base's spread
-(cava, BDSM set) or up to 0.24% fewer in both modes; against base with only
-the run loop moved out of line, btop and cava overlap it. With BDSM reset
-after the first joining letter, the conversion and the cell path each
-find a row's joins again only where their own compare of the screen with
-the last frame's finds the row changed. The app arm of `frame_gpu` base's
-CPU time a frame within one binary's spread (docs/record.md, "Arabic
-letters are joined, one letter a cell").
+with the grid's features. On the committed build the `frame` bench retires
+fewer instructions than step 2 on btop, cava and git-log in both modes, each
+outside step 2's own spread; on an earlier build of the change, against
+step 2 with only the run loop moved out of line, btop and cava overlapped
+it. With BDSM reset after the first joining letter, the conversion and the
+cell path each find a row's joins again only where their own compare of
+the screen with the last frame's finds the row changed. The app arm of
+`frame_gpu` base's CPU time a frame within one binary's spread
+(docs/record.md, "Arabic letters are joined, one letter a cell").
