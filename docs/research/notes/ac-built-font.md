@@ -927,8 +927,10 @@ the bar read on confidence.
 **Known defects added to FONTLOG** (not in sections 4a and 4b):
 
 - Meteg spelled with CGJ draws on the vowel (measured, Regular and Bold).
-- U+20AA is unmapped although the code-page 1255 bit is set.
-- U+05C6, U+0591-05AF and U+FB1D-FB4F are unmapped.
+- U+20AA is unmapped although the code-page 1255 bit is set (mapped since
+  2026-10-25, baud's own glyph; FONTLOG's CHANGELOG).
+- U+05C6, U+0591-05AF and U+FB1D-FB4F are unmapped (all mapped since
+  2026-10-25, with U+05EF-05F2; FONTLOG's CHANGELOG).
 - Bold meteg's per-vowel failures.
 
 **Still the owner's:**

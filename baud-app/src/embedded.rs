@@ -118,10 +118,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 286_628, 0x8b4f_02da_2c5c_f604_u64, 0),
-            (BOLD, 292_108, 0x6616_1efc_73e1_298e, 1),
-            (ITALIC, 290_212, 0xd912_a972_d744_57a2, 2),
-            (BOLD_ITALIC, 294_696, 0x7561_22e8_3895_9103, 3),
+            (REGULAR, 295_144, 0xda2e_7c23_af39_f77a_u64, 0),
+            (BOLD, 300_400, 0xb3ce_3fc8_1b13_e126, 1),
+            (ITALIC, 298_864, 0x38ab_a7d9_afb7_470c, 2),
+            (BOLD_ITALIC, 303_128, 0xec6c_f37f_f796_5a20, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -155,10 +155,10 @@ mod tests {
         // which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 5858df1c27c15273b771fdf752337040fb1c33dfee3372233fb2ebe1092f0fd2 baud-app/fonts/built/Regular.ttf",
-            "output efb197bf62808896d58b32a1bbde70f25aaead82d2e1645f5932eb76eb8bd65a baud-app/fonts/built/Bold.ttf",
-            "output 936dab7e43d9a0e948e8417db2d385f638a2e53fcbb51d973dc04500d177acb5 baud-app/fonts/built/Italic.ttf",
-            "output 5765ec4726fea9702f0062c80c100eea717769bd96904cd51c8733e0ad6aeec7 baud-app/fonts/built/BoldItalic.ttf",
+            "output 5e83a808ad370d451b9d62aa61d0cc0bcf37b87a9e06f9a0f9942ac00b433e3b baud-app/fonts/built/Regular.ttf",
+            "output 02d181cb5cbd1b03dd1d6da9103b6f3582696c622839ae3114740a195dd9e1c5 baud-app/fonts/built/Bold.ttf",
+            "output 5e8d183386ba561f2c36a26eabd6ab6f356a1acab773f4c3d01d7627a467fbc8 baud-app/fonts/built/Italic.ttf",
+            "output 7c7d96da1c89bdd191f880d95ec2a7f45574d0d26b6eebfb4ef3092388175742 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -237,15 +237,18 @@ mod tests {
         }
     }
 
-    /// What `scripts/build-fonts.sh` adds to JetBrains Mono, 104 code
-    /// points: the 20 points, and maqaf, paseq, sof pasuq and nun hafukha, in
-    /// U+05B0-05C7; the 27 letters U+05D0-05EA; the yod triangle, the three
-    /// Yiddish ligatures, geresh and gershayim, U+05EF-05F4; U+20AA NEW
-    /// SHEQEL SIGN; and the 46 Hebrew presentation forms in U+FB1D-FB4F.
+    /// What `scripts/build-fonts.sh` adds to JetBrains Mono, 135 code
+    /// points: the 31 cantillation marks U+0591-05AF; the 20 points, and
+    /// maqaf, paseq, sof pasuq and nun hafukha, in U+05B0-05C7; the 27
+    /// letters U+05D0-05EA; the yod triangle, the three Yiddish ligatures,
+    /// geresh and gershayim, U+05EF-05F4; U+20AA NEW SHEQEL SIGN; and the 46
+    /// Hebrew presentation forms in U+FB1D-FB4F -- every character
+    /// `[[source: unicode-data]]` 17.0 assigns in the Hebrew block and the
+    /// Hebrew part of Alphabetic Presentation Forms, and the sheqel sign.
     /// Read from the four built styles with fontTools 4.63.0, a reader that
     /// is not baud's.
     fn shipped() -> Vec<Codepoint> {
-        (0x05B0..=0x05C7)
+        (0x0591..=0x05C7)
             .chain(0x05D0..=0x05EA)
             .chain(0x05EF..=0x05F4)
             .chain([0x20AA])
@@ -266,9 +269,9 @@ mod tests {
     }
 
     /// **Every style maps the Hebrew it ships** -- the owner's boxes, read
-    /// at the font. Regular, Bold, Italic and Bold Italic each map all 104
-    /// code points, and nothing else in the Hebrew block but the 57 of them
-    /// there; the stock files they were
+    /// at the font. Regular, Bold, Italic and Bold Italic each map all 135
+    /// code points, and nothing else in the Hebrew block but the 88 of them
+    /// there, which are all it assigns; the stock files they were
     /// built from map none, the control that the Hebrew is the build's. So
     /// italic Hebrew is drawn from the italic faces, not upright from the
     /// chain.
@@ -278,7 +281,7 @@ mod tests {
             .into_iter()
             .filter(|c| (0x0590..=0x05FF).contains(&c.value()))
             .collect();
-        assert_eq!(hebrew.len(), 57, "the list itself");
+        assert_eq!(hebrew.len(), 88, "the list itself");
         let block = |f: &Face<'_>| -> Vec<Codepoint> {
             (0x0590..=0x05FF)
                 .filter_map(Codepoint::new)
@@ -303,7 +306,7 @@ mod tests {
             assert_eq!(
                 block(&f),
                 hebrew,
-                "{}: the Hebrew block maps exactly the 57",
+                "{}: the Hebrew block maps exactly the 88",
                 e.name
             );
             let data = stock(base);

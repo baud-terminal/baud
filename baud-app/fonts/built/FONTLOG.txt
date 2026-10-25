@@ -27,10 +27,10 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     5858df1c27c15273b771fdf752337040fb1c33dfee3372233fb2ebe1092f0fd2
-  Bold.ttf        efb197bf62808896d58b32a1bbde70f25aaead82d2e1645f5932eb76eb8bd65a
-  Italic.ttf      936dab7e43d9a0e948e8417db2d385f638a2e53fcbb51d973dc04500d177acb5
-  BoldItalic.ttf  5765ec4726fea9702f0062c80c100eea717769bd96904cd51c8733e0ad6aeec7
+  Regular.ttf     5e83a808ad370d451b9d62aa61d0cc0bcf37b87a9e06f9a0f9942ac00b433e3b
+  Bold.ttf        02d181cb5cbd1b03dd1d6da9103b6f3582696c622839ae3114740a195dd9e1c5
+  Italic.ttf      5e8d183386ba561f2c36a26eabd6ab6f356a1acab773f4c3d01d7627a467fbc8
+  BoldItalic.ttf  7c7d96da1c89bdd191f880d95ec2a7f45574d0d26b6eebfb4ef3092388175742
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
@@ -53,7 +53,9 @@ so the correction is the only thing the italics add to the shear.
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
 (each file against the stock file of its own style, measured with fontTools 4.63.0)
 
-- 104 code points added, 57 of them in U+05B0-U+05F4:
+- 135 code points added, 88 of them in U+0591-U+05F4 -- every character the
+  Unicode Character Database 17.0 assigns in the Hebrew block:
+  - the 31 cantillation marks, U+0591-U+05AF (BAUD'S OWN GLYPHS);
   - the 27 letters, U+05D0-U+05EA, and U+05EF YOD TRIANGLE and the Yiddish
     ligatures U+05F0-U+05F2 (BAUD'S OWN GLYPHS);
   - the points: the vowels (nikud), dagesh, meteg, rafe, the shin and sin dots, the
@@ -62,19 +64,21 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   - maqaf, paseq, sof pasuq, nun hafukha, geresh and gershayim;
   - U+20AA NEW SHEQEL SIGN, baud's own drawing (BAUD'S OWN GLYPHS);
   - and the 46 Hebrew presentation forms in U+FB1D-U+FB4F (BAUD'S OWN GLYPHS).
-  The glyph count goes from 1743 to 1847, and the stock glyph order is an exact
+  The glyph count goes from 1743 to 1878, and the stock glyph order is an exact
   prefix, so every existing glyph keeps its ID.
 - No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
   lost. GSUB is byte-identical but for one added script record, hebr (below): with it
-  taken out, every byte is stock's. The 20 combining points and varika advance 0,
-  and the 31 letters, 6 punctuation marks, the sheqel sign and the 45 other
-  presentation forms advance 600 (one cell).
-- GPOS goes from 5 lookups to 7. The 5 stock lookups are unchanged. The two new ones
-  are mark-to-base (type 4), for the points on the letters, and mark-to-mark (type 6),
-  for meteg on the vowel before it. They are appended to the existing mark and mkmk
-  features. GDEF classes the 104 new glyphs (83 base, 21 mark; every stock glyph keeps
-  its class) and gains a fourth mark filtering set, which only the new mark-to-mark
-  lookup uses.
+  taken out, every byte is stock's. The 20 combining points, the 31 cantillation
+  marks and varika advance 0, and the 31 letters, 6 punctuation marks, the sheqel
+  sign and the 45 other presentation forms advance 600 (one cell).
+- GPOS goes from 5 lookups to 10. The 5 stock lookups are unchanged. The new ones are
+  mark-to-base (type 4), for the points and cantillation marks on the letters, and
+  four mark-to-mark (type 6): meteg on the vowel before it; a cantillation mark below
+  left of the point or meteg before it; yetiv and dehi right of the point before
+  them; and a postpositive mark above left of a holam. They are appended to the
+  existing mark and mkmk features. GDEF classes the 135 new glyphs (83 base, 52 mark;
+  every stock glyph keeps its class) and gains four mark filtering sets, one for each
+  new mark-to-mark lookup.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
   Script table: the same default language system and feature indices (in GPOS, mark
   and mkmk). Microsoft's 'Developing OpenType Fonts for Hebrew Script' registers hebr,
@@ -178,6 +182,19 @@ and correction of rounds.
   so its bar lies at the plus's foot, as Arial, Times New Roman and Courier New set
   theirs. U+FB4F, the alef lamed ligature, is the built alef with the built lamed's
   mast set on its upper-left stroke, rising to 794.
+- U+0591-U+05AF, the cantillation marks, drawn after the Hebrew chart's reference
+  glyphs from this font's own dot and strokes of 0.85 its points' bar (the winding
+  ones -- shalshelet, zarqa, zinor, darga -- 0.6, so their turns stay open), 1.6 dots
+  tall and 1.8 wide, as faces that carry them draw them two to three of their dots
+  tall (Arial Unicode MS, Courier New, Times New Roman, SF Hebrew, Arial Hebrew). A
+  mark below sits where hiriq does; one above at the letter's upper dot, at the
+  height of the points above, as those faces set theirs at their shin dot's height;
+  the postpositive pashta, telisha qetana and zinor at the holam's place, and left of
+  a holam there; the prepositive geresh muqdam and telisha gedola at the shin dot's
+  place. A mark below stands left of the point below before it, 30 units from its
+  ink, tops aligned, and yetiv and dehi right of it: "the point always comes first
+  (on the right) and the mark after it (on the left), except for the marks yetiv ...
+  and dehi" (Unicode 9.1).
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
 
@@ -217,6 +234,11 @@ interim)
   narrow-letter variant A has it (ZKEEP, 0.75 and 0.92), and no other sister pair is
   redrawn (NONE, 0.79 and 0.87). Re-asked with dalet's nearness to vav, which the second
   ask left out: H45 again, 0.70 and 0.81. Note AC 4d.
+- Cantillation marks: drawn into the font, settled, Jev 0.99 in both orders
+  (confidence 0.98; note AD Q9). Their forms, variant B (larger, stronger, the
+  winding ones finer), interim, the lean taken: 0.74 and 0.70 (confidence 0.61 and
+  0.55) on the second ask, after the first split 0.56 and 0.55. Their placement,
+  interim, the lean taken: 0.77 and 0.77 (confidence 0.54).
 - Presentation forms: GSUB untouched (A), settled, Jev 0.98 and 0.96 (confidence
   0.97 and 0.94); the canonical forms as composites, interim, the lean taken: 0.94
   and 0.97 (confidence 0.88 and 0.94) on the second ask; the alternative plus
@@ -323,9 +345,9 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the last four -- meteg with CGJ, the unmapped code
-points, nun hafukha's dot and a form followed by a point -- and the Bold meteg item's
-detail, which were measured
+(From note AC 4a and 4b, except the last five -- meteg with CGJ, nun hafukha's dot, a
+form followed by a point, two cantillation marks on one letter and a mark beside a
+wide point -- and the Bold meteg item's detail, which were measured
 on these files on 2026-10-08 or later and are not in note AC. None of these is fixed
 by this build. Two earlier gaps, the missing hebr script record and Cascadia's
 dropped trademark notice, were fixed; see the CHANGELOG.)
@@ -370,13 +392,20 @@ dropped trademark notice, were fixed; see the CHANGELOG.)
   bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
   left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
   segol -20..62, 20 out).
-- The cantillation marks U+0591-U+05AF are not mapped.
 - A dot above nun hafukha, which the Unicode Standard spells U+0307 (9.1), is
   JetBrains Mono's combining dot, and no lookup places it on U+05C6: it sits where
   the pen leaves it, offset 0 in HarfBuzz 14.5.1, as on nun.
 - A presentation form followed by a further point (FB31 then qamats, FB2E then
   meteg) is kept whole and the point placed by the form's anchors, where HarfBuzz
   decomposes the cluster; whether the two draw alike is unmeasured.
+- Two cantillation marks on one letter overlap: two above take the same place (bet
+  with revia and zaqef qatan, both at x offset 600 in HarfBuzz 14.5.1), and a second
+  mark below falls back to the letter's anchor, on the point (bet, qamats, merkha,
+  munah: munah at qamats's 600). None of the 99 cantillated clusters of the pointed
+  Genesis 1:1-5 and Pango corpora carries two.
+- A cantillation mark beside a wide point inks past the cell, from hb-shape 14.5.1 in
+  Regular, on bet: pashta beside holam at x -162..14, tipeha beside hataf segol at
+  -120..56, and yetiv beside qamats out to 662.
 
 Not the font's defects, but what a reader sees:
 
@@ -472,3 +501,14 @@ CHANGELOG
   any face with no mark feature. The gates were run again: OTS passes; the
   generalised gate's counts change; the strip-and-compare gate adds "OS/2 other
   fields ['ulUnicodeRange2']".
+2026-10-25 (i-am-logger, baud): the 31 cantillation marks U+0591-U+05AF are mapped
+  in all four files, baud's own drawings (BAUD'S OWN GLYPHS), so the files map every
+  character the Unicode Character Database 17.0 assigns in the Hebrew block. Before,
+  a cantillation mark shaped to .notdef and drew nothing. 31 glyphs are appended in
+  each file: no existing glyph, advance, cmap entry or GDEF class changes, GSUB is as
+  before, and GPOS gains the marks' classes and anchors in the appended mark-to-base
+  lookup and three mark-to-mark lookups, each with a filtering set of its own. The
+  gates were run again: OTS passes; the generalised gate fails three checks more,
+  each holding the appended GPOS to its earlier two lookups and one filtering set;
+  the strip-and-compare gate adds "appended lookups [(4, 0), (6, 16), (6, 16), (6,
+  16), (6, 16)]" and "mark filtering set 3 / appended 4".

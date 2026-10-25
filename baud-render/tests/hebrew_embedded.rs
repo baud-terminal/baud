@@ -316,6 +316,17 @@ fn painted_verses(
     roles: &[FaceRole],
     bytes: &[u8],
 ) -> (Vec<u32>, usize, (usize, usize), Vec<bool>) {
+    painted_marked(faces, roles, bytes, |_| true)
+}
+
+/// [`painted_verses`], with each cell drawn flagged when one of the marks
+/// it holds is one that `counts` takes.
+fn painted_marked(
+    faces: &[Face<'_>],
+    roles: &[FaceRole],
+    bytes: &[u8],
+    counts: impl Fn(u32) -> bool,
+) -> (Vec<u32>, usize, (usize, usize), Vec<bool>) {
     let mut r = Renderer::new(
         Stack::with_roles(faces, roles).unwrap(),
         PxSize::of(16.0).unwrap(),
@@ -339,7 +350,7 @@ fn painted_verses(
     let mut pointed = vec![false; rows * cols];
     for (y, x) in (0..rows).flat_map(|y| (0..cols).map(move |x| (y, x))) {
         let (row, col) = (Row::from_index(y), Col::at_index(x));
-        if t.marks(row, col).next().is_some() {
+        if t.marks(row, col).any(&counts) {
             pointed[y * cols + r.bidi().visual_col(row, col).index()] = true;
         }
     }
@@ -530,6 +541,177 @@ fn nun_hafukha_the_yod_triangle_and_the_ligatures_draw_in_every_style() {
                 got != blank,
                 "{style}: U+{:04X} paints nothing",
                 u32::from(c)
+            );
+        }
+    }
+}
+
+/// What the bytes paint through the faces with their roles at a pixel
+/// size, one row of sixteen cells, the cursor hidden.
+fn painted_at(faces: &[Face<'_>], roles: &[FaceRole], bytes: &[u8], px: f32) -> Vec<u32> {
+    let mut r = Renderer::new(
+        Stack::with_roles(faces, roles).unwrap(),
+        PxSize::of(px).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS2.ws_col)),
+        Rows::of_index(usize::from(WS2.ws_row)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS2);
+    let mut t = Term::new(owned.storage(), &WS2);
+    let mut c = Canvas::for_renderer(&r);
+    let bytes = [&b"\x1b[?25l"[..], bytes].concat();
+    t.write_at(BytePos::ZERO, &bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    paint(&mut r, &mut t, &mut c, Damage::Full);
+    c.pixels
+}
+
+/// **A cantillation mark draws.** Alef with etnahta, U+05D0 U+0591, at
+/// 14 px, in each built face as the only text face: the frame differs from
+/// alef alone, so the mark's ink reaches the cell -- where the faces mapped
+/// no cantillation mark it drew nothing, the silent drop the Unicode
+/// Standard rules out (5.3). Bet with qamats and merkha differs from bet
+/// with qamats the same way.
+#[test]
+fn alef_with_etnahta_shows_ink_at_14_px_in_every_style() {
+    let nerd = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
+        let file = app_font(&format!("built/{style}.ttf"));
+        let faces = [Face::parse(&file).unwrap(), Face::parse(&nerd).unwrap()];
+        for (with, without) in [
+            ("\u{5D0}\u{591}", "\u{5D0}"),
+            ("\u{5D1}\u{5B8}\u{5A5}", "\u{5D1}\u{5B8}"),
+        ] {
+            let a = painted_at(&faces, &plain, with.as_bytes(), 14.0);
+            let b = painted_at(&faces, &plain, without.as_bytes(), 14.0);
+            assert!(a != b, "{style}: {with:?} draws nothing for its mark");
+        }
+    }
+}
+
+/// Genesis 1:1-5, pointed and cantillated, one verse a row: Pango's
+/// utils/test-hebrew.txt, its first five lines
+/// (`[[source: pango-8e74c27-test-hebrew]]`).
+const GENESIS_CANTILLATED: [&str; 5] = [
+    "בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃",
+    "וְהָאָ֗רֶץ הָֽיְתָ֥ה תֹ֨הוּ֙ וָבֹ֔הוּ וְחֹ֖שֶׁךְ עַל־פְּנֵ֣י תְה֑וֹם וְר֣וּחַ אֱלֹהִ֔ים מְרַחֶ֖פֶת עַל־פְּנֵ֥י הַמָּֽיִם׃",
+    "וַיֹּ֥אמֶר אֱלֹהִ֖ים יְהִ֣י א֑וֹר וַֽיְהִי־אֽוֹר׃",
+    "וַיַּ֧רְא אֱלֹהִ֛ים אֶת־הָא֖וֹר כִּי־ט֑וֹב וַיַּבְדֵּ֣ל אֱלֹהִ֔ים בֵּ֥ין הָא֖וֹר וּבֵ֥ין הַחֹֽשֶׁךְ׃",
+    "וַיִּקְרָ֨א אֱלֹהִ֤ים ׀ לָאוֹר֙ י֔וֹם וְלַחֹ֖שֶׁךְ קָ֣רָא לָ֑יְלָה וַֽיְהִי־עֶ֥רֶב וַֽיְהִי־בֹ֖קֶר י֥וֹם אֶחָֽד׃",
+];
+
+/// A cantillation mark, U+0591-05AF.
+fn is_accent(c: u32) -> bool {
+    matches!(c, 0x0591..=0x05AF)
+}
+
+/// **Cantillated Genesis 1:1-5 keeps every point and every mark, in every
+/// style.** The five verses, each built face as the only text face: every
+/// character in them maps in the face, and the core keeps every mark. Then
+/// two comparisons, so that neither kind hides the other: every cell
+/// holding a cantillation mark paints differently from the same verses with
+/// only the cantillation marks taken out, the points kept, so each mark
+/// reaches the pixels by itself; and every cell holding a point paints
+/// differently, with the marks out, from the verses with the points taken
+/// out as well. The controls: the verses' 41 marks are in 41 cells, and
+/// their points in 129.
+#[test]
+fn cantillated_genesis_1_1_to_5_keeps_every_mark_in_every_style() {
+    let nerd = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    let verses = |keep: &dyn Fn(char) -> bool| -> String {
+        GENESIS_CANTILLATED
+            .iter()
+            .map(|v| v.chars().filter(|&c| keep(c)).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\r\n")
+    };
+    let accents = GENESIS_CANTILLATED
+        .iter()
+        .flat_map(|v| v.chars())
+        .filter(|&c| is_accent(u32::from(c)))
+        .count();
+    assert_eq!(accents, 41, "the control: the verses' cantillation marks");
+    let line = |text: &str| [&b"\x1b[8l"[..], text.as_bytes()].concat();
+    let all = line(&verses(&|_| true));
+    let unaccented = line(&verses(&|c| !is_accent(u32::from(c))));
+    let bare = line(&verses(&|c| !is_point(c)));
+    for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
+        let file = app_font(&format!("built/{style}.ttf"));
+        let faces = [Face::parse(&file).unwrap(), Face::parse(&nerd).unwrap()];
+        for c in GENESIS_CANTILLATED.iter().flat_map(|v| v.chars()) {
+            let cp = Codepoint::new(u32::from(c)).unwrap();
+            assert!(
+                c == ' ' || faces[0].glyph(cp).is_some(),
+                "{style}: U+{:04X} is not in the built face",
+                u32::from(c)
+            );
+        }
+        let (got, width, (cw, ch), accented) = painted_marked(&faces, &plain, &all, is_accent);
+        let (without, .., pointed) = painted_marked(&faces, &plain, &unaccented, |_| true);
+        let (stripped, ..) = painted_verses(&faces, &plain, &bare);
+        let cols = usize::from(WS5.ws_col);
+        let lost = |cells: &[bool], with: &[u32], without: &[u32]| {
+            let mut lost = Vec::new();
+            for (i, _) in cells.iter().enumerate().filter(|(_, p)| **p) {
+                let (y, x) = (i / cols, i % cols);
+                let differs = (y * ch..(y + 1) * ch).any(|py| {
+                    let at = py * width + x * cw;
+                    with[at..at + cw] != without[at..at + cw]
+                });
+                if !differs {
+                    lost.push((y, x));
+                }
+            }
+            (cells.iter().filter(|p| **p).count(), lost)
+        };
+        let (held, gone) = lost(&accented, &got, &without);
+        assert_eq!(held, 41, "{style}: the cells holding a cantillation mark");
+        assert!(
+            gone.is_empty(),
+            "{style}: cells whose cantillation marks drew nothing: (row, col) {gone:?}"
+        );
+        let (held, gone) = lost(&pointed, &without, &stripped);
+        assert_eq!(held, 129, "{style}: the cells holding a point");
+        assert!(
+            gone.is_empty(),
+            "{style}: cells whose points drew nothing: (row, col) {gone:?}"
+        );
+    }
+}
+
+/// **Every cantillation mark, and varika, shows ink at 12, 14 and 16 px in
+/// every style.** Each of the 31 marks U+0591-05AF and U+FB1E on bet, in
+/// each built face as the only text face, paints a frame that differs from
+/// bet alone, so no mark the faces map draws nothing at a size text is
+/// read at.
+#[test]
+fn every_cantillation_mark_and_varika_shows_ink_at_12_to_16_px() {
+    let nerd = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    let marks: Vec<char> = (0x0591..=0x05AF)
+        .chain([0xFB1E])
+        .map(|c| char::from_u32(c).unwrap())
+        .collect();
+    assert_eq!(marks.len(), 32, "the control: 31 marks and varika");
+    for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
+        let file = app_font(&format!("built/{style}.ttf"));
+        let faces = [Face::parse(&file).unwrap(), Face::parse(&nerd).unwrap()];
+        for px in [12.0, 14.0, 16.0] {
+            let alone = painted_at(&faces, &plain, "\u{5D1}".as_bytes(), px);
+            let mut blank = Vec::new();
+            for &m in &marks {
+                let with = painted_at(&faces, &plain, format!("\u{5D1}{m}").as_bytes(), px);
+                if with == alone {
+                    blank.push(format!("U+{:04X}", u32::from(m)));
+                }
+            }
+            assert!(
+                blank.is_empty(),
+                "{style} at {px} px: marks on bet that draw nothing: {blank:?}"
             );
         }
     }

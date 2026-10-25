@@ -593,6 +593,15 @@ platform = "both"
 tests = ["baud-font/tests/hebrew_presentation.rs::each_canonical_presentation_form_draws_its_decomposition", "baud-font/tests/hebrew_presentation.rs::the_other_presentation_forms_draw_what_the_standard_describes"]
 
 [[feature]]
+id = "hebrew-cantillation"
+area = "text"
+name = "Hebrew cantillation marks drawn"
+does = "The cantillation marks of a Bible text draw from the built-in font in every style, above or below their letters, a mark below beside the vowel the way printed Bibles set it, where they did not draw at all."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hebrew_embedded.rs::alef_with_etnahta_shows_ink_at_14_px_in_every_style", "baud-render/tests/hebrew_embedded.rs::cantillated_genesis_1_1_to_5_keeps_every_mark_in_every_style", "baud-render/tests/hebrew_embedded.rs::every_cantillation_mark_and_varika_shows_ink_at_12_to_16_px", "baud-font/tests/shape.rs::every_hebrew_face_fixture_shapes_as_harfbuzz_does"]
+
+[[feature]]
 id = "pointed-hebrew"
 area = "text"
 name = "Pointed Hebrew keeps every point"

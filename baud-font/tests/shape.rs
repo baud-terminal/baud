@@ -754,10 +754,8 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
 /// cluster and put it a cell right. And on each of the four built faces,
 /// everywhere, all 215 clusters: the upright, bold and italic Hebrew, its
 /// points placed as HarfBuzz places them. 99 of them carry a cantillation
-/// mark, which the built faces do not map; its `.notdef` keeps its
-/// advance, in HarfBuzz as in baud's shaper, and right to left stands a
-/// cell left of its letter in the shaper's output, where the cell keeps
-/// the letter. And on each, the characters baud draws itself
+/// mark, which the built faces draw: above or below its letter, and beside
+/// a point below it by the mark-to-mark lookups. And on each, the characters baud draws itself
 /// (`baud-app/fonts/glyphs/languages/hebrew/build/cover.py`), alone and
 /// carrying a point.
 #[test]
@@ -776,13 +774,14 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
         "built faces: {fixtures} shaped; system faces: {system_fixtures} shaped, \
          {system_moved} glyphs offset, {skipped} skipped"
     );
-    // 215 clusters and the 94 lines of what baud draws itself on each of
+    // 215 clusters and the 140 lines of what baud draws itself on each of
     // the four, the 4 Latin-mark lines on the Regular; every one Hebrew but
     // the sheqel sign's 4.
-    assert!(fixtures == 1240 && hebrew == 1236, "{fixtures} {hebrew}");
-    // The positive control that the cantillated clusters were compared: 99
-    // lines on each of the four built faces, 396 in all, whose hb-shape
-    // output holds a `.notdef`.
+    assert!(fixtures == 1424 && hebrew == 1420, "{fixtures} {hebrew}");
+    // The cantillated clusters, 99 lines on each of the four built faces:
+    // since the faces draw the marks, no line's hb-shape output holds a
+    // `.notdef`, and the positive control that they were compared is the
+    // count of lines whose input carries a cantillation mark.
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/shape/hebrew-faces.txt"
@@ -796,7 +795,18 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
             shaped.starts_with("[0=") || shaped.contains("|0=")
         })
         .count();
-    assert!(notdef == 396, "{notdef}");
+    assert!(notdef == 0, "{notdef}");
+    let cantillated = text
+        .lines()
+        .filter(|l| l.starts_with("baud-app/"))
+        .filter(|l| {
+            l.split('\t').nth(3).unwrap().split_whitespace().any(|h| {
+                let c = u32::from_str_radix(h, 16).unwrap();
+                (0x0591..=0x05AF).contains(&c)
+            })
+        })
+        .count();
+    assert!(cantillated == 4 * (99 + 46), "{cantillated}");
     // 215 clusters on each of the three faces, every one Hebrew, and the
     // positive control that some point was moved off its pen.
     if on_macos {

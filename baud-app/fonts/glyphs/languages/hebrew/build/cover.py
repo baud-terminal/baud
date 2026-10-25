@@ -12,6 +12,8 @@ each drawn by baud from its own parts, none taken from another font.
                            ayin; the wide letters are their letters stretched across the cell;
                            the alternative plus sign and the alef lamed ligature are drawn from
                            this font's own parts.
+  U+0591-U+05AF            accent_recs(): the 31 cantillation marks, drawn here, placed by
+                           late_anchors() and build.py's mark-to-mark lookups.
 
 Every glyph here is appended after every glyph the earlier rounds made, so no existing glyph ID
 moves. An outline is drawn upright; the italics take it through build.italic_outline, the shear and
@@ -179,8 +181,6 @@ FONT_FORMS = {0xFB20: 0x05E2, 0xFB21: 0x05D0, 0xFB22: 0x05D3, 0xFB23: 0x05D4, 0x
               0xFB25: 0x05DC, 0xFB26: 0x05DD, 0xFB27: 0x05E8, 0xFB28: 0x05EA}
 VARIKA = 0xFB1E
 VARIKA_HOLLOW = 60        # the crescent's inner depth, above its foot
-LATE_MARKS = (VARIKA,)
-ABOVE = (VARIKA,)
 WIDE_INK = (20, 580)      # a wide letter's ink, stretched across the cell as Courier New, a
                           # monospace face, stretches its wide alef (ink 58..1179 of 1229)
 
@@ -207,14 +207,39 @@ def varika_rec(B):
 
 def late_marks(B, ST):
     """{codepoint: outline in a point's own frame} for the marks emitted in later()."""
-    return {VARIKA: varika_rec(B)}
+    out = {VARIKA: varika_rec(B)}
+    out.update(accent_recs(B))
+    return out
 
 
-def late_anchors(base_a, report):
-    """Every letter's anchor for varika is its anchor for rafe, of which it is a glyphic variant."""
+def late_anchors(B, base_a, report, marks):
+    """Every letter's anchors for the late marks. Varika's is its rafe anchor, rafe's glyphic
+    variant. A cantillation mark below sits where hiriq does (under the letter, its top on the
+    points' line); one above, at the letter's upper dot (over its middle, at the points' height);
+    a postpositive one at the holam's place, the letter's upper left, and left of a holam there by
+    a mark-to-mark lookup, so that it follows the points (Unicode 9.1: pashta 'goes to the left of
+    points'); a prepositive one at the shin dot's place, the letter's upper right. A point below
+    moves a cantillation mark below beside it by the mark-to-mark lookups (build.py)."""
+    def hw(m):
+        b = B.rec_bounds(marks[m])
+        return (b[2] - b[0]) / 2
     for u, d in base_a.items():
         d[VARIKA] = d[0x05BF]
         report[u][VARIKA] = report[u][0x05BF]
+        for m in range(0x0591, 0x05B0):
+            if m in ACCENT_BELOW:
+                src = 0x05B4
+                d[m] = d[src]
+            elif m in ACCENT_LEFT:
+                src = 0x05B9
+                d[m] = d[src]
+            elif m in ACCENT_RIGHT:
+                src = 0x05C1
+                d[m] = d[src]
+            else:
+                src = 0x05C4
+                d[m] = d[src]
+            report[u][m] = report[u][src]
 
 
 def alt_plus_rec(B, ST):
@@ -285,6 +310,8 @@ def later(B, ST, built, letters):
     for u, (b, ms) in sorted(CANONICAL.items()):
         out.append({'kind': 'composite', 'name': 'heb_%04X' % u, 'u': u, 'cls': 1, 'base': b,
                     'marks': ms, 'anchors_from': b})
+    for u in range(0x0591, 0x05B0):
+        out.append({'kind': 'mark', 'name': 'heb_%04X' % u, 'u': u, 'cls': 3})
     return out
 
 
@@ -296,3 +323,175 @@ def widened(B, rec):
     c = (x0 + x1) / 2
     rec = B.map_rec(rec, lambda x, y: (300 + (x - c) * k, y))
     return B.path_rec(B.erode(B.rec_to_path(rec), (k - 1) * B.E.STEM_V, 0))
+
+
+# ---------------------------------------------------------------- the cantillation marks
+
+# The 31 marks U+0591-U+05AF, each drawn here in a point's own frame: centred on x = 0, an above
+# mark's bottom on y = 0, a below mark's top on y = 0. Their forms are the Hebrew chart's reference
+# glyphs (the Standard's set follows SI 1311.2; Unicode 9.1, 'Cantillation Marks'), drawn with this
+# font's own dot and a stroke of 0.85 its points' bar.
+ACCENT_ABOVE = (0x0592, 0x0593, 0x0594, 0x0595, 0x0597, 0x0598, 0x0599, 0x059C, 0x059D, 0x059E,
+                0x059F, 0x05A0, 0x05A1, 0x05A8, 0x05A9, 0x05AB, 0x05AC, 0x05AE, 0x05AF)
+ACCENT_BELOW = tuple(u for u in range(0x0591, 0x05B0) if u not in ACCENT_ABOVE)
+ACCENT_LEFT = (0x0599, 0x05A9, 0x05AE)       # postpositive: left of the points (pashta 'goes to the left of points')
+ACCENT_RIGHT = (0x059D, 0x05A0)              # prepositive above: at the letter's right
+ACCENT_FIRST = (0x059A, 0x05AD)              # yetiv and dehi: right of a point below, 'first (on the right)'
+LATE_MARKS = (VARIKA,) + tuple(range(0x0591, 0x05B0))
+ABOVE = (VARIKA,) + ACCENT_ABOVE
+ACCENT_GAP = 30                              # between a mark and the point beside it
+# A mark's size against the font's dot (u, 116 units in Regular): faces that carry the marks draw
+# them 150 to 190 units tall in a 1000-unit em, two to three of their dots (measured on Arial, Times
+# New Roman, Courier New, SF Hebrew and Arial Hebrew); this font's dot is larger, so 1.6 and 1.8.
+ACCENT_H, ACCENT_W = 1.6, 1.8
+ACCENT_STROKE = 0.85                         # against the points' bar
+ACCENT_FINE = 0.6                            # the winding marks' (shalshelet, zarqa, zinor, darga)
+
+
+def _stroke(B, pts, t, closed=False):
+    """A polyline `t` wide along `pts`, its joins mitred (capped at 2t), its ends square."""
+    import math, pathops
+    n = len(pts)
+    def unit(a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        d = math.hypot(dx, dy) or 1.0
+        return dx / d, dy / d
+    left, right = [], []
+    for i, p in enumerate(pts):
+        ds = []
+        if i > 0 or closed:
+            ds.append(unit(pts[i - 1], p))
+        if i < n - 1 or closed:
+            ds.append(unit(p, pts[(i + 1) % n]))
+        nx = sum(-d[1] for d in ds); ny = sum(d[0] for d in ds)
+        ln = math.hypot(nx, ny) or 1.0
+        nx, ny = nx / ln, ny / ln
+        # the miter's length over the half width
+        cos_half = nx * -ds[0][1] + ny * ds[0][0]
+        k = min(2.0, 1.0 / max(cos_half, 0.5))
+        left.append((p[0] + nx * t / 2 * k, p[1] + ny * t / 2 * k))
+        right.append((p[0] - nx * t / 2 * k, p[1] - ny * t / 2 * k))
+    poly = left + right[::-1]
+    p = pathops.Path()
+    pen = p.getPen()
+    pen.moveTo(poly[0])
+    for q in poly[1:]:
+        pen.lineTo(q)
+    pen.closePath()
+    return pathops.simplify(p, clockwise=True)
+
+
+def _arc(cx, cy, rx, ry, a0, a1, n=12):
+    import math
+    return [(cx + rx * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
+             cy + ry * math.sin(math.radians(a0 + (a1 - a0) * i / n))) for i in range(n + 1)]
+
+
+def _ring(B, cx, cy, r, t):
+    import pathops
+    def circ(rr):
+        p = pathops.Path()
+        pen = p.getPen()
+        k = 0.5523 * rr
+        pen.moveTo((cx + rr, cy)); pen.curveTo((cx + rr, cy + k), (cx + k, cy + rr), (cx, cy + rr))
+        pen.curveTo((cx - k, cy + rr), (cx - rr, cy + k), (cx - rr, cy))
+        pen.curveTo((cx - rr, cy - k), (cx - k, cy - rr), (cx, cy - rr))
+        pen.curveTo((cx + k, cy - rr), (cx + rr, cy - k), (cx + rr, cy)); pen.closePath()
+        return p
+    return pathops.op(circ(r), circ(r - t), pathops.PathOp.DIFFERENCE)
+
+
+def accent_recs(B):
+    """{codepoint: outline in a point's own frame} for the 31 cantillation marks."""
+    import pathops
+    t = round(ACCENT_STROKE * B.E.BAR)        # 70 in Regular, 96 in Bold
+    dot = B.jbm_dot()
+    db = B.rec_bounds(dot)
+    dw = db[2] - db[0]
+    u = dw                                    # the unit: one dot's width
+    P = lambda rec: B.rec_to_path(rec)
+    def U(*paths):
+        out = pathops.Path()
+        for p in paths:
+            out = pathops.op(out, p, pathops.PathOp.UNION)
+        return out
+    def dotat(x, y):
+        return P(B.at(dot, x, y))
+    S = lambda pts: _stroke(B, pts, t)
+    tf = round(ACCENT_FINE * B.E.BAR)         # the finer stroke of the marks that wind: 49 in Regular
+    F = lambda pts: _stroke(B, pts, tf)
+    h = ACCENT_H * u                          # a mark's height: 186 units in Regular
+    w = ACCENT_W * u                          # a mark's width: 209 units in Regular
+    r = {}
+    # ---- below (drawn with the top at 0, ink downward)
+    arch = S(_arc(0, -h, w / 2 - t / 2, h * 0.55, 180, 0))                 # an arch, legs down to -h
+    r[0x0591] = U(arch, S([(0, -h + h * 0.55), (0, 0)]))                 # etnahta: an arch on a stem
+    vee = S([(-w / 2 + t / 2, 0), (0, -h * 0.55), (w / 2 - t / 2, 0)])
+    r[0x05A2] = U(vee, S([(0, -h * 0.55), (0, -h)]))                    # atnah hafukh: a V on a stem
+    hook_l = S(_arc(w / 2 - t / 2, -t / 2, w - t, h - t, 180, 270, 16))   # a quarter curve, down then right
+    r[0x0596] = hook_l                                                  # tipeha
+    r[0x05AD] = hook_l                                                  # dehi: the same form, placed first
+    hook_r = S(_arc(-w / 2 + t / 2, -t / 2, w - t, h - t, 0, -90, 16))    # a quarter curve, down then left
+    r[0x05A5] = hook_r                                                  # merkha
+    small_r = B.path_rec(hook_r)
+    half = B.map_rec(small_r, lambda x, y: (x * 0.6, y))
+    r[0x05A6] = U(P(B.at(half, -0.42 * w, 0)), P(B.at(half, 0.42 * w, 0)))   # merkha kefula: two
+    r[0x059B] = U(P(B.at(half, 0.3 * w, 0)), dotat(-0.45 * w, -dw / 2 - 10))  # tevir: a dot and a merkha
+    r[0x05A3] = S([(-w / 2 + t / 2, 0), (-w / 2 + t / 2, -h + t / 2), (w / 2, -h + t / 2)])   # munah: L
+    angle = S([(w / 3, 0), (-w / 3, -h / 2), (w / 3, -h)])
+    r[0x05A4] = angle                                                   # mahapakh: <
+    r[0x059A] = angle                                                   # yetiv: < , placed first
+    import math
+    r[0x05A7] = F([(-(0.4 * w) * math.sin(2 * math.pi * i / 16), -tf / 2 - (h - tf) * i / 16)
+                   for i in range(17)])                                 # darga: an S, one wave down
+    r[0x05AA] = S(_arc(0, -h / 2 + t / 2, w / 2 - t / 2, h / 2 - t / 2, 180, 360))  # yerah ben yomo: a cup
+    # ---- above (drawn with the bottom at 0, ink upward)
+    r[0x0592] = U(dotat(0, dw * 1.6), dotat(-dw * 0.9, dw / 2), dotat(dw * 0.9, dw / 2))   # segol: three dots, one over two
+    zig = []
+    for i in range(5):
+        zig.append(((-1) ** i * w / 4, i * (1.25 * h - tf) / 4 + tf / 2))   # 1.25 marks tall
+    r[0x0593] = F(zig)                                                  # shalshelet: a zigzag
+    r[0x0594] = U(dotat(0, dw / 2), dotat(0, dw * 1.5 + 30))            # zaqef qatan: two dots
+    r[0x0595] = U(dotat(dw * 0.5, dw / 2), dotat(dw * 0.5, dw * 1.5 + 30),
+                  S([(-dw * 0.6, 0), (-dw * 0.6, dw * 2 + 30)]))         # zaqef gadol: a stroke and two dots
+    r[0x0597] = _diamond(u * 1.1)                                       # revia: a diamond
+    zarqa = F(_arc(-0.3 * w, h / 2, 0.3 * w - tf / 2, h / 3, 0, 180, 16)[::-1] +
+              _arc(0.3 * w, h / 2, 0.3 * w - tf / 2, h / 3, 180, 360, 16)[1:])
+    r[0x0598] = zarqa                                                   # zarqa: a sideways S
+    r[0x05AE] = zarqa                                                   # zinor: the same, placed left
+    pashta = S([(-w / 2, h - t / 2)] + _arc(-w / 2 + (w - t) / 2 * 0, 0, w - t, h - t / 2, 90, 0)[1:])
+    r[0x0599] = pashta                                                  # pashta: over and down
+    r[0x05A8] = pashta                                                  # qadma: the same, centred
+    geresh = S([(-w / 4, 0)] + _arc(w / 4, 0, w / 2, h - t / 2, 180, 90)[1:])
+    r[0x059C] = geresh                                                  # geresh: up and over
+    r[0x059D] = geresh                                                  # geresh muqdam: the same, placed right
+    g_half = B.map_rec(B.path_rec(geresh), lambda x, y: (x * 0.6, y))
+    r[0x059E] = U(P(B.at(g_half, -0.38 * w, 0)), P(B.at(g_half, 0.38 * w, 0)))   # gershayim: two
+    ring_r = u * 0.42
+    def lolly(sx):                                                      # a ring on a short stalk
+        return U(_ring(B, 0, h - ring_r, ring_r, t * 0.6),
+                 S([(sx * ring_r * 0.5, h - 2 * ring_r + t * 0.3), (sx * ring_r * 1.3, t / 2)]))
+    r[0x05A0] = lolly(-1)                                               # telisha gedola: stalk down-left
+    r[0x05A9] = lolly(1)                                                # telisha qetana: stalk down-right
+    r[0x059F] = U(B.rec_to_path(B.map_rec(B.path_rec(lolly(1)), lambda x, y: (x - 0.42 * w, y))),
+                  B.rec_to_path(B.map_rec(B.path_rec(lolly(-1)), lambda x, y: (x + 0.42 * w, y))))   # qarney para
+    r[0x05A1] = S([(-w / 3, 0), (w / 6, h * 0.75)] + _arc(w / 6 + w / 6, h * 0.75, w / 6, h * 0.25 - t / 2, 180, 0)[1:])   # pazer
+    r[0x05AB] = S([(w / 3, 0), (-w / 3, h / 2), (w / 3, h)])           # ole: < above
+    r[0x05AC] = S([(-w / 2, t / 2), (w / 2 - t / 2, t / 2), (w / 2 - t / 2, h)])   # iluy: a reversed L above
+    r[0x05AF] = _ring(B, 0, ring_r * 1.2, ring_r * 1.2, t * 0.7)        # masora circle
+    out = {}
+    for cpt, p in r.items():
+        rec = B.path_rec(p if isinstance(p, pathops.Path) else B.rec_to_path(p))
+        x0, y0, x1, y1 = B.rec_bounds(rec)
+        # centre across; an above mark's bottom on 0, a below mark's top on 0
+        dy = -y0 if cpt in ACCENT_ABOVE else -y1
+        out[cpt] = B.compiled(B.at(rec, -(x0 + x1) / 2, dy))
+    return out
+
+
+def _diamond(s):
+    import pathops
+    p = pathops.Path()
+    pen = p.getPen()
+    pen.moveTo((0, 0)); pen.lineTo((s / 2, s / 2)); pen.lineTo((0, s)); pen.lineTo((-s / 2, s / 2)); pen.closePath()
+    return p

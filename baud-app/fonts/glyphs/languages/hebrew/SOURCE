@@ -57,7 +57,8 @@ only this file and OFL.txt):
       glyphs baud adds after them (2026-10-25: U+20AA NEW SHEQEL SIGN, drawn;
       U+05C6, U+05EF and U+05F0-U+05F2, made from the built letters; U+FB1D-U+FB4F,
       composites of the built letters and points, varika drawn, the rest from the
-      built letters and JetBrains Mono's plus), from no other font; optical.py is the
+      built letters and JetBrains Mono's plus; U+0591-U+05AF, the cantillation
+      marks, drawn), from no other font; optical.py is the
       italics' correction of rounds; narrow.py, field.py and geom.py are
       helpers; pin.py is the fontTools setting the bytes depend on; instance.py makes
       the instances. design*.py, narrow.py and field.py are byte-identical to the

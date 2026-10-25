@@ -702,7 +702,9 @@ print("%016x" % h)' "$face")
     # carrying a point: placed by the build's own anchor search, so held to
     # HarfBuzz like the letters; the presentation forms U+FB1D-FB4F, each
     # alone, and the decomposition of each canonical one, whose drawing its
-    # composite must equal; and varika on the letters it is read with.
+    # composite must equal; varika on the letters it is read with; and each
+    # cantillation mark on bet, each below one also beside qamats, and a
+    # mark beside meteg, after holam and beside the shin dot.
     while IFS= read -r cps; do
       [ -z "$cps" ] && continue
       shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
@@ -802,6 +804,52 @@ FB4F
 05D1 FB1E
 05DB FB1E
 05E4 FB1E
+05D1 0591
+05D1 0592
+05D1 0593
+05D1 0594
+05D1 0595
+05D1 0596
+05D1 0597
+05D1 0598
+05D1 0599
+05D1 059A
+05D1 059B
+05D1 059C
+05D1 059D
+05D1 059E
+05D1 059F
+05D1 05A0
+05D1 05A1
+05D1 05A2
+05D1 05A3
+05D1 05A4
+05D1 05A5
+05D1 05A6
+05D1 05A7
+05D1 05A8
+05D1 05A9
+05D1 05AA
+05D1 05AB
+05D1 05AC
+05D1 05AD
+05D1 05AE
+05D1 05AF
+05D1 05B8 0591
+05D1 05B8 0596
+05D1 05B8 059A
+05D1 05B8 059B
+05D1 05B8 05A2
+05D1 05B8 05A3
+05D1 05B8 05A4
+05D1 05B8 05A5
+05D1 05B8 05A6
+05D1 05B8 05A7
+05D1 05B8 05AA
+05D1 05B8 05AD
+05D1 05B8 05BD 05A5
+05D0 05B9 0599
+05E9 05C1 05A0
 COVER
   done
 } >"$HX_OUT"

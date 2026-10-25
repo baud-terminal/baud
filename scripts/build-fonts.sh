@@ -58,18 +58,22 @@
 # outline (and Bold's loca, for its length), Bold Italic's side bearing for it and
 # head's checksum alone, and the gates print what they printed before. cover.py's
 # glyphs (2026-10-25): U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
-# TRIANGLE, the Yiddish ligatures U+05F0-U+05F2 and the presentation forms
-# U+FB1D-U+FB4F, appended after every glyph before them, so no glyph ID moves and no
-# existing glyph, advance, cmap entry, class or GSUB byte changes; GPOS changes only
-# in the appended mark-to-base lookup, which gains the new letters' and forms' base
-# records and varika's mark class, and OS/2 gains the Alphabetic Presentation Forms
-# range bit (measured against the builds before them). The generalised gate's counts
-# change (104 code points added) and it fails one check more, that the Hebrew block
-# maps round 4's 52 code points (it maps 57); cgate.py adds "non-Hebrew cmap entry
-# added" in each of the four cmap subtables, "Hebrew cmap 57 != r4 52" and "OS/2
-# other fields ['ulUnicodeRange2']"; OTS passes. A build whose bytes differ is not
-# that set, whatever it looks like, so the build refuses to write it. Changing the
-# design
+# TRIANGLE, the Yiddish ligatures U+05F0-U+05F2, the presentation forms
+# U+FB1D-U+FB4F and the cantillation marks U+0591-U+05AF, appended after every glyph
+# before them, so no glyph ID moves and no existing glyph, advance, cmap entry,
+# class or GSUB byte changes; GPOS changes only in the appended mark-to-base lookup,
+# which gains the new letters' and forms' base records and the new marks' classes,
+# and in three mark-to-mark lookups appended for the cantillation marks, and OS/2
+# gains the Alphabetic Presentation Forms range bit (measured against the builds
+# before them). The generalised gate's counts change (135 code points added) and it
+# fails one check more, that the Hebrew block maps round 4's 52 code points (it maps
+# 88), and three more that hold the appended GPOS to two lookups and one filtering
+# set (it has five and four); cgate.py adds "appended lookups [(4, 0), (6, 16), (6,
+# 16), (6, 16), (6, 16)]", "mark filtering set 3 / appended 4", "non-Hebrew cmap
+# entry added" in each of the four cmap subtables, "Hebrew cmap 88 != r4 52" and
+# "OS/2 other fields ['ulUnicodeRange2']"; OTS passes. A build whose bytes differ is
+# not that set, whatever it looks like, so the build refuses to write it. Changing
+# the design
 # means re-running those gates and then these constants, in one change, with the
 # reason.
 #
@@ -110,12 +114,12 @@ VF_SHA256=08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2
 # LEVEL=0.
 gate_hash() {
   case $1 in
-  Regular) echo 5858df1c27c15273b771fdf752337040fb1c33dfee3372233fb2ebe1092f0fd2 ;;
-  Bold) echo efb197bf62808896d58b32a1bbde70f25aaead82d2e1645f5932eb76eb8bd65a ;;
-  Italic) echo 936dab7e43d9a0e948e8417db2d385f638a2e53fcbb51d973dc04500d177acb5 ;;
-  BoldItalic) echo 5765ec4726fea9702f0062c80c100eea717769bd96904cd51c8733e0ad6aeec7 ;;
-  Italic-plain) echo 915bcc6e2ea16d693862fd5a5dbe59376d11adecfb2f65ed5ab75db5173c7eb6 ;;
-  BoldItalic-plain) echo 6e88c1b336891a0d35502093300fa973fdc8636d4d60ccdd771d0ea5c54eced4 ;;
+  Regular) echo 5e83a808ad370d451b9d62aa61d0cc0bcf37b87a9e06f9a0f9942ac00b433e3b ;;
+  Bold) echo 02d181cb5cbd1b03dd1d6da9103b6f3582696c622839ae3114740a195dd9e1c5 ;;
+  Italic) echo 5e8d183386ba561f2c36a26eabd6ab6f356a1acab773f4c3d01d7627a467fbc8 ;;
+  BoldItalic) echo 7c7d96da1c89bdd191f880d95ec2a7f45574d0d26b6eebfb4ef3092388175742 ;;
+  Italic-plain) echo be3239ca5d2daad0fd6310630d3571032777ecb48ed8ed5e995968e7e9e85488 ;;
+  BoldItalic-plain) echo 287cb8021996563881d042121891ce90f5f8daeda5a0c36a09a96c8fe3a407f1 ;;
   *) return 1 ;;
   esac
 }

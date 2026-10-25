@@ -1719,6 +1719,14 @@ inferred, not measured).
   mark, the silent drop Q2's placeholder is to replace. The face has no
   anchor for it, since it maps none of the 31 marks; whether to draw the
   marks, or what shows in their place, is this question and Q2.
+- Decided 2026-10-25: draw them. Jev chose the first option at confidence
+  0.98 in both orders (probability 0.99, uncached), with the owner's font
+  rules and the standing VT420 rule quoted. Built the same day: the four
+  built faces map all 31, drawn by baud and placed by the font's anchors
+  and mark-to-mark lookups, and baud's shaper places every one of the 99
+  corpus clusters as HarfBuzz does (the record, "Hebrew cantillation is
+  drawn in the embedded font"). A cantillation mark that no face maps, in
+  another font stack, is still Q2's.
 
 ### 7.3 Renders the owner must see before deciding
 

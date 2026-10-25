@@ -34,10 +34,11 @@ edits, to the outline and its anchor points alike. It moves dalet's leg to the
 roof's right end, so that ד no longer reads as ז; no other letter changes.
 
 Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
-TRIANGLE, U+05F0-U+05F2, U+FB1D-U+FB4F) are appended after every glyph above, so no glyph ID moves;
-an outline drawn upright there takes the italics' shear and correction as the letters do, its letters
-join the anchor search, its marks are placed as the points are, and each presentation form that has
-a canonical decomposition is a composite of it at the mark lookup's own offsets.
+TRIANGLE, U+05F0-U+05F2, U+FB1D-U+FB4F, U+0591-U+05AF) are appended after every glyph above, so no
+glyph ID moves; an outline drawn upright there takes the italics' shear and correction as the letters
+do, its letters join the anchor search, its marks are placed as the points are, each presentation
+form that has a canonical decomposition is a composite of it at the mark lookup's own offsets, and
+three mark-to-mark lookups set a cantillation mark beside the point before it.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -877,7 +878,7 @@ def build(out, letter_hook=None, tag=''):
     marks = make_marks()
     marks.update(CV.late_marks(sys.modules[__name__], ST))   # placed as the points are, emitted late
     base_a, report = anchors(letters, marks)
-    CV.late_anchors(base_a, report)
+    CV.late_anchors(sys.modules[__name__], base_a, report, marks)
     home = homes(marks)
     # ---- the italics: one shear for every outline and every anchor (after the
     # upright anchor search), plus, per point, an x shift `delta` that moves its
@@ -1028,16 +1029,62 @@ def build(out, letter_hook=None, tag=''):
     msd.MarkSetCount = len(msd.Coverage)
     mm.MarkFilteringSet = msd.MarkSetCount - 1
 
+    # lookups 7 and 8 (mkmk, cover.py; 9 below): a cantillation mark below beside the point below before it,
+    # as Unicode 9.1 orders them -- 'the point always comes first (on the right) and the mark after
+    # it (on the left), except for the marks yetiv and dehi', which come first. Each mark's right
+    # edge (yetiv's and dehi's left) sits ACCENT_GAP from the point's ink, tops aligned. Lookup 7
+    # also sets a mark left of a meteg already left of its point; each has its own filtering set.
+    def anchor(m, x, y):
+        return otl.buildAnchor(*[round(c) for c in mark_xy(m, x, y)])
+
+    def mark_to_mark(mark1, mark2, members):
+        lkp = ot.Lookup()
+        lkp.LookupType = 6
+        lkp.LookupFlag = 0x0010
+        sub = ot.MarkMarkPos()
+        sub.Format = 1
+        sub.ClassCount = 1
+        sub.Mark1Coverage = otl.buildCoverage(mark1, gmap)
+        sub.Mark2Coverage = otl.buildCoverage(mark2, gmap)
+        sub.Mark1Array = otl.buildMarkArray(mark1, gmap)
+        sub.Mark2Array = ot.Mark2Array()
+        sub.Mark2Array.Mark2Count = len(sub.Mark2Coverage.glyphs)
+        sub.Mark2Array.Mark2Record = [otl.buildMark2Record([mark2[g]]) for g in sub.Mark2Coverage.glyphs]
+        lkp.SubTable = [sub]
+        lkp.SubTableCount = 1
+        msd.Coverage.append(otl.buildCoverage(members, gmap))
+        msd.MarkSetCount = len(msd.Coverage)
+        lkp.MarkFilteringSet = msd.MarkSetCount - 1
+        return lkp
+
+    gap = CV.ACCENT_GAP
+    after = [m for m in CV.ACCENT_BELOW if m not in CV.ACCENT_FIRST]
+    before = list(CV.ACCENT_FIRST)
+    points_below = list(E.BELOW)
+    a1 = {'heb_%04X' % m: (0, anchor(m, E.MARK_SHIFT + MB[m][2], home[m] + MB[m][3])) for m in after}
+    a2 = {'heb_%04X' % v: anchor(v, E.MARK_SHIFT + MB[v][0] - gap, home[v] + MB[v][3]) for v in points_below + [0x05BD]}
+    acc_after = mark_to_mark(a1, a2, sorted(a1) + sorted(a2))
+    b1 = {'heb_%04X' % m: (0, anchor(m, E.MARK_SHIFT + MB[m][0], home[m] + MB[m][3])) for m in before}
+    b2 = {'heb_%04X' % v: anchor(v, E.MARK_SHIFT + MB[v][2] + gap, home[v] + MB[v][3]) for v in points_below}
+    acc_before = mark_to_mark(b1, b2, sorted(b1) + sorted(b2))
+    # lookup 9: a postpositive mark above (pashta, telisha qetana, zinor) left of a holam on its
+    # letter, its right edge ACCENT_GAP from the holam's ink, bottoms aligned
+    c1 = {'heb_%04X' % m: (0, anchor(m, E.MARK_SHIFT + MB[m][2], home[m] + MB[m][1])) for m in CV.ACCENT_LEFT}
+    c2 = {'heb_%04X' % v: anchor(v, E.MARK_SHIFT + MB[v][0] - gap, home[v] + MB[v][1]) for v in (0x05B9, 0x05BA)}
+    acc_left = mark_to_mark(c1, c2, sorted(c1) + sorted(c2))
+
     gpos = jbm['GPOS'].table
-    gpos.LookupList.Lookup += [lk, mm]
+    gpos.LookupList.Lookup += [lk, mm, acc_after, acc_before, acc_left]
     gpos.LookupList.LookupCount = len(gpos.LookupList.Lookup)
-    i_mark, i_mkmk = gpos.LookupList.LookupCount - 2, gpos.LookupList.LookupCount - 1
+    n = gpos.LookupList.LookupCount
+    i_mark = n - 5
+    i_mkmks = [n - 4, n - 3, n - 2, n - 1]
     seen = set()
     for fr in gpos.FeatureList.FeatureRecord:
         if fr.FeatureTag == 'mark':
             fr.Feature.LookupListIndex.append(i_mark); seen.add('mark')
         elif fr.FeatureTag == 'mkmk':
-            fr.Feature.LookupListIndex.append(i_mkmk); seen.add('mkmk')
+            fr.Feature.LookupListIndex += i_mkmks; seen.add('mkmk')
         fr.Feature.LookupCount = len(fr.Feature.LookupListIndex)
     if seen != {'mark', 'mkmk'}:
         raise SystemExit('mark/mkmk feature missing: %s' % seen)
