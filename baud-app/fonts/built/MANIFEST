@@ -25,10 +25,11 @@ step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf
 step build build/build.py <style>.ttf, once per recipe
 input 08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2 baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
 input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/OFL.txt
-input 4aeb8f35d7932eb2831a7a5d4fedabec96335d695f47824785238c23dc0e549d baud-app/fonts/glyphs/languages/hebrew/SOURCE
+input 538765fd0627a7b8b422773845368471f6b4330bbd8d2abbc2d5ff5fea757100 baud-app/fonts/glyphs/languages/hebrew/SOURCE
 input 7721d034aebf0f102a3b870de16d9afd41d8785df87cd912bcf0790bfd11e603 baud-app/fonts/glyphs/languages/hebrew/anchors-400.json
 input 36553f6adc137ee7d0df3876b1cfe919566a6306782d7d6ecd461ac0c5b03fb6 baud-app/fonts/glyphs/languages/hebrew/anchors-700.json
-input 5dacfd5fa42ec1b12032ec892a0a5f65b5b16aba590a70d29a402f09f22fbe2b baud-app/fonts/glyphs/languages/hebrew/build/build.py
+input a57a4a9c4c2ea61d09aed2a0518e9a57a90f2c217f6bab05ec67db38c9df14ca baud-app/fonts/glyphs/languages/hebrew/build/build.py
+input 239abe00ad60ba2deb99b4c9f42b992e30efd4b353f75d8328a19e8f3c7b448b baud-app/fonts/glyphs/languages/hebrew/build/cover.py
 input 5fd95e9a15867b7e7a601280ec8437ec8ada906ccd2f3fba41263dc98a53e4e6 baud-app/fonts/glyphs/languages/hebrew/build/design.py
 input 88a407e9a8c648b665cd7f9667ad6d9ffe04daa04edfd5bcc8fd97474dab1487 baud-app/fonts/glyphs/languages/hebrew/build/design2.py
 input 2b554a298f02c366ffed8a7c846b7aa968e5ef897cc0a0eef277617ff02c856b baud-app/fonts/glyphs/languages/hebrew/build/design3.py
@@ -47,7 +48,7 @@ input 9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4 baud-app/
 input 4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf
 intermediate 7670e8a65b21e6c06db84f03cdd5e28711f55d8458c9e0482611235249f6b9d1 cas400.ttf (the wght 400 instance; not committed)
 intermediate dcfd67fdd811153235a5b9f44efd7b14a5bd9f82990b67b810ab090cb6db33f9 cas700.ttf (the wght 700 instance; not committed)
-output 769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb baud-app/fonts/built/Regular.ttf
-output d515196d2d9de2bc645dd32aba830e56fdf1974f5a16942d58e1ef0082557a5b baud-app/fonts/built/Bold.ttf
-output c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be baud-app/fonts/built/Italic.ttf
-output ef0675201d2f5f017eb915ddf996caa275b472f4b1e7a967be2e2d14177b2b12 baud-app/fonts/built/BoldItalic.ttf
+output 30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4 baud-app/fonts/built/Regular.ttf
+output 7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4 baud-app/fonts/built/Bold.ttf
+output 11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4 baud-app/fonts/built/Italic.ttf
+output 91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23 baud-app/fonts/built/BoldItalic.ttf

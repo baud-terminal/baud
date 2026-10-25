@@ -566,6 +566,15 @@ tests = ["baud-app/src/embedded.rs::italic_hebrew_leans_right_with_the_latin", "
 shipped = ["SQ-v1.0-11"]
 
 [[feature]]
+id = "hebrew-sheqel"
+area = "text"
+name = "Shekel sign built in"
+does = "The new shekel sign ₪ is drawn by the built-in font in regular, bold, italic and bold italic, at the height of the Hebrew beside it, where it came from another font on the system."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hebrew_embedded.rs::the_sheqel_sign_draws_from_the_embedded_font_in_every_style"]
+
+[[feature]]
 id = "pointed-hebrew"
 area = "text"
 name = "Pointed Hebrew keeps every point"

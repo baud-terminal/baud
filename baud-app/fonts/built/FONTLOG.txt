@@ -27,14 +27,15 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb
-  Bold.ttf        d515196d2d9de2bc645dd32aba830e56fdf1974f5a16942d58e1ef0082557a5b
-  Italic.ttf      c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be
-  BoldItalic.ttf  ef0675201d2f5f017eb915ddf996caa275b472f4b1e7a967be2e2d14177b2b12
+  Regular.ttf     30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4
+  Bold.ttf        7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4
+  Italic.ttf      11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4
+  BoldItalic.ttf  91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
-and since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), and nothing else.
+since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), and since 2026-10-25
+the glyphs baud draws itself (BAUD'S OWN GLYPHS), and nothing else.
 Before the dalet: take the 6-byte hebr script record out of GSUB and of GPOS and both
 tables were final3's byte for byte, and every other table but name (nameID 7) and head
 (its checksum) was final3's. The dalet changes that glyph's outline, its anchors in
@@ -52,23 +53,24 @@ so the correction is the only thing the italics add to the shear.
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
 (each file against the stock file of its own style, measured with fontTools 4.63.0)
 
-- 52 code points added, all in U+05B0-U+05F4:
+- 53 code points added, 52 of them in U+05B0-U+05F4:
   - the 27 letters, U+05D0-U+05EA;
   - the points: the vowels (nikud), dagesh, meteg, rafe, the shin and sin dots, the
     upper and lower dots and qamats qatan (U+05B0-U+05BD, U+05BF, U+05C1, U+05C2,
     U+05C4, U+05C5, U+05C7);
-  - maqaf, paseq, sof pasuq, geresh and gershayim.
-  U+05C6 and the Yiddish ligatures U+05F0-U+05F2 are not mapped. The glyph count goes
-  from 1743 to 1795, and the stock glyph order is an exact prefix, so every existing
-  glyph keeps its ID.
+  - maqaf, paseq, sof pasuq, geresh and gershayim;
+  - and U+20AA NEW SHEQEL SIGN, baud's own drawing (BAUD'S OWN GLYPHS).
+  U+05C6, U+05EF and the Yiddish ligatures U+05F0-U+05F2 are not mapped. The glyph
+  count goes from 1743 to 1796, and the stock glyph order is an exact prefix, so every
+  existing glyph keeps its ID.
 - No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
   lost. GSUB is byte-identical but for one added script record, hebr (below): with it
   taken out, every byte is stock's. The 20 combining points advance 0, and the 27
-  letters and 5 punctuation marks advance 600 (one cell).
+  letters, 5 punctuation marks and the sheqel sign advance 600 (one cell).
 - GPOS goes from 5 lookups to 7. The 5 stock lookups are unchanged. The two new ones
   are mark-to-base (type 4), for the points on the letters, and mark-to-mark (type 6),
   for meteg on the vowel before it. They are appended to the existing mark and mkmk
-  features. GDEF classes the 52 new glyphs (32 base, 20 mark; every stock glyph keeps
+  features. GDEF classes the 53 new glyphs (33 base, 20 mark; every stock glyph keeps
   its class) and gains a fourth mark filtering set, which only the new mark-to-mark
   lookup uses.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
@@ -126,6 +128,22 @@ carried, nameIDs 0 and 7 are as in Regular.ttf and Bold.ttf, and nameID 3 is thi
 style's own build tag (WHAT CHANGED).
 
 
+BAUD'S OWN GLYPHS
+
+What the Hebrew repertoire needs beyond Cascadia's letters and the redrawn points is
+drawn by baud (build/cover.py) from no other font's outlines, the owner's rule of
+2026-10-07 ("create our own so it looks better and align with jetbrains"), and
+appended after every other glyph, so no glyph ID moves. Each is drawn upright; the
+italics take it through the letters' shear and correction of rounds.
+
+- U+20AA NEW SHEQEL SIGN: two interlocking hooks, a full stem, an arch and an inner
+  stem each, the right hook the left turned half a turn about the cell's centre. 630
+  units tall, the Hebrew letters' height, as faces that carry Hebrew draw it (Arial's
+  and Courier New's stand at their alef's height); ink 30 to 570; stems 82 units in
+  Regular and 104 in Bold, a little lighter than a letter's 90 and 125 so four stems
+  and three gaps fit the cell, and arch crowns 78 and 100; shoulders 0.72 of the arch's
+  half-width, squarer than a circle, as JetBrains Mono's n and the built het.
+
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
 
 The source is Cascadia Mono from Cascadia Code v2407.24 (Microsoft; Hebrew designer
@@ -164,6 +182,14 @@ interim)
   narrow-letter variant A has it (ZKEEP, 0.75 and 0.92), and no other sister pair is
   redrawn (NONE, 0.79 and 0.87). Re-asked with dalet's nearness to vav, which the second
   ask left out: H45 again, 0.70 and 0.81. Note AC 4d.
+- Sheqel sign: shape B (squarer shoulders) at 630, interim. Jev with renders: shape B
+  at probability 0.91 and 0.90 in the two orders, height 630 at 0.77 and 0.90, and
+  whether to ship split, REDRAW 0.52 and 0.54. Shape B (confidence 0.82/0.80) and
+  height 630 (0.54/0.80) are leans, taken. Re-asked with a lighter variant (stems 74
+  and 92): B 0.49 and 0.38, the lighter 0.41 and 0.48, redraw 0.10 and 0.14. On the
+  re-ask the weight split between the orders; B is ahead on the two askings' summed
+  confidences (0.23 against 0.22) and is taken as the lean, the record's rule for a
+  split.
 - Tree: NEW_PATH_A2, interim, 0.74. Stock JetBrains Mono stays at
   baud-app/fonts/jetbrains-mono/ as the base. The Hebrew inputs live in
   baud-app/fonts/glyphs/languages/hebrew/ and the outputs here.
@@ -248,8 +274,8 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the last three -- meteg with CGJ, the unmapped code
-points and U+20AA -- and the Bold meteg item's detail, which were measured on these
+(From note AC 4a and 4b, except the last two -- meteg with CGJ and the unmapped code
+points -- and the Bold meteg item's detail, which were measured on these
 files on 2026-10-08 and are not in note AC. None of these is fixed by this build. Two
 earlier gaps, the missing hebr script record and Cascadia's dropped trademark notice,
 were fixed; see the CHANGELOG.)
@@ -294,12 +320,8 @@ were fixed; see the CHANGELOG.)
   bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
   left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
   segol -20..62, 20 out).
-- U+05C6, the cantillation marks U+0591-U+05AF and the presentation forms
-  U+FB1D-U+FB4F are not mapped.
-- U+20AA NEW SHEQEL SIGN is not mapped, though the code page 1255 bit is set (it is
-  cp1255's 0xA4) and Cascadia Mono maps it. No embedded face maps it. On macOS the
-  default stack draws it from Menlo (measured by cmap); on Linux it comes from DejaVu
-  Sans Mono if that face maps it (unmeasured); with no system face it draws as a box.
+- U+05C6, U+05EF, the Yiddish ligatures U+05F0-U+05F2, the cantillation marks
+  U+0591-U+05AF and the presentation forms U+FB1D-U+FB4F are not mapped.
 
 Not the font's defects, but what a reader sees:
 
@@ -365,3 +387,12 @@ CHANGELOG
   Italic's left side bearing for it and head's checksum change. The gates were run
   again: OTS passes; the generalised and strip-and-compare gates print the same
   lines as on the files before; the meteg check passes the same clusters (172, 143).
+2026-10-25 (i-am-logger, baud): U+20AA NEW SHEQEL SIGN is mapped in all four files,
+  baud's own drawing (BAUD'S OWN GLYPHS); before, no embedded face mapped it and on
+  macOS the default stack drew it from Menlo. One glyph is appended in each file: no
+  existing glyph, advance, cmap entry or GDEF class changes, and GSUB, GPOS, OS/2 and
+  name are byte for byte as before (the currency range bit, ulUnicodeRange2 bit 1, was
+  already set by JetBrains Mono). The gates were run again: OTS passes; the
+  generalised gate prints what it printed before but its counts (53 code points
+  added, one glyph more); the strip-and-compare gate adds "non-Hebrew cmap entry
+  added" for U+20AA in each of the four cmap subtables.

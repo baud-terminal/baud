@@ -425,3 +425,71 @@ fn genesis_1_1_to_5_keeps_every_point_in_italic_and_bold_italic() {
         );
     }
 }
+
+/// **The new sheqel sign draws from the embedded font, not from the
+/// system's.** U+20AA, which the Unicode Standard encodes in the currency
+/// block for Hebrew (9.1), is mapped in all four built faces; on the stack
+/// the app builds, with Menlo after the embedded faces as macOS's
+/// fallback, each style selects its own built face for it and paints what
+/// that face paints alone -- not Menlo's sign, not a box. Before baud drew
+/// its own, every style selected Menlo.
+#[test]
+fn the_sheqel_sign_draws_from_the_embedded_font_in_every_style() {
+    let files = [
+        app_font("built/Regular.ttf"),
+        app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+        app_font("built/Bold.ttf"),
+        app_font("built/Italic.ttf"),
+        app_font("built/BoldItalic.ttf"),
+    ];
+    let sheqel = Codepoint::new(0x20AA).unwrap();
+    // Menlo is macOS's; elsewhere the stack stops at the embedded faces.
+    let menlo = std::fs::read("/System/Library/Fonts/Menlo.ttc").ok();
+    let mut faces: Vec<Face<'_>> = files.iter().map(|d| Face::parse(d).unwrap()).collect();
+    let mut roles = STYLED.to_vec();
+    if let Some(m) = &menlo {
+        faces.push(Face::parse(m).unwrap());
+        roles.push(FaceRole::Fallback);
+        assert!(
+            faces[5].glyph(sheqel).is_some(),
+            "the premise: Menlo maps U+20AA"
+        );
+    }
+    let stack = Stack::with_roles(&faces, &roles).unwrap();
+    assert_eq!(stack.select(sheqel).index(), 0, "the Regular's sign");
+    for ix in [0, 2, 3, 4] {
+        assert!(faces[ix].glyph(sheqel).is_some(), "face {ix} maps U+20AA");
+    }
+    for (style, ix) in [
+        (FaceStyle::Bold, 2),
+        (FaceStyle::Italic, 3),
+        (FaceStyle::BoldItalic, 4),
+    ] {
+        assert_eq!(stack.select_styled(sheqel, style).index(), ix, "{style:?}");
+    }
+    let plain = [FaceRole::Fallback, FaceRole::Fallback];
+    let line = |style: FaceStyle| [sgr(style), "\u{20AA}".as_bytes()].concat();
+    let mut seen = Vec::new();
+    for (style, ix) in [
+        (FaceStyle::Regular, 0),
+        (FaceStyle::Bold, 2),
+        (FaceStyle::Italic, 3),
+        (FaceStyle::BoldItalic, 4),
+    ] {
+        let got = painted(&faces, &roles, &line(style));
+        let alone = [
+            Face::parse(&files[ix]).unwrap(),
+            Face::parse(&files[1]).unwrap(),
+        ];
+        let want = painted(&alone, &plain, &line(FaceStyle::Regular));
+        assert!(got == want, "{style:?}: not the built face's sign");
+        seen.push(got);
+    }
+    // Each style draws its own sign, the only ink in the frame: the four
+    // frames are four.
+    for a in 0..seen.len() {
+        for b in a + 1..seen.len() {
+            assert!(seen[a] != seen[b], "styles {a} and {b} paint alike");
+        }
+    }
+}

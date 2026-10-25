@@ -32,6 +32,10 @@ table (with_script_copy). No outline, anchor, lookup or feature changed.
 Round 5 (2026-10-24): letter_rec_r1 applies distinct.py's map after design.py's
 edits, to the outline and its anchor points alike. It moves dalet's leg to the
 roof's right end, so that ד no longer reads as ז; no other letter changes.
+
+Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN) are appended after every glyph above,
+so no glyph ID moves; an outline drawn upright there takes the italics' shear and correction as the
+letters do.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -50,6 +54,7 @@ import narrow as N          # narrow-letter variants
 import style as ST          # the STYLE parameter
 import distinct as DS       # round 5: letters kept apart
 import optical as OP        # the italics' correction of rounds (JetBrains Mono Italic's)
+import cover as CV          # the rest of the repertoire, appended after every glyph above
 import field as FD
 from geom import FlatPen, runs_at_y
 from pin import save_pinned, table_pinned    # baud: the repacker pin, shared with instance.py
@@ -889,6 +894,11 @@ def build(out, letter_hook=None, tag=''):
 
     for u, rec in marks.items():
         new['heb_%04X' % u] = (map_rec(at(rec, E.MARK_SHIFT, home[u]), lambda x, y, u=u: mark_xy(u, x, y)), 0, u, 3)
+
+    # cover.py: appended after every glyph above, so no glyph ID moves; an upright outline takes
+    # the italics' shear and correction as the letters do
+    for name, rec, adv, u, cls in CV.glyphs(sys.modules[__name__], ST):
+        new[name] = (italic_outline(rec, chr(u)) if ST.ITALIC else rec, adv, u, cls)
 
     for name, (rec, adv, u, cls) in new.items():
         g = to_glyph(rec)

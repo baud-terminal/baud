@@ -9,9 +9,9 @@
 //! carry the same ~10,600 icons again in every style.
 //!
 //! The Regular and Bold are `fonts/built/Regular.ttf` and `Bold.ttf`:
-//! JetBrains Mono v2.304's Regular and Bold with 52 Hebrew code points added
-//! -- the letters drawn from Cascadia Mono's Hebrew and the points redrawn on
-//! JetBrains Mono's dot -- and every stock glyph, advance, mapping and GSUB
+//! JetBrains Mono v2.304's Regular and Bold with the Hebrew added -- the
+//! letters drawn from Cascadia Mono's Hebrew, the points redrawn on JetBrains
+//! Mono's dot, and the new sheqel sign baud's own -- and every stock glyph, advance, mapping and GSUB
 //! byte kept (`the_built_font_keeps_jetbrains_mono`), save one script
 //! record: GSUB and GPOS each name DFLT's Script under `hebr` too, and
 //! nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
@@ -22,7 +22,7 @@
 //! changed, what was picked for the meantime and what is still the owner's.
 //! The Italic and Bold Italic are `fonts/built/Italic.ttf` and
 //! `BoldItalic.ttf`: JetBrains Mono v2.304's Italic and Bold Italic with the
-//! same 52 Hebrew code points, the upright Hebrew leaning right 9 degrees
+//! same code points added, the upright Hebrew leaning right 9 degrees
 //! with the Latin (the owner's call, 2026-10-24) and its rounds corrected as
 //! JetBrains Mono's own italic corrects them, in the built family's name, so
 //! the four are one family that a `fonts` name finds (Jev, N_SHARE,
@@ -117,10 +117,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 279_896, 0x93ca_b38f_36ee_e20b_u64, 0),
-            (BOLD, 284_456, 0xecc5_8bfd_d450_c29e, 1),
-            (ITALIC, 283_296, 0xc1cd_4ef4_0248_7116, 2),
-            (BOLD_ITALIC, 286_868, 0x8b26_3383_d706_5123, 3),
+            (REGULAR, 280_080, 0xa7d9_8571_0f4e_ffc1_u64, 0),
+            (BOLD, 284_640, 0xe4da_b48d_a139_e036, 1),
+            (ITALIC, 283_496, 0x0a41_6170_f9eb_1f86, 2),
+            (BOLD_ITALIC, 287_072, 0x5fe8_9b41_b3be_3573, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -154,10 +154,10 @@ mod tests {
         // which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 769a5d99505247e42c8cfd0d013f68a1ad1cf5f4c64ccd96d73f1a3387c881bb baud-app/fonts/built/Regular.ttf",
-            "output d515196d2d9de2bc645dd32aba830e56fdf1974f5a16942d58e1ef0082557a5b baud-app/fonts/built/Bold.ttf",
-            "output c6b0e8a3375541de332ab95249471c5da8dcc0e4c5d801e8bbd2079e813712be baud-app/fonts/built/Italic.ttf",
-            "output ef0675201d2f5f017eb915ddf996caa275b472f4b1e7a967be2e2d14177b2b12 baud-app/fonts/built/BoldItalic.ttf",
+            "output 30243d072274285763d77ed5a50d2b5095c56f671b8ad7a216cb08297bb2a1a4 baud-app/fonts/built/Regular.ttf",
+            "output 7cfd8f427963c4a4820ebaa0a4492c5718364fe910379617a0645827d3dbd0f4 baud-app/fonts/built/Bold.ttf",
+            "output 11f26167560feaae43b4308ccb09b961da144343deba3ed8b18c39de413d52c4 baud-app/fonts/built/Italic.ttf",
+            "output 91c5675c945fdc75b35bed5447d76f1e6e713682627f1f2096c8d8f131b60b23 baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -236,16 +236,17 @@ mod tests {
         }
     }
 
-    /// The Hebrew `scripts/build-fonts.sh` adds to JetBrains Mono, 52 code
-    /// points: the 20 points, and maqaf, paseq and sof pasuq, in U+05B0-05C5
-    /// and U+05C7; the 27 letters U+05D0-05EA; and geresh and gershayim
-    /// U+05F3-05F4. Read from the four built styles with fontTools 4.63.0, a
-    /// reader that is not baud's.
+    /// What `scripts/build-fonts.sh` adds to JetBrains Mono, 53 code points:
+    /// the 20 points, and maqaf, paseq and sof pasuq, in U+05B0-05C5 and
+    /// U+05C7; the 27 letters U+05D0-05EA; geresh and gershayim U+05F3-05F4;
+    /// and U+20AA NEW SHEQEL SIGN. Read from the four built styles with
+    /// fontTools 4.63.0, a reader that is not baud's.
     fn shipped() -> Vec<Codepoint> {
         (0x05B0..=0x05C5)
             .chain([0x05C7])
             .chain(0x05D0..=0x05EA)
             .chain([0x05F3, 0x05F4])
+            .chain([0x20AA])
             .map(|v| Codepoint::new(v).unwrap())
             .collect()
     }
@@ -260,15 +261,19 @@ mod tests {
     }
 
     /// **Every style maps the Hebrew it ships** -- the owner's boxes, read
-    /// at the font. Regular, Bold, Italic and Bold Italic each map all 52
-    /// code points and nothing else in the Hebrew block (U+05C6, nun
-    /// hafukha, is one the build does not draw); the stock files they were
+    /// at the font. Regular, Bold, Italic and Bold Italic each map all 53
+    /// code points, and nothing else in the Hebrew block but the 52 of them
+    /// there (U+05C6, nun hafukha, is one the build does not draw); the stock
+    /// files they were
     /// built from map none, the control that the Hebrew is the build's. So
     /// italic Hebrew is drawn from the italic faces, not upright from the
     /// chain.
     #[test]
     fn every_style_maps_the_hebrew_it_ships() {
-        let hebrew = shipped();
+        let hebrew: Vec<Codepoint> = shipped()
+            .into_iter()
+            .filter(|c| (0x0590..=0x05FF).contains(&c.value()))
+            .collect();
         assert_eq!(hebrew.len(), 52, "the list itself");
         let block = |f: &Face<'_>| -> Vec<Codepoint> {
             (0x0590..=0x05FF)
@@ -283,7 +288,7 @@ mod tests {
             (BOLD_ITALIC, "JetBrainsMono-BoldItalic.ttf"),
         ] {
             let f = face(e);
-            for &c in &hebrew {
+            for &c in &shipped() {
                 assert!(
                     f.glyph(c).is_some(),
                     "{}: U+{:04X} is not mapped, so it draws as a box",
@@ -564,7 +569,10 @@ mod tests {
         {
             lost.push("GSUB");
         }
-        if u32::from(built.glyph_count().value()) != u32::from(base.glyph_count().value()) + 52 {
+        let added_glyphs = u32::try_from(shipped().len()).unwrap();
+        if u32::from(built.glyph_count().value())
+            != u32::from(base.glyph_count().value()) + added_glyphs
+        {
             lost.push("glyph count");
         }
         // Every code point the stock file maps, to the same glyph.
@@ -579,7 +587,7 @@ mod tests {
         if !same {
             lost.push("cmap");
         }
-        // What the built file maps and the stock does not is the 52.
+        // What the built file maps and the stock does not is `shipped()`.
         let mut added = Vec::new();
         built.candidates(|lo, hi| {
             for c in (lo.value()..=hi.value()).filter_map(Codepoint::new) {
@@ -614,8 +622,8 @@ mod tests {
     /// **The built font keeps JetBrains Mono**: each built style against
     /// the stock file of its style keeps GSUB byte for byte (once the `hebr`
     /// script record is taken out), maps every code
-    /// point the stock file maps to the same glyph and adds exactly the 52,
-    /// carries the stock glyphs plus 52, and keeps every stock glyph's
+    /// point the stock file maps to the same glyph and adds exactly
+    /// `shipped()`, carries the stock glyphs plus one for each, and keeps every stock glyph's
     /// advance and outline -- the Latin, its ligatures and the icons'
     /// neighbours draw as they did. Each check has its control, so none of
     /// them is a probe that cannot fire.
