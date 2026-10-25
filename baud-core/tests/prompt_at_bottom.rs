@@ -12,9 +12,10 @@
 //! What the mode does is Jev's GAP (0.97/0.98): once the shell has drawn
 //! a prompt, at the mark where its input begins (`B` or `I`), the prompt
 //! walks down over the blank rows directly below it, so its last line
-//! lands on the last row and output stays where it was written. Nothing
-//! happens in the output zone, on the alternate screen, or under a
-//! scrolling region.
+//! lands on the last row and output stays where it was written; a shrink
+//! at the prompt sends the top rows into the history and a growth brings
+//! them back. Nothing happens in the output zone, on the alternate
+//! screen, or under a scrolling region.
 mod support;
 use baud_core::{Owned, PackedCell, PromptLine, Resized, SurfaceLine, Term};
 use baud_domain::{BytePos, PromptAtBottom, ReadLen, Row, WinSize};
@@ -427,6 +428,42 @@ fn a_two_line_prompt_lands_whole_and_moves_no_output() {
     let (on, hist, cy) = run(PromptAtBottom::On);
     assert_eq!(on[0], "alpha beta", "the output stays put: {on:?}");
     assert!(on[1..6].iter().all(String::is_empty), "a gap: {on:?}");
+    assert_eq!(on[6..], ["~/dir", "$"], "the prompt, whole: {on:?}");
+    assert_eq!(
+        (hist, cy),
+        (0, 7),
+        "nothing retired, the input on the last row"
+    );
+}
+
+/// **`I`, the input mark that ends at the end of the line, pins as `B`
+/// does**: a one-line prompt and a two-line one whose input mark is `I`
+/// land with their last line on the last row, the output above stays on
+/// the row it was written to, and nothing is retired.
+#[test]
+fn an_input_mark_at_the_end_of_the_line_pins_as_b_does() {
+    let ws = WinSize {
+        ws_col: 20,
+        ws_row: 8,
+    };
+    let run = |pin, bytes: &[u8]| {
+        support::with_term(&ws, |t| {
+            t.set_prompt_at_bottom(pin);
+            support::feed(t, bytes);
+            (screen_text(t), t.scrollback().len(), t.cursor().0.index())
+        })
+    };
+    let one: &[u8] = b"\x1b]133;A\x07$ \x1b]133;I\x07";
+    let (off, _, off_cy) = run(PromptAtBottom::Off, one);
+    assert_eq!((off[0].as_str(), off_cy), ("$", 0), "the control: {off:?}");
+    let (on, hist, cy) = run(PromptAtBottom::On, one);
+    assert_eq!(on[7], "$", "one line: {on:?}");
+    assert_eq!((hist, cy), (0, 7), "one line: nothing retired");
+    let two = b"\x1b[H\x1b[2Jalpha beta\r\n\x1b]133;A\x07~/dir\r\n$ \x1b]133;I\x07";
+    let (off, _, _) = run(PromptAtBottom::Off, two);
+    assert_eq!(off[..3], ["alpha beta", "~/dir", "$"], "the control");
+    let (on, hist, cy) = run(PromptAtBottom::On, two);
+    assert_eq!(on[0], "alpha beta", "the output stays put: {on:?}");
     assert_eq!(on[6..], ["~/dir", "$"], "the prompt, whole: {on:?}");
     assert_eq!(
         (hist, cy),

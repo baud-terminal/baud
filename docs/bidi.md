@@ -4,16 +4,15 @@
 starts** (ECMA-48's bidirectional support mode, BDSM, is on: its IMPLICIT
 state). A line that starts in Hebrew or Arabic runs right to left against
 the window's right edge, its closing period at its left end, after its last
-word. A table drawn with box-drawing lines keeps its columns, and a Hebrew name
-in one of its cells reads right to left against the cell's right side. A
-Hebrew word in an English line reads right to left in its place,
-brackets around Hebrew face the right way, vowel points stay on their
-letters, and the cursor, the selection, the find marks, the link underline
-and the mouse all follow what is drawn. A copy gives the text in the order
-the program wrote it. A program that lays out its own right-to-left text
-turns the mode off with `CSI 8 l`, and every line is then drawn in the
-order its cells hold; `CSI 8 h` turns it back on, and a reset (`RIS`)
-returns it to on.
+word. A table drawn with box-drawing lines keeps its columns, and a Hebrew
+name in one of its cells reads right to left against the cell's right side.
+A Hebrew word in an English line reads right to left in its place, brackets
+around Hebrew face the right way, vowel points stay on their letters, and
+the cursor, the selection, the find marks, the link underline and the mouse
+all follow what is drawn. A copy gives the text in the order the program
+wrote it. A program that lays out its own right-to-left text turns the mode
+off with `CSI 8 l`, and every line is then drawn in the order its cells
+hold; `CSI 8 h` turns it back on, and a reset (`RIS`) returns it to on.
 
 This is step 2 of right-to-left text. Step 1 built the Unicode
 Bidirectional Algorithm; step 2 puts its order on the screen.

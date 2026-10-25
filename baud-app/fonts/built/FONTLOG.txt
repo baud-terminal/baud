@@ -143,8 +143,8 @@ Bold's stems. The steps (note AC 4a and 4b):
 - Meteg attaches to the vowel before it.
 - Two-row points (sheva, the hatafs) drop under ג ט ל ס ש so their top dot does not
   touch the letter.
-- Dalet's leg stands at its roof's right end, where Cascadia's and round 1's stood
-  near the middle, so that ד does not read as ז (CHANGELOG, 2026-10-24).
+- Dalet's leg stands at its roof's right end, the roof passing it by 45 units where
+  round 1's passed it by 84, so that ד does not read as ז (CHANGELOG, 2026-10-24).
 - Italic and Bold Italic: the upright design leaning right 9 degrees, its rounds
   corrected as JetBrains Mono Italic corrects its own (THE ITALICS).
 

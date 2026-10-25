@@ -727,17 +727,18 @@ or 0 made ד read as ר, and Z40 makes zayin's head as wide as vav's (300 agains
 
 **Jev**, with four renders, in both orders each time: H45 0.68/0.74 at confidence
 0.60/0.68; then, with the dalet-resh, 26 px, vav-zayin and other-pair measurements,
-H45 0.83/0.81 at 0.79/0.76, ZKEEP 0.75/0.92, NONE 0.79/0.87. That ask left out the
-pair the change moves dalet toward besides resh: vav, a 292-wide head over a
-right-end leg with no heel. With the leg at the right end, ד and ו are told apart by
-width and heel, 418 against 292 (1.76 px at 14 px) with H45 or H30 and 458 against
-292 (2.32 px) with the W40 options; the shift-minimised coverage difference between
-them, a before/after screen only (it ranks ח/ם closest in the font), is 0.154-0.156
-as built, 0.122-0.129 with H45 and 0.157-0.218 with W40 (Regular, Bold). Re-asked on
-the dalet alone with that premise and a render of words where the two touch: H45
-0.70/0.81 at 0.62/0.76. Under the bar each time, so the lean is taken: **H45**.
-Zayin stays variant A's, so the owner's open call 1a is untouched, and no other pair
-is redrawn.
+H45 0.83/0.81 at 0.79/0.76, ZKEEP 0.75/0.92, NONE 0.79/0.87. Jev's sheet showed the
+italics at 14 px only; the committed sheets add them at 12 and 16 px, and no pair
+there loses its feature. That ask left out the pair the change moves dalet toward
+besides resh: vav, a 292-wide head over a right-end leg with no heel. With the leg
+at the right end, ד and ו are told apart by width and heel, 418 against 292 (1.76 px
+at 14 px) with H45 or H30 and 458 against 292 (2.32 px) with the W40 options; the
+shift-minimised coverage difference between them, a before/after screen only (it
+ranks ח/ם closest in the font), is 0.154-0.156 as built, 0.122-0.129 with H45 and
+0.157-0.218 with W40 (Regular, Bold). Re-asked on the dalet alone with that premise
+and a render of words where the two touch: H45 0.70/0.81 at 0.62/0.76. Under the bar
+each time, so the lean is taken: **H45**. Zayin stays variant A's, so the owner's
+open call 1a is untouched, and no other pair is redrawn.
 
 **Built** as round 5, `baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`:
 dalet's leg and the roof's underside where it meets the leg move right until the
@@ -764,6 +765,7 @@ final forms descend 180. Dalet now stands nearer vav and resh than it did (above
 **Found, not fixed.** Bold's and Bold Italic's zayin head ends slant 22 units: round
 1's widening moved the points above y 540, and Bold's head underside is at 517, so
 only the top corners moved.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools

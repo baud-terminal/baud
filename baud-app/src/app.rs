@@ -5465,8 +5465,10 @@ mod drag_tests {
     /// **A drag replayed against a GPU that takes `land` steps to land a
     /// frame**, as the driver runs it: every step moves the window and
     /// asks `present` for a frame (`relayout`); a landing wakes the pump,
-    /// and every `tick` steps the display link does, and either builds the
-    /// owed frame once none is in flight.
+    /// and every `tick` steps the display link does, and either asks
+    /// `present` for the owed frame; under the old rule the model's
+    /// `present` builds it even while one is in flight, which `pump`'s own
+    /// gate never lets the app do.
     fn drag(sizes: &[Size], land: Step, tick: Step, order: Order) -> Drag {
         let mut l = Loop {
             order,
@@ -11798,9 +11800,10 @@ impl Driver {
             // it is a thin sliver at the moving edge, not a freeze. If the GPU
             // is still busy this step builds nothing (`builds`) and the
             // in-flight frame's completion drives the next; either way the
-            // main thread returns at once and keeps tracking the drag. `term.resize` kept the
-            // content -- the pitch is fixed, each row clipped or extended in
-            // place -- and the child redraws into it on `SIGWINCH`.
+            // main thread returns at once and keeps tracking the drag.
+            // `term.resize` kept the content -- the pitch is fixed, each row
+            // clipped or extended in place -- and the child redraws into it
+            // on `SIGWINCH`.
             let t_present = Instant::now();
             self.app.present(&self.view, Show::Event);
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {

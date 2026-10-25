@@ -93,8 +93,8 @@ impl Screens {
     /// `copies[set]` at `stride` cells a row -- the window's rows in screen
     /// order, then the status line's row -- unless that set's copy already
     /// holds it. A frame that slides -- whose `leaving` row is drawn -- is a
-    /// screen of its own: its copy holds
-    /// a leaving row and its walk another window.
+    /// screen of its own: its copy holds a leaving row and its walk another
+    /// window.
     ///
     /// `Viewport::row` resolves a row through the rotation and the ring,
     /// so the wrap at the ring's end costs nothing here: it is two slices

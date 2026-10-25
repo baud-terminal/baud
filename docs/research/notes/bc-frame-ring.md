@@ -609,8 +609,9 @@ screen each set holds moved into `baud-present-macos` as `Screens::take`,
 and the new `app` arm runs it through a `Presenter`: the wheel's two
 sets, three IOSurface targets, a commit with a completion handler, every
 read fed while a frame is in flight. Its last surface hashes equal to the
-copied arm's on all six recordings, drawn at 200x50 and 400x150. `CellInput` carries the screen its grid holds, so the GPU no
-longer keeps `CellLast.cells` or compares a frame's rows; the token is
+copied arm's on all six recordings, drawn at 200x50 and 400x150.
+`CellInput` carries the screen its grid holds, so the GPU no longer
+keeps `CellLast.cells` or compares a frame's rows; the token is
 kept only on a commit, so a frame refused as busy is not compared
 against. The wheel's free is `Release` and its look `Acquire`.
 
@@ -654,10 +655,13 @@ The copy, a frame:
 screen and the status row, which the `copied` arm's loop does not. The
 `copied` arm's loop is the same code in the base binary and read 7.1-14.8
 us there, cava's the highest, so the figure moves with the code around
-it, and ranges reach 21-26 us on both arms. Section 8's rule licenses 6.1
-only with a flat ceiling arm *and* a 400x150 copy of at least about 15
-us. C is borderline under load; the copy stands because step 4, the
-ceiling arm, is not built.
+it, and ranges reach 26 us on the change binary's `app` arm (one
+base-binary round of the `app` arm on cat-cjk reached 9,176 us).
+Section 8's rule licenses 6.1 only with a flat ceiling arm *and* a
+400x150 copy of at least about 15 us. The copy stands: every 400x150
+median on the change binary is under the 15 us bar, 5.8-6.4 on the
+`copied` arm and 8.6-11.4 on the `app` arm, the base binary's same loop
+read up to 14.8, and step 4, the ceiling arm, is not built.
 
 The bind and commit a frame, where the comparison and the refill were,
 base against change, the A/A beside it. The `app` arm runs the same bench
@@ -683,8 +687,9 @@ the drawn rows a second time, 480,000 B at 400x150, and a frame alike in
 everything else read them twice more.
 
 **What would have proven the changes wrong**: a hash that differs between
-any cell arm and the copy (none did, on six recordings at three sizes), a
-pixel of the cursor-only oracle that differs from a whole draw (none,
-with a new step that changes only cells; reading every screen as the
-last one fails it by 243 pixels), or a bind and commit slower on the
-change than the A/A spread (not seen).
+any cell arm and the copy (none did, on six recordings, drawn at 200x50
+(provisioned at 200x50 and at 400x150) and at 400x150), a pixel of the
+cursor-only oracle that differs from a whole draw (none, with a new step
+that changes only cells; reading every screen as the last one fails it by
+243 pixels), or a bind and commit slower on the change than the A/A spread
+(not seen).

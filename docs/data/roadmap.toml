@@ -484,7 +484,7 @@ area = "speed"
 status = "done"
 date = "2026-10-24"
 title = "Smoother window drags"
-summary = "While you drag a window's edge, a step that comes while the last frame is still on its way to the screen is not drawn at all; the next frame is drawn at the size the window has by then, and the last at the size you let go at."
+summary = "While you drag a window's edge, baud no longer prepares a frame it cannot show yet: a step that comes while the last frame is still on its way to the screen waits; the next frame is drawn at the size the window has by then, and the last at the size you let go at."
 
 [[item]]
 id = "X2-25"

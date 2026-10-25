@@ -15,13 +15,17 @@ heel" behind the leg; zayin's head "should pass over on both sides so it
 doesn't resemble a vav". The Unicode chart's glyphs are "not prescriptive".
 
 So dalet's leg moves right until the roof passes it by HEEL units: the leg
-stands at the roof's right end, as the scribal dalet's does, with a heel of
-half a Regular stem kept for the resh distinction (in the 14 px renders a
-heel of 15 or 0 made ד read as ר). The roof keeps its width, so the wide letters stay even. Zayin is
-not changed: its head is narrow-letter variant A's, the owner's open call 1a.
-The heel is Jev's lean (H45: probability 0.83 and 0.81 in the two orders,
-confidence 0.79 and 0.76, under the 0.9 bar on the second ask, so the lean is
-taken); note AC 4d records the options.
+stands at the roof's right end, as the scribal dalet's does, and the heel is
+halved, from the 84 units (0.93 of a stem) round 1 left to half a Regular
+stem, kept for the resh distinction (in the 14 px renders a heel of 15 or 0
+made ד read as ר). The roof keeps its width, so the wide letters stay even.
+Zayin is untouched: narrowing its head (Z40, 300 units) would change
+narrow-letter variant A, the interim pick for the owner's open call 1a, and
+Z40 is none of that call's options A-E. The heel is Jev's lean (H45:
+probability 0.83 and 0.81 in the two orders, confidence 0.79 and 0.76, under
+the 0.9 bar on the second ask, so the lean is taken; re-asked with dalet's
+nearness to vav: probability 0.70 and 0.81, confidence 0.62 and 0.76); note
+AC 4d records the options.
 At 14 px the legs now stand 1.41-1.51 px apart
 (`baud-font/tests/sister_letters.rs`).
 

@@ -99,10 +99,11 @@ pub const NOPEN: usize = 16;
 /// has drawn walks down over the blank rows at the foot of the primary
 /// screen at the mark where its input begins, `OSC 133 ; B` or `I`, so its
 /// last line lands on the last row and the output stays where it was
-/// written, as zsh4humans' shell-side
-/// `prompt-at-bottom` leaves it (Jev, GAP, 0.97/0.98). `Off` by default
-/// (Jev, OFF, 0.94/0.92): the prompt follows the output down, as in every
-/// other terminal.
+/// written, as zsh4humans' shell-side `prompt-at-bottom` leaves it (Jev,
+/// GAP, 0.97/0.98); a shrink at the prompt sends the top rows into the
+/// history and a growth brings them back. `Off` by default (Jev, OFF,
+/// 0.94/0.92): the prompt follows the output down, as in every other
+/// terminal.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum PromptAtBottom {
     #[default]
