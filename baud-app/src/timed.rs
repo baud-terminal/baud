@@ -371,6 +371,11 @@ impl Timed {
             }
         }
         self.last_cell = cursor_cell;
+        // Looking back drops a sweep in flight, as the chase arms snap: its
+        // live rows are not what the window shows there.
+        if term.window_back().index() != 0 {
+            self.ghost = None;
+        }
         let ghost = self.ghost.and_then(|g| {
             let p = crate::trail::ghost_progress(g.start, secs);
             match p >= 1.0 {
@@ -898,5 +903,41 @@ mod tests {
             fx.turn(t0 + Duration::from_millis(401), &mut t),
             Owes::Nothing
         );
+    }
+
+    /// **Looking back drops a ghost in flight**, as the chase arms snap:
+    /// its sweep names live rows, and the window shows the history there.
+    /// The control is the same sweep at the same moment on the live
+    /// screen. Perturbation: keep the ghost while the window looks back --
+    /// the trail is drawn over the history and the second assertion fails.
+    #[test]
+    fn looking_back_drops_the_ghost_in_flight() {
+        let t0 = Instant::now();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let lines: Vec<u8> = (0..30)
+            .flat_map(|i| format!("{i}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        let mut fx = Timed::new(
+            t0,
+            TrailPick::Named(CursorTrail::Ghost),
+            ScreenTransition::Off,
+        );
+        let _ = fx.plan(t0, &t, rect, CELL, widths());
+        feed(&mut t, b"x");
+        let p = fx.plan(t0 + Duration::from_millis(5), &t, rect, CELL, widths());
+        assert!(matches!(p.trail, Some(TrailLook::Ghost(_))), "the control");
+        t.set_window_back(baud_domain::Rows::of_count(3));
+        let p = fx.plan(t0 + Duration::from_millis(10), &t, rect, CELL, widths());
+        assert_eq!(p.trail, None, "nothing of it over the history");
+        assert_eq!(
+            fx.turn(t0 + Duration::from_millis(11), &mut t),
+            Owes::Nothing,
+            "and no frame owed for it"
+        );
+        t.window_live();
+        let p = fx.plan(t0 + Duration::from_millis(15), &t, rect, CELL, widths());
+        assert_eq!(p.trail, None, "nor back on the live screen");
     }
 }

@@ -1684,28 +1684,7 @@ impl App {
             }
         }
         self.last_cursor_cell = cursor_cell;
-        let ghost = match self.trail {
-            Some(st) => {
-                let p = crate::trail::ghost_progress(st.start, self.tick_target);
-                if p >= 1.0 {
-                    // Landed: this frame draws `set_trail(None)`, whose
-                    // `trail_moved` dirties the ghost's last rows to clear it,
-                    // and the tick stops forcing frames.
-                    self.trail = None;
-                    None
-                } else {
-                    Some(Trail {
-                        from: st.from,
-                        to: st.to,
-                        progress: p.max(0.0),
-                        origin_dy: st.origin_dy,
-                        lift: Px::of(0),
-                        strength: st.strength,
-                    })
-                }
-            }
-            None => None,
-        };
+        let ghost = ghost_frame(&mut self.trail, &self.term, self.tick_target);
         let look = match self.cursor_trail {
             crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
             crate::config::CursorTrail::Quad
@@ -3488,6 +3467,32 @@ fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     term.moved_since(before.live)
 }
 
+/// **The ghost this frame draws**, from the sweep in flight at `now`, the
+/// display link's clock: none once it has landed -- this frame draws
+/// `set_trail(None)`, whose `trail_moved` dirties the ghost's last rows to
+/// clear it, and the tick stops forcing frames -- and none while the window
+/// looks back into the history, where the sweep's live rows are not what
+/// is drawn: it is dropped there, as the chase arms snap.
+fn ghost_frame(trail: &mut Option<TrailState>, term: &Term<'_>, now: f64) -> Option<Trail> {
+    if term.window_back().index() != 0 {
+        *trail = None;
+    }
+    let st = (*trail)?;
+    let p = crate::trail::ghost_progress(st.start, now);
+    if p >= 1.0 {
+        *trail = None;
+        return None;
+    }
+    Some(Trail {
+        from: st.from,
+        to: st.to,
+        progress: p.max(0.0),
+        origin_dy: st.origin_dy,
+        lift: Px::of(0),
+        strength: st.strength,
+    })
+}
+
 /// The cursor to draw: the live screen's, while the window is on it, and
 /// on the status line's row below the grid while DECSASD selects the line
 /// (`Term::status_line`), where the main display's is not drawn.
@@ -3583,6 +3588,49 @@ fn restart(term: &Term<'_>, before: Before, kept: Kept<'_>) -> (Surface, Thumb) 
         _ => Thumb::Leave,
     };
     (surface, thumb)
+}
+
+#[cfg(test)]
+mod ghost_tests {
+    use super::{GhostRide, TrailState, ghost_frame};
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
+
+    /// **Looking back drops a ghost in flight**, as the chase arms snap:
+    /// its sweep names live rows, and the window shows the history there.
+    /// The control is the same sweep at the same moment on the live
+    /// screen. Perturbation: keep the ghost while the window looks back --
+    /// it is drawn over the history and the second assertion fails.
+    #[test]
+    fn looking_back_drops_the_ghost_in_flight() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let lines: Vec<u8> = (0..30)
+            .flat_map(|i| format!("{i}\r\n").into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &lines);
+        t.feed(BytePos::ZERO, ReadLen::from_index(lines.len()));
+        let sweep = Some(TrailState {
+            from: (Row::from_index(9), Col::ZERO),
+            to: (Row::from_index(9), Col::at_index(1)),
+            start: 1.0,
+            origin_dy: 0.0,
+            ride: GhostRide::Riding(0.0),
+            strength: baud_render::Strength::Full,
+        });
+        let mut live = sweep;
+        assert!(ghost_frame(&mut live, &t, 1.05).is_some(), "the control");
+        t.set_window_back(Rows::of_count(3));
+        let mut back = sweep;
+        assert_eq!(ghost_frame(&mut back, &t, 1.05), None, "over the history");
+        assert!(back.is_none(), "and dropped");
+        t.window_live();
+        assert_eq!(ghost_frame(&mut back, &t, 1.06), None, "not back on return");
+    }
 }
 
 /// **A window over the history is the primary screen's.** The alternate
