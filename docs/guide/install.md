@@ -14,11 +14,16 @@ Applications.
 
 ## Build the app
 
-From a checkout of the repository:
+Clone the repository with git and build from the clone:
 
 ```sh
+git clone https://github.com/i-am-logger/baud
+cd baud
 devenv shell -- scripts/bundle-macos.sh
 ```
+
+A ZIP download from GitHub will not build: it has no `.git` folder, and
+the dev shell does not start without one.
 
 This leaves `baud.app` in `target/`. Open it from Finder, or drag it to
 Applications and launch it from there or from the Dock.

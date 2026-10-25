@@ -5,6 +5,6 @@
 ## Checklist
 
 - [ ] `dev-ci` passes locally (see [CONTRIBUTING.md](../CONTRIBUTING.md)) — it runs the same nix-defined suite as CI
-- [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), so release-plz computes the right version bump
+- [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
 - [ ] Any new check was added as a `tasks."test:*"` entry in `devenv.nix`, not as a workflow-only step
-- [ ] No hand-edited version numbers — release-plz owns `Cargo.toml`'s version and `CHANGELOG.md`
+- [ ] No version numbers changed — baud publishes nothing, and a release raises them in a commit of its own (see Releases in [CONTRIBUTING.md](../CONTRIBUTING.md))

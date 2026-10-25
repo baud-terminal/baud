@@ -13,10 +13,11 @@ programs, and pictures.
 ## Not built yet
 
 - **Right-to-left text, in part.** A line that starts in Hebrew or Arabic
-  runs right to left against the window's right edge, and a Hebrew word in
-  an English line reads right to left in its place. A program cannot yet
-  set a line's direction, and Arabic letters are not joined
-  ([bidi](../bidi.md)).
+  runs right to left against the window's right edge, a Hebrew word in an
+  English line reads right to left in its place, Arabic letters join into
+  words, and a program can set which way its lines run. Still to come: a
+  line that mixes directions and is split by a soft wrap, terminal-wg's
+  per-paragraph modes, and the smaller gaps [bidi](../bidi.md) lists.
 - **Key releases and modifier keys on macOS.** Programs that ask to be told
   when a key is let go, or when Shift or Control alone is pressed, are not
   told yet. Key presses themselves work.

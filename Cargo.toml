@@ -63,7 +63,7 @@ version = "1.0.0-beta.1"
 # a flag flip.
 edition = "2021"
 authors = ["i-am-logger"]
-description = "A terminal emulator written in Rust, under construction."
+description = "A fast terminal emulator with its own built-in font and cursor effects, readable from the first launch. Written in Rust."
 # crates.io's equivalent of GitHub topics. Max five keywords, 20 chars each;
 # categories must come from crates.io's fixed list.
 keywords = ["terminal", "vt100", "ansi", "tty", "vte"]

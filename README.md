@@ -103,9 +103,11 @@ setting turned on ([how](docs/guide/configuration.md#images)).
 yet; Nix and Cargo packages are planned for the first published release.
 
 **From source, today.** With [Nix](https://nixos.org) and
-[devenv](https://devenv.sh), which fetch the exact toolchain:
+[devenv](https://devenv.sh), which fetch the exact toolchain, in a git
+clone (a ZIP download has no `.git`, and the dev shell needs one):
 
 ```sh
+git clone https://github.com/i-am-logger/baud && cd baud
 devenv shell -- scripts/bundle-macos.sh   # leaves baud.app in target/
 devenv shell -- cargo run --release       # or run it from the terminal you are in
 ```

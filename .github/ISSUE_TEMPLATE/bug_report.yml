@@ -21,8 +21,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version or commit
-      description: "`--version` output, or the commit SHA if built from source."
+      label: Version and commit
+      description: "In a new baud window, outside tmux (it sets its own), `echo $TERM_PROGRAM $TERM_PROGRAM_VERSION` prints baud and its version. Add the commit you built, from `git rev-parse --short HEAD` in your checkout."
     validations:
       required: true
 
