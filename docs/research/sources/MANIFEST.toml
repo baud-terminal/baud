@@ -35714,3 +35714,79 @@ status = "external"
 group  = "E"
 # Retrieved 2026-10-24. Read: unix_stream_read_generic, lines 2914-3110: after a skb is
 # consumed, 'if (scm.fp) break;' (line 3080); 'Never glue messages from different writers'.
+
+# kitty's colour parser and its Go conversions at the release tag, for the
+# provenance audit of the kitty theme reader and oklab.rs (note AR,
+# 2026-10-25). Each hashes the same as its 1e1486e copy above. External:
+# hash-verified, not committed (GPL-3.0).
+[sources.kitty-colors-v0492]
+key    = "kitty-colors-v0492"
+title  = "kitty v0.49.2, kitty/colors.c -- parse_color and its forms, oklch_to_srgb_gamut_map and lab_to_oklch"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/colors.c"
+file   = ""
+sha256 = "a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f"
+bytes  = 65249
+status = "external"
+group  = "Y"
+# Retrieved 2026-10-25. Read: 1129-1542, against terminals.rs and oklab.rs.
+
+[sources.kitty-colorspaces-go-v0492]
+key    = "kitty-colorspaces-go-v0492"
+title  = "kitty v0.49.2, tools/utils/style/colorspaces.go -- oklchToSrgbGamutMap, the chroma search, and labToOklch"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb871 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/tools/utils/style/colorspaces.go"
+file   = ""
+sha256 = "316a4dc08e0c5ef818a1f063357c9c36302074a64b4e35ddba923f2aa19c980f"
+bytes  = 9051
+status = "external"
+group  = "Y"
+# Retrieved 2026-10-25. Read: 1-342, against oklab.rs.
+
+# The Lab conversion's numbers, from published non-GPL texts (note AR,
+# 2026-10-25). External: personal and wiki pages, not committed.
+[sources.lindbloom-rgb-xyz-matrix]
+key    = "lindbloom-rgb-xyz-matrix"
+title  = "RGB/XYZ Matrices -- sRGB D65's XYZ-to-RGB matrix, 3.2404542 -1.5371385 -0.4985314 / -0.9692660 1.8760108 0.0415560 / 0.0556434 -0.2040259 1.0572252"
+author = "Bruce Lindbloom"
+year   = 2001
+venue  = "brucelindbloom.com"
+url    = "http://www.brucelindbloom.com/Eqn_RGB_XYZ_Matrix.html"
+file   = ""
+sha256 = "405bb5f8779b9d2115265ea207579c344d022dd005219278ad4a5febf5edbbee"
+bytes  = 13811
+status = "external"
+group  = "Y"
+# Retrieved 2026-10-25. Read: the table of working spaces, the sRGB D65 row.
+
+[sources.lindbloom-chromadapt]
+key    = "lindbloom-chromadapt"
+title  = "Chromatic Adaptation -- the reference whites from ASTM E308-01, D65 0.95047 1.00000 1.08883"
+author = "Bruce Lindbloom"
+year   = 2001
+venue  = "brucelindbloom.com"
+url    = "http://www.brucelindbloom.com/Eqn_ChromAdapt.html"
+file   = ""
+sha256 = "2da1d53b86992a40fa769a413ac0f76d302c485d2a58351bf1029d16ac406132"
+bytes  = 55523
+status = "external"
+group  = "Y"
+# Retrieved 2026-10-25. Read: the illuminant table.
+
+[sources.wikipedia-cielab-1370652355]
+key    = "wikipedia-cielab-1370652355"
+title  = "CIELAB color space, revision 1370652355 -- From CIELAB to CIEXYZ: f^-1(t) = t^3 if t > delta, else 3 delta^2 (t - 4/29), delta = 6/29"
+author = "Wikipedia contributors"
+year   = 2026
+venue  = "en.wikipedia.org, action=raw"
+url    = "https://en.wikipedia.org/w/index.php?title=CIELAB_color_space&oldid=1370652355&action=raw"
+file   = ""
+sha256 = "bed2781299bde3294b44e20ae45e4d446a8500f1375c340ddf58b266cd2ce39b"
+bytes  = 22798
+status = "external"
+group  = "Y"
+# Retrieved 2026-10-25. Read: "From CIELAB to CIEXYZ".

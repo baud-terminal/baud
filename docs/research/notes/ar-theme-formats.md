@@ -1002,3 +1002,213 @@ as bytes. base16 and alacritty's YAML read bytes, as base did.
 `str.lower()`, which turns some non-ASCII characters into ASCII (U+212A
 KELVIN SIGN becomes `k`), so a name spelled with one resolves in kitty and
 is skipped by baud. The oracle feeds only ASCII values and cannot see it.
+
+## The kitty reader against kitty's code, and its re-derivation (2026-10-25)
+
+**What a user sees: nothing changes.** Every kitty theme value baud reads
+draws the same bytes it drew before: all 2855 values of
+`baud-domain/tests/kitty-colours.txt`, and 10,000,000 random Lab and
+10,000,000 random OKLCH values compared with the code before, in each of
+four seeds. Two simplifications moved a byte off kitty on random values and
+were not taken: an inside Lab colour drawn without the round trip through
+OKLCH, and the search's distance measured in linear light. What changed is
+where the code came from. A publication audit found two pieces that followed kitty's GPL-3.0
+code step for step: the colour reader in `terminals.rs`, and the conversions
+and chroma search in `oklab.rs`. Each is now written from the rules below,
+which come from the colour syntaxes' own texts, Ottosson's OKLab, CIE Lab and
+CSS Color 4. The rules also keep kitty's departures from those texts, by the
+owner's call on O14 ("use the recommended answers", 2026-10-17) and by this
+reader's own rule that it keeps what the format's parser keeps.
+
+### The pins and the oracle
+
+kitty's release tag v0.49.2 (b2cb871): [[source: kitty-colors-v0492]] and
+[[source: kitty-colorspaces-go-v0492]]. Both hash the same as the 1e1486e
+copies the code was written from. Neither is committed. The oracle script
+used to carry its own copy of parse_color() with the Python calls taken
+out. It now compiles kitty's body (colors.c 1510-1542) from the fetched,
+hash-checked file. Its case notes watch the arguments of kitty's
+lab_to_oklch() and oklch_to_srgb_gamut_map() go by, through two macros,
+where before they restated parse_oklch(). On all 2855 values it prints
+the same bytes as the script at bb05bb30. It also prints a values file
+with no colour outside sRGB, which the old script's last step emptied.
+555 values were added: the length limits, the comment cut on a tab, the
+grey threshold, the `#` and `rgb:` forms' unread digits, dark and light Lab
+colours outside sRGB, eight Lab colours whose search numbers fall below
+black, and six Lab colours inside sRGB whose round trip through OKLCH moves
+a byte.
+
+### Line by line, at bb05bb30
+
+| element | kitty v0.49.2 | baud before | reading |
+|---|---|---|---|
+| the value's prologue | colors.c 1505-1527: lower-case, trim isspace, under 2 bytes nothing, the comment cut (first space after a leading `#`, else first `#` and trim), the name, under 4 bytes nothing | `kitty_colour`: the same tests in the same order and the same branch shape | **step for step** |
+| `#` forms | 1168-1184: 3 digits each doubled; 6, 9, 12: two digits at 0, len/3, 2len/3 | the same split, `kitty_component` mirroring parse_single_color() | step for step |
+| `rgb:` | 1186-1201, 1531-1533: length 6, a 32-byte buffer, strtok on `/`, three pieces | the same tests, the strtok named | step for step |
+| `oklch(`, `lab(` | 1432-1482: minimum length, `)`, the head, a 256-byte buffer, strtok on space and comma, parse_double_intensity() | kitty_functional(): the same tests in the same order | step for step |
+| C's strtod | strtod_l, 1149-1155 | `c_double`, written from C and macOS's strtod_l probed | baud's |
+| OKLab matrices | 1274-1284, 1305-1316; Go 37-90 | the same numbers and sums | **Ottosson's**: his post's code ([[source: ottosson-oklab]]) number for number, public domain or MIT; kitty took them too |
+| sRGB curve | 1252-1255, 1291-1294 | the same | IEC 61966-2-1 as CSS Color 4 10.2 gives it |
+| Lab to linear sRGB | 1398-1417; Go 181-207 | lab_linear() | CIE's inverse with delta = 6/29 ([[source: wikipedia-cielab-1370652355]]), D65 (0.95047, 1, 1.08883) ([[source: lindbloom-chromadapt]]), the sRGB D65 matrix ([[source: lindbloom-rgb-xyz-matrix]]) |
+| libm | the platform's | `ln`, `exp`, `pow`, `cbrt`, `sin_cos`, `atan2`, `fmod` by series | baud's |
+| C's OKLCH and Lab paths | oklch_to_srgb(), lab_to_oklch() (1266-1289, 1405-1430) | c_oklch_linear(), c_lab_to_oklch(): the Lab one clip, encode, decode and signed pow root, step for step | step for step |
+| Go's conversions | oklchToSrgb(), labToOklch(), srgbToOklab() | go_oklch_srgb(), go_lab_to_oklch(), go_srgb_to_oklab() | step for step |
+| the chroma search | Go 100-178 | go_gamut_map(): the same three early returns, the same loop and names, the same final clip | **term for term** |
+| the cases | none: kitty's C and Go never meet | `oklch`, `lab` choose by O14's table | baud's |
+
+**Which steps the bytes force.** Each step was changed on purpose and run
+against the rows. Six changes keep every byte:
+
+- the hue in radians as h (pi/180) on both paths;
+- Lab's case numbers without the encode and decode;
+- the cube root in place of the signed pow root in those numbers;
+- the hue as 180 atan2 / pi;
+- the search's distance measured from the OKLCH colour itself to its clip
+  in linear light;
+- the search's own edge and grey tests removed. The eight rows whose
+  search numbers fall below black draw black without them too, so no row
+  can tell, and they stay because kitty's Go has them.
+
+A Lab colour inside sRGB drawn straight from its linear channels, without
+the round trip through OKLCH, alters bytes: on 10,000,000 random Lab
+values, 65 drew one step off kitty, every one of them `in` (for example
+lab(97.0553 0.00731 -0.00644): kitty #f7f6f7, straight #f6f6f7). The
+rewrite therefore keeps the round trip and takes the first four. It does
+not take the fifth: on 30,000 random OKLCH and Lab values run through the
+oracle, that change drew `lab(88.555 46.1727 -63.043)` one step off kitty
+in green. The distance stays as kitty's Go measures it.
+
+Twelve changes alter bytes:
+
+- a Lab colour inside sRGB drawn straight, as above;
+- CSS Color 4's return of the last clipped colour;
+- CSS's JND test before the search;
+- a JND of 0.0199;
+- a convergence of 0.0002;
+- a grey threshold of 9e-6;
+- `#rgb` scaled by 16;
+- the name looked up after the 4-byte test;
+- a tab ending a `#` value's comment;
+- `rgb:`'s limit at 33 bytes;
+- the functional limit at 257;
+- `rgb:`'s empty pieces kept.
+
+Four of these (the straight Lab colour, the grey threshold, the tab and
+the 33 bytes) changed bytes only on the 555 added rows. So the bytes force
+the rules below, and they do not force kitty's expression.
+
+### The rules the code is now written from
+
+**A value.**
+
+1. Trim C's white space (space, tab, LF, VT, FF, CR). Case does not count.
+2. A comment ends the value. If the value begins with `#`, it ends at the
+   first space. Otherwise it ends at the first `#`, and what is left is
+   trimmed again.
+3. The value is a colour name in kitty's table, or one of the forms below.
+   Anything else is refused. kitty's tests for at least 2 and at least 4
+   bytes add nothing to this, because no name and no form is that short.
+4. `#` and 3 hex digits: each digit d is 17d. This is CSS Color 4's 5.2:
+   #123 is #112233. X11 would put the digit in the high bits instead
+   ([[source: xlib-ch06-b8d5a70]]).
+5. `#` and 6, 9 or 12 characters: each third's first two characters are
+   read as one byte, which is X11's most significant bits
+   ([[source: libx11-parsecol-b8d5a70]]). The rest of each third is not
+   read. This is kitty's departure: X11 refuses a character that is not a
+   hex digit.
+6. `rgb:` and fewer than 32 bytes. Split at `/` and drop the empty pieces.
+   Each of the first three pieces is one hex digit times 17, or its first
+   two characters as a byte, which is the high byte of X11's scaled value
+   for 1 to 4 digits. Further pieces are not read. This is kitty's
+   departure: X11 reads 1 to 4 hex digits and nothing else.
+7. `oklch(` or `lab(`, a `)` at the end, and fewer than 256 bytes between
+   them. Split at spaces and commas and drop the empty pieces. Each of the
+   first three pieces is one whole C strtod number with no range error. A
+   `%` at its end divides it by 100 for OKLCH and by 1 for Lab. Further
+   pieces are not read.
+8. `rgbi:` is never read: kitty's branch for it tests the byte after the
+   `i` for a second `i`.
+
+**A colour.** OKLCH: L is clamped to [0, 1], with a NaN taken as 1. A C
+below 0 is 0. h is h mod 360, truncated, so it keeps h's sign. Lab: L is
+clamped to [0, 100], and the colour is carried to linear sRGB by the Lab
+row of the table.
+
+- **Edge.** If a number is not finite or L <= 0, the colour is black. If
+  L >= 1, it is white.
+- **Grey.** If C < 1e-5, every channel is L's sRGB encoding, with L taken
+  as linear light. This is kitty's departure: CSS's grey is OKLab(L, 0, 0).
+- **Inside.** If the linear channels lie in [0, 1] before any clip, an
+  OKLCH colour is their encoding. A Lab colour is drawn as its OKLCH, as
+  kitty draws it: the OKLCH its edge and grey tests read, carried back to
+  linear sRGB, each channel clipped to [0, 1], then encoded.
+- **Outside.** At constant L and h, bisect C on [0, C0]. A mid C is kept
+  as the low end if its colour is inside sRGB, or if its deltaEOK to its
+  clip is below the JND, 0.02 (CSS Color 4 14.2.1; deltaEOK is the
+  Euclidean distance in OKLab, 20.3). The distance is taken between the
+  colour encoded to sRGB and the same colour with each channel clipped to
+  [0, 1], both decoded back to OKLab. The search stops when the ends are
+  1e-4 apart (14.2.2's epsilon) and draws the clip of the low end. Three of
+  CSS's steps are not taken, and these are kitty's departures: the JND test
+  of the clipped origin before the search, the min_inGamut flag, and the
+  early return within epsilon of the JND. The search applies the edge and
+  grey tests again to the numbers it is given.
+- **Lab's numbers.** For edge and grey, Lab's OKLab is taken from its
+  linear channels with those below 0 raised to 0. For the search, it is
+  taken from the channels as they are, with its hue in [0, 360). These are
+  the two sets of numbers kitty's C and Go read.
+
+### Jev
+
+Jev got the comparison and the rules above, the excerpts of both kitty files
+and of baud's code, the owner's words on the licence and on O14, and the
+three routes. The request was asked twice, the second time with the order
+reversed, and neither answer was cached (decisions.jsonl 1613 and 1614):
+
+- **The reader:** DERIVATIVE, at confidence 0.66 and 0.59.
+- **oklab.rs:** DERIVATIVE, at confidence 0.85 and 0.73.
+- **Which route:** B_RE_DERIVE, at confidence 1.00 in both orders. That
+  clears the bar, so it is decided under the rule of 2026-10-10. The owner
+  may veto it.
+
+### What the code is now
+
+- `kitty_colour` cuts the comment, looks the name up, and then matches
+  each form by its prefix, each form with its own limits.
+- `oklab.rs` has one conversion each way between OKLab and linear sRGB,
+  one from Lab, the edge and grey test, and the search. The separate C and
+  Go copies of each conversion are gone, and so are kitty's line citations.
+- Every case of the 2855 rows draws as before. Three further checks were
+  run through the oracle and none differed: 30,000 random OKLCH and Lab
+  values, 30,000 random strings from the forms' characters, and 20,000
+  near-valid values of every form, 10,813 of them colours. None of the
+  three sets is committed. The first has a reach: a one-step difference at
+  about 6.5 in a million Lab values is below what 30,000 values can see.
+  A comparison of the code with the code before, on 10,000,000 random Lab
+  and 10,000,000 random OKLCH values in each of four seeds, is the check
+  that found one, and the code as committed differs from the code before
+  on none of them.
+- Each rule was broken on purpose again in the new code, and the oracle test
+  went red for each: the JND, the grey threshold, Lab's negatives raised,
+  the low end drawn, the tab, the 33 bytes, the empty pieces and the
+  doubled digit. The search's own edge test is the exception: removed, it
+  stays green, and nothing pins it. Drawing an inside Lab colour straight
+  goes red on the six rows added for it; a round trip through OKLab alone,
+  without the polar step, stays green on them and on 10,000,000 random Lab
+  values. The polar step stays because the rule draws the colour as its
+  OKLCH, and carrying OKLCH back to OKLab is that step.
+
+### What is still kitty's, and the limits of this
+
+kitty contributed the behaviour: which forms it reads, its departures from
+X11 and CSS Color 4, the grey shortcut, the search's shape and its three
+constants. These are rules and numbers, and the owner's O14 call is what
+keeps them. None of them is code. The re-derivation was written by an agent
+that had read kitty's files for the audit, so it is not a clean room in the
+two-team sense. None of this is legal advice.
+
+**One difference no file reaches.** kitty's parse_color() cuts the comment
+with strchr(), and strchr() reads past the trimmed length. So a value that
+ends in a tab and then a space is cut at that space in kitty, and baud does
+not cut it. Neither reader is ever handed such a value: kitty's config
+parser and baud's both trim the line first.

@@ -19,11 +19,13 @@
 # the commit the manifest pins (kitty-colors-1e1486e,
 # kitty-color-names-h-1e1486e, kitty-colorspaces-go-1e1486e), checked against its SHA-256, and kitty's
 # own functions -- hexchar_to_int to trim_view, colors.c 1129-1497 -- are
-# compiled unchanged. The driver below is parse_color (colors.c 1500-1540)
-# with the Python object calls taken out: the value is lower-cased byte by
-# byte, as str.lower() does for ASCII, and nothing else differs. `note`
-# reads an `oklch(`/`lab(` value as parse_oklch/parse_lab do (1433-1482) and
-# names its case from the same numbers. tools/utils/style/colorspaces.go
+# compiled unchanged, and so is parse_color's body (1510-1542); only its
+# prologue is the driver's, which lower-cases the value byte by byte, as
+# str.lower() does for ASCII, where kitty takes it from Python.
+# `note_lab` and `note_gamut` watch kitty's own parse_oklch and parse_lab
+# (1432-1482) call lab_to_oklch and oklch_to_srgb_gamut_map, through two
+# macros, and name each value's case from the numbers those calls are
+# given. tools/utils/style/colorspaces.go
 # (kitty-colorspaces-go-1e1486e) is fetched the same way and run by Go.
 # Go fuses a multiply-add on arm64 and not on x86-64; on 2026-10-17 the
 # file was the same either way (GOARCH=amd64 under Rosetta, and arm64),
@@ -44,7 +46,11 @@ fetch kitty/color-names.h color-names.h 3be7edfc24aa866c12e80ccc43db0954311587d3
 mkdir -p "$work/go/style"
 fetch tools/utils/style/colorspaces.go go/style/colorspaces.go 316a4dc08e0c5ef818a1f063357c9c36302074a64b4e35ddba923f2aa19c980f
 
-sed -n '1129,1497p' "$work/colors.c" >"$work/kitty-parse.inc"
+# kitty's functions up to lab_to_oklch, then parse_oklch to trim_view, then
+# parse_color's body from its length test to its closing brace.
+sed -n '1129,1431p' "$work/colors.c" >"$work/kitty-parse.inc"
+sed -n '1432,1497p' "$work/colors.c" >"$work/kitty-parse-forms.inc"
+sed -n '1510,1542p' "$work/colors.c" >"$work/kitty-parse-color.inc"
 
 cat >"$work/oracle.c" <<'EOF'
 #include <ctype.h>
@@ -79,10 +85,13 @@ static locale_t get_c_locale(void) {
 #include "kitty-parse.inc"
 
 /* The case of an oklch( or lab( value, and for `out` the numbers kitty's C
-   read: L, C and h (h as fmod leaves it), or L, a and b. */
+   read: L, C and h (h as fmod leaves it), or L, a and b. Each is taken from
+   the calls kitty's parse_oklch and parse_lab make, which are compiled as
+   kitty wrote them; the macros below only watch the arguments go by. */
 static char note_case[8];
 static char note_kind;
-static double note_v[3];
+static double note_v[3], note_lin[3];
+static bool note_lab_pending;
 
 static bool in01(const double v[3]) {
     for (int i = 0; i < 3; i++)
@@ -90,90 +99,55 @@ static bool in01(const double v[3]) {
     return true;
 }
 
-static void note(const char *spec, size_t len, char kind) {
-    const char *head = kind == 'o' ? "klch(" : "ab(";
-    size_t hl = strlen(head), min = kind == 'o' ? 10 : 8;
-    note_case[0] = 0;
-    if (len < min || spec[len - 1] != ')' || strncmp(spec, head, hl)) return;
-    char buf[256];
-    size_t n = len - 1 - hl;
-    if (n >= sizeof(buf)) return;
-    memcpy(buf, spec + hl, n);
-    buf[n] = 0;
-    double v[3], lin[3];
-    char *tok;
-    for (int i = 0; i < 3; i++)
-        if (!(tok = strtok(i ? NULL : buf, " ,")) || !parse_double_intensity(tok, &v[i], kind == 'o' ? 100 : 1)) return;
-    double l, c, h;
-    note_kind = kind;
-    if (kind == 'o') {
-        l = clamp(v[0]);
-        c = MAX(0.f, v[1]);
-        h = fmod(v[2], 360);
+/* CIE Lab, D65 white, to linear sRGB: the CIE inverse (delta = 6/29) and
+   Lindbloom's white and matrix (note AR, 2026-10-25). */
+static void note_lab(double L, double a, double b) {
+    const double y = (L + 16.) / 116., x = a / 500. + y, z = y - b / 200.;
+    const double X = 0.95047 * f_inv(x), Y = f_inv(y), Z = 1.08883 * f_inv(z);
+    note_lin[0] = +3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z;
+    note_lin[1] = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z;
+    note_lin[2] = +0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z;
+    note_v[0] = L; note_v[1] = a; note_v[2] = b;
+    note_lab_pending = true;
+}
+
+/* The numbers the gamut map is handed: the case, from them and, for
+   OKLCH, its linear channels before any clip (Ottosson's matrices). */
+static void note_gamut(double l, double c, double h) {
+    if (note_lab_pending) {
+        note_kind = 'l';
+        note_lab_pending = false;
+    } else {
+        note_kind = 'o';
         note_v[0] = l; note_v[1] = c; note_v[2] = h;
         if (isfinite(l) && isfinite(c) && isfinite(h)) {
-            /* oklch_to_srgb before its clamp */
             const double hr = degrees_to_radians(h), a = c * cos(hr), lb = c * sin(hr);
             const double l_ = l + 0.3963377774 * a + 0.2158037573 * lb;
             const double m_ = l - 0.1055613458 * a - 0.0638541728 * lb;
             const double s_ = l - 0.0894841775 * a - 1.2914855480 * lb;
             const double L3 = l_ * l_ * l_, M3 = m_ * m_ * m_, S3 = s_ * s_ * s_;
-            lin[0] = +4.0767416621 * L3 - 3.3077115913 * M3 + 0.2309699292 * S3;
-            lin[1] = -1.2684380046 * L3 + 2.6097574011 * M3 - 0.3413193965 * S3;
-            lin[2] = -0.0041960863 * L3 - 0.7034186147 * M3 + 1.7076147010 * S3;
+            note_lin[0] = +4.0767416621 * L3 - 3.3077115913 * M3 + 0.2309699292 * S3;
+            note_lin[1] = -1.2684380046 * L3 + 2.6097574011 * M3 - 0.3413193965 * S3;
+            note_lin[2] = -0.0041960863 * L3 - 0.7034186147 * M3 + 1.7076147010 * S3;
         }
-    } else {
-        const double L = MAX(0., MIN(v[0], 100.));
-        note_v[0] = L; note_v[1] = v[1]; note_v[2] = v[2];
-        /* lab_to_oklch before its clip */
-        const double y = (L + 16.) / 116., x = v[1] / 500. + y, z = y - v[2] / 200.;
-        const double X = 0.95047 * f_inv(x), Y = f_inv(y), Z = 1.08883 * f_inv(z);
-        lin[0] = +3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z;
-        lin[1] = -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z;
-        lin[2] = +0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z;
-        lab_to_oklch(L, v[1], v[2], &l, &c, &h);
     }
     if (!isfinite(l) || !isfinite(c) || !isfinite(h) || l <= 0 || l >= 1) strcpy(note_case, "edge");
     else if (c < 0.00001) strcpy(note_case, "grey");
-    else strcpy(note_case, in01(lin) ? "in" : "out");
+    else strcpy(note_case, in01(note_lin) ? "in" : "out");
 }
 
-static PyObject *parse_color(char *spec) {
-    for (char *p = spec; *p; p++) *p = (char)tolower((unsigned char)*p);
-    Py_ssize_t len = (Py_ssize_t)strlen(spec);
-    spec = (char *)trim_view(spec, &len);
-    if (len < 2) Py_RETURN_NONE;
-    switch (spec[0]) {
-        case '#': {
-            const char *s = strchr(spec, ' ');
-            if (s) len = s - spec;
-        } break;
-        default: {
-            const char *s = strchr(spec, '#');
-            if (s) {
-                len = s - spec;
-                spec = (char *)trim_view(spec, &len);
-            }
-        } break;
-    }
-    const struct Keyword *k = in_color_name_set(spec, len);
-    if (k) return alloc_color((k->value >> 16) & 0xff, (k->value >> 8) & 0xff, k->value & 0xff, 0);
-    if (len < 4) Py_RETURN_NONE;
-    switch (spec[0]) {
-        case '#': return parse_sharp(spec + 1, len - 1);
-        case 'r':
-            if (spec[1] != 'g' || spec[2] != 'b' || len < 6) Py_RETURN_NONE;
-            switch (spec[3]) {
-                case ':': return parse_rgb(spec + 4, len - 4);
-                case 'i':
-                    if (spec[4] == 'i' && spec[5] == ':') return parse_rgbi(spec + 5, len - 5);
-            }
-            Py_RETURN_NONE;
-        case 'o': note(spec + 1, len - 1, 'o'); return parse_oklch(spec + 1, len - 1);
-        case 'l': note(spec + 1, len - 1, 'l'); return parse_lab(spec + 1, len - 1);
-    }
-    Py_RETURN_NONE;
-}
+#define lab_to_oklch(L, a, b, okl, c, h) (note_lab((L), (a), (b)), lab_to_oklch((L), (a), (b), (okl), (c), (h)))
+#define oklch_to_srgb_gamut_map(l, c, h, r, g, b) (note_gamut((l), (c), (h)), oklch_to_srgb_gamut_map((l), (c), (h), (r), (g), (b)))
+#include "kitty-parse-forms.inc"
+
+/* parse_color (colors.c 1500-1542): kitty's own body, from the fetched
+   file; only its prologue, which takes the value from a Python string, is
+   the driver's. */
+static PyObject *parse_color(char *value) {
+    for (char *p = value; *p; p++) *p = (char)tolower((unsigned char)*p);
+    Py_ssize_t len = (Py_ssize_t)strlen(value);
+    const char *spec = trim_view(value, &len);
+#include "kitty-parse-color.inc"
 
 int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
@@ -258,6 +232,7 @@ GOEOF
 (cd "$work/go" && GOTOOLCHAIN=local GOFLAGS=-mod=mod GOCACHE="$work/gocache" GOPATH="$work/gopath" \
   IN="$work/c.txt" OUT="$work/go.txt" "${GO:-go}" test ./style -run TestOracle -count=1 >/dev/null)
 
-awk -F'\t' -v OFS='\t' 'NR == FNR { go[++n] = $0; next }
+# Go's rows by file name, not NR == FNR, which an empty go.txt defeats.
+awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { go[++n] = $0; next }
   NF >= 7 && $(NF-4) == "out" { s = $1; for (i = 2; i <= NF - 4; i++) s = s OFS $i; print s, go[++k]; next }
   { print }' "$work/go.txt" "$work/c.txt"

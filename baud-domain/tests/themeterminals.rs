@@ -30,7 +30,7 @@ fn foot_of(text: &str) -> (Result<Scheme, SchemeError>, Skips) {
 }
 
 /// kitty's `#` forms: three digits doubled, six, and nine or twelve read
-/// as each component's first two digits (kitty `colors.c` `parse_sharp`);
+/// as each component's first two digits (note AR's rules 4 and 5);
 /// `rgb:` one digit doubled or the first two; a trailing comment cut.
 #[test]
 fn kitty_reads_its_own_colour_forms() {
@@ -240,7 +240,7 @@ fn kitty_row(row: &str) -> (String, &str, Option<&str>, Option<&str>) {
     (f[..n - cols].join("\t"), f[n - cols], case, go)
 }
 
-/// **Every value reads as kitty reads it**, on the 2300 the oracle ran:
+/// **Every value reads as kitty reads it**, on the 2849 the oracle ran:
 /// all 753 names in three cases, every `#` and `rgb:` form, and `oklch(` and
 /// `lab(` with each number form C's `strtod` takes or refuses. A value kitty
 /// refuses skips its line; a name resolves; an `oklch(` or `lab(` kitty
@@ -273,20 +273,20 @@ fn every_value_reads_as_kittys_own_parser_reads_it() {
         apart += usize::from(go.is_some_and(|g| g != want));
         n += 1;
     }
-    assert_eq!(n, 2300);
+    assert_eq!(n, 2855);
     assert_eq!(
         cases.into_iter().collect::<Vec<_>>(),
         [
-            ("", 870),
-            ("edge", 35),
-            ("grey", 135),
-            ("in", 415),
-            ("out", 845)
+            ("", 899),
+            ("edge", 147),
+            ("grey", 149),
+            ("in", 428),
+            ("out", 1232)
         ]
     );
     // Rows where kitty's terminal and its Go code draw different bytes, so
     // the case decides.
-    assert_eq!(apart, 744);
+    assert_eq!(apart, 1131);
 }
 
 /// **kitty's names are X.Org's rgb.txt and Debian's `debianred`**, each found in

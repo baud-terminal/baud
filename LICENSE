@@ -124,8 +124,9 @@ Other projects' code:
   licence: the test helper sfte in baud-render/src/trail.rs, from sfte
   (zlib; LICENSES/sfte-Zlib.txt); two test helpers in
   baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt);
-  the OKLab conversions and the gamut clip in baud-render/src/color.rs,
-  from Björn Ottosson's published code (MIT; LICENSES/ottosson-MIT.txt);
+  the OKLab conversions and the gamut clip in baud-render/src/color.rs
+  and the OKLab matrices in baud-domain/src/themefile/oklab.rs, from
+  Björn Ottosson's published code (MIT; LICENSES/ottosson-MIT.txt);
   the Xcms conversions in baud-domain/src/vt/xcms.rs and the CRT data
   in baud-domain/src/vt/xcms/tests.rs, from libX11 (Tektronix's TekHVC
   and Xcms notices and The Open Group's; LICENSES/libx11-xcms.txt); and

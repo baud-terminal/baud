@@ -2298,3 +2298,558 @@ oklch(0.5 0 180)	bcbcbc	grey
 oklch(0.5 0 0)	bcbcbc	grey
 oklch(0.5 0.00002 0)	636363	in
 oklch(0.7 0.35 25)	ff0000	out	ff5655
+rgb:aaaaaaaaaaaaaaaaaaaaaaaaaaa/1/1	aa1111
+rgb:aaaaaaaaaaaaaaaaaaaaaaaaaaaa/1/1	-
+oklch(0.5 0.1 30                                                                                                                                                                                                                                                     )	944b40	in
+oklch(0.5 0.1 30                                                                                                                                                                                                                                                      )	-
+lab(50 20 30                                                                                                                                                                                                                                                       )	a46945	in
+lab(50 20 30                                                                                                                                                                                                                                                        )	-
+oklch(0.5 0.1 30 junk)	944b40	in
+lab(50 20 30 junk)	a46945	in
+oklch(0.5,0.1,,30)	944b40	in
+oklch(,0.5 0.1 30)	944b40	in
+#12z34z56z	123456
+#12zz34zz56zz	123456
+#1z2	-
+#12345g	-
+#1234567	-
+#12	-
+#123 456	112233
+#123	456	-
+rgb:1/2/3/4	112233
+rgb:1//2/3	112233
+rgb:/1/2/3	112233
+rgb:12zz/34/56	123456
+rgb:1/2	-
+rgb:123/456/789	124578
+rgb:1234/5678/9abc	12569a
+rgb:12345/1/1	121111
+rgbii:0.5/0.5/0.5	-
+rgbi:0.5/0.5/0.5	-
+RGB:1/2/3	112233
+Rgb:f/f/f	ffffff
+red	# x	ff0000
+red	ff0000
+re	-
+#a	-
+x#red	-
+oklch(0.5 0.0000099 30)	bcbcbc	grey
+oklch(0.5 0.00001 30)	636363	in
+oklch(0.5 -0.1 30)	bcbcbc	grey
+oklch(0.5 0.000009999 200)	bcbcbc	grey
+oklch(1 0.1 30)	ffffff	edge
+oklch(0.9999999 0.1 30)	ffe6d7	out	fffaf6
+oklch(0 0.1 30)	000000	edge
+oklch(0.0000001 0.1 30)	010000	out	000000
+oklch(nan 0.1 30)	ffffff	edge
+oklch(0.5 nan 30)	000000	edge
+oklch(0.5 0.1 nan)	000000	edge
+oklch(inf 0.1 30)	ffffff	edge
+oklch(-inf 0.1 30)	000000	edge
+oklch(0.5 inf 30)	000000	edge
+lab(50 0.00001 0)	c7c7c7	grey
+lab(50 0.0001 0)	c7c7c7	grey
+lab(100 0 0)	ffffff	grey
+lab(0 0 0)	000000	edge
+lab(99.99 0 0)	ffffff	grey
+lab(95 -120 -120)	ffffff	edge
+lab(95 -120 -60)	ffffff	edge
+lab(95 -120 0)	00ffed	out	11ffe8
+lab(95 -120 60)	00ff72	out	70ffb0
+lab(95 -120 120)	00ff00	out	85ff8a
+lab(95 -60 -120)	ffffff	edge
+lab(95 -60 -60)	00ffff	out	9df9ff
+lab(95 -60 0)	00ffef	out	75ffed
+lab(95 -60 60)	96ff75	out	a8ff8f
+lab(95 -60 120)	b0ff00	out	b9ff15
+lab(95 0 -120)	ffffff	edge
+lab(95 0 -60)	8ff7ff	out	dcf3ff
+lab(95 0 0)	fafafa	grey
+lab(95 0 60)	ffed7a	out	ffef96
+lab(95 0 120)	ffec00	out	fff082
+lab(95 60 -120)	b3d5ff	out	f1f8ff
+lab(95 60 -60)	ffc9ff	out	fff2ff
+lab(95 60 0)	ffc1f3	out	fff0f7
+lab(95 60 60)	ffbd7f	out	fff1e8
+lab(95 60 120)	ffbb00	out	fff2e1
+lab(95 120 -120)	ffffff	edge
+lab(95 120 -60)	ffffff	edge
+lab(95 120 0)	ffffff	edge
+lab(95 120 60)	ffffff	edge
+lab(95 120 120)	ffffff	edge
+lab(97 -120 -120)	ffffff	edge
+lab(97 -120 -60)	ffffff	edge
+lab(97 -120 0)	ffffff	edge
+lab(97 -120 60)	00ff77	out	94ffc0
+lab(97 -120 120)	00ff00	out	a3ffa3
+lab(97 -60 -120)	ffffff	edge
+lab(97 -60 -60)	ffffff	edge
+lab(97 -60 0)	00fff4	out	9efff2
+lab(97 -60 60)	9cff7b	out	bfffac
+lab(97 -60 120)	b6ff00	out	ccff78
+lab(97 0 -120)	ffffff	edge
+lab(97 0 -60)	96fcff	out	e6f8ff
+lab(97 0 0)	fcfcfc	grey
+lab(97 0 60)	fff37f	out	fff5af
+lab(97 0 120)	fff200	out	fff6a1
+lab(97 60 -120)	bbdaff	out	f9feff
+lab(97 60 -60)	ffcfff	out	fffaff
+lab(97 60 0)	ffc7f9	out	fff8fd
+lab(97 60 60)	ffc285	out	fff9f2
+lab(97 60 120)	ffc000	out	fffaec
+lab(97 120 -120)	ffffff	edge
+lab(97 120 -60)	ffffff	edge
+lab(97 120 0)	ffffff	edge
+lab(97 120 60)	ffffff	edge
+lab(97 120 120)	ffffff	edge
+lab(98 -120 -120)	ffffff	edge
+lab(98 -120 -60)	ffffff	edge
+lab(98 -120 0)	ffffff	edge
+lab(98 -120 60)	00ff7a	out	a3ffc8
+lab(98 -120 120)	00ff00	out	afffaf
+lab(98 -60 -120)	ffffff	edge
+lab(98 -60 -60)	ffffff	edge
+lab(98 -60 0)	0cfff7	out	aefff5
+lab(98 -60 60)	9fff7d	out	caffb9
+lab(98 -60 120)	baff00	out	d5ff91
+lab(98 0 -120)	ffffff	edge
+lab(98 0 -60)	99ffff	out	ebfbff
+lab(98 0 0)	fdfdfd	grey
+lab(98 0 60)	fff682	out	fff8bc
+lab(98 0 120)	fff400	out	fff9af
+lab(98 60 -120)	ffffff	edge
+lab(98 60 -60)	ffffff	edge
+lab(98 60 0)	ffffff	edge
+lab(98 60 60)	ffffff	edge
+lab(98 60 120)	ffffff	edge
+lab(98 120 -120)	ffffff	edge
+lab(98 120 -60)	ffffff	edge
+lab(98 120 0)	ffffff	edge
+lab(98 120 60)	ffffff	edge
+lab(98 120 120)	ffffff	edge
+lab(99 -120 -120)	ffffff	edge
+lab(99 -120 -60)	ffffff	edge
+lab(99 -120 0)	ffffff	edge
+lab(99 -120 60)	00ff7d	out	b1ffcf
+lab(99 -120 120)	00ff00	out	bbffba
+lab(99 -60 -120)	ffffff	edge
+lab(99 -60 -60)	ffffff	edge
+lab(99 -60 0)	1bfffa	out	bdfff7
+lab(99 -60 60)	a2ff80	out	d3ffc6
+lab(99 -60 120)	bdff00	out	ddffa7
+lab(99 0 -120)	ffffff	edge
+lab(99 0 -60)	9cffff	out	f0feff
+lab(99 0 0)	fefefe	grey
+lab(99 0 60)	fff985	out	fffbc8
+lab(99 0 120)	fff700	out	fffdbd
+lab(99 60 -120)	ffffff	edge
+lab(99 60 -60)	ffffff	edge
+lab(99 60 0)	ffffff	edge
+lab(99 60 60)	ffffff	edge
+lab(99 60 120)	ffffff	edge
+lab(99 120 -120)	ffffff	edge
+lab(99 120 -60)	ffffff	edge
+lab(99 120 0)	ffffff	edge
+lab(99 120 60)	ffffff	edge
+lab(99 120 120)	ffffff	edge
+lab(99.5 -120 -120)	ffffff	edge
+lab(99.5 -120 -60)	ffffff	edge
+lab(99.5 -120 0)	ffffff	edge
+lab(99.5 -120 60)	00ff7e	out	b7ffd3
+lab(99.5 -120 120)	00ff00	out	c1ffbf
+lab(99.5 -60 -120)	ffffff	edge
+lab(99.5 -60 -60)	ffffff	edge
+lab(99.5 -60 0)	21fffc	out	c4fff8
+lab(99.5 -60 60)	a3ff82	out	d8ffcc
+lab(99.5 -60 120)	beff00	out	e1ffb0
+lab(99.5 0 -120)	ffffff	edge
+lab(99.5 0 -60)	9effff	out	f2ffff
+lab(99.5 0 0)	ffffff	grey
+lab(99.5 0 60)	fffa86	out	fffdcd
+lab(99.5 0 120)	fff900	out	fffec4
+lab(99.5 60 -120)	ffffff	edge
+lab(99.5 60 -60)	ffffff	edge
+lab(99.5 60 0)	ffffff	edge
+lab(99.5 60 60)	ffffff	edge
+lab(99.5 60 120)	ffffff	edge
+lab(99.5 120 -120)	ffffff	edge
+lab(99.5 120 -60)	ffffff	edge
+lab(99.5 120 0)	ffffff	edge
+lab(99.5 120 60)	ffffff	edge
+lab(99.5 120 120)	ffffff	edge
+lab(99.9 -120 -120)	ffffff	edge
+lab(99.9 -120 -60)	ffffff	edge
+lab(99.9 -120 0)	ffffff	edge
+lab(99.9 -120 60)	00ff7f	out	bcffd6
+lab(99.9 -120 120)	00ff00	out	c5ffc3
+lab(99.9 -60 -120)	ffffff	edge
+lab(99.9 -60 -60)	ffffff	edge
+lab(99.9 -60 0)	25fffd	out	c9fff9
+lab(99.9 -60 60)	a5ff83	out	dcffd0
+lab(99.9 -60 120)	c0ff00	out	e4ffb8
+lab(99.9 0 -120)	ffffff	edge
+lab(99.9 0 -60)	9fffff	out	f4ffff
+lab(99.9 0 0)	ffffff	grey
+lab(99.9 0 60)	fffb87	out	fffed2
+lab(99.9 0 120)	ffffff	edge
+lab(99.9 60 -120)	ffffff	edge
+lab(99.9 60 -60)	ffffff	edge
+lab(99.9 60 0)	ffffff	edge
+lab(99.9 60 60)	ffffff	edge
+lab(99.9 60 120)	ffffff	edge
+lab(99.9 120 -120)	ffffff	edge
+lab(99.9 120 -60)	ffffff	edge
+lab(99.9 120 0)	ffffff	edge
+lab(99.9 120 60)	ffffff	edge
+lab(99.9 120 120)	ffffff	edge
+lab(100 -120 -120)	ffffff	edge
+lab(100 -120 -60)	ffffff	edge
+lab(100 -120 0)	ffffff	edge
+lab(100 -120 60)	00ff7f	out	bdffd6
+lab(100 -120 120)	00ff00	out	c6ffc4
+lab(100 -60 -120)	ffffff	edge
+lab(100 -60 -60)	ffffff	edge
+lab(100 -60 0)	26fffd	out	cafffa
+lab(100 -60 60)	a5ff83	out	ddffd1
+lab(100 -60 120)	c0ff00	out	e5ffba
+lab(100 0 -120)	ffffff	edge
+lab(100 0 -60)	a0ffff	out	f4ffff
+lab(100 0 0)	ffffff	grey
+lab(100 0 60)	ffffff	edge
+lab(100 0 120)	ffffff	edge
+lab(100 60 -120)	ffffff	edge
+lab(100 60 -60)	ffffff	edge
+lab(100 60 0)	ffffff	edge
+lab(100 60 60)	ffffff	edge
+lab(100 60 120)	ffffff	edge
+lab(100 120 -120)	ffffff	edge
+lab(100 120 -60)	ffffff	edge
+lab(100 120 0)	ffffff	edge
+lab(100 120 60)	ffffff	edge
+lab(100 120 120)	ffffff	edge
+oklch(0.97 0.1 0)	ffd9f2	out	ffebf4
+oklch(0.97 0.1 90)	fff3a6	out	fff3ad
+oklch(0.97 0.1 180)	a6fff8	out	bdfff7
+oklch(0.97 0.1 270)	dbf3ff	out	ecf5ff
+oklch(0.97 0.3 0)	ff84ed	out	ffebf4
+oklch(0.97 0.3 90)	ffe300	out	fff3ad
+oklch(0.97 0.3 180)	00fffd	out	bdfff7
+oklch(0.97 0.3 270)	aadeff	out	ecf5ff
+oklch(0.99 0.1 0)	ffe0f9	out	fff4fb
+oklch(0.99 0.1 90)	fffaad	out	fffbc8
+oklch(0.99 0.1 180)	adfffe	out	dcfffd
+oklch(0.99 0.1 270)	e1f9ff	out	f5fcff
+oklch(0.99 0.3 0)	ff8cf4	out	fff4fb
+oklch(0.99 0.3 90)	ffea00	out	fffbc8
+oklch(0.99 0.3 180)	00ffff	out	dcfffd
+oklch(0.99 0.3 270)	b0e5ff	out	f5fcff
+oklch(0.999 0.1 0)	ffe3fc	out	fff8fe
+oklch(0.999 0.1 90)	fffdb0	out	fffed3
+oklch(0.999 0.1 180)	b0ffff	out	e8ffff
+oklch(0.999 0.1 270)	e4fcff	out	f9ffff
+oklch(0.999 0.3 0)	ff8ff7	out	fff8fe
+oklch(0.999 0.3 90)	ffed00	out	fffed3
+oklch(0.999 0.3 180)	00ffff	out	e8ffff
+oklch(0.999 0.3 270)	b3e8ff	out	f9ffff
+lab(0.1 -128 -128)	0040c2	out	000708
+lab(0.1 -128 -80)	003675	out	000102
+lab(0.1 -128 -40)	00323a	out	000000
+lab(0.1 -128 0)	003100	out	000000
+lab(0.1 -128 40)	003000	out	000000
+lab(0.1 -128 80)	002f00	out	000000
+lab(0.1 -128 128)	002d00	out	000000
+lab(0.1 -80 -128)	0039c3	out	000809
+lab(0.1 -80 -80)	002d75	out	000202
+lab(0.1 -80 -40)	00283b	out	000000
+lab(0.1 -80 0)	002600	out	000000
+lab(0.1 -80 40)	002400	out	000000
+lab(0.1 -80 80)	002300	out	000000
+lab(0.1 -80 128)	002100	out	000000
+lab(0.1 -40 -128)	0031c3	out	00090a
+lab(0.1 -40 -80)	002375	out	000303
+lab(0.1 -40 -40)	001c3b	out	000000
+lab(0.1 -40 0)	001900	out	000000
+lab(0.1 -40 40)	001700	out	000000
+lab(0.1 -40 80)	001500	out	000000
+lab(0.1 -40 128)	1e1200	out	000000
+lab(0.1 0 -128)	0028c3	out	000a0b
+lab(0.1 0 -80)	001476	out	000404
+lab(0.1 0 -40)	00063c	out	000101
+lab(0.1 0 40)	1f0000	out	000000
+lab(0.1 0 80)	2f0000	out	000000
+lab(0.1 0 128)	3c0000	out	000000
+lab(0.1 40 -128)	001cc3	out	000b0c
+lab(0.1 40 -80)	000076	out	000506
+lab(0.1 40 -40)	1b003c	out	100021
+lab(0.1 40 0)	320002	out	110003
+lab(0.1 40 40)	3d0000	out	000000
+lab(0.1 40 80)	450000	out	000000
+lab(0.1 40 128)	4e0000	out	000000
+lab(0.1 80 -128)	0000c3	out	000d0f
+lab(0.1 80 -80)	000076	out	000b0f
+lab(0.1 80 -40)	46003d	out	21001b
+lab(0.1 80 0)	510005	out	1c0007
+lab(0.1 80 40)	570000	out	010000
+lab(0.1 80 80)	5d0000	out	000000
+lab(0.1 80 128)	640000	out	000000
+lab(0.1 128 -128)	0000c3	out	001215
+lab(0.1 128 -80)	5b0077	out	340039
+lab(0.1 128 -40)	72003e	out	30001e
+lab(0.1 128 0)	78000b	out	2b0010
+lab(0.1 128 40)	7c0000	out	270000
+lab(0.1 128 80)	800000	out	100000
+lab(0.1 128 128)	850000	out	000000
+lab(0.5 -128 -128)	0041c4	out	000808
+lab(0.5 -128 -80)	003776	out	000202
+lab(0.5 -128 -40)	00333b	out	000000
+lab(0.5 -128 0)	003100	out	000000
+lab(0.5 -128 40)	003000	out	000000
+lab(0.5 -128 80)	002f00	out	000000
+lab(0.5 -128 128)	002e00	out	000000
+lab(0.5 -80 -128)	0039c4	out	00080a
+lab(0.5 -80 -80)	002d76	out	000203
+lab(0.5 -80 -40)	00283c	out	000000
+lab(0.5 -80 0)	002600	out	000000
+lab(0.5 -80 40)	002500	out	000000
+lab(0.5 -80 80)	002300	out	000000
+lab(0.5 -80 128)	002200	out	000000
+lab(0.5 -40 -128)	0032c4	out	00090b
+lab(0.5 -40 -80)	002377	out	000304
+lab(0.5 -40 -40)	001c3c	out	000101
+lab(0.5 -40 0)	001900	out	000000
+lab(0.5 -40 40)	001800	out	000000
+lab(0.5 -40 80)	001500	out	000000
+lab(0.5 -40 128)	1f1300	out	000000
+lab(0.5 0 -128)	0029c4	out	000a0c
+lab(0.5 0 -80)	001577	out	000405
+lab(0.5 0 -40)	00083d	out	000202
+lab(0.5 0 40)	200000	out	000000
+lab(0.5 0 80)	2f0000	out	000000
+lab(0.5 0 128)	3c0000	out	000000
+lab(0.5 40 -128)	001dc4	out	000b0d
+lab(0.5 40 -80)	000077	out	000607
+lab(0.5 40 -40)	1b003d	out	120025
+lab(0.5 40 0)	330004	out	160005
+lab(0.5 40 40)	3d0000	out	000000
+lab(0.5 40 80)	460000	out	000000
+lab(0.5 40 128)	4f0000	out	000000
+lab(0.5 80 -128)	0000c4	out	000d0f
+lab(0.5 80 -80)	000077	out	000c12
+lab(0.5 80 -40)	47003e	out	24001d
+lab(0.5 80 0)	520007	out	200009
+lab(0.5 80 40)	580000	out	170000
+lab(0.5 80 80)	5e0000	out	000000
+lab(0.5 80 128)	640000	out	000000
+lab(0.5 128 -128)	0000c4	out	001316
+lab(0.5 128 -80)	5c0078	out	35003b
+lab(0.5 128 -40)	73003f	out	320020
+lab(0.5 128 0)	7a000d	out	2f0011
+lab(0.5 128 40)	7e0000	out	2a0000
+lab(0.5 128 80)	810000	out	210000
+lab(0.5 128 128)	860000	out	000000
+lab(1 -128 -128)	0041c5	out	000809
+lab(1 -128 -80)	003777	out	000202
+lab(1 -128 -40)	00333d	out	000000
+lab(1 -128 0)	003200	out	000000
+lab(1 -128 40)	003100	out	000000
+lab(1 -128 80)	003000	out	000000
+lab(1 -128 128)	002e00	out	000000
+lab(1 -80 -128)	003ac5	out	00090a
+lab(1 -80 -80)	002e78	out	000303
+lab(1 -80 -40)	00293d	out	000101
+lab(1 -80 0)	002700	out	000000
+lab(1 -80 40)	002500	out	000000
+lab(1 -80 80)	002400	out	000000
+lab(1 -80 128)	002200	out	000000
+lab(1 -40 -128)	0033c5	out	000a0b
+lab(1 -40 -80)	002478	out	000404
+lab(1 -40 -40)	001d3d	out	000101
+lab(1 -40 0)	001a02	out	000000
+lab(1 -40 40)	001800	out	000000
+lab(1 -40 80)	001600	out	000000
+lab(1 -40 128)	201400	out	000000
+lab(1 0 -128)	002ac5	out	000b0c
+lab(1 0 -80)	001778	out	000505
+lab(1 0 -40)	000a3e	out	000203
+lab(1 0 40)	210000	out	050000
+lab(1 0 80)	300000	out	000000
+lab(1 0 128)	3c0000	out	000000
+lab(1 40 -128)	001fc5	out	000c0e
+lab(1 40 -80)	000078	out	000608
+lab(1 40 -40)	1c003e	out	14002a
+lab(1 40 0)	330005	out	1c0007
+lab(1 40 40)	3e0000	out	0f0100
+lab(1 40 80)	460000	out	000000
+lab(1 40 128)	4f0000	out	000000
+lab(1 80 -128)	0000c5	out	000e10
+lab(1 80 -80)	000078	out	000f17
+lab(1 80 -40)	48003f	out	270020
+lab(1 80 0)	530008	out	25000c
+lab(1 80 40)	590000	out	1b0100
+lab(1 80 80)	5f0000	out	020000
+lab(1 80 128)	650000	out	000000
+lab(1 128 -128)	0000c6	out	001417
+lab(1 128 -80)	5d0079	out	37003d
+lab(1 128 -40)	750040	out	350022
+lab(1 128 0)	7b000e	out	320013
+lab(1 128 40)	7f0000	out	2d0000
+lab(1 128 80)	830000	out	260000
+lab(1 128 128)	870000	out	030000
+lab(2 -128 -128)	0042c8	out	00090a
+lab(2 -128 -80)	00387a	out	000303
+lab(2 -128 -40)	00343f	out	000101
+lab(2 -128 0)	003302	out	000000
+lab(2 -128 40)	003200	out	000000
+lab(2 -128 80)	003100	out	000000
+lab(2 -128 128)	002f00	out	000000
+lab(2 -80 -128)	003bc8	out	000a0b
+lab(2 -80 -80)	002f7a	out	000404
+lab(2 -80 -40)	002a3f	out	000101
+lab(2 -80 0)	002804	out	000100
+lab(2 -80 40)	002700	out	000000
+lab(2 -80 80)	002500	out	000000
+lab(2 -80 128)	002400	out	000000
+lab(2 -40 -128)	0034c8	out	000b0c
+lab(2 -40 -80)	00267a	out	000505
+lab(2 -40 -40)	001f40	out	000202
+lab(2 -40 0)	001c06	out	000101
+lab(2 -40 40)	001a00	out	000100
+lab(2 -40 80)	001800	out	000000
+lab(2 -40 128)	211600	out	000000
+lab(2 0 -128)	002cc8	out	000c0e
+lab(2 0 -80)	00197b	out	000607
+lab(2 0 -40)	000d40	out	000404
+lab(2 0 40)	220300	out	0c0500
+lab(2 0 80)	300000	out	090100
+lab(2 0 128)	3d0000	out	000000
+lab(2 40 -128)	0021c8	out	000d0f
+lab(2 40 -80)	00007b	out	000809
+lab(2 40 -40)	1d0040	out	180032
+lab(2 40 0)	350009	out	23000b
+lab(2 40 40)	3f0000	out	160600
+lab(2 40 80)	470000	out	120200
+lab(2 40 128)	500000	out	000000
+lab(2 80 -128)	0000c8	out	001011
+lab(2 80 -80)	00007b	out	001239
+lab(2 80 -40)	4a0041	out	2c0025
+lab(2 80 0)	55000c	out	2c000f
+lab(2 80 40)	5b0000	out	210500
+lab(2 80 80)	610000	out	1c0300
+lab(2 80 128)	670000	out	010000
+lab(2 128 -128)	0000c9	out	001619
+lab(2 128 -80)	60007c	out	3b0041
+lab(2 128 -40)	780042	out	3a0026
+lab(2 128 0)	7e0011	out	380016
+lab(2 128 40)	820000	out	310300
+lab(2 128 80)	860000	out	2c0400
+lab(2 128 128)	8a0000	out	260000
+lab(3 -128 -128)	0043cb	out	000b0b
+lab(3 -128 -80)	00397d	out	000404
+lab(3 -128 -40)	003541	out	000101
+lab(3 -128 0)	003305	out	000100
+lab(3 -128 40)	003200	out	000000
+lab(3 -128 80)	003100	out	000000
+lab(3 -128 128)	003000	out	000000
+lab(3 -80 -128)	003ccb	out	000c0d
+lab(3 -80 -80)	00317d	out	000505
+lab(3 -80 -40)	002b42	out	000202
+lab(3 -80 0)	002907	out	000101
+lab(3 -80 40)	002800	out	000100
+lab(3 -80 80)	002700	out	000000
+lab(3 -80 128)	002500	out	000000
+lab(3 -40 -128)	0035cb	out	000d0e
+lab(3 -40 -80)	00277d	out	000607
+lab(3 -40 -40)	002042	out	000403
+lab(3 -40 0)	001e09	out	000302
+lab(3 -40 40)	001c00	out	000300
+lab(3 -40 80)	001a00	out	050500
+lab(3 -40 128)	221800	out	000000
+lab(3 0 -128)	002dcb	out	000e0f
+lab(3 0 -80)	001b7d	out	000808
+lab(3 0 -40)	001042	out	000607
+lab(3 0 40)	240700	out	0f0a00
+lab(3 0 80)	310300	out	100600
+lab(3 0 128)	3e0000	out	090000
+lab(3 40 -128)	0022cb	out	000f10
+lab(3 40 -80)	00037d	out	000a0b
+lab(3 40 -40)	1f0043	out	1b0039
+lab(3 40 0)	37000d	out	29000e
+lab(3 40 40)	400000	out	190a00
+lab(3 40 80)	480000	out	180700
+lab(3 40 128)	510000	out	120200
+lab(3 80 -128)	0000cb	out	001113
+lab(3 80 -80)	07007e	out	00005a
+lab(3 80 -40)	4d0043	out	300029
+lab(3 80 0)	58000f	out	310012
+lab(3 80 40)	5e0000	out	240a00
+lab(3 80 80)	630000	out	210800
+lab(3 80 128)	690000	out	1d0300
+lab(3 128 -128)	0000cc	out	00181b
+lab(3 128 -80)	63007e	out	3e0045
+lab(3 128 -40)	7b0045	out	3e0029
+lab(3 128 0)	810014	out	3d0019
+lab(3 128 40)	850000	out	350700
+lab(3 128 80)	890000	out	300800
+lab(3 128 128)	8d0000	out	2c0600
+lab(5 -128 -128)	0046d1	out	000d0e
+lab(5 -128 -80)	003b82	out	000606
+lab(5 -128 -40)	003746	out	000303
+lab(5 -128 0)	00350c	out	000301
+lab(5 -128 40)	003400	out	000200
+lab(5 -128 80)	003300	out	000200
+lab(5 -128 128)	003200	out	000100
+lab(5 -80 -128)	003fd1	out	000e0f
+lab(5 -80 -80)	003382	out	000808
+lab(5 -80 -40)	002d46	out	000504
+lab(5 -80 0)	002b0e	out	000403
+lab(5 -80 40)	002a00	out	000400
+lab(5 -80 80)	002900	out	000400
+lab(5 -80 128)	002700	out	030700
+lab(5 -40 -128)	0038d1	out	000f10
+lab(5 -40 -80)	002a82	out	000909
+lab(5 -40 -40)	002447	out	000706
+lab(5 -40 0)	002110	out	000705
+lab(5 -40 40)	001f00	out	021000
+lab(5 -40 80)	061e00	out	0c0e00
+lab(5 -40 128)	251b00	out	100900
+lab(5 0 -128)	0031d1	out	001011
+lab(5 0 -80)	002082	out	000b0b
+lab(5 0 -40)	001647	out	000c0c
+lab(5 0 40)	260e00	out	141100
+lab(5 0 80)	330b00	out	160f00
+lab(5 0 128)	3f0600	out	170b00
+lab(5 40 -128)	0026d1	out	001112
+lab(5 40 -80)	000983	out	000e0f
+lab(5 40 -40)	220047	out	220045
+lab(5 40 0)	3b0012	out	330013
+lab(5 40 40)	440000	out	1f1200
+lab(5 40 80)	4b0000	out	1e0f00
+lab(5 40 128)	540000	out	1d0c00
+lab(5 80 -128)	0000d1	out	001415
+lab(5 80 -80)	140083	out	0a006b
+lab(5 80 -40)	520048	out	380030
+lab(5 80 0)	5d0015	out	3b0017
+lab(5 80 40)	630000	out	2b1100
+lab(5 80 80)	680000	out	281000
+lab(5 80 128)	6e0000	out	260d00
+lab(5 128 -128)	0000d1	out	001b1f
+lab(5 128 -80)	690084	out	45004c
+lab(5 128 -40)	810049	out	46002f
+lab(5 128 0)	880019	out	46001e
+lab(5 128 40)	8b0000	out	3c0d00
+lab(5 128 80)	8f0000	out	371000
+lab(5 128 128)	930000	out	340f00
+lab(0 -3000 0)	00db00	out	000000
+lab(0 -3000 10000)	ffad00	out	000000
+lab(0 -1000 1000)	007e00	out	000000
+lab(1 -3000 0)	00db00	out	000000
+lab(1 -3000 10000)	ffad00	out	000000
+lab(1 -1000 1000)	007e00	out	000000
+lab(10 -3000 0)	00dd00	out	000000
+lab(10 -3000 10000)	ffaf00	out	000000
+lab(32.44070274778271 51.98603748425728 -39.45112727216116)	7b238b	in
+lab(64.92515248664226 0.0052851653511840554 -0.0005521431754126581)	9e9d9d	in
+lab(19.92983781318205 58.177109600184224 -79.41084151900557)	0302aa	in
+lab(72.35262379355697 9.01137726212798 71.59581179726845)	e0a91a	in
+lab(97.05534550955618 0.007314412682412319 -0.006444262856204388)	f7f6f7	in
+lab(28.661923345940522 -31.952681048416366 17.888125615430994)	014f26	in
