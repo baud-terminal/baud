@@ -221,7 +221,8 @@ HarfBuzz unless marked):
 
 **Still wrong:**
 
-- Meteg fails on 80 of 297 clusters. With hataf segol it sits 20 units out of
+- Meteg fails on 80 of 297 clusters (23 since 2026-10-26, FONTLOG's CHANGELOG).
+  With hataf segol it sits 20 units out of
   the cell, with qubuts 6, and on final letters it leaves the cell. On qof it
   lands on the leg with every vowel: round 3 had moved qof's vowels to the cell
   edge to make room, and round 4 put them back under the bowl.
@@ -940,12 +941,14 @@ the bar read on confidence.
 
 **Known defects added to FONTLOG** (not in sections 4a and 4b):
 
-- Meteg spelled with CGJ draws on the vowel (measured, Regular and Bold).
+- Meteg spelled with CGJ draws on the vowel (measured, Regular and Bold; drawn right
+  of the vowel since 2026-10-26, FONTLOG's CHANGELOG).
 - U+20AA is unmapped although the code-page 1255 bit is set (mapped since
   2026-10-25, baud's own glyph; FONTLOG's CHANGELOG).
 - U+05C6, U+0591-05AF and U+FB1D-FB4F are unmapped (all mapped since
   2026-10-25, with U+05EF-05F2; FONTLOG's CHANGELOG).
-- Bold meteg's per-vowel failures.
+- Bold meteg's per-vowel failures (since 2026-10-26 only where the cell has no place
+  for meteg on its side, FONTLOG's CHANGELOG).
 
 **Still the owner's:**
 

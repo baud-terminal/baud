@@ -39,6 +39,13 @@ glyph ID moves; an outline drawn upright there takes the italics' shear and corr
 do, its letters join the anchor search, its marks are placed as the points are, each presentation
 form that has a canonical decomposition is a composite of it at the mark lookup's own offsets, and
 three mark-to-mark lookups set a cantillation mark beside the point before it.
+
+Since 2026-10-26, meteg stays inside its letter's cell beside its vowel (meteg.py): where the
+vowel's own anchor leaves meteg outside the cell or on the letter, a chained context in mkmk,
+after meteg's mark-to-mark, places the vowel and meteg again by further sets of base anchors --
+only in a cluster that carries a meteg -- left of the vowel when meteg follows it and right of it
+for <meteg, CGJ, vowel>, as the Unicode Standard (9.1) spells the two sides. fit_meteg's note that
+baud's shaper runs GPOS types 4, 6 and 9 only is from before baud's shaper ran contexts.
 """
 import sys, os, math, json, struct
 import numpy as np
@@ -58,6 +65,7 @@ import style as ST          # the STYLE parameter
 import distinct as DS       # round 5: letters kept apart
 import optical as OP        # the italics' correction of rounds (JetBrains Mono Italic's)
 import cover as CV          # the rest of the repertoire, appended after every glyph above
+import meteg as MT          # meteg beside its vowel inside the cell, where the vowel's own place does not keep it there
 import field as FD
 from geom import FlatPen, runs_at_y
 from pin import save_pinned, table_pinned    # baud: the repacker pin, shared with instance.py
@@ -1002,13 +1010,18 @@ def build(out, letter_hook=None, tag=''):
     mw = MB[0x05BD][2] - MB[0x05BD][0]
     m1 = {'heb_05BD': (0, otl.buildAnchor(*[round(c) for c in mark_xy(0x05BD, E.MARK_SHIFT, home[0x05BD])]))}
     m2 = {}
+    rel_left, rel_right = {}, {}
     for v in E.METEG_VOWELS:
         ax = E.MARK_SHIFT + MB[v][0] - E.METEG_GAP - mw / 2
         # tops aligned -- except beside a point the -275 rule raised above
         # BELOW_TOP (sheva, the hatafs): there meteg keeps BELOW_TOP's height
         raised = max(0, math.ceil((E.LOWEST_TWO if v in E.TWO_ROW else E.LOWEST) + (MB[v][3] - MB[v][1]) - 1e-6) - E.BELOW_TOP)   # fix-bi
         ay = home[v] + MB[v][3] - raised
-        m2['heb_%04X' % v] = {0: otl.buildAnchor(*[round(c) for c in mark_xy(v, ax, ay)])}
+        rel_left[v] = tuple(round(c) for c in mark_xy(v, ax, ay))
+        m2['heb_%04X' % v] = {0: otl.buildAnchor(*rel_left[v])}
+        # meteg right of the vowel (<meteg, CGJ, vowel>, meteg.py): the mirror, its left edge
+        # METEG_GAP from the vowel's ink, tops aligned the same way
+        rel_right[v] = tuple(round(c) for c in mark_xy(v, E.MARK_SHIFT + MB[v][2] + E.METEG_GAP + mw / 2, ay))
     mm = ot.Lookup()
     mm.LookupType = 6
     mm.LookupFlag = 0x0010                     # UseMarkFilteringSet
@@ -1028,6 +1041,44 @@ def build(out, letter_hook=None, tag=''):
     msd.Coverage.append(otl.buildCoverage(set_glyphs, gmap))
     msd.MarkSetCount = len(msd.Coverage)
     mm.MarkFilteringSet = msd.MarkSetCount - 1
+
+    # meteg beside its vowel inside the cell (meteg.py): where the vowel's own anchor leaves meteg
+    # out of the cell or on the letter, a chained context in mkmk places the vowel and meteg again --
+    # only in a cluster that carries a meteg -- by further sets of base anchors, left of the vowel
+    # when meteg follows it and right of it for <meteg, CGJ, vowel>. It runs after meteg's
+    # mark-to-mark and places meteg itself, from its letter, so baud's shaper, which places an
+    # attached mark once from its target's place at that moment, and HarfBuzz, which adds the
+    # target's offset at the end, put it in one place.
+    vowel_anchor = {v: tuple(round(c) for c in mark_xy(v, E.MARK_SHIFT, home[v])) for v in E.METEG_VOWELS}
+    meteg_anchor = tuple(round(c) for c in mark_xy(0x05BD, E.MARK_SHIFT, home[0x05BD]))
+    met = MT.place(
+        sys.modules[__name__], E, {u: new['heb_%04X' % u][0] for u in base_a},
+        {v: new['heb_%04X' % v][0] for v in E.METEG_VOWELS}, new['heb_05BD'][0],
+        vowel_anchor, meteg_anchor, rel_left, rel_right, base_a)
+    vcls = {v: i for i, v in enumerate(E.METEG_VOWELS)}
+    print('meteg in the cell (meteg.py): %d places moved (side, letter, vowel, vowel moved by, meteg further by, meteg ink out, vowel ink added out, shortfall):' % len(MT.LOG))
+    for row in MT.LOG:
+        print('   ', *row)
+
+    def bases_of(table, cls):
+        out = {('heb_%04X' % u): {cls(v): otl.buildAnchor(*xy) for v, xy in d.items()} for u, d in table.items()}
+        for name, frm in anchors_from.items():      # a presentation form takes its letter's
+            out[name] = out[frm]
+        return out
+
+    def mark_base(marks_, bases_):
+        lkp = ot.Lookup()
+        lkp.LookupType = 4
+        lkp.LookupFlag = 0
+        lkp.SubTable = otl.buildMarkBasePos(marks_, bases_, gmap)
+        lkp.SubTableCount = len(lkp.SubTable)
+        return lkp
+    vmarks = {('heb_%04X' % v): (vcls[v], otl.buildAnchor(*vowel_anchor[v])) for v in E.METEG_VOWELS}
+    mb_left = mark_base(vmarks, bases_of(met['left'], vcls.get))
+    mb_right = mark_base(vmarks, bases_of(met['right'], vcls.get))
+    mb_meteg = {(side, v): mark_base({'heb_05BD': (0, otl.buildAnchor(*meteg_anchor))},
+                                     bases_of({u: {0: d[v]} for u, d in met[side].items() if v in d}, lambda _: 0))
+                for side in ('lmeteg', 'rmeteg') for v in E.METEG_VOWELS}
 
     # lookups 7 and 8 (mkmk, cover.py; 9 below): a cantillation mark below beside the point below before it,
     # as Unicode 9.1 orders them -- 'the point always comes first (on the right) and the mark after
@@ -1074,11 +1125,41 @@ def build(out, letter_hook=None, tag=''):
     acc_left = mark_to_mark(c1, c2, sorted(c1) + sorted(c2))
 
     gpos = jbm['GPOS'].table
-    gpos.LookupList.Lookup += [lk, mm, acc_after, acc_before, acc_left]
+    first = len(gpos.LookupList.Lookup)
+    i_mark = first
+    i_mkmks = [first + 1, first + 2, first + 3, first + 4, first + 5]    # meteg's, the chain, the accents'
+    i_left, i_right = first + 6, first + 7
+    i_meteg = {key: first + 8 + k for k, key in enumerate(mb_meteg)}
+    base_glyphs = sorted(bases_of(met['left'], vcls.get), key=gmap.get)
+
+    def chained(coverages, records):
+        sub = ot.ChainContextPos()
+        sub.Format = 3
+        sub.BacktrackGlyphCount, sub.BacktrackCoverage = 0, []
+        sub.InputGlyphCount = len(coverages)
+        sub.InputCoverage = [otl.buildCoverage(c, gmap) for c in coverages]
+        sub.LookAheadGlyphCount, sub.LookAheadCoverage = 0, []
+        sub.PosCount = len(records)
+        sub.PosLookupRecord = []
+        for at_, li in records:
+            r = ot.PosLookupRecord()
+            r.SequenceIndex, r.LookupListIndex = at_, li
+            sub.PosLookupRecord.append(r)
+        return sub
+    vowel_glyphs = ['heb_%04X' % v for v in E.METEG_VOWELS]
+    chain = ot.Lookup()
+    chain.LookupType = 8
+    chain.LookupFlag = 0x0010                  # UseMarkFilteringSet: meteg's, so a dagesh is stepped over
+    chain.MarkFilteringSet = mm.MarkFilteringSet
+    chain.SubTable = [chained([base_glyphs, ['heb_%04X' % v], ['heb_05BD']], [(1, i_left), (2, i_meteg['lmeteg', v])])
+                      for v in E.METEG_VOWELS]
+    chain.SubTable += [chained([base_glyphs, ['heb_05BD'], ['heb_%04X' % v]], [(1, i_meteg['rmeteg', v]), (2, i_right)])
+                       for v in E.METEG_VOWELS]
+    chain.SubTableCount = len(chain.SubTable)
+    gpos.LookupList.Lookup += [lk, mm, chain, acc_after, acc_before, acc_left, mb_left, mb_right] + list(mb_meteg.values())
     gpos.LookupList.LookupCount = len(gpos.LookupList.Lookup)
-    n = gpos.LookupList.LookupCount
-    i_mark = n - 5
-    i_mkmks = [n - 4, n - 3, n - 2, n - 1]
+    if gpos.LookupList.Lookup[i_mkmks[1]] is not chain or gpos.LookupList.LookupCount != first + 8 + len(mb_meteg):
+        raise SystemExit('GPOS lookup indices moved')
     seen = set()
     for fr in gpos.FeatureList.FeatureRecord:
         if fr.FeatureTag == 'mark':

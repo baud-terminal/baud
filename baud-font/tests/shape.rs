@@ -14,7 +14,7 @@
 use baud_domain::{Classified, Codepoint, GlyphId, GraphemeClass, Width};
 use baud_font::{
     Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Script,
-    Shaper, Unresolved, resolve,
+    Shaper, Sink, Unresolved, resolve,
 };
 
 struct Fixture {
@@ -843,6 +843,158 @@ fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
     } else {
         assert!(skipped == 645 && system_fixtures == 0, "{skipped}");
     }
+}
+
+/// **Meteg beside its vowel shapes as HarfBuzz shapes it, on every built
+/// face.** Every line of `tests/shape/meteg.txt` is a letter, a vowel meteg
+/// may follow, and meteg, spelled for each side the Unicode Standard
+/// (`[[source: unicode-ch9]]`, 9.1) gives: <vowel, meteg>, left of the
+/// vowel, and <meteg, CGJ, vowel>, right of it; and on the Regular and the
+/// Bold, on four letters, with a dagesh after the vowel and before it, which
+/// the lookup's mark filtering set steps over. Where the vowel's own place
+/// leaves meteg out of the cell, the faces' chained context places the vowel
+/// and meteg again by further sets of anchors, after meteg's mark-to-mark:
+/// it places meteg itself, from its letter, because baud places an attached
+/// mark once, from its target's place at that moment, where HarfBuzz adds
+/// the target's offset at the end, so a vowel moved under a meteg already
+/// attached to it would carry meteg in HarfBuzz alone.
+#[test]
+fn every_meteg_fixture_shapes_as_harfbuzz_does() {
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        moved: Reached(moved),
+        ..
+    } = shape_script_fixtures("meteg.txt", cfg!(target_os = "macos"), GposTable::Kept);
+    // 27 letters by 11 vowels by 2 spellings on four faces, and 4 letters
+    // by 11 vowels by 2 more spellings on two.
+    assert!(fixtures == 2552 && hebrew == 2552, "{fixtures} {hebrew}");
+    // Positive control: every line places its points, so each moves at
+    // least its vowel and its meteg off the base.
+    assert!(moved >= 2 * fixtures, "{moved}");
+}
+
+/// A glyph's ink box: the extremes of the points its outline draws through,
+/// control points included -- exact for meteg, a bar, and enough to say
+/// which side of a vowel its centre lies.
+#[derive(Default)]
+struct InkBox {
+    b: Option<(f32, f32, f32, f32)>,
+}
+
+impl InkBox {
+    fn put(&mut self, x: f32, y: f32) {
+        let (x0, y0, x1, y1) = self.b.unwrap_or((x, y, x, y));
+        self.b = Some((x0.min(x), y0.min(y), x1.max(x), y1.max(y)));
+    }
+}
+
+impl Sink for InkBox {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.put(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.put(x, y);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.put(x1, y1);
+        self.put(x, y);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.put(x1, y1);
+        self.put(x2, y2);
+        self.put(x, y);
+    }
+    fn close(&mut self) {}
+}
+
+/// **Meteg stays in its letter's cell, on the side its text order gives.**
+/// The Unicode Standard (`[[source: unicode-ch9]]`, 9.1): "Typically, meteg
+/// is placed to the left of the vowel", <vowel, meteg>, and "to display
+/// meteg to the right of the sheva ... <meteg, CGJ, sheva>". On each built
+/// face, every letter with every vowel meteg may follow, in both spellings,
+/// shaped by baud: meteg's centre must lie on its side of the vowel's, and
+/// its ink inside x 0..600 -- except where the faces' rule
+/// (`baud-app/fonts/glyphs/languages/hebrew/build/meteg.py`) finds no place
+/// in the cell on that side: left of the vowel on a final letter, whose
+/// vowel stands beside its descender, and right of it on qof, whose vowel
+/// stands right of its leg. Before the faces' chained context, hataf segol
+/// and qubuts put meteg past the left edge on every letter, and <meteg,
+/// CGJ, vowel> drew meteg on the vowel.
+#[test]
+fn meteg_stays_in_its_cell_on_the_side_its_text_order_gives() {
+    const VOWELS: [u32; 11] = [
+        0x05B0, 0x05B1, 0x05B2, 0x05B3, 0x05B4, 0x05B5, 0x05B6, 0x05B7, 0x05B8, 0x05BB, 0x05C7,
+    ];
+    const FINALS: [u32; 4] = [0x05DA, 0x05DF, 0x05E3, 0x05E5];
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../baud-app/fonts/built");
+    let mut wrong = Vec::new();
+    let mut inside = Vec::new();
+    for style in ["Regular", "Bold", "Italic", "BoldItalic"] {
+        let data = std::fs::read(format!("{root}/{style}.ttf")).unwrap();
+        let face = Face::parse(&data).unwrap();
+        let ink = |g: GlyphId, dx: i16, dy: i16| {
+            let mut b = InkBox::default();
+            face.outline(g, &mut b);
+            let (x0, y0, x1, y1) = b.b.unwrap();
+            let (dx, dy) = (f32::from(dx), f32::from(dy));
+            (x0 + dx, y0 + dy, x1 + dx, y1 + dy)
+        };
+        let gid = |c: u32| face.glyph(Codepoint::new(c).unwrap()).unwrap();
+        let meteg = gid(0x05BD);
+        let (mut left_in, mut right_in) = (0usize, 0usize);
+        for letter in 0x05D0..=0x05EAu32 {
+            for v in VOWELS {
+                for right in [false, true] {
+                    let text: &[u32] = if right {
+                        &[letter, 0x05BD, 0x034F, v]
+                    } else {
+                        &[letter, v, 0x05BD]
+                    };
+                    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+                    let (buf, _) = shape(&face, text, &mut storage);
+                    let find = |id: GlyphId| buf.as_slice().iter().find(|g| g.id == id).unwrap();
+                    let (m, vg) = (find(meteg), find(gid(v)));
+                    let mb = ink(meteg, m.dx, m.dy);
+                    let vb = ink(vg.id, vg.dx, vg.dy);
+                    let (mc, vc) = ((mb.0 + mb.2) / 2.0, (vb.0 + vb.2) / 2.0);
+                    if (right && mc <= vc) || (!right && mc >= vc) {
+                        wrong.push(format!("{style} {text:04X?}: meteg {mb:?} vowel {vb:?}"));
+                    }
+                    let fits = mb.0 >= 0.0 && mb.2 <= 600.0;
+                    let no_place = if right {
+                        letter == 0x05E7
+                    } else {
+                        FINALS.contains(&letter)
+                    };
+                    if !fits && !no_place {
+                        wrong.push(format!("{style} {text:04X?}: meteg {mb:?} out of the cell"));
+                    }
+                    if fits {
+                        *if right { &mut right_in } else { &mut left_in } += 1;
+                    }
+                }
+            }
+        }
+        inside.push((style, left_in, right_in));
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} clusters:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+    // Of 297 on each side: the clusters whose meteg is inside the cell,
+    // measured; the rest are the cases above.
+    assert_eq!(
+        inside,
+        [
+            ("Regular", 274, 291),
+            ("Bold", 265, 291),
+            ("Italic", 262, 293),
+            ("BoldItalic", 259, 291)
+        ]
+    );
 }
 
 /// **A Hebrew run whose `GPOS` selects no Script table is placed as on a

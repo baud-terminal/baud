@@ -27,15 +27,16 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     5e83a808ad370d451b9d62aa61d0cc0bcf37b87a9e06f9a0f9942ac00b433e3b
-  Bold.ttf        02d181cb5cbd1b03dd1d6da9103b6f3582696c622839ae3114740a195dd9e1c5
-  Italic.ttf      5e8d183386ba561f2c36a26eabd6ab6f356a1acab773f4c3d01d7627a467fbc8
-  BoldItalic.ttf  7c7d96da1c89bdd191f880d95ec2a7f45574d0d26b6eebfb4ef3092388175742
+  Regular.ttf     31b3a9f71d33ad3af9f4f0c710b40f9e7925dc4d52a8c450e83ab0f7107de5d9
+  Bold.ttf        f808a38069fc208fb9d8c07fc5977f072b38c90595452b07af2756c9b0cf3882
+  Italic.ttf      27051bb85fd8ac50953ec29b481aaaf334faa0bf6935eca1b700ca954b899544
+  BoldItalic.ttf  f508912b349e5f1c2529dc596caf9aded228c6d1c93b0b1d3151153f21a59e5b
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
-since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), and since 2026-10-25
-the glyphs baud draws itself (BAUD'S OWN GLYPHS), and nothing else.
+since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), since 2026-10-25
+the glyphs baud draws itself (BAUD'S OWN GLYPHS), and since 2026-10-26 meteg kept in
+its cell (CHANGELOG), and nothing else.
 Before the dalet: take the 6-byte hebr script record out of GSUB and of GPOS and both
 tables were final3's byte for byte, and every other table but name (nameID 7) and head
 (its checksum) was final3's. The dalet changes that glyph's outline, its anchors in
@@ -71,12 +72,16 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   taken out, every byte is stock's. The 20 combining points, the 31 cantillation
   marks and varika advance 0, and the 31 letters, 6 punctuation marks, the sheqel
   sign and the 45 other presentation forms advance 600 (one cell).
-- GPOS goes from 5 lookups to 10. The 5 stock lookups are unchanged. The new ones are
+- GPOS goes from 5 lookups to 35. The 5 stock lookups are unchanged. The new ones are
   mark-to-base (type 4), for the points and cantillation marks on the letters, and
   four mark-to-mark (type 6): meteg on the vowel before it; a cantillation mark below
   left of the point or meteg before it; yetiv and dehi right of the point before
   them; and a postpositive mark above left of a holam. They are appended to the
-  existing mark and mkmk features. GDEF classes the 135 new glyphs (83 base, 52 mark;
+  existing mark and mkmk features. In mkmk, after meteg's mark-to-mark, a chained
+  context (type 8) keeps meteg in its cell: in a cluster that carries a meteg it
+  places the vowel and meteg again, left of the vowel when meteg follows it and
+  right of it when meteg comes before it through CGJ, through 24 mark-to-base
+  lookups that no feature names (build/meteg.py). GDEF classes the 135 new glyphs (83 base, 52 mark;
   every stock glyph keeps its class) and gains four mark filtering sets, one for each
   new mark-to-mark lookup.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
@@ -213,7 +218,9 @@ Bold's stems. The steps (note AC 4a and 4b):
 - Every vowel point is redrawn on JetBrains Mono's own dot and placed by a clearance
   search against the letter. The Regular dot is 116; the Bold dot is 120 x 98 and the
   Bold dagesh 104.
-- Meteg attaches to the vowel before it.
+- Meteg attaches to the vowel before it, and stays in the cell: where the vowel's own
+  place leaves no room, the vowel and meteg move in that cluster alone
+  (build/meteg.py).
 - Two-row points (sheva, the hatafs) drop under ג ט ל ס ש so their top dot does not
   touch the letter.
 - Dalet's leg stands at its roof's right end, the roof passing it by 45 units where
@@ -354,29 +361,35 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the last five -- meteg with CGJ, nun hafukha's dot, a
-form followed by a point, two cantillation marks on one letter and a mark beside a
-wide point -- and the Bold meteg item's detail, which were measured
+(From note AC 4a and 4b, except the first and the last four -- meteg, nun hafukha's
+dot, a form followed by a point, two cantillation marks on one letter and a mark
+beside a wide point -- which were measured
 on these files on 2026-10-08 or later and are not in note AC. None of these is fixed
 by this build. Two earlier gaps, the missing hebr script record and Cascadia's
 dropped trademark notice, were fixed; see the CHANGELOG.)
 
-- Meteg fails on 80 of 297 clusters in Regular. With hataf segol it sits 20 units out
-  of the cell and with qubuts 6, and on final letters it leaves the cell. On qof it
-  lands on the leg.
-- Meteg fails on 125 of 297 clusters in Bold (it passes 172; note AC 4b). On these
-  bytes, with HarfBuzz 12.3.0 under latn, the lookups baud selects (baud's own shaper
-  gives the same on bet with hataf patah and hataf segol): on the 22 letters without a
-  descender, meteg sits up to 60 units out of the cell with hataf segol, 42 with
-  qubuts, and 10 with hataf patah and hataf qamats, which Regular keeps inside; on the
-  five with one, qof and four final forms, 32 of 55 clusters leave the cell.
-- Meteg in the italics passes 185 of 297 clusters in Italic and 143 in Bold Italic,
-  where Regular passes 217 and Bold 172: the right lean's points sit left of the
-  upright's, and the cell fit moves the vowel but not meteg alone (note AC 4b).
-  Measured on these files with the round 3 critic's check; the plain shear's are the
-  same counts.
+- Meteg leaves the cell where the rule (build/meteg.py) finds no place inside it on
+  the side its text order gives. Measured on these files with the round 3 critic's
+  check (meteg 20 units clear of the vowel and the letter, its box inside x 0..600):
+  <vowel, meteg> passes 274 of 297 clusters in Regular, 265 in Bold, 262 in Italic
+  and 259 in Bold Italic (before 2026-10-26: 217, 172, 185 and 143); the rest are
+  final letters, whose vowel stands beside the descender with no room for meteg to
+  its left (in Bold Italic final nun and final tsadi with every vowel; Regular: final kaf and final pe with the hatafs and qubuts, final nun
+  with those and tsere and segol, final tsadi with all but sheva and hiriq).
+  <meteg, CGJ, vowel> passes 291, 291, 293 and 291 (before: none, meteg drew on the
+  vowel); the rest are qof with the wide vowels, whose vowel stands right of the
+  leg with no room for meteg to its right. Meteg keeps its side there, clear of the
+  letter, with the least ink outside the cell. Right of a wide vowel on final kaf,
+  final nun and final pe, meteg stands past the descender, inside the cell.
 - Rare combinations overflow the cell sideways: qof with hataf segol by 104 units,
-  and final tsadi with qubuts by 140 (Regular; Bold unmeasured).
+  and final tsadi with qubuts by 140 (Regular; Bold unmeasured). With a meteg after
+  it, a wide vowel on qof goes further, to leave meteg room between it and the leg
+  (Regular: tsere and segol 3 units past the cell, the hatafs 56, qubuts 120, hataf
+  segol 148; Bold up to 219). Jev's lean, taken: the first two asks leaned to meteg
+  left of the leg (probability 0.53/0.60, then 0.58/0.67) on a figure for its
+  overflow that was wrong (6-37 units in Bold, where it is 48, with the italics'
+  107-150 and its failing the check left out); asked once more with the measured
+  figures, the vowel past the edge, 0.79/0.62 (confidence 0.58/0.24).
 - After the digit 1, an unattached holam vanishes into it, as JetBrains Mono's own
   U+0307 does (Regular; Bold unmeasured).
 - Bold at 26 px: the sheva's two dots fuse (dot-to-dot 124) and the lower dot is cut
@@ -388,19 +401,6 @@ dropped trademark notice, were fixed; see the CHANGELOG.)
   before.
 - The narrow letters were judged by non-native readers from baud renders, so they are
   the owner's to check (1a).
-- A meteg spelled to sit right of its vowel, as Unicode 17 section 9.1 gives it --
-  <meteg, CGJ, vowel> -- draws on the vowel. Measured in baud's shaper: in Regular,
-  bet + meteg + CGJ + sheva puts meteg at x 259..341, y -186..-36, over the sheva at
-  x 242..358, y -275..-26 (Bold: 244..357 over 240..360), and hataf patah is the
-  same. Meteg lands exactly where bet + meteg alone puts it, on the letter's anchor:
-  no vowel precedes it for the mark-to-mark lookup. HarfBuzz 12.3.0 under latn gives
-  the same boxes. The left spellings, <vowel, meteg> and <hataf, ZWNJ, meteg>, come
-  out left of the vowel, and the ZWNJ moves nothing: in all 297 letter-vowel clusters
-  of both styles, meteg lands where it does without it (HarfBuzz 12.3.0 under latn;
-  baud's shaper on bet), so the meteg items above apply to both spellings. In Bold,
-  bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
-  left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
-  segol -20..62, 20 out).
 - A dot above nun hafukha, which the Unicode Standard spells U+0307 (9.1), is
   JetBrains Mono's combining dot, and no lookup places it on U+05C6: it sits where
   the pen leaves it, offset 0 in HarfBuzz 14.5.1, as on nun.
@@ -521,3 +521,23 @@ CHANGELOG
   each holding the appended GPOS to its earlier two lookups and one filtering set;
   the strip-and-compare gate adds "appended lookups [(4, 0), (6, 16), (6, 16), (6,
   16), (6, 16)]" and "mark filtering set 3 / appended 4".
+2026-10-26 (i-am-logger, baud): meteg stays in its letter's cell beside its vowel,
+  on the side the Unicode Standard (9.1) gives its spelling: left of the vowel for
+  <vowel, meteg>, right of it for <meteg, CGJ, vowel>, which before drew meteg on
+  the vowel. Where the vowel's own place leaves meteg out of the cell or on the
+  letter (hataf segol and qubuts on every letter, qof's leg), a chained context in
+  mkmk places the vowel and meteg again, only in a cluster that carries a meteg, as
+  Courier New's does (build/meteg.py): meteg in the cell first, then the vowel's
+  ink in it, then the least movement; the vowel slides and never passes through
+  the letter. Pointed text without meteg draws as before: the hebrew-faces fixtures
+  change only on their 22 italic clusters that carry one. GPOS gains the chained
+  context and 24 mark-to-base lookups (8.5-8.7 KB a file); no other table but
+  head's checksum changes. Jev with renders: moving the pair only in a meteg
+  cluster, probability 0.90 and 0.88 (confidence 0.85 and 0.82), and meteg keeping
+  its side where the cell has no room, 0.78 and 0.83 (confidence 0.56 and 0.66),
+  both leans taken; qof under KNOWN DEFECTS; meteg's ink kept in the cell before
+  the vowel's, 0.99 and 0.98 (confidence 0.98 and 0.96), settled. No cluster that
+  passed the meteg check before fails it. The gates were run again: OTS passes;
+  the generalised gate's lookup count reads 5 -> 35 and its features line names
+  mkmk [2, 3, 4, 6, 7, 8, 9, 10]; the strip-and-compare gate's appended lookups
+  read [(4, 0), (6, 16), (8, 16), (6, 16), (6, 16), (6, 16)] and 24 (4, 0).

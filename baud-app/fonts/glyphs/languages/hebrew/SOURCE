@@ -58,7 +58,8 @@ only this file and OFL.txt):
       U+05C6, U+05EF and U+05F0-U+05F2, made from the built letters; U+FB1D-U+FB4F,
       composites of the built letters and points, varika drawn, the rest from the
       built letters and JetBrains Mono's plus; U+0591-U+05AF, the cantillation
-      marks, drawn), from no other font; optical.py is the
+      marks, drawn), from no other font; meteg.py places meteg beside its vowel
+      inside the cell (2026-10-26); optical.py is the
       italics' correction of rounds; narrow.py, field.py and geom.py are
       helpers; pin.py is the fontTools setting the bytes depend on; instance.py makes
       the instances. design*.py, narrow.py and field.py are byte-identical to the
@@ -67,7 +68,8 @@ only this file and OFL.txt):
       port, build.py also writes Cascadia's trademark notice into nameID 7 and adds a
       hebr script record to GSUB and GPOS (2026-10-08, conformance fixes; no outline,
       anchor, lookup or feature changed), since 2026-10-24 applies distinct.py's
-      edit after design.py's, and since 2026-10-25 appends cover.py's glyphs.
+      edit after design.py's, since 2026-10-25 appends cover.py's glyphs, and since
+      2026-10-26 appends meteg.py's lookups.
       build.py's docstring lists the changes.
       geom.py gains flatten, segs and pt_seg_min, moved verbatim from the research
       tree's v4_clear.py, which imported uharfbuzz, so that the build imports no
