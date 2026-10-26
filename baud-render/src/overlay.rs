@@ -834,7 +834,7 @@ impl Overlay {
                             scene,
                             r,
                             (x, y),
-                            (&orders, partner_held),
+                            (&orders, partner_held, &covered),
                             mask,
                             records,
                             &paint,
@@ -1274,7 +1274,7 @@ impl Overlay {
         scene: &Scene<'_, '_>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
-        (orders, partner_held): (&crate::bidi::Orders, bool),
+        (orders, partner_held, covered): (&crate::bidi::Orders, bool, &Covered),
         mask: &mut [u8],
         records: &mut Vec<Instance>,
         paint: &Paint<'_>,
@@ -1297,16 +1297,70 @@ impl Overlay {
         let stretch = crate::atlas::Stretch::One;
         // The cells drawn, each with its glyphs, and the key and the
         // arguments the glyphs are found by.
+        // **A partner a composition holds** is drawn as written there
+        // (`Renderer::shown_cell`), by this cell, whichever end it is.
+        let composed = |o: usize| covered.holds(window_row, Col::at_index(o));
+        let shown = |r: &Renderer<'_, '_>, o: usize| {
+            let cell = row.get(o).copied().unwrap_or(PackedCell::EMPTY);
+            match composed(o) {
+                true => r.written_cell(window_row, Col::at_index(o)).unwrap_or(cell),
+                false => cell,
+            }
+        };
         let (lam_x, alef_x, lam_form, lam_cell, alef_cell, span) = match part {
             // The right end is drawn by the left one, which masks it: one
-            // reached here was not, and is drawn alone.
-            PairPart::Lam(_, PairEnd::Right) | PairPart::Alef(_, PairEnd::Right) => return false,
+            // reached here was not, and is drawn alone -- unless the left
+            // one is composed, and this one draws both.
+            PairPart::Lam(cells, PairEnd::Right) | PairPart::Alef(cells, PairEnd::Right) => {
+                let Some(o) = x
+                    .checked_sub(cells.index().saturating_sub(1))
+                    .filter(|&o| o < x && composed(o))
+                else {
+                    return false;
+                };
+                let partner = orders
+                    .joined(window_row, Col::at_index(o))
+                    .and_then(|p| p.pair);
+                let there = shown(r, o);
+                match (part, partner) {
+                    (PairPart::Lam(..), Some((PairPart::Alef(h, PairEnd::Left), _)))
+                        if h == cells =>
+                    {
+                        (
+                            x,
+                            o,
+                            j.form,
+                            here,
+                            there,
+                            PairSpan::Cells(LamAt::Right, cells),
+                        )
+                    }
+                    (PairPart::Alef(..), Some((PairPart::Lam(h, PairEnd::Left), _)))
+                        if h == cells =>
+                    {
+                        let lam_form = orders
+                            .joined(window_row, Col::at_index(o))
+                            .map_or(j.form, |l| l.form);
+                        (
+                            o,
+                            x,
+                            lam_form,
+                            there,
+                            here,
+                            PairSpan::Cells(LamAt::Left, cells),
+                        )
+                    }
+                    _ => return false,
+                }
+            }
             PairPart::Lam(cells, PairEnd::Left) | PairPart::Alef(cells, PairEnd::Left) => {
                 let o = x + cells.index().saturating_sub(1);
                 let partner = orders
                     .joined(window_row, Col::at_index(o))
                     .and_then(|p| p.pair);
-                let (Some(&there), false, true) = (row.get(o), partner_held, o > x) else {
+                let held = partner_held && !composed(o);
+                let there = shown(r, o);
+                let (true, false, true) = (o < row.len(), held, o > x) else {
                     return false;
                 };
                 match (part, partner) {
@@ -1772,18 +1826,58 @@ impl Overlay {
                 *slot |= MASK_RECORD;
             }
         }
-        composition_records(
-            r,
-            term,
-            (c, laid),
-            under,
-            styles,
-            block,
-            cols,
-            size,
-            pan,
-            records,
-        );
+        let mut parts =
+            composition_parts(r, term, (c, laid), under, styles, block, cols, size, pan);
+        // **On a row the layout joined, drawn in the row's order**, as the
+        // instance path draws it ([`crate::renderer::Splice`]): on a line
+        // that is not single-width the walk's records of the line already
+        // hold its pages and glyphs ([`Renderer::sized_lines`]); on one that
+        // is, they go among the walk's records.
+        if laid == Laid::AsWritten {
+            if let Some(s) = parts.splice(r.bidi(), c.row) {
+                if !size.is_double() {
+                    self.splice_into(s, records);
+                }
+            }
+        }
+        parts.append_to(records);
+    }
+
+    /// **A composition's pages and glyphs among the walk's records**, in
+    /// the instance path's order: its pages under every record, and each
+    /// cluster's glyphs after the records of the cells before its own in
+    /// that order -- rows top to bottom, each left to right
+    /// ([`Overlay::order`]) -- and before the rest. The walk's records are
+    /// the first [`Overlay::under`] of `records`, each of its cells' in
+    /// turn; were they not, the glyphs go after them. Both lie inside their
+    /// row, so [`Overlay::under`] counts them: the cell path draws them
+    /// before its decorations, as the instance path draws them before the
+    /// row's.
+    fn splice_into(&mut self, s: crate::renderer::Splice, records: &mut Vec<Instance>) {
+        let walked = usize::try_from(self.under.value())
+            .unwrap_or(usize::MAX)
+            .min(records.len());
+        let tracked: usize = self.emitted.iter().map(|e| e.inside.len()).sum();
+        let mut out = Vec::with_capacity(records.len() + s.pages.len() + s.glyphs.len());
+        out.extend(s.pages);
+        let (mut k, mut pos) = (0, 0);
+        for (x, glyphs) in s.glyphs {
+            let at = (s.row, Col::at_index(x));
+            while tracked == walked && self.emitted.get(k).is_some_and(|e| e.order() < at) {
+                let end = pos + self.emitted[k].inside.len();
+                out.extend_from_slice(&records[pos..end]);
+                (k, pos) = (k + 1, end);
+            }
+            if tracked != walked {
+                out.extend_from_slice(&records[pos..walked]);
+                pos = walked;
+            }
+            out.extend(glyphs);
+        }
+        let inserted = out.len() - pos;
+        out.extend_from_slice(&records[pos..]);
+        *records = out;
+        self.under = Tally::of(walked + inserted);
     }
 
     /// **The leaving row of a smooth scroll, as the shader reads it,
@@ -2495,6 +2589,12 @@ impl Composition {
         })
     }
 
+    /// Whether it holds a letter that takes a joining form (Joining_Type
+    /// D, R, L or C), which its row's layout joins.
+    pub fn joins(&self) -> bool {
+        self.text.iter().any(|c| baud_domain::takes_form(c.value()))
+    }
+
     /// Its clusters laid on a screen `cols` wide from its cell, as the core
     /// writes them ([`clusters`]): one that would cross the right edge is
     /// not drawn, nor anything after it -- a composition is shown on its
@@ -2743,6 +2843,70 @@ pub(crate) fn composition_records(
     pan: Px,
     records: &mut Vec<Instance>,
 ) {
+    composition_parts(r, term, (c, laid), under, styles, block, cols, size, pan).append_to(records);
+}
+
+/// **A composition's records in their parts**: the selection's pages under
+/// its glyphs, each cluster's glyphs by the visual column it is drawn at,
+/// left to right -- as `Renderer::convert_row` draws a row's -- and each
+/// cell's line over them.
+#[derive(Default)]
+pub(crate) struct Composed {
+    pub(crate) pages: Vec<Instance>,
+    /// Each cluster's visual column, its glyphs' records inside its row,
+    /// and their parts above it.
+    pub(crate) glyphs: Vec<(usize, Vec<Instance>, Vec<Instance>)>,
+    pub(crate) rules: Vec<Instance>,
+}
+
+impl Composed {
+    /// **Its pages and glyphs, taken to be drawn in the order of row
+    /// `row`**, on a row `orders` joined, where its letters' ink meets that
+    /// of the letters beside them ([`crate::renderer::Splice`]); none, and
+    /// nothing taken, on any other.
+    pub(crate) fn splice(
+        &mut self,
+        orders: &crate::bidi::Orders,
+        row: Row,
+    ) -> Option<crate::renderer::Splice> {
+        orders.joins(row)?;
+        Some(crate::renderer::Splice {
+            row,
+            pages: core::mem::take(&mut self.pages),
+            glyphs: core::mem::take(&mut self.glyphs)
+                .into_iter()
+                .map(|(x, mut inside, above)| {
+                    inside.extend(above);
+                    (x, inside)
+                })
+                .collect(),
+        })
+    }
+
+    /// The pages, every cluster's glyphs left to right, then the rules.
+    pub(crate) fn append_to(self, records: &mut Vec<Instance>) {
+        records.extend(self.pages);
+        for (_, inside, above) in self.glyphs {
+            records.extend(inside);
+            records.extend(above);
+        }
+        records.extend(self.rules);
+    }
+}
+
+/// [`composition_records`], in its parts ([`Composed`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn composition_parts(
+    r: &mut Renderer<'_, '_>,
+    term: &Term<'_>,
+    (c, laid): (&Composition, Laid),
+    under: PackedCell,
+    styles: &[Resolved],
+    block: Option<(Row, Col, CursorStyle)>,
+    cols: Cols,
+    size: LineRendition,
+    pan: Px,
+) -> Composed {
     // Only a block swaps a cell's colours; a bar or an underline the input
     // method put inside the composition is drawn over its row as anywhere.
     let block = block.filter(|(_, _, s)| {
@@ -2750,18 +2914,7 @@ pub(crate) fn composition_records(
             && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
     });
     if size.is_double() {
-        return sized_composition(
-            r,
-            term,
-            (c, laid),
-            under,
-            styles,
-            block,
-            cols,
-            size,
-            pan,
-            records,
-        );
+        return sized_composition(r, term, (c, laid), under, styles, block, cols, size, pan);
     }
     let geom = Geom {
         m: r.metrics(),
@@ -2801,9 +2954,33 @@ pub(crate) fn composition_records(
     // The selection's pages under every glyph, the glyphs, then each
     // cell's line over them, as `Renderer::convert_row` orders a row.
     let (mut pages, mut glyphs_out, mut rules) = (Vec::new(), Vec::new(), Vec::new());
-    for (p, x0, (shown, flip, leans)) in placed {
-        let look = Drawing::of(p.hints);
-        let one = [base.of(r, term, look)];
+    let styled: Vec<(
+        Drawing,
+        Resolved,
+        (Option<crate::stack::Lean>, crate::stack::TextFace),
+    )> = placed
+        .iter()
+        .map(|(p, _, (_, _, leans))| {
+            let look = Drawing::of(p.hints);
+            let one = base.of(r, term, look);
+            (look, one, leans.lean(r, one.shapes.text_face()))
+        })
+        .collect();
+    let mut joined = joined_pieces(
+        r,
+        (term, styles),
+        (c.row, laid),
+        &placed
+            .iter()
+            .zip(&styled)
+            .map(|((p, x0, _), (_, _, (_, style)))| (*x0, p.cps.as_slice(), p.span, *style))
+            .collect::<Vec<_>>(),
+        Stretch::One,
+    );
+    for (i, ((p, x0, (shown, flip, _)), (look, one, (lean, style)))) in
+        placed.into_iter().zip(styled).enumerate()
+    {
+        let one = [one];
         let n = if p.span == CellSpan::Two { 2 } else { 1 };
         let mut cps = p.cps.clone();
         cps[0] = shown;
@@ -2823,10 +3000,10 @@ pub(crate) fn composition_records(
                 cursor,
             })
         };
-        let (lean, style) = leans.lean(r, one[0].shapes.text_face());
-        let mut glyphs = match flip {
-            Flip::Flipped => r.cluster_flipped(&cps, style, p.span),
-            Flip::Kept => r.cluster(&cps, style, p.span),
+        let (mut glyphs, flip) = match (joined.get_mut(i).and_then(Option::take), flip) {
+            (Some(g), _) => (g, Flip::Kept),
+            (None, Flip::Flipped) => (r.cluster_flipped(&cps, style, p.span), flip),
+            (None, Flip::Kept) => (r.cluster(&cps, style, p.span), flip),
         };
         if let Some(l) = lean {
             r.shear_glyphs(&mut glyphs, l, Stretch::One, flip);
@@ -2851,9 +3028,9 @@ pub(crate) fn composition_records(
             block_paint,
             orders: None,
         };
-        let mut over = Vec::new();
+        let (mut inside, mut over) = (Vec::new(), Vec::new());
         Overlay::emit(
-            &mut glyphs_out,
+            &mut inside,
             &mut over,
             (x0, y),
             &glyphs,
@@ -2861,7 +3038,7 @@ pub(crate) fn composition_records(
             &paint,
             &geom,
         );
-        glyphs_out.append(&mut over);
+        glyphs_out.push((x0, inside, over));
         for x in x0..x0 + n {
             let d = drawn(x);
             let left = i32::try_from(x).unwrap_or(0) * cell_w;
@@ -2885,9 +3062,179 @@ pub(crate) fn composition_records(
             });
         }
     }
-    records.append(&mut pages);
-    records.append(&mut glyphs_out);
-    records.append(&mut rules);
+    glyphs_out.sort_by_key(|&(x, _, _)| x);
+    Composed {
+        pages,
+        glyphs: glyphs_out,
+        rules,
+    }
+}
+
+/// **What the row's joining draws a composition's clusters as**, laid as
+/// written ([`Laid::AsWritten`]): the row was laid out with the
+/// composition's text written in it ([`crate::bidi::Written`]), so each
+/// cluster at a visual column the layout joined takes its form there, with
+/// the cells of its word around it, as the same text written is drawn
+/// (`[[source: unicode-ch9]]` 9.2.2), and a lam and an alef it holds as a
+/// pair draw their ligature over their two cells (9.2.3). A pair whose
+/// other letter is written beside it is drawn by that letter's cell, and
+/// one a face forms no ligature for letter by letter in its forms. Each
+/// of `pieces` is a cluster's
+/// visual column, its codepoints, its span and the style it is drawn in,
+/// and the answer is its glyphs from its own cell's origin, on a line drawn
+/// at `st`, or none where joining gives it nothing. On screen
+/// ([`Laid::OnScreen`]), or on a row with no joined cell, none at all.
+///
+/// Out of line: it runs only while a composition is shown on a row that
+/// joins.
+#[inline(never)]
+fn joined_pieces(
+    r: &mut Renderer<'_, '_>,
+    (term, styles): (&Term<'_>, &[Resolved]),
+    (row, laid): (Row, Laid),
+    pieces: &[(usize, &[Codepoint], CellSpan, crate::stack::TextFace)],
+    st: Stretch,
+) -> Vec<Option<Vec<ClusterGlyph>>> {
+    use crate::bidi::{PairEnd, PairPart};
+    use crate::renderer::{LamAt, PairSpan};
+    let mut out: Vec<Option<Vec<ClusterGlyph>>> = vec![None; pieces.len()];
+    if laid == Laid::OnScreen || r.bidi().joins(row).is_none() {
+        return out;
+    }
+    let joined: Vec<Option<crate::bidi::Joined>> = pieces
+        .iter()
+        .map(|&(v, _, span, _)| match span {
+            CellSpan::One => r.bidi().joined(row, Col::at_index(v)),
+            CellSpan::Two => None,
+        })
+        .collect();
+    // Each pair whose two letters are composed, from its left cell.
+    for (i, j) in joined.iter().enumerate() {
+        let Some((part, _)) = j.and_then(|j| j.pair) else {
+            continue;
+        };
+        let (PairPart::Lam(n, PairEnd::Left) | PairPart::Alef(n, PairEnd::Left)) = part else {
+            continue;
+        };
+        let o = pieces[i].0 + n.index().saturating_sub(1);
+        let Some(k) = pieces.iter().position(|p| p.0 == o).filter(|&k| k != i) else {
+            continue;
+        };
+        let (lam, alef, lam_at) = match (part, joined[k].and_then(|j| j.pair)) {
+            (PairPart::Lam(..), Some((PairPart::Alef(h, PairEnd::Right), _))) if h == n => {
+                (i, k, LamAt::Left)
+            }
+            (PairPart::Alef(..), Some((PairPart::Lam(h, PairEnd::Right), _))) if h == n => {
+                (k, i, LamAt::Right)
+            }
+            _ => continue,
+        };
+        let Some(lam_form) = joined[lam].map(|j| j.form) else {
+            continue;
+        };
+        let (lam_v, lam_cps, _, style) = pieces[lam];
+        let face = r.face_for(lam_cps, style);
+        let word = r.pair_word(term, row, (lam_v, Some(pieces[alef].0)), face);
+        if let Some(g) = r.lam_alef(
+            (lam_cps, pieces[alef].1),
+            lam_form,
+            style,
+            (PairSpan::Cells(lam_at, n), &word),
+            st,
+        ) {
+            out[lam] = Some(g.lams);
+            out[alef] = Some(g.alefs);
+        }
+    }
+    // **A pair whose other letter is written beside the composition** is
+    // drawn whole by that letter's cell, which reads this one as written
+    // (`Renderer::shown_cell`), where the face forms it: the cluster here
+    // draws nothing then.
+    for (i, j) in joined.iter().enumerate() {
+        let Some((part, _)) = j.and_then(|j| j.pair).filter(|_| out[i].is_none()) else {
+            continue;
+        };
+        let (n, end) = match part {
+            PairPart::Lam(n, e) | PairPart::Alef(n, e) => (n, e),
+            PairPart::LamWrapped(_) | PairPart::AlefWrapped(_) => continue,
+        };
+        let v = pieces[i].0;
+        let far = n.index().saturating_sub(1);
+        let Some(o) = (match end {
+            PairEnd::Left => v.checked_add(far),
+            PairEnd::Right => v.checked_sub(far),
+        }) else {
+            continue;
+        };
+        if o == v || pieces.iter().any(|p| p.0 == o) {
+            continue;
+        }
+        let (Some(here), Some(there)) = (
+            r.written_cell(row, Col::at_index(v)),
+            r.written_cell(row, Col::at_index(o)),
+        ) else {
+            continue;
+        };
+        let partner = r.bidi().joined(row, Col::at_index(o));
+        let (lam_cell, alef_cell, lam_v, alef_v, lam_at, lam_form) =
+            match (part, partner.and_then(|p| p.pair)) {
+                (PairPart::Lam(..), Some((PairPart::Alef(h, e), _))) if h == n && e != end => {
+                    (here, there, v, o, o > v, j.map(|j| j.form))
+                }
+                (PairPart::Alef(..), Some((PairPart::Lam(h, e), _))) if h == n && e != end => {
+                    (there, here, o, v, v > o, partner.map(|p| p.form))
+                }
+                _ => continue,
+            };
+        let Some(lam_form) = lam_form else {
+            continue;
+        };
+        let lam_at = match lam_at {
+            true => LamAt::Left,
+            false => LamAt::Right,
+        };
+        // The lam's style, upright where SAPV 17 slants its cell, as that
+        // cell's conversion reads it.
+        let style = crate::cellmap::face_of(styles, lam_cell);
+        let style = match r.bidi().slanted(row, Col::at_index(lam_v)) && r.lean(style).is_some() {
+            true => style.upright(),
+            false => style,
+        };
+        let lam_cps = crate::renderer::cell_cps(term, lam_cell);
+        let alef_cps = crate::renderer::cell_cps(term, alef_cell);
+        let face = r.face_for(&lam_cps, style);
+        let word = r.pair_word(term, row, (lam_v, Some(alef_v)), face);
+        if r.lam_alef(
+            (&lam_cps, &alef_cps),
+            lam_form,
+            style,
+            (PairSpan::Cells(lam_at, n), &word),
+            st,
+        )
+        .is_some()
+        {
+            out[i] = Some(Vec::new());
+        }
+    }
+    // Every other joined cluster in its form, with its word.
+    for (i, j) in joined.iter().enumerate() {
+        let Some(j) = j.filter(|_| out[i].is_none()) else {
+            continue;
+        };
+        let (v, cps, _, style) = pieces[i];
+        let (before, after) = {
+            let (b, a) = r.bidi().around(row, &j);
+            (b.to_vec(), a.to_vec())
+        };
+        let word = r.joined_word(
+            term,
+            cps,
+            style,
+            ((&before, &after), (row, Col::at_index(v))),
+        );
+        out[i] = Some(r.cluster_joined_at(cps, style, j.form, &word, st));
+    }
+    out
 }
 
 /// **The rendition a composition's clusters start from**: the cell
@@ -3007,8 +3354,7 @@ fn sized_composition(
     cols: Cols,
     size: LineRendition,
     pan: Px,
-    records: &mut Vec<Instance>,
-) {
+) -> Composed {
     use crate::atlas::Stretch;
     use crate::renderer::{box_top, clip_to, stretched};
     let st = Stretch::of(size);
@@ -3034,8 +3380,7 @@ fn sized_composition(
         }
         _ => out.extend(clip_to(inst, band)),
     };
-    let (mut pages, mut glyphs_out, mut over, mut rules) =
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut pages, mut glyphs_out, mut rules) = (Vec::new(), Vec::new(), Vec::new());
     // Each cluster at its visual cell, with the mirror L4 gives it there,
     // as `composition_records` places it on a single-width line: the line
     // is laid out over its half with the composition written in it.
@@ -3057,9 +3402,34 @@ fn sized_composition(
             (Piece { col: v, cps, ..p }, flip, leans)
         })
         .collect();
-    for (p, flip, leans) in placed {
-        let look = Drawing::of(p.hints);
-        let rendition = base.of(r, term, look);
+    let styled: Vec<(
+        Drawing,
+        Resolved,
+        (Option<crate::stack::Lean>, crate::stack::TextFace),
+    )> = placed
+        .iter()
+        .map(|(p, _, leans)| {
+            let look = Drawing::of(p.hints);
+            let one = base.of(r, term, look);
+            (look, one, leans.lean(r, one.shapes.text_face()))
+        })
+        .collect();
+    let mut joined = joined_pieces(
+        r,
+        (term, styles),
+        (c.row, laid),
+        &placed
+            .iter()
+            .zip(&styled)
+            .map(|((p, _, _), (_, _, (_, style)))| {
+                (p.col.index(), p.cps.as_slice(), p.span, *style)
+            })
+            .collect::<Vec<_>>(),
+        st,
+    );
+    for (i, ((p, flip, _), (look, rendition, (lean, style)))) in
+        placed.into_iter().zip(styled).enumerate()
+    {
         let drawn = |x: usize, line: Line| {
             let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
             rendition.drawn(Swaps {
@@ -3109,16 +3479,17 @@ fn sized_composition(
         if !d.text.draws() {
             continue;
         }
-        let (lean, style) = leans.lean(r, rendition.shapes.text_face());
-        let mut glyphs = match flip {
-            Flip::Flipped => r.cluster_flipped_at(&p.cps, style, p.span, st),
-            Flip::Kept => r.cluster_at(&p.cps, style, p.span, st),
+        let (mut glyphs, flip) = match (joined.get_mut(i).and_then(Option::take), flip) {
+            (Some(g), _) => (g, Flip::Kept),
+            (None, Flip::Flipped) => (r.cluster_flipped_at(&p.cps, style, p.span, st), flip),
+            (None, Flip::Kept) => (r.cluster_at(&p.cps, style, p.span, st), flip),
         };
         if let Some(l) = lean {
             r.shear_glyphs(&mut glyphs, l, st, flip);
         }
         let ox = i32::try_from(p.col.index()).unwrap_or(0) * cell_w * st.x();
         let oy = top + px(m.baseline) * st.y();
+        let (mut inside, mut over) = (Vec::new(), Vec::new());
         for g in glyphs {
             let Some(slot) = g.slot else {
                 continue;
@@ -3134,11 +3505,14 @@ fn sized_composition(
                 kind: slot.kind,
                 curve: d.curve,
             };
-            fit(inst, &mut glyphs_out, &mut over);
+            fit(inst, &mut inside, &mut over);
         }
+        glyphs_out.push((p.col.index(), inside, over));
     }
-    records.append(&mut pages);
-    records.append(&mut glyphs_out);
-    records.append(&mut over);
-    records.append(&mut rules);
+    glyphs_out.sort_by_key(|&(x, _, _)| x);
+    Composed {
+        pages,
+        glyphs: glyphs_out,
+        rules,
+    }
 }

@@ -1137,6 +1137,21 @@ struct SizedKey {
     clusters: ClusterEpoch,
     pictured: Vec<crate::Pictured>,
     atlas: Tally,
+    /// The composition on the line, which a line that joins draws among
+    /// its own glyphs ([`Splice`]).
+    composition: Option<Composition>,
+}
+
+/// **A composition drawn in its row's order**, on a row the layout
+/// joined: its pages first, then each cluster's glyphs at the visual
+/// column it is drawn at, among the row's own, as the same text written
+/// is drawn -- the instance path draws a row's glyphs left to right, and
+/// where a joined letter's ink meets its neighbour's, the later one lies
+/// over it. Taken from [`crate::overlay::Composed::splice`].
+pub(crate) struct Splice {
+    pub(crate) row: Row,
+    pub(crate) pages: Vec<Instance>,
+    pub(crate) glyphs: Vec<(usize, Vec<Instance>)>,
 }
 
 /// One sized line's records and what they were converted from.
@@ -1217,6 +1232,9 @@ enum Predicted {
     Read,
     Unread,
 }
+
+/// Nothing written over any row, for a layout with no [`Beside`].
+static NOTHING_WRITTEN: crate::bidi::Written = crate::bidi::Written::NOTHING;
 
 /// **What a renderer's layout reads besides the window's cells**: the
 /// composition and, on the cell path, the predicted echoes, written over
@@ -1940,6 +1958,9 @@ pub struct Renderer<'f, 'a> {
     composition: Option<Composition>,
     last_composition: Option<Composition>,
     compose_inst: Vec<Instance>,
+    /// The composition's pages and glyphs on a row that joins, drawn in
+    /// that row's order by [`Renderer::convert_row`] ([`Splice`]).
+    splice: Option<Splice>,
     /// The find overlay on this frame and the last ([`FindLook`]), and its
     /// solids: each match's wash and the field's caret. The rows under
     /// either frame's marks or field are dirty, and the cells under the
@@ -2310,6 +2331,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             composition: None,
             last_composition: None,
             compose_inst: Vec::new(),
+            splice: None,
             find: None,
             last_find: None,
             find_inst: Vec::new(),
@@ -2747,7 +2769,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// its cell by the instance and CPU paths' next convert, with the cursor
     /// after it ([`Composition::cursor`]), on the live view only. The cell
     /// path draws it through [`crate::Overlay::composed`].
+    ///
+    /// A composition that holds a letter that takes a joining form opens
+    /// the layout's joins ([`crate::bidi::Joins::Seen`]) before it is laid
+    /// out, so the frame that first draws one draws it joined, as the same
+    /// text written is, on every path.
     pub fn set_composition(&mut self, c: Option<Composition>) {
+        if c.as_ref().is_some_and(Composition::joins) {
+            self.joins_seen = crate::bidi::Joins::Seen;
+        }
         self.composition = c;
     }
 
@@ -3044,10 +3074,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         changed: impl Fn(Row) -> bool,
     ) {
         let vp = term.view(term.looking_back(back));
+        let written = self
+            .beside
+            .as_deref()
+            .map_or(&NOTHING_WRITTEN, |b| &b.written);
         for y in 0..vp.rows().index() {
             let r = Row::from_index(y);
             if how == crate::bidi::Rejoin::Every || changed(r) {
-                self.bidi.rejoin(term, &vp, r);
+                self.bidi.rejoin(term, &vp, r, written);
             }
         }
         self.bidi.rejoined();
@@ -5737,11 +5771,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 clusters: term.cluster_epoch(),
                 pictured: self.pictures.row(r).to_vec(),
                 atlas: self.atlas.stats().grown,
+                composition: composition.filter(|c| c.row == r).cloned(),
             };
             let reuse = self.sized_rows[y].as_ref().is_some_and(|s| s.key == key);
             if !reuse {
                 let mut exc = Exceptions::default();
+                // A composition on a line that joins, drawn in its order.
+                self.splice = None;
+                if let Some(c) = composition.filter(|c| c.row == r) {
+                    let under = view
+                        .row(r)
+                        .get(self.bidi.orders().visual_col(r, c.col).index())
+                        .copied()
+                        .unwrap_or(PackedCell::EMPTY);
+                    let _ = self.composed_parts(term, c, under, cursor, cols);
+                }
                 self.convert_row(term, r, cursor, &mut exc);
+                self.splice = None;
                 self.sized_converted.bump();
                 self.sized_rows[y] = Some(SizedRow {
                     key,
@@ -6159,6 +6205,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.place_rows
                 .ensure(&self.image_places, self.rows, self.metrics.cell_h);
         }
+        let mut composed_parts: Option<crate::overlay::Composed> = None;
+        self.splice = None;
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range]
@@ -6177,9 +6225,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     || bar_on(&self.link, row).is_some()
                     || bar_on(&self.last_link, row).is_some();
                 if how == crate::bidi::Rejoin::Every || full || changed || veiled {
-                    self.bidi.rejoin(term, &vp, row);
+                    let written = self
+                        .beside
+                        .as_deref()
+                        .map_or(&NOTHING_WRITTEN, |b| &b.written);
+                    self.bidi.rejoin(term, &vp, row, written);
                 }
             }
+            // The composition's records, once its row's joins are found:
+            // on a row that joins, its pages and glyphs drawn in the row's
+            // order, which converts it again every frame.
+            if let Some(c) = composition.as_ref().filter(|c| c.row.index() == r) {
+                composed_parts = Some(self.composed_parts(term, c, under, cursor, cols));
+            }
+            let spliced = self.splice.as_ref().is_some_and(|s| s.row.index() == r);
             let cursor_here = cursor_row(cursor) == Some(r);
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved = cursor_here != cursor_was
@@ -6220,8 +6279,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // and the row it was on, whether or not a cell word moved -- a
             // composition over the same text changes none.
             let on = |c: &Option<Composition>| c.as_ref().is_some_and(|c| c.row == row);
-            let composed = (on(&composition) || on(&self.last_composition))
-                && composition != self.last_composition;
+            let composed = ((on(&composition) || on(&self.last_composition))
+                && composition != self.last_composition)
+                || spliced;
             // A match marked, unmarked or moved on this row, or the find
             // field come, gone or changed on it.
             let found = find_changed
@@ -6334,23 +6394,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.last_image_places.clone_from(&self.image_places);
         }
         self.compose_inst.clear();
-        if let Some(c) = &composition {
-            let styles = core::mem::take(&mut self.styles);
-            let mut records = core::mem::take(&mut self.compose_inst);
-            let size = self.size_of(c.row);
-            crate::overlay::composition_records(
-                self,
-                term,
-                (c, crate::overlay::Laid::AsWritten),
-                under,
-                &styles,
-                cursor,
-                cols,
-                size,
-                Px::of(0),
-                &mut records,
-            );
-            (self.styles, self.compose_inst) = (styles, records);
+        if let Some(parts) = composed_parts {
+            parts.append_to(&mut self.compose_inst);
         }
         // The matches' marks and the link's underline with the content;
         // the find field, its caret and the link's bar are baud's own and
@@ -6391,6 +6436,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 rows_dirty.bump();
             }
         }
+        self.splice = None;
         // A converted row's glyphs that reach into another row's band, or
         // reached into it before, are drawn there by the CPU compositor:
         // that row is repainted too, from the instances it already holds.
@@ -6987,6 +7033,54 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 slot,
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
+                phase,
+            });
+        }
+        out
+    }
+
+    /// [`Renderer::cluster_joined`] on a line drawn at `stretch`, as
+    /// [`Renderer::cluster_at`] draws [`Renderer::cluster`] there: what the
+    /// line's own runs draw for a joined cell. A composition on a sized
+    /// line is drawn by these.
+    pub(crate) fn cluster_joined_at(
+        &mut self,
+        cps: &[Codepoint],
+        style: TextFace,
+        form: baud_domain::JoiningForm,
+        word: &Word,
+        stretch: Stretch,
+    ) -> Vec<ClusterGlyph> {
+        if stretch == Stretch::One {
+            return self.cluster_joined(cps, style, form, word);
+        }
+        let Some(&base) = cps.first() else {
+            return Vec::new();
+        };
+        let face = self.face_for(cps, style);
+        let phase = self.phase_in(face, base, CellSpan::One).doubled();
+        let clusters = [ClusterIn {
+            cps: cps.to_vec(),
+            at: CellIx(0),
+        }];
+        let shaped = self.shape_in_word(
+            face,
+            Script::of_cluster(cps),
+            &clusters,
+            &[Some(form)],
+            word,
+        );
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let mut out = Vec::new();
+        for p in shaped.glyphs() {
+            let slot = self.atlas.slot_at(f, face, p.id, scale, phase, stretch);
+            out.push(ClusterGlyph {
+                id: p.id,
+                source: GlyphSource::Face(face),
+                slot,
+                dx: scale.px(f32::from(p.dx)).round() as i32 * stretch.x(),
+                dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
             });
         }
@@ -7672,6 +7766,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **A composition's records on the instance path**, as
+    /// [`crate::overlay::composition_parts`] makes them: on a row the
+    /// layout joined, its pages and glyphs kept for that row's conversion
+    /// to draw in the row's order ([`Splice`]), and the rest -- its rules,
+    /// and on any other row the whole -- answered for after the rows.
+    fn composed_parts(
+        &mut self,
+        term: &Term<'_>,
+        c: &Composition,
+        under: PackedCell,
+        cursor: Cursor,
+        cols: Cols,
+    ) -> crate::overlay::Composed {
+        let styles = core::mem::take(&mut self.styles);
+        let size = self.size_of(c.row);
+        let mut parts = crate::overlay::composition_parts(
+            self,
+            term,
+            (c, crate::overlay::Laid::AsWritten),
+            under,
+            &styles,
+            cursor,
+            cols,
+            size,
+            Px::of(0),
+        );
+        self.styles = styles;
+        self.splice = parts.splice(self.bidi.orders(), c.row);
+        parts
+    }
+
     /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
@@ -7891,6 +8016,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         shapes.extend(rings);
         shapes.extend(cursor_shapes);
         self.row_blinks[r.index()] = blinks;
+        // A composition's pages on this row, under every glyph of it.
+        if let Some(s) = self.splice.as_ref().filter(|s| s.row == r) {
+            instances.extend_from_slice(&s.pages);
+        }
         self.row_runs(term, r, (&row, &seams), (st, line_end), &mut instances, exc);
         self.glyph_ends[r.index()] = instances.len();
         self.reach[r.index()] = Reach::of(&instances);
@@ -7995,6 +8124,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The row's mirrored cells walked with `c`, which only grows.
         let mut next = 0;
         while c < line_end {
+            // A composition's glyphs at this cell, in the row's order.
+            if LAID {
+                self.spliced_at(r, Col::at_index(c), instances);
+            }
             let m = match LAID {
                 true => {
                     while mirrors.get(next).is_some_and(|&(v, _)| v.index() < c) {
@@ -8215,6 +8348,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     };
                     self.emit::<true>(term, face, r, at, (&shaped, Some(drawn)), instances);
                 }
+            }
+        }
+    }
+
+    /// The glyphs a composition draws at visual cell `c` of row `r`, if it
+    /// is spliced into that row ([`Splice`]), into `out`.
+    fn spliced_at(&self, r: Row, c: Col, out: &mut Vec<Instance>) {
+        if let Some(s) = self.splice.as_ref().filter(|s| s.row == r) {
+            for (_, g) in s.glyphs.iter().filter(|&&(x, _)| x == c.index()) {
+                out.extend_from_slice(g);
             }
         }
     }
@@ -8877,10 +9020,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (PairPart::Alef(..), Some((PairPart::Lam(h, e), _))) if h == span && e != end => (o, c),
             _ => return false,
         };
+        // **A partner a composition holds** is converted blank, and drawn
+        // as written there: this cell, the pair's other, draws both.
+        let composed = row[o].content == baud_domain::Content::EMPTY;
+        let (lam_cell, alef_cell) = (
+            self.shown_cell(r, Col::at_index(lam_c), row),
+            self.shown_cell(r, Col::at_index(alef_c), row),
+        );
         let lam_form = joined(lam_c).map_or(form, |j| j.form);
-        let lam_cps = cell_cps(term, row[lam_c]);
-        let alef_cps = cell_cps(term, row[alef_c]);
-        let style = self.face_style(row[lam_c]);
+        let lam_cps = cell_cps(term, lam_cell);
+        let alef_cps = cell_cps(term, alef_cell);
+        let style = self.face_style(lam_cell);
         let lean = self.slant_at(r, Col::at_index(lam_c), style);
         let style = lean.map_or(style, |_| style.upright());
         let lam_at = match lam_c > alef_c {
@@ -8902,12 +9052,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.shear_glyphs(&mut g.lams, l, st, Flip::Kept);
             self.shear_glyphs(&mut g.alefs, l, st, Flip::Kept);
         }
-        // The left cell draws both; the right one was drawn with it.
-        if end == PairEnd::Left {
+        // The left cell draws both; the right one was drawn with it, unless
+        // a composition holds the left.
+        if end == PairEnd::Left || composed {
             self.emit_glyphs(r, Col::at_index(lam_c), &g.lams, out);
             self.emit_glyphs(r, Col::at_index(alef_c), &g.alefs, out);
         }
         true
+    }
+
+    /// **The cell visual column `v` of row `r` shows, as written**:
+    /// `row`'s, or, where it is converted blank under a composition or an
+    /// echo, what the layout read written there ([`crate::bidi::Written`]).
+    fn shown_cell(&self, r: Row, v: Col, row: &[PackedCell]) -> PackedCell {
+        let cell = row.get(v.index()).copied().unwrap_or(PackedCell::EMPTY);
+        if cell.content != baud_domain::Content::EMPTY {
+            return cell;
+        }
+        self.written_cell(r, v).unwrap_or(cell)
+    }
+
+    /// What the layout read written at visual column `v` of row `r`
+    /// ([`crate::bidi::Written`]), if anything is written over the row.
+    pub(crate) fn written_cell(&self, r: Row, v: Col) -> Option<PackedCell> {
+        let l = self.bidi.orders().logical_col(r, v).index();
+        self.beside
+            .as_deref()
+            .and_then(|b| b.written.cells(r))
+            .and_then(|w| w.get(l))
+            .copied()
     }
 
     /// How far visual column `v` of row `r`, a cell in `style`, leans left:

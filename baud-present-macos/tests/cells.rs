@@ -12592,3 +12592,257 @@ fn presentation_variants_draw_alike_on_every_arm() {
     let plain = three(&mut arms, &mut t, "with BDSM set, without 17");
     assert_ne!(differing(&implicit, &plain), 0, "17 slants with BDSM set");
 }
+
+/// **A composition of Arabic is drawn joined, as the same text written
+/// is, on every arm** (`[[source: unicode-ch9]]` 9.2.2: "a display process
+/// must select an appropriate glyph to depict each Arabic letter according
+/// to its immediate joining context"): the row is laid out with the
+/// composition written in it (Jev AS_WRITTEN), so its letters take the
+/// forms that text written takes, joined with one another and with the
+/// letters written either side of it, which take theirs from it; a lam
+/// and an alef draw their ligature, composed together or one beside the
+/// other written. Each on Courier New, whose forms
+/// `arabic_letters_draw_joined_on_every_arm` holds to the presentation
+/// forms, with BDSM set and reset, on a line drawn in order and in
+/// reverse, single and double width, beside a block cursor and a bar, on
+/// a renderer that has drawn no joining letter and on one that has --
+/// with BDSM reset the layout then keeps the last frame's joins and finds
+/// them again around the composition. Beside a letter underlined in
+/// another colour too, whose line the cell arm draws after the records
+/// inside their rows and before the rest, as the instance arm draws a
+/// row's lines after its glyphs: the composition's glyphs are among the
+/// first. And in a rendition SAPV 8 gives the cell it starts on, held by
+/// 21, each letter in its final form, as written in it
+/// (`[[source: ecma48]]` 8.3.108). The reference is the text written
+/// underlined at the cursor, the cursor after it, and every arm equal to
+/// it.
+#[test]
+fn a_composition_of_arabic_draws_joined_as_written_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&courier).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    // Every case's failures, listed together at the end.
+    let failed = std::cell::RefCell::new(Vec::<String>::new());
+    let fail = |what: String| failed.borrow_mut().push(what);
+    let four = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, live) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        for (arm, f) in [("cell", &live), ("copied cell", &b), ("CPU", &c)] {
+            let d = differing(&a, f);
+            if d > 0 {
+                fail(format!("{what}: the {arm} arm differs by {d} pixels"));
+            }
+        }
+        a
+    };
+    let (beh, yeh, teh, lam, alef) = ("\u{628}", "\u{64A}", "\u{62A}", "\u{644}", "\u{627}");
+    // Text enough that the map holds the scene's glyphs.
+    let fox = "\x1b[5;3HThe quick brown fox jumps 0123456789";
+    let bayt = format!("{beh}{yeh}{teh}");
+    // What is written before the cursor, the cursor's column, and what
+    // is composed there: a word alone; its last letter after the two
+    // before it; its middle letter between the two, over a space; a
+    // lam-alef; an alef after a lam written; a lam over a space before an
+    // alef.
+    let words = [
+        (String::new(), 3, bayt.clone()),
+        (format!("\x1b[3G{beh}{yeh}"), 5, teh.to_string()),
+        (format!("\x1b[3G{beh} {teh}"), 4, yeh.to_string()),
+        (String::new(), 3, format!("{lam}{alef}")),
+        (format!("\x1b[3G{lam}"), 4, alef.to_string()),
+        (format!("\x1b[3G {alef}"), 3, lam.to_string()),
+        (
+            format!("\x1b[3G{beh} \x1b[4;58:5:1m{yeh}\x1b[24;59m"),
+            4,
+            teh.to_string(),
+        ),
+    ];
+    // BDSM set; reset, the line in order; reset, the line right to left.
+    let modes = ["\x1b[8h", "\x1b[8l", "\x1b[8l\x1b[2 k"];
+    for primed in [false, true] {
+        for mode in modes {
+            // Whether any case on this layout joined: the premise.
+            let mut joined = false;
+            for (size, cursor) in ["", "\x1b#6"]
+                .into_iter()
+                .flat_map(|s| ["\x1b[2 q", "\x1b[6 q"].map(move |c| (s, c)))
+            {
+                for (before, at, text) in &words {
+                    arms!(fresh() => arms, t);
+                    if primed {
+                        feed(&mut t, format!("\x1b[1;1H{beh}{beh}{beh}{fox}").as_bytes());
+                        let _ = four(&mut arms, &mut t, "a joining letter drawn");
+                        assert_eq!(arms.renderer.joins_seen(), baud_render::Joins::Seen);
+                    }
+                    let what = format!("{primed} {mode:?} {size:?} {cursor:?} {before:?} {text:?}");
+                    let scene = format!(
+                        "\x1bc{cursor}{mode}\x1b[3;1H{size}{before}\x1b[2;3HThe quick brown fox jumps 0123456789\x1b[3;{at}H"
+                    );
+                    joined |=
+                        composed_as_written(&mut arms, &mut t, (&scene, text), &what, &four, &fail);
+                }
+            }
+            assert!(
+                joined,
+                "{primed} {mode:?}: the premise: a composition joins"
+            );
+        }
+        // SAPV 8 held by 21 on the cells the composition covers: each
+        // letter final.
+        for mode in modes {
+            arms!(fresh() => arms, t);
+            if primed {
+                feed(&mut t, format!("\x1b[1;1H{beh}{beh}{beh}{fox}").as_bytes());
+                let _ = four(&mut arms, &mut t, "a joining letter drawn");
+            }
+            let what = format!("{primed} {mode:?} SAPV 8");
+            let scene = format!(
+                "\x1bc\x1b[2 q{mode}\x1b[5;3HThe quick brown fox jumps 0123456789\x1b[3;3H\x1b[21 ]\x1b[8 ]   \x1b[3D"
+            );
+            composed_as_written(&mut arms, &mut t, (&scene, &bayt), &what, &four, &fail);
+            // The control: SAPV 8's forms are not the word's.
+            feed(&mut t, scene.as_bytes());
+            feed(
+                &mut t,
+                format!("\x1b[22 ]\x1b[0 ]\x1b[4m{bayt}\x1b[24m").as_bytes(),
+            );
+            let joined = four(&mut arms, &mut t, &format!("{what}: joined"));
+            feed(&mut t, scene.as_bytes());
+            feed(&mut t, format!("\x1b[4m{bayt}\x1b[24m").as_bytes());
+            let finals = four(&mut arms, &mut t, &format!("{what}: finals"));
+            assert!(
+                differing(&joined, &finals) > 0,
+                "{what}: SAPV 8 draws finals"
+            );
+        }
+    }
+    // **Another composition over the same cells of a line that joins**:
+    // drawn as it is written, not as the last was -- the line's records
+    // are not kept from a frame the composition differed in.
+    for size in ["", "\x1b#6"] {
+        arms!(fresh() => arms, t);
+        let what = format!("{size:?} recomposed");
+        let scene = format!("\x1bc\x1b[2 q\x1b[8h\x1b[3;1H{size}{fox}\x1b[3;3H");
+        feed(&mut t, scene.as_bytes());
+        let (row, col) = t.cursor();
+        arms.composition = Some(Composition {
+            row,
+            col,
+            text: bayt
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect(),
+            measure: baud_render::Measure::default(),
+            hints: Vec::new(),
+            caret: Caret::End,
+        });
+        let _ = four(&mut arms, &mut t, &format!("{what}: first"));
+        let other = format!("{teh}{yeh}{beh}");
+        if let Some(c) = arms.composition.as_mut() {
+            c.text = other
+                .chars()
+                .map(baud_domain::Codepoint::from_char)
+                .collect();
+        }
+        let composed = four(&mut arms, &mut t, &format!("{what}: again"));
+        arms.composition = None;
+        feed(&mut t, format!("\x1b[4m{other}\x1b[24m").as_bytes());
+        let written = four(&mut arms, &mut t, &format!("{what}: written"));
+        let d = differing(&composed, &written);
+        if d > 0 {
+            fail(format!(
+                "{what}: as the same text written underlined, {d} pixels"
+            ));
+        }
+    }
+    let failed = failed.into_inner();
+    assert!(
+        failed.is_empty(),
+        "{} cases:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
+}
+
+/// `scene` fed, `text` composed at its cursor, against `text` written
+/// there underlined: equal, and each against the frame without it, and
+/// the composition's row joined as the written row is -- each joined
+/// cell's form and pair, and the letters and forms of its word. What
+/// differs is told to `fail`; the answer is whether the row joined.
+fn composed_as_written(
+    arms: &mut Arms<'_, '_>,
+    t: &mut Term<'_>,
+    (scene, text): (&str, &str),
+    what: &str,
+    frame: &dyn Fn(&mut Arms<'_, '_>, &mut Term<'_>, &str) -> Vec<u32>,
+    fail: &dyn Fn(String),
+) -> bool {
+    feed(t, scene.as_bytes());
+    let (row, col) = t.cursor();
+    arms.composition = Some(Composition {
+        row,
+        col,
+        text: text
+            .chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect(),
+        measure: baud_render::Measure::default(),
+        hints: Vec::new(),
+        caret: Caret::End,
+    });
+    let composed = frame(arms, t, &format!("{what}: composed"));
+    // Each joined cell of the row: its column, form and pair, and its
+    // word's letters and forms either side.
+    let joins = |arms: &Arms<'_, '_>| {
+        let letters = |ws: &[baud_render::WordCell]| -> Vec<_> {
+            ws.iter()
+                .map(|w| (w.cell.content.as_codepoint(), w.form))
+                .collect()
+        };
+        arms.renderer.bidi().row_joins(row).map(|rj| {
+            rj.cells()
+                .iter()
+                .enumerate()
+                .filter_map(|(v, j)| {
+                    let (b, a) = rj.around(j.as_ref()?);
+                    j.map(|j| (v, j.form, j.pair, letters(b), letters(a)))
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let laid = joins(arms);
+    arms.composition = None;
+    let plain = frame(arms, t, &format!("{what}: plain"));
+    feed(t, format!("\x1b[4m{text}\x1b[24m").as_bytes());
+    let written = frame(arms, t, &format!("{what}: written"));
+    if laid != joins(arms) {
+        fail(format!("{what}: joined otherwise than written"));
+    }
+    assert!(differing(&composed, &plain) > 0, "{what}: drawn");
+    let d = differing(&composed, &written);
+    if d > 0 {
+        fail(format!(
+            "{what}: as the same text written underlined, {d} pixels"
+        ));
+    }
+    laid.is_some()
+}

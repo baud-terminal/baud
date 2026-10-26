@@ -637,9 +637,17 @@ pub struct Written {
 }
 
 impl Written {
+    /// Nothing written over any row, as a constant.
+    pub const NOTHING: Written = Written { rows: Vec::new() };
+
     /// Nothing written over any row.
     pub fn clear(&mut self) {
         self.rows.clear();
+    }
+
+    /// Row `r` as written, if anything is written over it.
+    pub(crate) fn cells(&self, r: Row) -> Option<&[PackedCell]> {
+        Over::row(self, r)
     }
 
     /// Whether nothing is written over any row.
@@ -1203,18 +1211,22 @@ impl Reorder {
 
     /// Row `r` of the window `vp` joined again, with BDSM reset, after
     /// [`Reorder::keep_displayed`]: one test of the row, and the row joined
-    /// in display order if it holds a joining letter.
-    pub fn rejoin(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
+    /// in display order if it holds a joining letter -- the row as
+    /// `written` covers it ([`Written`]), so a composition joins, and takes
+    /// SAPV's forms, as its text written will, and the letters beside it
+    /// join it.
+    pub fn rejoin(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &Written) {
         let Some(slot) = self.orders.joins.get_mut(r.index()) else {
             return;
         };
         *slot = None;
         self.work.tested.bump();
-        if row_joins(term, vp.row(r)) {
-            self.join_shown(term, r, vp.row(r));
+        let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+        if row_joins(term, cells) {
+            self.join_shown(term, r, cells);
         }
         if term.variants_seen() {
-            self.vary_joins(term, vp, r, &Unwritten);
+            self.vary_joins(term, vp, r, written);
         }
     }
 

@@ -379,8 +379,18 @@ the screen; step 3 joins Arabic letters.
   as Hebrew, the DEC 7-bit Hebrew set in G0 to G3, until `CSI ? 36 h`
   puts the power-up sets back
   (`dechem_reset_designates_the_hebrew_nrcs_and_set_ascii`).
-  On a double-width line a composition holding a character the line
-  mirrors, such as `(`, draws that mirror once
+  Arabic an input method is composing is drawn joined, as it will be
+  once written (`[[source: unicode-ch9]]` 9.2.2): its letters take their
+  forms with one another and with the letters written either side of it,
+  which take theirs from it, a lam and an alef make their ligature, also
+  when one of the two is written already (9.2.3), and on a cell SAPV 5-8
+  gives a form the letters composed there take it; with BDSM reset too,
+  and on a double-width line
+  (`a_composition_of_arabic_draws_joined_as_written_on_every_arm`, on
+  every arm). Where a composed letter's ink meets a written one's, the
+  two are drawn in the order the same text written is, left to right. On
+  a double-width line a composition holding a character the line mirrors,
+  such as `(`, draws that mirror once
   (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 
 ## What decided each choice
@@ -770,8 +780,13 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   from the space alone, where on a still row the mark it carries gives it
   one; and a glyph on the window's first row whose ink reaches into the
   sliding row is not drawn in order with that row's text.
-- **A composed Arabic letter is drawn alone**, while the letters beside it
-  join toward it as they will once it is written.
+- **A composition at its edges**: on the cell path a letter after it
+  that the glyph map draws lies under it where its ink meets the
+  composition's, where written it lies over it; a selected
+  composition's background lies under the glyphs of the row above that
+  reach into its row on the cell path and over them on the others; and a
+  lam-alef pair across the composition's edge is drawn in the colours of
+  the cell under the composed letter, not those its hints give it.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
   terminfo entry says so (note AB Q18).
 
