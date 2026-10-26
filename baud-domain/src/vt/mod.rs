@@ -5,6 +5,7 @@ mod dcs;
 mod esc;
 mod file_uri;
 mod font_ops;
+mod hebrew_keys;
 mod iterm;
 mod iterm_file;
 #[cfg(test)]
@@ -42,6 +43,7 @@ pub use dcs::*;
 pub use esc::*;
 pub use file_uri::*;
 pub use font_ops::*;
+pub use hebrew_keys::*;
 pub use iterm::*;
 pub use iterm_file::*;
 pub use key::*;

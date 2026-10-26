@@ -26,7 +26,7 @@ use crate::pointer::{
 use crate::shm::{Pool, Px};
 use crate::timing::{ClockId, Presentation, Stamp};
 use baud_domain::{
-    EventMillis, Focus, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
+    EventMillis, Focus, HebrewLayout, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
 };
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
@@ -320,6 +320,9 @@ pub struct Window {
     callback_time: Option<Duration>,
     cadence: Option<Duration>,
     keymap: Option<Keymap>,
+    /// Whether the keymap has a Hebrew layout ([`keys::hebrew_layout`]),
+    /// read when it arrives.
+    hebrew: HebrewLayout,
     mods: Mods,
     group: usize,
     repeat: RepeatInfo,
@@ -400,6 +403,7 @@ impl Window {
             callback_time: None,
             cadence: None,
             keymap: None,
+            hebrew: HebrewLayout::Absent,
             mods: Mods::default(),
             group: 0,
             repeat: RepeatInfo {
@@ -684,6 +688,12 @@ impl Window {
             }
             None => keys::modifiers(self.mods.depressed | self.mods.latched | self.mods.locked),
         }
+    }
+
+    /// Whether the keymap the compositor sent has a Hebrew layout, which
+    /// the driver tells the core for DECHEBM.
+    pub fn hebrew_layout(&self) -> HebrewLayout {
+        self.hebrew
     }
 
     /// Whether the seat has a pointer: its `capabilities` last named
@@ -1515,6 +1525,10 @@ impl Handler for Window {
                 if let Ok(dup) = fd.try_clone() {
                     self.keymap = Window::keymap_from(dup, *size).ok();
                 }
+                self.hebrew = match self.keymap.as_ref() {
+                    Some(km) => keys::hebrew_layout(km),
+                    None => HebrewLayout::Absent,
+                };
             }
             ("wl_keyboard", "repeat_info", [Read::Int(rate), Read::Int(delay)]) => {
                 self.repeat = RepeatInfo {

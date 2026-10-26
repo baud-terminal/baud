@@ -110,3 +110,36 @@ fn control_falls_back_to_another_layouts_ascii_key() {
     assert_eq!(alone.code, KeyCode::Char(Codepoint::from_char('ö')));
     assert_eq!(alone.control, None, "no other group");
 }
+
+/// **A keymap with a Hebrew layout says so, for DECHEBM**: a group whose
+/// first level types a letter alef to tav, here SI-1452's shin on `AC01`
+/// beside the US group; the pinned US keymap, and the US, German and
+/// Russian one, whose third group types Cyrillic, have none.
+#[test]
+fn a_keymap_with_a_hebrew_layout_says_so() {
+    use baud_domain::HebrewLayout;
+    let us_il = "xkb_keymap {\n\
+        xkb_keycodes \"t\" { minimum = 8; maximum = 255; <AC01> = 38; };\n\
+        xkb_types \"t\" {\n\
+            type \"TWO_LEVEL\" { modifiers = Shift; map[Shift] = Level2;\n\
+                level_name[Level1] = \"Base\"; level_name[Level2] = \"Shift\"; };\n\
+            type \"ALPHABETIC\" { modifiers = Shift+Lock; map[Shift] = Level2;\n\
+                map[Lock] = Level2; level_name[Level1] = \"Base\";\n\
+                level_name[Level2] = \"Caps\"; };\n\
+        };\n\
+        xkb_compat \"t\" { };\n\
+        xkb_symbols \"t\" {\n\
+            name[1] = \"English (US)\"; name[2] = \"Hebrew\";\n\
+            key <AC01> { symbols[1] = [ a, A ], symbols[2] = [ hebrew_shin, A ] };\n\
+        };\n\
+    };\n";
+    let km = Keymap::from_text(us_il).expect("it compiles");
+    assert_eq!(keys::hebrew_layout(&km), HebrewLayout::Present);
+    for name in ["keymap-us.xkb", "keymap-us_de_ru__grp_win_space_toggle.xkb"] {
+        assert_eq!(
+            keys::hebrew_layout(&keymap(name)),
+            HebrewLayout::Absent,
+            "{name}"
+        );
+    }
+}

@@ -107,6 +107,10 @@ mod kitty_files;
 mod keep;
 #[cfg(target_os = "macos")]
 mod latency;
+// Whether the system has a Hebrew keyboard layout, which DECHEBM needs:
+// the classifier runs everywhere, the system's list is read on macOS.
+#[cfg(any(target_os = "macos", test))]
+mod layouts;
 // The activity lights in the title strip: the Linux window has none.
 #[cfg(target_os = "macos")]
 mod lights;

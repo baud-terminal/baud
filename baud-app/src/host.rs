@@ -556,6 +556,14 @@ pub fn set_locator_device(term: &mut baud_core::Term<'_>, d: baud_domain::Locato
     term.set_locator_device(d);
 }
 
+/// Tell the core whether the system has a Hebrew keyboard layout, which
+/// DECHEBM needs (`?35`): macOS's enabled input sources, at start and at
+/// every focus gain, and the Wayland keymap's layouts after every event
+/// the window gave. One function for both drivers.
+pub fn set_hebrew_layout(term: &mut baud_core::Term<'_>, l: baud_domain::HebrewLayout) {
+    term.set_hebrew_layout(l);
+}
+
 /// Tell the core whether a program may log what it sends (`?46`, `OSC
 /// 46`), from `[screen] logging`. One function for both drivers, called
 /// after `Term::new` and before the first feed; each driver writes the log

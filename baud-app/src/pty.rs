@@ -559,7 +559,7 @@ pub fn locale_installed(name: &str) -> bool {
 /// A CoreFoundation string as text: `None` for null, or for one longer than
 /// 63 bytes -- a locale's identifier, language or region is a few letters.
 #[cfg(target_os = "macos")]
-fn cf_text(s: crate::sys::CfString) -> Option<String> {
+pub(crate) fn cf_text(s: crate::sys::CfString) -> Option<String> {
     if s.is_null() {
         return None;
     }

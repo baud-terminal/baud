@@ -394,7 +394,15 @@ the screen; step 3 joins Arabic letters.
   as Hebrew, the DEC 7-bit Hebrew set in G0 to G3, until `CSI ? 36 h`
   puts the power-up sets back
   (`dechem_reset_designates_the_hebrew_nrcs_and_set_ascii`).
-  Arabic an input method is composing is drawn joined, as it will be
+- **A program can switch the keyboard to Hebrew** (DECHEBM, `CSI ? 35 h`,
+  `[[source: vt510-dechebm]]`), while the system has a Hebrew layout
+  enabled: each key types the letter the standard Israeli layout puts on
+  it, whatever layout the system is typing in, and in the national mode
+  a Hebrew letter is sent as its 7-bit code and lowercase letters
+  received are drawn as Hebrew
+  (`group_two_types_the_israeli_layouts_letter_on_the_keys_place`,
+  `under_seven_bit_characters_ascii_in_gl_is_drawn_as_hebrew`).
+- **Arabic an input method is composing is drawn joined**, as it will be
   once written (`[[source: unicode-ch9]]` 9.2.2): its letters take their
   forms with one another and with the letters written either side of it,
   which take theirs from it, a lam and an alef make their ligature, also

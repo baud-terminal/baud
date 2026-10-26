@@ -3,7 +3,7 @@
 //! compiler answers the keysym and the text; this names the key the way
 //! `Term::key` wants it: a character with its text, or a functional key.
 
-use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, KeypadKey, Modifiers};
+use baud_domain::{Codepoint, FnKey, HebrewLayout, KeyCode, KeyEvent, KeypadKey, Modifiers};
 use baud_xkb::{Keycode, Keymap, Keysym, Mods, State};
 
 /// The modifiers `Term::key` cares about, from the real bits: Shift, Lock,
@@ -357,4 +357,24 @@ fn code_of(sym: Keysym) -> Option<KeyCode> {
         0xffbd => KeyCode::Keypad(KeypadKey::Equal),
         _ => return None,
     })
+}
+
+/// **Whether a layout of `keymap` types Hebrew**: a key whose first level
+/// in some group is a letter alef to tav, which DECHEBM needs, "only valid
+/// when a Hebrew keyboard language is selected" (`[[source:
+/// vt510-dechebm]]`). Read once a keymap, when the compositor sends it.
+pub fn hebrew_layout(keymap: &Keymap) -> HebrewLayout {
+    let hebrew = keymap.keys.iter().flatten().any(|k| {
+        k.groups.iter().any(|g| {
+            g.levels
+                .first()
+                .and_then(|l| l.first())
+                .and_then(|s| s.to_char())
+                .is_some_and(|c| baud_domain::seven_bit_hebrew(Codepoint::from_char(c)).is_some())
+        })
+    });
+    match hebrew {
+        true => HebrewLayout::Present,
+        false => HebrewLayout::Absent,
+    }
 }

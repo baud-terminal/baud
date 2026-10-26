@@ -453,6 +453,11 @@ impl Paint<'_, '_> {
         self.strs.status.swapped = into;
         self.view.swap_surface(&mut self.status);
         self.row_changed_to(self.cy);
+        // DECHEBM, global, may have changed while this display was parked,
+        // and with it how GL's ASCII is drawn (`crate::hebrew_keys`).
+        if self.gl_set() != self.charset {
+            self.invoke();
+        }
         self.rehook();
     }
 

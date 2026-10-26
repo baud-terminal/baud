@@ -218,6 +218,13 @@ fn every_mode_resource_is_the_fresh_terminals_mode() {
             .and_then(|r| r.strip_suffix(b"$y"))
             .unwrap_or_else(|| panic!("{name}: {}", show(&got)));
         let set = match (state, sense) {
+            // **`?35` is DEC's DECHEBM here** (Jev, DEC_DECHEBM, 0.91/0.94),
+            // so xterm's `shiftFonts`, rxvt's font shifting that its `?35`
+            // starts, is a mode baud refuses and its resource is unknown.
+            _ if name == "shiftFonts" => {
+                assert_eq!(state, b"2", "DECHEBM, North American");
+                None
+            }
             (b"0", _) => None,
             (b"1" | b"3", Sense::Same) | (b"2" | b"4", Sense::Inverse) => Some("true"),
             (b"2" | b"4", Sense::Same) | (b"1" | b"3", Sense::Inverse) => Some("false"),

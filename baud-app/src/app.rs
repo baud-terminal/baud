@@ -1219,6 +1219,7 @@ impl App {
         // AppKit always has a pointer to move: a Mac's trackpad, or the
         // cursor a mouse or a tablet drives.
         crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
+        crate::host::set_hebrew_layout(&mut term, crate::layouts::hebrew_layout());
         crate::host::set_term_name(&mut term);
         crate::host::set_logging(&mut term, logging);
         // A printer only where one is listed (`print.rs`; note AW), and a
@@ -11604,6 +11605,9 @@ impl Driver {
         // input, so the cursor comes back shown and the stop starts over.
         if f == baud_core::Focus::Gained {
             self.read_caret_system();
+            // And the keyboard layouts, which DECHEBM needs a Hebrew one of
+            // (`layouts.rs`).
+            crate::host::set_hebrew_layout(&mut self.app.term, crate::layouts::hebrew_layout());
             self.app.caret.input(host_now());
             // And the printer list, off this thread: a printer added in
             // System Settings is the core's at the next gain (`print.rs`).

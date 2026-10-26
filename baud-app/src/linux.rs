@@ -938,6 +938,8 @@ pub fn run() {
         // The seat's pointer comes and goes with its capabilities: told
         // after the events, before the next read is parsed.
         crate::host::set_locator_device(&mut d.term, d.window.pointer_device());
+        // And whether its keymap has a Hebrew layout, which DECHEBM needs.
+        crate::host::set_hebrew_layout(&mut d.term, d.window.hebrew_layout());
         // **Once the registry offers `xdg_wm_base`, `OSC 61` answers what
         // its version allows**: below 4 no bounds ever come, and a resize
         // in pixels or to the screen's size is listed as not done

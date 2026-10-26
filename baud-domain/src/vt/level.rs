@@ -270,6 +270,9 @@ functions! {
     Decrlcm "DECRLCM" Since(Four), Manual(Vt510);
     Dechem "DECHEM" Since(Four), Manual(Vt510);
     Decrlm "DECRLM" Since(Four), Manual(Vt510);
+    // Its page names "the terminal is set to VT100 mode" for its 7-bit
+    // behaviour; at Level 4 by LEVEL_4, the VT100 clause unreached.
+    Dechebm "DECHEBM" Since(Four), Manual(Vt510);
     Decscusr "DECSCUSR" Since(Four), Manual(Vt520);
     Decswbv "DECSWBV" Since(Four), Manual(Vt520);
     Decsmbv "DECSMBV" Since(Four), Manual(Vt520);
@@ -500,6 +503,7 @@ impl PrivateMode {
             PrivateMode::RightToLeftCopy => Function::Decrlcm,
             PrivateMode::HebrewEncoding => Function::Dechem,
             PrivateMode::CursorRightToLeft => Function::Decrlm,
+            PrivateMode::HebrewKeyboard => Function::Dechebm,
             PrivateMode::EraseColor => Function::Dececm,
             _ => return None,
         })

@@ -61,6 +61,7 @@ mod file;
 mod font;
 mod graph;
 mod hardcopy;
+mod hebrew_keys;
 mod iterm;
 #[cfg(feature = "diag")]
 pub use graph::Hist;

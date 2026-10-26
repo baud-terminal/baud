@@ -2515,12 +2515,23 @@ impl Paint<'_, '_> {
     /// `Paint::charset` -- called by every path that moves a slot or `gl`, so
     /// the resolved byte cannot go stale behind them.
     pub(crate) fn invoke(&mut self) {
-        let next = self.cold.g[self.cold.gl.index()];
+        let next = self.gl_set();
         if next != self.charset {
             self.keep_repeated_set();
         }
         self.charset = next;
         self.refresh_flags();
+    }
+
+    /// **The set GL draws by**: the one it holds, but ASCII drawn as DEC
+    /// 7-bit Hebrew while DECHEBM's Group 2 is active under 7-bit
+    /// characters (`crate::hebrew_keys`).
+    pub(crate) fn gl_set(&self) -> Charset {
+        let held = self.cold.g[self.cold.gl.index()];
+        match held == Charset::Ascii && self.hebrew_group_two() {
+            true => Charset::National(Nrcs::Hebrew),
+            false => held,
+        }
     }
 
     /// **What REP repeats keeps the set it was received under** when GL's
@@ -3985,6 +3996,15 @@ impl Paint<'_, '_> {
             // while set, and a wrap left pending at the left margin taken
             // back to a column when it is reset.
             PrivateMode::CursorRightToLeft => self.cursor_direction(change),
+            // **`?35` DECHEBM** (`crate::hebrew_keys`): the keyboard's map,
+            // and GL's set again, which it may draw as DEC 7-bit Hebrew.
+            PrivateMode::HebrewKeyboard => {
+                self.cold.hebrew_keyboard = match on {
+                    true => HebrewKeyboard::Hebrew,
+                    false => HebrewKeyboard::NorthAmerican,
+                };
+                self.invoke();
+            }
             // Global, read by the embedder's copy (`Term::copy_direction`).
             PrivateMode::RightToLeftCopy => {
                 self.cold.copy = match on {
@@ -4396,6 +4416,9 @@ impl Paint<'_, '_> {
             _ => crate::term::Looking::Back,
         };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
+        // DECHEBM's power-on mapping, North American, before `soft_reset`
+        // invokes GL's set (`crate::hebrew_keys`).
+        self.cold.hebrew_keyboard = HebrewKeyboard::NorthAmerican;
         self.soft_reset();
         // SDS's and SRS's table empties, the screens it named erased.
         self.reset_strings();
@@ -5304,6 +5327,10 @@ impl Paint<'_, '_> {
             PrivateMode::HebrewEncoding => match self.cold.hebrew {
                 HebrewEncoding::Multinational => ModeState::Set,
                 HebrewEncoding::National => ModeState::Reset,
+            },
+            PrivateMode::HebrewKeyboard => match self.cold.hebrew_keyboard {
+                HebrewKeyboard::Hebrew => ModeState::Set,
+                HebrewKeyboard::NorthAmerican => ModeState::Reset,
             },
             _ => ModeState::NotRecognized,
         }

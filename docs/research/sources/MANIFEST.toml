@@ -36099,3 +36099,36 @@ sha256 = "377424ba9caffbe64ea8cf4ac37f798554732cc38ec08ed56c60cc28c93c7580"
 bytes  = 111478
 status = "retrieved"
 group  = "C"
+
+# lane b224, DECHEBM (?35): the layout its Group 2 maps keys through, and rxvt-unicode's ?35.
+[sources.xkb-symbols-il-2ec770a]
+key    = "xkb-symbols-il-2ec770a"
+title  = "xkeyboard-config symbols/il -- xkb_symbols \"basic\", 'an implemetation of the Israeli standard SI-1452 (2013)', each key's first level"
+author = "the xkeyboard-config contributors"
+year   = 2026
+venue  = "xkeyboard-config @ 2ec770a (gitlab.freedesktop.org), the X11-style licence in its COPYING"
+url    = "https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config/-/raw/2ec770a0085bf776de749e185ca40e50213fb21f/symbols/il"
+file   = ""
+sha256 = "f42072a57f056b3bfe05c781f24d913d9cf18a604f5a7e53008e3416fe270aff"
+bytes  = 16122
+status = "external"
+group  = "C"
+# Read 2026-10-26 (lane b224): the keys TLDE, AD01-AD12, AC01-AC11 and AB01-AB10 of
+# "basic", whose first-level keysyms baud-domain's SI_1452 table holds as data.
+
+[sources.urxvt-command-c-5865a43]
+key    = "urxvt-command-c-5865a43"
+title  = "rxvt-unicode src/command.C -- { 35, PrivMode_ShiftKeys } and the Shift+Insert paste it gates"
+author = "Marc Lehmann and the rxvt-unicode contributors (GPL-3.0)"
+year   = 2026
+venue  = "rxvt-unicode @ 5865a43 (the exg/rxvt-unicode mirror)"
+url    = "https://raw.githubusercontent.com/exg/rxvt-unicode/5865a435983be27c8f4a601e7a9920d3a92f102a/src/command.C"
+file   = ""
+sha256 = "61fe25227a6fd4674a0b2fed81438c26be2d3efb575a10384a40d4832a379888"
+bytes  = 113829
+status = "external"
+group  = "C"
+# Read 2026-10-26 (lane b224), not copied: line 3748 maps ?35 to PrivMode_ShiftKeys, line
+# 774 tests it for Shift+Insert, and its Shift+KP_Add font change is under "#if TODO".
+# rxvt.7.pod at the same commit is urxvt-rxvt7-5865a43 (the sha256 matches): "Pm = 35
+# (rxvt): h Allow XTerm Shift+key sequences".

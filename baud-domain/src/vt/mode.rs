@@ -757,6 +757,13 @@ pub enum PrivateMode {
     /// "starts/stops the right-to-left cursor direction", one state for
     /// both displays ([`ModeBit::CursorRightToLeft`]).
     CursorRightToLeft,
+    /// `?35` DECHEBM, Hebrew/N-A keyboard mapping (`[[source:
+    /// vt510-dechebm]]`): "sets the keyboard mapping to Hebrew/N-A and
+    /// resets the mapping to North American" ([`HebrewKeyboard`]). Global.
+    /// rxvt's and xterm's `?35`, "Enable font-shifting functions (rxvt)"
+    /// (`[[source: ctlseqs]]`), is not this mode (Jev, DEC_DECHEBM,
+    /// 0.91/0.94).
+    HebrewKeyboard,
     Other(Param),
 }
 
@@ -1341,11 +1348,11 @@ impl ModeSlot {
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 67] = [
+pub const SLOT_WIRE: [u16; 68] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34,
+    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34, 35,
 ];
 
 const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
@@ -1498,6 +1505,7 @@ impl PrivateMode {
             PrivateMode::RightToLeftCopy => 64,
             PrivateMode::HebrewEncoding => 65,
             PrivateMode::CursorRightToLeft => 66,
+            PrivateMode::HebrewKeyboard => 67,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1598,6 +1606,7 @@ impl PrivateMode {
             96 => PrivateMode::RightToLeftCopy,
             36 => PrivateMode::HebrewEncoding,
             34 => PrivateMode::CursorRightToLeft,
+            35 => PrivateMode::HebrewKeyboard,
             n => PrivateMode::Other(Param(n)),
         }
     }

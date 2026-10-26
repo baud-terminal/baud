@@ -1272,6 +1272,12 @@ pub struct Cold {
     pub(crate) hebrew: HebrewEncoding,
     /// The row a DECRLM write left [`Pinned::LeftEdge`] on.
     pub(crate) left_edge: Row,
+    /// `?35` DECHEBM ([`HebrewKeyboard`], `crate::hebrew_keys`): North
+    /// American at power-on and after `RIS`, kept by `DECSTR`.
+    pub(crate) hebrew_keyboard: HebrewKeyboard,
+    /// Whether the system has a Hebrew layout, the embedder's
+    /// ([`Term::set_hebrew_layout`]); no sequence changes it.
+    pub(crate) hebrew_layout: HebrewLayout,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1495,7 +1501,9 @@ pub struct Cold {
 // DECTSR and the embedder's copy, never by a glyph.
 // DECRLM's `left_edge`, the row a leftward write left its wrap waiting on,
 // took it to 976: written by that write, read by the next one and by a
-// mark's attach while DECRLM is set, never by the text path.
+// mark's attach while DECRLM is set, never by the text path. DECHEBM's
+// byte and the embedder's Hebrew layout landed in its padding: written by
+// `?35`, `RIS` and the embedder, read by a key, DECRQM and a change of GL.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 976);
@@ -2032,6 +2040,8 @@ impl Cold {
             copy: CopyDirection::LeftToRight,
             hebrew: HebrewEncoding::Multinational,
             left_edge: Row::ZERO,
+            hebrew_keyboard: HebrewKeyboard::NorthAmerican,
+            hebrew_layout: HebrewLayout::Absent,
             xtsave: SavedModes::NONE,
         }
     }
@@ -6218,6 +6228,8 @@ impl<'b> Term<'b> {
         // sends the other key's sequence; the wheel's and a click's cursor
         // keys, which count logical columns, are not keystrokes and do not.
         let e = self.arrows_swapped(e);
+        // **DECHEBM's Group 2** (`crate::hebrew_keys`).
+        let e = self.hebrew_mapped(e);
         let Some(k) = self.queue_key(e) else {
             return false;
         };

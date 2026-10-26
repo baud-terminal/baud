@@ -519,6 +519,38 @@ unsafe extern "C" {
     pub fn nl_langinfo_l(item: NlItem, locale: Locale) -> *const c_char;
 }
 
+// **The keyboard layouts the user has enabled**, for DECHEBM, which acts
+// only with a Hebrew one (`layouts.rs`): HIToolbox's Text Input Sources,
+// and the array calls that read their list.
+#[cfg(target_os = "macos")]
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    /// A `CFArrayRef` the caller releases: the enabled sources when
+    /// `include_all_installed` is 0 and `properties` null.
+    pub fn TISCreateInputSourceList(
+        properties: *const c_void,
+        include_all_installed: CfBoolean,
+    ) -> CfObject;
+    /// A property of a source, which the source owns; a `CFStringRef` for
+    /// the category, a `CFArrayRef` of `CFStringRef` for the languages.
+    pub fn TISGetInputSourceProperty(source: *const c_void, key: CfString) -> *const c_void;
+    #[link_name = "kTISPropertyInputSourceLanguages"]
+    pub static TIS_PROPERTY_INPUT_SOURCE_LANGUAGES: CfString;
+    #[link_name = "kTISPropertyInputSourceCategory"]
+    pub static TIS_PROPERTY_INPUT_SOURCE_CATEGORY: CfString;
+    #[link_name = "kTISCategoryKeyboardInputSource"]
+    pub static TIS_CATEGORY_KEYBOARD_INPUT_SOURCE: CfString;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    pub fn CFArrayGetCount(array: *const c_void) -> CfIndex;
+    /// The element, which the array owns.
+    pub fn CFArrayGetValueAtIndex(array: *const c_void, index: CfIndex) -> *const c_void;
+    pub fn CFEqual(a: *const c_void, b: *const c_void) -> CfBoolean;
+}
+
 /// CoreFoundation's signed count, a `long`.
 #[cfg(target_os = "macos")]
 pub type CfIndex = core::ffi::c_long;
@@ -573,6 +605,11 @@ pub struct CfObject(*const c_void);
 impl CfObject {
     pub fn is_null(self) -> bool {
         self.0.is_null()
+    }
+
+    /// The object as the reference the array calls read.
+    pub fn as_ptr(self) -> *const c_void {
+        self.0
     }
 
     /// The object as the string it is, for `CFStringGetCString`: only for
@@ -650,6 +687,17 @@ unsafe extern "C" {
 impl CfString {
     pub fn is_null(self) -> bool {
         self.0.is_null()
+    }
+
+    /// A string another object owns, such as an element of an array: for
+    /// one only, and nothing releases it.
+    pub fn borrowed(p: *const c_void) -> CfString {
+        CfString(p)
+    }
+
+    /// The string as the reference `CFEqual` compares.
+    pub fn as_ptr(self) -> *const c_void {
+        self.0
     }
 }
 
