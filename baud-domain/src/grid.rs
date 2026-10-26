@@ -271,6 +271,16 @@ impl PastRows<'_> {
     }
 }
 
+/// **What a whole-row fill leaves of the row's paragraph properties**
+/// ([`View::fill_row`], [`View::fill_new_row`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowFill {
+    /// Erased in place: its path, autodetection and box mirroring kept.
+    Erased,
+    /// A new line: none.
+    New,
+}
+
 /// What a ring row holds, by [`View::ring_row_holds`]: a written
 /// character, a space included, or nothing but erased cells.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -690,9 +700,14 @@ impl<'a> View<'a> {
     fn fill_past_edge(&mut self, p: usize, a: usize, cell: PackedCell) -> usize {
         let base = p * self.stride.index();
         let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
-        self.used[p] = self
+        let mark = self
             .mark_after_fill(base, to, cell, RowExtent::of(a))
             .with_bidi(bidi);
+        // From column 0 the row is erased whole, and DECRLM's mark goes.
+        self.used[p] = match a == 0 {
+            true => mark.erased(),
+            false => mark,
+        };
         if a >= to {
             return 0;
         }
@@ -2400,7 +2415,10 @@ impl<'a> View<'a> {
             true => self.used[p].index().max(a).min(b),
             false => b,
         };
+        // From column 0 to the end the row is erased whole, and DECRLM's
+        // mark goes with what it wrote ([`RowExtent::erased`]).
         match to_end {
+            true if a == 0 => self.used[p] = self.used[p].refilled(0).erased(),
             true => self.used[p] = self.used[p].refilled(a),
             false => self.used[p] = self.used[p].reached(b),
         }
@@ -2450,8 +2468,28 @@ impl<'a> View<'a> {
     /// bare `usize`, because the audit is right that "how many cells" and "how
     /// far along a row" are the same quantity here and a raw integer invites
     /// adding it to something it is not.
+    ///
+    /// **The row erased in place** (ED, DECALN): the same paragraph, its
+    /// path kept, only DECRLM's mark gone ([`RowExtent::erased`]).
     #[inline(always)]
     pub fn fill_row(&mut self, r: Row, cell: PackedCell) -> RowExtent {
+        self.fill_row_as(r, cell, RowFill::Erased)
+    }
+
+    /// [`View::fill_row`] for **a line a full-screen scroll brings in**: a
+    /// new paragraph, which keeps nothing of the ring row it takes and has
+    /// no properties of its own until the core's line rules give it the
+    /// direction in force. It stores the mark and reads nothing of the row,
+    /// about 0.15% more instructions on cat than a fill that keeps the row's
+    /// properties; clearing DECRLM's bit in the row kept read 0.4% more on
+    /// cat and 0.3% on less.
+    #[inline(always)]
+    pub fn fill_new_row(&mut self, r: Row, cell: PackedCell) -> RowExtent {
+        self.fill_row_as(r, cell, RowFill::New)
+    }
+
+    #[inline(always)]
+    fn fill_row_as(&mut self, r: Row, cell: PackedCell, fill: RowFill) -> RowExtent {
         let cols = self.cols.index();
         if cols == 0 || r.index() >= self.rows.index() {
             return RowExtent::ZERO;
@@ -2480,10 +2518,14 @@ impl<'a> View<'a> {
         // existed to measure.
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = self.used[p].refilled(match blanking {
+        let mark = match blanking {
             true => 0,
             false => cols,
-        });
+        };
+        self.used[p] = match fill {
+            RowFill::Erased => self.used[p].refilled(mark).erased(),
+            RowFill::New => RowExtent::of(mark),
+        };
         RowExtent::of(to)
     }
 
@@ -2566,7 +2608,7 @@ impl<'a> View<'a> {
         };
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = self.used[p].refilled(0);
+        self.used[p] = self.used[p].refilled(0).erased();
         RowExtent::of(to)
     }
 
@@ -2581,7 +2623,10 @@ impl<'a> View<'a> {
         let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = self.mark_after_fill(base, to, cell, low).with_bidi(bidi);
+        self.used[p] = self
+            .mark_after_fill(base, to, cell, low)
+            .with_bidi(bidi)
+            .erased();
         to
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
@@ -2790,10 +2835,12 @@ impl<'a> View<'a> {
             let p = self.phys(Row::from_index(y));
             let a = p * s;
             self.cells[a..a + cols].fill(blank);
-            self.used[p] = self.used[p].refilled(match blank.content == Content::EMPTY {
-                true => 0,
-                false => cols,
-            });
+            self.used[p] = self.used[p]
+                .refilled(match blank.content == Content::EMPTY {
+                    true => 0,
+                    false => cols,
+                })
+                .erased();
         }
     }
 
@@ -2827,10 +2874,12 @@ impl<'a> View<'a> {
             let p = self.phys(Row::from_index(y));
             let a = p * s;
             self.cells[a..a + cols].fill(blank);
-            self.used[p] = self.used[p].refilled(match blank.content == Content::EMPTY {
-                true => 0,
-                false => cols,
-            });
+            self.used[p] = self.used[p]
+                .refilled(match blank.content == Content::EMPTY {
+                    true => 0,
+                    false => cols,
+                })
+                .erased();
         }
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {

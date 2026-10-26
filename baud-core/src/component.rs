@@ -25,7 +25,7 @@
 
 use baud_domain::{
     BidiDirection, BidiSupport, CharacterPath, Col, Count, CursorCol, DeviceComponent, EraseExtent,
-    ModeBit, Row, StringId, order_strings,
+    ModeBit, ModeChange, Row, StringId, order_strings,
 };
 
 use crate::MAX_COLS;
@@ -75,6 +75,20 @@ impl Paint<'_, '_> {
             && self.cold.dcsm == DeviceComponent::Presentation
             && self.strs.strings.begun == Begun::Yes;
         self.cold.modes.apply(ModeBit::PresentationEdits, on);
+        let mapped = on || self.cold.modes.is_set(ModeBit::CursorRightToLeft);
+        self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
+    }
+
+    /// **DECRLM set or reset** (`crate::leftward`).
+    pub(crate) fn cursor_direction(&mut self, to: ModeChange) {
+        self.cold
+            .modes
+            .apply(ModeBit::CursorRightToLeft, to.is_set());
+        if self.cold.pinned == crate::term::Pinned::LeftEdge {
+            self.cold.pinned = crate::term::Pinned::Before;
+        }
+        self.refresh_presentation_edits();
+        self.reselect();
     }
 
     /// **Row `r`'s map**, `None` where every presentation position holds
@@ -143,9 +157,13 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn return_presented(&mut self) {
-        match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => self.set_col(CursorCol::moved(Col::ZERO)),
-            true => self.return_fenced(),
+        match (
+            self.cold.modes.is_set(ModeBit::CursorRightToLeft),
+            self.cold.modes.is_set(ModeBit::SideMargins),
+        ) {
+            (true, _) => self.return_leftward(),
+            (false, false) => self.set_col(CursorCol::moved(Col::ZERO)),
+            (false, true) => self.return_fenced(),
         }
         if let Some(m) = self.cursor_map() {
             let home = self.cx.col();

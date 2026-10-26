@@ -48,6 +48,10 @@ pub(crate) enum Pen {
 /// graph sends text to SAPV's writer while a form waits or was just taken
 /// ([`crate::graph::FormRead`]).
 pub(crate) trait Writer {
+    /// Whether this writer reads DECRLM ([`ModeBit::CursorRightToLeft`]):
+    /// SAPV's, which the one-by-one graph sends every character to while
+    /// it is set; never the text path's, which then never tests it.
+    const LEFTWARD: bool = false;
     fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count);
 }
 
@@ -68,6 +72,7 @@ impl Writer for Plain {
 pub(crate) struct Formed;
 
 impl Writer for Formed {
+    const LEFTWARD: bool = true;
     #[inline(always)]
     fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count) {
         p.write_slowly(cp, need);
@@ -290,7 +295,7 @@ pub(crate) struct Paint<'a, 'b> {
     /// zero was, reads 1-2% below the parent there with the ranges
     /// overlapping (`docs/record.md`, "A write over half a wide character
     /// blanks the other half, at every read size").
-    row_written: Col,
+    pub(crate) row_written: Col,
     /// Whether a write of text has more to do than its cells
     /// ([`Paint::overwrote`]): set while an image is placed, which the
     /// write may free, or a watch on a selection's rows is armed, which it
@@ -1070,6 +1075,11 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.zero_width::<W>(cp, pen);
             return;
         }
+        // **Under DECRLM, written leftward** (`crate::leftward`), by SAPV's
+        // writer alone: the text path's never reads the bit.
+        if W::LEFTWARD && self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
+            return self.glyph_leftward(cp, w, pen);
+        }
         let need = 1 + usize::from(w == Width::WIDE);
         if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
             self.overflow(Count::of(need));
@@ -1455,6 +1465,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// reset and nothing has moved the cursor across since
     /// ([`crate::term::Pinned`]).
     fn after_last_write(&self) -> Col {
+        if self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
+            return self.after_leftward_write();
+        }
         let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
             && self.cold.pinned == crate::term::Pinned::OnLast;
         // The column, placed or not: a mark after a move to one past the
@@ -2426,7 +2439,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         #[cfg(not(feature = "ceiling-no-blank"))]
         let n = {
             let b = self.blank();
-            self.view.fill_row(Row::from_index(last), b)
+            self.view.fill_new_row(Row::from_index(last), b)
         };
         #[cfg(feature = "ceiling-no-blank")]
         let n = self.view.extent(Row::from_index(last));

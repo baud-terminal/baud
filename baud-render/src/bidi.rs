@@ -123,9 +123,10 @@ use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
     CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
-    JoiningType, LamAlef, LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, STRING_DEPTH, Stride,
-    StringId, Viewport, Wrap, alaphs, box_counterpart, chain_runs, in_layout_block, is_table_rule,
-    join, lam_alefs, mirroring_glyph, opens_rtl, order_strings, string_chain, takes_form,
+    JoiningType, LamAlef, LineBidi, PackedCell, Row, RowExtent, RowRot, RowWritten, Rows,
+    STRING_DEPTH, Stride, StringId, Viewport, Wrap, alaphs, box_counterpart, chain_runs,
+    in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl, order_strings,
+    string_chain, takes_form,
 };
 
 use crate::units::Tally;
@@ -1241,6 +1242,10 @@ impl Reorder {
         for y in 0..vp.rows().index() {
             let r = Row::from_index(y);
             let line = vp.bidi(r);
+            // A row DECRLM wrote is drawn as its cells hold.
+            if line.written() == RowWritten::RightToLeft {
+                continue;
+            }
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
             let strung = strings && cells.iter().any(|&c| !string_of(term, c).is_none());
             let base = match line.path() {
@@ -1362,6 +1367,14 @@ impl Reorder {
     ) {
         let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         let nrows = vp.rows().index();
+        // **A paragraph a row of which DECRLM wrote is drawn as its cells
+        // hold** (`baud_domain::RowWritten`; Jev, AS_STORED, 0.97/0.97): its
+        // cells hold the order a VT510 shows, which UAX #9 would reverse.
+        if (first.index()..=last.index())
+            .any(|y| vp.bidi(Row::from_index(y)).written() == RowWritten::RightToLeft)
+        {
+            return;
+        }
         let budget = CONTEXT / vp.cols().index().max(1);
         let opens = |cells: &[PackedCell]| row_opens(term, cells);
         // Every drawn row is asked, so each keeps its answer for the next

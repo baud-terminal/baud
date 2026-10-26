@@ -523,6 +523,11 @@ pub(crate) fn act(
         // which has no `BS`, 1 M instructions over 200 reps above this: the
         // loop's layout, which `HT`'s arm moved too (`docs/record.md`, "A
         // cursor placed right of the fence writes on").
+        // Under DECRLM it moves right (`crate::leftward`).
+        Act::Backspace if p.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
+            p.back_space_leftward();
+            ReadLen::ONE
+        }
         Act::Backspace => {
             match p.cx.raw() > p.cold.left && p.cx.raw() <= p.cold.right {
                 true => p.set_col(p.cx.before()),
@@ -533,6 +538,10 @@ pub(crate) fn act(
         // HT. One stop forward, through the same `tab_forward` that `CHT`
         // reaches -- so the character and the control sequence cannot disagree
         // about where the stops are.
+        Act::Tab if p.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
+            p.tab_leftward();
+            ReadLen::ONE
+        }
         Act::Tab => {
             p.tab_forward(Count::ONE);
             ReadLen::ONE
@@ -1883,7 +1892,11 @@ fn glyph_eight<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
         let cl = Classified::of(cp);
         let w = cl.width(p.cold.widths);
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
-            if p.cx.raw() != Col::ZERO {
+            // As in `glyph_with_by`: under DECRLM the cluster's cell is
+            // right of the cursor, there at column 0 too.
+            if p.cx.raw() != Col::ZERO
+                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft))
+            {
                 p.attach_continuing(cp);
                 return;
             }
@@ -1950,8 +1963,11 @@ fn glyph_with_by<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
             core::hint::black_box(c.is_break_classified(cl.class, cl.lookback));
         }
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
-            // A tagged value is never column 0.
-            if p.cx.raw() != Col::ZERO {
+            // A tagged value is never column 0; under DECRLM the cluster's
+            // cell is right of the cursor, there at column 0 too.
+            if p.cx.raw() != Col::ZERO
+                || (W::LEFTWARD && p.cold.modes.is_set(ModeBit::CursorRightToLeft))
+            {
                 p.attach_continuing(cp);
                 return;
             }

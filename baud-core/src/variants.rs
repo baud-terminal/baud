@@ -87,7 +87,11 @@ pub(crate) enum Forms {
 /// How the text is read for the form state the mode word holds: one
 /// character at a time while a form waits or the last character took it.
 pub(crate) fn form_read(m: Modes) -> FormRead {
-    match m.either_set(ModeBit::FormPending, ModeBit::FormEnd) {
+    match m.any_of_three(
+        ModeBit::FormPending,
+        ModeBit::FormEnd,
+        ModeBit::CursorRightToLeft,
+    ) {
         true => FormRead::OneByOne,
         false => FormRead::Runs,
     }

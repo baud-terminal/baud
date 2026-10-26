@@ -112,6 +112,7 @@ pub(crate) struct Parked {
     cluster: ClusterBreak,
     guard_open: Option<GuardStart>,
     pinned: Pinned,
+    left_edge: Row,
     watched: Watched,
     armed: Option<crate::margin::Line>,
     reach: Cols,
@@ -156,6 +157,7 @@ impl Parked {
             cluster: ClusterBreak::new(),
             guard_open: None,
             pinned: Pinned::Before,
+            left_edge: Row::ZERO,
             watched: Watched::Nothing,
             armed: None,
             reach: cols,
@@ -442,6 +444,7 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cluster, &mut p.cluster);
         core::mem::swap(&mut self.cold.guard_open, &mut p.guard_open);
         core::mem::swap(&mut self.cold.pinned, &mut p.pinned);
+        core::mem::swap(&mut self.cold.left_edge, &mut p.left_edge);
         core::mem::swap(&mut self.cold.watched, &mut p.watched);
         core::mem::swap(&mut self.cold.bell.armed, &mut p.armed);
         core::mem::swap(&mut self.book.reach, &mut p.reach);

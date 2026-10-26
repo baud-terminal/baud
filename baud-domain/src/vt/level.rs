@@ -269,6 +269,7 @@ functions! {
     Decncsm "DECNCSM" Since(Four), Manual(Vt510);
     Decrlcm "DECRLCM" Since(Four), Manual(Vt510);
     Dechem "DECHEM" Since(Four), Manual(Vt510);
+    Decrlm "DECRLM" Since(Four), Manual(Vt510);
     Decscusr "DECSCUSR" Since(Four), Manual(Vt520);
     Decswbv "DECSWBV" Since(Four), Manual(Vt520);
     Decsmbv "DECSMBV" Since(Four), Manual(Vt520);
@@ -496,6 +497,7 @@ impl PrivateMode {
             PrivateMode::NoClearOnColumn => Function::Decncsm,
             PrivateMode::RightToLeftCopy => Function::Decrlcm,
             PrivateMode::HebrewEncoding => Function::Dechem,
+            PrivateMode::CursorRightToLeft => Function::Decrlm,
             PrivateMode::EraseColor => Function::Dececm,
             _ => return None,
         })

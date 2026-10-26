@@ -850,6 +850,11 @@ pub(crate) enum Pinned {
     Before,
     /// The character ended in the last column; the cursor is on it.
     OnLast,
+    /// **Under DECRLM a write put a character at the left margin** and the
+    /// cursor is on it, a wrap waiting there (`crate::leftward`), on the
+    /// row [`Cold::left_edge`] names: every horizontal move ends it, as it
+    /// ends the pin, and a move to another row leaves it naming another.
+    LeftEdge,
 }
 
 /// The host stream's parser state, which the local echo swaps for its own
@@ -1265,6 +1270,8 @@ pub struct Cold {
     /// `?36` DECHEM ([`HebrewEncoding`]) of the display being written, the
     /// other display's parked with its sets (`crate::status`).
     pub(crate) hebrew: HebrewEncoding,
+    /// The row a DECRLM write left [`Pinned::LeftEdge`] on.
+    pub(crate) left_edge: Row,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1486,9 +1493,12 @@ pub struct Cold {
 // slots), DECRLCM's byte (`copy`) and DECHEM's (`hebrew`) took it to 968:
 // written by `?96`, `?36`, XTSAVE and the resets, read by DECRQM, XTRESTORE,
 // DECTSR and the embedder's copy, never by a glyph.
+// DECRLM's `left_edge`, the row a leftward write left its wrap waiting on,
+// took it to 976: written by that write, read by the next one and by a
+// mark's attach while DECRLM is set, never by the text path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 968);
+const _: () = assert!(core::mem::size_of::<Cold>() == 976);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -2021,6 +2031,7 @@ impl Cold {
             held_arrows: HeldArrows::NONE,
             copy: CopyDirection::LeftToRight,
             hebrew: HebrewEncoding::Multinational,
+            left_edge: Row::ZERO,
             xtsave: SavedModes::NONE,
         }
     }

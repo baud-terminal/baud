@@ -964,6 +964,22 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **DECRLM**, last: while set every character goes one at a time to
+    // the leftward writer, a wrap waits at the left margin, and a mark joins
+    // the cell right of the cursor; none of it may depend on where the
+    // reads fell, nor on whether a run or its atoms one by one were read.
+    Atom {
+        name: "decrlm-on",
+        bytes: b"\x1b[?34h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decrlm-off",
+        bytes: b"\x1b[?34l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.

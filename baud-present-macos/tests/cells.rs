@@ -12270,6 +12270,77 @@ fn a_reversed_string_draws_alike_on_every_arm() {
     }
 }
 
+/// **A row DECRLM wrote draws alike on every arm**: with BDSM set it is
+/// drawn as its cells hold (`[[source: vt510-decrlm]]`; Jev, AS_STORED),
+/// the same pixels on the cell, copied and CPU arms as the same cells drawn
+/// with BDSM reset; the control, the same cells written in order with BDSM
+/// set, is reordered by UAX #9.
+#[test]
+fn a_leftward_row_draws_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let prelude = |t: &mut Term<'_>| {
+        feed(
+            t,
+            b"\x1bc\x1b[?25l\x1b[8;1HThe quick brown fox jumps 0123456789",
+        );
+    };
+    // BDSM set: Hebrew and `ab` written leftward from the line's end.
+    {
+        let cols = usize::from(WS.ws_col);
+        arms!(fresh() => arms, t);
+        prelude(&mut t);
+        feed(
+            &mut t,
+            format!("\x1b[?34h\x1b[2;{cols}H\u{5D0}\u{5D1} ab\x1b[?34l\x1b[4;1H").as_bytes(),
+        );
+        let got = three(&mut arms, &mut t, "DECRLM, implicit");
+        prelude(&mut t);
+        feed(
+            &mut t,
+            format!("\x1b[8l\x1b[2;{}Hba \u{5D1}\u{5D0}\x1b[4;1H", cols - 4).as_bytes(),
+        );
+        let want = three(&mut arms, &mut t, "the cells drawn as stored, BDSM reset");
+        assert_eq!(differing(&got, &want), 0, "the row drawn as its cells hold");
+        prelude(&mut t);
+        feed(
+            &mut t,
+            format!("\x1b[2;{}Hba \u{5D1}\u{5D0}\x1b[4;1H", cols - 4).as_bytes(),
+        );
+        let reordered = three(&mut arms, &mut t, "the same cells written in order");
+        assert!(
+            differing(&reordered, &want) > 0,
+            "the control: UAX #9 reorders the cells written in order"
+        );
+    }
+}
+
 /// **A line SCP turns draws alike on every arm** (`[[source: ecma48]]`
 /// 8.3.111): with BDSM set, an all-Latin line SCP 2 sets right to left is
 /// drawn as the same text written in its visual order against the right

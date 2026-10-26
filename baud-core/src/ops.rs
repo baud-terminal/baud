@@ -167,7 +167,7 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn carriage_return(&mut self) {
         let modes = self.cold.modes;
-        if modes.is_set(ModeBit::PresentationEdits) {
+        if modes.is_set(ModeBit::ReturnMapped) {
             return self.return_presented();
         }
         match modes.is_set(ModeBit::SideMargins) {
@@ -2014,6 +2014,7 @@ impl Paint<'_, '_> {
         // DECSERA; Jev's lean, ERASED_POSITIONS). Judged after the wipe, an
         // erased position holding a space.
         self.erase_images_where(r, from, to, |c| c.is_protected() || c.content.is_empty());
+        self.selectively_erased_whole(r, from, to);
         self.row_changed_to(r);
         self.wrote_rows(r, r);
     }
@@ -3967,6 +3968,10 @@ impl Paint<'_, '_> {
             // note 5's workstation emulator have them (note AF's
             // Q-DECNRCM: Jev's lean, C_STD070_NO_DIALECT, 0.37/0.51).
             PrivateMode::NationalReplacement => {}
+            // **`?34` DECRLM** (`crate::leftward`): the one-by-one graph
+            // while set, and a wrap left pending at the left margin taken
+            // back to a column when it is reset.
+            PrivateMode::CursorRightToLeft => self.cursor_direction(change),
             // Global, read by the embedder's copy (`Term::copy_direction`).
             PrivateMode::RightToLeftCopy => {
                 self.cold.copy = match on {
@@ -4847,6 +4852,9 @@ impl Paint<'_, '_> {
         // then 0.77/0.77).
         self.cold.line = LineBidi::POWER_ON;
         self.cold.arrows = ArrowSwap::On;
+        // "Cursor direction DECRLM Reset (Left-to-right), regardless of NVR
+        // setting" (`[[source: vt510-decstr]]`).
+        self.cursor_direction(ModeChange::Reset);
         // Every held arrow key's decision forgotten (`crate::arrows`),
         // which `RIS` reaches through here.
         self.cold.held_arrows = HeldArrows::NONE;
@@ -5273,6 +5281,9 @@ impl Paint<'_, '_> {
             // below on purpose, so the answer stays `0` if the wildcard
             // changes.
             PrivateMode::NationalReplacement => ModeState::NotRecognized,
+            PrivateMode::CursorRightToLeft => {
+                bit_state(self.cold.modes, ModeBit::CursorRightToLeft)
+            }
             PrivateMode::RightToLeftCopy => match self.cold.copy {
                 CopyDirection::RightToLeft => ModeState::Set,
                 CopyDirection::LeftToRight => ModeState::Reset,

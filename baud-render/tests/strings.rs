@@ -129,3 +129,33 @@ fn without_strings_the_hebrew_is_one_run() {
     let s = screen("go \u{5D0}\u{5D1}\u{5D2}\u{5D3} now");
     assert_eq!(s[0], "go \u{5D3}\u{5D2}\u{5D1}\u{5D0} now.............");
 }
+
+/// **A row DECRLM wrote is drawn as its cells hold** (Jev, AS_STORED,
+/// 0.97/0.97): "shalom abc" sent right to left from the last column reads
+/// on the screen as the VT510 shows it, though the mode is on; the control,
+/// the same cells written left to right, is reordered by UAX #9.
+#[test]
+fn a_row_decrlm_wrote_is_drawn_as_its_cells_hold() {
+    let s = screen("\x1b[?34h\x1b[1;24H\u{5E9}\u{5DC}\u{5D5}\u{5DD} abc");
+    assert_eq!(s[0], "................cba \u{5DD}\u{5D5}\u{5DC}\u{5E9}");
+    let s = screen("\x1b[1;17Hcba \u{5DD}\u{5D5}\u{5DC}\u{5E9}");
+    assert_eq!(s[0], "................cba \u{5E9}\u{5DC}\u{5D5}\u{5DD}");
+}
+
+/// **A row DECRLM wrote, erased whole, is drawn by UAX #9 again** (Jev,
+/// AS_STORED: as its cells hold "until it is erased whole"): after `ED 2`
+/// and after `EL 2`, Hebrew written in order on a row DECRLM once wrote is
+/// drawn as on a row it never wrote.
+#[test]
+fn a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again() {
+    let line = "\u{5D0}\u{5D1} ab";
+    let probe = "\x1b[?34h\x1b[1;20H\u{5D2}\x1b[?34l";
+    for erase in ["\x1b[2J\x1b[H", "\x1b[H\x1b[2K"] {
+        let control = screen(&format!("{erase}{line}"));
+        assert_eq!(
+            screen(&format!("{probe}{erase}{line}"))[0],
+            control[0],
+            "{erase:?}"
+        );
+    }
+}

@@ -384,6 +384,18 @@ pub enum ModeBit {
     /// [`ModeBit::PathSelected`] so the `CR LF` pair's mask stays one run; set and reset as the
     /// three change; no `DECRQM` or XTSAVE reaches it.
     PresentationEdits,
+    /// **`?34` DECRLM** (`[[source: vt510-decrlm]]`): a graphic character
+    /// is written at the cursor and "The cursor moves to the next character
+    /// position", "the current cursor position minus 1". Reset at power-on
+    /// and by `DECSTR` ("Cursor direction DECRLM Reset (Left-to-right)",
+    /// `[[source: vt510-decstr]]`) and `RIS`. While set the core chooses
+    /// the one-by-one graph, so the text path's writers never read it.
+    CursorRightToLeft,
+    /// **Whether `CR` lands anywhere but the line's home**: DECRLM set or
+    /// [`ModeBit::PresentationEdits`], so `CR` tests one bit as it did for
+    /// the second alone. Not a mode the host names; set and reset as the two
+    /// change; no `DECRQM` or XTSAVE reaches it.
+    ReturnMapped,
     /// **Whether a SAPV form waits for the following graphic character**
     /// (`[[source: ecma48]]` 8.3.108, values 5 to 8). Not a mode the host
     /// names: the core chooses its parse graph by it and by
@@ -727,6 +739,10 @@ pub enum PrivateMode {
     /// 4-8, note 1), set the multinational mode and reset the 7-bit
     /// national one ([`HebrewEncoding`]), kept for each display.
     HebrewEncoding,
+    /// `?34` DECRLM, cursor right-to-left mode (`[[source: vt510-decrlm]]`):
+    /// "starts/stops the right-to-left cursor direction", one state for
+    /// both displays ([`ModeBit::CursorRightToLeft`]).
+    CursorRightToLeft,
     Other(Param),
 }
 
@@ -1311,11 +1327,11 @@ impl ModeSlot {
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 66] = [
+pub const SLOT_WIRE: [u16; 67] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36,
+    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36, 34,
 ];
 
 const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
@@ -1467,6 +1483,7 @@ impl PrivateMode {
             PrivateMode::ArrowKeySwap => 63,
             PrivateMode::RightToLeftCopy => 64,
             PrivateMode::HebrewEncoding => 65,
+            PrivateMode::CursorRightToLeft => 66,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1566,6 +1583,7 @@ impl PrivateMode {
             1243 => PrivateMode::ArrowKeySwap,
             96 => PrivateMode::RightToLeftCopy,
             36 => PrivateMode::HebrewEncoding,
+            34 => PrivateMode::CursorRightToLeft,
             n => PrivateMode::Other(Param(n)),
         }
     }

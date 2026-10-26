@@ -312,6 +312,7 @@ fn the_parsed_forms_name_their_rows() {
         (67, "DECBKM"),
         (69, "DECLRMM"),
         (80, "DECSDM"),
+        (34, "DECRLM"),
         (36, "DECHEM"),
         (95, "DECNCSM"),
         (96, "DECRLCM"),

@@ -159,8 +159,9 @@ pub struct RunRange {
 /// rendition -- and a flag above the mark would win `reached`'s bare `max`
 /// and freeze it. A write updates the word and leaves the path; a fill
 /// keeps it (an erased line is the same paragraph, terminal-wg's "both new
-/// paragraphs receive the old one's BiDi properties"); only the core's line
-/// rules set it ([`RowExtent::with_bidi`]).
+/// paragraphs receive the old one's BiDi properties"), and a fill over the
+/// whole row clears only the mark DECRLM left ([`RowExtent::erased`]); only
+/// the core's line rules set the rest ([`RowExtent::with_bidi`]).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(C)]
 pub struct RowExtent {
@@ -239,6 +240,16 @@ pub enum LineProperty {
 #[repr(transparent)]
 pub struct LineBidi(u8);
 
+/// **How a row's characters were written**: in the order sent, or under
+/// DECRLM (`[[source: vt510-decrlm]]`), right to left from the cursor, so
+/// the cells hold them in the order shown. A row written so is drawn as
+/// its cells hold, UAX #9 not applied to it (Jev, AS_STORED, 0.97/0.97).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RowWritten {
+    InOrder,
+    RightToLeft,
+}
+
 impl LineBidi {
     /// No path, autodetection on, no box mirroring.
     pub const POWER_ON: LineBidi = LineBidi(0);
@@ -246,6 +257,24 @@ impl LineBidi {
     /// Set while autodetection is off, so that on is the zero bit.
     const FIXED: u8 = 0b0100;
     const BOX: u8 = 0b1000;
+    /// A character was written on the row under DECRLM.
+    const LEFTWARD: u8 = 0b1_0000;
+
+    /// **Whether a character was written on the row under DECRLM**
+    /// ([`RowWritten`]): such a row holds its characters in the order a
+    /// VT510 shows them, and is drawn as its cells hold.
+    pub fn written(self) -> RowWritten {
+        match self.0 & Self::LEFTWARD {
+            0 => RowWritten::InOrder,
+            _ => RowWritten::RightToLeft,
+        }
+    }
+    pub fn with_written(self, w: RowWritten) -> LineBidi {
+        match w {
+            RowWritten::InOrder => LineBidi(self.0 & !Self::LEFTWARD),
+            RowWritten::RightToLeft => LineBidi(self.0 | Self::LEFTWARD),
+        }
+    }
 
     pub fn path(self) -> CharacterPath {
         match self.0 & Self::PATH {
@@ -384,6 +413,17 @@ impl RowExtent {
         RowExtent {
             bidi: self.bidi,
             ..RowExtent::of(n)
+        }
+    }
+    /// **What a fill over the whole row leaves of the paragraph
+    /// properties**: the row is no longer one DECRLM wrote
+    /// ([`RowWritten::InOrder`]; Jev, AS_STORED, drawn as its cells hold
+    /// "until it is erased whole"), and its path, autodetection and box
+    /// mirroring are kept, as any fill keeps them.
+    pub fn erased(self) -> RowExtent {
+        RowExtent {
+            bidi: self.bidi.with_written(RowWritten::InOrder),
+            ..self
         }
     }
     /// The row's character path.

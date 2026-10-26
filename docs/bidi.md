@@ -356,6 +356,17 @@ the screen; step 3 joins Arabic letters.
   it (`dch_deletes_the_cells_drawn_at_its_positions`,
   `cpr_reports_the_presentation_column`). `CSI 9 h` edits the cells as
   stored. With the mode on it does nothing, as ECMA-48 says.
+- **A program can write right to left, as on a VT510 with a Hebrew
+  keyboard** (DECRLM, `CSI ? 34 h`, `[[source: vt510-decrlm]]`): each
+  character is written at the cursor and the cursor moves left, BS moves
+  right, CR goes to the right margin, a character at the left margin
+  wraps to the right margin of the next line, and Tab goes back a stop. A
+  line written so is drawn as written, whatever the mode, so a Hebrew word
+  reads as the VT510 shows it, until the line is erased whole, when text
+  written on it in order is drawn by UAX #9 again
+  (`a_character_is_written_and_the_cursor_moves_left`,
+  `a_row_decrlm_wrote_is_drawn_as_its_cells_hold`,
+  `a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again`).
 - **A copy can read each line from its right edge** (DEC's DECRLCM,
   `CSI ? 96 h`, `[[source: vt510-decrlcm]]`): each line of the copy
   gives its characters in the order they are drawn, from right to left,
@@ -475,8 +486,11 @@ vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
 `[[source: vt510-chapter4]]`), ECMA-48 7.1, 7.2.3, 7.3.4, 8.3.114 and
 8.3.137, and TR/53's section 7 and worked examples; Jev was asked twice
 in each order, and the strings under the mode on a third time with a
-corrected render (`docs/research/notes/ab/b220/`); no fork reached 0.9
-in both. **Taken from Jev's lean; the owner can veto each:**
+corrected render (`docs/research/notes/ab/b220/`). Two forks reached 0.9
+in both orders, both DECRLM's on the re-ask: a row it wrote is drawn as
+its cells hold (AS_STORED, 0.97 / 0.97; 0.55 / 0.76 first), and `HT`
+goes to the previous stop (LEFTWARD, 0.92 / 0.94). **Taken from Jev's
+lean; the owner can veto each:**
 
 | choice | taken | Jev, first ask then re-ask |
 |---|---|---|
@@ -490,6 +504,7 @@ in both. **Taken from Jev's lean; the owner can veto each:**
 | DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string | 0.22 / 0.22, 0.86 / 0.86 |
 | DCSM at power-on | PRESENTATION, the reset state | 0.38 / 0.52, 0.66 / 0.42 |
 | `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" | 0.80 / 0.52, 0.64 / 0.10 |
+| DECRLM under side margins | `CR` and the wrap's landing at the right margin, the wrap at the left one | 0.24 / 0.20; then the orders apart, AS_WORDED 0.23 and this 0.34, this the likelier, by mean probability 0.39 against 0.37 |
 | DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
 
 **Taken from Jev's lean, which held in all four answers but for the
@@ -655,6 +670,15 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   more a character at each doubling (pairs side by side 32, 54, 99 and
   189, nested FSIs 22, 31, 50 and 88), so the bench sees a quadratic
   when there is one.
+- **SDS, SRS, DCSM and DECRLM cost a program that never sends them
+  nothing on the text path**: a string rides in the rendition, DCSM's and
+  DECRLM's tests are one bit of the mode word `CR` already reads, and
+  DECRLM's writer is reached only by the one-by-one graph (docs/record.md,
+  "DECRLM writes right to left"). **Unmeasured: a frame once a string has
+  been begun**, which reads every cell's rendition for its string, on
+  every draw path, until `RIS`; **and a copy under DECRLCM**, which lays
+  out a whole window for each line of the history it copies
+  (`Selection::text` reading each line through the window that shows it).
 - **SAPV costs a program that never sends it nothing**: no row is read
   for a variant until one is selected (`Term::variants_seen`), and after
   that a frame reads each row's cells once for the substitutions and the
@@ -703,7 +727,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- DEC's DECRLM.
 - **The cursor on a line holding a string, with the mode off**: `CUP`,
   `CHA`, `CUF` and `CUB` place the cursor by the line's cells whatever
   DCSM says, where ECMA-48 (8.3.9, 8.3.20, 8.3.21, Annex F) moves "the

@@ -17,3 +17,5 @@ cc 6d45a14b5407a39ad3c93b2ab108f58e0240469e51997de08a5fe1456b2b0ca7 # shrinks to
 cc ed5c626f16cd0cbe1d4ac5ed7c85fe80612ca34ae8838aa910c09c7505daeeb3 # shrinks to prog = [113, 102, 46, 62], w = Narrow
 cc 9e94cf0a8066166ad99b41a2750b0dc36c0c169fead2f1622b8919550ff33798 # shrinks to prog = [114, 110, 112, 102, 118], w = Narrow
 cc f178cee324d914b35b19d505aa158e000aada04394293b556e85f37b0ad82c61 # shrinks to prog = [110, 102, 114, 112, 95, 118], a = 1, w = Narrow
+cc 22d77cdf1bd1113fbb1325f22a6843d03d634e579c7ebd45a69fe472629d2a9f # shrinks to prog = [99, 119, 69, 51, 91, 29], a = 1, w = Narrow
+cc c7cd5e5ae7f40d7635ad60c1da6463089eaa5ae1594fd1f98535b6a9302f5bed # shrinks to prog = [20, 99, 69, 119, 46, 33], w = Narrow
