@@ -5696,14 +5696,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             self.cur[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
             self.cur_size[y] = size;
+            // The cells under a composition blanked where the row's order
+            // draws them, as `Renderer::convert` blanks them: `view` is in
+            // that order, so a cell the composition's columns name is at
+            // its visual column, and a mirror L4 gives the composition's
+            // text is in its cell there.
             if let Some(c) = composition.filter(|c| c.row == r) {
                 let (start, end) = c.columns(c.width_on(view));
-                for cell in &mut self.cur[y * ncols + start..y * ncols + end] {
-                    *cell = PackedCell {
-                        content: baud_domain::Content::EMPTY,
-                        style: cell.style,
-                        flags: baud_domain::CellFlags::NONE,
-                    };
+                let orders = self.bidi.orders();
+                for x in start..end {
+                    let v = orders.visual_col(r, Col::at_index(x)).index();
+                    if let Some(cell) = self.cur.get_mut(y * ncols + v) {
+                        *cell = PackedCell {
+                            content: baud_domain::Content::EMPTY,
+                            style: cell.style,
+                            flags: baud_domain::CellFlags::NONE,
+                        };
+                    }
                 }
             }
             // **Converted again only when something it is drawn from moved**:

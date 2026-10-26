@@ -379,6 +379,9 @@ the screen; step 3 joins Arabic letters.
   as Hebrew, the DEC 7-bit Hebrew set in G0 to G3, until `CSI ? 36 h`
   puts the power-up sets back
   (`dechem_reset_designates_the_hebrew_nrcs_and_set_ascii`).
+  On a double-width line a composition holding a character the line
+  mirrors, such as `(`, draws that mirror once
+  (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 
 ## What decided each choice
 

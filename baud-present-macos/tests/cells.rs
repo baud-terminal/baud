@@ -10527,7 +10527,11 @@ fn a_double_width_right_to_left_line_is_drawn_within_its_half() {
 /// after it in logical order, which the paragraph draws left of `abcd`.
 /// On a double-width line, laid out over its half, the same: drawn at its
 /// stored columns, the composition sat where the text it would be written
-/// as is not.
+/// as is not. Each composed as `cd` and as `c(`, whose `(` resolves right
+/// to left there and is drawn `)`: on a double-width line the cell arm
+/// hid the cells at the composition's stored columns, not where the order
+/// draws them, so it drew that `)` a second time, and composed over `xy`
+/// it drew those letters under the composition.
 #[test]
 fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     let (built, noto) = rtl_faces();
@@ -10561,7 +10565,7 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     // red: the rendition is the logical cell's, wherever it is drawn.
     // On a double-width line too (DECDWL), which is laid out over its
     // half, so the composition is drawn at the cursor's drawn column there.
-    for (line, red, width) in [
+    for (line, red, width, text) in [
         ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", "", ""),
         (
             "\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab\x1b[31mxy\x1b[39m",
@@ -10569,7 +10573,15 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
             "",
         ),
         ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", "", "\x1b#6"),
-    ] {
+        (
+            "\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab\x1b[31mxy\x1b[39m",
+            "\x1b[31m",
+            "\x1b#6",
+        ),
+    ]
+    .into_iter()
+    .flat_map(|(l, r, w)| ["cd", "c("].map(move |text| (l, r, w, text)))
+    {
         arms!(fresh() => arms, t);
         feed(
             &mut t,
@@ -10582,7 +10594,7 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
         arms.composition = Some(Composition {
             row,
             col,
-            text: "cd"
+            text: text
                 .chars()
                 .map(baud_domain::Codepoint::from_char)
                 .collect(),
@@ -10590,14 +10602,21 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
             hints: Vec::new(),
             caret: Caret::End,
         });
-        let composed = three(&mut arms, &mut t, "composed");
+        let composed = three(
+            &mut arms,
+            &mut t,
+            &format!("{line}{width:?} {text}: composed"),
+        );
         assert!(
             arms.renderer.bidi().reordered(row),
             "the premise: the row is reordered"
         );
         arms.composition = None;
         let plain = three(&mut arms, &mut t, "plain");
-        feed(&mut t, format!("{red}\x1b[4mcd\x1b[24m\x1b[39m").as_bytes());
+        feed(
+            &mut t,
+            format!("{red}\x1b[4m{text}\x1b[24m\x1b[39m").as_bytes(),
+        );
         let written = three(&mut arms, &mut t, "written");
         assert!(
             differing(&composed, &plain) > 0,
