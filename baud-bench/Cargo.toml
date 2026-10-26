@@ -210,6 +210,13 @@ harness = false
 name = "kitty_image"
 harness = false
 
+# UAX #9 on crafted worst-case rows against recorded text, nanoseconds a
+# character at four lengths: whether N0 and X5c grow linearly; asserts N0
+# reached the bracket shapes.
+[[bench]]
+name = "bidi_rows"
+harness = false
+
 # macOS only; it prints on every other target. It was a test with a wall-clock
 # bound, which measured the machine's load under the parallel suite -- see the
 # bench's own header.

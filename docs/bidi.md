@@ -429,11 +429,28 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   that holds Arabic paid for joining it: vim-unicode +0.6% with the mode
   on and +1.6% with it off, where the first joining letter a renderer
   draws has its rows converted twice, once.
-- **Two rules scan more than once.** N0 scans every bracket pair's
-  contents, and the text before it for context, so it is quadratic in the
-  worst case. X5c scans ahead from every FSI to its matching PDI. Section
-  5.1 names bracket matching as a place to optimise. Neither is measured
-  yet, on a row of nested brackets or one of nested FSIs.
+- **The two rules that scan more than once are linear, measured.** N0
+  scans each bracket pair's contents, and for a pair holding only the
+  opposite direction the text before it; BD16's stack of 63 bounds how
+  many pairs hold any one character, and a resolved bracket is strong,
+  so each scan back for context stops at the nearest bracket already
+  resolved (the previous pair's closer when pairs sit side by side, its
+  opener when they nest). X5c scans from each FSI to its matching PDI,
+  stepping over each nested isolate by its match, so a character is read
+  by its innermost isolate alone. At 256, 512, 1024 and 2048 characters,
+  `baud-bench/benches/bidi_rows.rs` reads 7.8-8.5 ns a character on rows
+  of recorded text (the medians of four rounds), and no crafted row's
+  doubles with the row: from the shortest to the longest, bracket pairs
+  side by side read 9.4 and 9.1, neutral pairs before one that reads
+  back over them all 9.6 and 8.8, FSIs nested 1023 deep 10.9 and 8.7,
+  unmatched FSIs 10.1 and 8.5, 64 nested brackets, which overflow BD16's
+  stack and stop it, 8.5 and 6.7, and 63 nested pairs around a run of
+  Hebrew, the deepest BD16 holds, 35 and 39, rising as the 126 brackets'
+  share of the row falls. A build that reads the whole text before every
+  pair, with a first-strong scan that walks into nested isolates, reads
+  more a character at each doubling (pairs side by side 32, 54, 99 and
+  189, nested FSIs 22, 31, 50 and 88), so the bench sees a quadratic
+  when there is one.
 
 ## What is not built yet
 
