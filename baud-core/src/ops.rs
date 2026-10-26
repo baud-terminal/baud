@@ -3808,6 +3808,33 @@ impl Paint<'_, '_> {
             // embedder, and `?1011`, `?1041`, `?2001`, `?2005` and `?2006`
             // by the embedder through `Term::resource`.
             PrivateMode::Resource(r) => self.cold.resources.apply(r, change),
+            // **terminal-wg's paragraph properties** (`crate::path`): the
+            // value in force, and the paragraph the cursor stands at the
+            // start of.
+            PrivateMode::BoxMirroring => {
+                let b = match on {
+                    true => BoxMirror::On,
+                    false => BoxMirror::Off,
+                };
+                self.cold.line = self.cold.line.with_box_mirror(b);
+                self.select_line_property(LineProperty::BoxMirror);
+            }
+            PrivateMode::DirectionAutodetect => {
+                let a = match on {
+                    true => Autodetect::On,
+                    false => Autodetect::Off,
+                };
+                self.cold.line = self.cold.line.with_autodetect(a);
+                self.select_line_property(LineProperty::Autodetect);
+            }
+            // Global, read by `Term::key`: "Unlike the output modes, the
+            // keyboard mode is global".
+            PrivateMode::ArrowKeySwap => {
+                self.cold.arrows = match on {
+                    true => ArrowSwap::On,
+                    false => ArrowSwap::Off,
+                };
+            }
             // **`?42` DECNRCM is recognised and ignored**, not counted:
             // "This sequence is ignored when the North American or Dutch
             // Keyboard Dialect is selected" (`[[source: dec-std-070]]`
@@ -4280,10 +4307,13 @@ impl Paint<'_, '_> {
         // that "may imply, if applicable". `DECSTR` keeps it, as its DEC
         // table names no BDSM.
         self.cold.bidi = BidiSupport::POWER_ON;
-        // No character path, in force or on any line: the mode word above
-        // took `ModeBit::PathSelected` back, and the rows below are erased
-        // with their marks, which carry the lines' paths.
-        self.cold.path = CharacterPath::Default;
+        // No character path, autodetection on and no box mirroring, in
+        // force and on every line: the mode word above took
+        // `ModeBit::PathSelected` back, and the rows below are erased with
+        // their marks, which carry the lines' properties. Arrow-key
+        // swapping on, its power-on state.
+        self.cold.line = LineBidi::POWER_ON;
+        self.cold.arrows = ArrowSwap::On;
         // iTerm2's cursor guide goes back to the embedder's setting: its
         // reset sets the profile's again (`screenDidReset`, `[[source:
         // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
@@ -4637,8 +4667,16 @@ impl Paint<'_, '_> {
         // direction DECRLM Reset (Left-to-right)" (`[[source: vt510-decstr]]`
         // Table 5-9), and VTE's soft reset its current direction; the lines
         // keep theirs, drawn as they are (Jev's lean, RESET_CURRENT,
-        // 0.70/0.77).
-        self.cold.path = CharacterPath::Default;
+        // 0.70/0.77). **And `?2500`, `?2501` and `?1243` to their power-on
+        // states**, the first two in force only, as mintty's soft reset
+        // returns its paragraph modes and VTE's every mode, and as DEC's
+        // table returns the cursor keys (Jev's lean, RESET_ALL, 0.30/0.51
+        // then 0.77/0.77).
+        self.cold.line = LineBidi::POWER_ON;
+        self.cold.arrows = ArrowSwap::On;
+        // Every held arrow key's decision forgotten (`crate::arrows`),
+        // which `RIS` reaches through here.
+        self.cold.held_arrows = HeldArrows::NONE;
         let power_on = Modes::default();
         for m in [
             ModeBit::CursorVisible,
@@ -5032,6 +5070,20 @@ impl Paint<'_, '_> {
             PrivateMode::Resource(r) => match self.cold.resources.is_set(r) {
                 true => ModeState::Set,
                 false => ModeState::Reset,
+            },
+            // terminal-wg's three answer the value in force, which a line
+            // feed's new line takes.
+            PrivateMode::BoxMirroring => match self.cold.line.box_mirror() {
+                BoxMirror::On => ModeState::Set,
+                BoxMirror::Off => ModeState::Reset,
+            },
+            PrivateMode::DirectionAutodetect => match self.cold.line.autodetect() {
+                Autodetect::On => ModeState::Set,
+                Autodetect::Off => ModeState::Reset,
+            },
+            PrivateMode::ArrowKeySwap => match self.cold.arrows {
+                ArrowSwap::On => ModeState::Set,
+                ArrowSwap::Off => ModeState::Reset,
             },
             // **`?42` answers `0`**, as STD 070's DECRQM has it: "DEC
             // Private modes that cannot be set or reset from the host will

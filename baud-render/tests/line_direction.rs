@@ -1,11 +1,18 @@
 //! **A program can choose which way its lines run**: SCP, `CSI Ps1 ; Ps2
 //! SP k` (`[[source: ecma48]]` 8.3.111), selects the character path "for
 //! the active line ... and subsequent lines", and SPD, `CSI Ps1 ; Ps2 SP
-//! S` (8.3.130), for the whole screen. Under BDSM set the path is the
-//! paragraph's level, set outright (`[[source: uax9-bidi]]` HL1); reset,
+//! S` (8.3.130), for the whole screen. Under BDSM set, with autodetection
+//! off, the path is the paragraph's level, set outright (`[[source:
+//! uax9-bidi]]` HL1); with BDSM reset,
 //! a right-to-left line is drawn as terminal-wg's explicit RTL, its cells
 //! in reverse and its mirrored characters mirrored
 //! (`[[source: terminal-wg-bidi-basic-modes]]`).
+//!
+//! While terminal-wg's autodetection is on, as it is at power-on, a path
+//! is only the fallback of a paragraph with no strong letter
+//! (`[[source: terminal-wg-bidi-basic-modes]]`), so the tests of the path
+//! itself turn autodetection off first, [`FIXED`], as the draft tells a
+//! program that needs one direction to ("save+set the mode").
 //!
 //! Every expectation is a visual order worked by hand from UAX #9's rules;
 //! `.` is an erased cell.
@@ -56,14 +63,20 @@ fn screen(ws: &WinSize, bytes: &str) -> Vec<String> {
 
 const HEBREW: &str = "\u{5D0}\u{5D1}\u{5D2}!";
 
-/// **SCP 2 draws an English line right to left**: the paragraph's level is
-/// 1 whatever its letters (HL1), so the Latin run sits at level 2 against
+/// `?2501` reset: a paragraph's path is its direction outright.
+const FIXED: &str = "\x1b[?2501l";
+
+/// **SCP 2 draws an English line right to left**, autodetection off: the
+/// paragraph's level is 1 whatever its letters (HL1), so the Latin run sits at level 2 against
 /// the right edge and the `!` after it, a neutral between an L and the
 /// paragraph's end, takes the paragraph's direction (N1-N2) and is drawn
 /// at the run's left.
 #[test]
 fn scp_2_draws_an_english_line_right_to_left() {
-    assert_eq!(screen(&WS, "\x1b[2 kabc!")[0], "........!abc");
+    assert_eq!(
+        screen(&WS, &format!("{FIXED}\x1b[2 kabc!"))[0],
+        "........!abc"
+    );
     // The control: as the terminal starts, first strong.
     assert_eq!(screen(&WS, "abc!")[0], "abc!........");
 }
@@ -73,7 +86,7 @@ fn scp_2_draws_an_english_line_right_to_left() {
 #[test]
 fn scp_1_keeps_a_hebrew_line_left_to_right() {
     assert_eq!(
-        screen(&WS, &format!("\x1b[1 k{HEBREW}"))[0],
+        screen(&WS, &format!("{FIXED}\x1b[1 k{HEBREW}"))[0],
         "\u{5D2}\u{5D1}\u{5D0}!........"
     );
     assert_eq!(
@@ -89,7 +102,7 @@ fn scp_1_keeps_a_hebrew_line_left_to_right() {
 /// written, and the lines a line feed reaches take it.
 #[test]
 fn the_direction_turns_the_active_line_and_carries_to_later_lines() {
-    let s = screen(&WS, "abc!\x1b[2 k\r\ndef!\r\n\x1b[1 kghi!");
+    let s = screen(&WS, &format!("{FIXED}abc!\x1b[2 k\r\ndef!\r\n\x1b[1 kghi!"));
     assert_eq!(s[0], "........!abc", "the line written before it");
     assert_eq!(s[1], "........!def", "a line feed's new line");
     assert_eq!(s[2], "ghi!........", "SCP 1 on the third");
@@ -113,7 +126,7 @@ fn a_line_the_cursor_moves_to_keeps_its_direction() {
 fn ps1_zero_is_refused_and_decstr_returns_to_first_strong() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "\x1b[2 k");
+    feed(&mut t, &format!("{FIXED}\x1b[2 k"));
     let before = t.unsupported;
     feed(&mut t, "\x1b[0 k\x1b[ k\x1b[;0 k");
     assert_eq!(t.unsupported, before + 3, "each refusal counted");
@@ -167,7 +180,7 @@ fn ps2_one_moves_the_cursor_to_the_line_start() {
 /// direction**: the row the wrap brings in takes it.
 #[test]
 fn a_wrapped_line_keeps_its_direction_on_every_row() {
-    let s = screen(&WS, "\x1b[2 kabcdefghijklmnop!");
+    let s = screen(&WS, &format!("{FIXED}\x1b[2 kabcdefghijklmnop!"));
     assert_eq!(s[0], "abcdefghijkl");
     assert_eq!(s[1], ".......!mnop");
 }
@@ -177,7 +190,10 @@ fn a_wrapped_line_keeps_its_direction_on_every_row() {
 /// so the rows still on the screen say it themselves.
 #[test]
 fn a_paragraph_whose_first_row_scrolled_off_keeps_its_direction() {
-    let s = screen(&WS, "\x1b[2 kabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLM!\r\n");
+    let s = screen(
+        &WS,
+        &format!("{FIXED}\x1b[2 kabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLM!\r\n"),
+    );
     assert_eq!(s[0], "mnopqrstuvwx");
     assert_eq!(s[2], "........!KLM");
 }
@@ -189,7 +205,10 @@ fn a_paragraph_whose_first_row_scrolled_off_keeps_its_direction() {
 fn the_direction_survives_scrollback() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "\x1b[2 kabc!\r\n\x1b[1 k1\r\n2\r\n3\r\n4\r\n5");
+    feed(
+        &mut t,
+        &format!("{FIXED}\x1b[2 kabc!\r\n\x1b[1 k1\r\n2\r\n3\r\n4\r\n5"),
+    );
     let mut o = Reorder::new();
     assert_eq!(row_of(&t, &mut o, 0, Rows::of_index(2)), "........!abc");
     assert_eq!(row_of(&t, &mut o, 1, Rows::of_index(2)), "1...........");
@@ -201,7 +220,7 @@ fn the_direction_survives_scrollback() {
 fn the_direction_survives_reflow() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "\x1b[2 kabcdefgh!\r\n\x1b[1 kxyz");
+    feed(&mut t, &format!("{FIXED}\x1b[2 kabcdefgh!\r\n\x1b[1 kxyz"));
     let narrow = WinSize {
         ws_row: 4,
         ws_col: 6,
@@ -232,7 +251,7 @@ fn ris_returns_every_line_to_first_strong() {
 /// `ED 2` a line the cursor is moved to is right to left.
 #[test]
 fn ed_spreads_the_direction_over_the_erased_lines() {
-    let s = screen(&WS, "\x1b[2 k\x1b[2J\x1b[3;1Habc!");
+    let s = screen(&WS, &format!("{FIXED}\x1b[2 k\x1b[2J\x1b[3;1Habc!"));
     assert_eq!(s[2], "........!abc");
 }
 
@@ -240,9 +259,9 @@ fn ed_spreads_the_direction_over_the_erased_lines() {
 /// IL's, are right to left.
 #[test]
 fn the_lines_a_scroll_brings_in_take_the_direction() {
-    let s = screen(&WS, "\x1b[2 k\x1b[S\x1b[4;1Habc!");
+    let s = screen(&WS, &format!("{FIXED}\x1b[2 k\x1b[S\x1b[4;1Habc!"));
     assert_eq!(s[3], "........!abc", "SU's line");
-    let s = screen(&WS, "\x1b[2 k\x1b[2;1H\x1b[Ldef!");
+    let s = screen(&WS, &format!("{FIXED}\x1b[2 k\x1b[2;1H\x1b[Ldef!"));
     assert_eq!(s[1], "........!def", "IL's line");
 }
 
@@ -253,7 +272,7 @@ fn the_lines_a_scroll_brings_in_take_the_direction() {
 /// baud applies to IL as well.
 #[test]
 fn a_line_sd_or_il_brings_in_under_a_wrapped_row_is_its_own_paragraph() {
-    let wrapped = "\x1b[1 kabcdefghijklmn\x1b[4;1H\x1b[2 k";
+    let wrapped = format!("{FIXED}\x1b[1 kabcdefghijklmn\x1b[4;1H\x1b[2 k");
     let s = screen(&WS, &format!("{wrapped}\x1b[2;4r\x1b[T\x1b[2;1Hxyz!"));
     assert_eq!(s[1], "........!xyz", "SD's line");
     let s = screen(&WS, &format!("{wrapped}\x1b[2;1H\x1b[Lxyz!"));
@@ -266,11 +285,11 @@ fn a_line_sd_or_il_brings_in_under_a_wrapped_row_is_its_own_paragraph() {
 /// included.
 #[test]
 fn spd_turns_every_line_of_the_screen() {
-    let s = screen(&WS, &format!("abc!\r\n{HEBREW}\x1b[3 S"));
+    let s = screen(&WS, &format!("{FIXED}abc!\r\n{HEBREW}\x1b[3 S"));
     assert_eq!(s[0], "........!abc");
     assert_eq!(s[1], "........!\u{5D2}\u{5D1}\u{5D0}");
     assert_eq!(s[3], "............");
-    let s = screen(&WS, &format!("abc!\r\n{HEBREW}\x1b[ S"));
+    let s = screen(&WS, &format!("{FIXED}abc!\r\n{HEBREW}\x1b[ S"));
     assert_eq!(s[1], "\u{5D2}\u{5D1}\u{5D0}!........");
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
@@ -284,7 +303,7 @@ fn spd_turns_every_line_of_the_screen() {
 /// section 3), so HL1 sets each cell's level.
 #[test]
 fn a_table_row_under_scp_keeps_its_columns_and_turns_each_cell() {
-    let s = screen(&WS, "\x1b[2 k\u{2502}ab!\u{2502}");
+    let s = screen(&WS, &format!("{FIXED}\x1b[2 k\u{2502}ab!\u{2502}"));
     assert_eq!(s[0], "\u{2502}!ab\u{2502}.......");
 }
 
@@ -317,7 +336,7 @@ fn with_bdsm_reset_scp_2_draws_the_line_in_reverse() {
 fn a_direction_change_alone_redraws_the_line() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
-    feed(&mut t, "abc!");
+    feed(&mut t, &format!("{FIXED}abc!"));
     let mut o = Reorder::new();
     assert_eq!(row_of(&t, &mut o, 0, Rows::ZERO), "abc!........");
     feed(&mut t, "\x1b[2 k");

@@ -55,8 +55,9 @@
 use crate::*;
 
 /// The version nibble: a report a later layout reads as foreign. 2 since
-/// the private modes took a sixty-first slot, `?1040`.
-pub const TSR_VERSION: u8 = 2;
+/// the private modes took a sixty-first slot, `?1040`; 3 since they took
+/// terminal-wg's `?2500`, `?2501` and `?1243`.
+pub const TSR_VERSION: u8 = 3;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.

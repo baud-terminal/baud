@@ -4712,6 +4712,23 @@ group  = "J"
 # Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
 # not committed. Re-fetch at the pinned url and compare the sha256.
 
+[sources.terminal-wg-bidi-arrow-key-swapping]
+key    = "terminal-wg-bidi-arrow-key-swapping"
+title  = "BiDi in terminal emulators v0.1 -- recommendation/arrow-key-swapping.html: Left and Right swapped whenever the cursor is inside a RTL paragraph, the autodetected direction; the mode the default; Home and End not swapped"
+author = "Egmont Koblinger"
+year   = 2019
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/recommendation/arrow-key-swapping.html"
+file   = ""
+sha256 = "69d3abc624ce844ab723fbbb7c071b4d0f2c5ae3bff8ce9b83f3fe0140ea8ffc"
+bytes  = 23070
+status = "external"
+group  = "J"
+# Read and hash-verified on 2026-10-25 for the ?1243 row; not committed.
+# Re-fetch at the pinned url and compare the sha256. The draft has no
+# box-mirroring or autodetection page (both urls answer the site's 404
+# page); those modes are in misc.html and basic-modes.html, pinned here.
+
 [sources.terminal-wg-bidi-misc]
 key    = "terminal-wg-bidi-misc"
 title  = "BiDi in terminal emulators v0.1 -- recommendation/misc.html: images not flipped, box drawing not mirrored, the paragraph cap, extra hidden lines for context"
@@ -13827,6 +13844,36 @@ status = "external"
 group  = "J"
 # Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
 # against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mintty-term-0aea388]
+key    = "mintty-term-0aea388"
+title  = "mintty src/term.c -- term_cursor_reset sets the cursor's bidimode to 0, so DECSTR returns ?2500, ?2501 and SCP's path to power-on"
+author = "Thomas Wolff and contributors"
+year   = 2026
+venue  = "mintty/mintty at 0aea388, 3.8.3 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/term.c"
+file   = ""
+sha256 = "b2b932996a689dc1186dc5eb00b867e824b2a3a4d0dc44fd65829f6b9410a5e8"
+bytes  = 146539
+status = "external"
+group  = "J"
+# Read on 2026-10-25 for the terminal-wg BiDi modes; hash-verified against a
+# fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mintty-termline-0aea388]
+key    = "mintty-termline-0aea388"
+title  = "mintty src/termline.c -- autodetection first, the SCP direction the fallback: autodir unless LATTR_BIDISEL, level from LATTR_BIDIRTL"
+author = "Thomas Wolff and contributors"
+year   = 2026
+venue  = "mintty/mintty at 0aea388, 3.8.3 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/termline.c"
+file   = ""
+sha256 = "c5dc8e1f34382631c029d2ef64b596f9db580b0c910d2a32ddad98c81200c1ec"
+bytes  = 42162
+status = "external"
+group  = "J"
+# Read on 2026-10-25 for the terminal-wg BiDi modes; hash-verified against a
+# fetch of the url, not committed -- a source file at a pinned commit.
 
 [sources.mintty-config-0aea388]
 key    = "mintty-config-0aea388"

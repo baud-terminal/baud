@@ -99,6 +99,11 @@ pub enum BidiParagraph {
     /// P2-P3: level 1 if the first strong character, isolates skipped, is
     /// R or AL, else 0.
     FirstStrong,
+    /// P2-P3 with a right-to-left default: level 0 if the first strong
+    /// character, isolates skipped, is L, else 1 -- HL1's "default to level
+    /// 1" where the text holds no strong character, which terminal-wg's
+    /// autodetection takes when the paragraph's path is right to left.
+    FirstStrongRtl,
 }
 
 /// A text longer than the [`Bidi`] holding it, or a line longer than the
@@ -392,21 +397,21 @@ impl<const N: usize> Bidi<N> {
     /// P2-P3 over `from..to`: the first L, AL or R, skipping each isolate
     /// initiator's text to its matching PDI, or to the end where it has
     /// none.
-    fn first_strong(&self, from: usize, to: usize) -> BidiLevel {
+    fn first_strong(&self, from: usize, to: usize) -> Option<BidiLevel> {
         let mut i = from;
         while i < to {
             match self.original[i] {
-                L => return BidiLevel::LTR,
-                R | AL => return BidiLevel::RTL,
+                L => return Some(BidiLevel::LTR),
+                R | AL => return Some(BidiLevel::RTL),
                 LRI | RLI | FSI => match self.link[i] {
-                    NONE => return BidiLevel::LTR,
+                    NONE => return None,
                     j => i = usize::from(j),
                 },
                 _ => {}
             }
             i += 1;
         }
-        BidiLevel::LTR
+        None
     }
 
     /// Resolves one paragraph, `start..end`, and answers its level.
@@ -433,7 +438,10 @@ impl<const N: usize> Bidi<N> {
         let base = match dir {
             BidiParagraph::Ltr => BidiLevel::LTR,
             BidiParagraph::Rtl => BidiLevel::RTL,
-            BidiParagraph::FirstStrong => self.first_strong(start, end),
+            BidiParagraph::FirstStrong => self.first_strong(start, end).unwrap_or(BidiLevel::LTR),
+            BidiParagraph::FirstStrongRtl => {
+                self.first_strong(start, end).unwrap_or(BidiLevel::RTL)
+            }
         };
         self.explicit(start, end, base);
         // X9: the positions kept, and their index among them.
@@ -555,7 +563,9 @@ impl<const N: usize> Bidi<N> {
                                 NONE => end,
                                 j => usize::from(j),
                             };
-                            self.first_strong(i + 1, to).direction()
+                            self.first_strong(i + 1, to)
+                                .unwrap_or(BidiLevel::LTR)
+                                .direction()
                         }
                     };
                     match top.level.next(dir) {

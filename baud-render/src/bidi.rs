@@ -30,14 +30,16 @@
 //! context before and after them as fit, UAX #9 HL5's "piece of text that
 //! is extracted from a longer sequence" (Jev CONTEXT_WINDOW, 0.98/0.98).
 //!
-//! **A line's character path** (SCP, SPD; `baud_core`'s line rules keep
-//! it on every row of a paragraph): with BDSM set a selected path is the
-//! paragraph's level, set outright (UAX #9 HL1), and none selected the
-//! level P2-P3 finds; with BDSM reset a right-to-left line is drawn in
-//! reverse (`Reorder::reverse_paths`).
+//! **A line's paragraph properties** (SCP, SPD, `?2501`, `?2500`;
+//! `baud_core`'s line rules keep them on every row of a paragraph): with
+//! BDSM set and autodetection on, the level P2-P3 finds, falling back to
+//! the path; with it off, the path outright (UAX #9 HL1); with BDSM reset a
+//! right-to-left line is drawn in reverse (`Reorder::reverse_paths`). With
+//! `?2500` a Box Drawing character drawn right to left is drawn as its
+//! counterpart (`baud_domain::box_counterpart`).
 //!
 //! **A table row keeps its columns.** A paragraph holding a box-drawing
-//! character ([`is_column_rule`]) is a table row: each rule is given to
+//! character ([`baud_domain::is_table_rule`]) is a table row: each rule is given to
 //! the algorithm as a paragraph separator, so each cell between two rules
 //! is a paragraph of its own at its own P2-P3 level (UAX #9 section 3's
 //! table cells, HL4), each cell is ordered as a line inside its own
@@ -118,10 +120,10 @@
 
 use baud_core::{BidiSupport, Term};
 use baud_domain::{
-    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, CharacterPath,
+    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror, CharacterPath,
     ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
-    PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, in_layout_block, join,
-    lam_alefs, mirroring_glyph, opens_rtl, takes_form,
+    LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, box_counterpart,
+    in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl, takes_form,
 };
 
 use crate::units::Tally;
@@ -142,29 +144,6 @@ pub enum CursorSide {
     Right,
 }
 
-/// **The paragraph level an implicit paragraph gets where no SCP or SPD set
-/// its lines' path ([`level_of`]): found from its text**,
-/// UAX #9 P2-P3 -- level 1 when its first strong letter, isolates skipped,
-/// is R or AL, else level 0 -- the standard's own default and the owner's
-/// answer of 2026-10-24 ("all match C besides these 2"). A right-to-left
-/// paragraph's erased cells past its text are laid out before it, so its
-/// rows sit against the right edge. The letter is looked for only in the
-/// text the layout reads: the paragraph's rows the window draws and the
-/// context around them ([`CONTEXT`]); a paragraph resolved in more than
-/// one piece keeps the first piece's level for the rest (HL1).
-const DIRECTION: BidiParagraph = BidiParagraph::FirstStrong;
-
-/// **The level a paragraph of character path `path` is resolved at**: the
-/// path, set outright (UAX #9 HL1), where SCP or SPD selected one, and
-/// [`DIRECTION`] where none did.
-fn level_of(path: CharacterPath) -> BidiParagraph {
-    match path {
-        CharacterPath::Default => DIRECTION,
-        CharacterPath::LeftToRight => BidiParagraph::Ltr,
-        CharacterPath::RightToLeft => BidiParagraph::Rtl,
-    }
-}
-
 /// The stand-in for an erased cell between characters: U+200B ZERO WIDTH
 /// SPACE, of class BN and no bracket.
 const ERASED: char = '\u{200B}';
@@ -172,15 +151,6 @@ const ERASED: char = '\u{200B}';
 /// The stand-in for a column rule: U+2029 PARAGRAPH SEPARATOR, class B,
 /// which ends a paragraph (P1).
 const PARAGRAPH_SEPARATOR: char = '\u{2029}';
-
-/// **Whether a character is a column rule**, a table row's cell separator:
-/// the Box Drawing block, U+2500-U+257F, which holds every vertical a
-/// program draws a table's columns with (`│` U+2502, `┃` U+2503, `║`
-/// U+2551, the dashed ones) and the junctions on its rule rows, and which
-/// DEC Special Graphics line drawing is stored as.
-fn is_column_rule(c: char) -> bool {
-    matches!(c, '\u{2500}'..='\u{257F}')
-}
 
 /// The order one row is drawn in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -631,13 +601,13 @@ pub struct Reorder {
     /// One line piece's order, and every line's levels by text position.
     piece: Vec<u16>,
     levels: Vec<BidiLevel>,
-    /// Each window row's character path at the last
+    /// Each window row's paragraph properties at the last
     /// [`Reorder::keep_displayed`].
-    paths: Vec<CharacterPath>,
+    paths: Vec<LineBidi>,
 }
 
 /// Whether a codepoint of a paragraph's text is a column rule: a table
-/// row's cell separator ([`is_column_rule`]).
+/// row's cell separator ([`is_table_rule`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Rule {
     No,
@@ -924,7 +894,7 @@ impl Reorder {
         let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
         // A row whose path changed is shown in another order with the same
         // cells, which no caller's compare sees: its joins are found again.
-        let paths = (0..nrows).map(|y| vp.path(Row::from_index(y)));
+        let paths = (0..nrows).map(|y| vp.bidi(Row::from_index(y)));
         let same_paths = self.paths.len() == nrows && self.paths.iter().copied().eq(paths.clone());
         self.paths.clear();
         self.paths.extend(paths);
@@ -967,7 +937,8 @@ impl Reorder {
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
             let r = Row::from_index(y);
-            if vp.path(r) != CharacterPath::RightToLeft {
+            let line = vp.bidi(r);
+            if line.path() != CharacterPath::RightToLeft {
                 continue;
             }
             let cells = vp.row(r);
@@ -999,7 +970,7 @@ impl Reorder {
                 if cell.content.is_wide_tail() {
                     continue;
                 }
-                match mirror(term, cell) {
+                match mirror(term, cell, line.box_mirror()) {
                     Mirror::Glyph(m) => out.swaps.push((v, m)),
                     Mirror::Flipped(alone) => {
                         if let Some(base) = alone {
@@ -1113,8 +1084,8 @@ impl Reorder {
         // outright is the paragraph's level (UAX #9 HL1), and a right-to-left
         // one lays a paragraph out against the right edge whatever its
         // letters, so it is resolved even when nothing in it opens.
-        let path = vp.path(first);
-        let any_opens = path == CharacterPath::RightToLeft
+        let path = vp.bidi(first);
+        let any_opens = path.path() == CharacterPath::RightToLeft
             || drawn_opens
             || above.iter().any(|c| opens(c))
             || below.iter().any(|c| opens(c));
@@ -1137,7 +1108,17 @@ impl Reorder {
         // fits around it: the rows above before the first chunk, the rows
         // below after the last.
         let cap = Chars(CONTEXT);
-        let mut dir = level_of(path);
+        // **The level its properties give it** ([`LineBidi::paragraph`]):
+        // at power-on, with no path set and autodetection on, the level
+        // UAX #9 P2-P3 finds -- 1 when its first strong letter, isolates
+        // skipped, is R or AL, else 0 -- the owner's answer of 2026-10-24
+        // ("all match C besides these 2"); a right-to-left paragraph's
+        // erased cells past its text are laid out before it, so its rows
+        // sit against the right edge. The letter is looked for only in the
+        // text the layout reads, the paragraph's drawn rows and the context
+        // around them ([`CONTEXT`]); a paragraph resolved in more than one
+        // piece keeps the first piece's level for the rest (HL1).
+        let mut dir = path.paragraph();
         let mut start = 0;
         while start < drawn.len() {
             let mut used = Chars::default();
@@ -1200,7 +1181,7 @@ impl Reorder {
         &mut self,
         term: &Term<'_>,
         rows: &[ParaRow<'_>],
-        (dir, path): (BidiParagraph, CharacterPath),
+        (dir, path): (BidiParagraph, LineBidi),
         resolves: Resolves,
     ) -> Option<BidiLevel> {
         self.text.clear();
@@ -1234,7 +1215,7 @@ impl Reorder {
                 // A column rule ends its cell's paragraph: given to the
                 // algorithm as a paragraph separator (P1), so each cell is
                 // resolved on its own (HL4), and drawn where it is.
-                let rule = match !cell.flags.is_marked() && is_column_rule(base) {
+                let rule = match !cell.flags.is_marked() && is_table_rule(base) {
                     true => Rule::Yes,
                     false => Rule::No,
                 };
@@ -1286,7 +1267,7 @@ impl Reorder {
         // (Jev's lean, CELLS_AT_SCP, 0.57/0.71).
         let table = self.rule.contains(&Rule::Yes);
         let dir = match table {
-            true => level_of(path),
+            true => path.paragraph(),
             false => dir,
         };
         let Ok(level) = self.bidi.resolve(&self.text, dir) else {
@@ -1339,7 +1320,7 @@ impl Reorder {
                 let cell = row.cells[own.col.index()];
                 if odd {
                     let v = Col::at_index(out.from.len() - 1);
-                    match mirror(term, cell) {
+                    match mirror(term, cell, path.box_mirror()) {
                         Mirror::Glyph(m) => out.swaps.push((v, m)),
                         Mirror::Flipped(alone) => {
                             if let Some(base) = alone {
@@ -1749,7 +1730,7 @@ enum Mirror {
     Not,
 }
 
-fn mirror(term: &Term<'_>, cell: PackedCell) -> Mirror {
+fn mirror(term: &Term<'_>, cell: PackedCell, boxes: BoxMirror) -> Mirror {
     let Some(c) = term
         .base_of(cell)
         .drawn()
@@ -1758,14 +1739,27 @@ fn mirror(term: &Term<'_>, cell: PackedCell) -> Mirror {
     else {
         return Mirror::Not;
     };
-    if BidiProps::of(c).mirrored != BidiMirrored::Yes {
+    // **`?2500`: a Box Drawing character drawn right to left is drawn as
+    // its counterpart** (`[[source: terminal-wg-bidi-misc]]`, "mirror the
+    // U+2500 .. U+257F glyphs in RTL"; UAX #9 HL6), under its marks as a
+    // mirrored character is. Only one drawn right to left: L4's resolved R,
+    // with HL6 widening which characters (Jev's lean, RESOLVED_RTL,
+    // 0.60/0.74 then 0.88/0.92), so a table row's rules, kept where they
+    // were written at the left-to-right level, are drawn as written.
+    let counterpart = match boxes {
+        BoxMirror::On => box_counterpart(c).filter(|m| *m != c),
+        BoxMirror::Off => None,
+    };
+    if counterpart.is_none() && BidiProps::of(c).mirrored != BidiMirrored::Yes {
         return Mirror::Not;
     }
     let bare = !cell.flags.is_marked()
         || term
             .cluster_marks(cell)
             .all(|m| char::from_u32(m).is_some_and(is_bidi_control));
-    let glyph = mirroring_glyph(c).and_then(|m| Codepoint::new(u32::from(m)));
+    let glyph = counterpart
+        .or_else(|| mirroring_glyph(c))
+        .and_then(|m| Codepoint::new(u32::from(m)));
     match (bare, glyph) {
         (true, Some(m)) => Mirror::Glyph(Content::codepoint(m)),
         (false, Some(m)) => Mirror::Under(m),

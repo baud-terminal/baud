@@ -35,8 +35,8 @@
 
 use super::{RowRot, View};
 use crate::PackedCell;
-use crate::{CharacterPath, LineRendition, RowExtent};
 use crate::{Col, Cols, Row, Rows};
+use crate::{LineBidi, LineRendition, RowExtent};
 
 /// Where the window and the cursor landed after a reflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,9 +105,9 @@ struct Line {
     tail: PackedCell,
     /// Its rendition: any but single-width is a line of one row, kept whole.
     rendition: LineRendition,
-    /// Its first row's character path, which every row it is cut into
-    /// takes: a paragraph's direction is its own, wherever it wraps.
-    path: CharacterPath,
+    /// Its first row's paragraph properties, which every row it is cut
+    /// into takes: a paragraph's direction is its own, wherever it wraps.
+    bidi: LineBidi,
 }
 
 impl<'a> View<'a> {
@@ -188,7 +188,7 @@ impl<'a> View<'a> {
             dest,
             tail,
             rendition: LineRendition::Single,
-            path: self.used[self.lin(c, start)].path(),
+            bidi: self.used[self.lin(c, start)].bidi(),
         }
     }
 
@@ -213,7 +213,7 @@ impl<'a> View<'a> {
             dest: 1,
             tail: PackedCell::EMPTY,
             rendition: self.used[p].rendition(),
-            path: self.used[p].path(),
+            bidi: self.used[p].bidi(),
         }
     }
 
@@ -230,7 +230,7 @@ impl<'a> View<'a> {
         self.cells[pd * s + l.cells..pd * s + s].fill(PackedCell::EMPTY);
         self.used[pd] = RowExtent::of(l.cells)
             .with_rendition(l.rendition, Cols::of_index(c.new))
-            .with_path(l.path);
+            .with_bidi(l.bidi);
     }
 
     /// The line ending at linear index `end` (exclusive), found from its
@@ -264,7 +264,7 @@ impl<'a> View<'a> {
         let (new, s) = (c.new, self.stride.index());
         for j in 0..l.dest - 1 {
             let p = self.lin(c, dst + j);
-            self.used[p] = RowExtent::ZERO.wrapping(new).with_path(l.path);
+            self.used[p] = RowExtent::ZERO.wrapping(new).with_bidi(l.bidi);
             self.cells[p * s + new..p * s + s].fill(PackedCell::EMPTY);
         }
         let mark = l.cells + l.spacers - (l.dest - 1) * new;
@@ -272,7 +272,7 @@ impl<'a> View<'a> {
         let at = p * s;
         self.cells[at + mark..at + new].fill(l.tail);
         self.cells[at + new..at + s].fill(PackedCell::EMPTY);
-        self.used[p] = RowExtent::of(mark).with_path(l.path);
+        self.used[p] = RowExtent::of(mark).with_bidi(l.bidi);
     }
 
     /// Widening: cells ascending, every write at or before its read.

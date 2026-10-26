@@ -69,6 +69,7 @@ fn tsi(t: &mut Term<'_>) -> Vec<String> {
 const SET: &[u8] =
     b"\x1b[4h\x1b[20h\x1b[6h\x1b[8l\x1b[12l\x1b[2$~\x1b[?1h\x1b[?5h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?1004h\
 \x1b[?1006h\x1b[?1002h\x1b[?2004h\x1b[?12l\x1b[?1036l\x1b[?66h\x1b[?67h\
+\x1b[?2500h\x1b[?2501l\x1b[?1243l\
 \x1b[3;7r\x1b[2;30s\x1b[1;3;4:3;38;2;10;20;30;48;5;9;58;5;3;12m\x1b[5 q\
 \x1b[1\"q\x1b[2 t\x1b[5 u\x1b[2*x\x1b[>0;2t\x1b[>1;3m\x1b[>4;2m\x1b[>2n\
 \x1b[>4;1f\x1b(0\x1b)A\x1b*<\x1b+B\x0e\x1b[3g\x1bH\x1b[4;12H\x1bH\x1b7\x1b[6;9H";
@@ -173,6 +174,28 @@ fn decrsts_restores_what_every_tsi_control_reports() {
             .map(|(b, a)| format!("{b} -> {a}"))
             .collect();
         assert!(wrong.is_empty(), "{wrong:#?}");
+    });
+}
+
+/// **The report carries terminal-wg's three BiDi modes** (the report's
+/// version 3): each away from its power-on state is answered so before
+/// `RIS`, and after a restore from the report taken then.
+#[test]
+fn decrsts_restores_the_three_bidi_modes() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?2500h\x1b[?2501l\x1b[?1243l");
+        t.clear_reply();
+        let want = ["\\x1b[?2500;1$y", "\\x1b[?2501;2$y", "\\x1b[?1243;2$y"];
+        let modes = |t: &mut Term<'_>| {
+            [2500, 2501, 1243].map(|m| show(&reply(t, format!("\x1b[?{m}$p").as_bytes())))
+        };
+        assert_eq!(modes(t), want, "set before the report");
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        assert_ne!(modes(t), want, "RIS returned them");
+        support::feed(t, &restore(&report));
+        t.clear_reply();
+        assert_eq!(modes(t), want, "restored");
     });
 }
 
@@ -349,7 +372,7 @@ fn an_invalid_field_is_stepped_over() {
         let mut d = data(&report).to_vec();
         // The version, the level, the ANSI modes, the private modes, the
         // rendition and the margins come before the cursor style.
-        let at = 1 + 1 + 3 + 31 + 28 + 12;
+        let at = 1 + 1 + 3 + 32 + 28 + 12;
         assert_eq!(d[at], 0x45, "the style nibble is DECSCUSR 5");
         d[at] = 0x49;
         let n = d.len() - 2;

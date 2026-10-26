@@ -21,22 +21,36 @@
 //! the history aside, and the direction in force (Jev's lean,
 //! WHOLE_SCREEN, 0.88/0.83).
 //!
-//! **What a line holds is its paragraph's direction**, every row of it, so
-//! the renderer reads it from any row of the paragraph and a reflow, a
-//! scroll into the history and back, IL and DL carry it with the row
-//! ([`baud_domain::RowExtent`]).
+//! **terminal-wg's `?2500` and `?2501` are paragraph properties too**
+//! (`[[source: terminal-wg-bidi-basic-modes]]`), carried by the same rules:
+//! each becomes the value in force, and applies at once only to a
+//! paragraph whose first position the cursor stands on, "if the cursor
+//! stands at the first logical position of a paragraph then the received
+//! BiDi property value is immediately applied on that paragraph ... If the
+//! cursor is not at the first logical position ... the new mode is not
+//! applied" (`[[source: terminal-wg-bidi-escape-sequences]]`; Jev,
+//! FIRST_POSITION, 0.90/0.94). SPD spreads only the path: "It would be ugly
+//! for SPD to spread the current BDSM, autodetection etc. modes too across
+//! all the lines".
+//!
+//! **What a line holds is its paragraph's properties**, every row of it,
+//! so the renderer reads them from any row of the paragraph and a reflow,
+//! a scroll into the history and back, IL and DL carry them with the row
+//! ([`baud_domain::RowExtent`], [`baud_domain::LineBidi`]).
 //!
 //! **What this costs a program that never sends either: one test of the
 //! mode word where a line feed, a `CR LF` and a wrap already tested LNM and
 //! autoprint**, [`ModeBit::PathSelected`] the third bit of it; cells
 //! written were equal and the timing gave no result (docs/record.md, "SCP
-//! and SPD set which way a line runs"). Until a path is selected every
-//! line holds none and the direction in force is none, so none of the
-//! path rules has anything to write. The lines SU, SD, IL and DL end are
+//! and SPD set which way a line runs"). Until a path or a property is
+//! selected every line holds the power-on byte and so does the value in
+//! force, so none of the rules has anything to write. The lines SU, SD, IL and DL end are
 //! ended whatever the path: a line they bring in is a paragraph of its own
 //! either way, which a reflow reads too.
 
-use baud_domain::{BandMove, CharacterPath, Col, Count, PathCursor, Row, Rows};
+use baud_domain::{
+    BandMove, CharacterPath, Col, Count, LineBidi, LineProperty, PathCursor, Row, Rows,
+};
 
 use crate::paint::Paint;
 use crate::term::Screen;
@@ -49,9 +63,9 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn select_path(&mut self, path: CharacterPath, cursor: PathCursor) {
-        self.cold.path = path;
+        self.cold.line = self.cold.line.with_path(path);
         self.cold.modes.set(ModeBit::PathSelected);
-        self.path_of_paragraph(self.cy, path);
+        self.paragraph_takes(self.cy, Some(LineProperty::Path));
         if cursor == PathCursor::ToStart {
             self.set_col(self.on_line(self.place(self.confine_col(Col::ZERO))));
         }
@@ -63,10 +77,11 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn select_presentation(&mut self, path: CharacterPath, cursor: PathCursor) {
-        self.cold.path = path;
+        self.cold.line = self.cold.line.with_path(path);
         self.cold.modes.set(ModeBit::PathSelected);
         for y in 0..self.rows.index() {
-            self.view.set_path(Row::from_index(y), path);
+            let r = Row::from_index(y);
+            self.view.set_bidi(r, self.view.bidi(r).with_path(path));
         }
         if cursor == PathCursor::ToStart {
             let top = self.confine(self.origin_row());
@@ -74,14 +89,46 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// Row `r`'s paragraph given `path`: the rows above it it continues,
-    /// into the history on the primary, and the rows below that continue
-    /// it.
-    fn path_of_paragraph(&mut self, r: Row, path: CharacterPath) {
+    /// **`?2500` or `?2501`** (`which`), whose value in force the caller
+    /// has set: the paragraph whose first position the cursor stands on
+    /// takes it -- column 1 of a row no row above continues -- and any
+    /// other paragraph keeps its own.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn select_line_property(&mut self, which: LineProperty) {
+        if self.cold.line != LineBidi::POWER_ON {
+            self.cold.modes.set(ModeBit::PathSelected);
+        }
+        if self.cx.col() != Col::ZERO || self.continues_from_above(self.cy) {
+            return;
+        }
+        self.paragraph_takes(self.cy, Some(which));
+    }
+
+    /// Whether row `r` continues the line above it: a soft wrap from the
+    /// row above, or on the primary's first row from the history's newest
+    /// line.
+    fn continues_from_above(&self, r: Row) -> bool {
+        match r.index() {
+            0 => {
+                self.cold.screen == Screen::Normal
+                    && !self.on_status()
+                    && self.book.hist.index() > 0
+                    && self.view.wrapped_behind(Rows::of_count(0)) == baud_domain::Wrap::Continues
+            }
+            y => self.view.extent(Row::from_index(y - 1)).wrapped(),
+        }
+    }
+
+    /// Row `r`'s paragraph takes the value in force, `which` property of
+    /// it or all of it: the rows above it it continues, into the history
+    /// on the primary, and the rows below that continue it.
+    fn paragraph_takes(&mut self, r: Row, which: Option<LineProperty>) {
         let mut top = r.index();
         while top > 0 && self.view.extent(Row::from_index(top - 1)).wrapped() {
             top -= 1;
         }
+        let from = self.cold.line;
         // A paragraph that begins in the history: its lines there too, so
         // that every row of it says the same.
         if top == 0 && self.cold.screen == Screen::Normal && !self.on_status() {
@@ -89,20 +136,25 @@ impl Paint<'_, '_> {
             while k < self.book.hist.index()
                 && self.view.wrapped_behind(Rows::of_count(k)) == baud_domain::Wrap::Continues
             {
-                self.view.set_path_behind(Rows::of_count(k), path);
+                let back = Rows::of_count(k);
+                let now = self.view.bidi_behind(back);
+                self.view.set_bidi_behind(back, taken(now, from, which));
                 k += 1;
             }
         }
-        self.path_from(Row::from_index(top), path);
+        self.line_from(Row::from_index(top), from, which);
     }
 
-    /// Row `r` and the rows below it that continue its line, given `path`.
-    fn path_from(&mut self, r: Row, path: CharacterPath) {
+    /// Row `r` and the rows below it that continue its line take `from`,
+    /// `which` property of it or all of it.
+    fn line_from(&mut self, r: Row, from: LineBidi, which: Option<LineProperty>) {
         let last = self.rows.index() - 1;
         let mut y = r.index();
         loop {
-            self.view.set_path(Row::from_index(y), path);
-            if y >= last || !self.view.extent(Row::from_index(y)).wrapped() {
+            let row = Row::from_index(y);
+            self.view
+                .set_bidi(row, taken(self.view.bidi(row), from, which));
+            if y >= last || !self.view.extent(row).wrapped() {
                 break;
             }
             y += 1;
@@ -121,7 +173,7 @@ impl Paint<'_, '_> {
         let moves = self.cy == self.cold.bot || self.cy.index() < last;
         self.index();
         if moves {
-            self.path_from(self.cy, self.cold.path);
+            self.line_from(self.cy, self.cold.line, None);
         }
     }
 
@@ -132,8 +184,8 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn wrapped_into_path(&mut self) {
         if self.cy.index() > 0 {
-            let above = self.view.path(Row::from_index(self.cy.index() - 1));
-            self.path_from(self.cy, above);
+            let above = self.view.bidi(Row::from_index(self.cy.index() - 1));
+            self.line_from(self.cy, above, None);
         }
     }
 
@@ -209,7 +261,15 @@ impl Paint<'_, '_> {
     fn path_rows_now(&mut self, from: Row, to: Row) {
         let last = self.rows.index().saturating_sub(1);
         for y in from.index()..=to.index().min(last) {
-            self.view.set_path(Row::from_index(y), self.cold.path);
+            self.view.set_bidi(Row::from_index(y), self.cold.line);
         }
+    }
+}
+
+/// `now` with `from`'s `which` property, or all of `from`.
+fn taken(now: LineBidi, from: LineBidi, which: Option<LineProperty>) -> LineBidi {
+    match which {
+        Some(w) => now.with_property(from, w),
+        None => from,
     }
 }

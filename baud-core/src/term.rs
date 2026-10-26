@@ -1243,10 +1243,18 @@ pub struct Cold {
     /// [`ModeBit`]: the mode word is read by the per-byte path and full,
     /// and nothing on that path reads this.
     pub(crate) bidi: BidiSupport,
-    /// SCP's and SPD's character path in force: the one the lines that
-    /// follow take (`crate::path`). None at power-on and after `RIS`
-    /// and `DECSTR`.
-    pub(crate) path: CharacterPath,
+    /// The paragraph properties in force ([`LineBidi`]): SCP's and SPD's
+    /// character path, `?2501`'s autodetection and `?2500`'s box
+    /// mirroring, which the lines that follow take (`crate::path`). Their
+    /// power-on values at power-on and after `RIS` and `DECSTR`.
+    pub(crate) line: LineBidi,
+    /// `?1243`, arrow-key swapping ([`ArrowSwap`]), read only by
+    /// `Term::key`: on at power-on and after `RIS` and `DECSTR`.
+    pub(crate) arrows: ArrowSwap,
+    /// The swap each held arrow key's press decided ([`HeldArrows`]),
+    /// which its repeats and release take; none at power-on and after
+    /// `RIS` and `DECSTR`.
+    pub(crate) held_arrows: HeldArrows,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1993,7 +2001,9 @@ impl Cold {
             // rendered (`tests/golden.rs`) compares like with like.
             modes: Modes::default(),
             bidi: BidiSupport::POWER_ON,
-            path: CharacterPath::Default,
+            line: LineBidi::POWER_ON,
+            arrows: ArrowSwap::On,
+            held_arrows: HeldArrows::NONE,
             xtsave: SavedModes::NONE,
         }
     }
@@ -6144,6 +6154,11 @@ impl<'b> Term<'b> {
         if let Some(sent) = self.regis_key(e) {
             return sent;
         }
+        // **`?1243`: Left and Right swap inside a right-to-left paragraph**
+        // (`crate::arrows`), before the key is encoded, so every encoding
+        // sends the other key's sequence; the wheel's and a click's cursor
+        // keys, which count logical columns, are not keystrokes and do not.
+        let e = self.arrows_swapped(e);
         let Some(k) = self.queue_key(e) else {
             return false;
         };

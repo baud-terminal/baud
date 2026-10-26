@@ -875,6 +875,21 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **terminal-wg's `?2500` and `?2501`**, last for the same reason: a
+    // paragraph property set at a paragraph's start, or in force for the
+    // lines that follow, must not depend on where the reads fell either.
+    Atom {
+        name: "box-mirror-on",
+        bytes: b"\x1b[?2500h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "autodetect-off",
+        bytes: b"\x1b[?2501l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -910,7 +925,7 @@ type Seen = (
     Vec<u8>,
     Vec<u8>,
     Clipped,
-    Vec<(LineRendition, baud_domain::CharacterPath)>,
+    Vec<(LineRendition, baud_domain::LineBidi)>,
     baud_domain::RegisCounts,
     Status,
 );
@@ -931,11 +946,11 @@ fn status(t: &Term<'_>) -> Status {
     )
 }
 
-/// Every row's line rendition and character path, which the cells do not
-/// show -- and the promise the rendition's bits ride on: a sized row's mark
+/// Every row's line rendition and paragraph properties, which the cells
+/// do not show -- and the promise the rendition's bits ride on: a sized row's mark
 /// is at least the width, so `RowExtent::reached`'s bare `max` never has to
 /// raise it.
-fn renditions(t: &Term<'_>) -> Vec<(LineRendition, baud_domain::CharacterPath)> {
+fn renditions(t: &Term<'_>) -> Vec<(LineRendition, baud_domain::LineBidi)> {
     (0..ROWS)
         .map(|y| {
             let r = t.line_rendition(Row::from_index(y)).expect("a row");
@@ -943,7 +958,7 @@ fn renditions(t: &Term<'_>) -> Vec<(LineRendition, baud_domain::CharacterPath)> 
                 let mark = t.row_extent(Row::from_index(y)).index();
                 assert!(mark >= COLS, "row {y} is {r:?} under a mark of {mark}");
             }
-            (r, t.row_extent(Row::from_index(y)).path())
+            (r, t.row_extent(Row::from_index(y)).bidi())
         })
         .collect()
 }
@@ -1368,6 +1383,27 @@ fn the_path_atoms_reach_the_rows() {
     );
     support::feed(&mut t, &bytes_of(&[atom("spd-rtl")]));
     assert!((0..ROWS).all(|y| path(&t, y) == RightToLeft));
+}
+
+/// **The paragraph-mode atoms reach the rows**, the control the path atoms
+/// have: at a paragraph's start `box-mirror-on` and `autodetect-off` turn
+/// the cursor's line, and a line feed carries both to the next.
+#[test]
+fn the_paragraph_mode_atoms_reach_the_rows() {
+    use baud_domain::{Autodetect, BoxMirror};
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let bidi = |t: &Term<'_>, y: usize| t.row_extent(Row::from_index(y)).bidi();
+    support::feed(
+        &mut t,
+        &bytes_of(&[atom("box-mirror-on"), atom("autodetect-off")]),
+    );
+    support::feed(&mut t, b"ab\r\n");
+    for y in [0, 1] {
+        assert_eq!(bidi(&t, y).box_mirror(), BoxMirror::On, "row {y}");
+        assert_eq!(bidi(&t, y).autodetect(), Autodetect::Off, "row {y}");
+    }
 }
 
 /// **The guarded-area atoms reach the guard**, the control the C1 atoms

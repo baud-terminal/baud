@@ -13,11 +13,12 @@ programs, and pictures.
 ## Not built yet
 
 - **Right-to-left text, in part.** A line that starts in Hebrew or Arabic
-  runs right to left against the window's right edge, a Hebrew word in an
-  English line reads right to left in its place, Arabic letters join into
-  words, and a program can set which way its lines run. Still to come: a
-  line that mixes directions and is split by a soft wrap, terminal-wg's
-  per-paragraph modes, and the smaller gaps [bidi](../bidi.md) lists.
+  runs right to left against the window's right edge, and a Hebrew word in
+  an English line reads right to left in its place; Arabic letters join, a
+  program can set which way its lines run, and Left and Right follow a
+  right-to-left line. A paragraph that wraps with both directions in it,
+  and ECMA-48's reversed and directed strings, are not drawn yet
+  ([bidi](../bidi.md)).
 - **Key releases and modifier keys on macOS.** Programs that ask to be told
   when a key is let go, or when Shift or Control alone is pressed, are not
   told yet. Key presses themselves work.

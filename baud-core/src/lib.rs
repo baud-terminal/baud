@@ -51,6 +51,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod arrows;
 mod clip;
 mod colour;
 mod cwd;
@@ -99,8 +100,6 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
-/// What [`Term::bidi_support`] returns: BDSM's state.
-pub use baud_domain::BidiSupport;
 pub use baud_domain::FileHost;
 /// Focus reporting's vocabulary, for the same reason: an embedder that cannot
 /// name a [`Focus`] cannot call [`Term::focus`].
@@ -155,6 +154,8 @@ pub use baud_domain::{
 /// `?1042` and `?1043`, which an embedder's bell reads, and the bells'
 /// volumes and `?44`.
 pub use baud_domain::{BellIsUrgent, BellVolume, BellsRung, MarginBell, PopOnBell, ScrollbarShown};
+/// What [`Term::bidi_support`] returns: BDSM's state.
+pub use baud_domain::{BidiDirection, BidiSupport};
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return; `Video` is
 /// the video a frame is drawn in, which `Term::cursor_color_in` takes.

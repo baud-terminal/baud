@@ -358,3 +358,41 @@ fn bidi_tables_match_the_pinned_data() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// **Each Box Drawing character's counterpart is the name with left and
+/// right exchanged**, for `?2500`: a corner and the other side's, a tee
+/// and the other side's, the diagonals, the arcs, a half line and the
+/// other half, and every character whose name has no side its own. Every
+/// entry is its counterpart's counterpart; outside the block there is
+/// none.
+#[test]
+fn every_box_drawing_counterpart_is_its_counterparts_counterpart() {
+    use baud_domain::box_counterpart;
+    for (a, b) in [
+        ('\u{250C}', '\u{2510}'),
+        ('\u{2514}', '\u{2518}'),
+        ('\u{251C}', '\u{2524}'),
+        ('\u{2552}', '\u{2555}'),
+        ('\u{256D}', '\u{256E}'),
+        ('\u{2571}', '\u{2572}'),
+        ('\u{2574}', '\u{2576}'),
+        ('\u{257C}', '\u{257E}'),
+    ] {
+        assert_eq!(box_counterpart(a), Some(b), "{a}");
+        assert_eq!(box_counterpart(b), Some(a), "{b}");
+    }
+    for same in [
+        '\u{2500}', '\u{2502}', '\u{253C}', '\u{2550}', '\u{2573}', '\u{2575}',
+    ] {
+        assert_eq!(box_counterpart(same), Some(same), "{same}");
+    }
+    let mut moved = 0;
+    for c in '\u{2500}'..='\u{257F}' {
+        let m = box_counterpart(c).expect("in the block");
+        assert_eq!(box_counterpart(m), Some(c), "{c}");
+        moved += usize::from(m != c);
+    }
+    assert_eq!(moved, 78, "the characters with a side");
+    assert_eq!(box_counterpart('\u{24FF}'), None);
+    assert_eq!(box_counterpart('\u{2580}'), None);
+}

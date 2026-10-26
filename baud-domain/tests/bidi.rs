@@ -285,3 +285,68 @@ fn a_text_past_the_capacity_is_refused() {
         })
     );
 }
+
+/// **P2-P3 with a right-to-left default** (`BidiParagraph::FirstStrongRtl`,
+/// terminal-wg's autodetection over a right-to-left path): a text with no
+/// strong character, or whose only strong one sits inside an isolate, is
+/// level 1; one that starts in a Latin letter is level 0, and a Hebrew one
+/// level 1, as with the left-to-right default.
+#[test]
+fn a_right_to_left_default_takes_a_text_with_no_strong_letter() {
+    let mut bidi = Box::new(Bidi::<16>::new());
+    let mut level = |t: &str, dir| {
+        bidi.resolve(&t.chars().collect::<Vec<_>>(), dir)
+            .expect("fits")
+    };
+    assert_eq!(level("123 ", BidiParagraph::FirstStrongRtl), BidiLevel::RTL);
+    assert_eq!(
+        level("\u{2066}ab", BidiParagraph::FirstStrongRtl),
+        BidiLevel::RTL
+    );
+    assert_eq!(
+        level("\u{2066}ab\u{2069}", BidiParagraph::FirstStrongRtl),
+        BidiLevel::RTL
+    );
+    assert_eq!(level("1 ab", BidiParagraph::FirstStrongRtl), BidiLevel::LTR);
+    assert_eq!(
+        level("1 \u{5D0}", BidiParagraph::FirstStrongRtl),
+        BidiLevel::RTL
+    );
+    assert_eq!(
+        level("123 ", BidiParagraph::FirstStrong),
+        BidiLevel::LTR,
+        "the control"
+    );
+}
+
+/// **The one-pass direction is the algorithm's**: `paragraph_direction`
+/// against the level `Bidi::resolve` gives, over every text of the
+/// character test file, at both defaults.
+#[test]
+fn the_one_pass_direction_is_the_algorithms_on_every_character_test_text() {
+    let text = source("unicode-bidicharactertest.txt");
+    let mut bidi = Box::new(Bidi::<256>::new());
+    let mut lines = 0;
+    for line in text.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let chars: Vec<char> = line
+            .split(';')
+            .next()
+            .expect("a field")
+            .split_whitespace()
+            .map(|h| char::from_u32(u32::from_str_radix(h, 16).expect("hex")).expect("a char"))
+            .collect();
+        for dir in [BidiParagraph::FirstStrong, BidiParagraph::FirstStrongRtl] {
+            let level = bidi.resolve(&chars, dir).expect("fits");
+            assert_eq!(
+                baud_domain::paragraph_direction(chars.iter().copied(), dir),
+                level.direction(),
+                "{line}"
+            );
+        }
+        lines += 1;
+    }
+    assert_eq!(lines, 91_707);
+}

@@ -148,28 +148,32 @@ pub struct RunRange {
 /// `CLAUDE.md` names as the one where narrowing earns its place, and it is read
 /// once per row operation rather than once per cell.
 ///
-/// **Beside the word, the row's character path** ([`CharacterPath`]): the
-/// direction SCP and SPD give a line (`[[source: ecma48]]` 8.3.111 and
-/// 8.3.130), which belongs to the row the way the wrap and the rendition do
-/// and so rides where every move of a row already carries them. A field of
+/// **Beside the word, the row's paragraph properties** ([`LineBidi`]): the
+/// character path SCP and SPD give a line (`[[source: ecma48]]` 8.3.111 and
+/// 8.3.130) and terminal-wg's autodetection and box mirroring
+/// (`[[source: terminal-wg-bidi-basic-modes]]`), which belong to the row the
+/// way the wrap and the rendition do and so ride where every move of a row
+/// already carries them, one byte. A field of
 /// its own rather than bits of the word, because the word has none free --
 /// its mark reaches the pitch, past 2048 columns, beside the wrap and the
 /// rendition -- and a flag above the mark would win `reached`'s bare `max`
 /// and freeze it. A write updates the word and leaves the path; a fill
 /// keeps it (an erased line is the same paragraph, terminal-wg's "both new
 /// paragraphs receive the old one's BiDi properties"); only the core's line
-/// rules set it ([`RowExtent::with_path`]).
+/// rules set it ([`RowExtent::with_bidi`]).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[repr(C)]
 pub struct RowExtent {
     word: u16,
-    path: CharacterPath,
+    bidi: LineBidi,
 }
 
 /// **Which way a line's characters run**: SCP's `Ps1`, ECMA-48 8.3.111's
-/// "character path", or none selected. With BDSM set (IMPLICIT) a selected
-/// path is the paragraph's level, set outright (`[[source: uax9-bidi]]`
-/// HL1); none selected, the level its first strong letter gives it (P2-P3).
+/// "character path", or none selected. With BDSM set (IMPLICIT) and
+/// autodetection off a selected path is the paragraph's level, set
+/// outright (`[[source: uax9-bidi]]` HL1), and none is left to right; with
+/// autodetection on, as at power-on, the level its first strong letter
+/// gives it (P2-P3), the path the fallback ([`LineBidi::paragraph`]).
 /// With BDSM reset (EXPLICIT) a right-to-left line is drawn in reverse,
 /// terminal-wg's explicit RTL (`[[source: terminal-wg-bidi-basic-modes]]`),
 /// and the others in the order the cells hold.
@@ -185,10 +189,130 @@ pub enum CharacterPath {
     RightToLeft,
 }
 
+/// **terminal-wg's direction autodetection**, `?2501`
+/// (`[[source: terminal-wg-bidi-basic-modes]]`, "Direction autodetection
+/// enabled or disabled"): on, an implicit paragraph's direction is found
+/// from its first strong letter (UAX #9 P2-P3), its character path the
+/// fallback where none is found; off, the path is its direction. **On at
+/// power-on**, so a line nobody set a direction for takes its first strong
+/// letter's, the owner's answer of 2026-10-24 ("all match C"); the draft
+/// leaves the default to the terminal ("terminal emulators might pick their
+/// favorite one"), and mintty starts with it on (Jev's lean, SET_FALLBACK,
+/// 0.82/0.86 then 0.82/0.89).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Autodetect {
+    On,
+    Off,
+}
+
+/// **terminal-wg's box mirroring**, `?2500`
+/// (`[[source: terminal-wg-bidi-misc]]`, "to mirror the U+2500 .. U+257F
+/// glyphs in RTL"): on, a Box Drawing character drawn right to left is
+/// drawn as its left-right counterpart ([`box_counterpart`]). Off at
+/// power-on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BoxMirror {
+    Off,
+    On,
+}
+
+/// Which of a [`LineBidi`]'s properties a control sets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LineProperty {
+    Path,
+    Autodetect,
+    BoxMirror,
+}
+
+/// **A paragraph's bidirectional properties, one byte**: its character
+/// path ([`CharacterPath`]), whether its direction is detected
+/// ([`Autodetect`]) and whether its box drawing is mirrored ([`BoxMirror`]),
+/// terminal-wg's per-paragraph model (`[[source:
+/// terminal-wg-bidi-basic-modes]]`: "the following three new essential
+/// BiDi properties are tracked for each paragraph", and box mirroring
+/// beside them; implicit or explicit is BDSM's, terminal-wide here).
+///
+/// **The power-on value is the zero byte**, so a terminal no program has
+/// sent one of these to holds zero on every row and the line rules, gated
+/// on one mode bit, have nothing to write.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(transparent)]
+pub struct LineBidi(u8);
+
+impl LineBidi {
+    /// No path, autodetection on, no box mirroring.
+    pub const POWER_ON: LineBidi = LineBidi(0);
+    const PATH: u8 = 0b0011;
+    /// Set while autodetection is off, so that on is the zero bit.
+    const FIXED: u8 = 0b0100;
+    const BOX: u8 = 0b1000;
+
+    pub fn path(self) -> CharacterPath {
+        match self.0 & Self::PATH {
+            1 => CharacterPath::LeftToRight,
+            2 => CharacterPath::RightToLeft,
+            _ => CharacterPath::Default,
+        }
+    }
+    pub fn with_path(self, p: CharacterPath) -> LineBidi {
+        LineBidi((self.0 & !Self::PATH) | p as u8)
+    }
+    pub fn autodetect(self) -> Autodetect {
+        match self.0 & Self::FIXED {
+            0 => Autodetect::On,
+            _ => Autodetect::Off,
+        }
+    }
+    pub fn with_autodetect(self, a: Autodetect) -> LineBidi {
+        match a {
+            Autodetect::On => LineBidi(self.0 & !Self::FIXED),
+            Autodetect::Off => LineBidi(self.0 | Self::FIXED),
+        }
+    }
+    pub fn box_mirror(self) -> BoxMirror {
+        match self.0 & Self::BOX {
+            0 => BoxMirror::Off,
+            _ => BoxMirror::On,
+        }
+    }
+    pub fn with_box_mirror(self, b: BoxMirror) -> LineBidi {
+        match b {
+            BoxMirror::Off => LineBidi(self.0 & !Self::BOX),
+            BoxMirror::On => LineBidi(self.0 | Self::BOX),
+        }
+    }
+    /// This with `from`'s `which` property, the others as they are: what
+    /// a control applying one property to a paragraph leaves, "The other
+    /// BiDi-related properties of the given paragraph remain intact"
+    /// (`[[source: terminal-wg-bidi-escape-sequences]]`).
+    pub fn with_property(self, from: LineBidi, which: LineProperty) -> LineBidi {
+        let mask = match which {
+            LineProperty::Path => Self::PATH,
+            LineProperty::Autodetect => Self::FIXED,
+            LineProperty::BoxMirror => Self::BOX,
+        };
+        LineBidi((self.0 & !mask) | (from.0 & mask))
+    }
+    /// **The level an implicit paragraph is resolved at**
+    /// (`[[source: terminal-wg-bidi-basic-modes]]`): with autodetection
+    /// on, its first strong letter's (P2-P3), falling back to its path,
+    /// right to left only where SCP or SPD chose it; with autodetection
+    /// off, its path outright (UAX #9 HL1), left to right where none was
+    /// chosen.
+    pub fn paragraph(self) -> BidiParagraph {
+        match (self.autodetect(), self.path()) {
+            (Autodetect::On, CharacterPath::RightToLeft) => BidiParagraph::FirstStrongRtl,
+            (Autodetect::On, _) => BidiParagraph::FirstStrong,
+            (Autodetect::Off, CharacterPath::RightToLeft) => BidiParagraph::Rtl,
+            (Autodetect::Off, _) => BidiParagraph::Ltr,
+        }
+    }
+}
+
 impl RowExtent {
     pub const ZERO: RowExtent = RowExtent {
         word: 0,
-        path: CharacterPath::Default,
+        bidi: LineBidi::POWER_ON,
     };
     /// **The row continues onto the next one**: text reached its last column
     /// and wrapped, rather than ending at a newline. The fact a reflow needs
@@ -239,35 +363,40 @@ impl RowExtent {
             word: self
                 .word
                 .max(u16::try_from(to).unwrap_or(Self::MARK).min(Self::MARK)),
-            path: self.path,
+            bidi: self.bidi,
         }
     }
     /// The mark: where the row stops being uniform.
     pub fn index(self) -> usize {
         (self.word & Self::MARK) as usize
     }
-    /// A mark with no wrap, and no path: a count of columns.
+    /// A mark with no wrap, and no paragraph properties: a count of
+    /// columns.
     pub fn of(n: usize) -> RowExtent {
         RowExtent {
             word: u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK),
-            path: CharacterPath::Default,
+            bidi: LineBidi::POWER_ON,
         }
     }
     /// **What a fill leaves**: the mark at `n` with no wrap and no
-    /// rendition, and the row's path kept.
+    /// rendition, and the row's paragraph properties kept.
     pub fn refilled(self, n: usize) -> RowExtent {
         RowExtent {
-            path: self.path,
+            bidi: self.bidi,
             ..RowExtent::of(n)
         }
     }
     /// The row's character path.
     pub fn path(self) -> CharacterPath {
-        self.path
+        self.bidi.path()
     }
-    /// The mark with path `p`: the word as it is.
-    pub fn with_path(self, p: CharacterPath) -> RowExtent {
-        RowExtent { path: p, ..self }
+    /// The row's paragraph properties.
+    pub fn bidi(self) -> LineBidi {
+        self.bidi
+    }
+    /// The mark with paragraph properties `b`: the word as it is.
+    pub fn with_bidi(self, b: LineBidi) -> RowExtent {
+        RowExtent { bidi: b, ..self }
     }
     pub fn wrapped(self) -> bool {
         self.word & Self::WRAP != 0

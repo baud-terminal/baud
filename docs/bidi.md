@@ -13,7 +13,9 @@ marks, the link underline and the mouse all follow what is drawn. A copy
 gives the text in the order the program wrote it. A program that lays out
 its own right-to-left text turns the mode off with `CSI 8 l`, and every
 line is then drawn in the order its cells hold; `CSI 8 h` turns it back on,
-and a reset (`RIS`) returns it to on. This is step 3 of right-to-left text.
+and a reset (`RIS`) returns it to on. On a right-to-left line the Left and
+Right arrow keys swap, so they move the cursor the way the line reads. This
+is step 3 of right-to-left text.
 Step 1 built the Unicode Bidirectional Algorithm; step 2 put its order on
 the screen; step 3 joins Arabic letters.
 
@@ -41,12 +43,16 @@ the screen; step 3 joins Arabic letters.
   in more than one piece keeps the first piece's level. This is every
   paragraph's until a program sets its lines' direction.
 - **A program can set which way its lines run.** SCP 2 (`CSI 2 SP k`)
-  draws the line the cursor is on, and the new lines after it, right to
-  left against the right edge whatever they hold, an English line included;
-  SCP 1 keeps them left to right, a Hebrew line included; SPD 3 and SPD 0
-  (`CSI 3 SP S`, `CSI SP S`) turn every line of the screen at once
-  (`[[source: ecma48]]` 8.3.111, 8.3.130). The direction is the
-  paragraph's level, set outright (UAX #9 HL1). It turns the paragraph
+  sets the line the cursor is on, and the new lines after it, right to
+  left; SCP 1 left to right; SPD 3 and SPD 0 (`CSI 3 SP S`, `CSI SP S`)
+  turn every line of the screen at once (`[[source: ecma48]]` 8.3.111,
+  8.3.130). **While direction detection is on, as it is at power-on, the
+  set direction is only the fallback** of a line with no strong letter: an
+  English line stays left to right under SCP 2, a line of digits or an
+  empty one runs right to left (`?2501`, below). With detection off
+  (`CSI ? 2501 l`) the set direction is the paragraph's level outright (UAX
+  #9 HL1): SCP 2 draws an English line against the right edge and SCP 1
+  keeps a Hebrew line left to right. It turns the paragraph
   holding the cursor's line at once and becomes the direction new lines
   take: a line feed into a new line, a line a scroll brings in, the lines
   an erase of the screen clears, the lines SU, SD, IL and DL bring in,
@@ -62,6 +68,39 @@ the screen; step 3 joins Arabic letters.
   terminal-wg's explicit RTL (`[[source: terminal-wg-bidi-basic-modes]]`).
   `CSI 0 SP k` and `CSI SP k` are refused and counted: ECMA-48 defines
   only 1 and 2 and gives SCP no default (`docs/vt-coverage.md`).
+- **A program can turn direction detection off and on**, terminal-wg's
+  `?2501` (`[[source: terminal-wg-bidi-basic-modes]]`). On, as at
+  power-on, a paragraph runs the way its first strong letter gives it and
+  falls back to the direction SCP or SPD set; off, it runs the set
+  direction, left to right where none was set. Like the direction, it is
+  kept on every row of a paragraph and carried by the same rules, but it
+  turns a paragraph at once only when the cursor stands at that
+  paragraph's start ("if the cursor stands at the first logical position
+  of a paragraph then the received BiDi property value is immediately
+  applied on that paragraph", `[[source:
+  terminal-wg-bidi-escape-sequences]]`); otherwise the next new line takes
+  it. SPD spreads only the direction. With BDSM reset it is ignored.
+- **A box drawn right to left closes**, terminal-wg's `?2500` (`[[source:
+  terminal-wg-bidi-misc]]`): while it is set on a paragraph, a Box Drawing
+  character (U+2500-U+257F) drawn right to left is drawn as its left-right
+  counterpart, `┌` as `┐`, so an ncurses box on a line BDSM reset draws in
+  reverse keeps its corners in. The counterpart is the character whose
+  Unicode name says the same with left and right exchanged. A table row's
+  rules, which stay where they were written, are drawn as written. Off at
+  power-on; carried and applied as `?2501` is.
+- **Left and Right swap in a right-to-left paragraph**, terminal-wg's
+  `?1243` (`[[source: terminal-wg-bidi-arrow-key-swapping]]`), on at
+  power-on: a Left or Right key pressed with the cursor in a paragraph
+  drawn right to left sends the other key's sequence, the keypad's too, so
+  a shell's or editor's cursor moves the way the line reads. The direction
+  is the one drawn: detected, the fallback, or set; on a table row, the
+  cell the cursor is in, at the moment the key is pressed: a held key's
+  repeats and its release name the key its press named. Home and End
+  never swap, nor do the keys the wheel or a click on the prompt line
+  send. `CSI ? 1243 l` turns it off.
+- **Each of the three answers `DECRQM`, is kept by XTSAVE and carried by
+  DECTSR**; `DECSTR` returns the values in force to their power-on states
+  and leaves the lines', and `RIS` returns every line.
 - **A table row keeps its columns.** A paragraph holding a box-drawing
   character (U+2500-U+257F: `│`, `┃`, `║`, the dashed verticals, the
   junctions, and DEC Special Graphics line drawing, which is stored as
@@ -221,6 +260,28 @@ reset state" in its "may imply, if applicable" list would turn the mode
 off. Jev's lean, which the owner can veto: INITIAL_STATE 0.78 / 0.82, then
 0.64 / 0.86 with VTE's source; both asks said wrongly that every other
 ANSI mode baud has starts reset, and asked again with SRM, 0.68 / 0.84.
+
+**terminal-wg's three modes (2026-10-25)**, read against the draft's
+pages (`[[source: terminal-wg-bidi-escape-sequences]]`, `[[source:
+terminal-wg-bidi-basic-modes]]`, `[[source: terminal-wg-bidi-misc]]`,
+`[[source: terminal-wg-bidi-arrow-key-swapping]]`) and VTE's and mintty's
+code. The draft has no box-mirroring or autodetection page of its own.
+Jev decided two at 0.9 in both orders: a mode applies at once only at a
+paragraph's start (FIRST_POSITION, 0.90/0.94) and `?2500` mirrors the Box
+Drawing block alone (BOX_DRAWING, 0.94/1.00); and, after a re-ask,
+the cell's direction on a table row for the keys (CELL, 0.98/0.98).
+**Taken from Jev's lean, which held in every answer; the owner can veto
+each:**
+
+| choice | taken | Jev, first ask then re-ask |
+|---|---|---|
+| `?2501` at power-on, and SCP under it | set, so a line nobody set a direction for takes its first letter's (the owner's C), and SCP is the fallback while it is set, as mintty does; so SCP 2 alone no longer turns an English line | 0.82 / 0.86, 0.82 / 0.89 |
+| `?1243` at power-on | set, "needs to be the default", though baud detects direction from the start, which the draft's compatibility argument did not assume | 0.00 / 0.02, 0.86 / 0.86 |
+| which box characters `?2500` mirrors | each drawn right to left (L4's resolved R, HL6 widening which characters), so a table row's rules are not | 0.60 / 0.74, 0.88 / 0.92 |
+| `DECSTR` | returns all three in force to power-on, as mintty and VTE do | 0.30 / 0.51, 0.77 / 0.77 |
+
+The requests, the renders shown and the answers are in
+`docs/research/notes/ab/b211/`.
 
 **Taken from Jev's lean, which held in all four answers but for the
 erased cells, where the first ask's SKIPPED (0.10 / 0.18 against a space)
@@ -382,11 +443,13 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   paragraph broken into lines of one direction each; the texts, the prior
   art, three prototypes and the recommendation are note BD,
   `docs/research/notes/bd-bidi-wrap.md`.
-- **terminal-wg's per-paragraph modes**: `?2501` (autodetection), `?1243`
-  (arrow-key swapping) and `?2500` (box mirroring). Each row keeps its
-  paragraph's direction beside its mark now, where these would ride too.
-  Until they are built they are counted and `DECRQM` says they are not
-  recognised (`docs/vt-coverage.md`).
+- **BDSM per paragraph**: terminal-wg keeps implicit or explicit per
+  paragraph beside the three properties above; baud's BDSM is
+  terminal-wide (the table under "What decided each choice").
+- **The arrow keys on a paragraph longer than the layout reads**: the
+  direction the keys swap by is read from a paragraph's first row, where
+  the layout of one longer than `baud_render::CONTEXT` codepoints reads
+  the rows around the window and keeps that piece's level.
 - **SCP's edges**: `CSI 0 SP k`, which terminal-wg reads as the terminal's
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not

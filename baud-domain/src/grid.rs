@@ -491,6 +491,11 @@ impl<'a> Viewport<'a> {
         self.used[self.phys(y.index())].path()
     }
 
+    /// Screen row `y`'s paragraph properties ([`LineBidi`]).
+    pub fn bidi(&self, y: Row) -> LineBidi {
+        self.used[self.phys(y.index())].bidi()
+    }
+
     /// Screen row `y`'s line rendition: how wide, and which half tall, its
     /// characters are drawn ([`LineRendition`]). A line not single-width
     /// holds [`LineRendition::end_of_line`] characters, each drawn two
@@ -684,10 +689,10 @@ impl<'a> View<'a> {
     #[inline(never)]
     fn fill_past_edge(&mut self, p: usize, a: usize, cell: PackedCell) -> usize {
         let base = p * self.stride.index();
-        let (to, path) = (self.used[p].index(), self.used[p].path());
+        let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
         self.used[p] = self
             .mark_after_fill(base, to, cell, RowExtent::of(a))
-            .with_path(path);
+            .with_bidi(bidi);
         if a >= to {
             return 0;
         }
@@ -1457,32 +1462,39 @@ impl<'a> View<'a> {
         self.used[self.phys(r)].path()
     }
 
-    /// Give screen row `r` path `to`: the cells and the mark as they are.
+    /// Screen row `r`'s paragraph properties ([`LineBidi`]).
+    pub fn bidi(&self, r: Row) -> LineBidi {
+        self.used[self.phys(r)].bidi()
+    }
+
+    /// Give screen row `r` the paragraph properties `to`: the cells and
+    /// the mark as they are.
     #[cold]
     #[inline(never)]
-    pub fn set_path(&mut self, r: Row, to: CharacterPath) {
+    pub fn set_bidi(&mut self, r: Row, to: LineBidi) {
         if r.index() >= self.rows.index() {
             return;
         }
         let p = self.phys(r);
-        self.used[p] = self.used[p].with_path(to);
+        self.used[p] = self.used[p].with_bidi(to);
     }
 
-    /// The path of the row `back` rows behind the window's top, the newest
-    /// at zero: a line of the history, read as [`View::set_path_behind`]
-    /// writes it.
-    pub fn path_behind(&self, back: Rows) -> CharacterPath {
-        self.used[self.rot.retreat(back.index() + 1, self.ring).index()].path()
+    /// The paragraph properties of the row `back` rows behind the window's
+    /// top, the newest at zero: a line of the history, read as
+    /// [`View::set_bidi_behind`] writes it.
+    pub fn bidi_behind(&self, back: Rows) -> LineBidi {
+        self.used[self.rot.retreat(back.index() + 1, self.ring).index()].bidi()
     }
 
-    /// Give the row `back` rows behind the window's top path `to`: a line
-    /// of the history that begins the paragraph a screen row continues.
-    /// The caller bounds `back` by the lines the history holds.
+    /// Give the row `back` rows behind the window's top the paragraph
+    /// properties `to`: a line of the history that begins the paragraph a
+    /// screen row continues. The caller bounds `back` by the lines the
+    /// history holds.
     #[cold]
     #[inline(never)]
-    pub fn set_path_behind(&mut self, back: Rows, to: CharacterPath) {
+    pub fn set_bidi_behind(&mut self, back: Rows, to: LineBidi) {
         let p = self.rot.retreat(back.index() + 1, self.ring).index();
-        self.used[p] = self.used[p].with_path(to);
+        self.used[p] = self.used[p].with_bidi(to);
     }
 
     /// The row `back` rows behind the window's top ends where it stops: a
@@ -2566,10 +2578,10 @@ impl<'a> View<'a> {
     #[inline(never)]
     fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {
         let base = p * self.stride.index();
-        let (to, path) = (self.used[p].index(), self.used[p].path());
+        let (to, bidi) = (self.used[p].index(), self.used[p].bidi());
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        self.used[p] = self.mark_after_fill(base, to, cell, low).with_path(path);
+        self.used[p] = self.mark_after_fill(base, to, cell, low).with_bidi(bidi);
         to
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.

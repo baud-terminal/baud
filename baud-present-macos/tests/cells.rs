@@ -11410,11 +11410,12 @@ fn a_line_scp_turns_draws_alike_on_every_arm() {
             feed(t, "\x1b[6;1H\u{628}\u{628}\u{628}".as_bytes());
         }
     };
-    // Implicit: `abc def!` at level 1 is `!abc def` at the right edge.
+    // Implicit: `abc def!` at level 1 is `!abc def` at the right edge,
+    // with autodetection off, under which the path is the level.
     {
         arms!(fresh() => arms, t);
         prelude(&mut t, false);
-        feed(&mut t, b"\x1b[2;1H\x1b[2 kabc def!\x1b[4;1H");
+        feed(&mut t, b"\x1b[2;1H\x1b[?2501l\x1b[2 kabc def!\x1b[4;1H");
         let got = three(&mut arms, &mut t, "SCP 2, implicit");
         prelude(&mut t, false);
         feed(&mut t, format!("\x1b[2;{}H!abc def", cols - 7).as_bytes());
@@ -11424,6 +11425,38 @@ fn a_line_scp_turns_draws_alike_on_every_arm() {
         feed(&mut t, b"\x1b[2;1Habc def!");
         let stored = three(&mut arms, &mut t, "first strong");
         assert!(differing(&stored, &want) > 0, "the control: first strong");
+    }
+    // `?2500`: a box on an explicit right-to-left line, reversed, is drawn
+    // closed, each corner as the other side's.
+    {
+        arms!(fresh() => arms, t);
+        prelude(&mut t, false);
+        feed(
+            &mut t,
+            "\x1b[8l\x1b[2;1H\x1b[?2500h\x1b[2 k\u{250C}\u{2500}\u{2510}\x1b[4;1H".as_bytes(),
+        );
+        let got = three(&mut arms, &mut t, "?2500, explicit");
+        prelude(&mut t, false);
+        feed(
+            &mut t,
+            format!(
+                "\x1b[8l\x1b[2;{}H\u{250C}\u{2500}\u{2510}\x1b[4;1H",
+                cols - 2
+            )
+            .as_bytes(),
+        );
+        let want = three(&mut arms, &mut t, "the box written in visual order");
+        assert_eq!(differing(&got, &want), 0, "the box drawn closed");
+        prelude(&mut t, false);
+        feed(
+            &mut t,
+            "\x1b[8l\x1b[2;1H\x1b[2 k\u{250C}\u{2500}\u{2510}\x1b[4;1H".as_bytes(),
+        );
+        let open = three(&mut arms, &mut t, "without ?2500");
+        assert!(
+            differing(&open, &want) > 0,
+            "the control: the corners face out"
+        );
     }
     // Explicit: `ab(` and a wide character, reversed whole.
     for joining in [false, true] {

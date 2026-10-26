@@ -21,6 +21,13 @@ Two tries, both indexed by `codepoint >> 8` and then the low byte:
   that BD16's comparison "or its canonical equivalent" is one equality: the
   two canonically equivalent brackets, U+2329 and U+232A, take the pair of
   U+3008 and U+3009, their decompositions in UnicodeData.txt.
+* **BOX_COUNTERPART**, a byte for each Box Drawing character U+2500-U+257F:
+  the offset in the block of the character whose UnicodeData.txt name says
+  the same with LEFT and RIGHT exchanged (`[[source: unicode-data]]`), for
+  terminal-wg's box mirroring, `?2500`. A name is read as what it draws --
+  each arm and its weight, a dash's count, an arc, a diagonal -- so that
+  "LIGHT LEFT AND HEAVY RIGHT" finds "HEAVY LEFT AND LIGHT RIGHT", whose
+  words come in another order; a name with no side is its own.
 """
 import pathlib
 import re
@@ -228,6 +235,68 @@ parts.append("\n".join([
     "#[rustfmt::skip]",
     f"pub static MIRROR_GLYPHS: [u32; {len(glyphs)}] = [",
     *rows(glyphs, 10, lambda v: f"0x{v:04X}"),
+    "];",
+]))
+# Box Drawing counterparts: each name read as the set of what it draws.
+WEIGHTS = {"LIGHT", "HEAVY", "DOUBLE", "SINGLE"}
+ARMS = {"UP": ("UP",), "DOWN": ("DOWN",), "LEFT": ("LEFT",), "RIGHT": ("RIGHT",),
+        "VERTICAL": ("UP", "DOWN"), "HORIZONTAL": ("LEFT", "RIGHT")}
+SWAP = {"LEFT": "RIGHT", "RIGHT": "LEFT"}
+
+
+def drawn(words):
+    """What a Box Drawing name draws: a frozenset of (arm, weight) and the
+    words that are neither, or the words as they are for a diagonal. The
+    name's groups are split at AND; a group's weight is its arms', and a
+    group naming none takes the last named, so "LIGHT DOWN AND RIGHT" is
+    light both ways and "DOWN LIGHT AND RIGHT HEAVY" is not."""
+    if "DIAGONAL" in words:
+        return ("words", tuple(words))
+    groups, cur = [], []
+    for w in words:
+        if w == "AND":
+            groups.append(cur)
+            cur = []
+        else:
+            cur.append(w)
+    groups.append(cur)
+    weight, arms, rest = None, set(), []
+    for g in groups:
+        weight = next((w for w in g if w in WEIGHTS), weight)
+        for w in g:
+            if w in ARMS:
+                arms.update((a, weight) for a in ARMS[w])
+            elif w not in WEIGHTS:
+                rest.append(w)
+    return ("arms", frozenset(arms), tuple(rest))
+
+
+box_names = {}
+for line in (SRC / "unicode-unicodedata.txt").read_text(encoding="utf-8").splitlines():
+    f = line.split(";")
+    cp = int(f[0], 16)
+    if 0x2500 <= cp <= 0x257F:
+        assert f[1].startswith("BOX DRAWINGS "), f[1]
+        box_names[cp] = f[1][len("BOX DRAWINGS "):].split()
+assert len(box_names) == 0x80
+by_drawn = {}
+for cp, words in box_names.items():
+    key = drawn(words)
+    assert key not in by_drawn, (hex(cp), words)
+    by_drawn[key] = cp
+box = []
+for cp in range(0x2500, 0x2580):
+    other = by_drawn[drawn([SWAP.get(w, w) for w in box_names[cp]])]
+    box.append(other - 0x2500)
+for i, o in enumerate(box):
+    assert box[o] == i, (hex(0x2500 + i), hex(0x2500 + o))
+parts.append("\n".join([
+    "/// Each Box Drawing character's left-right counterpart, as its offset",
+    "/// in U+2500-U+257F: the name with LEFT and RIGHT exchanged",
+    "/// (`[[source: unicode-data]]`), itself where the name has no side.",
+    "#[rustfmt::skip]",
+    f"pub static BOX_COUNTERPART: [u8; {len(box)}] = [",
+    *rows(box, 16, lambda v: f"0x{v:02X}"),
     "];",
 ]))
 out = "\n\n".join(parts) + "\n"

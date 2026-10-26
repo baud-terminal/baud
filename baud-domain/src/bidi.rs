@@ -12,7 +12,9 @@ mod algorithm;
 
 pub use algorithm::*;
 
-use crate::bidi_data::{BIDI_BLOCKS, BIDI_INDEX, MIRROR_BLOCKS, MIRROR_GLYPHS, MIRROR_INDEX};
+use crate::bidi_data::{
+    BIDI_BLOCKS, BIDI_INDEX, BOX_COUNTERPART, MIRROR_BLOCKS, MIRROR_GLYPHS, MIRROR_INDEX,
+};
 
 /// A Bidi_Class value, in UAX #9 Table 4's order, which is the table's,
 /// pinned by `the_bidi_trie_agrees_with_the_class_enum`.
@@ -274,6 +276,91 @@ pub fn mirroring_glyph(c: char) -> Option<char> {
         0 => None,
         i => char::from_u32(MIRROR_GLYPHS[i]),
     }
+}
+
+/// **The direction P2-P3 give a paragraph** of `text` at `dir`: the
+/// first strong character's, isolates and what they hold skipped (an
+/// initiator with no matching PDI skips to the end), else `dir`'s default
+/// -- the level [`Bidi::resolve`] gives the same text, found in one pass
+/// with nothing stored, for a reader that needs the direction alone
+/// (`Term::key`'s arrow-key swapping).
+pub fn paragraph_direction(
+    text: impl IntoIterator<Item = char>,
+    dir: BidiParagraph,
+) -> BidiDirection {
+    let mut scan = FirstStrongScan::new(dir);
+    for c in text {
+        if let Some(d) = scan.step(c) {
+            return d;
+        }
+    }
+    scan.end()
+}
+
+/// [`paragraph_direction`] a character at a time, for a reader whose text
+/// is not one iterator: [`FirstStrongScan::step`] answers once the
+/// direction is known, [`FirstStrongScan::end`] at the paragraph's end.
+#[derive(Clone, Copy, Debug)]
+pub struct FirstStrongScan {
+    dir: BidiParagraph,
+    depth: usize,
+}
+
+impl FirstStrongScan {
+    pub fn new(dir: BidiParagraph) -> FirstStrongScan {
+        FirstStrongScan { dir, depth: 0 }
+    }
+
+    /// The next character: the direction, once it is known.
+    pub fn step(&mut self, c: char) -> Option<BidiDirection> {
+        match self.dir {
+            BidiParagraph::Ltr => return Some(BidiDirection::Ltr),
+            BidiParagraph::Rtl => return Some(BidiDirection::Rtl),
+            BidiParagraph::FirstStrong | BidiParagraph::FirstStrongRtl => {}
+        }
+        match BidiProps::of(c).class {
+            BidiClass::LRI | BidiClass::RLI | BidiClass::FSI => self.depth += 1,
+            BidiClass::PDI => self.depth = self.depth.saturating_sub(1),
+            BidiClass::L if self.depth == 0 => return Some(BidiDirection::Ltr),
+            BidiClass::R | BidiClass::AL if self.depth == 0 => return Some(BidiDirection::Rtl),
+            _ => {}
+        }
+        None
+    }
+
+    /// The paragraph ended with no strong character outside an isolate.
+    pub fn end(self) -> BidiDirection {
+        match self.dir {
+            BidiParagraph::Ltr | BidiParagraph::FirstStrong => BidiDirection::Ltr,
+            BidiParagraph::Rtl | BidiParagraph::FirstStrongRtl => BidiDirection::Rtl,
+        }
+    }
+}
+
+/// **Whether a character is a table's column rule**: the Box Drawing
+/// block, U+2500-U+257F, which holds every vertical a program draws a
+/// table's columns with (`│` U+2502, `┃` U+2503, `║` U+2551, the dashed
+/// ones) and the junctions on its rule rows, and which DEC Special
+/// Graphics line drawing is stored as. A paragraph holding one, as a
+/// cell's base with nothing attached, is a table row: laid out left to
+/// right, each cell between two rules a paragraph of its own (UAX #9
+/// section 3, HL4).
+pub fn is_table_rule(c: char) -> bool {
+    matches!(c, '\u{2500}'..='\u{257F}')
+}
+
+/// **A Box Drawing character's left-right counterpart**, U+2500-U+257F,
+/// for terminal-wg's box mirroring, `?2500` (`[[source:
+/// terminal-wg-bidi-misc]]`): the character whose name says the same with
+/// left and right exchanged -- `┌` (DOWN AND RIGHT) and `┐` (DOWN AND
+/// LEFT), `╱` and `╲`, `╭` and `╮` -- or itself where its name has no side
+/// (`│`, `┼`, `═`), compiled from UnicodeData.txt's names into
+/// `BOX_COUNTERPART`. `None` outside the block. No Box Drawing character is
+/// Bidi_Mirrored, so L4 never mirrors one; HL6 allows it, "in specialized
+/// contexts".
+pub fn box_counterpart(c: char) -> Option<char> {
+    let i = u32::from(c).checked_sub(0x2500).filter(|i| *i < 0x80)?;
+    char::from_u32(0x2500 + u32::from(BOX_COUNTERPART[usize::try_from(i).ok()?]))
 }
 
 /// `c` as a paired bracket, or `None` where Bidi_Paired_Bracket_Type is
