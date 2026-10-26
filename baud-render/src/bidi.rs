@@ -118,7 +118,7 @@
 //! out with [`Reorder::lay_out`], which compares each row with its last
 //! copy.
 
-use baud_core::{BidiSupport, Term};
+use baud_core::{BidiSupport, StatusLine, Term};
 use baud_domain::{
     Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror, CharacterPath,
     ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
@@ -442,6 +442,24 @@ impl Orders {
         out
     }
 
+    /// **The status line as the cell path reads it**: `line` itself while
+    /// its row, the maps' row `r` after the window's, is in its own order,
+    /// else its cells copied into `cells` in their drawn order.
+    pub fn status_line<'a>(
+        &self,
+        r: Row,
+        line: StatusLine<'a>,
+        cells: &'a mut Vec<PackedCell>,
+    ) -> StatusLine<'a> {
+        if !self.reordered(r) {
+            return line;
+        }
+        cells.clear();
+        cells.resize(line.cells.len(), PackedCell::EMPTY);
+        self.permute(r, line.cells, cells);
+        StatusLine { cells, ..line }
+    }
+
     /// **The window as the cell path reads it**: the core's own view when
     /// no row is reordered, else every row copied into `cells` at the
     /// window's width, each in its drawn order, with its extent in `used`.
@@ -635,6 +653,17 @@ pub struct Reorder {
     /// Each window row's paragraph properties at the last
     /// [`Reorder::keep_displayed`].
     paths: Vec<LineBidi>,
+    /// The status line's row as last tested ([`Reorder::lay_out_status`]).
+    status_seen: Seen,
+}
+
+/// Where a paragraph's context lies: in the rows around the window, read
+/// from the history and the screen, or nowhere -- the status line, a
+/// line of its own below the main display.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Context {
+    Window,
+    None,
 }
 
 /// Whether a codepoint of a paragraph's text is a column rule: a table
@@ -785,6 +814,7 @@ impl Reorder {
             piece: Vec::new(),
             levels: Vec::new(),
             paths: Vec::new(),
+            status_seen: Seen::default(),
         }
     }
 
@@ -846,6 +876,89 @@ impl Reorder {
         written: &impl Over,
         extent: Extent,
     ) {
+        self.lay_out_window(term, back, joins, written, extent);
+        if extent == Extent::Window {
+            self.lay_out_status(term, joins);
+        }
+    }
+
+    /// **The status line, laid out as a line of its own** (Jev
+    /// OWN_PARAGRAPH, 0.94/0.97): one row, so one paragraph, under the
+    /// terminal's BDSM and the line properties SCP and `?2501` gave it
+    /// while DECSASD selected it ([`Term::status_view`]) -- ECMA-48's
+    /// IMPLICIT, "All bi-directional aspects of data are handled by the
+    /// device itself" (`[[source: ecma48]]` 7.2.1), on the one line the
+    /// main display's rows do not hold. Its order is the maps' row after
+    /// the window's, where every draw path reads the status line's row.
+    /// Nothing while no status line is shown.
+    fn lay_out_status(&mut self, term: &Term<'_>, joins: Joins) {
+        let Some(line) = term.status_view() else {
+            return;
+        };
+        let at = self.orders.rows.len();
+        let main = core::mem::take(&mut self.orders);
+        let seen = core::mem::replace(&mut self.seen, core::mem::take(&mut self.status_seen));
+        self.orders.cols = line.cols();
+        self.orders.rows.push(None);
+        self.orders.joins.push(None);
+        let width = Some((line.cols(), term.cluster_epoch()));
+        if self.seen.width != width {
+            self.seen.width = width;
+            self.seen.opens.clear();
+            self.seen.joins.clear();
+        }
+        match term.bidi_support() {
+            BidiSupport::Explicit => {
+                self.reverse_paths(term, &line);
+                if joins == Joins::Seen
+                    && self
+                        .seen
+                        .holds(term, Row::ZERO, line.row(Row::ZERO), &mut self.work)
+                        .joins
+                        == Opens::Yes
+                {
+                    self.join_shown(term, Row::ZERO, line.row(Row::ZERO));
+                }
+            }
+            BidiSupport::Implicit => self.paragraph(
+                term,
+                Rows::ZERO,
+                &line,
+                &Unwritten,
+                (Row::ZERO, Row::ZERO),
+                Context::None,
+            ),
+        }
+        let status = core::mem::replace(&mut self.orders, main);
+        self.status_seen = core::mem::replace(&mut self.seen, seen);
+        let (Some(row), Some(joined)) = (
+            status.rows.into_iter().next(),
+            status.joins.into_iter().next(),
+        ) else {
+            return;
+        };
+        self.orders.rows.resize_with(at + 1, || None);
+        self.orders.joins.resize_with(at + 1, || None);
+        if row.is_some() {
+            self.orders.any = Any::Yes;
+        }
+        if joined.is_some() {
+            self.orders.joined_any = Any::Yes;
+        }
+        self.orders.rows[at] = row;
+        self.orders.joins[at] = joined;
+    }
+
+    // The window's rows, without the status line.
+    #[inline(always)]
+    fn lay_out_window(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        joins: Joins,
+        written: &impl Over,
+        extent: Extent,
+    ) {
         let back = term.looking_back(back);
         let vp = term.view(back);
         let nrows = vp.rows().index();
@@ -896,6 +1009,7 @@ impl Reorder {
                 &vp,
                 written,
                 (Row::from_index(first), Row::from_index(y)),
+                Context::Window,
             );
             if extent == Extent::Top {
                 return;
@@ -921,6 +1035,9 @@ impl Reorder {
         self.work = Work::default();
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
+        // The status line's joins, after the window's, are found again
+        // below whatever the window keeps.
+        self.orders.joins.truncate(nrows);
         self.reverse_paths(term, &vp);
         let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
         // A row whose path changed is shown in another order with the same
@@ -937,6 +1054,7 @@ impl Reorder {
             }
         };
         self.last = now;
+        self.lay_out_status(term, Joins::Seen);
         rejoin
     }
 
@@ -1066,6 +1184,7 @@ impl Reorder {
         vp: &Viewport<'_>,
         written: &impl Over,
         (first, last): (Row, Row),
+        context: Context,
     ) {
         let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         let nrows = vp.rows().index();
@@ -1087,7 +1206,7 @@ impl Reorder {
         // inside the window that holds no right-to-left character costs
         // its rows' test and nothing else.
         let mut above: Vec<&[PackedCell]> = Vec::new();
-        if first.index() == 0 {
+        if first.index() == 0 && context == Context::Window {
             let mut k = 1;
             while above.len() < budget {
                 let want = Rows::of_index(back.index() + k);
@@ -1103,7 +1222,10 @@ impl Reorder {
             }
         }
         let mut below: Vec<&[PackedCell]> = Vec::new();
-        if last.index() + 1 == nrows && vp.wrapped(last) == Wrap::Continues {
+        if last.index() + 1 == nrows
+            && vp.wrapped(last) == Wrap::Continues
+            && context == Context::Window
+        {
             let mut k = 1;
             while k <= back.index() && below.len() < budget {
                 let v = term.view(Rows::of_index(back.index() - k));

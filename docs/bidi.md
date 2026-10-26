@@ -229,6 +229,20 @@ the screen; step 3 joins Arabic letters.
   face is given, in logical order, are exact against hb-shape on the
   macOS faces Noto Sans Mongolian and Noto Sans PhagsPa
   (`every_mongolian_and_phags_pa_fixture_joins_as_harfbuzz_does`).
+- **A status line in Hebrew reads right to left.** The line a program
+  opens under the screen (`DECSSDT 2`) is laid out as a line of its own,
+  as every line above it is: from the right edge when its first strong
+  letter is Hebrew or Arabic, joined and mirrored, and reversed with the
+  mode off when its path is right to left. SCP and `?2501` sent while
+  `DECSASD` selects it set its own direction and leave the screen's, the
+  line keeping "its own ANSI text state and settings" (`[[source:
+  dec-std-070]]` 070-14 § 14.2;
+  `a_hebrew_status_line_runs_from_the_right_edge`,
+  `the_status_line_takes_the_direction_set_on_it`); no line of the
+  screen is its context
+  (`the_status_line_reads_no_line_of_the_main_display_as_context`). The
+  cell path draws it as the instance path does
+  (`the_cell_path_draws_the_status_line_as_the_instance_path_does`).
 
 ## What decided each choice
 
@@ -256,6 +270,7 @@ requests and the renders it was shown are in
 | a soft wrap inside a word | joined across it (CSS Text 3) | 0.96 / 0.90 (re-ask) |
 | an erased cell between letters | transparent, as the boundary neutral it is given | 0.96 / 0.96 |
 | a lam and an alef erased cells part | the ligature, centred over the cells from one to the other | 0.91 / 0.93 |
+| the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) | 0.94 / 0.97 |
 
 **Decided by the owner** (2026-10-24):
 
@@ -504,10 +519,8 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 - **A mark on a flipped glyph**: on a flipped base a mark's image is put
   where the flip puts its box, not where the flip puts its attachment
   point, so it is exact only for a mark centred on its attachment point.
-- **Drawn in their stored order still**: the status line and images placed
-  on a reordered row, a decision each: the status line is no line of the
-  data a program writes the screen with, and an image is placed over cells
-  rather than in one.
+- **Drawn in their stored order still**: images placed on a reordered
+  row, a decision: an image is placed over cells rather than in one.
 - **A predicted echo on a double-width line** is not laid out as
   written: its line is laid out without it.
 - **The row sliding out of a smooth scroll, at its edges**: a space

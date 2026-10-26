@@ -14,7 +14,7 @@
 
 use crate::support;
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx};
+use baud_domain::{CharacterPath, ImageBudget, ImagePx};
 
 const WS: WinSize = WinSize {
     ws_row: 6,
@@ -747,5 +747,30 @@ fn decstr_resets_the_lines_own_state() {
         let cells = t.status_line().expect("shown").cells;
         assert_eq!(text(cells), "xq");
         assert!(!t.style_of(cells[1]).attrs().has(Attrs::BOLD));
+    });
+}
+
+/// **The line's own direction, as a window of one row** (`Term::status_view`,
+/// what a renderer lays the line out from): SCP sent while DECSASD selects
+/// the line sets its path and leaves the main display's lines as they were,
+/// the line holding "its own ANSI text state and settings"
+/// (`[[source: dec-std-070]]` 070-14 § 14.2).
+#[test]
+fn the_line_keeps_the_direction_set_on_it() {
+    support::with_term(&WS, |t| {
+        assert!(t.status_view().is_none(), "no line, no view");
+        support::feed(t, b"\x1b[2$~");
+        let v = t.status_view().expect("the host-writable line's view");
+        assert_eq!((v.rows().index(), v.cols().index()), (1, 20));
+        assert_eq!(v.path(Row::ZERO), CharacterPath::Default, "power-on");
+        support::feed(t, b"\x1b[1$}\x1b[2 kabc\x1b[0$}");
+        let v = t.status_view().expect("shown");
+        assert_eq!(v.path(Row::ZERO), CharacterPath::RightToLeft);
+        assert_eq!(text(v.row(Row::ZERO)), "abc");
+        assert_eq!(
+            t.view(Rows::ZERO).path(Row::ZERO),
+            CharacterPath::Default,
+            "the main display's first line keeps its own"
+        );
     });
 }

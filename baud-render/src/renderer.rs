@@ -5641,7 +5641,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let range = self.row_cells(r);
         let n = range.len().min(line.cells.len());
-        self.cur[range.start..range.start + n].copy_from_slice(&line.cells[..n]);
+        self.bidi.orders().permute(
+            r,
+            &line.cells[..n],
+            &mut self.cur[range.start..range.start + n],
+        );
         self.cur_size[r.index()] = line.rendition;
         let mut exc = Exceptions::default();
         self.convert_row(term, r, cursor, &mut exc);
@@ -5723,13 +5727,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.cur_size[r] = vp.rendition(row);
         }
         // **The status line's row, below the main display's**, whatever the
-        // window looks back on: it is no line of the history.
+        // window looks back on: it is no line of the history. In the order
+        // its own layout gives it, the maps' row after the window's.
         let status = term.status_line();
         if let Some(line) = &status {
             let r = main.index();
             if r < rows.index() {
                 let n = ncols.min(line.cells.len());
-                self.cur[r * ncols..r * ncols + n].copy_from_slice(&line.cells[..n]);
+                orders.permute(
+                    Row::from_index(r),
+                    &line.cells[..n],
+                    &mut self.cur[r * ncols..r * ncols + n],
+                );
                 self.cur_size[r] = line.rendition;
             }
         }

@@ -2031,7 +2031,16 @@ impl App {
                 // while this frame is in flight.
                 let stride = self.term.stride().index();
                 let (vcols, vrows) = (view.cols().index(), view.rows().index());
-                let status = self.term.status_line();
+                // The status line in its drawn order, the row after the
+                // window's in the renderer's maps.
+                let mut status_cells = Vec::new();
+                let status = self.term.status_line().map(|line| {
+                    self.renderer.bidi().status_line(
+                        Row::from_index(vrows),
+                        line,
+                        &mut status_cells,
+                    )
+                });
                 let lined = usize::from(status.is_some());
                 let screens = &mut cell.screens;
                 screens.compare = Compare::for_rejoin(rejoin);

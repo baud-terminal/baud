@@ -3759,6 +3759,30 @@ impl<'b> Term<'b> {
         })
     }
 
+    /// **The status line as a window of one row**, for a renderer that
+    /// lays it out as it lays out a line of the main display: its cells,
+    /// and its row's extent, which holds the line properties SCP and
+    /// `?2501` gave it while DECSASD selected it -- its own, as DEC STD
+    /// 070 gives the line "its own ANSI text state and settings"
+    /// (`[[source: dec-std-070]]` 070-14 § 14.2). `None` while no status
+    /// line is shown.
+    pub fn status_view(&self) -> Option<Viewport<'_>> {
+        self.status_line()?;
+        let cells = &*self.store.status.cells;
+        let used = &*self.store.status.used;
+        (cells.len() >= self.cols.index() && !used.is_empty()).then(|| {
+            Viewport::new(
+                cells,
+                used,
+                self.stride,
+                self.cols,
+                Rows::of_count(1),
+                Rows::of_count(1),
+                RowRot::NONE,
+            )
+        })
+    }
+
     /// How incoming bytes are decoded: UTF-8 at power-on and after `RIS`,
     /// ISO 8859-1 after `ESC % @` until `ESC % G` or `RIS`. An embedder that
     /// keeps a line discipline with it, as the app's `IUTF8` does, reads

@@ -6650,8 +6650,12 @@ fn copy_window(
         rows + 1
     } else if let Some(line) = t.status_line() {
         // The status line's row after the screen's, as the app copies
-        // it; no slide runs while it is shown.
+        // it, in its drawn order; no slide runs while it is shown.
         let at = rows * stride;
+        let mut drawn = Vec::new();
+        let line = renderer
+            .bidi()
+            .status_line(Row::from_index(rows), line, &mut drawn);
         copy_mem[at..at + cols].copy_from_slice(&line.cells[..cols]);
         rows + 1
     } else {
@@ -8977,6 +8981,17 @@ fn the_cell_path_draws_the_status_line_as_the_instance_path_does() {
             "the host-writable line, selected",
         ),
         (b"\x1b[0$}".as_slice(), "the host-writable line"),
+        // Hebrew on a red ground, laid out from the right edge: its
+        // backgrounds from the copy and its glyphs from the records agree
+        // only if both are in the line's drawn order.
+        (
+            "\x1b[1$}\x1b[2K\x1b[41m\u{5E9}\u{5DC}\u{5D5}\u{5DD}\x1b[0m 42\x1b[0$}".as_bytes(),
+            "a Hebrew host-writable line",
+        ),
+        (
+            "\x1b[1$}\x1b[2K\x1b[41m\u{5E9}\u{5DC}\u{5D5}\u{5DD}\x1b[0m 42".as_bytes(),
+            "a Hebrew host-writable line, selected",
+        ),
     ] {
         feed(&mut t, open);
         arms.renderer.fit(&t);
