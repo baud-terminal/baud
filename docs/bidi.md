@@ -333,6 +333,19 @@ the screen; step 3 joins Arabic letters.
   where 17 slants the cell it starts on it leans left
   (`a_composition_over_varied_text_draws_as_its_text_written`,
   `a_composition_over_varied_text_draws_as_written_on_every_arm`).
+  Arabic an input method is composing is drawn joined, as it will be
+  once written (`[[source: unicode-ch9]]` 9.2.2): its letters take their
+  forms with one another and with the letters written either side of it,
+  which take theirs from it, a lam and an alef make their ligature, also
+  when one of the two is written already (9.2.3), and on cells SAPV 8
+  holds under 21, the letters composed there take its final form; with
+  BDSM reset too, and on a double-width line
+  (`a_composition_of_arabic_draws_joined_as_written_on_every_arm`, on
+  every arm). Where a composed letter's ink meets a written one's, the
+  two are drawn in the order the same text written is, left to right. On
+  a double-width line a composition holding a character the line
+  mirrors, such as `(`, draws that mirror once
+  (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 - **A program can mark a run of text to run left to right, right to left
   or reversed** (SDS, `CSI 1 ]` and `CSI 2 ]`, and SRS, `CSI 1 [`, each
   ended by its own `0`; `[[source: ecma48]]` 8.3.114, 8.3.137). With the
@@ -373,7 +386,9 @@ the screen; step 3 joins Arabic letters.
   wraps to the right margin of the next line, and Tab goes back a stop. A
   line written so is drawn as written, whatever the mode, so a Hebrew word
   reads as the VT510 shows it, until the line is erased whole, when text
-  written on it in order is drawn by UAX #9 again
+  written on it in order is drawn by UAX #9 again; a DECERA or DECSERA
+  over the whole line leaves it drawn as written, its occupied cells
+  becoming spaces, where DECSED's spaces end that
   (`a_character_is_written_and_the_cursor_moves_left`,
   `a_row_decrlm_wrote_is_drawn_as_its_cells_hold`,
   `a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again`). Arabic
@@ -402,19 +417,6 @@ the screen; step 3 joins Arabic letters.
   received are drawn as Hebrew
   (`group_two_types_the_israeli_layouts_letter_on_the_keys_place`,
   `under_seven_bit_characters_ascii_in_gl_is_drawn_as_hebrew`).
-- **Arabic an input method is composing is drawn joined**, as it will be
-  once written (`[[source: unicode-ch9]]` 9.2.2): its letters take their
-  forms with one another and with the letters written either side of it,
-  which take theirs from it, a lam and an alef make their ligature, also
-  when one of the two is written already (9.2.3), and on a cell SAPV 5-8
-  gives a form the letters composed there take it; with BDSM reset too,
-  and on a double-width line
-  (`a_composition_of_arabic_draws_joined_as_written_on_every_arm`, on
-  every arm). Where a composed letter's ink meets a written one's, the
-  two are drawn in the order the same text written is, left to right. On
-  a double-width line a composition holding a character the line mirrors,
-  such as `(`, draws that mirror once
-  (`a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 
 ## What decided each choice
 
@@ -824,9 +826,15 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   that the glyph map draws lies under it where its ink meets the
   composition's, where written it lies over it; a selected
   composition's background lies under the glyphs of the row above that
-  reach into its row on the cell path and over them on the others; and a
+  reach into its row on the cell path and over them on the others; a
   lam-alef pair across the composition's edge is drawn in the colours of
-  the cell under the composed letter, not those its hints give it.
+  the cell under the composed letter, not those its hints give it; a
+  composition is drawn in the rendition of the cell it starts on, where
+  its commit is written in the current one, so a form SAPV 5-8 gives is
+  read from that cell; and with BDSM reset, once a joining letter has
+  been drawn, the layout the cell path keeps reads no predicted echo
+  (`Renderer::keep_written`), where with it set an echo is laid out as
+  written.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
   terminfo entry says so (note AB Q18).
 

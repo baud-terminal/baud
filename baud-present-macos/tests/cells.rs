@@ -10552,10 +10552,11 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     };
     let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
         arms.reads = Reads::Copy;
-        let (a, _) = arms.draw(t);
+        let (a, live) = arms.draw(t);
         let b = arms.draw_copied(t);
         let c = cpu_frame(arms, t);
-        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &live), 0, "{what}: the live cell arm differs");
+        assert_eq!(differing(&a, &b), 0, "{what}: the copied cell arm differs");
         assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
         a
     };

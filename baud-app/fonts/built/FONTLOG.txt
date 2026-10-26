@@ -361,12 +361,14 @@ the owner's words "i do think we want italic in hebrew".
 
 
 KNOWN DEFECTS
-(From note AC 4a and 4b, except the first and the last four -- meteg, nun hafukha's
+(From note AC 4a and 4b, except the first three and the last four -- meteg, the
+letters its chain covers that no test checks, its joiner spellings, nun hafukha's
 dot, a form followed by a point, two cantillation marks on one letter and a mark
-beside a wide point -- which were measured
-on these files on 2026-10-08 or later and are not in note AC. None of these is fixed
-by this build. Two earlier gaps, the missing hebr script record and Cascadia's
-dropped trademark notice, were fixed; see the CHANGELOG.)
+beside a wide point -- which were measured on these files on 2026-10-08 or later and
+are not in note AC. None of these is fixed by this build, except the meteg counts
+the first item gives before and after 2026-10-26. Two earlier gaps, the missing hebr
+script record and Cascadia's dropped trademark notice, were fixed; see the
+CHANGELOG.)
 
 - Meteg leaves the cell where the rule (build/meteg.py) finds no place inside it on
   the side its text order gives. Measured on these files with the round 3 critic's
@@ -374,13 +376,32 @@ dropped trademark notice, were fixed; see the CHANGELOG.)
   <vowel, meteg> passes 274 of 297 clusters in Regular, 265 in Bold, 262 in Italic
   and 259 in Bold Italic (before 2026-10-26: 217, 172, 185 and 143); the rest are
   final letters, whose vowel stands beside the descender with no room for meteg to
-  its left (in Bold Italic final nun and final tsadi with every vowel; Regular: final kaf and final pe with the hatafs and qubuts, final nun
-  with those and tsere and segol, final tsadi with all but sheva and hiriq).
-  <meteg, CGJ, vowel> passes 291, 291, 293 and 291 (before: none, meteg drew on the
-  vowel); the rest are qof with the wide vowels, whose vowel stands right of the
-  leg with no room for meteg to its right. Meteg keeps its side there, clear of the
-  letter, with the least ink outside the cell. Right of a wide vowel on final kaf,
-  final nun and final pe, meteg stands past the descender, inside the cell.
+  its left (in Bold Italic final nun and final tsadi with every vowel; Regular:
+  final kaf and final pe with the hatafs and qubuts, final nun with those and tsere
+  and segol, final tsadi with all but sheva and hiriq). <meteg, CGJ, vowel> passes
+  291, 291, 293 and 291 (before: none, meteg drew on the vowel); the rest are qof
+  with the wide vowels, whose vowel stands right of the leg with no room for meteg
+  to its right. Meteg keeps its side there, clear of the letter, with the least ink
+  outside the cell. There qof's meteg leaves the cell, measured with the round 3
+  check, by 5 units with tsere and segol, 58 with the hatafs, 122 with qubuts and
+  210 with hataf segol in Regular, 67-223 in Bold, 5-155 in Italic and 14-174 in
+  Bold Italic (before 2026-10-26: 0, meteg drawn on the vowel). Right of a wide
+  vowel on final kaf, final nun and final pe, meteg stands past the descender,
+  inside the cell.
+- Letters the chain covers that no test checks: U+05EF with meteg, CGJ and sheva,
+  hataf segol or hiriq puts meteg 123-125 units out of the cell in Bold and 69-74 in
+  Bold Italic, and in <vowel, meteg> with hataf segol or qubuts 42-50 in Bold and
+  107-121 in Bold Italic (before 2026-10-26 out in every style, up to 143); U+FB47
+  takes qof's anchors, and so qof's residual: 5-210 units in Regular, 67-223 in
+  Bold, 5-155 in Italic and 14-174 in Bold Italic. Before 2026-10-26 both drew
+  meteg on the vowel, inside the cell, in <meteg, CGJ, vowel>.
+- Meteg's joiner spellings are open. <hataf, ZWJ, meteg> is the medial spelling (the
+  Unicode Standard, 9.1); HarfBuzz 14.5.1 leaves meteg unplaced there, at offset 0,
+  while baud's shaper attaches meteg through the ZWJ, and since 2026-10-26 its chain
+  also moves the vowel (Bold bet, hataf patah, ZWJ, meteg: baud 616/362 against
+  HarfBuzz 600/0). <hataf, ZWNJ, meteg> places as the plain spelling in both
+  shapers, but HarfBuzz splits the cluster and baud does not. Medial meteg is
+  unbuilt: it needs GSUB.
 - Rare combinations overflow the cell sideways: qof with hataf segol by 104 units,
   and final tsadi with qubuts by 140 (Regular; Bold unmeasured). With a meteg after
   it, a wide vowel on qof goes further, to leave meteg room between it and the leg
@@ -389,7 +410,13 @@ dropped trademark notice, were fixed; see the CHANGELOG.)
   left of the leg (probability 0.53/0.60, then 0.58/0.67) on a figure for its
   overflow that was wrong (6-37 units in Bold, where it is 48, with the italics'
   107-150 and its failing the check left out); asked once more with the measured
-  figures, the vowel past the edge, 0.79/0.62 (confidence 0.58/0.24).
+  figures, the vowel past the edge, 0.79/0.62 (confidence 0.58/0.24). Since
+  2026-10-26, in <meteg, CGJ, vowel> on final kaf, and in Regular and Bold on final
+  pe, the vowel leaves the cell on the left, up to 142-144 units in Regular (hataf
+  segol; qubuts 116), 217-219 in Bold, 134 in Italic and 217 in Bold Italic; and in
+  Bold Italic, with <hataf segol, meteg>, the vowel goes 8 units past the cell on
+  every plain letter but qof (28 clusters a side carry more vowel overflow than
+  before, against 4-12 in the other styles).
 - After the digit 1, an unattached holam vanishes into it, as JetBrains Mono's own
   U+0307 does (Regular; Bold unmeasured).
 - Bold at 26 px: the sheva's two dots fuse (dot-to-dot 124) and the lower dot is cut
@@ -536,8 +563,10 @@ CHANGELOG
   cluster, probability 0.90 and 0.88 (confidence 0.85 and 0.82), and meteg keeping
   its side where the cell has no room, 0.78 and 0.83 (confidence 0.56 and 0.66),
   both leans taken; qof under KNOWN DEFECTS; meteg's ink kept in the cell before
-  the vowel's, 0.99 and 0.98 (confidence 0.98 and 0.96), settled. No cluster that
-  passed the meteg check before fails it. The gates were run again: OTS passes;
-  the generalised gate's lookup count reads 5 -> 35 and its features line names
-  mkmk [2, 3, 4, 6, 7, 8, 9, 10]; the strip-and-compare gate's appended lookups
-  read [(4, 0), (6, 16), (8, 16), (6, 16), (6, 16), (6, 16)] and 24 (4, 0).
+  the vowel's, 0.99 and 0.98 (confidence 0.98 and 0.96), settled, asked with
+  Regular's and Bold Italic's placements and renders: Bold's larger vowel moves on
+  final kaf and final pe, up to 148 units, were not shown. No cluster that passed
+  the meteg check before fails it. The gates were run again: OTS passes; the
+  generalised gate's lookup count reads 5 -> 35 and its features line names mkmk
+  [2, 3, 4, 6, 7, 8, 9, 10]; the strip-and-compare gate's appended lookups read
+  [(4, 0), (6, 16), (8, 16), (6, 16), (6, 16), (6, 16)] and 24 (4, 0).

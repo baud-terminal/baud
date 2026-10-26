@@ -921,6 +921,12 @@ impl Sink for InkBox {
 /// stands right of its leg. Before the faces' chained context, hataf segol
 /// and qubuts put meteg past the left edge on every letter, and <meteg,
 /// CGJ, vowel> drew meteg on the vowel.
+///
+/// It holds meteg's side and its box inside x 0..600 only. The 20-unit
+/// clearance to the vowel and the letter, part of the round 3 check whose
+/// counts FONTLOG quotes, is asserted by no test; the counts this one pins
+/// equal the check's because no shipped cluster passes the box and fails
+/// the clearance.
 #[test]
 fn meteg_stays_in_its_cell_on_the_side_its_text_order_gives() {
     const VOWELS: [u32; 11] = [
