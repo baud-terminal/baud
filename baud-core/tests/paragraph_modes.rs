@@ -353,3 +353,43 @@ fn the_cursor_keys_the_wheel_and_a_click_send_do_not_swap() {
         assert_eq!(t.reply(), b"\x1b[D");
     });
 }
+
+/// **Which way a row is drawn, for what is anchored on it**
+/// (`Term::line_direction`): a Hebrew line right to left and a Latin one
+/// left to right, a table row left to right whatever its cells hold (it
+/// keeps its columns), a right-to-left path with BDSM reset right to left,
+/// and a row of a window looking back read in that window.
+#[test]
+fn a_row_is_drawn_the_way_its_line_runs_and_a_table_row_left_to_right() {
+    support::with_term(&WS, |t| {
+        support::feed(
+            t,
+            format!("{HEBREW}\r\nabc\r\n{HEBREW}\u{2502}cd").as_bytes(),
+        );
+        let dir = |t: &Term<'_>, y| t.line_direction(Rows::ZERO, Row::from_index(y));
+        assert_eq!(dir(t, 0), BidiDirection::Rtl);
+        assert_eq!(dir(t, 1), BidiDirection::Ltr);
+        assert_eq!(dir(t, 2), BidiDirection::Ltr, "a table row");
+        assert_eq!(
+            t.paragraph_direction(Row::from_index(2), Col::ZERO),
+            BidiDirection::Rtl,
+            "the control: the cell runs right to left"
+        );
+        // Six lines scrolled into the history: the Hebrew line is row 0
+        // of the window six lines back.
+        support::feed(t, b"\x1b[99B\n\n\n\n\n\n");
+        let back = Rows::of_count(6);
+        assert_eq!(t.looking_back(back), back, "the premise: six lines back");
+        assert_eq!(t.line_direction(back, Row::ZERO), BidiDirection::Rtl);
+        assert_eq!(
+            t.line_direction(back, Row::from_index(1)),
+            BidiDirection::Ltr
+        );
+    });
+    support::with_term(&WS, |t| {
+        support::feed(t, b"\x1b[8l\x1b[2 kabc\r\n\x1b[1 kdef");
+        let dir = |t: &Term<'_>, y| t.line_direction(Rows::ZERO, Row::from_index(y));
+        assert_eq!(dir(t, 0), BidiDirection::Rtl, "BDSM reset, the path");
+        assert_eq!(dir(t, 1), BidiDirection::Ltr);
+    });
+}

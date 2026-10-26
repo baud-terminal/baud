@@ -243,6 +243,24 @@ the screen; step 3 joins Arabic letters.
   (`the_status_line_reads_no_line_of_the_main_display_as_context`). The
   cell path draws it as the instance path does
   (`the_cell_path_draws_the_status_line_as_the_instance_path_does`).
+- **A picture after a Hebrew caption sits after it.** A Sixel, a kitty
+  picture or an iTerm2 image anchored on a row drawn right to left is
+  placed mirrored, its box `cols - (col + w)` from the left, by the
+  direction of the row it is anchored on, and its pixels are not flipped:
+  terminal-wg's "images must not be flipped by default in RTL mode ... In
+  paragraphs of RTL direction, the overall layout should be the mirrored
+  version of the LTR one by default" (`[[source:
+  terminal-wg-bidi-misc]]`), the anchor being where the picture is in the
+  text, UAX #9 3.2's object
+  (`a_picture_after_a_hebrew_caption_is_placed_mirrored`,
+  `a_mirrored_picture_is_not_flipped`). A tall picture keeps its place
+  once its top row scrolls off
+  (`the_anchor_row_places_the_whole_box_after_it_scrolls_off`); one on a
+  table row, which keeps its columns, keeps its own
+  (`a_picture_on_a_table_row_keeps_its_place`). kitty's placeholder cells
+  are characters, ordered with the text, and each strip is drawn over its
+  cells where they are drawn
+  (`a_placeholder_strip_is_drawn_over_its_cells_where_they_are_drawn`).
 
 ## What decided each choice
 
@@ -271,6 +289,7 @@ requests and the renders it was shown are in
 | an erased cell between letters | transparent, as the boundary neutral it is given | 0.96 / 0.96 |
 | a lam and an alef erased cells part | the ligature, centred over the cells from one to the other | 0.91 / 0.93 |
 | the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) | 0.94 / 0.97 |
+| a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row | 0.97 / 0.98 |
 
 **Decided by the owner** (2026-10-24):
 
@@ -519,8 +538,9 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 - **A mark on a flipped glyph**: on a flipped base a mark's image is put
   where the flip puts its box, not where the flip puts its attachment
   point, so it is exact only for a mark centred on its attachment point.
-- **Drawn in their stored order still**: images placed on a reordered
-  row, a decision: an image is placed over cells rather than in one.
+- **A picture placed under a kitty placeholder picture** (a relative
+  placement whose parent is virtual) is placed from the placeholders'
+  stored column on a row drawn in another order.
 - **A predicted echo on a double-width line** is not laid out as
   written: its line is laid out without it.
 - **The row sliding out of a smooth scroll, at its edges**: a space

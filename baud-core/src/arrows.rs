@@ -55,20 +55,47 @@ enum Rule {
     No,
 }
 
-/// Where a paragraph's rows are: how many of the history's lines it
-/// begins in, and its first and last screen rows.
+/// Where a paragraph's rows are: the window they are read in, how many of
+/// the history's lines above it the paragraph begins in, and its first and
+/// last rows in the window.
 #[derive(Clone, Copy)]
 struct Span {
+    back: Rows,
     hist: Rows,
     top: Row,
     bot: Row,
+}
+
+/// What a direction is asked of: the paragraph a column is in, a table
+/// row's cell among them, or the line a row draws, which on a table row
+/// runs left to right whatever its cells hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Cell(Col),
+    Line,
 }
 
 impl Term<'_> {
     /// **Which way the paragraph holding screen row `r`'s column `c` runs**,
     /// as it is drawn: the direction `?1243` swaps the arrow keys by.
     pub fn paragraph_direction(&self, r: Row, c: Col) -> BidiDirection {
-        let vp = self.view(Rows::ZERO);
+        self.direction(Rows::ZERO, r, Scope::Cell(c))
+    }
+
+    /// **Which way row `r` of the window `back` lines into the history is
+    /// drawn**: its paragraph's direction as [`Term::paragraph_direction`]
+    /// reads it, and left to right on a table row, which keeps its columns
+    /// whatever its cells hold. What a picture anchored on the row is
+    /// placed by: mirrored, unflipped, where the row runs right to left
+    /// (Jev MIRROR_BY_ANCHOR_ROW, 0.97/0.98). Left to right for a row
+    /// outside the window.
+    pub fn line_direction(&self, back: Rows, r: Row) -> BidiDirection {
+        self.direction(back, r, Scope::Line)
+    }
+
+    fn direction(&self, back: Rows, r: Row, scope: Scope) -> BidiDirection {
+        let back = self.looking_back(back);
+        let vp = self.view(back);
         if r.index() >= vp.rows().index() {
             return BidiDirection::Ltr;
         }
@@ -86,7 +113,7 @@ impl Term<'_> {
         let mut hist = 0;
         if top == 0 {
             loop {
-                let want = Rows::of_index(hist + 1);
+                let want = Rows::of_index(back.index() + hist + 1);
                 if self.looking_back(want) != want
                     || self.view(want).wrapped(Row::ZERO) != Wrap::Continues
                 {
@@ -101,9 +128,14 @@ impl Term<'_> {
             bot += 1;
         }
         let span = Span {
+            back,
             hist: Rows::of_count(hist),
             top: Row::from_index(top),
             bot: Row::from_index(bot),
+        };
+        let c = match scope {
+            Scope::Cell(c) => c,
+            Scope::Line => Col::ZERO,
         };
         let dir = bidi.paragraph();
         // The first walk: the paragraph's direction, whether it holds a
@@ -134,7 +166,7 @@ impl Term<'_> {
         if table == Rule::No {
             return found.unwrap_or_else(|| whole.end());
         }
-        if past {
+        if past || scope == Scope::Line {
             return BidiDirection::Ltr;
         }
         // A table row, walked again: the cell from the rule before the
@@ -162,10 +194,13 @@ impl Term<'_> {
     /// screen row and column) begins, or at its row's text's end when the
     /// cell is past it.
     fn walk(&self, span: Span, cursor: (Row, Col), mut f: impl FnMut(Step)) {
-        let vp = self.view(Rows::ZERO);
+        let vp = self.view(span.back);
         let rows = (0..span.hist.index())
             .rev()
-            .map(|k| (None, self.view(Rows::of_index(k + 1)).row(Row::ZERO)))
+            .map(|k| {
+                let up = Rows::of_index(span.back.index() + k + 1);
+                (None, self.view(up).row(Row::ZERO))
+            })
             .chain(
                 (span.top.index()..=span.bot.index())
                     .map(|y| (Some(Row::from_index(y)), vp.row(Row::from_index(y)))),

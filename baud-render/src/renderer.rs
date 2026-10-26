@@ -34,9 +34,10 @@ use baud_core::{BidiSupport, PaintRole, ProgramPaint, Term};
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, FrameNo, GlyphId,
-    ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen, ImageStore,
-    KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows, Viewport, ZIndex,
+    Attrs, BidiDirection, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle,
+    FrameNo, GlyphId, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen,
+    ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows,
+    Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -1108,6 +1109,14 @@ enum Prev {
     Known,
 }
 
+/// Where a picture's anchor row is: a row of the window drawn, or that
+/// many lines above its first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Anchor {
+    At(Row),
+    Above(Rows),
+}
+
 /// Whether a convert repaints the rows the frame's image placements cover.
 /// The CPU path blits images over the rows it painted, so it needs them
 /// repainted; a GPU path draws images in their own pass and does not.
@@ -1696,6 +1705,10 @@ pub struct Renderer<'f, 'a> {
     /// the cursor, the selection, the find marks and the link underline
     /// keep logical columns and are drawn through it (`bidi.rs`).
     bidi: crate::bidi::Reorder,
+    /// The window laid out for kitty's placeholders, which are placed
+    /// before the frame's own layout: made at the first frame that holds a
+    /// virtual placement.
+    placeholder_bidi: Option<Box<crate::bidi::Reorder>>,
     /// **What that layout reads besides the window's cells** (`Beside`),
     /// made the first time a frame has any: one pointer on a renderer that
     /// never composes, predicts or slides.
@@ -2142,6 +2155,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             prev_size: Vec::new(),
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
+            placeholder_bidi: None,
             beside: None,
             bidi_cells: Vec::new(),
             joins_prev: Vec::new(),
@@ -4773,6 +4787,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
         let screen_h = self.main.index() as i64 * ch;
         let frame_w = i64::from(self.frame_size().0.value());
+        let grid_w = self.cols.index() as i64 * cw;
         for (pid, p) in imgs.placements() {
             if p.screen != origin.screen {
                 continue;
@@ -4804,6 +4819,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             let x0 = (p.col.index() as i64 - over_c) * cw + i64::from(dest.x);
             let y0 = (p.line.value() as i64 - over_r - top) * ch - cut_top + i64::from(dest.y);
+            // **On a row drawn right to left, the box mirrored** (Jev
+            // MIRROR_BY_ANCHOR_ROW, 0.97/0.98): its anchor row's direction
+            // places the whole box, `cols - (col + w)` from the left, and
+            // its pixels are not flipped -- terminal-wg's "images must not
+            // be flipped by default in RTL mode ... In paragraphs of RTL
+            // direction, the overall layout should be the mirrored version
+            // of the LTR one" (`[[source: terminal-wg-bidi-misc]]`), the
+            // anchor being where the picture is in the text, UAX #9 3.2's
+            // object (`[[source: uax9-bidi]]`).
+            let anchor = match p.line.value().checked_sub(origin.top.value()) {
+                Some(y) => Anchor::At(Row::from_index(usize::try_from(y).unwrap_or(usize::MAX))),
+                None => Anchor::Above(Rows::of_index(
+                    usize::try_from(origin.top.value() - p.line.value()).unwrap_or(0),
+                )),
+            };
+            let x0 = match self.anchor_direction(term, back, anchor) {
+                BidiDirection::Rtl => grid_w - x0 - i64::from(dest.w),
+                BidiDirection::Ltr => x0,
+            };
             // The visible part, in drawn pixels from the drawn top-left:
             // columns on the frame, rows from one row above the top -- the
             // leaving row the cell path draws under smooth scroll, which
@@ -4855,13 +4889,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let y = Row::from_index(r);
                 (r as i64, vp.row(y), vp.rendition(y))
             });
+            // **Where each run is drawn**: the cells are characters, and a
+            // row drawn in another order moves them, so a strip is placed
+            // over its run's cells where the order draws them, its pixels
+            // unflipped. The window is laid out for it here, the frame's
+            // own layout coming after the placements.
+            let mut order = self.placeholder_bidi.take().unwrap_or_default();
+            order.lay_out_as(term, back, crate::bidi::Joins::Unseen);
             for (r, row, size) in leaving
                 .map(|(row, size)| (-1, row, size))
                 .into_iter()
                 .chain(rows)
             {
-                self.place_placeholders(term, imgs, epoch, (r, row, size), snap);
+                let drawn = usize::try_from(r)
+                    .ok()
+                    .map(Row::from_index)
+                    .filter(|&y| order.orders().reordered(y))
+                    .map(|y| (order.orders(), y));
+                self.place_placeholders(term, imgs, epoch, (r, row, size), drawn, snap);
             }
+            self.placeholder_bidi = Some(order);
             self.place_under_virtuals(imgs, epoch, origin.screen, snap);
         }
         // The text's order: by `z`, then by the client's id; stable, so
@@ -4896,12 +4943,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// dec-std-070]]` § 5.6.1, DECDWL displays "all characters ... in
     /// double-width rendition"). Decided by Jev 2026-10-19, AS_TEXT, 0.97
     /// and 0.95 on a re-ask; kitty draws no sized line.
+    /// **Which way the row a picture is anchored on is drawn**: row `r`
+    /// of the window `back` lines into the history, a row above it read in
+    /// the window that shows it first (a tall picture whose top has
+    /// scrolled off keeps its place), and left to right for a line the
+    /// history no longer holds.
+    fn anchor_direction(&self, term: &Term<'_>, back: Rows, at: Anchor) -> BidiDirection {
+        let back = term.looking_back(back);
+        match at {
+            Anchor::At(y) => term.line_direction(back, y),
+            Anchor::Above(k) => {
+                let up = Rows::of_index(back.index() + k.index());
+                match term.looking_back(up) == up {
+                    true => term.line_direction(up, Row::ZERO),
+                    false => BidiDirection::Ltr,
+                }
+            }
+        }
+    }
+
     fn place_placeholders(
         &mut self,
         term: &Term<'_>,
         imgs: &ImageStore<'_>,
         epoch: ImageGen,
         (r, row, size): (i64, &[PackedCell], LineRendition),
+        drawn: Option<(&crate::bidi::Orders, Row)>,
         snap: Snapshots,
     ) {
         let st = Stretch::of(size);
@@ -4942,7 +5009,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 LineRendition::DoubleBottom => (r - 1) * ch,
                 _ => r * ch,
             };
-            let at = run.at.index() as i64;
+            // The run's first column as drawn: the least visual column of
+            // its cells, on a row drawn in another order.
+            let at = match drawn {
+                Some((o, y)) => {
+                    let last = Col::at_index(run.at.index() + run.cells.index().saturating_sub(1));
+                    o.visual_col(y, run.at).min(o.visual_col(y, last)).index() as i64
+                }
+                None => run.at.index() as i64,
+            };
             let x0 = (at - run.col.index() as i64) * cw * sx + i64::from(dest.x);
             let y0 = box_top - run.row.index() as i64 * ch * sy + i64::from(dest.y);
             let (left, top) = (at * cw * sx, r * ch);
