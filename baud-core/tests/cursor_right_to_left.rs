@@ -404,3 +404,60 @@ fn under_decrlm_and_irm_a_form_shifts_the_line_once() {
         assert_eq!(form(t, 0, 5), None, "and no more");
     });
 }
+
+/// **A function that may move the cursor from where the write left it ends
+/// the wrap waiting at the left margin**, as it ends the Last Column Flag:
+/// "The Last Column Flag should also be reset by executing any control
+/// which potentially changes the Active Position from the end-of-line
+/// position", CUU, CUD, LF, VT, FF, IND, RI, ECH, DCH, ICH, EL, DECSEL,
+/// DL, IL, ED, DECSED and the line renditions among them (`[[source:
+/// dec-std-070]]` 070-D, pp. D-13 and D-14). So the next character is
+/// written where the cursor is, as after a `CUP` to that position, on the
+/// row the write left, the bottom row a line feed scrolls, and a row a
+/// move went away from and came back to; the control, nothing between,
+/// wraps.
+#[test]
+fn a_move_or_an_edit_ends_the_wrap_waiting_at_the_left_edge() {
+    let between = [
+        ("CUU", "\x1b[A"),
+        ("CUD", "\x1b[B"),
+        ("VPA", "\x1b[3d"),
+        ("VPR", "\x1b[e"),
+        ("VPB", "\x1b[k"),
+        ("LF", "\n"),
+        ("VT", "\x0b"),
+        ("FF", "\x0c"),
+        ("IND", "\x1bD"),
+        ("RI", "\x1bM"),
+        ("ECH", "\x1b[X"),
+        ("EL", "\x1b[K"),
+        ("ED", "\x1b[J"),
+        ("DCH", "\x1b[P"),
+        ("ICH", "\x1b[@"),
+        ("IL", "\x1b[L"),
+        ("DL", "\x1b[M"),
+        ("DECSEL", "\x1b[?K"),
+        ("DECSED", "\x1b[?J"),
+        ("DECSWL", "\x1b#5"),
+        ("DECDWL", "\x1b#6"),
+        ("CUD CUU", "\x1b[B\x1b[A"),
+        ("CUU CUD", "\x1b[A\x1b[B"),
+        ("LF RI", "\n\x1bM"),
+        ("IND RI", "\x1bD\x1bM"),
+        ("VPA away and back", "\x1b[1d\x1b[3d"),
+    ];
+    let mut failed = Vec::new();
+    for row in [3, 4] {
+        let start = format!("{RLM}\x1b[{row};1Hz");
+        let wrapped = after(&format!("{start}y"));
+        assert_eq!(wrapped.1, (3, 8), "row {row}, the control: y wrapped");
+        for (name, f) in between {
+            let (_, (r, c)) = after(&format!("{start}{f}"));
+            let want = after(&format!("{start}{f}\x1b[{};{}Hy", r + 1, c + 1));
+            if after(&format!("{start}{f}y")) != want {
+                failed.push(format!("row {row}, {name}"));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{failed:#?}");
+}

@@ -1957,6 +1957,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One row up, scrolling the region when the cursor is on its first row,
     /// at its presentation position under DCSM's PRESENTATION.
     pub(crate) fn reverse_index(&mut self) {
+        // At the top margin the cursor stays where the write left it.
+        self.end_left_edge();
         if self.cold.modes.is_set(ModeBit::PresentationEdits) {
             return self.reverse_index_presented();
         }
@@ -2018,7 +2020,21 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// fresh path over text and orphaned the half it covered. `SU`, `SD`,
     /// the screen swap and `DECIC` keep the cursor's row and move its text,
     /// and re-read through [`Paint::row_changed_to`].
+    ///
+    /// **A row change ends a wrap a DECRLM write left waiting at the left
+    /// margin** (`crate::leftward`), as every row change ends the Last
+    /// Column Flag (`[[source: dec-std-070]]` 070-D p. D-13). A line feed
+    /// takes [`Paint::step_row`], and under DECRLM [`Paint::line_feed`]'s
+    /// moded arm, which ends it.
     pub(crate) fn set_row(&mut self, r: Row) {
+        self.end_left_edge();
+        self.step_row(r);
+    }
+
+    /// [`Paint::set_row`] for [`Paint::index`]: a line feed's step down,
+    /// which under DECRLM has already ended the wrap waiting.
+    #[inline(always)]
+    fn step_row(&mut self, r: Row) {
         self.cy = r;
         self.enter_row(r, Arrival::Moved);
     }
@@ -2169,6 +2185,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn line_rendition(&mut self, to: LineRendition) {
+        // A wrap a DECRLM write left waiting ends (`Paint::end_left_edge`).
+        self.end_left_edge();
         if to.is_double() && self.cold.modes.is_set(ModeBit::SideMargins) {
             return;
         }
@@ -2328,16 +2346,19 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **Autoprint is read with LNM, one test of the mode word**, and both
     /// are out of line behind it ([`Paint::line_feed_moded`]): `by` says
     /// which byte moved the cursor, which is the line's ending in print. A
-    /// selected character path is a third bit of the same test.
+    /// selected character path is a third bit of the same test, and DECRLM
+    /// a fifth, whose wrap waiting at the left margin a line feed ends
+    /// (`crate::leftward`).
     #[inline(always)]
     pub(crate) fn line_feed(&mut self, by: Feed) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        if self.cold.modes.any_of_four(
+        if self.cold.modes.any_of_five(
             ModeBit::LineFeedNewLine,
             ModeBit::AutoPrint,
             ModeBit::PathSelected,
             ModeBit::PresentationEdits,
+            ModeBit::CursorRightToLeft,
         ) {
             return self.line_feed_moded(by);
         }
@@ -2352,6 +2373,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn line_feed_moded(&mut self, by: Feed) {
+        self.end_left_edge();
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             let end = match by {
                 Feed::Received(at) if self.arena[at.index()] == 0x0c => {
@@ -2426,7 +2448,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             // line and all. **And the row keeps its mark**: it holds whatever
             // it held, where this zeroed it.
             if self.cy.index() < last {
-                self.set_row(Row::from_index(self.cy.index() + 1));
+                self.step_row(Row::from_index(self.cy.index() + 1));
             }
             return self.view.rot();
         }

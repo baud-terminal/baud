@@ -2275,13 +2275,36 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.on_line(p.place(p.confine_col(p.cx.reported(p.line_fence(), p.cols).back(c)))),
         ),
         DomCsi::LineBackward(c) => p.set_row(p.confine(p.cy.up(c))),
-        DomCsi::EraseInLine(e) => p.erase_line(e),
-        DomCsi::EraseInDisplay(e) => p.erase_display(e),
-        DomCsi::EraseChars(c) => p.erase_chars(c),
-        DomCsi::DeleteChars(c) => p.delete_chars(c),
-        DomCsi::InsertBlanks(c) => p.insert_blanks(c),
-        DomCsi::InsertLines(c) => p.insert_lines(c),
-        DomCsi::DeleteLines(c) => p.delete_lines(c),
+        // Each of the edits ends a wrap a DECRLM write left waiting
+        // (`Paint::end_left_edge`).
+        DomCsi::EraseInLine(e) => {
+            p.end_left_edge();
+            p.erase_line(e)
+        }
+        DomCsi::EraseInDisplay(e) => {
+            p.end_left_edge();
+            p.erase_display(e)
+        }
+        DomCsi::EraseChars(c) => {
+            p.end_left_edge();
+            p.erase_chars(c)
+        }
+        DomCsi::DeleteChars(c) => {
+            p.end_left_edge();
+            p.delete_chars(c)
+        }
+        DomCsi::InsertBlanks(c) => {
+            p.end_left_edge();
+            p.insert_blanks(c)
+        }
+        DomCsi::InsertLines(c) => {
+            p.end_left_edge();
+            p.insert_lines(c)
+        }
+        DomCsi::DeleteLines(c) => {
+            p.end_left_edge();
+            p.delete_lines(c)
+        }
         // The cursor stays and its row's text moves under it.
         DomCsi::ScrollUp(c) => {
             p.scroll_region_up(c);
@@ -2334,8 +2357,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.cold.protect = CellFlags::protection(protect.is_protected());
             p.refresh_flags();
         }
-        DomCsi::SelectiveEraseLine(e) => p.selective_erase_line(e),
-        DomCsi::SelectiveEraseDisplay(e) => p.selective_erase_display(e),
+        DomCsi::SelectiveEraseLine(e) => {
+            p.end_left_edge();
+            p.selective_erase_line(e)
+        }
+        DomCsi::SelectiveEraseDisplay(e) => {
+            p.end_left_edge();
+            p.selective_erase_display(e)
+        }
         DomCsi::EraseSavedLines => p.erase_saved_lines(),
         DomCsi::SelectiveEraseSavedLines => p.selective_erase_saved_lines(),
         DomCsi::EraseEach(which) => p.erase_each(csi, which),
@@ -2762,7 +2791,10 @@ fn esc_final(
             None => p.restore_unsaved(),
         },
         Esc::ReverseIndex => p.reverse_index(),
-        Esc::Index => p.index_bringing_in(),
+        Esc::Index => {
+            p.end_left_edge();
+            p.index_bringing_in()
+        }
         // **`CR` and then `LF`, so the line it leaves decides**:
         // `[[source: dec-std-070]]` NEL, p. 5-64, "If the Active Position is
         // before the left margin, or outside the top and bottom margins, it

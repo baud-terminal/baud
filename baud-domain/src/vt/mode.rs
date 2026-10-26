@@ -510,6 +510,10 @@ impl Modes {
     pub fn any_of_four(self, a: ModeBit, b: ModeBit, c: ModeBit, d: ModeBit) -> bool {
         self.0 & (a.bit() | b.bit() | c.bit() | d.bit()) != 0
     }
+    /// Whether any of five modes is set: one test of the word.
+    pub fn any_of_five(self, a: ModeBit, b: ModeBit, c: ModeBit, d: ModeBit, e: ModeBit) -> bool {
+        self.0 & (a.bit() | b.bit() | c.bit() | d.bit() | e.bit()) != 0
+    }
     pub fn set(&mut self, m: ModeBit) {
         self.0 |= m.bit();
     }

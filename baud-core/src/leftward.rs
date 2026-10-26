@@ -175,6 +175,21 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **A function that may move the cursor ends the wrap waiting**, as it
+    /// ends the Last Column Flag: "The Last Column Flag should also be reset
+    /// by executing any control which potentially changes the Active
+    /// Position from the end-of-line position" -- CUU, CUD, LF, VT, FF,
+    /// IND, RI, ECH, DCH, ICH, EL, DECSEL, DL, IL, ED, DECSED and the line
+    /// renditions among them (`[[source: dec-std-070]]` 070-D pp. D-13 and
+    /// D-14). Every horizontal move ends it in [`Paint::set_col`], a row
+    /// change in [`Paint::set_row`].
+    #[inline(always)]
+    pub(crate) fn end_left_edge(&mut self) {
+        if self.cold.pinned == Pinned::LeftEdge {
+            self.cold.pinned = Pinned::Before;
+        }
+    }
+
     /// Whether a write under DECRLM left a wrap waiting where the cursor is.
     pub(crate) fn at_left_edge(&self) -> bool {
         self.cold.pinned == Pinned::LeftEdge && self.cold.left_edge == self.cy
