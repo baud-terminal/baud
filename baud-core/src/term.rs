@@ -1255,6 +1255,13 @@ pub struct Cold {
     /// which its repeats and release take; none at power-on and after
     /// `RIS` and `DECSTR`.
     pub(crate) held_arrows: HeldArrows,
+    /// `?96` DECRLCM ([`CopyDirection`]), read only by the embedder's copy
+    /// (`Term::copy_direction`): left to right at power-on and after
+    /// `RIS`, kept by `DECSTR`.
+    pub(crate) copy: CopyDirection,
+    /// `?36` DECHEM ([`HebrewEncoding`]) of the display being written, the
+    /// other display's parked with its sets (`crate::status`).
+    pub(crate) hebrew: HebrewEncoding,
     /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
@@ -1472,9 +1479,13 @@ pub struct Cold {
 // the struct to 944, every field packed and none of its padding free.
 // BDSM's byte (`bidi`) took it to 944 for that reason: written by `SM 8`,
 // `RM 8` and `RIS`, read by DECRQM and the renderer, never by a glyph.
+// XTSAVE's second word of each bitset (`SavedModes`, the 65th and 66th
+// slots), DECRLCM's byte (`copy`) and DECHEM's (`hebrew`) took it to 968:
+// written by `?96`, `?36`, XTSAVE and the resets, read by DECRQM, XTRESTORE,
+// DECTSR and the embedder's copy, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 944);
+const _: () = assert!(core::mem::size_of::<Cold>() == 968);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -2004,6 +2015,8 @@ impl Cold {
             line: LineBidi::POWER_ON,
             arrows: ArrowSwap::On,
             held_arrows: HeldArrows::NONE,
+            copy: CopyDirection::LeftToRight,
+            hebrew: HebrewEncoding::Multinational,
             xtsave: SavedModes::NONE,
         }
     }
@@ -3675,6 +3688,13 @@ impl<'b> Term<'b> {
     /// in the core does, since the reordering is display-only.
     pub fn bidi_support(&self) -> BidiSupport {
         self.cold.bidi
+    }
+
+    /// **`?96` DECRLCM** (`[[source: vt510-decrlcm]]`): which way the
+    /// embedder's copy reads each line ([`CopyDirection`]). The core keeps
+    /// it and copies nothing; `baud_render::Selection::text` reads it.
+    pub fn copy_direction(&self) -> CopyDirection {
+        self.cold.copy
     }
 
     /// `?2004`. Whether pasted text should be bracketed.

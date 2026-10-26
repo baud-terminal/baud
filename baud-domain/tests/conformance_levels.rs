@@ -312,7 +312,9 @@ fn the_parsed_forms_name_their_rows() {
         (67, "DECBKM"),
         (69, "DECLRMM"),
         (80, "DECSDM"),
+        (36, "DECHEM"),
         (95, "DECNCSM"),
+        (96, "DECRLCM"),
         (117, "DECECM"),
     ];
     let reports: &[(DecStatus, &str)] = &[

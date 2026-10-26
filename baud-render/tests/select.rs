@@ -215,3 +215,63 @@ fn a_block_edge_through_a_wide_character_keeps_it_whole_or_leaves_it_out() {
     let s = block(&t, (0, 2), (3, 2));
     assert_eq!(s.text(&t, Scrolled::START), "c\n\n\u{65e5}\nc");
 }
+
+/// **`?96` DECRLCM copies each line from its right edge**: "if \"ABCD\" is
+/// to be copied right-to-left ... the string is saved in the paste buffer
+/// as \"DCBA.\"" (`[[source: vt510-decrlcm]]`). A copy over two lines reads
+/// each in the order it is drawn from the right, the lines kept in order
+/// (Jev's leans, DRAWN_FROM_RIGHT and EACH_LINE); the trailing blanks a
+/// copy drops stay dropped, and a wide character and a letter with its
+/// mark stay whole. Reset, the copy is as written.
+#[test]
+fn decrlcm_copies_each_line_from_its_right_edge() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "ABCD\r\nx\u{65e5}e\u{301}".as_bytes());
+    let s = select(&t, Scrolled::START, (0, 0), (1, 9));
+    assert_eq!(s.text(&t, Scrolled::START), "ABCD\nx\u{65e5}e\u{301}");
+    feed(&mut t, b"\x1b[?96h");
+    assert_eq!(s.text(&t, Scrolled::START), "DCBA\ne\u{301}\u{65e5}x");
+}
+
+/// **A Hebrew line UAX #9 draws right to left copies in the order it
+/// reads** under `?96`, and an English word on it reversed: the cells as
+/// drawn, read from the right. With BDSM reset nothing is reordered and
+/// the whole line comes out reversed, as on the VT510.
+#[test]
+fn decrlcm_reads_a_reordered_line_as_it_is_drawn() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "\u{5D0}\u{5D1} ok\x1b[?96h".as_bytes());
+    let s = select(&t, Scrolled::START, (0, 0), (0, 9));
+    assert_eq!(s.text(&t, Scrolled::START), "\u{5D0}\u{5D1} ko");
+    feed(&mut t, b"\x1b[8l");
+    assert_eq!(s.text(&t, Scrolled::START), "ko \u{5D1}\u{5D0}");
+}
+
+/// **A line in the history reads as its window draws it** under `?96`.
+#[test]
+fn decrlcm_reads_a_history_line_from_its_right_edge() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[?96hone\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix",
+    );
+    let scrolled = Scrolled::START.advanced(Rows::of_count(t.rotation().index()));
+    let view = t.view(Rows::of_count(1));
+    let start = Span::cell(
+        view.row(Row::ZERO),
+        AbsLine::at(Rows::of_count(1)),
+        Col::at_index(0),
+    );
+    let live = t.viewport();
+    let end = Span::cell(
+        live.row(Row::ZERO),
+        scrolled.line(Rows::ZERO, Row::ZERO),
+        Col::at_index(9),
+    );
+    let mut s = Selection::at(start, Grain::Cell);
+    s.extend(end);
+    assert_eq!(s.text(&t, scrolled), "owt\neerht");
+}

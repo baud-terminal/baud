@@ -496,6 +496,10 @@ impl Paint<'_, '_> {
     /// DECSTR: "In Use Table (gl, gr) | set to current level defaults /
     /// Designated Sets | set to current level defaults".
     pub(crate) fn reset_sets(&mut self) {
+        // DECHEM with them: multinational, as DECSTR's table returns
+        // DECNRCM, its opposite, to "Multinational set"
+        // (`[[source: vt510-decstr]]`).
+        self.cold.hebrew = HebrewEncoding::Multinational;
         self.cold.g = crate::term::POWER_UP_SETS;
         self.cold.desig = crate::term::POWER_UP_DESIGNATIONS;
         self.cold.gl = GSlot::G0;
@@ -3901,6 +3905,37 @@ impl Paint<'_, '_> {
             // note 5's workstation emulator have them (note AF's
             // Q-DECNRCM: Jev's lean, C_STD070_NO_DIALECT, 0.37/0.51).
             PrivateMode::NationalReplacement => {}
+            // Global, read by the embedder's copy (`Term::copy_direction`).
+            PrivateMode::RightToLeftCopy => {
+                self.cold.copy = match on {
+                    true => CopyDirection::RightToLeft,
+                    false => CopyDirection::LeftToRight,
+                };
+            }
+            // **`?36` DECHEM**, "opposite in action to DECNRCM": set is
+            // STD 070's `reset_character_set_mode()`, the sets back to their
+            // power-up designations and invocations, and reset its
+            // `set_character_set_mode()`, the keyboard's 7-bit NRC set in G0
+            // to G3, a Hebrew VT510's DEC 7-bit Hebrew; "Changing this mode
+            // has the side effect of re-initializing the designated and
+            // invoked character sets to their default state" (`[[source:
+            // dec-std-070]]` DECNRCM, pp. 5-126 to 5-128, note 1).
+            PrivateMode::HebrewEncoding if on => {
+                self.reset_sets();
+                self.invoke();
+            }
+            PrivateMode::HebrewEncoding => {
+                let set = Charset::National(Nrcs::Hebrew);
+                if !self.designable(GSlot::G0, set) {
+                    return;
+                }
+                self.cold.hebrew = HebrewEncoding::National;
+                self.cold.g = [set; 4];
+                self.cold.desig = [Designation::HEBREW_NRCS; 4];
+                self.cold.gl = GSlot::G0;
+                self.cold.gr = GSlot::G2;
+                self.invoke();
+            }
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request
             // `vim-unicode.raw` sends on its first line arrived and vanished
@@ -4375,6 +4410,9 @@ impl Paint<'_, '_> {
         // swapping on, its power-on state.
         self.cold.line = LineBidi::POWER_ON;
         self.cold.arrows = ArrowSwap::On;
+        // `?96`'s default, "Disable right-to-left-copy"
+        // (`[[source: vt510-decrlcm]]`).
+        self.cold.copy = CopyDirection::LeftToRight;
         // iTerm2's cursor guide goes back to the embedder's setting: its
         // reset sets the profile's again (`screenDidReset`, `[[source:
         // iterm2-964a75d-ptysession]]`), and `DECSTR`'s list does not name
@@ -5154,6 +5192,14 @@ impl Paint<'_, '_> {
             // below on purpose, so the answer stays `0` if the wildcard
             // changes.
             PrivateMode::NationalReplacement => ModeState::NotRecognized,
+            PrivateMode::RightToLeftCopy => match self.cold.copy {
+                CopyDirection::RightToLeft => ModeState::Set,
+                CopyDirection::LeftToRight => ModeState::Reset,
+            },
+            PrivateMode::HebrewEncoding => match self.cold.hebrew {
+                HebrewEncoding::Multinational => ModeState::Set,
+                HebrewEncoding::National => ModeState::Reset,
+            },
             _ => ModeState::NotRecognized,
         }
     }

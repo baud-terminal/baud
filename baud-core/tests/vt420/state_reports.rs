@@ -199,6 +199,26 @@ fn decrsts_restores_the_three_bidi_modes() {
     });
 }
 
+/// **The report carries DECRLCM and DECHEM** (version 4): each away from
+/// its power-on state is answered so before `RIS`, and after a restore.
+#[test]
+fn decrsts_restores_decrlcm_and_dechem() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?96h\x1b[?36l");
+        t.clear_reply();
+        let want = ["\\x1b[?96;1$y", "\\x1b[?36;2$y"];
+        let modes =
+            |t: &mut Term<'_>| [96, 36].map(|m| show(&reply(t, format!("\x1b[?{m}$p").as_bytes())));
+        assert_eq!(modes(t), want, "set before the report");
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        assert_ne!(modes(t), want, "RIS returned them");
+        support::feed(t, &restore(&report));
+        t.clear_reply();
+        assert_eq!(modes(t), want, "restored");
+    });
+}
+
 /// **A restore replays a direct colour in every slot**, through the SGR
 /// DECRQSS answers with, `38:2::r:g:b` and its kin, which the parser reads
 /// back with the colour space left empty: `SGR 0`, then the same rendition.
@@ -372,7 +392,7 @@ fn an_invalid_field_is_stepped_over() {
         let mut d = data(&report).to_vec();
         // The version, the level, the ANSI modes, the private modes, the
         // rendition and the margins come before the cursor style.
-        let at = 1 + 1 + 3 + 32 + 28 + 12;
+        let at = 1 + 1 + 3 + baud_domain::TSR_PRIVATE_MODES.div_ceil(2) + 28 + 12;
         assert_eq!(d[at], 0x45, "the style nibble is DECSCUSR 5");
         d[at] = 0x49;
         let n = d.len() - 2;

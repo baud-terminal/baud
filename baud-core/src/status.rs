@@ -98,6 +98,7 @@ pub(crate) struct Parked {
     gr: GSlot,
     single: GSlot,
     desig: [Designation; 4],
+    hebrew: HebrewEncoding,
     restored_shift: Option<GSlot>,
     origin: ModeChange,
     cursor: ModeChange,
@@ -141,6 +142,7 @@ impl Parked {
             gr: GSlot::G2,
             single: GSlot::G2,
             desig: crate::term::POWER_UP_DESIGNATIONS,
+            hebrew: HebrewEncoding::Multinational,
             restored_shift: None,
             origin: ModeChange::Reset,
             cursor: ModeChange::Set,
@@ -410,6 +412,7 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cold.gr, &mut p.gr);
         core::mem::swap(&mut self.cold.single, &mut p.single);
         core::mem::swap(&mut self.cold.desig, &mut p.desig);
+        core::mem::swap(&mut self.cold.hebrew, &mut p.hebrew);
         core::mem::swap(&mut self.cold.restored_shift, &mut p.restored_shift);
         self.rendition_changed();
         let (origin, cursor) = (

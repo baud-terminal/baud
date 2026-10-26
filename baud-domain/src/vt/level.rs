@@ -267,6 +267,8 @@ functions! {
     DsrSessions "DSR (sessions)" Since(One), Manual(Vt420);
     Decst8c "DECST8C" Since(Four), Manual(Vt510);
     Decncsm "DECNCSM" Since(Four), Manual(Vt510);
+    Decrlcm "DECRLCM" Since(Four), Manual(Vt510);
+    Dechem "DECHEM" Since(Four), Manual(Vt510);
     Decscusr "DECSCUSR" Since(Four), Manual(Vt520);
     Decswbv "DECSWBV" Since(Four), Manual(Vt520);
     Decsmbv "DECSMBV" Since(Four), Manual(Vt520);
@@ -490,6 +492,8 @@ impl PrivateMode {
             PrivateMode::LeftRightMargin => Function::Declrmm,
             PrivateMode::SixelDisplay => Function::Decsdm,
             PrivateMode::NoClearOnColumn => Function::Decncsm,
+            PrivateMode::RightToLeftCopy => Function::Decrlcm,
+            PrivateMode::HebrewEncoding => Function::Dechem,
             PrivateMode::EraseColor => Function::Dececm,
             _ => return None,
         })

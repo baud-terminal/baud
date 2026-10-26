@@ -22,10 +22,10 @@
 //!
 //! | nibbles | field |
 //! |---|---|
-//! | 1 | the version, 2 |
+//! | 1 | the version, [`TSR_VERSION`] |
 //! | 1 | the conformance level 1 to 4 (bits 0-1), eight-bit C1 (bit 2), ISO 8859-1 input (bit 3) |
 //! | 3 | the six ANSI modes [`TSR_ANSI_MODES`], two bits each |
-//! | 31 | the sixty-one private modes XTSAVE keeps, two bits each, by slot, the last nibble's low two bits zero |
+//! | 33 | the sixty-six private modes XTSAVE keeps, two bits each, by slot |
 //! | 28 | the rendition: 23 attribute bits in `Attrs::WIRE`'s order (6), the font (1), the foreground, background and underline colours (7 each) |
 //! | 12 | DECSTBM's top and bottom, DECSLRM's left and right, from 1 |
 //! | 1 | DECSCUSR's `Ps` |
@@ -37,7 +37,7 @@
 //! | 27 | DECCIR's fields: the row and column (3 each), `Srend`, `Satt`, `Sflag` (1 each), GL and GR (1), the four designations ([`TSR_DESIGNATIONS`]) |
 //! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection, DECAWM, DECOM and pending wrap (1), GL and GR (1), the four designations |
 //! | 4 | the tab stops: carried (bit 0) or every eighth column (bit 1); the columns (3) |
-//! | 0-63 | the tab stops' bitmap, a bit a column, when carried |
+//! | 0-60 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
 //!
 //! **The `DECSC` save is the shown screen's** (Jev's lean, S_SHOWN,
 //! 0.86/0.88 after research): no other control reads it back, and
@@ -56,8 +56,9 @@ use crate::*;
 
 /// The version nibble: a report a later layout reads as foreign. 2 since
 /// the private modes took a sixty-first slot, `?1040`; 3 since they took
-/// terminal-wg's `?2500`, `?2501` and `?1243`.
-pub const TSR_VERSION: u8 = 3;
+/// terminal-wg's `?2500`, `?2501` and `?1243`; 4 since they took DEC's
+/// `?96` and `?36`.
+pub const TSR_VERSION: u8 = 4;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.

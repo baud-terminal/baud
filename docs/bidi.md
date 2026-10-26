@@ -333,6 +333,18 @@ the screen; step 3 joins Arabic letters.
   where 17 slants the cell it starts on it leans left
   (`a_composition_over_varied_text_draws_as_its_text_written`,
   `a_composition_over_varied_text_draws_as_written_on_every_arm`).
+- **A copy can read each line from its right edge** (DEC's DECRLCM,
+  `CSI ? 96 h`, `[[source: vt510-decrlcm]]`): each line of the copy
+  gives its characters in the order they are drawn, from right to left,
+  the lines kept in order. A line nothing reorders comes out reversed,
+  "ABCD" as "DCBA" as on the VT510, and a Hebrew line drawn right to left
+  comes out in the order it reads (`decrlcm_copies_each_line_from_its_right_edge`,
+  `decrlcm_reads_a_reordered_line_as_it_is_drawn`).
+- **A program can switch to the VT510's Hebrew national mode** (DECHEM,
+  `CSI ? 36 l`, `[[source: vt510-dechem]]`): lowercase letters are drawn
+  as Hebrew, the DEC 7-bit Hebrew set in G0 to G3, until `CSI ? 36 h`
+  puts the power-up sets back
+  (`dechem_reset_designates_the_hebrew_nrcs_and_set_ascii`).
 
 ## What decided each choice
 
@@ -430,6 +442,20 @@ it**: unmirrors a right-to-left path with BDSM reset, and with it set L4
 governs. The first round gave it 0.10 and 0.14 and the re-ask's order A
 0.23; order B of the re-ask leaned to unmirroring in both states, at
 0.16. UAX #9 section 7: "mirroring must be done according to rule L4".
+
+**DEC's Hebrew modes and ECMA-48's strings (2026-10-26)**, read against
+the VT510's DECRLCM, DECHEM, DECSTR and chapter 4 pages (`[[source:
+vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
+`[[source: vt510-chapter4]]`), ECMA-48 7.1, 7.2.3, 7.3.4, 8.3.114 and
+8.3.137, and TR/53's section 7 and worked examples; Jev was asked twice
+in each order (`docs/research/notes/ab/b220/`), and no fork reached 0.9
+in both. **Taken from Jev's lean; the owner can veto each:**
+
+| choice | taken | Jev, first ask then re-ask |
+|---|---|---|
+| what DECRLCM's copy reads | each line's cells in the order they are drawn, from the right edge | the order written, reversed, 0.14 / 0.02; then this, 0.02 / 0.22 |
+| a DECRLCM copy over several lines | each line reversed, the lines in order | 0.12 / 0.44, 0.52 / 0.76 |
+| DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
 
 The requests, the renders shown and the answers are in
 `docs/research/notes/ab/b211/`.
@@ -645,7 +671,7 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- SRS, SDS and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
+- SRS, SDS and DCSM; DEC's DECRLM.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above

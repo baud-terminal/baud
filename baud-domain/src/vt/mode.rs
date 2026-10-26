@@ -676,7 +676,53 @@ pub enum PrivateMode {
     DirectionAutodetect,
     /// `?1243`, terminal-wg's arrow-key swapping ([`ArrowSwap`]): global.
     ArrowKeySwap,
+    /// `?96` DECRLCM, right-to-left copy (`[[source: vt510-decrlcm]]`):
+    /// which way a copy reads the line ([`CopyDirection`]). Global, as the
+    /// VT510's Set-Up feature it controls.
+    RightToLeftCopy,
+    /// `?36` DECHEM, Hebrew encoding mode (`[[source: vt510-dechem]]`):
+    /// "opposite in action to DECNRCM" (`[[source: vt510-chapter4]]` Table
+    /// 4-8, note 1), set the multinational mode and reset the 7-bit
+    /// national one ([`HebrewEncoding`]), kept for each display.
+    HebrewEncoding,
     Other(Param),
+}
+
+/// **`?96` DECRLCM's two states** (`[[source: vt510-decrlcm]]`): "If
+/// right-to-left copy is selected, then the text is stored in the paste
+/// buffer starting from right-to-left. For example if \"ABCD\" is to be
+/// copied right-to-left ... the string is saved in the paste buffer as
+/// \"DCBA.\"" Right to left, each line of a copy is read in the order it
+/// is drawn from its right edge to its left, the lines kept in order (Jev's
+/// leans, DRAWN_FROM_RIGHT 0.02/0.22 and EACH_LINE 0.52/0.76): on a line
+/// nothing reorders that is the VT510's "DCBA", and on a Hebrew line UAX
+/// #9 draws right to left it is the order the line reads. Left to right at
+/// power-on and after `RIS` ("Default: Disable right-to-left-copy"), and
+/// `DECSTR` leaves it, as its table does not list it
+/// (`[[source: vt510-decstr]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CopyDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+}
+
+/// **`?36` DECHEM's two states** (`[[source: vt510-dechem]]`): set, "the
+/// terminal's character set mode to DEC (8-bit) multinational mode"; reset,
+/// "(7-bit) national mode (NRC sets)", whose set on a Hebrew VT510 is the
+/// DEC 7-bit Hebrew NRCS, so reset designates it into G0 to G3 and set
+/// returns the sets to their power-up state, as DEC STD 070's DECNRCM
+/// algorithms do (Jev's lean, HEBREW_NATIONAL: the re-ask's two orders
+/// apart, this the likelier, by mean probability 0.47 against 0.41). Multinational at power-on and after `DECSTR` and `RIS`, as
+/// DECNRCM's reset state is, which "setting DECHEM has the same result as"
+/// (`[[source: vt510-chapter4]]` Table 4-8, note 1; `[[source:
+/// vt510-decstr]]`, "National replacement character set DECNRCM
+/// Multinational set").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HebrewEncoding {
+    #[default]
+    Multinational,
+    National,
 }
 
 /// **`?1243`, terminal-wg's arrow-key swapping**
@@ -1214,22 +1260,23 @@ pub enum WidthHold {
 pub struct ModeSlot(u8);
 
 impl ModeSlot {
-    const fn bit(self) -> u64 {
-        1 << self.0
+    /// The word of [`SavedModes`] it is in, and its bit there.
+    const fn at(self) -> (usize, u64) {
+        ((self.0 / 64) as usize, 1 << (self.0 % 64))
     }
 }
 
 /// Each XTSAVE slot's mode as DECSET names it, by slot: the private modes
 /// DECTSR carries, and the controls DECRSTS restores them through.
 /// `every_slot_is_its_wire_number` holds each to [`PrivateMode::slot`].
-pub const SLOT_WIRE: [u16; 64] = [
+pub const SLOT_WIRE: [u16; 66] = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 25, 45, 47, 69, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007,
     1015, 1016, 1034, 1036, 1039, 1049, 2004, 2026, 2031, 2048, 1042, 1043, 40, 95, 80, 1070, 8452,
     117, 66, 67, 1035, 1037, 1010, 1011, 1041, 1045, 1046, 2001, 2005, 2006, 1047, 41, 30, 44, 46,
-    18, 19, 43, 1040, 2500, 2501, 1243,
+    18, 19, 43, 1040, 2500, 2501, 1243, 96, 36,
 ];
 
-const _: () = assert!(SLOT_WIRE.len() <= 64, "SavedModes is two u64 words");
+const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
 
 #[cfg(test)]
 mod slot_wire {
@@ -1259,27 +1306,32 @@ mod slot_wire {
 /// as the owner's question rather than followed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SavedModes {
-    saved: u64,
-    set: u64,
+    saved: [u64; 2],
+    set: [u64; 2],
 }
 
 impl SavedModes {
     /// Nothing saved: the power-on cache, and what `RIS` returns it to.
-    pub const NONE: SavedModes = SavedModes { saved: 0, set: 0 };
+    pub const NONE: SavedModes = SavedModes {
+        saved: [0; 2],
+        set: [0; 2],
+    };
 
     /// Keep `value` for `slot`, replacing whatever was kept: one level.
     pub fn save(&mut self, slot: ModeSlot, value: ModeChange) {
-        self.saved |= slot.bit();
+        let (w, bit) = slot.at();
+        self.saved[w] |= bit;
         match value {
-            ModeChange::Set => self.set |= slot.bit(),
-            ModeChange::Reset => self.set &= !slot.bit(),
+            ModeChange::Set => self.set[w] |= bit,
+            ModeChange::Reset => self.set[w] &= !bit,
         }
     }
 
     /// The value kept for `slot`, or `None` if it was never saved. Reading it
     /// leaves it: a restore does not consume the save, as DECRC does not.
     pub fn saved(self, slot: ModeSlot) -> Option<ModeChange> {
-        match (self.saved & slot.bit() != 0, self.set & slot.bit() != 0) {
+        let (w, bit) = slot.at();
+        match (self.saved[w] & bit != 0, self.set[w] & bit != 0) {
             (false, _) => None,
             (true, on) => Some(ModeChange::of(on)),
         }
@@ -1371,6 +1423,8 @@ impl PrivateMode {
             PrivateMode::BoxMirroring => 61,
             PrivateMode::DirectionAutodetect => 62,
             PrivateMode::ArrowKeySwap => 63,
+            PrivateMode::RightToLeftCopy => 64,
+            PrivateMode::HebrewEncoding => 65,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1468,6 +1522,8 @@ impl PrivateMode {
             2500 => PrivateMode::BoxMirroring,
             2501 => PrivateMode::DirectionAutodetect,
             1243 => PrivateMode::ArrowKeySwap,
+            96 => PrivateMode::RightToLeftCopy,
+            36 => PrivateMode::HebrewEncoding,
             n => PrivateMode::Other(Param(n)),
         }
     }

@@ -4842,6 +4842,9 @@ group  = "J"
 # Its text extracts letter-spaced; read after stripping the non-alphanumerics.
 # Read and hash-verified on 2026-10-24; not committed. Re-fetch at the pinned
 # url and compare the sha256.
+# Re-read 2026-10-26 (lane b220), the sha256 matching, through scripts/extract-ecma35.py
+# (its streams are LZWDecode): 7.1 DCSM, 7.2 SDS and SRS, 7.3's DCSM list, and Annex A's
+# worked examples 1-3 and note A.1, the test vectors for SRS, SDS and DCSM.
 
 [sources.ghostty-font-shaper-run]
 key    = "ghostty-font-shaper-run"
@@ -36023,3 +36026,70 @@ status = "external"
 group  = "V"
 # Read 2026-10-25: draw_graphic 1157-1197 (width = cell_width * columns, xcenter at its
 # middle, light_line_width = font_width / 5), the left blocks as eighths of it 1505-1517.
+
+# Fetched 2026-10-26 for lane b220 (SRS, SDS, DCSM, DECRLM, DECRLCM, DECHEM); the four
+# function pages' sha256 match those note AB recorded on its first read.
+[sources.vt510-decrlm]
+key    = "vt510-decrlm"
+title  = "DECRLM — Cursor Right to Left Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRLM.html"
+file   = "vt510-DECRLM.html"
+sha256 = "7405344c8262e7a76e82ab850369f3c6b769890e8f7cdb677c503f1dd04ec998"
+bytes  = 22324
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decrlcm]
+key    = "vt510-decrlcm"
+title  = "DECRLCM — Right-to-Left Copy (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRLCM.html"
+file   = "vt510-DECRLCM.html"
+sha256 = "0765bb1b2df0a2c9eefd713b89a0951c66406e11b5bc6d51c1c2179a4b5990e2"
+bytes  = 20014
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-dechem]
+key    = "vt510-dechem"
+title  = "DECHEM — Hebrew Encoding Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECHEM.html"
+file   = "vt510-DECHEM.html"
+sha256 = "ec7b0897bd7059d03d5773a97df9ef1de4b8dc20faa8cec01374cdc3e365565e"
+bytes  = 19780
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-dechebm]
+key    = "vt510-dechebm"
+title  = "DECHEBM — Hebrew/N-A Keyboard Mapping (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECHEBM.html"
+file   = "vt510-DECHEBM.html"
+sha256 = "9f97bc416ffedec7a7379efe8d2739606a2c97f7ad1763ca45bf0e26352885f6"
+bytes  = 20694
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-chapter2]
+key    = "vt510-chapter2"
+title  = "VT510 Programmer Information, chapter 2 -- Set-Up: 2.5.8 Cursor Direction, 2.5.9 Copy Direction, Table 2-2's context sensitivity"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/chapter2.html"
+file   = "vt510-chapter2.html"
+sha256 = "377424ba9caffbe64ea8cf4ac37f798554732cc38ec08ed56c60cc28c93c7580"
+bytes  = 111478
+status = "retrieved"
+group  = "C"

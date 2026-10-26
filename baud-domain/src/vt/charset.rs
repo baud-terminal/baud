@@ -444,6 +444,13 @@ impl Designation {
         tail: [0, b'<'],
     };
 
+    /// The DEC 7-bit Hebrew NRCS, `ESC ( % =`: what `?36` reset, DECHEM's
+    /// national mode, designates into G0 to G3.
+    pub const HEBREW_NRCS: Designation = Designation {
+        size: SetSize::Chars94,
+        tail: [b'%', b'='],
+    };
+
     /// ISO Latin-1 Supplemental, `ESC - A`: what `ESC SP L` and `ESC SP M`
     /// designate into G1.
     pub const LATIN1_SUPPLEMENTAL: Designation = Designation {

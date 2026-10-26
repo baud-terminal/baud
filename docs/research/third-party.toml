@@ -629,6 +629,11 @@ files   = [
   "vt510-chapter4.html",
   "vt510-chapter7.html",
   "vt510-DECSLPP.html",
+  "vt510-DECHEBM.html",
+  "vt510-DECHEM.html",
+  "vt510-DECRLCM.html",
+  "vt510-DECRLM.html",
+  "vt510-chapter2.html",
 ]
 
 [upstream.vt100net-charsets]

@@ -19,7 +19,9 @@
 //! endpoints, over one range of columns taken apart from the lines.
 
 use baud_core::{SurfaceLine, Term, TextMoved, WatchedLines};
-use baud_domain::{Col, Cols, Content, PackedCell, Row, Rows, Viewport, Wrap};
+use baud_domain::{Col, Cols, Content, CopyDirection, PackedCell, Row, Rows, Viewport, Wrap};
+
+use crate::Reorder;
 
 /// A line of the live surface, numbered from the start of the session: the
 /// rotation's advance at the moment the line was the top of the screen.
@@ -454,10 +456,20 @@ impl Selection {
     /// ends the last row. A block reads each row over its columns alone,
     /// and every one of its row boundaries is a newline, the wrapped ones
     /// included: the writer's wrap is cut by the rectangle like any row.
+    ///
+    /// **Under `?96` DECRLCM** (`Term::copy_direction`) each row gives the
+    /// same cells in the order they are drawn from its right edge to its
+    /// left ([`drawn_from_right`]), the rows in their order: "ABCD" copies
+    /// as "DCBA" (`[[source: vt510-decrlcm]]`), and a Hebrew line UAX #9
+    /// draws right to left in the order it reads.
     pub fn text(&self, term: &Term<'_>, scrolled: Scrolled) -> String {
         let (start, end) = self.ordered();
         let block = self.region == Region::Block;
         let mut out = String::new();
+        let mut drawn = match term.copy_direction() {
+            CopyDirection::LeftToRight => None,
+            CopyDirection::RightToLeft => Some(Drawn::new()),
+        };
         let mut line = start.line;
         loop {
             if let Some((row, wrap)) = row_of(term, scrolled, line) {
@@ -474,8 +486,22 @@ impl Selection {
                 if first <= last && !row.is_empty() {
                     let cells = &row[first..=last];
                     if let Some(used) = cells.iter().rposition(|c| !c.content.is_empty()) {
-                        for cell in &cells[..=used] {
-                            push_cell(&mut out, term, *cell);
+                        match drawn.as_mut() {
+                            None => {
+                                for cell in &cells[..=used] {
+                                    push_cell(&mut out, term, *cell);
+                                }
+                            }
+                            Some(d) => {
+                                for c in
+                                    d.read_right(term, scrolled, line, Cols::of_index(row.len()))
+                                {
+                                    let c = c.index();
+                                    if c >= first && c <= first + used {
+                                        push_cell(&mut out, term, row[c]);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -547,6 +573,63 @@ impl Highlight {
 
 fn row_in(top: AbsLine, line: AbsLine) -> Row {
     Row::from_index(usize::try_from(line.0.saturating_sub(top.0)).unwrap_or(usize::MAX))
+}
+
+/// **Each copied row's cells in the order they are drawn, from the right
+/// edge**, for `?96`: the layout every draw path reads ([`Reorder`]),
+/// taken over the window that shows the line, the live screen's kept for
+/// its rows.
+struct Drawn {
+    live: Option<Reorder>,
+}
+
+impl Drawn {
+    fn new() -> Drawn {
+        Drawn { live: None }
+    }
+
+    /// The logical columns of `line`, `cols` wide, from its rightmost drawn
+    /// cell to its leftmost: a wide character's tail before its lead, which
+    /// gives nothing ([`push_cell`]).
+    fn read_right(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        line: AbsLine,
+        cols: Cols,
+    ) -> Vec<Col> {
+        let mut own = Reorder::new();
+        let (o, r) = match line.0.checked_sub(scrolled.0) {
+            Some(y) => {
+                let o = self.live.get_or_insert_with(|| {
+                    let mut o = Reorder::new();
+                    o.lay_out(term, Rows::ZERO);
+                    o
+                });
+                (
+                    &*o,
+                    Row::from_index(usize::try_from(y).unwrap_or(usize::MAX)),
+                )
+            }
+            None => {
+                let back =
+                    Rows::of_count(usize::try_from(scrolled.0 - line.0).unwrap_or(usize::MAX));
+                own.lay_out(term, back);
+                (&own, Row::ZERO)
+            }
+        };
+        drawn_from_right(o, r, cols)
+    }
+}
+
+/// Row `r`'s logical columns, `cols` of them, in the order `o` draws them,
+/// read from the right: on a row nothing reorders, its columns from the
+/// last to the first.
+fn drawn_from_right(o: &Reorder, r: Row, cols: Cols) -> Vec<Col> {
+    (0..cols.index())
+        .rev()
+        .map(|v| o.orders().logical_col(r, Col::at_index(v)))
+        .collect()
 }
 
 /// The cells of absolute line `line` and how the row ended, or `None`

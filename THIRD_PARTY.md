@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 322 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 327 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 32 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 859 | 42 | |
+| total | 864 | 42 | |
 
 ## Licence texts in LICENSES/
 
@@ -616,7 +616,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 92
+- **Files:** 97
 
 | file | copied from |
 |---|---|
@@ -661,12 +661,16 @@ notice is, and the URL each file was copied from.
 | [vt510-DECDHL.html](docs/research/sources/vt510-DECDHL.html) | https://vt100.net/docs/vt510-rm/DECDHL.html |
 | [vt510-DECDWL.html](docs/research/sources/vt510-DECDWL.html) | https://vt100.net/docs/vt510-rm/DECDWL.html |
 | [vt510-DECFRA.html](docs/research/sources/vt510-DECFRA.html) | https://vt100.net/docs/vt510-rm/DECFRA.html |
+| [vt510-DECHEBM.html](docs/research/sources/vt510-DECHEBM.html) | https://vt100.net/docs/vt510-rm/DECHEBM.html |
+| [vt510-DECHEM.html](docs/research/sources/vt510-DECHEM.html) | https://vt100.net/docs/vt510-rm/DECHEM.html |
 | [vt510-DECIC.html](docs/research/sources/vt510-DECIC.html) | https://vt100.net/docs/vt510-rm/DECIC.html |
 | [vt510-DECNCSM.html](docs/research/sources/vt510-DECNCSM.html) | https://vt100.net/docs/vt510-rm/DECNCSM.html |
 | [vt510-DECNKM.html](docs/research/sources/vt510-DECNKM.html) | https://vt100.net/docs/vt510-rm/DECNKM.html |
 | [vt510-DECOM.html](docs/research/sources/vt510-DECOM.html) | https://vt100.net/docs/vt510-rm/DECOM.html |
 | [vt510-DECRARA.html](docs/research/sources/vt510-DECRARA.html) | https://vt100.net/docs/vt510-rm/DECRARA.html |
 | [vt510-DECRC.html](docs/research/sources/vt510-DECRC.html) | https://vt100.net/docs/vt510-rm/DECRC.html |
+| [vt510-DECRLCM.html](docs/research/sources/vt510-DECRLCM.html) | https://vt100.net/docs/vt510-rm/DECRLCM.html |
+| [vt510-DECRLM.html](docs/research/sources/vt510-DECRLM.html) | https://vt100.net/docs/vt510-rm/DECRLM.html |
 | [vt510-DECRPDE.html](docs/research/sources/vt510-DECRPDE.html) | https://vt100.net/docs/vt510-rm/DECRPDE.html |
 | [vt510-DECRQDE.html](docs/research/sources/vt510-DECRQDE.html) | https://vt100.net/docs/vt510-rm/DECRQDE.html |
 | [vt510-DECRQPSR.html](docs/research/sources/vt510-DECRQPSR.html) | https://vt100.net/docs/vt510-rm/DECRQPSR.html |
@@ -710,6 +714,7 @@ notice is, and the URL each file was copied from.
 | [vt510-SRM.html](docs/research/sources/vt510-SRM.html) | https://vt100.net/docs/vt510-rm/SRM.html |
 | [vt510-SS.html](docs/research/sources/vt510-SS.html) | https://vt100.net/docs/vt510-rm/SS.html |
 | [vt510-TBC.html](docs/research/sources/vt510-TBC.html) | https://vt100.net/docs/vt510-rm/TBC.html |
+| [vt510-chapter2.html](docs/research/sources/vt510-chapter2.html) | https://vt100.net/docs/vt510-rm/chapter2.html |
 | [vt510-chapter4.html](docs/research/sources/vt510-chapter4.html) | https://vt100.net/docs/vt510-rm/chapter4.html |
 | [vt510-chapter7.html](docs/research/sources/vt510-chapter7.html) | https://vt100.net/docs/vt510-rm/chapter7.html |
 
