@@ -61,11 +61,13 @@ pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::Tex
 /// The shader draws a cell's glyph by looking its content up in the map,
 /// and draws no glyph for content above U+10FFFF -- which a cell naming a
 /// cluster now holds. On a screen row that is right: the overlay masks the
-/// cell and a record draws its whole cluster. The leaving row of a slide has
-/// no mask (`cell_glyph_vertex` reads none there), so it is drawn from the
-/// map, and a marked cell there draws its base for that one row -- what it
-/// drew when the base was the cell's content. The app copies that row with
-/// this; `term` is what `src` was read from, in the same borrow.
+/// cell and a record draws its whole cluster. The leaving row of a slide is
+/// masked the same way on its own row of the mask, the one after the
+/// screen's (`Overlay::leaving`), and where that row is not masked -- no
+/// walk ran over it -- a marked cell there draws its base, what it drew
+/// when the base was the cell's content; its stress mark is judged from
+/// the base too. The app copies that row with this; `term` is what `src`
+/// was read from, in the same borrow.
 pub fn copy_for_shader(term: &Term<'_>, src: &[PackedCell], dst: &mut [PackedCell]) {
     for (d, s) in dst.iter_mut().zip(src) {
         *d = match s.flags.is_marked() {

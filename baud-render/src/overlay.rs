@@ -155,6 +155,28 @@ pub struct Overlay {
     /// The lines that are not single-width, as the instance path converts
     /// them: kept, so a frame reuses the buffers.
     sized: Vec<(Row, Vec<Instance>)>,
+    /// The leaving row's own walk, made on the first slide
+    /// ([`Overlay::leaving`]).
+    slide: Option<Box<Slide>>,
+}
+
+/// **The walk of a smooth scroll's leaving row**, apart from the window's:
+/// its own caches, and the pair candidates and the cells of several glyphs
+/// the map's walk over that row found ([`Overlay::ensure_leaving`]), which
+/// the window's walk replaces.
+struct Slide {
+    walk: Overlay,
+    candidates: Vec<Candidate>,
+    several: Vec<(Row, Col)>,
+}
+
+/// Whether a walk finds the pictures drawn in text on its view: the
+/// window's does, and the leaving row's, which the cell path never takes
+/// for one, does not.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Find {
+    Pictures,
+    None,
 }
 
 /// One cell the walk drew by records: where it is, its records' places in
@@ -287,14 +309,13 @@ pub enum Laid {
 }
 
 impl Laid {
-    /// The visual column logical column `x` of row `r` is drawn at, on a
-    /// line of rendition `size`. A line that is not single-width is drawn
-    /// whole by its own records ([`Renderer::sized_lines`]) at its stored
-    /// columns, so a composition there keeps them.
-    fn column(self, orders: &crate::bidi::Orders, r: Row, x: Col, size: LineRendition) -> Col {
-        match (self, size.is_double()) {
-            (Laid::AsWritten, false) => orders.visual_col(r, x),
-            _ => x,
+    /// The visual column logical column `x` of row `r` is drawn at: the
+    /// row's order's, as written, on a line of any rendition -- one that
+    /// is not single-width is laid out over its half -- else `x`.
+    fn column(self, orders: &crate::bidi::Orders, r: Row, x: Col) -> Col {
+        match self {
+            Laid::AsWritten => orders.visual_col(r, x),
+            Laid::OnScreen => x,
         }
     }
 }
@@ -415,6 +436,7 @@ impl Overlay {
             emitted: Vec::new(),
             staged: Vec::new(),
             sized: Vec::new(),
+            slide: None,
         }
     }
 
@@ -442,11 +464,26 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
+        self.ensure_with(scene, None, Find::Pictures, r, mask, records);
+    }
+
+    /// [`Overlay::ensure`], reading the cells of several glyphs from
+    /// `several` where given rather than from the map's last walk, and the
+    /// pictures as `find` says.
+    fn ensure_with(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        several: Option<&[(Row, Col)]>,
+        find: Find,
+        r: &mut Renderer<'_, '_>,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
         // The pictures first, from the term, the view and the video alone:
         // a record in one is coloured as the cell under it is.
         let view = &scene.view;
         let (cols, rows) = (view.cols(), view.rows());
-        self.stats.pictured = if r.theme().finds_pictures() {
+        self.stats.pictured = if find == Find::Pictures && r.theme().finds_pictures() {
             self.pictures.find(scene.term, view, r.video())
         } else {
             self.pictures.clear(cols, rows);
@@ -462,7 +499,8 @@ impl Overlay {
                 self.pairs.clear();
                 self.windows.clear();
             }
-            self.walk(scene, r, mask, records, &pictures);
+            let several = several.unwrap_or_else(|| scene.map.several());
+            self.walk(scene, several, r, mask, records, &pictures);
             if r.atlas_stats().grown.value() == self.grown.value() {
                 break;
             }
@@ -491,6 +529,7 @@ impl Overlay {
     fn walk(
         &mut self,
         scene: &Scene<'_, '_>,
+        several: &[(Row, Col)],
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -786,7 +825,7 @@ impl Overlay {
         // the map's walk listed (`GlyphMap::several`): an entry draws one
         // glyph, so they are drawn whole, as a marked cell is. A list, so
         // a screen without one pays nothing a cell.
-        for &(y, x) in scene.map.several() {
+        for &(y, x) in several {
             let (y, x) = (y.index(), x.index());
             let Some(cell) = view.row(Row::from_index(y)).get(x) else {
                 continue;
@@ -1592,7 +1631,7 @@ impl Overlay {
     ) {
         let (start, end) = c.columns(size.end_of_line(cols));
         for x in start..end {
-            let v = laid.column(r.bidi(), c.row, Col::at_index(x), size);
+            let v = laid.column(r.bidi(), c.row, Col::at_index(x));
             if let Some(slot) = mask.get_mut(c.row.index() * cols.index() + v.index()) {
                 *slot |= MASK_RECORD;
             }
@@ -1611,21 +1650,60 @@ impl Overlay {
         );
     }
 
-    /// **The leaving row of a smooth scroll, for the cell path, when its
-    /// line is not single-width**: the line just above the window `back`
-    /// lines into the history, drawn by the records the instance path
-    /// converts it to in the order it was drawn in as that window's first
-    /// ([`Renderer::sized_leaving`]) slid by `pan`, and its row of the mask
-    /// -- the one after the screen's `rows`, which the shader reads for
-    /// draw row -1 -- marked `RECORD` and `SIZED`, so the shader draws its
+    /// **The leaving row of a smooth scroll, as the shader reads it,
+    /// walked into the map**: `leaving`, the row [`Renderer::copy_leaving`]
+    /// copied, its entries made present, and the pair candidates and the
+    /// cells of several glyphs that walk finds kept for
+    /// [`Overlay::leaving`]. Before the window's own walk of the map, which
+    /// replaces both.
+    pub fn ensure_leaving(
+        &mut self,
+        map: &mut GlyphMap<'_>,
+        term: &Term<'_>,
+        leaving: Viewport<'_>,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+    ) {
+        let slide = self.slide.get_or_insert_with(|| {
+            Box::new(Slide {
+                walk: Overlay::new(),
+                candidates: Vec::new(),
+                several: Vec::new(),
+            })
+        });
+        map.ensure(term, leaving, styles, r, &mut slide.candidates);
+        slide.several.clear();
+        slide.several.extend_from_slice(map.several());
+    }
+
+    /// **The leaving row of a smooth scroll, for the cell path**: the line
+    /// just above the window `back` lines into the history, in the order it
+    /// was drawn in as that window's first, slid by `pan`, its row of the
+    /// mask the one after the screen's `rows`, which the shader reads for
+    /// draw row -1.
+    ///
+    /// On a single-width line, what the map does not draw is drawn by
+    /// records as on a row of the window: the walk [`Overlay::ensure`]
+    /// makes, over that row alone and through its layout -- its joined
+    /// letters in their forms, its mirrored characters, its marked cells
+    /// and its ligatures -- lifted one row, and the cells it draws marked
+    /// `RECORD`, so the shader draws their backgrounds and decorations and
+    /// not their glyphs. The records inside the row are drawn first, with
+    /// the window's between the glyph and decoration passes, as the row is
+    /// the first the instance path draws. Read after
+    /// [`Overlay::ensure_leaving`].
+    ///
+    /// On a line that is not single-width, the records the instance path
+    /// converts it to ([`Renderer::sized_leaving`]), and its row of the
+    /// mask marked `RECORD` and `SIZED`, so the shader draws its
     /// backgrounds from half the column and nothing else of it, as on a
-    /// sized screen row. Nothing for a single-width line, which the shader
-    /// draws from the map, or where the mask has no such row.
+    /// sized screen row. Nothing where the mask has no such row.
     #[allow(clippy::too_many_arguments)]
     pub fn leaving(
         &mut self,
         r: &mut Renderer<'_, '_>,
         term: &Term<'_>,
+        (map, styles): (&GlyphMap<'_>, &[Resolved]),
         back: Rows,
         (cols, rows): (Cols, Rows),
         pan: Px,
@@ -1633,14 +1711,17 @@ impl Overlay {
         records: &mut Vec<Instance>,
     ) {
         let above = Rows::of_index(back.index() + 1);
+        let at = rows.index().saturating_mul(cols.index());
+        if mask.len() < at.saturating_add(cols.index()) {
+            return;
+        }
         if !term
             .view(term.looking_back(above))
             .rendition(Row::ZERO)
             .is_double()
         {
-            return;
+            return self.slide_single(r, term, (map, styles), (cols, rows), pan, mask, records);
         }
-        let at = rows.index().saturating_mul(cols.index());
         let Some(row) = mask.get_mut(at..at.saturating_add(cols.index())) else {
             return;
         };
@@ -1654,6 +1735,79 @@ impl Overlay {
             y: Screen(i.y.0.saturating_add(pan)),
             ..i
         }));
+    }
+
+    /// [`Overlay::leaving`] on a single-width line: the leaving row walked
+    /// as a window one row high, through the layout it was drawn in.
+    #[allow(clippy::too_many_arguments)]
+    fn slide_single(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        term: &Term<'_>,
+        (map, styles): (&GlyphMap<'_>, &[Resolved]),
+        (cols, rows): (Cols, Rows),
+        pan: Px,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        let (Some(slide), Some(cells)) = (self.slide.as_deref_mut(), r.leaving_cells()) else {
+            return;
+        };
+        let at = rows.index().saturating_mul(cols.index());
+        if cells.len() != cols.index() {
+            return;
+        }
+        let used = [baud_domain::RowExtent::of(cols.index())];
+        let view = Viewport::new(
+            &cells,
+            &used,
+            baud_domain::Stride::of_cells(cols.index()),
+            cols,
+            Rows::of_count(1),
+            Rows::of_count(1),
+            baud_domain::RowRot::NONE,
+        );
+        let scene = Scene {
+            term,
+            view,
+            styles,
+            cursor: None,
+            highlight: None,
+            map,
+            candidates: &slide.candidates,
+            pan,
+            composition: None,
+        };
+        // The walk sets what the frame's cells blink by; the leaving row's
+        // are not the window's.
+        let blinks = r.blink_seen();
+        let mut row_mask = vec![0u8; cols.index()];
+        let mut drawn = Vec::new();
+        r.swap_leaving_layout();
+        slide.walk.ensure_with(
+            &scene,
+            Some(&slide.several),
+            Find::None,
+            r,
+            &mut row_mask,
+            &mut drawn,
+        );
+        r.swap_leaving_layout();
+        r.set_blink_seen(blinks);
+        for (b, m) in mask[at..at + cols.index()].iter_mut().zip(&row_mask) {
+            *b |= m & MASK_RECORD;
+        }
+        let ch = i16::try_from(r.metrics().cell_h.value()).unwrap_or(i16::MAX);
+        let lift = |i: &Instance| Instance {
+            y: Screen(i.y.0.saturating_sub(ch)),
+            ..*i
+        };
+        let count = |t: Tally| usize::try_from(t.value()).unwrap_or(usize::MAX);
+        let inside = count(slide.walk.under).min(drawn.len());
+        records.splice(0..0, drawn[..inside].iter().map(lift));
+        let under = (count(self.under) + inside).min(records.len());
+        records.splice(under..under, drawn[inside..].iter().map(lift));
+        self.under = Tally::of(under);
     }
 
     /// **The status line's row, for the cell path**: drawn by the records
@@ -2063,6 +2217,7 @@ impl Composition {
     /// character in its cell, a wide one's tail after it. What its row is
     /// laid out with ([`crate::bidi::Written`]); the marks it carries ride
     /// on their cell there and move with it.
+    #[inline(never)]
     pub fn written(&self, cols: Cols, style: baud_domain::StyleId) -> Vec<PackedCell> {
         let mut out = Vec::new();
         for p in self.pieces(cols) {
@@ -2210,7 +2365,18 @@ pub(crate) fn composition_records(
             && matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)
     });
     if size.is_double() {
-        return sized_composition(r, term, c, under, styles, block, cols, size, pan, records);
+        return sized_composition(
+            r,
+            term,
+            (c, laid),
+            under,
+            styles,
+            block,
+            cols,
+            size,
+            pan,
+            records,
+        );
     }
     let geom = Geom {
         m: r.metrics(),
@@ -2231,9 +2397,9 @@ pub(crate) fn composition_records(
         .pieces(cols)
         .into_iter()
         .map(|p| {
-            let v = laid.column(orders, c.row, p.col, size);
+            let v = laid.column(orders, c.row, p.col);
             let v = match p.span {
-                CellSpan::Two => v.min(laid.column(orders, c.row, p.col.after(), size)),
+                CellSpan::Two => v.min(laid.column(orders, c.row, p.col.after())),
                 CellSpan::One => v,
             };
             let shown = match laid {
@@ -2246,7 +2412,7 @@ pub(crate) fn composition_records(
             (p, v.index(), shown)
         })
         .collect();
-    let block = block.map(|(br, bc, s)| (br, laid.column(orders, br, bc, size), s));
+    let block = block.map(|(br, bc, s)| (br, laid.column(orders, br, bc), s));
     let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
     let at = |v: i32| Screen(i16::try_from(v).unwrap_or(i16::MAX));
     let (cell_w, cell_h) = (px(m.cell_w), px(m.cell_h));
@@ -2446,7 +2612,7 @@ impl RuleAt {
 fn sized_composition(
     r: &mut Renderer<'_, '_>,
     term: &Term<'_>,
-    c: &Composition,
+    (c, laid): (&Composition, Laid),
     under: PackedCell,
     styles: &[Resolved],
     block: Option<(Row, Col, CursorStyle)>,
@@ -2482,7 +2648,30 @@ fn sized_composition(
     };
     let (mut pages, mut glyphs_out, mut over, mut rules) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    for p in c.pieces(line) {
+    // Each cluster at its visual cell, with the mirror L4 gives it there,
+    // as `composition_records` places it on a single-width line: the line
+    // is laid out over its half with the composition written in it.
+    let block = block.map(|(br, bc, s)| (br, laid.column(r.bidi(), br, bc), s));
+    let placed: Vec<Piece> = c
+        .pieces(line)
+        .into_iter()
+        .map(|p| {
+            let orders = r.bidi();
+            let v = laid.column(orders, c.row, p.col);
+            let v = match p.span {
+                CellSpan::Two => v.min(laid.column(orders, c.row, p.col.after())),
+                CellSpan::One => v,
+            };
+            let mut cps = p.cps.clone();
+            if laid == Laid::AsWritten {
+                if let Some(m) = orders.swapped(c.row, v).and_then(|s| s.as_codepoint()) {
+                    cps[0] = m;
+                }
+            }
+            Piece { col: v, cps, ..p }
+        })
+        .collect();
+    for p in placed {
         let look = Drawing::of(p.hints);
         let rendition = base.of(r, term, look);
         let drawn = |x: usize, line: Line| {

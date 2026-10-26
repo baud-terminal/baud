@@ -246,7 +246,9 @@ pub(crate) fn pointer_under(
 
 /// **The logical cell a pointer is over**: on a row drawn in another order
 /// (`baud_render::Orders`), the cell the visual one under the pointer
-/// shows, and its pixel at the same place in that cell. terminal-wg's
+/// shows -- on a double-width line, through the order of its half
+/// (`Orders::pointer_col`) -- and its pixel at the same place in that
+/// cell. terminal-wg's
 /// display-only model, `[[source: terminal-wg-bidi-display-only]]`:
 /// "whenever a mouse event is reported back to an app, it undergoes the
 /// inverse transformation"; the selection is kept by logical cells too.
@@ -255,7 +257,7 @@ pub(crate) fn logical(
     (row, col, px): (Row, Col, PointerPx),
     cell: (f64, f64),
 ) -> (Row, Col, PointerPx) {
-    let l = orders.logical_col(row, col);
+    let l = orders.pointer_col(row, col);
     if l == col {
         return (row, col, px);
     }
@@ -728,6 +730,61 @@ mod tests {
             Selected::Click
         );
         assert!(sel.is_none(), "a click selects nothing");
+    }
+
+    /// **A pointer over a double-width right-to-left line names the
+    /// character drawn under it**: the line is laid out over its half, each
+    /// character over two of the screen's columns, so the screen column is
+    /// halved, mapped through the drawn order and kept at its half of the
+    /// character's two columns, as a report keeps the display column. The
+    /// alef, written first, is drawn in the last two columns, and a drag
+    /// from it to the gimel selects the three letters as written. Mapped
+    /// as a single-width row, the last column named a column past the
+    /// text.
+    #[test]
+    fn a_pointer_on_a_double_width_right_to_left_line_names_the_letter_drawn() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, "\x1b#6\u{5D0}\u{5D1}\u{5D2}".as_bytes());
+        let mut order = baud_render::Reorder::new();
+        order.lay_out(&t, Rows::ZERO);
+        let px = PointerPx {
+            x: ImagePx::ZERO,
+            y: ImagePx::ZERO,
+        };
+        let at = |c: usize| {
+            logical(
+                order.orders(),
+                (Row::ZERO, Col::at_index(c), px),
+                (8.0, 16.0),
+            )
+            .1
+        };
+        assert_eq!((at(18), at(19)), (Col::ZERO, Col::at_index(1)), "the alef");
+        assert_eq!(
+            (at(14), at(15)),
+            (Col::at_index(4), Col::at_index(5)),
+            "the gimel"
+        );
+        assert_eq!(
+            at(0),
+            Col::at_index(18),
+            "the half's first: its last character"
+        );
+        let (mut sel, mut held) = (None, None);
+        let s = Scrolled::START;
+        for (k, c) in [(Kind::Down, 18), (Kind::Dragged, 14), (Kind::Up, 14)] {
+            select(
+                &t,
+                s,
+                &mut sel,
+                &mut held,
+                (k, Pressed::Left, 1),
+                Press::Stream,
+                (Row::ZERO, at(c)),
+            );
+        }
+        assert_eq!(sel.expect("made").text(&t, s), "\u{5D0}\u{5D1}\u{5D2}");
     }
 
     /// **A double click selects the word** under it.

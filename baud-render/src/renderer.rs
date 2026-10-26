@@ -2614,9 +2614,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **What the layout of the window `back` lines up reads as written**:
-    /// the composition, on the live view and on a single-width row of the
-    /// main display, in the rendition of the cell it starts on, and, `with`
-    /// the cell path's, each predicted echo on such a row.
+    /// the composition, on the live view and on a row of the main display,
+    /// in the rendition of the cell it starts on and over the columns its
+    /// line is drawn in ([`Composition::width_on`]), and, `with` the cell
+    /// path's, each predicted echo on a single-width row.
     fn write_over(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
         let predicting = match self.beside.as_deref_mut() {
             Some(b) => {
@@ -2635,10 +2636,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let vp = term.view(back);
         let beside = self.beside.get_or_insert_with(Box::default);
-        // A line that is not single-width is drawn whole by its own
-        // records at its stored columns, so nothing is written over it.
+        // A predicted echo is not written over a line that is not
+        // single-width.
         let single = |r: Row| r.index() < vp.rows().index() && !vp.rendition(r).is_double();
-        if let Some(c) = self.composition.as_ref().filter(|c| single(c.row)) {
+        if let Some(c) = self
+            .composition
+            .as_ref()
+            .filter(|c| c.row.index() < vp.rows().index())
+        {
             let style = vp
                 .row(c.row)
                 .get(c.col.index())
@@ -2822,6 +2827,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .orders()
             .permute(Row::ZERO, &src[..n], leaving_cells);
         crate::cellmap::copy_for_shader(term, leaving_cells, &mut dst[..n]);
+    }
+
+    /// **The leaving row [`Renderer::copy_leaving`] last copied, in its
+    /// drawn order and with its marks**: what the cell path's walk reads to
+    /// draw by records what the map does not -- its joined, mirrored and
+    /// marked cells and its ligatures -- as it does on a row of the window
+    /// ([`crate::Overlay::leaving`]). None before a slide.
+    pub(crate) fn leaving_cells(&self) -> Option<Vec<PackedCell>> {
+        self.beside
+            .as_deref()
+            .filter(|b| b.leaving.is_some())
+            .map(|b| b.leaving_cells.clone())
+    }
+
+    /// The window's layout and the leaving row's exchanged
+    /// ([`Renderer::copy_leaving`]), so a walk or a conversion of the
+    /// leaving row reads its order, joins and mirrors as row 0's; called
+    /// again to put them back.
+    pub(crate) fn swap_leaving_layout(&mut self) {
+        if let Some(leaving) = self.beside.as_deref_mut().and_then(|b| b.leaving.as_mut()) {
+            core::mem::swap(&mut self.bidi, leaving);
+        }
     }
 
     /// The joins [`Renderer::lay_out_bidi_copied`] kept, found again: on
@@ -5549,13 +5576,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur[range.start..range.start + n].copy_from_slice(&cells[..n]);
         self.cur_size[0] = size;
         let mut exc = Exceptions::default();
-        if let Some(leaving) = self.beside.as_deref_mut().and_then(|b| b.leaving.as_mut()) {
-            core::mem::swap(&mut self.bidi, leaving);
-        }
+        self.swap_leaving_layout();
         self.convert_row(term, r0, None, &mut exc);
-        if let Some(leaving) = self.beside.as_deref_mut().and_then(|b| b.leaving.as_mut()) {
-            core::mem::swap(&mut self.bidi, leaving);
-        }
+        self.swap_leaving_layout();
         let ch = i16::try_from(self.metrics.cell_h.value()).unwrap_or(i16::MAX);
         out.extend(self.per_row[0].iter().map(|i| Instance {
             y: Screen(i.y.0.saturating_sub(ch)),
@@ -5737,10 +5760,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             let orders = self.bidi.orders();
             for x in start..end {
-                let v = match vp.rendition(c.row).is_double() {
-                    true => x,
-                    false => orders.visual_col(c.row, Col::at_index(x)).index(),
-                };
+                let v = orders.visual_col(c.row, Col::at_index(x)).index();
                 if let Some(cell) = self.cur.get_mut(at + v) {
                     *cell = PackedCell {
                         content: baud_domain::Content::EMPTY,

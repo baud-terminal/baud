@@ -153,7 +153,7 @@ const ERASED: char = '\u{200B}';
 const PARAGRAPH_SEPARATOR: char = '\u{2029}';
 
 /// The order one row is drawn in.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct RowOrder {
     /// For each visual column, the logical column it shows.
     from: Vec<Col>,
@@ -168,6 +168,10 @@ struct RowOrder {
     /// The visual columns drawn mirrored some other way, left to right:
     /// flipped, or a mirror under the cell's marks.
     mirrors: Vec<(Col, Mirrored)>,
+    /// The columns the row is laid out over: the screen's, or on a line
+    /// that is not single-width its half, each of its characters drawn
+    /// over two of the screen's columns.
+    drawn: Cols,
 }
 
 /// **How a cell L4 mirrors is drawn, where its content alone cannot say**
@@ -330,6 +334,27 @@ impl Orders {
         self.row(r)
             .and_then(|o| o.from.get(v.index()).copied())
             .unwrap_or(v)
+    }
+
+    /// **The column a pointer over screen column `col` of row `r` names**,
+    /// as a mouse report and a selection read it: the screen column of the
+    /// character drawn under it. On a row drawn in its own order, `col`; on
+    /// a line that is not single-width, whose characters each cover two of
+    /// the screen's columns, the logical character the drawn one under the
+    /// pointer shows, at the same half of its two columns, as a report
+    /// keeps the display column (`crate::char_col` halves it again).
+    pub fn pointer_col(&self, r: Row, col: Col) -> Col {
+        let Some(o) = self.row(r) else {
+            return col;
+        };
+        match o.drawn.index() < self.cols.index() {
+            true => {
+                let (v, half) = (col.index() / 2, col.index() % 2);
+                let l = self.logical_col(r, Col::at_index(v)).index();
+                Col::at_index(l * 2 + half)
+            }
+            false => self.logical_col(r, col),
+        }
     }
 
     /// The side of its cell a bar cursor on logical column `c` of row `r`
@@ -513,6 +538,12 @@ impl Written {
     /// character's tail after its lead. A wide character the write covers
     /// half of is erased whole, as the core erases it, and a cell past the
     /// row's end is not written.
+    ///
+    /// Out of line, as [`crate::Composition::written`] is: both run only
+    /// while a composition or an echo is shown, and inlined they made the
+    /// layout [`crate::Renderer::convert`] calls too large to be inlined
+    /// into it.
+    #[inline(never)]
     pub fn write(&mut self, vp: &Viewport<'_>, r: Row, at: Col, cells: &[PackedCell]) {
         if r.index() >= vp.rows().index() || cells.is_empty() {
             return;
@@ -931,8 +962,10 @@ impl Reorder {
     /// (`[[source: terminal-wg-bidi-basic-modes]]`). A wide character's two
     /// cells keep their order, its lead on the left. Every cell is at level
     /// 1, so each is shaped on its own and a bar cursor sits on its right.
-    /// One read of each row's path a frame, and the cells of the rows that
-    /// hold one.
+    /// On a line that is not single-width the rightmost cell is its half's
+    /// last (`[[source: dec-std-070]]` § 5.14.1), and the columns past it
+    /// follow in order. One read of each row's path a frame, and the cells
+    /// of the rows that hold one.
     fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>) {
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
@@ -942,14 +975,16 @@ impl Reorder {
                 continue;
             }
             let cells = vp.row(r);
+            let width = vp.rendition(r).end_of_line(vp.cols()).index().min(cols);
             let mut out = RowOrder {
                 from: Vec::with_capacity(cols),
                 to: vec![Col::ZERO; cols],
                 level: vec![BidiLevel::RTL; cols],
                 swaps: Vec::new(),
                 mirrors: Vec::new(),
+                drawn: Cols::of_index(width),
             };
-            let mut c = cols;
+            let mut c = width;
             while c > 0 {
                 c -= 1;
                 match c > 0 && cells[c].content.is_wide_tail() {
@@ -961,6 +996,7 @@ impl Reorder {
                     false => out.from.push(Col::at_index(c)),
                 }
             }
+            out.from.extend((width..cols).map(Col::at_index));
             for (v, l) in out.from.iter().enumerate() {
                 let v = Col::at_index(v);
                 if let Some(slot) = out.to.get_mut(l.index()) {
@@ -1164,7 +1200,7 @@ impl Reorder {
                     });
                 }
             }
-            if let Some(level) = self.resolve(term, &rows, (dir, path), resolves) {
+            if let Some(level) = self.resolve(term, vp, &rows, (dir, path), resolves) {
                 dir = match level.direction() {
                     baud_domain::BidiDirection::Rtl => BidiParagraph::Rtl,
                     baud_domain::BidiDirection::Ltr => BidiParagraph::Ltr,
@@ -1175,11 +1211,13 @@ impl Reorder {
     }
 
     /// Resolves `rows` as one paragraph at `dir` and orders each drawn one,
-    /// or with [`Resolves::JoinOnly`] only joins it; answers the
-    /// paragraph's level.
+    /// row `y` of the window `vp` over the columns its rendition draws, or
+    /// with [`Resolves::JoinOnly`] only joins it; answers the paragraph's
+    /// level.
     fn resolve(
         &mut self,
         term: &Term<'_>,
+        vp: &Viewport<'_>,
         rows: &[ParaRow<'_>],
         (dir, path): (BidiParagraph, LineBidi),
         resolves: Resolves,
@@ -1283,7 +1321,15 @@ impl Reorder {
         let cols = self.orders.cols.index();
         for (p, row) in rows.iter().enumerate() {
             let Some(y) = row.window else { continue };
-            let (line, end) = (ranges[p].0.clone(), ranges[p].1.index());
+            // **Each display line over the columns it is drawn in** (UAX #9
+            // 3.4, "for each line"): on a line that is not single-width,
+            // its half (`[[source: dec-std-070]]` § 5.14.1, `end_line /=
+            // 2`; `[[source: vt510-decdwl]]`), so a right-to-left line
+            // runs against the half's right edge. The columns past it,
+            // which nothing is written in or drawn from, follow in order.
+            let width = vp.rendition(y).end_of_line(vp.cols()).index().min(cols);
+            let end = ranges[p].1.index().min(width);
+            let line = ranges[p].0.clone();
             let begin = line.start;
             if self.order_line(line).is_none() {
                 continue;
@@ -1295,12 +1341,13 @@ impl Reorder {
                 level: Vec::with_capacity(cols),
                 swaps: Vec::new(),
                 mirrors: Vec::new(),
+                drawn: Cols::of_index(width),
             };
             // The erased cells past the text go at the line's end in the
             // paragraph direction: before the text on a right-to-left line,
             // nearest the text last.
             if rtl {
-                for c in (end..cols).rev() {
+                for c in (end..width).rev() {
                     out.from.push(Col::at_index(c));
                     out.level.push(level);
                 }
@@ -1341,11 +1388,13 @@ impl Reorder {
                     out.level.push(l);
                 }
             }
-            if !rtl {
-                for c in end..cols {
-                    out.from.push(Col::at_index(c));
-                    out.level.push(level);
-                }
+            let past = match rtl {
+                true => width,
+                false => end,
+            };
+            for c in past..cols {
+                out.from.push(Col::at_index(c));
+                out.level.push(level);
             }
             if !reorders || out.from.len() != cols {
                 self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);

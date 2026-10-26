@@ -1975,7 +1975,9 @@ impl App {
                 // line up, a marked cell given its base, as the shader reads
                 // it (`Renderer::copy_leaving`). It is never selected and
                 // never holds the cursor (the shader's row there is past
-                // every one). The map is ensured over that row as copied.
+                // every one). The map is ensured over that row as copied,
+                // and what that walk finds kept for the row's own records
+                // (`Overlay::ensure_leaving`).
                 if sliding {
                     let (vcols, vrows) = (view.cols().index(), view.rows().index());
                     let at = vrows * self.term.stride().index();
@@ -1991,12 +1993,12 @@ impl App {
                         Rows::of_count(1),
                         RowRot::NONE,
                     );
-                    cell.maps.live.ensure(
+                    cell.exceptions.ensure_leaving(
+                        &mut cell.maps.live,
                         &self.term,
                         leaving,
                         &cell.styles_mem[set][..],
                         &mut self.renderer,
-                        &mut cell.candidates,
                     );
                 }
                 let cursor_at =
@@ -2186,13 +2188,15 @@ impl App {
                 // own and go over the images, below.
                 cell.records.extend_from_slice(self.renderer.find_solids());
                 cell.records.extend_from_slice(self.renderer.link_solids());
-                // The leaving row, when its line is not single-width: drawn
-                // at its size by its records, its row of the mask the one
-                // after the screen's (`Overlay::leaving`).
+                // The leaving row: what the map does not draw of it drawn by
+                // records, as on a row of the window, and a line that is not
+                // single-width drawn whole by them, its row of the mask the
+                // one after the screen's (`Overlay::leaving`).
                 if sliding {
                     cell.exceptions.leaving(
                         &mut self.renderer,
                         &self.term,
+                        (&cell.maps.live, &cell.styles_mem[set][..]),
                         back,
                         (view.cols(), view.rows()),
                         pan,
@@ -12800,7 +12804,7 @@ impl Driver {
         let (scale, cell, grid, pad) = self.pointer_geometry();
         let (row, col) = cell_under((x, y), scale, cell, grid, pad);
         // The logical cell the visual one shows (`gesture::logical`).
-        (row, self.app.renderer.bidi().logical_col(row, col))
+        (row, self.app.renderer.bidi().pointer_col(row, col))
     }
 
     /// **The wheel across**: a tilt, Shift with a mouse wheel, a sideways

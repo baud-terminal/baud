@@ -313,14 +313,13 @@ fn main() {
         /// hardware, arriving when the hardware says so; only the rebuild
         /// is scripted, and it is scripted to the shape the app produces.
         Present,
-        /// The `async` cell frame plus the extra map walk the app's smooth-
-        /// scroll slide does: `present` ensures the map over the view one
-        /// line up (the leaving row's glyphs) *and* over the screen, where a
-        /// steady frame ensures only the screen. So `slide - async` is the
-        /// per-frame CPU cost a slide adds, which is dominated by that
-        /// redundant walk; the leaving-row copy (one row) and the +1-row
-        /// draw ((rows+1)/rows) are bounded-negligible by construction and
-        /// not modelled here.
+        /// The `async` cell frame plus what the app's smooth-scroll slide
+        /// adds: the leaving row copied in its drawn order
+        /// (`Renderer::copy_leaving`), the map ensured over that row as
+        /// well as the screen and the overlay's walk over it
+        /// (`Overlay::ensure_leaving`, `Overlay::leaving`), and the screen
+        /// walked every frame. So `slide - async` is the per-frame CPU cost
+        /// a slide adds; the +1-row draw ((rows+1)/rows) is not modelled.
         Slide,
         /// **The frame loop as the app runs it**: a [`Presenter`] over its
         /// own GPU, its three surfaces and its wheel of two buffer sets;
@@ -789,6 +788,7 @@ the first cpu {:.1}, copy {:.2}",
             // live in the shared buffer, so the map is remade over it.
             map = GlyphMap::over(map.into_entries());
             let mut exceptions = Overlay::new();
+            let mut leaving_row: Vec<PackedCell> = Vec::new();
             let mut s = Sums::default();
             // The surfaces the one target stands for, and what each lacks.
             let mut ages = Ages::new();
@@ -861,19 +861,26 @@ the first cpu {:.1}, copy {:.2}",
                     r.sync_styles(&t, styles_mem, &mut stamp);
                     s.parts[part].resolve += tr.elapsed();
                     let tc = Instant::now();
-                    // Faithful to `present`'s slide branch: ensure the map
-                    // over the view one line up (the leaving row) first, so
-                    // the redundant walk it does is priced. `ensure` clears
-                    // `candidates` and refills, so the screen ensure below
-                    // still leaves them as the screen's -- the app's order.
+                    // Faithful to `present`'s slide branch: the leaving row
+                    // copied and the map ensured over it first, its walk's
+                    // candidates kept for its records, so the screen ensure
+                    // below still leaves `candidates` as the screen's -- the
+                    // app's order.
                     if arm == Arm::Slide {
-                        map.ensure(
-                            &t,
-                            t.view(Rows::of_index(1)),
-                            styles_mem,
-                            &mut r,
-                            &mut candidates,
+                        let cols = t.viewport().cols();
+                        leaving_row.resize(cols.index(), PackedCell::EMPTY);
+                        r.copy_leaving(&t, Rows::ZERO, &mut leaving_row);
+                        let used = [baud_domain::RowExtent::of(cols.index())];
+                        let leaving = baud_domain::Viewport::new(
+                            &leaving_row,
+                            &used,
+                            baud_domain::Stride::of_cells(cols.index()),
+                            cols,
+                            Rows::of_count(1),
+                            Rows::of_count(1),
+                            RowRot::NONE,
                         );
+                        exceptions.ensure_leaving(&mut map, &t, leaving, styles_mem, &mut r);
                     }
                     // The walk skipped over the screen it walked last, under
                     // the same key: the app's `Screens`. The slide arm walks
@@ -930,6 +937,19 @@ the first cpu {:.1}, copy {:.2}",
                         overlay_mem,
                         &mut records,
                     );
+                    if arm == Arm::Slide {
+                        let vp = t.viewport();
+                        exceptions.leaving(
+                            &mut r,
+                            &t,
+                            (&map, styles_mem),
+                            Rows::ZERO,
+                            (vp.cols(), vp.rows()),
+                            Px::of(0),
+                            overlay_mem,
+                            &mut records,
+                        );
+                    }
                     let moving_from = records.len();
                     if caret.is_some() {
                         // The glow over the cursor's cell, after the walk's

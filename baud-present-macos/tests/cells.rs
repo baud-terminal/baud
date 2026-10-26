@@ -332,12 +332,12 @@ impl Arms<'_, '_> {
                 Rows::of_count(1),
                 RowRot::NONE,
             );
-            self.map.ensure(
+            self.exceptions.ensure_leaving(
+                &mut self.map,
                 t,
                 leaving,
                 self.styles_mem,
                 &mut self.renderer,
-                &mut self.candidates,
             );
         }
         self.map.ensure(
@@ -424,15 +424,16 @@ impl Arms<'_, '_> {
         // draws them on the cell path, with the content.
         self.records.extend_from_slice(self.renderer.find_solids());
         self.records.extend_from_slice(self.renderer.link_solids());
-        // The leaving row of a slide, when its line is not single-width,
-        // as the app draws it: masked after the screen's rows and drawn by
-        // its records. Only where the history holds one.
+        // The leaving row of a slide as the app draws it: masked after the
+        // screen's rows where records draw it. Only where the history holds
+        // one.
         if let Some(pan) = self.slide {
             let above = Rows::of_index(self.back.index() + 1);
             if t.looking_back(above) == above {
                 self.exceptions.leaving(
                     &mut self.renderer,
                     t,
+                    (&self.map, self.styles_mem),
                     self.back,
                     (view.cols(), view.rows()),
                     pan,
@@ -3317,17 +3318,15 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the slide did not move the screen"
     );
 
-    // A marked cell on the leaving row draws its base there, the row the
-    // shader draws from the map alone, with no overlay mask -- as it drew
-    // when the base was the cell's content. The cell holds its cluster's
-    // slot now, above U+10FFFF, which the shader draws nothing for, so the
-    // copy the app binds gives it its base (`copy_for_shader`). Against the
-    // same screen with the mark never sent, where the cell holds the bare
-    // letter, a full-row slide over the copy is the same frame; and against
-    // another letter there it is not, so the leaving row's letter reached
-    // the pixels. The letter is `Q`, which nothing before this draws, so the
-    // map holds it only if the walk over the leaving row gave the marked
-    // cell's base an entry.
+    // A marked cell on the leaving row draws its cluster there, as on a
+    // row of the window: the walk over that row masks the cell and a
+    // record draws the letter and its mark (`Overlay::leaving`), where the
+    // row drawn from the map alone showed the base without the mark. A
+    // full-row slide is the screen one line up drawn still, and against the
+    // same screen with the mark never sent it is not, so the mark reached
+    // the pixels; another letter there draws another frame. The letter is
+    // `Q`, which nothing before this draws, so its entry is made by the
+    // walk over the leaving row.
     let mut leaving = |t: &mut Term<'_>, first: &str| {
         feed(t, b"\x1b[2J\x1b[H");
         for i in 0..14u32 {
@@ -3349,22 +3348,29 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         arms.draw(t);
         let frame = arms.draw_copied(t);
         arms.slide = None;
-        (above, frame)
+        arms.back = Rows::of_count(1);
+        let (still, _) = arms.draw(t);
+        arms.back = Rows::ZERO;
+        (above, frame, still)
     };
-    let (marked, with_mark) = leaving(&mut t, "Q\u{0301}");
-    let (bare, without) = leaving(&mut t, "Q");
-    let (_, other) = leaving(&mut t, "x");
+    let (marked, with_mark, still) = leaving(&mut t, "Q\u{0301}");
+    let (bare, without, _) = leaving(&mut t, "Q");
+    let (_, other, _) = leaving(&mut t, "x");
     assert!(
         marked.flags.is_marked() && !bare.flags.is_marked(),
         "the premise: the leaving row's first cell carries the mark, then not"
     );
     assert_eq!(
-        differing(&with_mark, &without),
+        differing(&with_mark, &still),
         0,
-        "a marked cell on the leaving row draws its base"
+        "a marked cell on the leaving row draws as the row drawn still"
     );
     assert!(
-        differing(&with_mark, &other) > 0,
+        differing(&with_mark, &without) > 0,
+        "the mark on the leaving row reached the pixels"
+    );
+    assert!(
+        differing(&without, &other) > 0,
         "the leaving row's letter reached the pixels"
     );
     // The digit screen again, for the ride-scroll gate below.
@@ -10253,6 +10259,187 @@ fn a_right_to_left_line_slides_out_in_the_order_it_was_drawn() {
     );
 }
 
+/// **A line sliding out is shaped as it is drawn still**, on every frame
+/// of a smooth scroll, whether BDSM is set or reset: the leaving row is
+/// the line just above the window, and the cell path draws what its map
+/// does not -- a letter in its joining form (`[[source: unicode-ch9]]`
+/// 9.2.2, "an appropriate glyph to depict each Arabic letter according to
+/// its immediate joining context"), a lam-alef ligature, a mirrored
+/// character with no mirroring glyph flipped (UAX #9 L4), a mark on its
+/// letter and a ligature -- by the records it draws them by on a row of
+/// the window, walked over that row through the order it was drawn in.
+/// Drawn from the map alone, the leaving row showed each Arabic letter
+/// unjoined, U+2211 unflipped and the qamats missing until the slide
+/// ended.
+///
+/// The expected frame is the line drawn still, as the first row of the
+/// window one line up, where every arm agrees; a full-row slide is that
+/// frame exactly and a half-row slide it moved down by the pan. The line
+/// is underlined in part, so a record drawn after the decoration pass
+/// would cover the line under it. A double-width right-to-left line,
+/// drawn by records, slides out the same way, against its half's right
+/// edge.
+#[test]
+fn a_line_sliding_out_is_shaped_as_it_is_drawn_still() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&courier).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let rows = usize::from(WS.ws_row);
+    // An Arabic paragraph: "bayt" with a fatha on its beh, a lam-alef
+    // pair, U+2211, which has no mirroring glyph, a bracket pair, a Latin
+    // run holding `->`, and a pointed shin; "bayt" and the Latin run are
+    // underlined in red, which a glyph drawn after the line would cover.
+    let arabic = "\x1b[4;58:5:1m\u{628}\u{64E}\u{64A}\u{62A}\x1b[24m \u{644}\u{627} \u{2211}(\u{628}) \x1b[4ma->b\x1b[24;59m \u{5E9}\u{5B8}\u{5DC} xy";
+    let scene = |t: &mut Term<'_>, mode: &str, width: &str, line: &str| {
+        feed(t, b"\x1bc\x1b[?25l");
+        feed(t, format!("{mode}{width}{line}").as_bytes());
+        for i in 1..=rows {
+            feed(
+                t,
+                format!("\r\nThe quick brown fox {i:02} jumps 0123456789").as_bytes(),
+            );
+        }
+    };
+    arms!(fresh() => arms, t);
+    arms.reads = Reads::Copy;
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let row = ch * fw;
+    for (mode, width, line) in [
+        ("", "", arabic),
+        ("\x1b[8l", "", arabic),
+        ("\x1b[8l\x1b[2 k", "", arabic),
+        ("", "\x1b#6", "\u{5D0}(\u{5D1})\u{5D2} \u{2211}"),
+    ] {
+        scene(&mut t, mode, width, line);
+        arms.back = Rows::of_count(1);
+        arms.slide = None;
+        let (a, b) = arms.draw(&mut t);
+        let c = arms.draw_copied(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert!(
+            arms.renderer.bidi().reordered(Row::ZERO)
+                || arms.renderer.bidi().joins(Row::ZERO).is_some(),
+            "{mode:?}{width:?}: the premise, the line is reordered or joined"
+        );
+        for (arm, got) in [("cell", &b), ("copied", &c), ("cpu", &cpu)] {
+            let d = differing(&got[..rows * row], &a[..rows * row]);
+            assert_eq!(
+                d, 0,
+                "{mode:?}{width:?}: still, the {arm} arm differs, {d} pixels"
+            );
+        }
+        arms.back = Rows::ZERO;
+        for pan in [ch, ch / 2] {
+            arms.slide = Some(Px::of(u32::try_from(pan).unwrap()));
+            let (_, slid) = arms.draw(&mut t);
+            let copied = arms.draw_copied(&mut t);
+            let off = (ch - pan) * fw;
+            let n = rows * row - off;
+            for (arm, got) in [("cell", &slid), ("copied", &copied)] {
+                let d = differing(&got[..n], &a[off..off + n]);
+                assert_eq!(
+                    d, 0,
+                    "{mode:?}{width:?}: a slide of {pan} on the {arm} arm is not the line drawn \
+                     still, {d} pixels"
+                );
+            }
+        }
+        arms.slide = None;
+    }
+}
+
+/// **A double-width right-to-left line is drawn within its half, right
+/// to left**, on every arm: UAX #9 3.4 reorders each display line, and a
+/// double-width line's is its half (`[[source: dec-std-070]]` § 5.14.1;
+/// `[[source: vt510-decdwl]]`), so a Hebrew paragraph sits against the
+/// half's right edge, its brackets mirrored (L4). Laid out across the
+/// screen's width its text landed in the half that is not drawn, and
+/// nothing of it showed. The expected frame is the same line written in
+/// its drawn order with BDSM reset, its last cell the half's last; with
+/// BDSM reset and SCP's right-to-left path the stored line is reversed
+/// within the half and draws it too. On a DECDWL line and on the top half
+/// of a DECDHL one.
+#[test]
+fn a_double_width_right_to_left_line_is_drawn_within_its_half() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, b) = arms.draw(t);
+        let c = arms.draw_copied(t);
+        let d = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the copied arm differs");
+        assert_eq!(differing(&a, &d), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let half = usize::from(WS.ws_col) / 2;
+    let stored = "\u{5D0}\u{5D1} (\u{5D2})";
+    let shown = "(\u{5D2}) \u{5D1}\u{5D0}";
+    // DECDWL, and DECDHL's top half.
+    for size in ["\x1b#6", "\x1b#3"] {
+        let scene = |t: &mut Term<'_>, setup: &str, at: usize, line: &str| {
+            feed(
+                t,
+                format!(
+                    "\x1bc\x1b[?25l\x1b[2;1H{setup}{size}\x1b[2;{at}H{line}\x1b[4;3HThe quick brown fox"
+                )
+                .as_bytes(),
+            );
+        };
+        arms!(fresh() => arms, t);
+        scene(&mut t, "", 1, stored);
+        let implicit = three(&mut arms, &mut t, "implicit");
+        assert!(
+            arms.renderer.bidi().reordered(Row::from_index(1)),
+            "the premise: the line is reordered"
+        );
+        scene(&mut t, "\x1b[8l", half + 1 - shown.chars().count(), shown);
+        let want = three(&mut arms, &mut t, "written in its drawn order");
+        feed(&mut t, b"\x1b[2;1H\x1b[2K\x1b[4;3HThe quick brown fox");
+        let blank = three(&mut arms, &mut t, "the line erased");
+        assert!(differing(&want, &blank) > 0, "the expected line is drawn");
+        let d = differing(&implicit, &want);
+        assert_eq!(d, 0, "implicit: within the half, {d} pixels");
+        scene(&mut t, "\x1b[8l\x1b[2 k", 1, stored);
+        let reversed = three(&mut arms, &mut t, "explicit, right to left");
+        let d = differing(&reversed, &want);
+        assert_eq!(d, 0, "explicit, right to left: within the half, {d} pixels");
+    }
+}
+
 /// **An input method's composition on a right-to-left row draws as the
 /// same text written there**, on every arm: the row is laid out with the
 /// composition's text in its cells (Jev AS_WRITTEN, 0.98 in both orders),
@@ -10264,6 +10451,9 @@ fn a_right_to_left_line_slides_out_in_the_order_it_was_drawn() {
 /// the `xy` of `abxy`, no `x` shows. The reference is `composition.rs`'s:
 /// the same text written underlined at the cursor, the cursor on the cell
 /// after it in logical order, which the paragraph draws left of `abcd`.
+/// On a double-width line, laid out over its half, the same: drawn at its
+/// stored columns, the composition sat where the text it would be written
+/// as is not.
 #[test]
 fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     let (built, noto) = rtl_faces();
@@ -10295,18 +10485,22 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     // `xy`, whose cells it covers where the order draws them.
     // `xy` is red, so the composition over it is drawn red, and written
     // red: the rendition is the logical cell's, wherever it is drawn.
-    for (line, red) in [
-        ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", ""),
+    // On a double-width line too (DECDWL), which is laid out over its
+    // half, so the composition is drawn at the cursor's drawn column there.
+    for (line, red, width) in [
+        ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", "", ""),
         (
             "\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab\x1b[31mxy\x1b[39m",
             "\x1b[31m",
+            "",
         ),
+        ("\u{5E9}\u{5DC}\u{5D5}\u{5DD} ab", "", "\x1b#6"),
     ] {
         arms!(fresh() => arms, t);
         feed(
             &mut t,
             format!(
-                "\x1bc\x1b[2 q\x1b[3;1H{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
+                "\x1bc\x1b[2 q\x1b[3;1H{width}{line}\x1b[4;3HThe quick brown fox jumps 0123456789\x1b[3;8H"
             )
             .as_bytes(),
         );
@@ -10333,12 +10527,16 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
         let written = three(&mut arms, &mut t, "written");
         assert!(
             differing(&composed, &plain) > 0,
-            "{line}: the composition is drawn"
+            "{line}{width:?}: the composition is drawn"
+        );
+        assert!(
+            differing(&written, &plain) > 0,
+            "{line}{width:?}: the written text is drawn"
         );
         let d = differing(&composed, &written);
         assert_eq!(
             d, 0,
-            "{line}: as the same text written underlined, {d} pixels"
+            "{line}{width:?}: as the same text written underlined, {d} pixels"
         );
     }
 }

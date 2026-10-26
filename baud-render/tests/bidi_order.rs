@@ -670,3 +670,47 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
         );
     }
 }
+
+/// **A right-to-left line that is double-width runs against its half's
+/// right edge**: UAX #9 3.4 reorders "for each line", and a line that is
+/// not single-width is drawn over half the screen's columns
+/// (`[[source: dec-std-070]]` § 5.14.1, `end_line /= 2`;
+/// `[[source: vt510-decdwl]]`), so its erased cells are laid out before
+/// its text within that half and the columns past it, never drawn, after.
+/// Laid out over the screen's width, the text sat in the half not drawn.
+/// With BDSM reset a line SCP sets right to left is reversed within the
+/// half too, its first column in the half's rightmost cell. The control: a
+/// left-to-right line keeps its order. Each of DECDWL and DECDHL's two
+/// halves.
+#[test]
+fn a_double_width_right_to_left_line_is_laid_out_over_its_drawn_half() {
+    let hebrew = "\u{5D0}(\u{5D1})\u{5D2}";
+    let half = "\u{5D2}(\u{5D1})\u{5D0}";
+    // DECDWL, and DECDHL's top and bottom halves.
+    for size in ["\x1b#6", "\x1b#3", "\x1b#4"] {
+        let (s, o) = drawn_with(&WS, &format!("{size}{hebrew}"), 0, Rows::ZERO);
+        assert_eq!(s, format!(".{half}......"), "{size:?}: implicit");
+        for c in 0..12 {
+            let v = o.orders().visual_col(Row::ZERO, Col::at_index(c));
+            assert_eq!(o.orders().logical_col(Row::ZERO, v), Col::at_index(c));
+        }
+        assert_eq!(
+            o.orders().visual_col(Row::ZERO, Col::at_index(5)),
+            Col::ZERO,
+            "{size:?}: the cursor's cell past the text: the half's left end"
+        );
+        let (s, _) = drawn_with(
+            &WS,
+            &format!("\x1b[8l\x1b[2 k{size}{hebrew}"),
+            0,
+            Rows::ZERO,
+        );
+        assert_eq!(
+            s,
+            format!(".{half}......"),
+            "{size:?}: explicit, right to left"
+        );
+        let (s, _) = drawn_with(&WS, &format!("{size}ab \u{5D0}\u{5D1}"), 0, Rows::ZERO);
+        assert_eq!(s, "ab \u{5D1}\u{5D0}.......", "{size:?}: the control");
+    }
+}

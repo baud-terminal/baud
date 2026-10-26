@@ -154,11 +154,29 @@ the screen; step 3 joins Arabic letters.
 - **A line slides out the way it was drawn.** During a smooth scroll the
   line leaving the top of the window is drawn in the order it had as the
   window's first line, its paragraph read across the lines below it and
-  the history above, on the cell shader and, for a double-width line, the
-  records it is drawn by
-  (`a_right_to_left_line_slides_out_in_the_order_it_was_drawn`, the
-  leaving row against the same line drawn still, every arm agreeing on
-  that frame).
+  the history above, and shaped as it was drawn still: its Arabic letters
+  joined, a lam-alef pair as its ligature, a mirrored character with no
+  mirroring glyph flipped, its marks on their letters and its ligatures,
+  with BDSM set or reset. On the cell shader the row is walked for what
+  its glyph map does not draw, as a row of the window is, through the
+  order it was drawn in; a double-width line is drawn by the records the
+  instance path converts it to
+  (`a_right_to_left_line_slides_out_in_the_order_it_was_drawn` and
+  `a_line_sliding_out_is_shaped_as_it_is_drawn_still`, the leaving row
+  against the same line drawn still, every arm agreeing on that frame).
+- **A double-width line runs right to left within its half.** A line
+  DECDWL or DECDHL makes double-width shows half the screen's columns
+  (DEC STD 070 5.14.1), and UAX #9 orders each display line (3.4), so a
+  Hebrew or Arabic paragraph there sits against the half's right edge,
+  its erased cells laid out before its text within the half; with BDSM
+  reset, a line SCP sets right to left is reversed within the half. A
+  click, a drag and a mouse report there name the character drawn under
+  the pointer, and a composition is drawn as the same text written
+  there, at the cursor's drawn column
+  (`a_double_width_right_to_left_line_is_drawn_within_its_half`,
+  `a_double_width_right_to_left_line_is_laid_out_over_its_drawn_half`,
+  `a_pointer_on_a_double_width_right_to_left_line_names_the_letter_drawn`,
+  `a_composition_on_a_right_to_left_row_draws_as_the_text_written`).
 - **What you are typing is drawn where it will land.** An input method's
   composition and a predicted echo are laid out as if they were written
   in their cells, so their line is drawn in the order a write of the same
@@ -473,16 +491,8 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   on a reordered row, a decision each: the status line is no line of the
   data a program writes the screen with, and an image is placed over cells
   rather than in one.
-- **A line sliding out draws its glyphs from the cell map alone**, at any
-  setting of the mode: no ligature, and a letter's base without its marks.
-  On a right-to-left line its order is the drawn one, but a letter that
-  joins is drawn alone and a mirrored character with no mirroring glyph
-  unflipped until the slide ends. A double-width line, drawn by records,
-  has all of these.
-- **A right-to-left paragraph on a double-width line** is laid out across
-  the screen's width rather than the line's half, so its text lands in the
-  half that is not drawn; a composition on such a line is drawn at its
-  stored columns, the line laid out without it.
+- **A predicted echo on a double-width line** is not laid out as
+  written: its line is laid out without it.
 - **A composed Arabic letter is drawn alone**, while the letters beside it
   join toward it as they will once it is written.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no
