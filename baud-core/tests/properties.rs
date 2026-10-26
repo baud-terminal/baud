@@ -928,6 +928,42 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SDS and SRS**, last: a string begun rides the rendition being
+    // built, an end puts back the one around it, and an erase keeps each
+    // position's string, none of which may depend on where the reads fell;
+    // a string beside the font shares its byte of the rendition word.
+    Atom {
+        name: "sds-rtl",
+        bytes: b"\x1b[2]",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "srs-begin",
+        bytes: b"\x1b[1[",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sds-end",
+        bytes: b"\x1b[0]",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "srs-end",
+        bytes: b"\x1b[0[",
+        stride: 0,
+        count: 0,
+    },
+    // An underline with a string begun: the two renditions a key laying
+    // the string over `attrs` gave one key.
+    Atom {
+        name: "sgr-underline-sds",
+        bytes: b"\x1b[4m\x1b[2]",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.

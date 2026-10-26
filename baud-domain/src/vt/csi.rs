@@ -882,6 +882,10 @@ pub enum Csi {
     /// text that follows; the dispatch reads its parameters, as it reads
     /// `SGR`'s ([`crate::Sapv`]).
     SelectPresentationVariants,
+    /// SDS, `CSI Ps ]`, and SRS, `CSI Ps [` (8.3.114, 8.3.137): a directed
+    /// or reversed string's beginning or end ([`crate::StringEdge`]). An
+    /// SDS `Ps` past 2 or an SRS `Ps` past 1 is [`Csi::Unsupported`].
+    String(StringEdge),
     /// MC, `CSI Ps i` and `CSI ? Ps i`: a print function
     /// ([`crate::MediaCopy`]), a `Ps` it does not name being
     /// [`Csi::Unsupported`].
@@ -1481,6 +1485,20 @@ impl Csi {
             b'g' => Csi::TabClear(TabClear::from_param(p.at(ParamIdx::FIRST))),
             b'W' => Csi::CursorTabControl,
             b'Y' => Csi::CursorLineTab(p.count(ParamIdx::FIRST)),
+            b']' => match StringEdge::directed(p.at(ParamIdx::FIRST)) {
+                Some(e) => Csi::String(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            },
+            b'[' => match StringEdge::reversed(p.at(ParamIdx::FIRST)) {
+                Some(e) => Csi::String(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            },
             // **`CSI Ps ^` is SIMD, not SD**, and falls to `Unsupported`: the
             // pinned `[[source: ecma48]]` gives `CSI Ps 05/14` to SELECT
             // IMPLICIT MOVEMENT DIRECTION and SD `05/04`. ctlseqs keeps it
@@ -1771,6 +1789,7 @@ impl Csi {
             | SelectCharacterPath { .. }
             | SelectPresentationDirections { .. }
             | SelectPresentationVariants
+            | String(_)
             | SetScrollRegion { .. }
             | CursorForwardTab(_)
             | CursorBackTab(_)

@@ -9,8 +9,10 @@
 //! code point back against `DerivedBidiClass.txt`.
 
 mod algorithm;
+mod strings;
 
 pub use algorithm::*;
+pub use strings::*;
 
 use crate::bidi_data::{
     BIDI_BLOCKS, BIDI_INDEX, BOX_COUNTERPART, MIRROR_BLOCKS, MIRROR_GLYPHS, MIRROR_INDEX,

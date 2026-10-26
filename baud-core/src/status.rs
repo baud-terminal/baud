@@ -205,6 +205,12 @@ pub(crate) struct Status {
 }
 
 impl Status {
+    /// The string the display not being written has open, which a sweep of
+    /// SDS's and SRS's table keeps (`crate::strings`).
+    pub(crate) fn parked_string(&self) -> StringId {
+        self.park.style_raw.string()
+    }
+
     /// 070-14's "No Status Line (factory default)", baud's power-up type
     /// (Jev's lean, NONE, 0.78 and 0.86, then 0.80 and 0.92).
     pub(crate) fn power_on(cols: Cols, room: Room) -> Status {

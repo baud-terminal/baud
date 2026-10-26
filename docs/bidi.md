@@ -333,6 +333,20 @@ the screen; step 3 joins Arabic letters.
   where 17 slants the cell it starts on it leans left
   (`a_composition_over_varied_text_draws_as_its_text_written`,
   `a_composition_over_varied_text_draws_as_written_on_every_arm`).
+- **A program can mark a run of text to run left to right, right to left
+  or reversed** (SDS, `CSI 1 ]` and `CSI 2 ]`, and SRS, `CSI 1 [`, each
+  ended by its own `0`; `[[source: ecma48]]` 8.3.114, 8.3.137). With the
+  mode off each string is drawn in its own direction inside its line,
+  strings nested inside strings and two side by side kept apart, as
+  TR/53's worked example 1 draws them (`[[source: ecma-tr53]]`;
+  `tr53_example_1_left_to_right`, `tr53_example_1_right_to_left`). With
+  the mode on, as baud starts, each string is laid out by UAX #9 as an
+  isolate of its direction: a Hebrew string next to another stays apart
+  from it, and a number inside one keeps its order
+  (`with_bdsm_set_each_string_is_an_isolate`). The string travels with
+  its characters, through edits, scrolling, the history and a change of
+  width; erasing a character leaves its place in the string, and a copy
+  gives the text as written.
 - **A copy can read each line from its right edge** (DEC's DECRLCM,
   `CSI ? 96 h`, `[[source: vt510-decrlcm]]`): each line of the copy
   gives its characters in the order they are drawn, from right to left,
@@ -448,13 +462,18 @@ the VT510's DECRLCM, DECHEM, DECSTR and chapter 4 pages (`[[source:
 vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
 `[[source: vt510-chapter4]]`), ECMA-48 7.1, 7.2.3, 7.3.4, 8.3.114 and
 8.3.137, and TR/53's section 7 and worked examples; Jev was asked twice
-in each order (`docs/research/notes/ab/b220/`), and no fork reached 0.9
+in each order, and the strings under the mode on a third time with a
+corrected render (`docs/research/notes/ab/b220/`); no fork reached 0.9
 in both. **Taken from Jev's lean; the owner can veto each:**
 
 | choice | taken | Jev, first ask then re-ask |
 |---|---|---|
 | what DECRLCM's copy reads | each line's cells in the order they are drawn, from the right edge | the order written, reversed, 0.14 / 0.02; then this, 0.02 / 0.22 |
 | a DECRLCM copy over several lines | each line reversed, the lines in order | 0.12 / 0.44, 0.52 / 0.76 |
+| SDS and SRS with the mode on | each string an isolate of its direction (UAX #9 HL3) | (the first two askings were shown a wrong render of a number in a string) 0.41 / ISOLATE_OVERRIDE 0.52, 0.52 / 0.46; corrected, 0.77 / 0.82 |
+| a reversed string at a line's top | reverses the line's character path, left to right where none is set | 0.74 / 0.78, 0.88 / 0.90 |
+| an end of the other kind | SDS 0 ends only a directed string and SRS 0 only a reversed one; any other end is counted | 0.82 / 0.62, 0.90 / 0.76 |
+| `DECSTR` and open strings | every string ends, the characters written keeping theirs | 0.26 / 0.46, 0.82 / 0.86 |
 | DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
 
 The requests, the renders shown and the answers are in
@@ -671,7 +690,7 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- SRS, SDS and DCSM; DEC's DECRLM.
+- DCSM; DEC's DECRLM.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above

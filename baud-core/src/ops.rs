@@ -445,8 +445,9 @@ impl Paint<'_, '_> {
         // and writing under the old id would draw in its colours. The
         // rendition is what was saved; the id was where it happened to be.
         // A hit, in the ordinary case.
-        self.style = self.intern_style(s.style_raw);
-        self.style_raw = s.style_raw;
+        let raw = self.keeping_string(s.style_raw);
+        self.style = self.intern_style(raw);
+        self.style_raw = raw;
         self.rendition_changed();
         self.flags = s.flags;
         self.cold.g = s.g;
@@ -482,8 +483,8 @@ impl Paint<'_, '_> {
     pub(crate) fn restore_unsaved(&mut self) {
         self.cold.modes.apply(ModeBit::Origin, false);
         self.goto(Row::ZERO, Col::ZERO);
-        self.style_raw = StyleWord::DEFAULT;
-        self.style = StyleId::DEFAULT;
+        self.style_raw = self.keeping_string(StyleWord::DEFAULT);
+        self.style = self.intern_style(self.style_raw);
         self.rendition_changed();
         self.cold.protect = CellFlags::NONE;
         self.reset_sets();
@@ -1635,6 +1636,18 @@ impl Paint<'_, '_> {
             return;
         }
         self.view.insert_cells(r, at, n, to, b);
+        // The blanks join the string of the character they pushed on, the
+        // active position's (TR/53 note A.1 i).
+        if self.strs.strings.begun == crate::strings::Begun::Yes {
+            let k = n.at_least_one().min(to.index().saturating_sub(at.index()));
+            let pushed = self.view.get(r, Col::at_index(at.index() + k));
+            let s = match at.index() + k < to.index() {
+                true => self.string_of(pushed.style),
+                false => StringId::NONE,
+            };
+            let end = Col::at_index(at.index() + k);
+            self.strings_kept(r, (at, end), b, |_| s);
+        }
         self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
@@ -1647,8 +1660,21 @@ impl Paint<'_, '_> {
     /// otherwise the fill that spares a guarded position under ERM reset and
     /// keeps its guard under ERM set (`View::fill_sparing`). Counts the
     /// cells written.
+    ///
+    /// **Once a string has been begun** (`crate::strings`), each erased
+    /// position stays in the string it was in, out of line: ECMA-48's
+    /// erasures put positions "into the erased state" and move nothing, so
+    /// a string's positions keep their places in its presentation.
     #[inline(always)]
     pub(crate) fn erase_span(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) {
+        if self.strs.strings.begun == crate::strings::Begun::Yes {
+            return self.erase_keeping_strings(r, a, b, blank);
+        }
+        self.erase_cells(r, a, b, blank);
+    }
+
+    #[inline(always)]
+    fn erase_cells(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) {
         let n = match self.cold.guards {
             crate::term::Guards::None => {
                 let n = self.view.fill(r, a, b, blank);
@@ -1658,6 +1684,21 @@ impl Paint<'_, '_> {
             crate::term::Guards::Marked => self.erase_sparing(r, a, b, blank).index(),
         };
         self.cells = self.cells.plus(n);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_keeping_strings(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) {
+        let mut was = [StringId::NONE; crate::MAX_COLS];
+        let cols = self.cols.index().min(crate::MAX_COLS);
+        for (c, w) in was.iter_mut().enumerate().take(cols) {
+            *w = self.string_of(self.view.get(r, Col::at_index(c)).style);
+        }
+        self.erase_cells(r, a, b, blank);
+        // The span widened to whole characters, as the fill widens it.
+        let from = Col::at_index(a.index().saturating_sub(1));
+        let to = Col::at_index((b.index() + 1).min(cols));
+        self.strings_kept(r, (from, to), blank, |c| was[c.index()]);
     }
 
     #[cold]
@@ -2137,11 +2178,12 @@ impl Paint<'_, '_> {
     /// saved rendition again it outlined it, and every `SGR` paid a call.
     /// Forced, `apply_sgr` compiles as it did with one caller.
     ///
-    /// **The probe inline keys a rendition without SAPV's variants**
-    /// ([`StyleId::plain_bucket`]), the key of every rendition that has
-    /// none, so it costs what it did before they were hashed. One with
-    /// variants lives on its own key's path, which the probe does not walk:
-    /// it finds it or its place out of line, at the miss ([`Paint::intern_new`]).
+    /// **The probe inline keys a rendition without SAPV's variants or a
+    /// string** ([`StyleId::plain_bucket`], [`StyleWord::is_plain`]), the
+    /// key of every rendition that has neither, so it costs what it did
+    /// before they were hashed. One with either lives on its own key's
+    /// path, which the probe does not walk: it finds it or its place out
+    /// of line, at the miss ([`Paint::intern_new`]).
     #[inline(always)]
     pub(crate) fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
@@ -2186,10 +2228,10 @@ impl Paint<'_, '_> {
     #[inline(never)]
     fn intern_new(&mut self, k: StyleId, raw: StyleWord) -> StyleId {
         let len = self.tmpl.len();
-        // A rendition with SAPV's variants on its own key's path, which the
-        // inline probe left unwalked: a hit there is its slot, and the
-        // first empty slot there its place.
-        let k = match raw.variants().is_default() {
+        // A rendition with SAPV's variants or a string on its own key's
+        // path, which the inline probe left unwalked: a hit there is its
+        // slot, and the first empty slot there its place.
+        let k = match raw.is_plain() {
             true => k,
             false => match self.variants_probe(raw) {
                 Probed::Hit(id) => return id,
@@ -2242,13 +2284,13 @@ impl Paint<'_, '_> {
     /// due; failing that an eviction at the bucket -- except slot 0, the
     /// default every blank cell names without interning it (`Term::new`),
     /// whose eviction would recolour them all. Its bucket's victim is the
-    /// slot after it. A rendition with SAPV's variants takes its own key's
-    /// path, not the inline probe's.
+    /// slot after it. A rendition with SAPV's variants or a string takes its
+    /// own key's path, not the inline probe's.
     #[cold]
     #[inline(never)]
     fn full_table(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
         let len = self.tmpl.len();
-        let base = match raw.variants().is_default() {
+        let base = match raw.is_plain() {
             true => base,
             false => StyleId::from_index(StyleId::bucket(raw, len)),
         };
@@ -4309,6 +4351,8 @@ impl Paint<'_, '_> {
         };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
+        // SDS's and SRS's table empties, the screens it named erased.
+        self.reset_strings();
         // **The progress a program set goes with it**: `RIS` returns to the
         // initial state (`[[source: ecma48]]` § 8.3.105), which shows no
         // bar, and a kitty notification half-assembled is dropped. The ones
@@ -4823,6 +4867,7 @@ impl Paint<'_, '_> {
         // guarded characters become erasable; baud's stay spared, as DEC's
         // table names no guarded area.
         self.cold.guard_open = None;
+        self.end_strings();
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
         self.style = StyleId::DEFAULT;

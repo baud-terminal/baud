@@ -121,11 +121,11 @@
 use baud_core::{BidiSupport, StatusLine, Term};
 use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
 use baud_domain::{
-    Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror, CharacterPath,
-    ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
-    LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, alaphs,
-    box_counterpart, in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl,
-    takes_form,
+    Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
+    CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
+    JoiningType, LamAlef, LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, STRING_DEPTH, Stride,
+    StringId, Viewport, Wrap, alaphs, box_counterpart, chain_runs, in_layout_block, is_table_rule,
+    join, lam_alefs, mirroring_glyph, opens_rtl, order_strings, string_chain, takes_form,
 };
 
 use crate::units::Tally;
@@ -153,6 +153,13 @@ const ERASED: char = '\u{200B}';
 /// The stand-in for a column rule: U+2029 PARAGRAPH SEPARATOR, class B,
 /// which ends a paragraph (P1).
 const PARAGRAPH_SEPARATOR: char = '\u{2029}';
+
+/// The stand-ins for an SDS or SRS string's edges, given to the algorithm
+/// with BDSM set: U+2066 LEFT-TO-RIGHT ISOLATE, U+2067 RIGHT-TO-LEFT
+/// ISOLATE and U+2069 POP DIRECTIONAL ISOLATE.
+const LEFT_TO_RIGHT_ISOLATE: char = '\u{2066}';
+const RIGHT_TO_LEFT_ISOLATE: char = '\u{2067}';
+const POP_DIRECTIONAL_ISOLATE: char = '\u{2069}';
 
 /// The order one row is drawn in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1229,43 +1236,61 @@ impl Reorder {
     /// row drawn in reverse.
     fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>, written: &dyn Over) {
         let cols = vp.cols().index();
+        let strings = term.strings_seen();
+        let entry = |id: StringId| term.string_entry(id);
         for y in 0..vp.rows().index() {
             let r = Row::from_index(y);
             let line = vp.bidi(r);
-            if line.path() != CharacterPath::RightToLeft {
+            let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+            let strung = strings && cells.iter().any(|&c| !string_of(term, c).is_none());
+            let base = match line.path() {
+                CharacterPath::RightToLeft => BidiDirection::Rtl,
+                _ => BidiDirection::Ltr,
+            };
+            if base == BidiDirection::Ltr && !strung {
                 continue;
             }
-            let cells = written.row(r).unwrap_or_else(|| vp.row(r));
             let width = vp.rendition(r).end_of_line(vp.cols()).index().min(cols);
+            // **TR/53's order**: the row reversed on a right-to-left path,
+            // and each SDS or SRS string in its own direction inside it
+            // ([`baud_domain::order_strings`]).
+            let ids: Vec<StringId> = match strung {
+                true => cells.iter().map(|&c| string_of(term, c)).collect(),
+                false => vec![StringId::NONE; cells.len()],
+            };
+            let mut from = vec![0u16; cols];
+            let mut runs = vec![BidiDirection::Ltr; cols];
+            let tail = |c: usize| cells.get(c).is_some_and(|x| x.content.is_wide_tail());
+            order_strings(&ids, tail, width, base, &entry, &mut from, &mut runs);
+            if base == BidiDirection::Ltr
+                && runs.iter().all(|&d| d == BidiDirection::Ltr)
+                && from.iter().enumerate().all(|(v, &l)| usize::from(l) == v)
+            {
+                continue;
+            }
+            let level = |d: BidiDirection| match d {
+                BidiDirection::Rtl => BidiLevel::RTL,
+                BidiDirection::Ltr => BidiLevel::LTR,
+            };
             let mut out = RowOrder {
-                from: Vec::with_capacity(cols),
+                from: from
+                    .iter()
+                    .map(|&l| Col::at_index(usize::from(l)))
+                    .collect(),
                 to: vec![Col::ZERO; cols],
-                level: vec![BidiLevel::RTL; cols],
+                level: from.iter().map(|&l| level(runs[usize::from(l)])).collect(),
                 swaps: Vec::new(),
                 mirrors: Vec::new(),
                 slants: Vec::new(),
                 drawn: Cols::of_index(width),
             };
-            let mut c = width;
-            while c > 0 {
-                c -= 1;
-                match c > 0 && cells[c].content.is_wide_tail() {
-                    true => {
-                        out.from.push(Col::at_index(c - 1));
-                        out.from.push(Col::at_index(c));
-                        c -= 1;
-                    }
-                    false => out.from.push(Col::at_index(c)),
-                }
-            }
-            out.from.extend((width..cols).map(Col::at_index));
             for (v, l) in out.from.iter().enumerate() {
                 let v = Col::at_index(v);
                 if let Some(slot) = out.to.get_mut(l.index()) {
                     *slot = v;
                 }
                 let cell = cells[l.index()];
-                if cell.content.is_wide_tail() {
+                if cell.content.is_wide_tail() || runs[l.index()] == BidiDirection::Ltr {
                     continue;
                 }
                 let span = crate::cellmap::CellSpan::at(cells, *l);
@@ -1392,7 +1417,16 @@ impl Reorder {
         // one lays a paragraph out against the right edge whatever its
         // letters, so it is resolved even when nothing in it opens.
         let path = vp.bidi(first);
+        // A row holding an SDS or SRS string is resolved too: a string may
+        // reorder text of class L alone.
+        let strung = term.strings_seen()
+            && (first.index()..=last.index()).any(|y| {
+                row_of(Row::from_index(y))
+                    .iter()
+                    .any(|&c| !string_of(term, c).is_none())
+            });
         let any_opens = path.path() == CharacterPath::RightToLeft
+            || strung
             || drawn_opens
             || above.iter().any(|c| opens(c))
             || below.iter().any(|c| opens(c));
@@ -1497,6 +1531,22 @@ impl Reorder {
         self.owner.clear();
         self.rule.clear();
         let mut ranges: Vec<(core::ops::Range<usize>, Col)> = Vec::with_capacity(rows.len());
+        // **SDS's and SRS's strings, each an isolate of its direction**
+        // (UAX #9 HL3; Jev's lean, ISOLATE, 0.77/0.82 on a third asking
+        // with a corrected render): where a cell's chain of strings differs from the
+        // last cell's, a PDI for each string left and an LRI or RLI for each
+        // entered, a reversed string's the direction opposite to the one
+        // around it, the line's path at the top (Jev's lean, PATH). An
+        // isolate still open at the paragraph's end ends there (BD9).
+        let strings = term.strings_seen();
+        let entry = |id: StringId| term.string_entry(id);
+        let top = match path.path() {
+            CharacterPath::RightToLeft => BidiDirection::Rtl,
+            _ => BidiDirection::Ltr,
+        };
+        let mut open = [StringId::NONE; STRING_DEPTH];
+        let mut open_n = 0;
+        let mut last: Option<Owner> = None;
         for (p, row) in rows.iter().enumerate() {
             let begin = self.text.len();
             let end = row_end(row.cells);
@@ -1508,6 +1558,35 @@ impl Reorder {
                 };
                 if cell.content.is_wide_tail() {
                     continue;
+                }
+                if strings {
+                    let mut chain = [StringId::NONE; STRING_DEPTH];
+                    let n = string_chain(string_of(term, cell), &entry, &mut chain);
+                    let same = (0..n.min(open_n))
+                        .take_while(|&i| chain[i] == open[i])
+                        .count();
+                    for _ in same..open_n {
+                        self.text.push(POP_DIRECTIONAL_ISOLATE);
+                        self.owner.push(match last {
+                            Some(o) => Owner {
+                                lead: Lead::Attached,
+                                ..o
+                            },
+                            None => at(Lead::Attached),
+                        });
+                        self.rule.push(Rule::No);
+                    }
+                    for i in same..n {
+                        self.text.push(match chain_runs(&chain[..=i], &entry, top) {
+                            BidiDirection::Ltr => LEFT_TO_RIGHT_ISOLATE,
+                            BidiDirection::Rtl => RIGHT_TO_LEFT_ISOLATE,
+                        });
+                        self.owner.push(at(Lead::Attached));
+                        self.rule.push(Rule::No);
+                    }
+                    open = chain;
+                    open_n = n;
+                    last = Some(at(Lead::First));
                 }
                 if cell.content.is_empty() {
                     self.text.push(ERASED);
@@ -2255,6 +2334,15 @@ fn mirror(
 
 /// **The SAPV variants cell `cell` was written under**: the default
 /// presentation where its rendition names none.
+/// **The SDS or SRS string `cell` was written in** ([`StringId`]).
+fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
+    term.styles()
+        .get(cell.style.index())
+        .copied()
+        .flatten()
+        .map_or(StringId::NONE, |w| w.string())
+}
+
 fn variants_of(term: &Term<'_>, cell: PackedCell) -> Variants {
     term.styles()
         .get(cell.style.index())

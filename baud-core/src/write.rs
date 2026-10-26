@@ -2259,6 +2259,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.select_presentation(path, cursor)
         }
         DomCsi::SelectPresentationVariants => p.select_variants(csi),
+        DomCsi::String(e) => p.string_edge(e),
         DomCsi::ScrollLeft(c) => p.scroll_columns(c, ColumnShift::Delete),
         DomCsi::ScrollRight(c) => p.scroll_columns(c, ColumnShift::Insert),
         DomCsi::SetScrollRegion { top, bottom } => p.set_scroll_region(top, bottom),

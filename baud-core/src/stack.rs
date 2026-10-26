@@ -174,7 +174,7 @@ impl Paint<'_, '_> {
         };
         s.used = used;
         if let Some(&(saved, groups)) = s.saved.get(used.0) {
-            self.style_raw = restore_rendition(saved, self.style_raw, groups);
+            self.style_raw = self.keeping_string(restore_rendition(saved, self.style_raw, groups));
             self.style = self.intern_style(self.style_raw);
             self.rendition_changed();
         }

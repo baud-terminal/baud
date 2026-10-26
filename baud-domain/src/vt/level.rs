@@ -398,6 +398,7 @@ impl Csi {
             | SelectCharacterPath { .. }
             | SelectPresentationDirections { .. }
             | SelectPresentationVariants
+            | String(_)
             | RequestVersion
             | KeyControl(_)
             | ShiftEscape(_)

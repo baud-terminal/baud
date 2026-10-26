@@ -537,7 +537,13 @@ pub struct StyleWord {
     /// bit on the cell instead, which also keeps it out of the interning key:
     /// protected and unprotected text of the same colour are one style, not
     /// two, and the 64-entry template cache is not halved by turning DECSCA on.
-    font: FontId,
+    ///
+    /// **The byte above the font's is the character's string**: SDS's or
+    /// SRS's (`[[source: ecma48]]` 8.3.114, 8.3.137; [`StringId`]), in the
+    /// one word with the font, which needs one byte, so the word stays
+    /// twenty bytes and its compare and its key what they were
+    /// ([`FontString`]).
+    font: FontString,
     /// SAPV's presentation variants (`[[source: ecma48]]` 8.3.108), in the
     /// two bytes that were explicit padding: `zerocopy`'s `IntoBytes`
     /// rejects implicit padding, and widening `attrs` to `u32` left two
@@ -559,7 +565,7 @@ impl StyleWord {
         bg: ColorWord::DEFAULT,
         underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
-        font: FontId::PRIMARY,
+        font: FontString::PRIMARY,
         variants: Variants::TOMBSTONE,
     };
 }
@@ -684,13 +690,14 @@ impl SweepBook {
 /// allocator. Recording it is the channel -- the same one charset designations
 /// use -- and it is read wherever a cell's rendition is read.
 ///
-/// A newtype rather than a bare `u16`, and `repr(transparent)` so it adds its
-/// two bytes and no more.
+/// A newtype rather than a bare `u8`, and `repr(transparent)` so it adds its
+/// one byte and no more: ten fonts need one, and the byte beside it holds
+/// the character's string ([`StringId`]).
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
-pub struct FontId(u16);
+pub struct FontId(u8);
 
 impl FontId {
     /// `SGR 10`. Zero, so a zeroed style table is the primary font.
@@ -701,14 +708,14 @@ impl FontId {
     /// time; it is a pure range test either way.
     pub const fn from_sgr(n: u16) -> Option<FontId> {
         match n >= 10 && n <= 19 {
-            true => Some(FontId(n - 10)),
+            true => Some(FontId((n - 10) as u8)),
             false => None,
         }
     }
 
     /// `0` for the primary font, `1..=9` for the alternates.
     pub fn index(self) -> u16 {
-        self.0
+        u16::from(self.0)
     }
 
     /// The SGR parameter that selects it, for DECRQSS.
@@ -717,7 +724,7 @@ impl FontId {
     /// does not need a cast -- and `baud-core`'s budget is a floor rather than
     /// slack, so one there would have to displace something forced.
     pub fn sgr(self) -> u8 {
-        (self.0 + 10) as u8
+        self.0 + 10
     }
 
     pub fn is_primary(self) -> bool {
@@ -729,6 +736,45 @@ impl FontId {
 /// from the one the rest is mixed by.
 const VARIANTS_MIX: u64 = 0x9FB2_1C65_1E98_DF25;
 
+/// The odd multiplier [`StyleWord::key`] mixes a character's string by,
+/// apart from the other two.
+const STRING_MIX: u64 = 0xC2B2_AE3D_27D4_EB4F;
+
+/// **A rendition's font and string in one word**: [`FontId`] in the low
+/// byte and [`StringId`] in the high one. One field, where two compared
+/// each on its own, so a probe's compare is the instructions it was with
+/// the font alone, and so is the inline probe's key, which reads the word
+/// whole. A rendition with a string is not keyed there: it takes its own
+/// key's path, as one with SAPV's variants does ([`StyleWord::is_plain`]),
+/// where [`StyleWord::key`] mixes the string apart; in the inline key it
+/// lies over `attrs`' bits 3 to 10, xored.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct FontString(u16);
+
+impl FontString {
+    const PRIMARY: FontString = FontString(0);
+
+    fn font(self) -> FontId {
+        FontId((self.0 & 0xff) as u8)
+    }
+    fn string(self) -> StringId {
+        StringId::from_index(usize::from(self.0 >> 8)).unwrap_or(StringId::NONE)
+    }
+    fn with_font(self, f: FontId) -> FontString {
+        FontString((self.0 & 0xff00) | u16::from(f.0))
+    }
+    fn with_string(self, s: StringId) -> FontString {
+        FontString((self.0 & 0xff) | ((s.index() as u16) << 8))
+    }
+    /// The string alone: what `SGR 0` leaves.
+    fn string_only(self) -> FontString {
+        FontString(self.0 & 0xff00)
+    }
+}
+
 impl StyleWord {
     /// All zero, so `Storage::new_box_zeroed` starts every template slot at the
     /// default rendition rather than at an arbitrary grey.
@@ -737,7 +783,7 @@ impl StyleWord {
         bg: ColorWord::DEFAULT,
         underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
-        font: FontId::PRIMARY,
+        font: FontString::PRIMARY,
         variants: Variants::DEFAULT,
     };
     /// The underline's own colour. `ColorWord::DEFAULT` means "follow the
@@ -759,10 +805,13 @@ impl StyleWord {
     }
     /// Which font `SGR 10-19` selected.
     pub fn font(self) -> FontId {
-        self.font
+        self.font.font()
     }
     pub fn with_font(self, f: FontId) -> StyleWord {
-        StyleWord { font: f, ..self }
+        StyleWord {
+            font: self.font.with_font(f),
+            ..self
+        }
     }
     pub fn attrs(self) -> Attrs {
         self.attrs
@@ -786,12 +835,31 @@ impl StyleWord {
             ..self
         }
     }
-    /// **What `SGR 0` leaves**: the default rendition, these variants kept,
-    /// since SAPV is no `SGR` ("cancels the effect of any preceding
-    /// occurrence of SGR", `[[source: ecma48]]` 8.3.117).
+    /// The SDS or SRS string the character was written in ([`StringId`]).
+    pub fn string(self) -> StringId {
+        self.font.string()
+    }
+    pub fn with_string(self, s: StringId) -> StyleWord {
+        StyleWord {
+            font: self.font.with_string(s),
+            ..self
+        }
+    }
+    /// **Whether the rendition table's inline probe keys it**: no SAPV
+    /// variant and no string, the key of almost every rendition
+    /// ([`StyleWord::plain_key`]).
+    #[inline(always)]
+    pub fn is_plain(self) -> bool {
+        self.variants.is_default() && self.font.string().is_none()
+    }
+    /// **What `SGR 0` leaves**: the default rendition, these variants and
+    /// this string kept, since neither SAPV nor SDS and SRS is an `SGR`
+    /// ("cancels the effect of any preceding occurrence of SGR",
+    /// `[[source: ecma48]]` 8.3.117).
     pub fn sgr_reset(self) -> StyleWord {
         StyleWord {
             variants: self.variants,
+            font: self.font.string_only(),
             ..StyleWord::DEFAULT
         }
     }
@@ -812,7 +880,7 @@ impl StyleWord {
         self.attrs = a;
     }
     pub fn set_font(&mut self, f: FontId) {
-        self.font = f;
+        self.font = self.font.with_font(f);
     }
     pub fn set_underline(&mut self, c: ColorWord) {
         self.underline = c;
@@ -843,9 +911,13 @@ impl StyleWord {
     /// font and set of variants apart from each other and from every
     /// underline colour.
     pub fn key(self) -> u64 {
-        match self.variants.0 {
-            0 => self.plain_key(),
-            v => self.plain_key() ^ u64::from(v).wrapping_mul(VARIANTS_MIX),
+        match (self.variants.0, self.font.0 >> 8) {
+            (0, 0) => self.plain_key(),
+            (v, s) => {
+                self.plain_key()
+                    ^ u64::from(v).wrapping_mul(VARIANTS_MIX)
+                    ^ u64::from(s).wrapping_mul(STRING_MIX)
+            }
         }
     }
 
@@ -876,11 +948,18 @@ impl StyleWord {
         // and which took it went by which was interned first -- an order a
         // read boundary can move, the status line's indicator being drawn
         // at a read's end, so one screen came out under two numberings.
+        //
+        // **The font's word is xored in, not ored**: its high byte, the
+        // character's string, lies over `attrs`' bits 3 to 10, and ored a
+        // string bit hid the attribute under it -- a string with and
+        // without `SGR 4` keyed alike, and the indicator's rendition took
+        // its twin's bucket. Xored, each string permutes the attributes, and
+        // [`StyleWord::key`] mixes the string apart. With no string the two
+        // are the same bits.
         const M: u64 = 0xD6E8_FEB8_6659_FD93;
         let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
-        let tail = u64::from(self.underline.0)
-            | (u64::from(self.font.0) << 27)
-            | (u64::from(self.attrs.bits()) << 32);
+        let tail = (u64::from(self.underline.0) | (u64::from(self.attrs.bits()) << 32))
+            ^ (u64::from(self.font.0) << 27);
         base ^ tail.wrapping_mul(M)
     }
 }
@@ -1409,5 +1488,62 @@ mod style_key {
             StyleWord::DEFAULT.with_variants(Variants::DEFAULT).key(),
             "the control"
         );
+    }
+
+    /// **No string shares a key with a font, an attribute or a set of
+    /// variants**: each of the 255 strings, alone and with each font,
+    /// against every `Attrs` bit alone, every font alone and every word of
+    /// the variants' live bits alone. Laid at bit 35 of the inline key a
+    /// string was an attribute: string 1 keyed as `SGR 4`.
+    #[test]
+    fn no_string_shares_a_key() {
+        const STRINGS: usize = StringId::CAPACITY * 10;
+        const N: usize = STRINGS + 32 + 10 + 0x7ff;
+        let mut keys = [0u64; N];
+        let mut n = 0;
+        for s in 1..=StringId::CAPACITY {
+            let id = StringId::from_index(s).expect("a string");
+            for f in 0..10u16 {
+                let font = FontId::from_sgr(10 + f).expect("a font");
+                keys[n] = StyleWord::DEFAULT.with_font(font).with_string(id).key();
+                n += 1;
+            }
+        }
+        for b in 0..u32::BITS {
+            keys[n] = StyleWord::DEFAULT.with_attrs(Attrs(1 << b)).key();
+            n += 1;
+        }
+        for f in 0..10u16 {
+            let font = FontId::from_sgr(10 + f).expect("a font");
+            keys[n] = StyleWord::DEFAULT.with_font(font).key();
+            n += 1;
+        }
+        for v in 1..0x800u16 {
+            keys[n] = StyleWord::DEFAULT.with_variants(Variants(v)).key();
+            n += 1;
+        }
+        assert_eq!(n, N);
+        let mut strings = keys;
+        strings[..STRINGS].sort_unstable();
+        assert!(
+            strings[..STRINGS].windows(2).all(|p| p[0] != p[1]),
+            "two strings"
+        );
+        let others = &keys[STRINGS..];
+        for k in &keys[..STRINGS] {
+            assert!(!others.contains(k), "a string shares a key");
+        }
+        let s1 = StringId::from_index(1).expect("a string");
+        assert!(!StyleWord::DEFAULT.with_string(s1).is_plain());
+        assert!(StyleWord::DEFAULT.is_plain(), "the control");
+        // A string with and without an attribute under its byte: ored, the
+        // two keyed alike (the property's shrunk case, `sds-rtl` and
+        // `sgr-underline-sds` beside the status line's indicator).
+        for b in 0..u32::BITS {
+            let w = StyleWord::DEFAULT.with_string(s1);
+            let a = w.with_attrs(Attrs(1 << b));
+            assert_ne!(w.plain_key(), a.plain_key(), "attribute bit {b}, inline");
+            assert_ne!(w.key(), a.key(), "attribute bit {b}");
+        }
     }
 }

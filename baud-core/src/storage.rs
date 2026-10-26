@@ -556,6 +556,8 @@ pub struct StrBuf<'b> {
     /// SAPV's state beside the rendition's variants: held forms, refusals,
     /// and whether any variant was selected (`crate::variants`).
     pub(crate) variants: crate::variants::State,
+    /// SDS's and SRS's strings, by identifier (`crate::strings`).
+    pub(crate) strings: crate::strings::Strings,
     /// **The notifications' area** (`notice.rs`): the chunk being received,
     /// the notification being assembled, what a read published and the
     /// ids alive, [`NoticeBudget::bytes`] long. Empty through
@@ -654,6 +656,7 @@ impl<'b> StrBuf<'b> {
             print_area: &mut [],
             print: crate::print::Printer::NONE,
             variants: crate::variants::State::POWER_ON,
+            strings: crate::strings::Strings::POWER_ON,
             status: crate::status::Status::power_on(
                 Cols::of_index(1),
                 crate::status::Room::Declined,
@@ -997,6 +1000,7 @@ impl Owned {
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
                 variants: crate::variants::State::POWER_ON,
+                strings: crate::strings::Strings::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,
@@ -1088,6 +1092,7 @@ impl Owned {
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
                 variants: crate::variants::State::POWER_ON,
+                strings: crate::strings::Strings::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,

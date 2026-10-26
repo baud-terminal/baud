@@ -12212,6 +12212,64 @@ fn mirrored_characters_draw_mirrored_on_every_arm() {
     );
 }
 
+/// **A reversed string draws alike on every arm**: with BDSM reset an SRS
+/// string is drawn in reverse inside its line (`[[source: ecma48]]`
+/// 8.3.137, TR/53's rule), the same pixels on the cell, copied and CPU arms
+/// as the same text written in its visual order; the control, the text
+/// with no string, differs.
+#[test]
+fn a_reversed_string_draws_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let prelude = |t: &mut Term<'_>| {
+        feed(
+            t,
+            b"\x1bc\x1b[?25l\x1b[8;1HThe quick brown fox jumps 0123456789",
+        );
+    };
+    // BDSM reset: `ab` and the reversed string `cde`, then `f`.
+    {
+        arms!(fresh() => arms, t);
+        prelude(&mut t);
+        feed(&mut t, b"\x1b[8l\x1b[2;1Hab\x1b[1[cde\x1b[0[f\x1b[4;1H");
+        let got = three(&mut arms, &mut t, "SRS, explicit");
+        prelude(&mut t);
+        feed(&mut t, b"\x1b[8l\x1b[2;1Habedcf\x1b[4;1H");
+        let want = three(&mut arms, &mut t, "written in visual order");
+        assert_eq!(differing(&got, &want), 0, "the reversed string drawn");
+        prelude(&mut t);
+        feed(&mut t, b"\x1b[8l\x1b[2;1Habcdef\x1b[4;1H");
+        let stored = three(&mut arms, &mut t, "no string");
+        assert!(differing(&stored, &want) > 0, "the control: as written");
+    }
+}
+
 /// **A line SCP turns draws alike on every arm** (`[[source: ecma48]]`
 /// 8.3.111): with BDSM set, an all-Latin line SCP 2 sets right to left is
 /// drawn as the same text written in its visual order against the right
