@@ -13,13 +13,15 @@
 use crate::presentation::{FORMS, LAM_ALEF};
 use baud_domain::{Codepoint, JoiningForm, LamAlef};
 
-/// The presentation form of `letter` in `form`, if one is encoded.
+/// The presentation form of `letter` in `form`, if one is encoded: none
+/// for alaph's three forms, whose script encodes none.
 pub fn presentation_form(letter: Codepoint, form: JoiningForm) -> Option<Codepoint> {
     let code = match form {
         JoiningForm::Isolated => 0,
         JoiningForm::Final => 1,
         JoiningForm::Initial => 2,
         JoiningForm::Medial => 3,
+        JoiningForm::Final2 | JoiningForm::Final3 | JoiningForm::Medial2 => return None,
     };
     let key = letter.value().checked_mul(4)? | code;
     let i = FORMS.partition_point(|&(k, _)| k < key);

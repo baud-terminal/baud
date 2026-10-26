@@ -13,7 +13,7 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Cols, PackedCell, ReadLen, Row, Rows, WinSize};
+use baud_domain::{BytePos, Col, Cols, PackedCell, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{Blend, Damage, PxSize, Renderer, Reorder, Stack, Theme};
 use support::{Canvas, font};
@@ -97,6 +97,61 @@ fn the_status_line_takes_the_direction_set_on_it() {
     ));
     assert_eq!(status, "\u{5D2}\u{5D1}\u{5D0}!........");
     assert_eq!(main, "........!\u{5D2}\u{5D1}\u{5D0}");
+}
+
+/// The letters of the word around each joined cell of the status line
+/// and of the main display's first row, each joined cell kept with two
+/// cells either side: each cell's base letter before it and after it.
+#[allow(clippy::type_complexity)]
+fn words(bytes: &str) -> [Vec<(Vec<u32>, Vec<u32>)>; 2] {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, bytes);
+    let mut o = Reorder::new();
+    o.set_reach(baud_font::bytes::Count::of(2_u32));
+    o.lay_out(&t, Rows::ZERO);
+    let status = Row::from_index(t.view(Rows::ZERO).rows().index());
+    let letter = |w: &baud_render::WordCell| t.base_of(w.cell).drawn().as_codepoint();
+    [status, Row::ZERO].map(|r| {
+        (0..usize::from(WS.ws_col))
+            .filter_map(|v| {
+                let j = o.orders().joined(r, Col::at_index(v))?;
+                let (before, after) = o.orders().around(r, &j);
+                let cps = |ws: &[baud_render::WordCell]| {
+                    ws.iter()
+                        .filter_map(letter)
+                        .map(|c| c.value())
+                        .collect::<Vec<_>>()
+                };
+                Some((cps(before), cps(after)))
+            })
+            .collect()
+    })
+}
+
+/// **Arabic on a Hebrew status line joins with its word**, as on a line of
+/// the main display: each joined letter of "bayt" after a Hebrew word
+/// keeps the cells of its word around it, in logical order, for the
+/// face's contextual lookups to read -- the status line's own text, not a
+/// main row's.
+#[test]
+fn arabic_on_a_hebrew_status_line_joins_with_its_word() {
+    let text = "\u{5D0}\u{5D1} \u{628}\u{64A}\u{62A}";
+    let [status, main] = words(&format!("{text}{}", on_status(text)));
+    let (b, y, t) = (0x628, 0x64A, 0x62A);
+    // Two cells either side within the level run: the space and the
+    // Hebrew bet before the beh are of it.
+    let bayt = vec![
+        (vec![b, y], vec![]),
+        (vec![0x20, b], vec![t]),
+        (vec![0x5D1, 0x20], vec![y, t]),
+    ];
+    assert_eq!(main, bayt, "the control: a main row");
+    assert_eq!(status, main, "the status line as the main row");
+    // Its own text: a main row of other letters leaves the status line's
+    // words as they were.
+    let [alone, _] = words(&format!("\u{5D2}{}", on_status(text)));
+    assert_eq!(alone, bayt, "the status line's words are its own");
 }
 
 /// **With BDSM reset a status line whose path is right to left is drawn

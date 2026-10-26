@@ -11387,6 +11387,358 @@ fn arabic_letters_draw_joined_on_every_arm() {
     }
 }
 
+/// **A joined letter is drawn with the letters of its word around it,
+/// alike on every arm**: a face's contextual lookups across letters read
+/// the cells before and after it in logical order (`rlig`, `rclt`, `calt`;
+/// `[[source: ms-opentype-features-pt]]`), and Syriac's alaph takes its
+/// own three forms (`[[source: unicode-ch9]]` 9.3, S1-S3). On Noto Sans
+/// Syriac, which macOS ships, an alaph's `rlig` picks a wider final after
+/// a beth than after a yudh: each word written with an erased cell between
+/// its two letters, which joining passes through and the word leaves out,
+/// so neither letter's ink is in the other's cell, the alaph's cell draws
+/// differently after the two; and an alaph a soft wrap parts from its beth
+/// draws as the one an erased cell parts. Alaph after he (fin2), after
+/// dalath (fin3) and alone draws alike on every arm. When the letter before a
+/// wrapped alaph changes from yudh to beth, its form stays final and only
+/// its word changes, and each arm draws what a fresh renderer draws. On SF
+/// Arabic, macOS's own Arabic face, whose `rclt` takes dotted letters
+/// apart into skeletons and dots, the three arms agree, and alef, lam, lam
+/// and heh with no shadda draw four letters, not its `rlig`'s word Allah
+/// across their cells.
+#[test]
+fn a_joined_letter_reads_its_word_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships; this test cannot skip itself");
+    let arabic = std::fs::read("/System/Library/Fonts/SFArabic.ttf")
+        .expect("SF Arabic, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+        Face::parse(&arabic).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // The pixels of the cell drawn at logical column `col` of row `row`
+    // (both from zero), wherever the layout draws it.
+    let crop = |arms: &Arms<'_, '_>, frame: &[u32], row: usize, col: usize| -> Vec<u32> {
+        let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+        let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+        let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+        let v = arms
+            .renderer
+            .bidi()
+            .visual_col(Row::from_index(row), Col::at_index(col))
+            .index();
+        (row * ch..(row + 1) * ch)
+            .flat_map(|y| frame[y * w + v * cw..y * w + (v + 1) * cw].to_vec())
+            .collect()
+    };
+    arms!(fresh() => arms, t);
+    // A letter, an erased cell and an alaph written from column 3: the
+    // alaph's logical column is 4 from zero; an alaph alone, 2.
+    let alaph_of = |t: &mut Term<'_>, arms: &mut Arms<'_, '_>, word: &str, what: &str| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            t,
+            "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        feed(t, format!("\x1b[2;3H{word}").as_bytes());
+        let frame = three(arms, t, what);
+        let col = match word.chars().count() {
+            1 => 2,
+            _ => 4,
+        };
+        crop(arms, &frame, 1, col)
+    };
+    let after_beth = alaph_of(&mut t, &mut arms, "\u{0712}\x1b[C\u{0710}", "beth, alaph");
+    let after_yudh = alaph_of(&mut t, &mut arms, "\u{071D}\x1b[C\u{0710}", "yudh, alaph");
+    assert_ne!(
+        after_beth, after_yudh,
+        "the alaph's rlig reads the letter before it"
+    );
+    // fin2, fin3 and the isolated form, on every arm: Noto Sans Syriac's
+    // Estrangela draws the three alike, so the glyphs are held to
+    // hb-shape's in baud-font's `contextual.txt` and not here.
+    for (word, what) in [
+        ("\u{0717}\x1b[C\u{0710}", "he, alaph"),
+        ("\u{0715}\x1b[C\u{0710}", "dalath, alaph"),
+        ("\u{0710}", "alaph"),
+    ] {
+        let _ = alaph_of(&mut t, &mut arms, word, what);
+    }
+    // Across a soft wrap: the beth in the last column of row 4, its alaph
+    // wrapped to row 5.
+    let wrapped = |t: &mut Term<'_>, arms: &mut Arms<'_, '_>, first: &str, what: &str| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            t,
+            "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        feed(t, format!("\x1b[4;120H{first}\u{0710}").as_bytes());
+        let frame = three(arms, t, what);
+        crop(arms, &frame, 4, 0)
+    };
+    assert_eq!(
+        wrapped(&mut t, &mut arms, "\u{0712}", "beth, a soft wrap, alaph"),
+        after_beth,
+        "the word reaches across the wrap"
+    );
+    // The letter before a wrapped alaph changed: its form stays final, its
+    // word does not.
+    {
+        let screen = |t: &mut Term<'_>, first: &str| {
+            feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+            feed(
+                t,
+                "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+            );
+            feed(t, format!("\x1b[4;120H{first}\u{0710}").as_bytes());
+        };
+        arms!(fresh() => arms, t);
+        screen(&mut t, "\u{071D}");
+        let _ = three(&mut arms, &mut t, "yudh, a soft wrap, alaph");
+        feed(&mut t, "\x1b[4;120H\u{0712}".as_bytes());
+        let moved = three(&mut arms, &mut t, "the yudh made a beth");
+        arms!(fresh() => fresh_arms, u);
+        screen(&mut u, "\u{0712}");
+        let fresh_frame = three(&mut fresh_arms, &mut u, "drawn fresh");
+        assert_eq!(
+            differing(&moved, &fresh_frame),
+            0,
+            "the alaph's changed word is drawn"
+        );
+    }
+    // SF Arabic's rlig would take alef, lam, lam and heh with no shadda
+    // into the word Allah, one glyph across four cells, which 9.2.11 says
+    // should not form: each cell draws its own letter, on every arm.
+    {
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            &mut t,
+            "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        let blank = three(&mut arms, &mut t, "no word");
+        feed(
+            &mut t,
+            "\x1b[2;3H\u{0627}\u{0644}\u{0644}\u{0647}".as_bytes(),
+        );
+        let word = three(&mut arms, &mut t, "alef, lam, lam, heh");
+        for col in 2..6 {
+            assert_ne!(
+                crop(&arms, &word, 1, col),
+                crop(&arms, &blank, 1, col),
+                "logical column {col}: the letter draws in its own cell"
+            );
+        }
+    }
+    // SF Arabic's rclt, on every arm: behs taken apart, a feh and alef
+    // maqsura picking their short forms, and a lam-alef pair in a word.
+    for word in [
+        "\u{0628}\u{0628}\u{0628}",
+        "\u{0639}\u{0631}\u{0628}\u{064A}",
+        "\u{0641}\u{0649}",
+        "\u{0628}\u{0644}\u{0627}\u{0628}",
+    ] {
+        feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            &mut t,
+            "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+        );
+        feed(&mut t, format!("\x1b[2;3H{word}").as_bytes());
+        let _ = three(&mut arms, &mut t, word);
+    }
+}
+
+/// The pixels of the cell drawn at logical column `col` of row `row` of
+/// `frame` (both from zero), wherever the layout draws it.
+fn crop_cell(arms: &Arms<'_, '_>, frame: &[u32], (row, col): (usize, usize)) -> Vec<u32> {
+    let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+    let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let v = arms
+        .renderer
+        .bidi()
+        .visual_col(Row::from_index(row), Col::at_index(col))
+        .index();
+    (row * ch..(row + 1) * ch)
+        .flat_map(|y| frame[y * w + v * cw..y * w + (v + 1) * cw].to_vec())
+        .collect()
+}
+
+/// `t` drawn on the instance, cell and CPU arms, which must agree.
+fn three_arms(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str) -> Vec<u32> {
+    arms.reads = Reads::Copy;
+    let (a, _) = arms.draw(t);
+    let b = arms.draw_copied(t);
+    let c = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+    assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+    a
+}
+
+/// The alaph of `word`, written from column 3 of row 2 after a clear, its
+/// cell's pixels on every arm: a letter, an erased cell and the alaph,
+/// whose logical column is 4 from zero.
+fn alaph_cell(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, word: &str) -> Vec<u32> {
+    feed(t, b"\x1b[?25l\x1b[0m\x1b[0 ]\x1b[2J\x1b[H\x1b[8h");
+    feed(
+        t,
+        "\x1b[8;3HThe quick brown fox jumps 0123456789".as_bytes(),
+    );
+    feed(t, format!("\x1b[2;3H{word}").as_bytes());
+    let frame = three_arms(arms, t, word);
+    crop_cell(arms, &frame, (1, 4))
+}
+
+/// **Where SAPV meets a letter's word, on every arm** (`[[source:
+/// ecma48]]` 8.3.108): on Noto Sans Syriac an alaph's `rlig` picks a wider
+/// final after a beth than after a yudh, and an erased cell between the
+/// two letters, which joining passes through and the word leaves out,
+/// keeps each letter's ink out of the other's cell. Under 17 a beth and an
+/// alaph both italic are drawn upright and sheared left, and the alaph
+/// reads its beth as it does when only the alaph is italic: the beth, a
+/// slanted cell, is drawn by its upright face, the alaph's, though the
+/// stack's italic face draws Syriac too. Under 8 an alaph inside a word,
+/// med2 by joining, is drawn final, reading the beth before it as a final
+/// alaph does (Jev's lean WORD, 0.90/0.86).
+#[test]
+fn sapv_meets_a_letters_word_on_every_arm() {
+    use baud_render::{FaceRole, FaceStyle};
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships; this test cannot skip itself");
+    // The italic face a second Noto Sans Syriac: a face of its own for
+    // the italic style, which draws Syriac.
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+    ];
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Italic),
+    ];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let (beth, yudh, alaph) = ('\u{0712}', '\u{071D}', '\u{0710}');
+    let after_beth = alaph_cell(&mut arms, &mut t, &format!("{beth}\x1b[C{alaph}"));
+    let after_yudh = alaph_cell(&mut arms, &mut t, &format!("{yudh}\x1b[C{alaph}"));
+    assert_ne!(
+        after_beth, after_yudh,
+        "the premise: the rlig reads the beth"
+    );
+    let slant = "\x1b[3m\x1b[17 ]";
+    let alone = alaph_cell(&mut arms, &mut t, &format!("{beth}\x1b[C{slant}{alaph}"));
+    let both = alaph_cell(&mut arms, &mut t, &format!("{slant}{beth}\x1b[C{alaph}"));
+    let both_yudh = alaph_cell(&mut arms, &mut t, &format!("{slant}{yudh}\x1b[C{alaph}"));
+    assert_ne!(alone, after_beth, "the premise: 17 slants the alaph");
+    assert_ne!(both, both_yudh, "17: the slanted alaph reads its beth");
+    assert_eq!(
+        both, alone,
+        "17: the slanted beth is read on its upright face"
+    );
+    let asked = alaph_cell(
+        &mut arms,
+        &mut t,
+        &format!("{beth}\x1b[C\x1b[8 ]{alaph}\x1b[C{beth}"),
+    );
+    assert_eq!(asked, after_beth, "8: final, with its word");
+    assert_ne!(asked, after_yudh, "8: not the final drawn alone");
+}
+
+/// **A status line's joined letter reads its word, on every arm**, as a
+/// main row's does: an alaph after a beth on the host-writable status line
+/// draws the wider final Noto Sans Syriac's `rlig` picks after a beth, the
+/// pixels of the same alaph on a row of the main display, and not the one
+/// after a yudh. Each status line is written from its first column, and
+/// each alaph's cell is checked to hold ink before the two are compared.
+#[test]
+fn a_status_lines_letter_reads_its_word_on_every_arm() {
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+    ];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let (beth, yudh, alaph) = ('\u{0712}', '\u{071D}', '\u{0710}');
+    let main = alaph_cell(&mut arms, &mut t, &format!("{beth}\x1b[C{alaph}"));
+    let status = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, first: char| {
+        feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[8h");
+        feed(
+            t,
+            format!("\x1b[2$~\x1b[1$}}\x1b[2K\x1b[1G\u{5D0} {first}\x1b[C{alaph}\x1b[0$}}")
+                .as_bytes(),
+        );
+        arms.renderer.fit(t);
+        let frame = three_arms(arms, t, "the status line");
+        let row = t.view(Rows::ZERO).rows().index();
+        let cell = crop_cell(arms, &frame, (row, 4));
+        assert!(
+            cell.iter().any(|&p| p != cell[0]),
+            "the premise: the alaph after {first:?} is drawn in the cell compared"
+        );
+        cell
+    };
+    let on_status = status(&mut arms, &mut t, beth);
+    let on_status_yudh = status(&mut arms, &mut t, yudh);
+    assert_eq!(
+        status(&mut arms, &mut t, beth),
+        on_status,
+        "the premise: a second status line written over the first draws as it"
+    );
+    assert_ne!(on_status, on_status_yudh, "the status line's rlig reads");
+    assert_eq!(on_status, main, "the status line's alaph as a main row's");
+}
+
 /// **The cell path with BDSM reset finds a row's joins again only when the
 /// copy's compare finds the row changed** (`Screens::take`, research
 /// decision D4): once the renderer has shaped a letter that takes a joining
@@ -11433,12 +11785,13 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
             r.rejoin_bidi(t, Rows::ZERO, how, |row| screens.changed(row));
         }
         let mut fresh = baud_render::Reorder::new();
+        fresh.set_reach(r.joined_reach());
         fresh.lay_out(t, Rows::ZERO);
         for y in 0..usize::from(WS.ws_row) {
             let row = Row::from_index(y);
             assert_eq!(
-                r.bidi().joins(row),
-                fresh.orders().joins(row),
+                r.bidi().row_joins(row),
+                fresh.orders().row_joins(row),
                 "row {y}: the kept joins are not the screen's"
             );
         }

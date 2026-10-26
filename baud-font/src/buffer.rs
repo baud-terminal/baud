@@ -8,11 +8,12 @@
 //! base's cluster, which is how it inherits the base's cell. That is the
 //! whole of the bookkeeping Windows Terminal's rule (D8) needs.
 //!
-//! **A pass can only shrink the buffer.** The lookup types this crate
-//! implements substitute one-for-one or many-for-one, and `morx` type 2
-//! deletes components; nothing inserts. So the slice the caller hands over
-//! for the input is enough for every output, and there is no growth path
-//! to get wrong.
+//! **A pass shrinks the buffer, and grows it only by a multiple
+//! substitution.** Every other lookup type this crate implements
+//! substitutes one-for-one or many-for-one, and `morx` type 2 deletes
+//! components. `GSUB` type 2 puts glyphs in after the one it replaces, in
+//! the slice the caller handed over: a sequence that does not fit is not
+//! substituted, so the buffer never reaches past the caller's slice.
 
 use crate::bytes::{Count, Index};
 use crate::ignorable::DEFAULT_IGNORABLE;
@@ -109,8 +110,10 @@ pub struct Forms {
 
 impl Forms {
     /// The most cells a run gives forms to; a cell past it takes none. A
-    /// renderer shapes a joined cell alone and a lam-alef pair together,
-    /// and a run of its is 32 cells at most.
+    /// renderer shapes a joined cell, or a lam-alef pair, with at most 16
+    /// cells of its word either side, 34 cells for a lam-alef pair, and
+    /// any other run of its is 32 cells at most (`baud-render`'s
+    /// `RUN_CELLS`).
     pub const CELLS: usize = 64;
 
     pub const NONE: Forms = Forms {
@@ -216,6 +219,25 @@ impl<'b> Buffer<'b> {
     pub fn as_mut_slice(&mut self) -> &mut [Glyph] {
         let n = self.len.slot();
         self.glyphs.get_mut(..n).unwrap_or(&mut [])
+    }
+
+    /// How many more glyphs the storage holds.
+    pub fn room(&self) -> Count {
+        Count::of(u32::try_from(self.glyphs.len().saturating_sub(self.len.slot())).unwrap_or(0))
+    }
+
+    /// Puts `g` in after glyph `i`, moving the glyphs after it up one;
+    /// `None`, and nothing moved, when the storage is full or `i` is not a
+    /// live glyph.
+    pub fn insert(&mut self, i: Index, g: Glyph) -> Option<()> {
+        if !self.len.holds(i) || self.room().is_zero() {
+            return None;
+        }
+        let (at, n) = (i.slot() + 1, self.len.slot());
+        self.glyphs.copy_within(at..n, at + 1);
+        *self.glyphs.get_mut(at)? = g;
+        self.len = Count::of(self.len.value().checked_add(1)?);
+        Some(())
     }
 
     /// Removes glyph `i`, closing the gap.

@@ -4,19 +4,24 @@
 //! order, with its script and direction guessed: HarfBuzz's Arabic shaper
 //! picks each letter's form from its neighbours and forms the lam-alef
 //! ligature. Here the word is joined by baud's own rules
-//! ([`baud_domain::join`], `[[source: unicode-ch9]]` 9.2.2 and 9.2.3) and
-//! each cell is shaped alone in the form they give it -- the lam-alef pair
-//! together -- which is what a renderer draws, and the glyphs, their
-//! clusters and their offsets must be hb-shape's. A face that joins through
+//! ([`baud_domain::join`] and [`baud_domain::alaphs`],
+//! `[[source: unicode-ch9]]` 9.2.2, 9.2.3 and 9.3) and each cell is shaped
+//! in the form they give it -- the lam-alef pair together -- with as many
+//! of the word's cells either side of it as context as the face's rules
+//! reach ([`baud_font::joined_reach`]), keeping its own glyphs, which is
+//! what a renderer draws, and the glyphs, their clusters and their offsets
+//! must be hb-shape's. A face that joins through
 //! `morx` (Geeza Pro) is drawn through the presentation forms its `cmap`
 //! maps, and is held to HarfBuzz by outline rather than by glyph id: the
 //! two name different glyphs that draw the same contours.
 
 use baud_domain::{
-    Classified, Codepoint, GlyphId, GraphemeClass, JoiningForm, JoiningType, Width, join, lam_alefs,
+    Classified, Codepoint, GlyphId, GraphemeClass, JoiningForm, JoiningType, Width, alaphs, join,
+    lam_alefs,
 };
 use baud_font::{
-    Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Script, Shaper, Sink, Unresolved, resolve,
+    Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Script, Shaper, Sink, Unresolved,
+    joined_reach, keeps_its_cells, resolve,
 };
 
 struct HbGlyph {
@@ -136,13 +141,32 @@ fn contours(face: &Face<'_>, id: GlyphId) -> Contours {
     c
 }
 
-/// One word joined and shaped cell by cell: each glyph's id, cell and
-/// offset from its cell's origin, in logical order, and how many
-/// lam-alef pairs were shaped together.
-fn joined(face: &Face<'_>, cps: &[Codepoint]) -> (Vec<(GlyphId, Cluster, i32, i32)>, usize) {
+/// The forms R1-R7 and S1-S3 give `cps`, one run.
+fn forms_of(cps: &[Codepoint]) -> Vec<Option<JoiningForm>> {
     let types: Vec<JoiningType> = cps.iter().map(|c| JoiningType::of(c.value())).collect();
+    let values: Vec<u32> = cps.iter().map(|c| c.value()).collect();
     let mut forms = vec![None; cps.len()];
     join(&types, &mut forms);
+    alaphs(&values, &types, &mut forms);
+    forms
+}
+
+/// One word joined and shaped cell by cell, each cell with as many of the
+/// word's cells either side as the face's rules reach: each glyph's id,
+/// cell and offset from its cell's origin, in logical order, and how many
+/// lam-alef pairs were shaped together.
+fn joined(face: &Face<'_>, cps: &[Codepoint]) -> (Vec<(GlyphId, Cluster, i32, i32)>, usize) {
+    joined_within(face, cps, joined_reach(face))
+}
+
+/// [`joined`] with `reach` cells of context either side.
+fn joined_within(
+    face: &Face<'_>,
+    cps: &[Codepoint],
+    reach: baud_font::bytes::Count,
+) -> (Vec<(GlyphId, Cluster, i32, i32)>, usize) {
+    let reach = usize::try_from(reach.value()).unwrap();
+    let forms = forms_of(cps);
     let values: Vec<u32> = cps.iter().map(|c| c.value()).collect();
     let mut pairs = Vec::new();
     lam_alefs(&values, &forms, |lam, alef, _| pairs.push((lam, alef)));
@@ -155,7 +179,8 @@ fn joined(face: &Face<'_>, cps: &[Codepoint]) -> (Vec<(GlyphId, Cluster, i32, i3
     resolve(&unresolved, &mut settled);
     let cell_of = |i: usize| cells.iter().position(|r| r.contains(&i)).unwrap();
     let mut out = Vec::new();
-    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
+    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+    let mut storage2 = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
     let push = |shaper: &mut Shaper<'_, '_, '_>, k: usize, r: &core::ops::Range<usize>| {
         let at = Cluster(u16::try_from(k).unwrap());
         match forms[r.start] {
@@ -170,17 +195,33 @@ fn joined(face: &Face<'_>, cps: &[Codepoint]) -> (Vec<(GlyphId, Cluster, i32, i3
         let pair = pairs
             .iter()
             .find(|&&(lam, alef)| cell_of(lam) == k && cell_of(alef) == k + 1);
-        let mut shaper = Shaper::new(face, &mut storage);
-        push(&mut shaper, k, &cells[k]);
         let take = match pair {
             Some(_) => {
-                push(&mut shaper, k + 1, &cells[k + 1]);
                 ligated += 1;
                 2
             }
             None => 1,
         };
-        let (buf, done) = shaper.finish(Features::JOINING, settled[k]);
+        // The cell, or the pair, with `reach` cells of the word before and
+        // after it.
+        let (lo, hi) = (k.saturating_sub(reach), (k + take + reach).min(cells.len()));
+        let mut shaper = Shaper::new(face, &mut storage);
+        for (i, r) in cells.iter().enumerate().take(hi).skip(lo) {
+            push(&mut shaper, i, r);
+        }
+        let (mut buf, mut done) = shaper.finish(Features::JOINING, settled[k]);
+        // A word that took the cell's letters into a glyph across cells
+        // is not drawn: the cell is shaped alone, as a renderer does.
+        let own = Cluster(u16::try_from(k).unwrap())..Cluster(u16::try_from(k + take).unwrap());
+        let spans: Vec<(Cluster, Cluster)> =
+            buf.as_slice().iter().map(|g| (g.cluster, g.last)).collect();
+        if !keeps_its_cells(own, spans) {
+            let mut alone = Shaper::new(face, &mut storage2);
+            for (i, r) in cells.iter().enumerate().take(k + take).skip(k) {
+                push(&mut alone, i, r);
+            }
+            (buf, done) = alone.finish(Features::JOINING, settled[k]);
+        }
         // A `morx` face's chains may hold subtables baud declines, which
         // `morx.txt`'s fixtures cover; every other face runs whole.
         assert!(
@@ -188,7 +229,9 @@ fn joined(face: &Face<'_>, cps: &[Codepoint]) -> (Vec<(GlyphId, Cluster, i32, i3
             "{cps:04X?}: lookups declined"
         );
         for g in buf.as_slice() {
-            out.push((g.id, g.cluster, i32::from(g.dx), i32::from(g.dy)));
+            if (k..k + take).contains(&usize::from(g.cluster.0)) {
+                out.push((g.id, g.cluster, i32::from(g.dx), i32::from(g.dy)));
+            }
         }
         k += take;
     }
@@ -257,6 +300,11 @@ struct Reached {
     joined_forms: Count,
     ligatures: Count,
     departed: Count,
+    /// Alaph's three forms of its own, fin2, fin3 and med2.
+    alaph_forms: Count,
+    /// Lines a cell of which draws other glyphs shaped alone than shaped
+    /// with its word around it.
+    by_context: Count,
 }
 
 /// **Every line of `arabic.txt` joins as hb-shape joined it.** The macOS
@@ -317,6 +365,35 @@ fn every_mongolian_and_phags_pa_fixture_joins_as_harfbuzz_does() {
     assert_eq!(r.departed, Count(0));
 }
 
+/// **Every line of `contextual.txt` joins as hb-shape joined it**: Syriac
+/// on Noto Sans Syriac, alaph's fin2 after he, waw and alaph, fin3 after
+/// dalath and rish, med2 inside a word, and the variant its `rlig` picks
+/// for an alaph after beth, lamadh or kaph, which reads the letter before
+/// it; and Arabic on SF Arabic, macOS's own Arabic face, whose `rclt`
+/// takes dotted letters apart into a skeleton and dots, by a multiple
+/// substitution, and picks variants from the letters around them. The
+/// macOS faces' lines run on macOS only; the built Regular's are the
+/// control. On macOS 15 of the lines or more draw a cell otherwise shaped
+/// alone than with its word around it: what the context is for.
+#[test]
+fn every_contextual_fixture_joins_as_harfbuzz_does() {
+    let r = joins_as_harfbuzz_does("contextual.txt", Laid::RightToLeft);
+    match cfg!(target_os = "macos") {
+        true => {
+            assert!(
+                r.compared.0 >= 110 && r.alaph_forms.0 >= 20 && r.by_context.0 >= 15,
+                "{:?} {:?} {:?}",
+                r.compared,
+                r.alaph_forms,
+                r.by_context
+            );
+            assert!(r.joined_forms.0 >= 80, "{:?}", r.joined_forms);
+        }
+        false => assert!(r.compared.0 >= 50),
+    }
+    assert_eq!(r.departed, Count(0));
+}
+
 /// Every line of `file`, laid out by hb-shape the way `laid` says, joined
 /// and shaped cell by cell and held to it.
 fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
@@ -329,6 +406,7 @@ fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
     let mut mismatches = Vec::new();
     let (mut compared, mut by_outline, mut joined_forms, mut ligatures, mut fallback) =
         (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut alaph_forms, mut by_context) = (0usize, 0usize);
     let mut departed = 0usize;
     for line in text
         .lines()
@@ -442,18 +520,22 @@ fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
         by_outline += usize::from(morx);
         fallback += usize::from(renamed);
         ligatures += ligated;
-        let types: Vec<JoiningType> = cps.iter().map(|c| JoiningType::of(c.value())).collect();
-        let mut forms = vec![None; cps.len()];
-        join(&types, &mut forms);
+        let forms = forms_of(&cps);
         joined_forms += forms
+            .iter()
+            .filter(|f| !matches!(f, None | Some(JoiningForm::Isolated)))
+            .count();
+        alaph_forms += forms
             .iter()
             .filter(|f| {
                 matches!(
                     f,
-                    Some(JoiningForm::Final | JoiningForm::Initial | JoiningForm::Medial)
+                    Some(JoiningForm::Final2 | JoiningForm::Final3 | JoiningForm::Medial2)
                 )
             })
             .count();
+        let alone = joined_within(&face, &cps, baud_font::bytes::Count::ZERO).0;
+        by_context += usize::from(!control && alone != got);
     }
     assert!(
         mismatches.is_empty(),
@@ -468,6 +550,8 @@ fn joins_as_harfbuzz_does(file: &str, laid: Laid) -> Reached {
         joined_forms: Count(joined_forms),
         ligatures: Count(ligatures),
         departed: Count(departed),
+        alaph_forms: Count(alaph_forms),
+        by_context: Count(by_context),
     }
 }
 
@@ -507,4 +591,51 @@ fn courier_new_s_forms_are_its_presentation_form_glyphs() {
         }
     }
     assert!(checked >= 100, "{checked}");
+}
+
+/// **A word's context takes no letter into a ligature across cells**:
+/// SF Arabic's `rlig` forms the word Allah from alef, lam, lam and heh
+/// with no shadda, which 9.2.11 says should not form "in the absence of
+/// the shadda and the superscript alef", and lam, lam and heh into one
+/// glyph, a ligature the standard does not make obligatory (9.2.3). Each
+/// cell is drawn from its own glyphs: a cell whose word would take it into
+/// a glyph across cells is shaped alone ([`keeps_its_cells`]). The control:
+/// the same word shaped whole, as hb-shape shapes it, ligates. macOS only,
+/// as the face is.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_word_takes_no_letter_into_a_ligature_across_cells() {
+    let data = std::fs::read("/System/Library/Fonts/SFArabic.ttf").unwrap();
+    let face = Face::parse(&data).unwrap();
+    for word in [
+        &[0x0627u32, 0x0644, 0x0644, 0x0647][..],
+        &[0x0644, 0x0644, 0x0647],
+    ] {
+        let cps: Vec<Codepoint> = word.iter().map(|&c| Codepoint::new(c).unwrap()).collect();
+        let (got, _) = joined(&face, &cps);
+        for k in 0..cps.len() {
+            let cell = Cluster(u16::try_from(k).unwrap());
+            assert!(
+                got.iter().any(|g| g.1 == cell),
+                "{word:04X?}: cell {k} draws no glyph of its own"
+            );
+        }
+        // The control: shaped whole, the word ligates across cells.
+        let forms = forms_of(&cps);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
+        let mut whole = Shaper::new(&face, &mut storage);
+        for (i, c) in cps.iter().enumerate() {
+            let at = Cluster(u16::try_from(i).unwrap());
+            match forms[i] {
+                Some(f) => whole.push_joined(&[*c], at, f),
+                None => whole.push_cluster(&[*c], at),
+            }
+            .unwrap();
+        }
+        let (buf, _) = whole.finish(Features::JOINING, Script::of(cps[0]));
+        assert!(
+            buf.as_slice().iter().any(|g| g.last != g.cluster),
+            "{word:04X?}: the control, shaped whole it ligates"
+        );
+    }
 }

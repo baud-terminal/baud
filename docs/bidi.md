@@ -211,6 +211,36 @@ the screen; step 3 joins Arabic letters.
   and from the presentation forms its `cmap` maps on a face with no such
   features. `arabic_letters_draw_joined_on_every_arm` holds the three draw
   paths to the same pixels, and to the presentation forms written out.
+- **Syriac's alaph takes its own forms, and each letter is drawn with the
+  letters of its word around it.** An alaph that ends its word after a
+  letter that does not join it is drawn in its `fin2` form, and after
+  dalath or rish in its `fin3` form (`[[source: unicode-ch9]]` 9.3, S2
+  and S3); after a letter that joins it, it stays `fina` (S1); and one
+  joined inside a word is drawn in its `med2` form (`[[source:
+  ms-syriac-script-development]]`, the OpenType Syriac model). An alaph
+  alone after a space or ZWNJ is drawn as it is at the start of a line,
+  as HarfBuzz and CoreText draw it (Jev ISOLATED_AFTER_SPACE,
+  0.98/0.98). Every joined letter is shaped
+  with as many letters of its word before and after it, in logical order,
+  as its face's rules read, up to 16 a side, across a soft wrap and past
+  erased cells as joining reaches, each rule meeting the letters it reads:
+  a face's required ligatures and its
+  contextual alternates across letters (`rlig`, `rclt`, `calt`) are drawn,
+  Noto Sans Syriac's wider alaph after a beth and SF Arabic's dotted
+  letters taken apart into skeletons and dots among them. `rclt` and
+  `calt` run as one stage, the union of their lookups in lookup order
+  (`[[source: ms-opentype-chapter2]]`), after `rlig`, as the Arabic model
+  orders them (`[[source: ms-arabic-script-development]]`). The glyphs are
+  exact against hb-shape on Noto Sans Syriac and SF Arabic
+  (`every_contextual_fixture_joins_as_harfbuzz_does`), and the draw paths
+  agree (`a_joined_letter_reads_its_word_on_every_arm`); a letter whose
+  word changes on another row is drawn again
+  (`a_changed_word_repaints_the_row_of_the_letter_that_reads_it`). A face
+  that would take letters into a glyph across cells, as SF Arabic's `rlig`
+  forms the word Allah with no shadda, which 9.2.11 says it should not,
+  draws each of those letters alone in its cell, as the grid draws no
+  ligature but lam-alef
+  (`a_word_takes_no_letter_into_a_ligature_across_cells`).
 - **With the mode off, Arabic still joins, in the order it is displayed**,
   the order 9.2.2 states the rules in: a program that writes Arabic already
   reversed sees it joined, and one that sends presentation forms (vim's
@@ -243,6 +273,9 @@ the screen; step 3 joins Arabic letters.
   (`the_status_line_reads_no_line_of_the_main_display_as_context`). The
   cell path draws it as the instance path does
   (`the_cell_path_draws_the_status_line_as_the_instance_path_does`).
+  Its Arabic and Syriac letters are shaped with their words, as a
+  screen line's are (`arabic_on_a_hebrew_status_line_joins_with_its_word`,
+  `a_status_lines_letter_reads_its_word_on_every_arm`).
 - **A picture after a Hebrew caption sits after it.** A Sixel, a kitty
   picture or an iTerm2 image anchored on a row drawn right to left is
   placed mirrored, its box `cols - (col + w)` from the left, by the
@@ -279,6 +312,12 @@ the screen; step 3 joins Arabic letters.
   (`value_17_slants_right_to_left_italics_to_the_left`); left-to-right
   italics lean right as the italic face draws them, and an italic the
   stack has no italic face for is drawn upright either way.
+  A letter drawn in a form a program asked is shaped with the letters of
+  its word around it, joined or not, so a face's contextual shapes still
+  fit its neighbours, and they read it in the form asked
+  (`a_form_asked_wins_over_the_word_and_the_word_reads_it`); a word
+  slanted under 17 reads its own letters as it does upright
+  (`sapv_meets_a_letters_word_on_every_arm`).
 
 ## What decided each choice
 
@@ -309,6 +348,7 @@ requests and the renders it was shown are in
 | the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) | 0.94 / 0.97 |
 | a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row | 0.97 / 0.98 |
 | SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) | 0.98 / 0.96 |
+| an alaph after a space or ZWNJ | isolated, as at a line's start: S2's character to its right is a letter of the word, as HarfBuzz and CoreText read it | 0.98 / 0.98 (re-ask; 0.94 / 0.88 first) |
 
 **Decided by the owner** (2026-10-24):
 
@@ -367,6 +407,7 @@ veto each:**
 | a form a letter has not got | the nearest it has, as a joiner beside it asks (Unicode 23.2) | 0.56 / 0.34, 0.22 / 0.40 |
 | 20, "device dependent" digits | as stored | 0.86 / 0.66, 0.86 / 0.82 |
 | `DECSTR` | the default presentation | 0.44 / 0.50, 0.32 / 0.22 |
+| a letter 5 to 8 asks a form of, inside a word | shaped in that form with its word around it, as a joiner beside it is ("change the context of a particular character occurrence", Unicode 23.2), so `rlig`, `rclt` and `calt` pick that form's variant (`docs/research/notes/ab/b216r/`) | 0.60 / 0.48, 0.90 / 0.86 |
 
 **15, where mirroring is the default, is Jev's lean,
 UNMIRROR_EXPLICIT_ONLY, in three of four answers; the owner can veto
@@ -506,6 +547,19 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   that holds Arabic paid for joining it: vim-unicode +0.6% with the mode
   on and +1.6% with it off, where the first joining letter a renderer
   draws has its rows converted twice, once.
+- **The letters around a joined letter cost a row without one nothing
+  measured.** A joined cell's run is cached with its word, and a row with
+  no joined cell gathers and shapes its runs as before. The `frame` bench,
+  against the base with the walk over a run's lookups that this step makes
+  read only the lookups a feature names: btop's instructions overlap the
+  base's in both modes, and less-pager and asciiquarium, which hold no
+  letter that joins and miss the run cache more, retire 0.5% to 0.7%
+  fewer; cat-cjk, whose recording holds 537 letters that join, retires
+  0.05% more with the mode on and 0.14% with it off, its ranges apart.
+  Against the base as it was, btop retires 0.8% fewer and cat-cjk 10%
+  fewer (10.2% with the mode on, 9.9% with it off). Unmeasured: the cell
+  path gathers each joined cell's word, its faces and codepoints, every
+  frame before its cache lookup.
 - **The two rules that scan more than once are linear, measured.** N0
   scans each bracket pair's contents, and for a pair holding only the
   opposite direction the text before it; BD16's stack of 63 bounds how
@@ -577,14 +631,26 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
 - SRS, SDS and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
-- **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
-  Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a
+- **No face of the default stack draws Arabic or Syriac on macOS**: each
+  letter is a box until a configured font draws it (measured: the embedded
+  faces, Menlo, Apple Color Emoji, Apple Symbols, Hiragino Sans GB, Apple
+  SD Gothic Neo, Kohinoor and STIX map neither beh nor alaph). Which face
+  draws them is note AC's question.
+- **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above
   the window, or is above it while looking back, keeps its final form, the
   ligature being on a row not drawn; no discretionary ligature is drawn (the grid's `liga` is off); a
-  face's contextual lookups across letters (`calt`, `rclt`) are not run,
-  each letter being shaped alone; a face that joins through `morx` (Geeza
+  face whose rules read more than 16 letters either side is shaped with
+  16, and a rule that reads what another made from a letter past the
+  reach can draw otherwise than the word shaped whole; `mset` and `curs`,
+  which the Arabic model always applies, are not
+  run, and none of the five faces the joining fixtures shape carries
+  them; GPOS contextual positioning (type 7) is not built; a face whose
+  grid features hold a type 5 or 8 lookup admits every pair to the
+  ligature prefilter rather than walking its rules; `rclt` is run for a
+  run that holds a letter that joins and not for one that holds none; a
+  face that joins through `morx` (Geeza
   Pro) is drawn through its presentation forms, which differ from its own
   chains where those pick an alternate (a final farsi yeh) or form the
   Allah ligature without the shadda 9.2.11 asks for.

@@ -1,13 +1,17 @@
 //! `GSUB` (`[[source: ms-opentype-gsub]]`): the substitution lookups a
 //! grid needs, and no others.
 //!
-//! **Types 1, 4, 6 and 7.** Single substitution (both formats), ligature
-//! substitution, chained contexts in all three formats, and the extension
-//! wrapper -- the set the register (D8) fixed from what programming-ligature
-//! fonts and Noto's emoji build actually use: Fira Code's `calt` is chained
-//! contexts driving single substitutions, Noto's `ccmp` is ligatures. Types
-//! 2, 3, 5 and 8 answer nothing; a font that leans on them shapes as if the
-//! feature were absent, which is the honest form of not implementing it.
+//! **Every type a feature the grid applies can reach: 1, 2, 4, 5, 6, 7 and
+//! 8.** Single substitution (both formats), multiple substitution,
+//! ligature substitution, contexts and chained contexts in all three
+//! formats, the extension wrapper, and reverse chaining -- what
+//! programming-ligature fonts, Noto's emoji build and the joining scripts'
+//! faces use: Fira Code's `calt` chained contexts driving single
+//! substitutions and a multiple one, Noto's `ccmp` ligatures, SF Arabic's
+//! `rclt` taking a dotted letter apart into its skeleton and its dots, and
+//! Noto Sans Mongolian's `calt` contexts and reverse chains. Type 3, the
+//! alternates a user picks from, answers nothing: no feature the grid
+//! applies is one a user picks from.
 //!
 //! **Matching skips what the lookup flags say to skip**, through
 //! [`Filter`], and treats a default-ignorable glyph the way HarfBuzz's
@@ -15,15 +19,19 @@
 //! over when it does not, so a ZWJ inside an emoji sequence is consumed by
 //! the ligature that expects it and invisible to a lookup that does not.
 //!
-//! **The buffer only shrinks**, so every position bookkeeping problem is
-//! one of glyphs removed *before* a position: a nested lookup that forms a
-//! ligature inside a matched input sequence reports how many glyphs it
-//! took, and the positions after it move down by that many.
+//! **The buffer shrinks, and grows only by a multiple substitution**, so
+//! every position bookkeeping problem is one of glyphs removed before a
+//! position or put in after one: a nested lookup that forms a ligature
+//! inside a matched input sequence reports how many glyphs it took, and
+//! the positions after it move down by that many; one that puts glyphs in
+//! reports how many, and the positions after it move up. A substitution
+//! the caller's storage cannot hold is declined whole.
 
-use crate::buffer::{Buffer, Cluster, Forms};
+use crate::buffer::{Attached, Buffer, Cluster, Forms, Mark};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::context::{
-    Applied, Depth, Matched, Nested, Which, bump, chained, coverage_at, match_input, same, seen,
+    Applied, Delta, Depth, Matched, Nested, Which, bump, chained, contextual, coverage_at,
+    match_ahead, match_back, match_input, same, seen,
 };
 use crate::layout::{
     Class, ClassDef, Coverage, Digest, Enabled, FeatureTag, Features, Filter, Gdef, Kind, Layout,
@@ -72,13 +80,16 @@ impl<'a> Gsub<'a> {
     }
 
     /// Whether the language system text in `script` selects names any of
-    /// the four joining forms, `isol`, `fina`, `medi` or `init`: whether the
-    /// face draws a joining letter's form itself.
+    /// the joining forms, `isol`, `fina`, `fin2`, `fin3`, `medi`, `med2` or
+    /// `init`: whether the face draws a joining letter's form itself.
     pub fn draws_forms(&self, script: Script) -> bool {
         [
             FeatureTag::ISOL,
             FeatureTag::FINA,
+            FeatureTag::FIN2,
+            FeatureTag::FIN3,
             FeatureTag::MEDI,
+            FeatureTag::MED2,
             FeatureTag::INIT,
         ]
         .into_iter()
@@ -101,16 +112,32 @@ impl<'a> Gsub<'a> {
         set.declined()
     }
 
-    /// **A buffer holding a joining letter, in the Arabic shaping order**:
-    /// `ccmp` first, with the language system's required feature; then
-    /// `isol`, `fina`, `medi` and `init`, each a stage of its own and each
-    /// applied only to the glyphs given its form; then `rlig`; then the rest
-    /// of `features`. That is the order the OpenType Arabic model applies
-    /// its features in, and HarfBuzz's Arabic shaper's stages
-    /// (`collect_features()` in hb-ot-shaper-arabic.cc, read as reference):
+    /// **A buffer holding a joining letter, in the Arabic and Syriac shaping
+    /// order**: `ccmp` first, with the language system's required feature;
+    /// then `isol`, `fina`, `fin2`, `fin3`, `medi`, `med2` and `init`, each
+    /// a stage of its own and each applied only to the glyphs given its
+    /// form; then `rlig`; then `rclt` with the rest of `features`, `calt`
+    /// among them. That is the order the OpenType Arabic and Syriac models
+    /// apply their features in (`[[source: ms-arabic-script-development]]`,
+    /// its standard order ccmp, isol, fina, medi, init, rlig, rclt, calt;
+    /// `[[source: ms-syriac-script-development]]`, ccmp, isol, fina, fin2,
+    /// fin3, medi, med2, init, rlig, calt), and HarfBuzz's Arabic shaper's
+    /// stages for the forms (`collect_features()`,
+    /// `[[source: harfbuzz-14-5-1-shaper-arabic]]`, read as reference):
     /// a form's lookups never meet a glyph another stage has yet to give
     /// its form. A form's lookup is tried only where its first input glyph
     /// carries the form; the glyphs it reads around that are not filtered.
+    ///
+    /// **`rclt` and `calt` are one stage**, "the union of lookups
+    /// referenced by all of those features ... processed in their lookup
+    /// list order" (`[[source: ms-opentype-chapter2]]`), as HarfBuzz runs
+    /// them: the Arabic model asks a face to put its `rclt` items in its
+    /// `calt` as well, for systems that know no `rclt`, and Noto Sans
+    /// Mongolian's two features name the same 78 lookups, which two stages
+    /// would run twice. HarfBuzz runs `rlig` in that stage too for a script
+    /// other than Arabic, where the Syriac model orders it first; a face
+    /// whose `rlig` and `calt` lookups interleave is shaped in the model's
+    /// order.
     pub(crate) fn apply_joined(
         &self,
         buf: &mut Buffer<'_>,
@@ -137,7 +164,10 @@ impl<'a> Gsub<'a> {
         for form in [
             JoiningForm::Isolated,
             JoiningForm::Final,
+            JoiningForm::Final2,
+            JoiningForm::Final3,
             JoiningForm::Medial,
+            JoiningForm::Medial2,
             JoiningForm::Initial,
         ] {
             let tag = FeatureTag::of_form(form);
@@ -151,7 +181,7 @@ impl<'a> Gsub<'a> {
             .lookups_where(script, Required::Left, |t| t == FeatureTag::RLIG);
         stage(rlig, None, buf);
         let rest = self.layout.lookups_where(script, Required::Left, |t| {
-            t != FeatureTag::CCMP && !t.is_joining() && features.wants(t)
+            t == FeatureTag::RCLT || (t != FeatureTag::CCMP && !t.is_joining() && features.wants(t))
         });
         stage(rest, None, buf);
         declined
@@ -238,6 +268,10 @@ impl<'a> Gsub<'a> {
                 let read = match kind {
                     Kind::LIGATURE => Gsub::ligature_pairs(sub, sink),
                     Kind::CHAINED => Gsub::chained_pairs(sub, sink),
+                    // A context or a reverse chain is not walked for its
+                    // pairs: the face admits every pair, as an unreadable
+                    // one does.
+                    Kind::CONTEXT | Kind::REVERSE => None,
                     _ => Some(()),
                 };
                 if read.is_none() {
@@ -266,7 +300,9 @@ impl<'a> Gsub<'a> {
                 let (kind, sub) = lookup.subtable(k, Kind::GSUB_EXTENSION)?;
                 let here = match kind {
                     Kind::LIGATURE => Gsub::ligature_extent(sub)?,
+                    Kind::CONTEXT => Gsub::context_extent(sub)?,
                     Kind::CHAINED => Gsub::chained_extent(sub)?,
+                    Kind::REVERSE => Gsub::reverse_extent(sub)?,
                     _ => Count::of(1u16),
                 };
                 if here.value() > widest.value() {
@@ -276,6 +312,59 @@ impl<'a> Gsub<'a> {
             }
         }
         Some(widest)
+    }
+
+    /// A context's longest input: each rule's glyph count in formats 1 and
+    /// 2, the subtable's in format 3.
+    fn context_extent(sub: Bytes<'a>) -> Option<Count> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        match format {
+            1 | 2 => {
+                let sets_at = match format {
+                    1 => Offset::of(4u32),
+                    _ => Offset::of(6u32),
+                };
+                let set_count: u16 = sub.read(sets_at)?;
+                let sets: Array<'a, u16> =
+                    sub.array(sets_at.plus(Len::of(2))?, Count::of(set_count))?;
+                let mut widest = Count::of(1u16);
+                let mut si = Index::ZERO;
+                while let Some(off) = sets.get(si) {
+                    si = si.next();
+                    if off == 0 {
+                        continue;
+                    }
+                    let set = sub.tail(Offset::of(u32::from(off)))?;
+                    let rule_count: u16 = set.read(Offset::ZERO)?;
+                    let rules: Array<'a, u16> =
+                        set.array(Offset::of(2u32), Count::of(rule_count))?;
+                    let mut ri = Index::ZERO;
+                    while let Some(off) = rules.get(ri) {
+                        ri = ri.next();
+                        let rule = set.tail(Offset::of(u32::from(off)))?;
+                        let input_n: u16 = rule.read(Offset::ZERO)?;
+                        if u32::from(input_n) > widest.value() {
+                            widest = Count::of(input_n);
+                        }
+                    }
+                }
+                Some(widest)
+            }
+            3 => Some(Count::of(sub.read::<u16>(Offset::of(2u32))?.max(1))),
+            _ => None,
+        }
+    }
+
+    /// A reverse chain's backtrack, its one glyph and its lookahead.
+    fn reverse_extent(sub: Bytes<'a>) -> Option<Count> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let back_n: u16 = sub.read(Offset::of(4u32))?;
+        let at = Offset::of(6u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+        let ahead_n: u16 = sub.read(at)?;
+        Some(Count::of(back_n.saturating_add(ahead_n).saturating_add(1)))
     }
 
     fn ligature_extent(sub: Bytes<'a>) -> Option<Count> {
@@ -533,7 +622,10 @@ impl<'a> Gsub<'a> {
                 return Digest::ALL;
             };
             let cov = match kind {
-                Kind::SINGLE | Kind::LIGATURE => coverage_at(sub, Offset::of(2u32)),
+                Kind::SINGLE | Kind::MULTIPLE | Kind::LIGATURE | Kind::REVERSE => {
+                    coverage_at(sub, Offset::of(2u32))
+                }
+                Kind::CONTEXT => Gsub::context_first_coverage(sub),
                 Kind::CHAINED => Gsub::chained_first_coverage(sub),
                 _ => None,
             };
@@ -579,6 +671,13 @@ impl<'a> Gsub<'a> {
         digest: Option<Digest>,
         (mask, forms): (JoiningForm, &Forms),
     ) -> Changed {
+        // A reverse chain, or an extension wrapping one, walks the other
+        // way; any other lookup is told apart by its type alone.
+        if lookup.kind == Kind::REVERSE
+            || (lookup.kind == Kind::GSUB_EXTENSION && Gsub::wraps_reverse(lookup))
+        {
+            return self.apply_reverse::<MASKED>(lookup, buf, digest, (mask, forms));
+        }
         let mut changed = Changed::No;
         let mut pos = Index::ZERO;
         while let Some(g) = buf.get(pos) {
@@ -600,6 +699,46 @@ impl<'a> Gsub<'a> {
         changed
     }
 
+    /// Whether an extension lookup wraps a reverse chain.
+    #[inline(never)]
+    fn wraps_reverse(lookup: &Lookup<'a>) -> bool {
+        lookup
+            .subtable(Index::ZERO, Kind::GSUB_EXTENSION)
+            .is_some_and(|(k, _)| k == Kind::REVERSE)
+    }
+
+    /// [`Gsub::apply_lookup`] for a reverse chain: from the last glyph to
+    /// the first. A reverse chain substitutes one glyph for one, so every
+    /// position stays where it was. Out of line, so the walk every other
+    /// lookup takes holds none of it.
+    #[inline(never)]
+    fn apply_reverse<const MASKED: bool>(
+        &self,
+        lookup: &Lookup<'a>,
+        buf: &mut Buffer<'_>,
+        digest: Option<Digest>,
+        (mask, forms): (JoiningForm, &Forms),
+    ) -> Changed {
+        let mut changed = Changed::No;
+        let mut at = buf.len().last();
+        while let Some(pos) = at {
+            at = pos.prev();
+            let Some(g) = buf.get(pos) else {
+                continue;
+            };
+            if seen(&lookup.filter, g) == Skip::Yes
+                || digest.is_some_and(|d| !d.may_have(Digest::of(g.id)))
+                || (MASKED && forms.of(&g) != Some(mask))
+            {
+                continue;
+            }
+            if self.apply_at(lookup, buf, pos, Depth::TOP).is_some() {
+                changed = Changed::Yes;
+            }
+        }
+        changed
+    }
+
     /// Tries each subtable at `pos`; the first that applies wins.
     fn apply_at(
         &self,
@@ -613,8 +752,13 @@ impl<'a> Gsub<'a> {
             let (kind, sub) = lookup.subtable(i, Kind::GSUB_EXTENSION)?;
             let applied = match kind {
                 Kind::SINGLE => self.single(sub, buf, pos),
+                Kind::MULTIPLE => self.multiple(sub, buf, pos),
                 Kind::LIGATURE => self.ligature(sub, &lookup.filter, buf, pos),
+                Kind::CONTEXT => contextual(self, sub, &lookup.filter, buf, pos, depth),
                 Kind::CHAINED => chained(self, sub, &lookup.filter, buf, pos, depth),
+                // Only at the top: HarfBuzz refuses a reverse chain a
+                // contextual lookup names, and so does this.
+                Kind::REVERSE if depth == Depth::TOP => self.reverse(sub, &lookup.filter, buf, pos),
                 _ => None,
             };
             if applied.is_some() {
@@ -649,6 +793,131 @@ impl<'a> Gsub<'a> {
         g.id = GlyphId::from_shaper(out);
         g.class = self.layout.gdef().class(g.id);
         Some(Applied::after(pos))
+    }
+
+    /// **Type 2: one glyph becomes a sequence** (`[[source:
+    /// ms-opentype-gsub]]`, MultipleSubstFormat1: "replaces a single glyph
+    /// with more than one glyph"). Each glyph of the sequence takes the
+    /// first's cells and the codepoint's combining class, its own `GDEF`
+    /// class and, on a face with classes, whether it is a mark; the second
+    /// and later are attached, drawn in the cell rather than advancing it.
+    /// A sequence of one is a single substitution; one of none deletes the
+    /// glyph, as HarfBuzz does with the empty sequence the table says
+    /// should not occur. A sequence the storage cannot hold is declined.
+    #[inline(never)]
+    fn multiple(&self, sub: Bytes<'a>, buf: &mut Buffer<'_>, pos: Index) -> Option<Applied> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let coverage = coverage_at(sub, Offset::of(2u32))?;
+        let g = buf.get(pos)?;
+        let ci = coverage.index(g.id)?;
+        let seq_count: u16 = sub.read(Offset::of(4u32))?;
+        let seqs: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(seq_count))?;
+        let seq = sub.tail(Offset::of(u32::from(seqs.get(ci)?)))?;
+        let n: u16 = seq.read(Offset::ZERO)?;
+        let ids: Array<'a, u16> = seq.array(Offset::of(2u32), Count::of(n))?;
+        let Some(more) = Count::of(n).minus(Count::of(1u32)) else {
+            buf.remove(pos)?;
+            return Some(Applied {
+                next: pos,
+                delta: Delta::removed(Count::of(1u32)),
+            });
+        };
+        if buf.room().value() < more.value() {
+            return None;
+        }
+        let gdef = self.layout.gdef();
+        let written = |id: u16, attached: Attached| {
+            let id = GlyphId::from_shaper(id);
+            let mut out = g;
+            out.id = id;
+            out.class = gdef.class(id);
+            out.attached = attached;
+            if gdef.has_classes() {
+                out.mark = match gdef.is_mark(id) {
+                    true => Mark::Yes,
+                    false => Mark::No,
+                };
+            }
+            out
+        };
+        *buf.get_mut(pos)? = written(ids.get(Index::ZERO)?, g.attached);
+        // Each after the last one written.
+        let mut last = pos;
+        let mut k = Index::ZERO.next();
+        while let Some(id) = ids.get(k) {
+            buf.insert(last, written(id, Attached::Yes))?;
+            last = last.next();
+            k = k.next();
+        }
+        Some(Applied {
+            next: last.next(),
+            delta: Delta::added(more),
+        })
+    }
+
+    /// **Type 8: reverse chaining single substitution**
+    /// (`[[source: ms-opentype-gsub]]`, "is processed in reverse order"):
+    /// the glyph at `pos`, where its backtrack and lookahead coverages
+    /// match, becomes its substitute. [`Gsub::apply_lookup`] walks such a
+    /// lookup from the end of the buffer.
+    #[inline(never)]
+    fn reverse(
+        &self,
+        sub: Bytes<'a>,
+        filter: &Filter<'_>,
+        buf: &mut Buffer<'_>,
+        pos: Index,
+    ) -> Option<Applied> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let coverage = coverage_at(sub, Offset::of(2u32))?;
+        let g = buf.get(pos)?;
+        let ci = coverage.index(g.id)?;
+        let back_n: u16 = sub.read(Offset::of(4u32))?;
+        let back: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(back_n))?;
+        let at = Offset::of(6u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+        let ahead_n: u16 = sub.read(at)?;
+        let ahead: Array<'a, u16> = sub.array(at.plus(Len::of(2))?, Count::of(ahead_n))?;
+        let at = at
+            .plus(Len::of(2))?
+            .plus(Len::of(2).times(Count::of(ahead_n))?)?;
+        let subs_n: u16 = sub.read(at)?;
+        let subs: Array<'a, u16> = sub.array(at.plus(Len::of(2))?, Count::of(subs_n))?;
+        let covers = |off: u16, g: GlyphId| -> bool {
+            sub.tail(Offset::of(u32::from(off)))
+                .and_then(Coverage::parse)
+                .is_some_and(|c| c.covers(g))
+        };
+        match_back(filter, buf, pos, &back, |g, off| covers(off, g))?;
+        match_ahead(filter, buf, pos, &ahead, |g, off| covers(off, g))?;
+        let out = GlyphId::from_shaper(subs.get(ci)?);
+        let g = buf.get_mut(pos)?;
+        g.id = out;
+        g.class = self.layout.gdef().class(out);
+        Some(Applied::after(pos))
+    }
+
+    /// The coverage a contextual subtable's current glyph must be in: the
+    /// subtable's own for formats 1 and 2, the first input coverage for
+    /// format 3.
+    fn context_first_coverage(sub: Bytes<'a>) -> Option<Coverage<'a>> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        match format {
+            1 | 2 => coverage_at(sub, Offset::of(2u32)),
+            3 => {
+                let input_n: u16 = sub.read(Offset::of(2u32))?;
+                if input_n == 0 {
+                    return None;
+                }
+                coverage_at(sub, Offset::of(6u32))
+            }
+            _ => None,
+        }
     }
 
     /// Type 4: a sequence of components becomes one glyph.
@@ -730,7 +999,7 @@ impl<'a> Gsub<'a> {
         }
         Applied {
             next: first.next(),
-            removed,
+            delta: Delta::removed(removed),
         }
     }
 }

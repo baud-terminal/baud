@@ -110,7 +110,7 @@ pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasteriz
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{
     CombiningClass, Kept, MarkPlacement, Normalised, Shaped, Shaper, Substitution, combining_class,
-    decompose, each_decomposable,
+    decompose, each_decomposable, joined_reach, keeps_its_cells,
 };
 
 /// A four-byte table tag, as the directory spells it.

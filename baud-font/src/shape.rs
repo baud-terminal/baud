@@ -145,6 +145,63 @@ impl Substitution {
     }
 }
 
+/// **How many cells either side of a joined cell its shaping reads** on
+/// `face`, in its logical order: the longest sequence a rule of the
+/// joining features can match, a chained rule's backtrack, input and
+/// lookahead together ([`crate::Gsub::extent`]). A joined cell shaped with
+/// that many of its word's cells before and after it as context, and only
+/// its own glyphs kept, meets each rule that can begin or end at it, as a
+/// face's contextual lookups across letters ask (`rlig`, `rclt`, `calt`;
+/// "context before or after the glyph sequence to which the feature is
+/// applied should be considered", `[[source: ms-opentype-features-pt]]`).
+/// A rule that reads what another made from a cell past that reach -- a
+/// cascade, or a reverse chain carrying a change back from a word's end --
+/// can still draw otherwise than the word shaped whole.
+/// None on a face that joins through its presentation forms (`morx`, or
+/// neither table), whose letters are drawn each alone; and none when a
+/// subtable cannot be walked for its bound.
+pub fn joined_reach(face: &Face<'_>) -> Count {
+    match Substitution::of(face) {
+        Substitution::Gsub => face
+            .gsub()
+            .and_then(|g| g.extent(Features::JOINING))
+            .unwrap_or(Count::ZERO),
+        Substitution::Morx | Substitution::Neither => Count::ZERO,
+    }
+}
+
+/// **Whether a joined cell shaped with its word kept to its own cells**:
+/// no glyph that starts on one of `own`'s cells reaches past them, and
+/// each of them is covered by a glyph that starts on one of them, none
+/// taken into a glyph of a cell around it. `spans` are the glyphs' first
+/// and last cells. A face whose `rlig` or `calt` ligates letters across
+/// cells -- SF Arabic forms the word Allah from alef, lam, lam and heh
+/// with no shadda, which 9.2.11 says it should not, and other words of
+/// three letters into one glyph -- would draw a glyph over several cells
+/// from one of them; such a cell is shaped alone instead, as the grid
+/// draws no ligature but lam-alef across cells (D8, `[[source:
+/// unicode-ch9]]` 9.2.3, "Many other Arabic ligatures are discretionary").
+/// A lam-alef pair is one `own` of two cells, and keeps to them.
+pub fn keeps_its_cells(
+    own: core::ops::Range<Cluster>,
+    spans: impl IntoIterator<Item = (Cluster, Cluster)>,
+) -> bool {
+    let mut covered = 0u64;
+    for (first, last) in spans {
+        if first < own.start || first >= own.end {
+            continue;
+        }
+        if last >= own.end {
+            return false;
+        }
+        for c in first.0..=last.0 {
+            covered |= 1u64.checked_shl(u32::from(c - own.start.0)).unwrap_or(0);
+        }
+    }
+    let want = u32::from(own.end.0.saturating_sub(own.start.0));
+    covered.count_ones() == want
+}
+
 /// Whether `face` shapes through `morx` ([`Substitution::of`]).
 fn shapes_through_morx(face: &Face<'_>) -> bool {
     Substitution::of(face) == Substitution::Morx

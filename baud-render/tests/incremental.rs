@@ -181,6 +181,55 @@ fn a_moved_joining_form_repaints_its_row() {
     }
 }
 
+/// **A joined letter whose word changes on another row repaints its row.**
+/// A Syriac alaph wrapped past the margin, after a yudh in the last column
+/// of the row above, draws its plain final form; the yudh written over
+/// with a beth leaves the alaph's row and its form as they were, and only
+/// the letter its shaping reads changes: Noto Sans Syriac's `rlig` picks
+/// a wider final after a beth. The incremental frame equals a full one,
+/// and the premise holds: the full frames differ in the alaph's row. On
+/// Noto Sans Syriac, which macOS ships.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_changed_word_repaints_the_row_of_the_letter_that_reads_it() {
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen};
+    let data = font("JetBrainsMono-Regular.ttf");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&syriac).unwrap()];
+    let mut inc = renderer(&faces);
+    let mut full = renderer(&faces);
+    let mut a = Canvas::for_renderer(&inc);
+    let mut b = Canvas::for_renderer(&full);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let band = usize::try_from(inc.metrics().cell_h.value()).unwrap() * a.width;
+    let second = |c: &Canvas| c.pixels[band..2 * band].to_vec();
+    let cols = usize::from(WS.ws_col);
+    let row = format!("\x1b[?25l\x1b[8h{}\u{071D}\u{0710}", "x".repeat(cols - 1));
+    let over = format!("\x1b[1;{cols}H\u{0712}");
+    let mut was: Option<Vec<u32>> = None;
+    for (step, bytes) in [row.as_str(), over.as_str()].iter().enumerate() {
+        t.write_at(BytePos::ZERO, bytes.as_bytes());
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        paint(&mut inc, &mut t, &mut a, Damage::Incremental);
+        paint(&mut full, &mut t, &mut b, Damage::Full);
+        assert!(
+            a.pixels == b.pixels,
+            "step {step}: the incremental frame differs from a full repaint"
+        );
+        let now = second(&b);
+        if let Some(w) = &was {
+            assert!(
+                *w != now,
+                "the premise: the alaph on the second row changed"
+            );
+        }
+        was = Some(now);
+    }
+}
+
 /// **A frame reads only the rows that changed to find what joins, and with
 /// BDSM reset none until a joining letter is drawn.** With the mode reset
 /// no row is compared or tested while the renderer has shaped no letter

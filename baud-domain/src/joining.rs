@@ -1,9 +1,10 @@
 //! **Cursive joining**: which form each letter of a cursive script takes,
 //! by the Unicode Standard's rules R1-R7 and its obligatory lam-alef
-//! ligature, L1-L3 (`[[source: unicode-ch9]]` 9.2.2 and 9.2.3).
+//! ligature, L1-L3 (`[[source: unicode-ch9]]` 9.2.2 and 9.2.3), and the
+//! three forms Syriac's alaph takes at the end of a word, S1-S3 (9.3).
 //!
-//! **The data is compiled, the rules are a walk.** Joining_Type and the two
-//! joining groups the ligature rules name come from ArabicShaping.txt
+//! **The data is compiled, the rules are a walk.** Joining_Type and the four
+//! joining groups the ligature and alaph rules name come from ArabicShaping.txt
 //! (`[[source: unicode-arabicshaping]]`) through a two-stage trie generated
 //! at build time (`joining_data.rs`); a code point it does not list is T if
 //! its General Category is Mn, Me or Cf and U otherwise, as the file's
@@ -94,7 +95,7 @@ impl JoiningType {
 impl Ligating {
     /// Which of the two groups `cp` is in, if either.
     pub fn of(cp: u32) -> Ligating {
-        match entry(cp) >> 3 & 3 {
+        match entry(cp) >> 3 & 7 {
             1 => Ligating::Lam,
             2 => Ligating::Alef,
             _ => Ligating::Neither,
@@ -102,18 +103,52 @@ impl Ligating {
     }
 }
 
-/// The glyph form a joining character takes (Table 9-5), named for the
-/// OpenType feature that draws it in a right-to-left run.
+/// The joining groups Syriac's alaph rules name (9.3, S1-S3): "U+0710
+/// SYRIAC LETTER ALAPH, which has Joining_Group = Alaph", and
+/// Joining_Group = Dalath_Rish, dalath, dotless dalath rish, rish and
+/// Persian dhalath.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SyriacGroup {
+    Neither,
+    Alaph,
+    DalathRish,
+}
+
+impl SyriacGroup {
+    /// Which of the two groups `cp` is in, if either.
+    pub fn of(cp: u32) -> SyriacGroup {
+        match entry(cp) >> 3 & 7 {
+            3 => SyriacGroup::Alaph,
+            4 => SyriacGroup::DalathRish,
+            _ => SyriacGroup::Neither,
+        }
+    }
+}
+
+/// The glyph form a joining character takes (Table 9-5, and Table 9-15
+/// for alaph), named for the OpenType feature that draws it in a
+/// right-to-left run (`[[source: ms-syriac-script-development]]`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum JoiningForm {
     /// Xn, the non-joining form: `isol`.
     Isolated,
-    /// Xr, joined on its right, to the preceding character: `fina`.
+    /// Xr, joined on its right, to the preceding character: `fina`. For
+    /// an alaph, Afj, the form S1 gives one that also ends its word.
     Final,
     /// Xl, joined on its left, to the following character: `init`.
     Initial,
     /// Xm, joined on both sides: `medi`.
     Medial,
+    /// Afn, an alaph that ends its word after a letter that does not join
+    /// it, other than dalath or rish (S2): `fin2`.
+    Final2,
+    /// Afx, an alaph that ends its word after dalath or rish (S3): `fin3`.
+    Final3,
+    /// An alaph's Xr inside a word, joined to the letter before it and
+    /// followed by one: `med2`, which "replace[s] the 'Alaph' glyph in the
+    /// middle of Syriac words when the preceding base character can be
+    /// joined to".
+    Medial2,
 }
 
 /// Whether `cp`'s 256-character block holds a character of type D, R or
@@ -259,6 +294,66 @@ pub fn join(types: &[JoiningType], forms: &mut [Option<JoiningForm>]) {
             _ => None,
         };
         preceding = Some(t);
+    }
+}
+
+/// **Rules S1-S3 over one run, after [`join`]**: each alaph's form where
+/// the word ends after it -- the next character that is not T is of type
+/// U, or there is none, "a non-joining character (or end of text) to its
+/// left" -- and the form OpenType draws an alaph that does not end its
+/// word with. `cps` are the run's code points and `types` the types
+/// [`join`] was given, all three slices the same length; an alaph a caller
+/// gave another type is left as it is.
+///
+/// - S1: joined to the letter before it, Afj, [`JoiningForm::Final`].
+/// - S2: after a letter that does not join it, except one of
+///   Joining_Group Dalath_Rish, Afn, [`JoiningForm::Final2`].
+/// - S3: after a letter of Joining_Group Dalath_Rish, Afx,
+///   [`JoiningForm::Final3`].
+/// - Inside a word, joined to the letter before it, `med2`'s
+///   [`JoiningForm::Medial2`]; not joined, Xn, as R7 left it.
+///
+/// "Characters with Joining_Type = Transparent are skipped over", as R1
+/// skips them. An alaph with no letter before it in the run, or with a
+/// non-joining character before it -- a space, a ZWNJ -- is left Xn: S2's
+/// "character to its right" is a letter of the word, as HarfBuzz and
+/// CoreText read it and as the OpenType Syriac model's "at the end of
+/// Syriac words ... the preceding base character" reads (Jev
+/// ISOLATED_AFTER_SPACE, 0.98/0.98 after research; 0.94/0.88 before),
+/// so a one-letter word draws alike after a space and at the start of a
+/// line.
+pub fn alaphs(cps: &[u32], types: &[JoiningType], forms: &mut [Option<JoiningForm>]) {
+    let n = cps.len().min(types.len()).min(forms.len());
+    // The nearest preceding character that is not T, as the walk passes.
+    let mut preceding: Option<usize> = None;
+    for i in 0..n {
+        let t = types[i];
+        if t == JoiningType::Transparent {
+            continue;
+        }
+        if t == JoiningType::RightJoining && SyriacGroup::of(cps[i]) == SyriacGroup::Alaph {
+            let ends = types[i + 1..n]
+                .iter()
+                .find(|&&f| f != JoiningType::Transparent)
+                .is_none_or(|&f| f == JoiningType::NonJoining);
+            forms[i] = match (forms[i], ends) {
+                // Joined, inside a word.
+                (Some(JoiningForm::Final), false) => Some(JoiningForm::Medial2),
+                // Not joined, at the end of a word: S2 and S3, after a
+                // letter; an alaph after none, or after a non-joining
+                // character, keeps R7's Xn.
+                (Some(JoiningForm::Isolated), true) => match preceding {
+                    Some(p) if types[p] == JoiningType::NonJoining => Some(JoiningForm::Isolated),
+                    Some(p) if SyriacGroup::of(cps[p]) == SyriacGroup::DalathRish => {
+                        Some(JoiningForm::Final3)
+                    }
+                    Some(_) => Some(JoiningForm::Final2),
+                    None => Some(JoiningForm::Isolated),
+                },
+                (f, _) => f,
+            };
+        }
+        preceding = Some(i);
     }
 }
 

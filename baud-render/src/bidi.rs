@@ -123,8 +123,9 @@ use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror, CharacterPath,
     ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
-    LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, box_counterpart,
-    in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl, takes_form,
+    LineBidi, PackedCell, Row, RowExtent, RowRot, Rows, Stride, Viewport, Wrap, alaphs,
+    box_counterpart, in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl,
+    takes_form,
 };
 
 use crate::units::Tally;
@@ -230,17 +231,65 @@ pub enum PairPart {
 }
 
 /// **What joining gives one visual cell**: the form its letter is drawn
-/// in, and its part in a lam-alef ligature if it has one. A cell whose
-/// letter is drawn non-joining, or that holds none, has no entry: R7's form
-/// is what a letter draws given none.
+/// in, its part in a lam-alef ligature if it has one, and where the cells
+/// of its word around it lie, which a face's contextual lookups read. A
+/// cell whose letter is drawn non-joining, or that holds none, has no
+/// entry: R7's form is what a letter draws given none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Joined {
     pub form: JoiningForm,
     pub pair: Option<(PairPart, LamAlef)>,
+    pub around: Around,
 }
 
-/// One row's joined cells, by visual column.
-type RowJoins = Vec<Option<Joined>>;
+/// **One cell of a joined cell's word**, read as the context its shaping
+/// reads: the cell as the grid holds it, and the form its letter takes, if
+/// it takes one other than Xn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WordCell {
+    pub cell: PackedCell,
+    pub form: Option<JoiningForm>,
+}
+
+/// A position in a row's [`WordCell`]s.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct WordIx(usize);
+
+/// **Where a joined cell's word lies in its row's [`WordCell`]s**: the
+/// cells before it in its logical order, from `lo`, the cell itself at
+/// `at`, and the cells after it, up to `hi`; as many either side as the
+/// layout's reach ([`Reorder::set_reach`]), within its level run, the
+/// erased cells between letters left out. Empty with a reach of none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Around {
+    lo: WordIx,
+    at: WordIx,
+    hi: WordIx,
+}
+
+/// **One row's joined cells, by visual column, and the cells of their
+/// words**, which may lie on the rows a soft wrap joins it to.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct RowJoins {
+    cells: Vec<Option<Joined>>,
+    words: Vec<WordCell>,
+}
+
+impl RowJoins {
+    /// The joined cells, by visual column.
+    pub fn cells(&self) -> &[Option<Joined>] {
+        &self.cells
+    }
+
+    /// The cells of `j`'s word before it, in logical order, the nearest
+    /// last, and those after it, the nearest first.
+    pub fn around(&self, j: &Joined) -> (&[WordCell], &[WordCell]) {
+        let Around { lo, at, hi } = j.around;
+        let before = self.words.get(lo.0..at.0).unwrap_or(&[]);
+        let after = self.words.get(at.0 + 1..hi.0).unwrap_or(&[]);
+        (before, after)
+    }
+}
 
 /// **Which logical cell each visual cell of the window shows**, for the
 /// rows that are drawn in another order: what every consumer of a frame
@@ -285,14 +334,26 @@ impl Orders {
         self.joins
             .get(r.index())
             .and_then(Option::as_ref)
-            .and_then(|j| j.get(v.index()).copied().flatten())
+            .and_then(|j| j.cells.get(v.index()).copied().flatten())
     }
 
-    /// Row `r`'s joined cells, by visual column, if it holds any: what a
-    /// renderer compares from frame to frame, since a form can change with
-    /// no cell of the row changing.
+    /// Row `r`'s joined cells, by visual column, if it holds any.
     pub fn joins(&self, r: Row) -> Option<&[Option<Joined>]> {
-        self.joins.get(r.index()).and_then(Option::as_deref)
+        self.row_joins(r).map(RowJoins::cells)
+    }
+
+    /// Row `r`'s joined cells and the cells of their words, if it holds
+    /// any: what a renderer compares from frame to frame, since a form, or
+    /// a letter its shaping reads on the row a soft wrap joins, can change
+    /// with no cell of the row changing.
+    pub fn row_joins(&self, r: Row) -> Option<&RowJoins> {
+        self.joins.get(r.index()).and_then(Option::as_ref)
+    }
+
+    /// The cells of the word around the joined cell `j` of row `r`
+    /// ([`RowJoins::around`]); none where the row holds no joins.
+    pub fn around(&self, r: Row, j: &Joined) -> (&[WordCell], &[WordCell]) {
+        self.row_joins(r).map_or((&[], &[]), |row| row.around(j))
     }
 
     /// **How visual column `v` of row `r` is mirrored**, where its
@@ -321,6 +382,14 @@ impl Orders {
     /// Whether visual column `v` of row `r` leans left ([`Orders::slants`]).
     pub fn slanted(&self, r: Row, v: Col) -> bool {
         self.slants(r).contains(&v)
+    }
+
+    /// Whether visual column `v` of row `r` is at a right-to-left level:
+    /// an odd one after L1. None is on a row in its own order.
+    pub(crate) fn right_to_left(&self, r: Row, v: Col) -> bool {
+        self.row(r)
+            .and_then(|o| o.level.get(v.index()))
+            .is_some_and(|l| l.number() % 2 == 1)
     }
 
     /// **The character visual column `v` of row `r` is drawn as, where L4
@@ -674,6 +743,9 @@ pub struct Reorder {
     paths: Vec<LineBidi>,
     /// The status line's row as last tested ([`Reorder::lay_out_status`]).
     status_seen: Seen,
+    /// How many cells of its word either side of a joined cell are kept
+    /// with it ([`Reorder::set_reach`]).
+    reach: baud_font::bytes::Count,
 }
 
 /// Where a paragraph's context lies: in the rows around the window, read
@@ -834,7 +906,17 @@ impl Reorder {
             levels: Vec::new(),
             paths: Vec::new(),
             status_seen: Seen::default(),
+            reach: baud_font::bytes::Count::ZERO,
         }
+    }
+
+    /// **How many cells of its word either side of a joined cell its
+    /// shaping reads**: a renderer's widest [`baud_font::joined_reach`]
+    /// among its faces, so every face's contextual lookups across letters
+    /// meet the letters they read. The layouts after this keep that many
+    /// ([`Joined::around`]); none, the default, keeps none.
+    pub fn set_reach(&mut self, reach: baud_font::bytes::Count) {
+        self.reach = reach;
     }
 
     /// The maps the last layout made.
@@ -1459,7 +1541,7 @@ impl Reorder {
             let joined = self.join_text(None, None);
             for (p, row) in rows.iter().enumerate() {
                 if let Some(y) = row.window {
-                    self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);
+                    self.store_joins(term, (y, &ranges[p].0), &joined, |c| c, cell_of);
                 }
             }
             return None;
@@ -1567,7 +1649,7 @@ impl Reorder {
                 out.level.push(level);
             }
             if !reorders || out.from.len() != cols {
-                self.store_joins(y, &ranges[p].0, &joined, |c| c, cell_of);
+                self.store_joins(term, (y, &ranges[p].0), &joined, |c| c, cell_of);
                 continue;
             }
             for (v, l) in out.from.iter().enumerate() {
@@ -1577,8 +1659,8 @@ impl Reorder {
             }
             let to = out.to.clone();
             self.store_joins(
-                y,
-                &ranges[p].0,
+                term,
+                (y, &ranges[p].0),
                 &joined,
                 |c| to.get(c.index()).copied().unwrap_or(c),
                 cell_of,
@@ -1623,13 +1705,14 @@ impl Reorder {
     }
 
     /// **The joining forms of the paragraph text last gathered**
-    /// (`self.text`, `self.owner`): rules R1-R7 over each level run in
-    /// logical order (UAX #9 3.5's "limited to characters within the same
-    /// level run", read from `levels`, the levels after I2, or one run
-    /// with none), a character X9 removes kept in the run it sits in, and
-    /// the lam-alef ligatures L1-L3 among them. Each text position's form,
-    /// and each pair's lam and alef: every pair the rules form, whatever
-    /// erased cells or soft wrap lie between its two letters.
+    /// (`self.text`, `self.owner`): rules R1-R7 and Syriac alaph's S1-S3
+    /// over each level run in logical order (UAX #9 3.5's "limited to
+    /// characters within the same level run", read from `levels`, the
+    /// levels after I2, or one run with none), a character X9 removes kept
+    /// in the run it sits in, and the lam-alef ligatures L1-L3 among them.
+    /// Each text position's form, each pair's lam and alef -- every pair
+    /// the rules form, whatever erased cells or soft wrap lie between its
+    /// two letters -- and the runs.
     /// With `reading`, only the letters read that way join: the others
     /// are given type U, so no letter joins one of the other reading.
     fn join_text(&self, levels: Option<&[BidiLevel]>, reading: Option<Reading>) -> JoinedText {
@@ -1648,6 +1731,7 @@ impl Reorder {
             .collect();
         let mut forms: Vec<Option<JoiningForm>> = vec![None; n];
         let mut pairs: Vec<Pair> = Vec::new();
+        let mut runs: Vec<core::ops::Range<usize>> = Vec::new();
         let removed = |i: usize| {
             matches!(
                 BidiClass::of(self.text[i]),
@@ -1673,6 +1757,8 @@ impl Reorder {
                 end += 1;
             }
             join(&types[start..end], &mut forms[start..end]);
+            alaphs(&cps[start..end], &types[start..end], &mut forms[start..end]);
+            runs.push(start..end);
             lam_alefs(&cps[start..end], &forms[start..end], |i, j, kind| {
                 let (lam, alef) = (start + i, start + j);
                 // A pair is two cells' letters, not a mark attached to one.
@@ -1690,10 +1776,19 @@ impl Reorder {
             .iter()
             .map(|f| {
                 f.filter(|&f| f != JoiningForm::Isolated)
-                    .map(|form| Joined { form, pair: None })
+                    .map(|form| Joined {
+                        form,
+                        pair: None,
+                        around: Around::default(),
+                    })
             })
             .collect();
-        JoinedText { forms, pairs }
+        JoinedText {
+            forms,
+            pairs,
+            runs,
+            reading,
+        }
     }
 
     /// Stores the joins of window row `y`, whose text is `line` of
@@ -1702,33 +1797,65 @@ impl Reorder {
     /// it spans as drawn, and a pair a soft wrap parts with the other
     /// letter's cell, which `cell_of` reads with whether its row is drawn.
     /// An alef whose lam is on a row of context, which is not drawn, keeps
-    /// its final form, so its letter is not lost with the ligature. A row
-    /// with none stores nothing.
+    /// its final form, so its letter is not lost with the ligature. With a
+    /// reach, the cells of each joined cell's word around it, as many
+    /// either side as the reach, within its run: read through `cell_of` on
+    /// whichever row of the paragraph holds them, an erased cell between
+    /// letters, which joining passes through, left out, and a column rule
+    /// ending the word. A letter of the reading joined that SAPV 5-8 asks
+    /// a form of is stored in that form, joined or not, so it keeps its
+    /// word too. A row with none stores nothing.
     fn store_joins(
         &mut self,
-        y: Row,
-        line: &core::ops::Range<usize>,
+        term: &Term<'_>,
+        (y, line): (Row, &core::ops::Range<usize>),
         joined: &JoinedText,
         to: impl Fn(Col) -> Col,
         cell_of: impl Fn(Owner) -> (PackedCell, Drawn),
     ) {
         let cols = self.orders.cols.index();
+        let asks = term.variants_seen();
         let mut row: Option<RowJoins> = None;
         for t in line.clone() {
-            let (Some(j), Some(own)) = (joined.forms.get(t).copied().flatten(), self.owner.get(t))
-            else {
+            let Some(&own) = self.owner.get(t) else {
                 continue;
             };
             if own.lead != Lead::First {
                 continue;
             }
+            let j = match joined.forms.get(t).copied().flatten() {
+                Some(j) => j,
+                None if asks
+                    && joined
+                        .reading
+                        .is_none_or(|r| Reading::of(self.text[t]) == r) =>
+                {
+                    match asked_form(term, cell_of(own).0) {
+                        Some(form) => Joined {
+                            form,
+                            pair: None,
+                            around: Around::default(),
+                        },
+                        None => continue,
+                    }
+                }
+                None => continue,
+            };
             let v = to(own.col).index();
-            let slots = row.get_or_insert_with(|| vec![None; cols]);
+            let slots = &mut row
+                .get_or_insert_with(|| RowJoins {
+                    cells: vec![None; cols],
+                    words: Vec::new(),
+                })
+                .cells;
             if let Some(slot) = slots.get_mut(v) {
                 *slot = Some(j);
             }
         }
-        if let Some(slots) = row.as_mut() {
+        if let (Some(r), false) = (row.as_mut(), self.reach.is_zero()) {
+            self.store_words(r, line, joined, &to, &cell_of);
+        }
+        if let Some(slots) = row.as_mut().map(|r| &mut r.cells) {
             for p in &joined.pairs {
                 let (lam, alef) = (self.owner[p.lam.0], self.owner[p.alef.0]);
                 let (lam_here, alef_here) = (line.contains(&p.lam.0), line.contains(&p.alef.0));
@@ -1765,6 +1892,85 @@ impl Reorder {
         }
     }
 
+    /// **The words around a row's joined cells**, into `row`: for each run
+    /// holding a cell of the row's text `line` that `row` holds a form of,
+    /// joined or asked, the run's cells in
+    /// logical order -- the cells whose letters are given, erased cells
+    /// left out, a column rule cutting the run -- from `reach` before the
+    /// row's first joined cell in it to `reach` past its last, and each
+    /// joined cell's place among them.
+    fn store_words(
+        &self,
+        row: &mut RowJoins,
+        line: &core::ops::Range<usize>,
+        joined: &JoinedText,
+        to: &impl Fn(Col) -> Col,
+        cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
+    ) {
+        let reach = usize::try_from(self.reach.value()).unwrap_or(usize::MAX);
+        for run in &joined.runs {
+            if run.end <= line.start || run.start >= line.end {
+                continue;
+            }
+            // The run's cells, cut at a column rule into the pieces a
+            // word cannot cross.
+            let mut cells: Vec<usize> = Vec::new();
+            let mut pieces: Vec<core::ops::Range<usize>> = Vec::new();
+            let mut from = 0;
+            for t in run.clone() {
+                let Some(own) = self.owner.get(t) else {
+                    continue;
+                };
+                if own.lead != Lead::First || self.text[t] == ERASED {
+                    continue;
+                }
+                if self.text[t] == PARAGRAPH_SEPARATOR {
+                    pieces.push(from..cells.len());
+                    from = cells.len();
+                    continue;
+                }
+                cells.push(t);
+            }
+            pieces.push(from..cells.len());
+            for piece in pieces {
+                let mine: Vec<usize> = piece
+                    .clone()
+                    .filter(|&i| {
+                        line.contains(&cells[i])
+                            && row
+                                .cells
+                                .get(to(self.owner[cells[i]].col).index())
+                                .is_some_and(Option::is_some)
+                    })
+                    .collect();
+                let (Some(&first), Some(&last)) = (mine.first(), mine.last()) else {
+                    continue;
+                };
+                let lo = first.saturating_sub(reach).max(piece.start);
+                let hi = last.saturating_add(reach.saturating_add(1)).min(piece.end);
+                let base = row.words.len();
+                for &t in &cells[lo..hi] {
+                    row.words.push(WordCell {
+                        cell: cell_of(self.owner[t]).0,
+                        form: joined.forms[t].map(|j| j.form),
+                    });
+                }
+                for i in mine {
+                    let v = to(self.owner[cells[i]].col).index();
+                    if let Some(Some(j)) = row.cells.get_mut(v) {
+                        j.around = Around {
+                            lo: WordIx(base + i.saturating_sub(reach).max(lo) - lo),
+                            at: WordIx(base + i - lo),
+                            hi: WordIx(
+                                base + i.saturating_add(reach.saturating_add(1)).min(hi) - lo,
+                            ),
+                        };
+                    }
+                }
+            }
+        }
+    }
+
     /// **Row `r` joined in the order it is displayed**, with BDSM reset:
     /// its cells read right to left are the logical order 9.2.2's rules,
     /// stated in display order, are restated in, so a program that wrote
@@ -1787,7 +1993,7 @@ impl Reorder {
             let cell = cells.get(o.col.index()).copied();
             (cell.unwrap_or(PackedCell::EMPTY), Drawn::Yes)
         };
-        self.store_joins(r, &line, &joined, |c| c, cell_of);
+        self.store_joins(term, (r, &line), &joined, |c| c, cell_of);
         if !ltr {
             return;
         }
@@ -1795,7 +2001,7 @@ impl Reorder {
         self.displayed_text(term, cells, 0..end, Reading::LeftToRight);
         let joined = self.join_text(None, Some(Reading::LeftToRight));
         let line = 0..self.text.len();
-        self.store_joins(r, &line, &joined, |c| c, cell_of);
+        self.store_joins(term, (r, &line), &joined, |c| c, cell_of);
         // Each cell's letter is one reading's, so the two never both name
         // a form for one cell.
         let Some(slot) = self.orders.joins.get_mut(r.index()) else {
@@ -1803,9 +2009,24 @@ impl Reorder {
         };
         match (slot.as_mut(), right_to_left) {
             (Some(now), Some(before)) => {
-                for (n, b) in now.iter_mut().zip(before) {
+                // The other reading's words follow this one's, each of its
+                // cells moved to find them there.
+                let moved = now.words.len();
+                now.words.extend_from_slice(&before.words);
+                for (n, b) in now.cells.iter_mut().zip(before.cells) {
                     if n.is_none() {
-                        *n = b;
+                        *n = b.map(|mut j| {
+                            let Around { lo, at, hi } = j.around;
+                            j.around = match hi > lo {
+                                true => Around {
+                                    lo: WordIx(lo.0 + moved),
+                                    at: WordIx(at.0 + moved),
+                                    hi: WordIx(hi.0 + moved),
+                                },
+                                false => j.around,
+                            };
+                            j
+                        });
                     }
                 }
             }
@@ -1919,10 +2140,14 @@ enum Drawn {
     No,
 }
 
-/// A paragraph's text joined: each position's form, and the pairs.
+/// A paragraph's text joined: each position's form, the pairs, the runs
+/// joining was limited to, each its text positions, and the reading whose
+/// letters it joined, if one.
 struct JoinedText {
     forms: Vec<Option<Joined>>,
     pairs: Vec<Pair>,
+    runs: Vec<core::ops::Range<usize>>,
+    reading: Option<Reading>,
 }
 
 /// Whether a paragraph is resolved for its order and joined, or, holding no
@@ -2002,6 +2227,19 @@ fn variants_of(term: &Term<'_>, cell: PackedCell) -> Variants {
         .map_or(Variants::DEFAULT, |w| w.variants())
 }
 
+/// **The form SAPV 5-8 asks of `cell`'s letter**, as [`forced_form`]
+/// gives it: none where its variant asks none, or under 18 and 19, which
+/// join nothing.
+fn asked_form(term: &Term<'_>, cell: PackedCell) -> Option<JoiningForm> {
+    let var = variants_of(term, cell);
+    if var.is_default() || !var.joins() {
+        return None;
+    }
+    let base = term.base_of(cell).drawn().as_codepoint()?;
+    var.form()
+        .and_then(|f| forced_form(f, JoiningType::of(base.value())))
+}
+
 /// **Whether SAPV 15 left a right-to-left path's mirrored character as
 /// stored**, with BDSM reset: the device does no bidi there, and the
 /// application's SAPV says whether mirrorable glyphs are mirrored, value 3
@@ -2040,7 +2278,7 @@ fn unmirrored(term: &Term<'_>, cell: PackedCell) -> bool {
 
 /// **Whether `cell` holds a character written italic under SAPV 17**: a
 /// wide character's tail holds none, its lead drawing it.
-fn slanted(term: &Term<'_>, cell: PackedCell) -> bool {
+pub(crate) fn slanted(term: &Term<'_>, cell: PackedCell) -> bool {
     if cell.content.is_empty() || cell.content.is_wide_tail() {
         return false;
     }
@@ -2159,7 +2397,10 @@ impl Reorder {
     /// "presented in the form they are stored"; no lam-alef ligature under
     /// 14, each letter in its joined form; and a form 5 to 8 asked, as
     /// [`forced_form`] gives it. A pair one of whose letters is drawn apart
-    /// is drawn apart.
+    /// is drawn apart. A letter's word keeps it: a letter whose form was
+    /// asked keeps its word, and each cell of a word, whichever row it is
+    /// on, is read by the shaping around it in the form its own variant
+    /// draws it in.
     fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
         let cells = vp.row(r);
         let cols = cells.len();
@@ -2167,11 +2408,26 @@ impl Reorder {
         if self.orders.joins.len() <= y {
             self.orders.joins.resize_with(y + 1, || None);
         }
-        let mut row: RowJoins = self.orders.joins[y]
-            .clone()
-            .unwrap_or_else(|| vec![None; cols]);
+        let mut row: RowJoins = self.orders.joins[y].clone().unwrap_or_else(|| RowJoins {
+            cells: vec![None; cols],
+            words: Vec::new(),
+        });
         let mut changed = false;
-        for (v, slot) in row.iter_mut().enumerate() {
+        for w in &mut row.words {
+            let var = variants_of(term, w.cell);
+            if var.is_default() {
+                continue;
+            }
+            let form = match var.joins() {
+                false => None,
+                true => asked_form(term, w.cell).or(w.form),
+            };
+            if form != w.form {
+                w.form = form;
+                changed = true;
+            }
+        }
+        for (v, slot) in row.cells.iter_mut().enumerate() {
             let l = self.orders.logical_col(r, Col::at_index(v)).index();
             let Some(&cell) = cells.get(l) else {
                 continue;
@@ -2190,13 +2446,13 @@ impl Reorder {
                     changed = true;
                 }
             }
-            let base = term.base_of(cell).drawn().as_codepoint();
-            let form = var
-                .form()
-                .zip(base)
-                .and_then(|(f, b)| forced_form(f, JoiningType::of(b.value())));
-            if let Some(form) = form {
-                *slot = Some(Joined { form, pair: None });
+            if let Some(form) = asked_form(term, cell) {
+                let around = slot.map_or_else(Around::default, |j| j.around);
+                *slot = Some(Joined {
+                    form,
+                    pair: None,
+                    around,
+                });
                 changed = true;
             }
         }
@@ -2205,7 +2461,7 @@ impl Reorder {
         }
         // A pair whose other letter lost it is drawn apart.
         let kept: Vec<bool> = (0..cols)
-            .map(|v| match row[v].and_then(|j| j.pair) {
+            .map(|v| match row.cells[v].and_then(|j| j.pair) {
                 Some((PairPart::Lam(n, end) | PairPart::Alef(n, end), _)) => {
                     let k = n.index().saturating_sub(1);
                     let other = match end {
@@ -2213,18 +2469,18 @@ impl Reorder {
                         PairEnd::Right => v.checked_sub(k),
                     };
                     other
-                        .and_then(|o| row.get(o).copied().flatten())
+                        .and_then(|o| row.cells.get(o).copied().flatten())
                         .is_some_and(|j| j.pair.is_some())
                 }
                 _ => true,
             })
             .collect();
-        for (slot, keep) in row.iter_mut().zip(kept) {
+        for (slot, keep) in row.cells.iter_mut().zip(kept) {
             if let (Some(j), false) = (slot.as_mut(), keep) {
                 j.pair = None;
             }
         }
-        let any = row.iter().any(Option::is_some);
+        let any = row.cells.iter().any(Option::is_some);
         self.orders.joins[y] = any.then_some(row);
         if any {
             self.orders.joined_any = Any::Yes;

@@ -72,8 +72,8 @@ pub use atlas::{
 };
 pub use badge::{BADGE, BOX, BadgeLook, MARGINS, POINTS};
 pub use bidi::{
-    CONTEXT, Changes, CursorSide, Joined, Joins, Mirrored, Orders, PairEnd, PairPart, Rejoin,
-    Reorder, Work as BidiWork, Written,
+    Around, CONTEXT, Changes, CursorSide, Joined, Joins, Mirrored, Orders, PairEnd, PairPart,
+    Rejoin, Reorder, RowJoins, WordCell, WordIx, Work as BidiWork, Written,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};

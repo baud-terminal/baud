@@ -701,6 +701,66 @@ struct ClusterIn {
     at: CellIx,
 }
 
+/// **The most cells of its word either side a joined cell is shaped with**,
+/// whatever a face's rules reach: twice the 8 the widest face measured
+/// reaches ([`baud_font::joined_reach`]: Noto Sans Mongolian 8, Noto Sans
+/// Syriac 7, SF Arabic 5, Courier New 3), and few enough that the cell,
+/// its context and a pair fit a run's forms (64 cells) and the glyphs kept
+/// of them a [`Shaped`].
+const WORD_REACH_MAX: u32 = 16;
+
+/// The widest of `reaches`.
+fn widest_of(reaches: &[Count]) -> Count {
+    reaches
+        .iter()
+        .copied()
+        .max_by_key(|c| c.value())
+        .unwrap_or(Count::ZERO)
+}
+
+/// The cells of a joined cell's word before it and after it, as the
+/// layout keeps them ([`crate::bidi::Orders::around`]).
+pub(crate) type WordAround<'w> = (&'w [crate::bidi::WordCell], &'w [crate::bidi::WordCell]);
+
+/// **The cells of a joined cell's word its shaping reads on one face**,
+/// each its codepoints and its form: before it in logical order, the
+/// nearest last, and after it, the nearest first.
+#[derive(Default)]
+pub(crate) struct Word {
+    pub(crate) before: Vec<(Vec<Codepoint>, Option<baud_domain::JoiningForm>)>,
+    pub(crate) after: Vec<(Vec<Codepoint>, Option<baud_domain::JoiningForm>)>,
+}
+
+impl Word {
+    /// No cell either side: a letter shaped alone.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+
+    /// `key` with the word folded in: each side's count, then each cell's
+    /// codepoints and form, so two cells shaped with different words are
+    /// two entries. Bit 31 is set on each count, which no codepoint and
+    /// no other word folded into a run's key has. A letter with no word
+    /// keeps the key it had alone.
+    fn fold(&self, key: Key) -> Key {
+        if self.is_empty() {
+            return key;
+        }
+        let count = |n: usize, side: u32| 1 << 31 | side | u32::try_from(n).unwrap_or(0);
+        let mut key = key.fold(count(self.before.len(), 0));
+        for (cps, form) in self.before.iter().chain(&self.after) {
+            for c in cps {
+                key = key.fold(c.value());
+            }
+            key = match form {
+                Some(f) => fold_form(key, FormKey::Cell, *f),
+                None => key.fold(1 << 31 | 1 << 27),
+            };
+        }
+        key.fold(count(self.after.len(), 1 << 28))
+    }
+}
+
 /// What a joining form is folded into a run's key for: a joined cell or a
 /// lam-alef pair, so neither shares an entry with a run of the same
 /// codepoints. The word folded has bit 30 set, which no codepoint has.
@@ -711,7 +771,7 @@ enum FormKey {
 }
 
 /// `key` with a joining form folded in for `what`, the form in the word's
-/// low two bits.
+/// low three bits.
 fn fold_form(key: Key, what: FormKey, form: baud_domain::JoiningForm) -> Key {
     let mark = match what {
         FormKey::Cell => 1 << 30,
@@ -723,6 +783,9 @@ fn fold_form(key: Key, what: FormKey, form: baud_domain::JoiningForm) -> Key {
             baud_domain::JoiningForm::Final => 1,
             baud_domain::JoiningForm::Initial => 2,
             baud_domain::JoiningForm::Medial => 3,
+            baud_domain::JoiningForm::Final2 => 4,
+            baud_domain::JoiningForm::Final3 => 5,
+            baud_domain::JoiningForm::Medial2 => 6,
         },
     )
 }
@@ -1664,6 +1727,10 @@ pub struct Renderer<'f, 'a> {
     /// for a face with no substitution rules or one whose tables could
     /// not be walked.
     extents: Vec<Option<Count>>,
+    /// Per face, how many cells of its word either side a joined cell's
+    /// shaping reads ([`baud_font::joined_reach`]), at most
+    /// [`WORD_REACH_MAX`].
+    reaches: Vec<Count>,
     /// Per face, which lookups each script selects
     /// (`[[source: ms-opentype-chapter2]]`, ScriptList table), so a run is
     /// cut where they change.
@@ -1737,11 +1804,11 @@ pub struct Renderer<'f, 'a> {
     /// The window in that order, for the pictures drawn in text, which are
     /// found over the cells as they are drawn on every path.
     bidi_cells: Vec<PackedCell>,
-    /// Each row's joined cells as the last conversion drew them: a form
-    /// moves with no cell of its row changing -- a letter typed on the next
-    /// row of a wrapped word -- so a row whose joins moved is converted
-    /// again.
-    joins_prev: Vec<Option<Vec<Option<crate::bidi::Joined>>>>,
+    /// Each row's joined cells and their words as the last conversion drew
+    /// them: a form, or a letter a joined cell's shaping reads, moves with
+    /// no cell of its row changing -- a letter typed on the next row of a
+    /// wrapped word -- so a row whose joins moved is converted again.
+    joins_prev: Vec<Option<crate::bidi::RowJoins>>,
     /// Each row's mirrored cells as the last conversion drew them
     /// ([`crate::bidi::Orders::mirrors`]): a cell is flipped or given a
     /// mirror for its base by its level, which can change with no cell of
@@ -2059,6 +2126,7 @@ struct PerFace {
     starters: Vec<Starter>,
     pairs: Vec<Pairs>,
     extents: Vec<Option<Count>>,
+    reaches: Vec<Count>,
     selections: Vec<Selections>,
     faces: Vec<FaceIx>,
 }
@@ -2106,6 +2174,11 @@ impl PerFace {
                     .and_then(|g| g.extent(Features::GRID))
             })
             .collect();
+        let reaches = stack
+            .faces()
+            .iter()
+            .map(|f| Count::of(baud_font::joined_reach(f).value().min(WORD_REACH_MAX)))
+            .collect();
         let selections: Vec<Selections> = stack.faces().iter().map(Selections::of).collect();
         let faces = stack.each().collect();
         PerFace {
@@ -2115,6 +2188,7 @@ impl PerFace {
             starters,
             pairs,
             extents,
+            reaches,
             selections,
             faces,
         }
@@ -2140,6 +2214,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             starters,
             pairs,
             extents,
+            reaches,
             selections,
             faces,
         } = PerFace::of(&stack, size);
@@ -2155,6 +2230,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             starters,
             pairs,
             extents,
+            reaches,
             selections,
             row_scripts: Vec::new(),
             row_unresolved: Vec::new(),
@@ -2295,7 +2371,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         r.atlas.at(SizeKey::of(size));
         r.resize(cols, rows);
         r.main = rows;
+        r.bidi.set_reach(r.widest_reach());
         Some(r)
+    }
+
+    /// The widest reach of the stack's faces: how many cells of its word
+    /// either side of a joined cell the layout keeps.
+    fn widest_reach(&self) -> Count {
+        widest_of(&self.reaches)
+    }
+
+    /// **How many cells of its word either side of a joined cell this
+    /// renderer's layout keeps** ([`crate::bidi::Reorder::set_reach`]): the
+    /// widest [`baud_font::joined_reach`] of its faces, at most 16. A
+    /// layout made beside it with this reach finds the joins it finds.
+    pub fn joined_reach(&self) -> Count {
+        self.widest_reach()
     }
 
     pub fn metrics(&self) -> Metrics {
@@ -2363,6 +2454,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             starters,
             pairs,
             extents,
+            reaches,
             selections,
             faces,
         } = PerFace::of(&stack, size);
@@ -2378,6 +2470,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.pairs = pairs;
         self.extents = extents;
+        self.reaches = reaches;
+        self.bidi.set_reach(self.widest_reach());
         self.selections = selections;
         self.faces = faces;
         self.cluster_faces = ClusterMemo::new(Question::Face, FaceIx::PRIMARY);
@@ -2870,6 +2964,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ..
         } = &mut **self.beside.get_or_insert_with(Box::default);
         let leaving = leaving.get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.set_reach(widest_of(&self.reaches));
         leaving.lay_out_top(term, above, self.joins_seen);
         let up = term.view(term.looking_back(above));
         let src = up.row(Row::ZERO);
@@ -5657,11 +5752,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // one line up, converted through that layout's map -- its seams,
         // joins and mirrors -- put in place of the window's for the one
         // conversion.
+        let reach = self.widest_reach();
         let leaving = self
             .beside
             .get_or_insert_with(Box::default)
             .leaving
             .get_or_insert_with(crate::bidi::Reorder::new);
+        leaving.set_reach(reach);
         leaving.lay_out_top(term, above, self.joins_seen);
         let mut cells = vec![PackedCell::EMPTY; up.cols().index()];
         leaving
@@ -6096,8 +6193,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let noticed = field_at(&notice, row) != field_at(&self.last_notice, row);
             // A joining form moved on this row.
             let rejoined = joins_kept
-                && self.bidi.orders().joins(row)
-                    != self.joins_prev.get(r).and_then(Option::as_deref);
+                && self.bidi.orders().row_joins(row)
+                    != self.joins_prev.get(r).and_then(Option::as_ref);
             // Or a mirrored cell.
             let remirrored = mirrors_kept
                 && self.bidi.orders().mirrors(row)
@@ -6181,12 +6278,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         if joins_kept {
             self.joins_prev.clear();
-            self.joins_prev.extend((0..rows.index()).map(|r| {
-                self.bidi
-                    .orders()
-                    .joins(Row::from_index(r))
-                    .map(<[_]>::to_vec)
-            }));
+            self.joins_prev.extend(
+                (0..rows.index())
+                    .map(|r| self.bidi.orders().row_joins(Row::from_index(r)).cloned()),
+            );
             self.joins_held = match self.bidi.orders().any_joined() {
                 true => crate::bidi::Joins::Seen,
                 false => crate::bidi::Joins::Unseen,
@@ -6770,13 +6865,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// The word around a joined cell holding `cps` in `style`, at visual
+    /// `at` ([`Renderer::word_on`]), on the face that draws it.
+    pub(crate) fn joined_word(
+        &mut self,
+        term: &Term<'_>,
+        cps: &[Codepoint],
+        style: TextFace,
+        (around, at): (WordAround<'_>, (Row, Col)),
+    ) -> Word {
+        let face = self.face_for(cps, style);
+        self.word_on(term, face, around, at)
+    }
+
     /// [`Renderer::cluster`] for a cell whose letter the layout joined:
-    /// shaped alone in `form` ([`crate::bidi::Orders::joined`]).
-    pub fn cluster_joined(
+    /// shaped in `form` ([`crate::bidi::Orders::joined`]) with `word`
+    /// around it ([`Renderer::joined_word`]).
+    pub(crate) fn cluster_joined(
         &mut self,
         cps: &[Codepoint],
         style: impl Into<TextFace>,
         form: baud_domain::JoiningForm,
+        word: &Word,
     ) -> Vec<ClusterGlyph> {
         let style = style.into();
         let Some(&base) = cps.first() else {
@@ -6788,7 +6898,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cps: cps.to_vec(),
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[Some(form)], ..);
+        let shaped = self.shape_in_word(
+            face,
+            Script::of_cluster(cps),
+            &clusters,
+            &[Some(form)],
+            word,
+        );
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -6817,13 +6933,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// alef's does, each from its own cell's origin -- both from the lam's
     /// for [`PairSpan::LamCell`] -- on a line drawn at `stretch`, and
     /// whether the face formed the ligature; `None` when the two letters
-    /// are drawn by different faces, and are drawn each alone.
+    /// are drawn by different faces, and are drawn each alone. `word` is
+    /// the cells around the pair its face draws ([`Renderer::word_on`]),
+    /// before the lam and after the alef, shaped with it.
     pub(crate) fn lam_alef(
         &mut self,
         (lam, alef): (&[Codepoint], &[Codepoint]),
         lam_form: baud_domain::JoiningForm,
         style: TextFace,
-        span: PairSpan,
+        (span, word): (PairSpan, &Word),
         stretch: Stretch,
     ) -> Option<PairGlyphs> {
         let face = self.face_for(lam, style);
@@ -6842,6 +6960,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         {
             key = key.fold(c.value());
         }
+        let key = word.fold(key);
         let shaped = match self.cache.get(key) {
             Some(s) => s,
             None => {
@@ -6856,7 +6975,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     },
                 ];
                 let forms = [Some(lam_form), Some(baud_domain::JoiningForm::Final)];
-                let s = self.shape(face, Script::of_cluster(lam), &clusters, &forms, ..);
+                let s = self.shape_in_word(face, Script::of_cluster(lam), &clusters, &forms, word);
                 self.cache.put(key, s);
                 s
             }
@@ -7940,14 +8059,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 });
                 c = next;
             }
-            // A joined cell is a run of its own (above), shaped in its form,
+            // A joined cell is a run of its own (above), shaped in its form
+            // with the cells of its word around it on this face, all of
             // which its key folds.
-            let form = [match LAID {
-                true => joined(start).map(|j| j.form),
+            let here = match LAID {
+                true => joined(start),
                 false => None,
-            }];
-            if let Some(f) = form[0] {
-                key = fold_form(key, FormKey::Cell, f);
+            };
+            let form = [here.map(|j| j.form)];
+            let mut word = Word::default();
+            if let Some(j) = here {
+                key = fold_form(key, FormKey::Cell, j.form);
+                let (before, after) = self.bidi.orders().around(r, &j);
+                let (before, after) = (before.to_vec(), after.to_vec());
+                word = self.word_on(term, face, (&before, &after), (r, Col::at_index(start)));
+                key = word.fold(key);
             }
             let form: &[Option<baud_domain::JoiningForm>] = match form[0] {
                 Some(_) => &form,
@@ -7956,7 +8082,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let shaped = match self.cache.get(key) {
                 Some(s) => s,
                 None => {
-                    let s = self.shape(face, script, &clusters, form, ..);
+                    let s = self.shape_in_word(face, script, &clusters, form, &word);
                     self.cache.put(key, s);
                     s
                 }
@@ -7996,11 +8122,123 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The cells of a joined cell's word its shaping reads on `face`**:
+    /// of the layout's word around it ([`crate::bidi::Orders::around`]),
+    /// the nearest [`baud_font::joined_reach`] cells either side, each side
+    /// ending at the first cell another face draws, whose glyphs no lookup
+    /// of this face reads, or that draws nothing. The joined cell is at
+    /// visual `at`, and its word in its level run: at a right-to-left
+    /// level, a cell SAPV 17 slants is drawn by its upright style's face,
+    /// as the cell itself is.
+    pub(crate) fn word_on(
+        &mut self,
+        term: &Term<'_>,
+        face: FaceIx,
+        (before, after): WordAround<'_>,
+        (r, v): (Row, Col),
+    ) -> Word {
+        let reach =
+            usize::try_from(self.reaches.get(face.index()).map_or(0, |c| c.value())).unwrap_or(0);
+        let mut word = Word::default();
+        if reach == 0 {
+            return word;
+        }
+        let leans = self.bidi.orders().right_to_left(r, v) && term.variants_seen();
+        let mut take = |w: &crate::bidi::WordCell| {
+            let base = drawn_base(term, w.cell)?;
+            let style = self.face_style(w.cell);
+            let style = match leans && crate::bidi::slanted(term, w.cell) {
+                true => self.lean(style).map_or(style, |_| style.upright()),
+                false => style,
+            };
+            (self.face_of_cell_in(term, w.cell, base, style) == face)
+                .then(|| (cell_cps(term, w.cell), w.form))
+        };
+        for w in before.iter().rev().take(reach) {
+            match take(w) {
+                Some(c) => word.before.push(c),
+                None => break,
+            }
+        }
+        word.before.reverse();
+        for w in after.iter().take(reach) {
+            match take(w) {
+                Some(c) => word.after.push(c),
+                None => break,
+            }
+        }
+        word
+    }
+
+    /// **`own` -- a joined cell, or a lam-alef pair's two -- shaped on
+    /// `face` in `forms` with `word` around it**, as one run in logical
+    /// order, so a face's contextual lookups across letters (`rlig`,
+    /// `rclt`, `calt`) meet the letters they read: the glyphs that start on
+    /// `own`'s cells, each at the cell index `own` gives it. With no word,
+    /// or where the word took `own`'s letters into a glyph across cells
+    /// ([`baud_font::keeps_its_cells`]), [`Renderer::shape`] of `own`
+    /// alone.
+    fn shape_in_word(
+        &mut self,
+        face: FaceIx,
+        script: Script,
+        own: &[ClusterIn],
+        forms: &[Option<baud_domain::JoiningForm>],
+        word: &Word,
+    ) -> Shaped {
+        if word.is_empty() {
+            return self.shape(face, script, own, forms, ..);
+        }
+        let b = word.before.len();
+        let mut clusters = Vec::with_capacity(b + own.len() + word.after.len());
+        let mut all_forms = Vec::with_capacity(clusters.capacity());
+        let mut push = |cps: Vec<Codepoint>, form: Option<baud_domain::JoiningForm>| {
+            let at = CellIx(u8::try_from(clusters.len()).unwrap_or(u8::MAX));
+            clusters.push(ClusterIn { cps, at });
+            all_forms.push(form);
+        };
+        for (cps, form) in &word.before {
+            push(cps.clone(), *form);
+        }
+        for (i, cl) in own.iter().enumerate() {
+            push(cl.cps.clone(), forms.get(i).copied().flatten());
+        }
+        for (cps, form) in &word.after {
+            push(cps.clone(), *form);
+        }
+        let first = CellIx(u8::try_from(b).unwrap_or(u8::MAX));
+        let end = CellIx(u8::try_from(b + own.len()).unwrap_or(u8::MAX));
+        let shaped = self.shape(face, script, &clusters, &all_forms, first..end);
+        let spans = shaped
+            .glyphs()
+            .iter()
+            .map(|p| (Cluster(u16::from(p.cell.0)), Cluster(u16::from(p.last.0))));
+        let own_cells = Cluster(u16::from(first.0))..Cluster(u16::from(end.0));
+        if !baud_font::keeps_its_cells(own_cells, spans) {
+            return self.shape(face, script, own, forms, ..);
+        }
+        let last = end.0.saturating_sub(first.0).saturating_sub(1);
+        let back = |c: CellIx| CellIx(c.0.saturating_sub(first.0).min(last));
+        let mut out = Shaped::EMPTY;
+        for p in shaped.glyphs() {
+            let moved = Placed {
+                cell: back(p.cell),
+                last: back(p.last),
+                ..*p
+            };
+            if out.push(moved).is_none() {
+                break;
+            }
+        }
+        out
+    }
+
     /// `clusters` shaped as one run on `face`, each in the joining form
     /// `forms` gives it at its index, if any; what a face that keeps a
     /// cluster cannot draw is left out and counted for the clusters `own`
-    /// holds -- all of them, except in a ligature window's chunk, whose
-    /// context cells are another chunk's to count.
+    /// holds -- all of them, except in a ligature window's chunk and a
+    /// joined cell's word, whose context cells are another's to count --
+    /// and only the glyphs that start on those clusters kept.
     fn shape(
         &mut self,
         face: FaceIx,
@@ -8103,7 +8341,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ));
             let mut out = Shaped::EMPTY;
             for g in buf.as_slice() {
-                if g.ignorable == Ignorable::Yes {
+                let at = CellIx(u8::try_from(g.cluster.0).unwrap_or(u8::MAX));
+                if g.ignorable == Ignorable::Yes || !own.contains(&at) {
                     continue;
                 }
                 let p = Placed {
@@ -8483,6 +8722,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let Some(Joined {
             form,
             pair: Some((part, kind)),
+            ..
         }) = joined(c)
         else {
             return false;
@@ -8500,9 +8740,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let alef_cps = cell_cps(term, alef);
                 let lean = self.slant_at(r, Col::at_index(c), style);
                 let style = lean.map_or(style, |_| style.upright());
-                let Some(mut g) =
-                    self.lam_alef((&lam_cps, &alef_cps), form, style, PairSpan::LamCell, st)
-                else {
+                let face = self.face_for(&lam_cps, style);
+                let word = self.pair_word(term, r, (c, None), face);
+                let Some(mut g) = self.lam_alef(
+                    (&lam_cps, &alef_cps),
+                    form,
+                    style,
+                    (PairSpan::LamCell, &word),
+                    st,
+                ) else {
                     return false;
                 };
                 if let Some(l) = lean {
@@ -8543,11 +8789,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             true => LamAt::Right,
             false => LamAt::Left,
         };
+        let face = self.face_for(&lam_cps, style);
+        let word = self.pair_word(term, r, (lam_c, Some(alef_c)), face);
         let Some(mut g) = self.lam_alef(
             (&lam_cps, &alef_cps),
             lam_form,
             style,
-            PairSpan::Cells(lam_at, span),
+            (PairSpan::Cells(lam_at, span), &word),
             st,
         ) else {
             return false;
@@ -8573,6 +8821,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// **The word around a lam-alef pair**, on `face`, the one its lam
+    /// draws: the cells before the lam, as the lam's
+    /// [`crate::bidi::Joined`] at visual column `lam` of row `r` keeps
+    /// them, and those after the alef -- the alef's own, at `alef` on the
+    /// same row, or, for a pair a soft wrap parts, the lam's after its
+    /// alef.
+    pub(crate) fn pair_word(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        (lam, alef): (usize, Option<usize>),
+        face: FaceIx,
+    ) -> Word {
+        let orders = self.bidi.orders();
+        let Some(l) = orders.joined(r, Col::at_index(lam)) else {
+            return Word::default();
+        };
+        let (before, lam_after) = orders.around(r, &l);
+        let after = match alef.and_then(|a| orders.joined(r, Col::at_index(a))) {
+            Some(a) => orders.around(r, &a).1,
+            None => lam_after.get(1..).unwrap_or(&[]),
+        };
+        let (before, after) = (before.to_vec(), after.to_vec());
+        self.word_on(term, face, (&before, &after), (r, Col::at_index(lam)))
+    }
+
     /// **Whether a lam-alef pair a soft wrap parts is drawn as the
     /// ligature**, in the lam's cell: the two cells' base letters shaped
     /// together, the lam in the form `kind` gives, on the lam's face in
@@ -8594,8 +8868,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             baud_domain::LamAlef::Joined => baud_domain::JoiningForm::Medial,
             baud_domain::LamAlef::Nominal => baud_domain::JoiningForm::Initial,
         };
-        self.lam_alef((&[l], &[a]), form, style, PairSpan::LamCell, stretch)
-            .is_some_and(|g| g.ligated == Ligated::Yes)
+        self.lam_alef(
+            (&[l], &[a]),
+            form,
+            style,
+            (PairSpan::LamCell, &Word::default()),
+            stretch,
+        )
+        .is_some_and(|g| g.ligated == Ligated::Yes)
     }
 
     /// Glyphs placed from cell `col`'s origin, drawn in that cell's

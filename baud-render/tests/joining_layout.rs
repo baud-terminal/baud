@@ -23,9 +23,10 @@ fn feed(t: &mut Term<'_>, bytes: &str) {
 }
 
 /// Row `r`'s drawn forms after `bytes`: `i`, `m`, `f` for initial, medial
-/// and final, `L` and `A` for the lam and the alef of a pair on one row,
-/// `W` and `w` for those of a pair a soft wrap parts, `.` for none; with
-/// `implicit`, BDSM is set first.
+/// and final, `2`, `3` and `M` for alaph's fin2, fin3 and med2, `L` and `A`
+/// for the lam and the alef of a pair on one row, `W` and `w` for those of
+/// a pair a soft wrap parts, `.` for none; with `implicit`, BDSM is set
+/// first.
 fn forms(bytes: &str, implicit: bool, r: usize) -> String {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
@@ -46,6 +47,9 @@ fn forms(bytes: &str, implicit: bool, r: usize) -> String {
                 (None, JoiningForm::Medial) => 'm',
                 (None, JoiningForm::Final) => 'f',
                 (None, JoiningForm::Isolated) => 'n',
+                (None, JoiningForm::Final2) => '2',
+                (None, JoiningForm::Final3) => '3',
+                (None, JoiningForm::Medial2) => 'M',
             },
         })
         .collect()
@@ -267,4 +271,104 @@ fn with_bdsm_reset_two_directions_of_joining_do_not_join() {
         forms(&format!("\u{1820}\u{1821}{BEH}{BEH}"), false, 0),
         "iffi........"
     );
+}
+
+const ALAPH: &str = "\u{0710}";
+const BETH: &str = "\u{0712}";
+const DALATH: &str = "\u{0715}";
+const HE: &str = "\u{0717}";
+
+/// **Syriac alaph takes its three forms of its own** (`[[source:
+/// unicode-ch9]]` 9.3, S1-S3), each paragraph running right to left
+/// against the right edge: after a beth that joins it and at the end of
+/// its word, final (Afj); after he, which does not join it, fin2 (Afn);
+/// after dalath, fin3 (Afx); inside a word, joined, med2, the beth after
+/// it standing alone; and alone after a space, Xn, as at the start of a
+/// line (Jev ISOLATED_AFTER_SPACE).
+#[test]
+fn syriac_alaph_takes_its_own_forms() {
+    assert_eq!(forms(&format!("{BETH}{ALAPH}"), true, 0), "..........fi");
+    assert_eq!(forms(&format!("{HE}{ALAPH}"), true, 0), "..........2.");
+    assert_eq!(forms(&format!("{DALATH}{ALAPH}"), true, 0), "..........3.");
+    assert_eq!(
+        forms(&format!("{BETH}{ALAPH}{BETH}"), true, 0),
+        "..........Mi"
+    );
+    assert_eq!(forms(&format!("{BETH} {ALAPH}"), true, 0), "............");
+}
+
+/// The word around each joined cell of row `r` after `bytes`, BDSM set,
+/// with a reach of `reach`: each joined cell's visual column, and the base
+/// letters of the cells before it and after it in logical order.
+fn words(bytes: &str, r: usize, reach: u32) -> Vec<(usize, Vec<u32>, Vec<u32>)> {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "\x1b[8h");
+    feed(&mut t, bytes);
+    let mut o = Reorder::new();
+    o.set_reach(baud_font::bytes::Count::of(reach));
+    o.lay_out(&t, Rows::ZERO);
+    let row = Row::from_index(r);
+    let letter =
+        |w: &baud_render::WordCell| t.base_of(w.cell).drawn().as_codepoint().map(|c| c.value());
+    (0..usize::from(WS.ws_col))
+        .filter_map(|v| {
+            let j = o.orders().joined(row, Col::at_index(v))?;
+            let (before, after) = o.orders().around(row, &j);
+            Some((
+                v,
+                before.iter().filter_map(letter).collect(),
+                after.iter().filter_map(letter).collect(),
+            ))
+        })
+        .collect()
+}
+
+/// **A joined cell keeps the cells of its word around it**, as many either
+/// side as the reach, in logical order, for the face's contextual lookups
+/// to read: "bayt" with a reach of one gives the yeh its beh and its teh,
+/// and the beh and the teh one neighbour each; a reach of none keeps none.
+#[test]
+fn a_joined_cell_keeps_its_word_around_it() {
+    let (b, y, t) = (0x0628, 0x064A, 0x062A);
+    assert_eq!(
+        words(&format!("{BEH}{YEH}{TEH}"), 0, 1),
+        [
+            (9, vec![y], vec![]),
+            (10, vec![b], vec![t]),
+            (11, vec![], vec![y])
+        ]
+    );
+    assert_eq!(
+        words(&format!("{BEH}{YEH}{TEH}"), 0, 0),
+        [
+            (9, vec![], vec![]),
+            (10, vec![], vec![]),
+            (11, vec![], vec![])
+        ]
+    );
+    // A reach of four takes the whole word, and no more: the space ends
+    // the run of letters but not the level run, so it is kept, and the
+    // word after it, which nothing joins, too.
+    let near = words(&format!("{BEH}{YEH}{TEH} {BEH}"), 0, 4);
+    assert_eq!(near[2], (11, vec![], vec![y, t, 0x20, b]));
+}
+
+/// **Across an erased cell and a soft wrap**: an erased cell between two
+/// letters, transparent to joining, is left out of the word; and a word a
+/// soft wrap splits keeps the letters on the other row, as its forms do
+/// (Jev ACROSS_WRAP).
+#[test]
+fn a_word_reaches_across_an_erased_cell_and_a_soft_wrap() {
+    assert_eq!(
+        words(&format!("{BEH}\x1b[C{BEH}"), 0, 2),
+        [(9, vec![0x0628], vec![]), (11, vec![], vec![0x0628])]
+    );
+    let text = format!("abcdefghi{BEH}{BEH}{BEH}{BEH}{BEH}{BEH} ok");
+    let first = words(&text, 0, 2);
+    // Row 0's last letter in logical order, at column 9, reads the two
+    // that wrapped to row 1.
+    assert_eq!(first[0], (9, vec![0x0628, 0x0628], vec![0x0628, 0x0628]));
+    let second = words(&text, 1, 2);
+    assert_eq!(second[2], (2, vec![0x0628, 0x0628], vec![0x0628, 0x0628]));
 }

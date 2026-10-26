@@ -1662,12 +1662,14 @@ cells from lam to alef or, for a wrapped pair, in the lam's cell. Exact
 against hb-shape on 198 fixtures (`baud-font/tests/arabic.rs`), four
 departures listed there, none from the standard.
 
-**13.3 Found and not fixed.** Syriac's alaph forms (9.3) are not drawn; a
-face's contextual lookups across letters are not run; a `morx` face is
+**13.3 Found and not fixed.** ~~Syriac's alaph forms (9.3) are not drawn; a
+face's contextual lookups across letters are not run;~~ both built
+2026-10-25 (13.5); a `morx` face is
 drawn through its presentation forms, which differ from Geeza Pro's own
-chains for a final farsi yeh and for its Allah ligature without shadda; SF
-Arabic draws through a `rclt` the grid leaves off and a multiple
-substitution baud does not implement, and is not among the fixtures.
+chains for a final farsi yeh and for its Allah ligature without shadda;
+~~SF Arabic draws through a `rclt` the grid leaves off and a multiple
+substitution baud does not implement, and is not among the fixtures.~~
+Both built, and SF Arabic is among the fixtures (13.5).
 ~~Mongolian and Phags-pa with BDSM reset are read right to left as Arabic
 is, so their forms come out mirrored.~~ Read left to right since
 2026-10-24, the way 13.5 and 14.4 lay the two scripts out on a horizontal
@@ -1692,3 +1694,49 @@ cell path each find a row's joins again only where their own compare of
 the screen with the last frame's finds the row changed. The app arm of
 `frame_gpu` base's CPU time a frame within one binary's spread
 (docs/record.md, "Arabic letters are joined, one letter a cell").
+
+**13.5 Syriac's alaph and the letters around a joined letter
+(2026-10-25).** Built to TUS 9.3's S1-S3 and the OpenType Syriac model
+(`[[source: ms-syriac-script-development]]`): the joining groups ALAPH
+and DALATH RISH join the trie, an alaph ending its word takes Afj
+(`fina`) after a letter that joins it, Afn (`fin2`) after one that does
+not, Afx (`fin3`) after dalath or rish, and one joined inside a word
+`med2`, each a masked stage of its own in the model's order. An alaph
+after a space or ZWNJ stays Xn: S2 read with its "character to its
+right" a letter of the word, as HarfBuzz's state table
+(`[[source: harfbuzz-14-5-1-shaper-arabic]]`) and Apple's CoreText draw
+it on Noto Sans Syriac (glyph 9, isol, where 11 is fin2), decided by Jev
+at 0.98/0.98 after that research (0.94/0.88 before; `ab/b216/`, whose
+render shows the two forms drawn alike in Estrangela). Where S1 reads "a
+non-joining character" after the alaph, an L-type letter does not end its
+word and HarfBuzz's table treats it as ending it; no Syriac letter is L.
+
+Each joined cell is shaped with up to 16 cells of its word either side
+in logical order, as many as `baud_font::joined_reach` finds the face's
+joining rules reading, kept by the layout per row with the cells it
+reads on other rows, cut at a face change and keyed into both caches;
+`rclt` runs with `calt` as one stage after `rlig`, the union of their
+lookups (`[[source: ms-opentype-chapter2]]`), since Noto Sans Mongolian
+names the same 78 lookups in both and the Arabic model asks faces to
+copy `rclt` into `calt`. That needed `GSUB` types 2 (SF Arabic's
+skeletons and dots), 5 and 8 (Noto Sans Mongolian's `calt`, which the
+context first reached; Noto Sans Coptic's overline). Exact against
+hb-shape 14.5.1 on 122 lines of `baud-font/tests/shape/contextual.txt`
+and 20 of `reverse.txt`; `arabic.txt`, `mongolian.txt` and the four
+departures unchanged.
+
+**13.6 Found and not fixed.** No face of macOS's default stack draws
+Arabic or Syriac (measured through `Config::defaults`, `load_faces` and
+`stack`: every letter falls to the embedded Regular's box; CoreText's
+cascade gives Geeza Pro and Noto Sans Syriac); `mset` and `curs`, both
+"Always applied" in the Arabic model, are not run; `rclt` is not run on a
+run with no letter that joins; a reverse chain or a context in a grid
+run's lookups admits every pair to the ligature prefilter rather than
+walking its rules; GPOS contextual positioning (type 7) is not built; a
+face whose joining rules read past 16 cells is shaped with 16; the reach
+is exact for each rule and not for a cascade, so a substitution that
+reads another's result from a cell past it, or a reverse chain carrying a
+change back from a word's end, can differ from the word shaped whole, and
+the fixtures' words, short enough to fall inside it, cannot show that; a
+face that would ligate letters across cells (SF Arabic's Allah without
+shadda, lam-lam-heh) has those cells shaped alone.

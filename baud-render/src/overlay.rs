@@ -404,8 +404,35 @@ impl ClusterKey {
             baud_domain::JoiningForm::Final => 0xf1,
             baud_domain::JoiningForm::Initial => 0xf2,
             baud_domain::JoiningForm::Medial => 0xf3,
+            baud_domain::JoiningForm::Final2 => 0xf4,
+            baud_domain::JoiningForm::Final3 => 0xf5,
+            baud_domain::JoiningForm::Medial2 => 0xf6,
         };
         ClusterKey((self.0 ^ code).wrapping_mul(ClusterKey::PRIME))
+    }
+
+    /// The cells of a joined cell's word around it, each its codepoints and
+    /// its form, each side counted: a cell shaped with one word is a
+    /// different cluster from it shaped with another, or alone.
+    fn around(self, word: &crate::renderer::Word) -> ClusterKey {
+        if word.is_empty() {
+            return self;
+        }
+        let mut key = self.word(Code(
+            0xA000_0000 | u32::try_from(word.before.len()).unwrap_or(0),
+        ));
+        for (cps, form) in word.before.iter().chain(&word.after) {
+            key = key.next_cell();
+            for &c in cps {
+                key = key.fold(c);
+            }
+            if let Some(f) = form {
+                key = key.joined(*f);
+            }
+        }
+        key.word(Code(
+            0xB000_0000 | u32::try_from(word.after.len()).unwrap_or(0),
+        ))
     }
 
     /// A cell drawn flipped left to right (UAX #9 L4): a different cluster
@@ -816,7 +843,17 @@ impl Overlay {
                         x += 1;
                         continue;
                     }
-                    self.whole_joined(scene, r, (x, y), j.form, mask, records, &paint, &geom);
+                    let around = orders.around(row, &j);
+                    self.whole_joined(
+                        scene,
+                        r,
+                        (x, y),
+                        (j.form, around),
+                        mask,
+                        records,
+                        &paint,
+                        &geom,
+                    );
                     x += 1;
                 }
             }
@@ -1159,14 +1196,18 @@ impl Overlay {
     }
 
     /// The cell at `at`, whose letter the layout joined, drawn by records in
-    /// `form`: [`Overlay::whole`]'s, through [`Renderer::cluster_joined`].
+    /// `form` with the cells of its word `around` it: [`Overlay::whole`]'s,
+    /// through [`Renderer::cluster_joined`].
     #[allow(clippy::too_many_arguments)]
     fn whole_joined(
         &mut self,
         scene: &Scene<'_, '_>,
         r: &mut Renderer<'_, '_>,
         at: (usize, usize),
-        form: baud_domain::JoiningForm,
+        (form, around): (
+            baud_domain::JoiningForm,
+            (&[crate::bidi::WordCell], &[crate::bidi::WordCell]),
+        ),
         mask: &mut [u8],
         records: &mut Vec<Instance>,
         paint: &Paint<'_>,
@@ -1183,7 +1224,13 @@ impl Overlay {
         for &c in &cps {
             key = key.fold(c);
         }
-        let mut key = key.joined(form);
+        let word = r.joined_word(
+            scene.term,
+            &cps,
+            style,
+            (around, (Row::from_index(y), Col::at_index(x))),
+        );
+        let mut key = key.joined(form).around(&word);
         if let Some(l) = lean {
             key = key.sheared(l);
         }
@@ -1191,7 +1238,7 @@ impl Overlay {
             Some(g) => g.clone(),
             None => {
                 self.stats.misses.bump();
-                let mut g = r.cluster_joined(&cps, style, form);
+                let mut g = r.cluster_joined(&cps, style, form, &word);
                 if let Some(l) = lean {
                     r.shear_glyphs(&mut g, l, Stretch::One, Flip::Kept);
                 }
@@ -1327,6 +1374,12 @@ impl Overlay {
             (lam_x, y),
             crate::cellmap::face_of(scene.styles, lam_cell),
         );
+        let face = r.face_for(&lam, style);
+        let alef_at = match span {
+            PairSpan::LamCell => None,
+            PairSpan::Cells(..) => Some(alef_x),
+        };
+        let word = r.pair_word(scene.term, window_row, (lam_x, alef_at), face);
         let mut key = ClusterKey::start().word(style.code());
         for &c in &lam {
             key = key.fold(c);
@@ -1339,7 +1392,8 @@ impl Overlay {
             PairSpan::Cells(LamAt::Right, _) => key.wide(),
             _ => key,
         }
-        .paired(lam_form);
+        .paired(lam_form)
+        .around(&word);
         // A span wider than the pair's two cells, or the lam's cell alone,
         // places the same glyphs elsewhere: one word past any codepoint's.
         let key = match span {
@@ -1357,7 +1411,7 @@ impl Overlay {
             Some(d) => d.clone(),
             None => {
                 self.stats.misses.bump();
-                let mut d = r.lam_alef((&lam, &alef), lam_form, style, span, stretch);
+                let mut d = r.lam_alef((&lam, &alef), lam_form, style, (span, &word), stretch);
                 if let (Some(l), Some(g)) = (lean, d.as_mut()) {
                     r.shear_glyphs(&mut g.lams, l, stretch, Flip::Kept);
                     r.shear_glyphs(&mut g.alefs, l, stretch, Flip::Kept);

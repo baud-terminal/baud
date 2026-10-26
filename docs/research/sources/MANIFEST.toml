@@ -2812,6 +2812,72 @@ group  = "J"
 # `hebr` and its feature order; the engine stages it describes reorder no
 # marks, so it sets no order for Hebrew points either.
 
+[sources.ms-syriac-script-development]
+key    = "ms-syriac-script-development"
+title  = "Developing OpenType Fonts for Syriac Script"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "learn.microsoft.com, script development specifications"
+url    = "https://learn.microsoft.com/en-us/typography/script-development/syriac"
+file   = ""
+sha256 = "d18e146097e47373aafb3e2581fa44e8be8e0271352022e7ede763d7455bd0de"
+bytes  = 81270
+status = "external"
+group  = "J"
+# Read 2026-10-25, two fetches the same hash; not committed -- a vendor HTML
+# page. The contextual forms isol, init, medi, med2, fina, fin2 and fin3,
+# what fin2, fin3 and med2 do to alaph, and the order each feature is
+# applied in, one by one: ccmp, isol, fina, fin2, fin3, medi, med2, init,
+# rlig, calt.
+
+[sources.ms-arabic-script-development]
+key    = "ms-arabic-script-development"
+title  = "Developing OpenType Fonts for Arabic Script"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "learn.microsoft.com, script development specifications"
+url    = "https://learn.microsoft.com/en-us/typography/script-development/arabic"
+file   = ""
+sha256 = "1a5e5059a64f0da5cb0620b730c78aa130d8164283a34c4d59ef033c742aa5f8"
+bytes  = 85625
+status = "external"
+group  = "J"
+# Read 2026-10-25; not committed -- a vendor HTML page. The standard order
+# its table gives: ccmp, isol, fina, medi, init, rlig, rclt, calt, each
+# "Always applied", then liga, dlig, cswh and mset.
+
+[sources.ms-opentype-features-pt]
+key    = "ms-opentype-features-pt"
+title  = "Registered features, p - t (feature tags)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/features_pt"
+file   = ""
+sha256 = "516aefdd51083f7b89a360b23c15840413c5e3b26c946ed3e35f6e2d2b57d447"
+bytes  = 135440
+status = "external"
+group  = "J"
+# Read 2026-10-25; not committed -- a vendor HTML page. `rclt`: "similar
+# to 'calt', but ... it should not be possible to turn off 'rclt'
+# substitutions", "May be used for any script".
+
+[sources.harfbuzz-14-5-1-shaper-arabic]
+key    = "harfbuzz-14-5-1-shaper-arabic"
+title  = "hb-ot-shaper-arabic.cc -- the Arabic shaper: the joining state machine with alaph's fin2, fin3 and med2, and its feature stages"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 14.5.1, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.5.1/src/hb-ot-shaper-arabic.cc"
+file   = ""
+sha256 = "f58d84e3715daa1c1704d70be61e8a9464487f453f414c84a0e4530609eb0d72"
+bytes  = 25779
+status = "external"
+group  = "J"
+# Read as reference, 2026-10-25, at the version of the hb-shape the
+# fixtures are made with; not committed -- a source file at a pinned tag.
+# The same bytes note AB read at 4dd9449.
+
 [sources.ms-opentype-fvar]
 key    = "ms-opentype-fvar"
 title  = "fvar -- Font Variations Table"

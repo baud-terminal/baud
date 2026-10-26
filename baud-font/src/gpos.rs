@@ -599,7 +599,7 @@ impl<'a> Run<'_, '_, 'a> {
             } else {
                 second.next()
             },
-            removed: Count::ZERO,
+            delta: crate::context::Delta::ZERO,
         })
     }
 

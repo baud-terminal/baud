@@ -8,9 +8,11 @@ regenerates and compares so the committed files cannot drift. Two outputs:
 * **baud-domain/src/joining_data.rs**, one byte a code point as a two-stage
   trie indexed by `codepoint >> 8` and then the low byte: Joining_Type in the
   low three bits (`JoiningType`'s declaration order: U, T, C, D, R, L) and,
-  in bits 3-4, the two Joining_Group values the Unicode Standard's
-  obligatory ligature rules name, LAM (1) and ALEF (2) (chapter 9.2.3,
-  `[[source: unicode-ch9]]`). Both come from ArabicShaping.txt
+  in bits 3-5, the four Joining_Group values the Unicode Standard's rules
+  name: LAM (1) and ALEF (2), which its obligatory ligature rules name
+  (chapter 9.2.3), and ALAPH (3) and DALATH RISH (4), which its rules for
+  Syriac alaph name (chapter 9.3, S1-S3; `[[source: unicode-ch9]]`). Both
+  come from ArabicShaping.txt
   (`[[source: unicode-arabicshaping]]`); a code point it does not list is T
   when its General Category is Mn, Me or Cf and U otherwise, as its header
   says (`[[source: unicode-derivedgeneralcategory]]`). The result is held to
@@ -35,7 +37,7 @@ FORMS_OUT = ROOT / "baud-font/src/presentation.rs"
 TYPES = ["U", "T", "C", "D", "R", "L"]
 LONG = {"Non_Joining": "U", "Transparent": "T", "Join_Causing": "C",
         "Dual_Joining": "D", "Right_Joining": "R", "Left_Joining": "L"}
-GROUPS = {"LAM": 1, "ALEF": 2}
+GROUPS = {"LAM": 1, "ALEF": 2, "ALAPH": 3, "DALATH RISH": 4}
 FORMS = ["isolated", "final", "initial", "medial"]
 BLOCK = 256
 
@@ -70,12 +72,16 @@ assert listed > 600, listed
 # Positive controls: beh dual, alef right, hamza and ZWNJ non-joining,
 # tatweel and ZWJ join-causing, fatha transparent (Mn, unlisted), ALM
 # transparent (Cf, unlisted), the isolates non-joining as UAX #9 3.5 says,
-# a Latin letter non-joining, lam in LAM and alef with madda in ALEF.
+# a Latin letter non-joining, lam in LAM and alef with madda in ALEF,
+# alaph alone in ALAPH and the four letters of DALATH RISH (the assert
+# lists 0715, 0716, 072A and 072F).
 assert jt[0x0628] == "D" and jt[0x0627] == "R" and jt[0x0621] == "U"
 assert jt[0x200C] == "U" and jt[0x0640] == "C" and jt[0x200D] == "C"
 assert jt[0x064E] == "T" and jt[0x061C] == "T" and jt[0x0041] == "U"
 assert all(jt[c] == "U" for c in range(0x2066, 0x206A))
 assert group[0x0644] == 1 and group[0x0622] == 2 and group[0x0628] == 0
+assert [c for c in range(0x110000) if group[c] == 3] == [0x0710]
+assert [c for c in range(0x110000) if group[c] == 4] == [0x0715, 0x0716, 0x072A, 0x072F]
 
 # Held to the derived file, its `@missing` line included.
 derived = ["U"] * 0x110000
@@ -131,13 +137,16 @@ parts = ["""//! Cursive-joining data, generated from the sources pinned in
 //! `joining_tables_match_the_pinned_data` fails if this file and the pinned
 //! data disagree."""]
 parts.append(as_bytestring("JOINING_INDEX", index, "\n".join([
-    "/// Joining_Type and the LAM and ALEF joining groups, as a two-stage trie.",
+    "/// Joining_Type and the LAM, ALEF, ALAPH and DALATH RISH joining groups,",
+    "/// as a two-stage trie.",
     f"/// Stage 1: codepoint >> 8 to one of {nblocks} distinct blocks.",
     "///",
     "/// **Low three bits** are `JoiningType` discriminants in declaration",
     "/// order (`[[source: unicode-arabicshaping]]`, its header's T and U",
-    "/// defaults by General Category); bits 3-4 are 1 for the LAM joining",
-    "/// group and 2 for ALEF, the two chapter 9.2.3's ligature rules name.",
+    "/// defaults by General Category); bits 3-5 are 1 for the LAM joining",
+    "/// group and 2 for ALEF, the two chapter 9.2.3's ligature rules name,",
+    "/// and 3 for ALAPH and 4 for DALATH RISH, the two 9.3's alaph rules",
+    "/// name.",
 ])))
 parts.append(as_bytestring("JOINING_BLOCKS", flat, "/// Stage 2: one byte a code point."))
 out = "\n\n".join(parts) + "\n"

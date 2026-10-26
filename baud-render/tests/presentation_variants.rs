@@ -129,6 +129,142 @@ fn value_14_draws_a_lam_and_an_alef_apart() {
     assert_eq!(form(&o, 1), Some(JoiningForm::Final));
 }
 
+/// What one cell of a word reads its neighbour as: its letter and form.
+type Read = (char, Option<JoiningForm>);
+
+/// Row 0 laid out after `bytes`, each joined cell kept with two cells of
+/// its word either side: the joined form of each of the cells written at
+/// logical columns 0 to 2, and the word around the cell at each, before
+/// it and after it, each neighbour read as its letter and form.
+#[allow(clippy::type_complexity)]
+fn with_words(bytes: &str) -> Vec<(Option<JoiningForm>, (Vec<Read>, Vec<Read>))> {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, bytes);
+    let mut o = Reorder::new();
+    o.set_reach(baud_font::bytes::Count::of(2_u32));
+    o.lay_out(&t, Rows::ZERO);
+    let read = |w: &baud_render::WordCell| {
+        let letter = t
+            .base_of(w.cell)
+            .drawn()
+            .as_codepoint()
+            .and_then(|c| char::from_u32(c.value()))
+            .unwrap_or('?');
+        (letter, w.form)
+    };
+    (0..3)
+        .map(|c| {
+            let v = o.orders().visual_col(Row::ZERO, Col::at_index(c));
+            match o.orders().joined(Row::ZERO, v) {
+                Some(j) => {
+                    let (before, after) = o.orders().around(Row::ZERO, &j);
+                    (
+                        Some(j.form),
+                        (
+                            before.iter().map(read).collect(),
+                            after.iter().map(read).collect(),
+                        ),
+                    )
+                }
+                None => (None, (Vec::new(), Vec::new())),
+            }
+        })
+        .collect()
+}
+
+/// **A form asked wins over the forms joining finds from the word**
+/// (`[[source: ecma48]]` 8.3.108's 5-8 and 18, over `[[source:
+/// unicode-ch9]]` 9.3's S1-S3): a Syriac alaph after he, fin2 by S2, is
+/// drawn final under 8 and isolated under 5; one inside a word, med2, is
+/// drawn final under 8. The letters around it read it in the form asked
+/// -- the beth before it, shaped with its word, reads a final alaph, not
+/// med2 -- and under 18 as stored. The asked letter keeps its word (Jev's
+/// lean WORD, 0.90/0.86), joined or not: an alef after a dal and an alaph
+/// after he inside a word, which no letter joins, and an alef between two
+/// dals, in a word none of whose letters join; with BDSM reset on a row
+/// that also holds Mongolian, read left to right, the alef's word is the
+/// one read right to left.
+#[test]
+fn a_form_asked_wins_over_the_word_and_the_word_reads_it() {
+    use JoiningForm::{Final, Final2, Initial, Isolated, Medial2};
+    let (alaph, beth, he) = ('\u{0710}', '\u{0712}', '\u{0717}');
+    let alaph_form = |bytes: String| with_words(&bytes)[1].0;
+    assert_eq!(alaph_form(format!("{he}{alaph}")), Some(Final2), "S2");
+    assert_eq!(alaph_form(format!("{he}\x1b[8 ]{alaph}")), Some(Final), "8");
+    assert_eq!(
+        alaph_form(format!("{he}\x1b[5 ]{alaph}")),
+        Some(Isolated),
+        "5"
+    );
+    let bab = |sapv: &str| with_words(&format!("{beth}{sapv}{alaph}\x1b[0 ]{beth}"));
+    let plain = bab("");
+    assert_eq!(plain[1].0, Some(Medial2), "the control");
+    assert_eq!(
+        plain[0].1.1,
+        [(alaph, Some(Medial2)), (beth, None)],
+        "the control: the beth reads a med2 alaph"
+    );
+    let asked = bab("\x1b[8 ]");
+    assert_eq!(asked[1].0, Some(Final), "8 inside a word");
+    assert_eq!(
+        asked[0].1.1,
+        [(alaph, Some(Final)), (beth, None)],
+        "the beth reads the alaph asked"
+    );
+    assert_eq!(
+        asked[1].1,
+        (vec![(beth, Some(Initial))], vec![(beth, None)]),
+        "the alaph asked keeps its word"
+    );
+    let (beh, dal, alef, lam) = ('\u{0628}', '\u{062F}', '\u{0627}', '\u{0644}');
+    let alef_asked = with_words(&format!("{beh}{dal}\x1b[8 ]{alef}\x1b[0 ]{lam}"))[2].clone();
+    assert_eq!(
+        alef_asked,
+        (
+            Some(Final),
+            (
+                vec![(beh, Some(Initial)), (dal, Some(Final))],
+                vec![(lam, None)]
+            )
+        ),
+        "an alef after a dal, asked final, keeps its word"
+    );
+    let alone = with_words(&format!("{dal}\x1b[7 ]{alef}\x1b[0 ]{dal}"))[1].clone();
+    assert_eq!(
+        alone,
+        (Some(Final), (vec![(dal, None)], vec![(dal, None)])),
+        "in a word no letter of which joins, the letter asked keeps it"
+    );
+    let after_he = with_words(&format!("{beth}{he}\x1b[8 ]{alaph}\x1b[0 ]{beth}"))[2].clone();
+    assert_eq!(after_he.0, Some(Final), "8 after he inside a word");
+    assert_eq!(
+        after_he.1.0,
+        [(beth, Some(Initial)), (he, Some(Final))],
+        "the alaph asked after he keeps the word before it"
+    );
+    let mong = '\u{1820}';
+    let reversed = with_words(&format!(
+        "\x1b[8l{dal}\x1b[7 ]{alef}\x1b[0 ]{dal}{mong}{mong}"
+    ))[1]
+        .clone();
+    assert_eq!(
+        reversed,
+        (
+            Some(Final),
+            (vec![(mong, None), (dal, None)], vec![(dal, None)])
+        ),
+        "BDSM reset beside Mongolian: the alef's word read right to left"
+    );
+    let stored = bab("\x1b[18 ]");
+    assert_eq!(stored[1].0, None, "18");
+    assert_eq!(
+        stored[0].1.1,
+        [(alaph, None), (beth, None)],
+        "the beth reads the alaph as stored"
+    );
+}
+
 /// **With BDSM reset, value 15 leaves a right-to-left path's paired
 /// characters as stored**, the line reversed and its brackets not
 /// swapped, and 3 swaps them again; with BDSM set L4 still mirrors them.

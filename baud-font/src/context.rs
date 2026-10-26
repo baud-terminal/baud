@@ -1,9 +1,10 @@
-//! Contextual lookups, which `GSUB` (`[[source: ms-opentype-gsub]]`, type
-//! 6) and `GPOS` (`[[source: ms-opentype-gpos]]`, type 8) lay out alike:
-//! a chained rule matches a backtrack, an input and a lookahead sequence,
-//! by glyph, by class or by coverage, and then runs other lookups of its
-//! own table at positions of the input. The matching is one code for both
-//! tables; what a nested lookup does is the table's, through [`Nested`].
+//! Contextual lookups, which `GSUB` (`[[source: ms-opentype-gsub]]`, types
+//! 5 and 6) and `GPOS` (`[[source: ms-opentype-gpos]]`, type 8) lay out
+//! alike: a chained rule matches a backtrack, an input and a lookahead
+//! sequence, by glyph, by class or by coverage, a plain contextual rule an
+//! input sequence alone, and then runs other lookups of its own table at
+//! positions of the input. The matching is one code for both tables; what
+//! a nested lookup does is the table's, through [`Nested`].
 
 use crate::buffer::{Buffer, Glyph, Ignorable};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
@@ -81,21 +82,46 @@ impl Matched {
     }
 }
 
-/// What applying a subtable at a position did.
+/// What applying a subtable at a position did. Eight bytes, as it was
+/// before glyphs could be put in: every lookup call returns one, and a
+/// wider one is returned through memory.
 #[derive(Clone, Copy)]
 pub(crate) struct Applied {
     /// The position to continue from.
     pub(crate) next: Index,
-    /// How many glyphs the buffer lost before `next`.
-    pub(crate) removed: Count,
+    /// How many glyphs the buffer lost, or gained, after the position the
+    /// subtable was applied at.
+    pub(crate) delta: Delta,
 }
 
 impl Applied {
     pub(crate) fn after(pos: Index) -> Applied {
         Applied {
             next: pos.next(),
-            removed: Count::ZERO,
+            delta: Delta::ZERO,
         }
+    }
+}
+
+/// How many glyphs a substitution took out of the buffer, below zero --
+/// a ligature's components -- or put in, above it -- a multiple
+/// substitution's sequence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Delta(i32);
+
+impl Delta {
+    pub(crate) const ZERO: Delta = Delta(0);
+
+    pub(crate) fn removed(n: Count) -> Delta {
+        Delta(0i32.saturating_sub_unsigned(n.value()))
+    }
+
+    pub(crate) fn added(n: Count) -> Delta {
+        Delta(0i32.saturating_add_unsigned(n.value()))
+    }
+
+    fn plus(self, other: Delta) -> Delta {
+        Delta(self.0.saturating_add(other.0))
     }
 }
 
@@ -284,7 +310,11 @@ pub(crate) fn match_ahead(
 }
 
 /// Runs the sequence lookup records over a matched input, adjusting
-/// later positions for glyphs a nested ligature removed.
+/// later positions for glyphs a nested ligature removed or a nested
+/// multiple substitution put in. Glyphs put in after the last input
+/// position are passed over with it: the walk goes on after them, as
+/// HarfBuzz's `apply_lookup` moves to the match's end grown by the
+/// glyphs added.
 pub(crate) fn run_records<'a, N: Nested<'a>>(
     n: &N,
     records: Bytes<'a>,
@@ -297,7 +327,8 @@ pub(crate) fn run_records<'a, N: Nested<'a>>(
         return None;
     }
     let mut at = *m;
-    let mut removed_total = Count::ZERO;
+    let mut total = Delta::ZERO;
+    let mut past_last = Count::ZERO;
     let mut r = Index::ZERO;
     while count.holds(r) {
         let rec = Offset::ZERO.at(r, Len::of(4))?;
@@ -310,12 +341,20 @@ pub(crate) fn run_records<'a, N: Nested<'a>>(
         }
         let p = at.at[k.slot()];
         if let Some(a) = n.nested(Index::of(li), buf, p, depth.deeper()) {
-            if !a.removed.is_zero() {
-                removed_total = bump(removed_total, a.removed);
+            let by = a.delta.0.unsigned_abs();
+            if a.delta != Delta::ZERO {
+                total = total.plus(a.delta);
+            }
+            if a.delta.0 > 0 && p == at.last() {
+                past_last = bump(past_last, Count::of(by));
+            } else if a.delta != Delta::ZERO {
                 let n = at.len.slot();
                 for q in at.at.iter_mut().take(n) {
                     if *q > p {
-                        *q = Index::of(q.value().saturating_sub(a.removed.value()));
+                        *q = match a.delta.0 > 0 {
+                            true => Index::of(q.value().saturating_add(by)),
+                            false => Index::of(q.value().saturating_sub(by)),
+                        };
                     }
                 }
             }
@@ -323,9 +362,116 @@ pub(crate) fn run_records<'a, N: Nested<'a>>(
     }
     // Continue after the input sequence, wherever it ended up.
     Some(Applied {
-        next: at.last().next(),
-        removed: removed_total,
+        next: at.last().next().plus(past_last).unwrap_or(at.last().next()),
+        delta: total,
     })
+}
+
+/// **Type 5: a context with no backtrack or lookahead**, in the format the
+/// subtable says (`[[source: ms-opentype-chapter2]]`, "Sequence context
+/// format 1", 2 and 3): an input sequence by glyph, by class or by
+/// coverage, then its lookup records, as a chained rule's.
+#[inline(never)]
+pub(crate) fn contextual<'a, N: Nested<'a>>(
+    n: &N,
+    sub: Bytes<'a>,
+    filter: &Filter<'_>,
+    buf: &mut Buffer<'_>,
+    pos: Index,
+    depth: Depth,
+) -> Option<Applied> {
+    let format: u16 = sub.read(Offset::ZERO)?;
+    let first = buf.get(pos)?;
+    match format {
+        1 | 2 => {
+            let coverage = coverage_at(sub, Offset::of(2u32))?;
+            let ci = coverage.index(first.id)?;
+            let class_def = match format {
+                1 => None,
+                _ => {
+                    let off: u16 = sub.read(Offset::of(4u32))?;
+                    Some(ClassDef::parse(sub.tail(Offset::of(u32::from(off)))?)?)
+                }
+            };
+            let sets_at = match format {
+                1 => Offset::of(4u32),
+                _ => Offset::of(6u32),
+            };
+            let set_count: u16 = sub.read(sets_at)?;
+            let sets: Array<'a, u16> =
+                sub.array(sets_at.plus(Len::of(2))?, Count::of(set_count))?;
+            let set_off = match class_def {
+                None => sets.get(ci)?,
+                Some(def) => sets.get(Index::of(def.class(first.id).0))?,
+            };
+            if set_off == 0 {
+                return None;
+            }
+            let set = sub.tail(Offset::of(u32::from(set_off)))?;
+            let rule_count: u16 = set.read(Offset::ZERO)?;
+            let rules: Array<'a, u16> = set.array(Offset::of(2u32), Count::of(rule_count))?;
+            let mut ri = Index::ZERO;
+            while let Some(off) = rules.get(ri) {
+                ri = ri.next();
+                let Some(rule) = set.tail(Offset::of(u32::from(off))) else {
+                    continue;
+                };
+                let applied =
+                    match_sequence_rule(n, rule, filter, buf, pos, depth, |g, v| match class_def {
+                        None => same(g, v),
+                        Some(def) => def.class(g).0 == v,
+                    });
+                if applied.is_some() {
+                    return applied;
+                }
+            }
+            None
+        }
+        3 => {
+            let input_n: u16 = sub.read(Offset::of(2u32))?;
+            let rec_n: u16 = sub.read(Offset::of(4u32))?;
+            let input: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(input_n))?;
+            let records =
+                sub.tail(Offset::of(6u32).plus(Len::of(2).times(Count::of(input_n))?)?)?;
+            let covers = |off: u16, g: GlyphId| -> bool {
+                sub.tail(Offset::of(u32::from(off)))
+                    .and_then(Coverage::parse)
+                    .is_some_and(|c| c.covers(g))
+            };
+            if !covers(input.get(Index::ZERO)?, first.id) {
+                return None;
+            }
+            let m = match_input(filter, buf, pos, Count::of(input_n), |k, g| {
+                input.get(k).is_some_and(|off| covers(off, g))
+            })?;
+            run_records(n, records, Count::of(rec_n), &m, buf, depth)
+        }
+        _ => None,
+    }
+}
+
+/// A `SequenceRule` or `ClassSequenceRule`: its input count, its record
+/// count, the input after the first position, and the records.
+fn match_sequence_rule<'a, N: Nested<'a>>(
+    n: &N,
+    rule: Bytes<'a>,
+    filter: &Filter<'_>,
+    buf: &mut Buffer<'_>,
+    pos: Index,
+    depth: Depth,
+    by: impl Fn(GlyphId, u16) -> bool,
+) -> Option<Applied> {
+    let input_n: u16 = rule.read(Offset::ZERO)?;
+    let rec_n: u16 = rule.read(Offset::of(2u32))?;
+    let rest = Count::of(input_n.checked_sub(1)?);
+    let input: Array<'a, u16> = rule.array(Offset::of(4u32), rest)?;
+    let records = rule.tail(Offset::of(4u32).plus(Len::of(2).times(rest)?)?)?;
+    let m = match_input(filter, buf, pos, Count::of(input_n), |k, g| {
+        k.prev()
+            .and_then(|c| input.get(c))
+            .is_some_and(|v| by(g, v))
+    })?;
+    run_records(n, records, Count::of(rec_n), &m, buf, depth)
 }
 
 /// Format 1: sequences of glyph ids.

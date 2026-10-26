@@ -75,29 +75,43 @@ impl FeatureTag {
     pub const MEDI: FeatureTag = FeatureTag(*b"medi");
     pub const INIT: FeatureTag = FeatureTag(*b"init");
     pub const RLIG: FeatureTag = FeatureTag(*b"rlig");
+    pub const FIN2: FeatureTag = FeatureTag(*b"fin2");
+    pub const FIN3: FeatureTag = FeatureTag(*b"fin3");
+    pub const MED2: FeatureTag = FeatureTag(*b"med2");
+    pub const RCLT: FeatureTag = FeatureTag(*b"rclt");
 
     /// The feature that draws a joining letter in `form`: OpenType's names
-    /// for the Unicode Standard's Xn, Xr, Xm and Xl in a right-to-left run.
+    /// for the Unicode Standard's Xn, Xr, Xm and Xl in a right-to-left run,
+    /// and for alaph's Afn, Afx and its Xr inside a word
+    /// (`[[source: ms-syriac-script-development]]`).
     pub fn of_form(form: JoiningForm) -> FeatureTag {
         match form {
             JoiningForm::Isolated => FeatureTag::ISOL,
             JoiningForm::Final => FeatureTag::FINA,
             JoiningForm::Medial => FeatureTag::MEDI,
             JoiningForm::Initial => FeatureTag::INIT,
+            JoiningForm::Final2 => FeatureTag::FIN2,
+            JoiningForm::Final3 => FeatureTag::FIN3,
+            JoiningForm::Medial2 => FeatureTag::MED2,
         }
     }
 
-    /// Whether this is one of the joining features: the four forms and
-    /// the required ligatures, which [`Features::joining`] turns on.
+    /// Whether this is one of the joining features: the seven forms, the
+    /// required ligatures and the required contextual alternates, which
+    /// [`Features::joining`] turns on.
     #[inline]
     pub fn is_joining(self) -> bool {
         matches!(
             self,
             FeatureTag::ISOL
                 | FeatureTag::FINA
+                | FeatureTag::FIN2
+                | FeatureTag::FIN3
                 | FeatureTag::MEDI
+                | FeatureTag::MED2
                 | FeatureTag::INIT
                 | FeatureTag::RLIG
+                | FeatureTag::RCLT
         )
     }
 }
@@ -620,6 +634,9 @@ pub struct Kind(u16);
 
 impl Kind {
     pub const SINGLE: Kind = Kind(1);
+    pub const MULTIPLE: Kind = Kind(2);
+    pub const CONTEXT: Kind = Kind(5);
+    pub const REVERSE: Kind = Kind(8);
     pub const LIGATURE: Kind = Kind(4);
     pub const CHAINED: Kind = Kind(6);
     pub const GSUB_EXTENSION: Kind = Kind(7);
@@ -681,9 +698,10 @@ pub struct Features {
     pub ccmp: Enabled,
     pub calt: Enabled,
     pub liga: Enabled,
-    /// The joining forms, `isol`, `fina`, `medi` and `init`, each applied
-    /// only to a glyph the caller gave that form, and the required
-    /// ligatures, `rlig`.
+    /// The joining forms, `isol`, `fina`, `fin2`, `fin3`, `medi`, `med2`
+    /// and `init`, each applied only to a glyph the caller gave that form;
+    /// the required ligatures, `rlig`; and the required contextual
+    /// alternates, `rclt`.
     pub joining: Enabled,
 }
 
@@ -771,11 +789,18 @@ impl LookupSet {
         declined: Count::ZERO,
     };
 
+    /// The lookups in the set, in `LookupList` order: each word's set bits,
+    /// lowest first, a word with none passed over in one test -- a run's
+    /// joining stages are each a set, most of them empty or nearly.
     pub fn iter(&self) -> impl Iterator<Item = Index> + '_ {
         self.bits.iter().enumerate().flat_map(|(w, &word)| {
-            (0..64u32)
-                .filter(move |b| word & (1u64 << b) != 0)
-                .map(move |b| Index::of(u32::try_from(w * 64).unwrap_or(0) + b))
+            let base = u32::try_from(w * 64).unwrap_or(0);
+            let mut left = word;
+            core::iter::from_fn(move || {
+                let b = (left != 0).then(|| left.trailing_zeros())?;
+                left &= left - 1;
+                Some(Index::of(base + b))
+            })
         })
     }
 

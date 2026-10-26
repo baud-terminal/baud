@@ -640,6 +640,31 @@ fn every_script_fixture_shapes_as_harfbuzz_does() {
     }
 }
 
+/// **A reverse chain runs from the end of the run back to its start**
+/// (`GSUB` type 8, "processed in reverse order", `[[source:
+/// ms-opentype-gsub]]`). Every line of `tests/shape/reverse.txt` is what
+/// hb-shape made of a Coptic word with a combining overline on each
+/// letter, compared as `script.txt`'s are: on Noto Sans Coptic, which
+/// macOS ships, an overline before a capital's takes the capital's height,
+/// and so does each before it, back to the word's start, which a walk from
+/// the start could not carry. The built Regular's lines, with no Coptic,
+/// run everywhere and are the control.
+#[test]
+fn every_reverse_chain_fixture_shapes_as_harfbuzz_does() {
+    let on_macos = cfg!(target_os = "macos");
+    let Tally {
+        fixtures: Reached(fixtures),
+        system_fixtures: Reached(system_fixtures),
+        skipped: Reached(skipped),
+        ..
+    } = shape_script_fixtures("reverse.txt", on_macos, GposTable::Kept);
+    assert_eq!(fixtures, 10, "the control's lines");
+    match on_macos {
+        true => assert_eq!(system_fixtures, 10, "Noto Sans Coptic's lines"),
+        false => assert!(skipped == 10 && system_fixtures == 0, "{skipped}"),
+    }
+}
+
 /// **Two or more Hebrew points in one cell reach the face in HarfBuzz's
 /// order**, its modified combining classes (`[[source:
 /// harfbuzz-hb-unicode]]`; the owner's pick, note AB 11.4), so a font's

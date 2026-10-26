@@ -8,8 +8,8 @@
 //! it is stored, and its expected forms are the text's read right to left.
 
 use baud_domain::{
-    FIRST_JOINING_BLOCK, JOIN_BLOCKS, JoiningForm, JoiningType, LamAlef, Ligating,
-    in_joining_block, in_layout_block, in_rtl_block, join, lam_alefs,
+    FIRST_JOINING_BLOCK, JOIN_BLOCKS, JoiningForm, JoiningType, LamAlef, Ligating, SyriacGroup,
+    alaphs, in_joining_block, in_layout_block, in_rtl_block, join, lam_alefs,
 };
 
 const MEEM: u32 = 0x0645;
@@ -29,7 +29,25 @@ fn forms(cps: &[u32]) -> Vec<Option<JoiningForm>> {
     out
 }
 
-use JoiningForm::{Final, Initial, Isolated, Medial};
+use JoiningForm::{Final, Final2, Final3, Initial, Isolated, Medial, Medial2};
+
+const ALAPH: u32 = 0x0710;
+const BETH: u32 = 0x0712;
+const DALATH: u32 = 0x0715;
+const HE: u32 = 0x0717;
+const WAW: u32 = 0x0718;
+const YUDH: u32 = 0x071D;
+const RISH: u32 = 0x072A;
+const PTHAHA: u32 = 0x0730;
+
+/// R1-R7 and then S1-S3 over one run, as a renderer joins Syriac.
+fn syriac(cps: &[u32]) -> Vec<Option<JoiningForm>> {
+    let types: Vec<JoiningType> = cps.iter().map(|&c| JoiningType::of(c)).collect();
+    let mut out = vec![None; cps.len()];
+    join(&types, &mut out);
+    alaphs(cps, &types, &mut out);
+    out
+}
 
 /// The generator regenerates both tables from the pinned files and
 /// compares: `joining_data.rs` and baud-font's `presentation.rs` cannot
@@ -239,5 +257,137 @@ fn the_layout_blocks_are_both_tables() {
     assert!(in_rtl_block(0x05D0) && !in_joining_block(0x05D0));
     for cp in [0x0041, 0x4E00, 0x2500, 0x2800] {
         assert!(!in_layout_block(cp), "U+{cp:04X}");
+    }
+}
+
+/// The two groups the alaph rules name, from field 3: alaph alone in
+/// ALAPH, and dalath, dotless dalath rish, rish and Persian dhalath in
+/// DALATH RISH; a lam, an alef and another Syriac letter in neither, and
+/// the lam and alef groups untouched by the bits beside them.
+#[test]
+fn the_alaph_and_dalath_rish_groups_are_the_file_s() {
+    assert_eq!(SyriacGroup::of(ALAPH), SyriacGroup::Alaph);
+    for cp in [0x0715, 0x0716, 0x072A, 0x072F] {
+        assert_eq!(SyriacGroup::of(cp), SyriacGroup::DalathRish, "U+{cp:04X}");
+        assert_eq!(Ligating::of(cp), Ligating::Neither, "U+{cp:04X}");
+    }
+    for cp in [BETH, HE, WAW, LAM, ALEF, 0x0041] {
+        assert_eq!(SyriacGroup::of(cp), SyriacGroup::Neither, "U+{cp:04X}");
+    }
+    assert_eq!(Ligating::of(ALAPH), Ligating::Neither);
+    assert_eq!(JoiningType::of(ALAPH), JoiningType::RightJoining);
+}
+
+/// S1: "An alaph that has a left-joining character to its right and a
+/// non-joining character (or end of text) to its left will take the form
+/// of Afj": after a beth that joins it, at the end of the text, before a
+/// space and before a ZWNJ, final. Across a transparent pthaha, as R1
+/// skips it.
+#[test]
+fn s1_an_alaph_joined_at_the_end_of_its_word_is_afj() {
+    assert_eq!(syriac(&[BETH, ALAPH]), [Some(Initial), Some(Final)]);
+    assert_eq!(
+        syriac(&[BETH, ALAPH, 0x20]),
+        [Some(Initial), Some(Final), None]
+    );
+    assert_eq!(
+        syriac(&[BETH, ALAPH, ZWNJ, BETH]),
+        [Some(Initial), Some(Final), None, Some(Isolated)]
+    );
+    assert_eq!(
+        syriac(&[BETH, PTHAHA, ALAPH]),
+        [Some(Initial), None, Some(Final)]
+    );
+    assert_eq!(syriac(&[TATWEEL, ALAPH]), [None, Some(Final)]);
+}
+
+/// S2: "An alaph that has a non-left-joining character to its right,
+/// except for a character with Joining_Group = Dalath_Rish, and a
+/// non-joining character (or end of text) to its left will take the form
+/// of Afn": after he, waw and another alaph, none of which joins it.
+#[test]
+fn s2_an_alaph_after_a_letter_that_does_not_join_it_is_afn() {
+    assert_eq!(syriac(&[HE, ALAPH]), [Some(Isolated), Some(Final2)]);
+    assert_eq!(syriac(&[WAW, ALAPH]), [Some(Isolated), Some(Final2)]);
+    assert_eq!(syriac(&[ALAPH, ALAPH]), [Some(Isolated), Some(Final2)]);
+    assert_eq!(
+        syriac(&[HE, ALAPH, 0x20]),
+        [Some(Isolated), Some(Final2), None]
+    );
+}
+
+/// S3: "An alaph that has a character with Joining_Group = Dalath_Rish to
+/// its right and a non-joining character (or end of text) to its left will
+/// take the form of Afx": after dalath, rish and dotless dalath rish, and
+/// after a dalath carrying a mark, which is skipped.
+#[test]
+fn s3_an_alaph_after_dalath_or_rish_is_afx() {
+    assert_eq!(syriac(&[DALATH, ALAPH]), [Some(Isolated), Some(Final3)]);
+    assert_eq!(syriac(&[RISH, ALAPH]), [Some(Isolated), Some(Final3)]);
+    assert_eq!(syriac(&[0x0716, ALAPH]), [Some(Isolated), Some(Final3)]);
+    assert_eq!(
+        syriac(&[DALATH, PTHAHA, ALAPH]),
+        [Some(Isolated), None, Some(Final3)]
+    );
+}
+
+/// An alaph that does not end its word: joined to the letter before it,
+/// OpenType's `med2` form, "the 'Alaph' glyph in the middle of Syriac
+/// words when the preceding base character can be joined to" -- before a
+/// letter, before a ZWJ, which joins, and before another alaph, which
+/// then ends the word after a letter that does not join it; not joined,
+/// Xn as R7 leaves it, after he and after dalath.
+#[test]
+fn an_alaph_inside_a_word_is_med2_or_isolated() {
+    assert_eq!(
+        syriac(&[BETH, ALAPH, BETH]),
+        [Some(Initial), Some(Medial2), Some(Isolated)]
+    );
+    assert_eq!(
+        syriac(&[BETH, ALAPH, ZWJ]),
+        [Some(Initial), Some(Medial2), None]
+    );
+    assert_eq!(
+        syriac(&[BETH, ALAPH, ALAPH]),
+        [Some(Initial), Some(Medial2), Some(Final2)]
+    );
+    assert_eq!(
+        syriac(&[HE, ALAPH, BETH]),
+        [Some(Isolated), Some(Isolated), Some(Isolated)]
+    );
+    assert_eq!(
+        syriac(&[DALATH, ALAPH, YUDH]),
+        [Some(Isolated), Some(Isolated), Some(Isolated)]
+    );
+}
+
+/// The rules name a character to the alaph's right: an alaph with none,
+/// at the start of the text or after a space, is Xn; and the rules touch
+/// no other letter,
+/// so an Arabic word and a Syriac word without alaph join as R1-R7 alone
+/// joined them.
+#[test]
+fn the_alaph_rules_touch_alaph_alone() {
+    assert_eq!(syriac(&[ALAPH]), [Some(Isolated)]);
+    // After a space or a ZWNJ, a word of its own, as at the start of the
+    // text: S2's character to its right is a letter of the word, as
+    // HarfBuzz and CoreText read it (Jev ISOLATED_AFTER_SPACE, 0.98/0.98).
+    assert_eq!(
+        syriac(&[BETH, 0x20, ALAPH]),
+        [Some(Isolated), None, Some(Isolated)]
+    );
+    assert_eq!(
+        syriac(&[BETH, ZWNJ, ALAPH]),
+        [Some(Isolated), None, Some(Isolated)]
+    );
+    assert_eq!(syriac(&[ALAPH, BETH]), [Some(Isolated), Some(Isolated)]);
+    for word in [
+        &[BEH, ALEF, BEH][..],
+        &[LAM, ALEF],
+        &[MEEM, SHADDA, LAM],
+        &[BETH, DALATH, BETH],
+        &[YUDH, HE],
+    ] {
+        assert_eq!(syriac(word), forms(word), "{word:04X?}");
     }
 }
