@@ -2634,7 +2634,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             .chars()
             .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
             .collect(),
-        ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        measure: baud_render::Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
     });
@@ -3183,7 +3183,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 .chars()
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         });
@@ -3224,7 +3224,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             row,
             col,
             text: vec![baud_domain::Codepoint::new(u32::from('z')).unwrap()],
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         });
@@ -4684,7 +4684,35 @@ fn ambiguous_box_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                  \x1b[5;1H\x1b(0lqqk\x1b(B ╴─╶ ╌╍ ─╼━ ─\u{301}─\x1b[?25h\x1b[3;1H";
     let sized = "\x1bc\x1b[?25l\x1b[2;1H\x1b#6┌──┐ ▌█ ╭╮ ╱\
                  \x1b[4;1H\x1b#3┌──┐ ▀▄ ═║\x1b[5;1H\x1b#4┌──┐ ▀▄ ═║";
-    for (name, text) in [("single", scene), ("sized", sized)] {
+    // On an explicit right-to-left line, each row drawn in reverse: with
+    // `?2500` a wide box line's mask is mirrored whole (`Facing`), drawn by
+    // a record on the cell arm and by the mirrored slot on the others.
+    // Each line a paragraph of its own, given its path and its mirroring
+    // at its start.
+    let rtl = |boxes: &str| {
+        (2..=5).fold(scene.replace("\x1bc", "\x1bc\x1b[8l"), |text, n| {
+            text.replace(
+                &format!("\x1b[{n};1H"),
+                &format!("\x1b[{n};1H{boxes}\x1b[2 k"),
+            )
+        })
+    };
+    let mirrored = rtl("\x1b[?2500h");
+    let reversed = rtl("");
+    let mut frames = Vec::new();
+    let reads = arms.reads;
+    for (name, text) in [
+        ("single", scene.to_string()),
+        ("sized", sized.to_string()),
+        ("mirrored", mirrored),
+        ("reversed", reversed),
+    ] {
+        // A row is drawn in another order from the frame's copy, as the
+        // app draws it, not from the core's grid.
+        arms.reads = match name {
+            "mirrored" | "reversed" => Reads::Copy,
+            _ => reads,
+        };
         t.set_ambiguous_width(AmbiguousWidth::Narrow);
         feed(t, text.as_bytes());
         let (narrow, _) = arms.draw(t);
@@ -4698,7 +4726,17 @@ fn ambiguous_box_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         );
         assert_eq!(differing(&a, &b), 0, "{name}: the GPU arms disagree");
         assert_eq!(differing(&a, &cpu), 0, "{name}: the CPU arm disagrees");
+        frames.push(a);
     }
+    arms.reads = reads;
+    assert!(
+        differing(&frames[2], &frames[3]) > 0,
+        "mirroring never reached the pixels"
+    );
+    assert!(
+        differing(&frames[0], &frames[3]) > 0,
+        "the reversal never reached the pixels"
+    );
     t.set_ambiguous_width(AmbiguousWidth::Narrow);
     feed(t, b"\x1bc");
 }
@@ -4828,7 +4866,7 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .chars()
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         });
@@ -5419,7 +5457,7 @@ fn composed_decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 .chars()
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         });
@@ -5964,7 +6002,7 @@ fn hollow_cursor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             .chars()
             .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
             .collect(),
-        ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        measure: baud_render::Measure::default(),
         hints: Vec::new(),
         caret: Caret::At(1),
     };
@@ -10548,7 +10586,7 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
                 .chars()
                 .map(baud_domain::Codepoint::from_char)
                 .collect(),
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         });
@@ -10574,6 +10612,194 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
             d, 0,
             "{line}{width:?}: as the same text written underlined, {d} pixels"
         );
+    }
+}
+
+/// **A composition the core clusters draws as the text written, on every
+/// arm**: two CJK characters over four cells, a ZWJ family, a flag, an
+/// emoji under `U+FE0F` and a spacing mark on its letter, composed over
+/// a line of text -- and on a line drawn in reverse with `?2500` a box
+/// line two cells wide and `∑`, mirrored, before and after a letter that
+/// takes a joining form is drawn -- each equal on the cell,
+/// copied-cell and CPU arms to the
+/// same text written underlined at the cursor -- the cursor after it,
+/// where the commit lands -- and each against its premise, the frame
+/// without it. A vowel sign composed after its consonant and a skin tone
+/// after its emoji, on a line drawn in order and in reverse, are drawn on
+/// the cell before the cursor, equal to that cell rewritten underlined
+/// with them ([`Composition::at_cursor`]).
+#[test]
+fn a_clustered_composition_draws_as_its_text_written_on_every_arm() {
+    let (built, noto) = rtl_faces();
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    // Then on a line drawn in reverse with `?2500`, under "wide": a box
+    // line two cells wide and a Bidi_Mirrored character with no mirror
+    // glyph, each mirrored as its text written is.
+    let plain =
+        "\x1bc\x1b[2 q\x1b[3;1HThe quick brown fox jumps over the lazy dog 0123456789\x1b[3;5H";
+    let mirrored = "\x1bc\x1b[2 q\x1b[8l\x1b[3;1H\x1b[?2500h\x1b[2 kThe quick brown fox jumps over the lazy dog 0123456789\x1b[3;5H";
+    // `pre` written after "The quick ", the cursor after it.
+    let headed = |pre: &str, at: usize, path: &str| {
+        format!(
+            "\x1bc\x1b[2 q\x1b[8l\x1b[3;1H{path}The quick {pre}brown fox jumps over the lazy dog\x1b[3;{at}H"
+        )
+    };
+    let (ka, sign) = ("\u{915}", "\u{93f}");
+    let (thumb, tone) = ("\u{1f44d}", "\u{1f3fd}");
+    use baud_render::Joins::{Seen, Unseen};
+    for (scene, text, joins, redo) in [
+        (plain.to_string(), "\u{4e2d}\u{6587}", Unseen, ("", 0)),
+        (
+            plain.to_string(),
+            "\u{1f468}\u{200d}\u{1f469}",
+            Unseen,
+            ("", 0),
+        ),
+        (plain.to_string(), "\u{1f1ef}\u{1f1f5}", Unseen, ("", 0)),
+        (plain.to_string(), "\u{2764}\u{fe0f}", Unseen, ("", 0)),
+        (plain.to_string(), "a\u{903}b", Unseen, ("", 0)),
+        (
+            mirrored.to_string(),
+            "\u{250C}\u{2500}\u{2502}",
+            Unseen,
+            ("", 0),
+        ),
+        (mirrored.to_string(), "a\u{2211}b", Unseen, ("", 0)),
+        (
+            mirrored.to_string(),
+            "\u{250C}\u{2500}\u{2502}",
+            Seen,
+            ("", 0),
+        ),
+        (mirrored.to_string(), "a\u{2211}b", Seen, ("", 0)),
+        (headed(ka, 12, ""), sign, Unseen, (ka, 1)),
+        (headed(thumb, 13, ""), tone, Unseen, (thumb, 2)),
+        (headed(ka, 12, "\x1b[2 k"), sign, Unseen, (ka, 1)),
+        (headed(thumb, 13, "\x1b[2 k"), tone, Unseen, (thumb, 2)),
+    ] {
+        arms!(fresh() => arms, t);
+        // After a letter that takes a joining form is drawn, the layout
+        // with BDSM reset keeps the last frame's joins.
+        if joins == Seen {
+            let joined = "\x1b[8l\x1b[1;1HThe quick brown fox jumps over the lazy dog 0123456789 \u{628}\u{628}\u{628}";
+            feed(&mut t, joined.as_bytes());
+            three(&mut arms, &mut t, "joined");
+        }
+        assert_eq!(arms.renderer.joins_seen(), joins, "{text:?}: the layout");
+        if scene == mirrored {
+            t.set_ambiguous_width(baud_domain::AmbiguousWidth::Wide);
+        }
+        feed(&mut t, scene.as_bytes());
+        let cps: Vec<_> = text
+            .chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect();
+        let c = Composition::at_cursor(&t, &cps, &[], Caret::End);
+        let head = c.col.index() + redo.1 == t.cursor().1.index();
+        arms.composition = Some(c);
+        let composed = three(&mut arms, &mut t, "composed");
+        arms.composition = None;
+        let plain = three(&mut arms, &mut t, "plain");
+        let (pre, back) = redo;
+        let rewrite = match back {
+            0 => String::new(),
+            n => format!("\x1b[{n}D"),
+        };
+        feed(
+            &mut t,
+            format!("{rewrite}\x1b[4m{pre}{text}\x1b[24m").as_bytes(),
+        );
+        let written = three(&mut arms, &mut t, "written");
+        assert!(
+            differing(&composed, &plain) > 0,
+            "{text:?}: the composition is drawn"
+        );
+        let d = differing(&composed, &written);
+        assert_eq!(
+            d, 0,
+            "{text:?} {joins:?}: as the same text written, {d} pixels"
+        );
+        assert!(head, "{text:?}: its head");
+    }
+}
+
+/// **A composition over text SAPV varies draws as its own text written,
+/// on every arm** (`[[source: ecma48]]` 8.3.108): `xyz` composed over
+/// digits value 2 draws as the Arabic script's is drawn as `xyz`, not as
+/// the digits under it; and two vavs composed where value 17 slants one
+/// italic cell of a Hebrew line, in that cell's rendition, both lean
+/// left, as written they do, though the cell after the first is upright.
+#[test]
+fn a_composition_over_varied_text_draws_as_written_on_every_arm() {
+    use baud_render::{FaceRole, FaceStyle};
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let (regular, italic) = (
+        read("baud-app/fonts/built/Regular.ttf"),
+        read("baud-app/fonts/built/Italic.ttf"),
+    );
+    let faces = [
+        Face::parse(&regular).expect("parse"),
+        Face::parse(&italic).expect("parse"),
+    ];
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Italic)];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let slanted =
+        "\u{5D0}\u{5D1}\x1b[3m\x1b[17 ]\u{5D2}\x1b[0m\x1b[0 ]\u{5D3}\u{5D4}\u{5D5}\x1b[4D";
+    for (scene, text, pen) in [
+        ("\x1b[2 ]12345\x1b[4D", "xyz", ""),
+        (slanted, "\u{5D5}\u{5D5}", "\x1b[3m\x1b[17 ]"),
+    ] {
+        feed(
+            &mut t,
+            b"\x1bc\x1b[2 q\x1b[8;3HThe quick brown fox jumps 0123456789\x1b[3;1H",
+        );
+        feed(&mut t, scene.as_bytes());
+        let cps: Vec<_> = text
+            .chars()
+            .map(baud_domain::Codepoint::from_char)
+            .collect();
+        arms.composition = Some(Composition::at_cursor(&t, &cps, &[], Caret::End));
+        let composed = three_arms(&mut arms, &mut t, "composed");
+        arms.composition = None;
+        let plain = three_arms(&mut arms, &mut t, "plain");
+        feed(&mut t, format!("{pen}\x1b[4m{text}\x1b[24m").as_bytes());
+        let written = three_arms(&mut arms, &mut t, "written");
+        assert!(differing(&composed, &plain) > 0, "{text:?}: drawn");
+        let d = differing(&composed, &written);
+        assert_eq!(d, 0, "{text:?}: as written, {d} pixels");
     }
 }
 

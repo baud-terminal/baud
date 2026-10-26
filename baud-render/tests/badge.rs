@@ -277,7 +277,7 @@ fn the_badge_leaves_the_cursor_and_a_composition_alone() {
             .chars()
             .map(baud_domain::Codepoint::from_char)
             .collect(),
-        ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        measure: baud_render::Measure::default(),
         hints: Vec::new(),
         caret: baud_render::Caret::Hidden,
     };

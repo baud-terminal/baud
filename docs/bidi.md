@@ -318,6 +318,11 @@ the screen; step 3 joins Arabic letters.
   (`a_form_asked_wins_over_the_word_and_the_word_reads_it`); a word
   slanted under 17 reads its own letters as it does upright
   (`sapv_meets_a_letters_word_on_every_arm`).
+  Text an input method is composing is drawn as it will be written:
+  over digits drawn as Arabic-Indic it shows its own characters, and
+  where 17 slants the cell it starts on it leans left
+  (`a_composition_over_varied_text_draws_as_its_text_written`,
+  `a_composition_over_varied_text_draws_as_written_on_every_arm`).
 
 ## What decided each choice
 

@@ -601,18 +601,50 @@ struct Area {
     t: Px,
     /// The width a vertical stroke is centred in: the first cell's.
     c: Px,
+    /// Where that cell begins: at the box's left edge as written, and in
+    /// its last cell mirrored ([`Facing`]).
+    x: Px,
+}
+
+/// **Which way a box drawing character faces in its cells**: as written,
+/// or mirrored left to right as `?2500` draws one resolved right to left
+/// (`[[source: terminal-wg-bidi-misc]]`, "mirror the U+2500 .. U+257F
+/// glyphs in RTL"). In one cell a mirrored character is its counterpart
+/// (`baud_domain::box_counterpart`); in two the whole mask is mirrored:
+/// the counterpart, its verticals in the last cell -- the first in the
+/// order the line is read -- at the place a one-cell piece in that cell
+/// has its own, its horizontals run to the far edge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Facing {
+    Written,
+    Mirrored,
 }
 
 impl Area {
-    /// `cell`'s box, the cells `span` gives wide, weighed by `cell`.
-    fn across(cell: Cell, span: crate::cellmap::CellSpan) -> Area {
+    /// `cell`'s box, the cells `span` gives wide, weighed by `cell`, its
+    /// verticals in the cell `facing` puts them in.
+    fn across(cell: Cell, span: crate::cellmap::CellSpan, facing: Facing) -> Area {
         let cells = u32::try_from(span.cells().index()).unwrap_or(1);
         Area {
             w: Px::of(cell.w.value() * cells),
             h: cell.h,
             t: cell.light(),
             c: cell.w,
+            x: match facing {
+                Facing::Written => Px::of(0),
+                Facing::Mirrored => Px::of(cell.w.value() * cells.saturating_sub(1)),
+            },
         }
+    }
+
+    /// The columns a vertical stroke of `size` takes: centred in the cell
+    /// its verticals are in.
+    fn vertical(self, size: Px) -> Range {
+        let r = Cell::span(self.c, size);
+        Range::to(
+            Px::of(r.start.value() + self.x.value()),
+            Px::of(r.end.value() + self.x.value()),
+        )
     }
 
     fn light(self) -> Px {
@@ -794,7 +826,7 @@ fn aa(
 /// its arms with the junction square filled.
 fn draw_arms(mask: &mut Mask<'_>, cell: Area, a: Arms) {
     let (w, h) = (cell.w, cell.h);
-    let vspan = |wt: Weight| Cell::span(cell.c, cell.width(wt));
+    let vspan = |wt: Weight| cell.vertical(cell.width(wt));
     let hspan = |wt: Weight| Cell::span(h, cell.width(wt));
     let xs = [a.up, a.down]
         .into_iter()
@@ -844,11 +876,12 @@ fn draw_double(mask: &mut Mask<'_>, cell: Area, segs: &[Seg]) {
             At::S1 => single + t,
         })
     };
-    // Across, a pair or a single stroke is placed in the first cell and
-    // the far edge is the whole box's.
+    // Across, a pair or a single stroke is placed in the cell the
+    // verticals are in and the edges are the whole box's.
     let across = |at: At| match at {
+        At::Edge0 => Px::of(0),
         At::Edge1 => w,
-        _ => resolve(at, cell.c),
+        _ => Px::of(resolve(at, cell.c).value() + cell.x.value()),
     };
     for seg in segs {
         let x = Range::to(across(seg.x0), across(seg.x1));
@@ -875,7 +908,7 @@ fn draw_dashed(mask: &mut Mask<'_>, cell: Area, axis: Axis, wt: Weight, dashes: 
             }
         }
         Axis::Vertical => {
-            let band = Cell::span(cell.c, cell.width(wt));
+            let band = cell.vertical(cell.width(wt));
             let (x0, x1) = (fx(band.start), fx(band.end));
             let period = fx(h) / n;
             let dash = (period * 0.6).max(1.0);
@@ -921,12 +954,13 @@ fn draw_quadrants(mask: &mut Mask<'_>, cell: Area, q: Quadrants) {
 fn draw_arc(mask: &mut Mask<'_>, scratch: &mut Vec<f32>, temp: &mut Vec<u8>, cell: Area, arc: Arc) {
     use core::f32::consts::PI;
     let t = cell.light();
-    let vx = Cell::span(cell.c, t).start;
+    let vx = cell.vertical(t).start;
     let hy = Cell::span(cell.h, t).start;
     let (tf, wf, hf) = (fx(t), fx(cell.w), fx(cell.h));
     let cx = fx(vx) + tf / 2.0;
     let cy = fx(hy) + tf / 2.0;
-    let room = (cx.min(fx(cell.c) - cx)).min(cy.min(hf - cy));
+    let (left, right) = (fx(cell.x), fx(cell.x) + fx(cell.c));
+    let room = ((cx - left).min(right - cx)).min(cy.min(hf - cy));
     let r = room - tf / 2.0;
     if r < tf {
         draw_arms(
@@ -1128,23 +1162,32 @@ pub fn draw(
 ) -> Option<Extent> {
     draw_in(
         cp,
-        Area::across(cell, crate::cellmap::CellSpan::One),
+        Area::across(cell, crate::cellmap::CellSpan::One, Facing::Written),
         scratch,
         coverage,
     )
 }
 
 /// [`draw`] for a character that takes `span` cells: the mask the width
-/// of all of them, its strokes at `cell`'s weight ([`Area`]). One cell is
-/// [`draw`].
+/// of all of them, its strokes at `cell`'s weight ([`Area`]), facing as
+/// `facing` says -- mirrored, a box drawing character is its counterpart
+/// with its verticals in its last cell ([`Facing`]). One cell as written
+/// is [`draw`].
 pub fn draw_across(
     cp: Codepoint,
     cell: Cell,
     span: crate::cellmap::CellSpan,
+    facing: Facing,
     scratch: &mut Vec<f32>,
     coverage: &mut Vec<u8>,
 ) -> Option<Extent> {
-    draw_in(cp, Area::across(cell, span), scratch, coverage)
+    let drawn = match facing {
+        Facing::Written => cp,
+        Facing::Mirrored => char::from_u32(cp.value())
+            .and_then(baud_domain::box_counterpart)
+            .map_or(cp, Codepoint::from_char),
+    };
+    draw_in(drawn, Area::across(cell, span, facing), scratch, coverage)
 }
 
 fn draw_in(

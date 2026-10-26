@@ -10,7 +10,8 @@ use baud_core::{CacheGeometry, Depth, Owned, Term};
 use baud_domain::{BytePos, Codepoint, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, Current, Damage, Find, FindLook, PxSize, Renderer, Stack, Target, Theme,
+    Argb, Blend, Caret, Current, Damage, Find, FindLook, PxSize, Renderer, Stack, Target, Theme,
+    Typing,
 };
 use support::font;
 
@@ -198,6 +199,36 @@ fn the_field_shows_the_querys_tail_and_what_was_found() {
         assert!(shown.contains("xyz"), "{shown:?}");
         assert!(!shown.contains("0123"), "{shown:?}");
         assert_eq!(f.field(Cols::of_index(30)).text.len(), 30);
+    });
+}
+
+/// **The field lays a clustered query out as its composition draws it**:
+/// a ZWJ family is one cluster of two columns, so after ` Find ` and the
+/// family and `x` the caret is at column 9 and the field fills its thirty
+/// columns exactly, as its composition lays them out; and an input
+/// method's cursor inside a cluster (`e` and its mark, after `ab`) puts
+/// the caret at the start of that cluster.
+#[test]
+fn the_field_lays_a_clustered_query_out_as_its_composition_draws_it() {
+    with_term(40, |t| {
+        let cols = Cols::of_index(30);
+        let mut f = Find::new();
+        f.set_query(t, query("\u{1f468}\u{200d}\u{1f469}x"), Rows::ZERO);
+        let field = f.field(cols);
+        assert_eq!(field.caret, Col::at_index(9));
+        assert_eq!(field.composition().columns(cols), (0, 30));
+        f.set_query(t, query("ab"), Rows::ZERO);
+        let composing = query("e\u{301}");
+        let field = f.field_typing(
+            cols,
+            Typing {
+                composing: &composing,
+                caret: Caret::At(1),
+                ..Typing::default()
+            },
+        );
+        assert_eq!(field.caret, Col::at_index(8));
+        assert_eq!(field.composition().columns(cols), (0, 30));
     });
 }
 

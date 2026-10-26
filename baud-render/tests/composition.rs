@@ -19,9 +19,9 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{AmbiguousWidth, BytePos, Codepoint, ReadLen};
+use baud_domain::{AmbiguousWidth, BytePos, Codepoint, ReadLen, Vs16Width};
 use baud_font::Face;
-use baud_render::{Caret, Composition, Damage, Highlight, Hints, Region, Renderer};
+use baud_render::{Caret, Composition, Damage, Highlight, Hints, Measure, Region, Renderer};
 use support::{Canvas, WS, font, renderer};
 
 fn feed(t: &mut Term<'_>, bytes: &[u8]) {
@@ -45,7 +45,7 @@ fn frame(r: &mut Renderer<'_, '_>, bytes: &[u8], composition: Option<&str>) -> V
         row,
         col,
         text: cps(s),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
     }));
@@ -140,7 +140,7 @@ fn an_ended_composition_repaints_the_cells_under_it() {
         row,
         col,
         text: cps("xyz"),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
     }));
@@ -149,6 +149,21 @@ fn an_ended_composition_repaints_the_cells_under_it() {
     r.set_composition(None);
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, plain, "the cells under it were repainted");
+    // And the cell before the cursor a continuation was drawn on.
+    let base = "ab\u{915}cdef\x1b[4D";
+    let plain = frame(&mut r, base.as_bytes(), None);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, base.as_bytes());
+    let mut c = Canvas::for_renderer(&r);
+    let headed = Composition::at_cursor(&t, &cps("\u{93f}"), &[], Caret::End);
+    assert_eq!(headed.col.index(), 2, "its head");
+    r.set_composition(Some(headed));
+    support::paint(&mut r, &mut t, &mut c, Damage::Full);
+    assert!(c.pixels != plain, "the head is drawn");
+    r.set_composition(None);
+    support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    assert!(c.pixels == plain, "the head's cell was repainted");
 }
 
 #[test]
@@ -170,7 +185,7 @@ fn a_changed_composition_repaints_even_over_the_same_text() {
         row,
         col,
         text: cps("xyz"),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
     }));
@@ -200,7 +215,7 @@ fn over_blank_cells_it_appears_and_goes_on_incremental_frames() {
         row,
         col,
         text: cps("xyz"),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret: Caret::End,
     }));
@@ -246,7 +261,10 @@ fn a_composition_takes_the_configured_ambiguous_width() {
         row: home.0,
         col: home.1,
         text: cps(text),
-        ambiguous,
+        measure: Measure {
+            ambiguous,
+            ..Measure::default()
+        },
         hints: Vec::new(),
         caret: Caret::End,
     };
@@ -267,6 +285,335 @@ fn a_composition_takes_the_configured_ambiguous_width() {
         assert_eq!(t.cursor().1.index(), width, "core {text:?} {ambiguous:?}");
         let at = c.cursor(cols).expect("after it").1;
         assert_eq!(at.index(), width, "{text:?} {ambiguous:?}");
+    }
+}
+
+/// **A composition is laid out in the clusters a write of it makes**
+/// (`[[source: uax29]]`, the core's own machine): on a term measuring by
+/// each `Measure` -- ambiguous narrow or wide, the current widths or
+/// Unicode 8's, `U+FE0F` widening or not -- the text composed after a
+/// letter covers the columns the same text written after that letter
+/// takes, the core's cursor after the commit is where the composition
+/// ended, and its cells are the core's cell for cell, wide tails and bases.
+/// Every control-free line of `GraphemeBreakTest.txt`, and by hand: two
+/// CJK characters, a ZWJ family, a flag, an emoji under `U+FE0F` and
+/// under a skin tone, Hangul jamo, Devanagari and Gujarati spacing marks,
+/// a mark after `U+200B`, a box line under the ambiguous width. **What
+/// continues the character before the cursor is drawn on that cell**, its
+/// cluster at the composition's head ([`Composition::at_cursor`]): a
+/// vowel sign after its consonant, a skin tone after its emoji, a
+/// `U+FE0F` that widens the `☠` before it over the cursor's cell, the
+/// second half of a flag, a ZWJ, a mark on a wide character -- each
+/// composition starting on the cell before the cursor.
+#[test]
+fn a_composition_takes_the_cells_a_write_of_it_takes() {
+    const WIDE_WS: baud_core::WinSize = baud_core::WinSize {
+        ws_row: 2,
+        ws_col: 160,
+    };
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/unicode-graphemebreaktest.txt"
+    ))
+    .expect("GraphemeBreakTest.txt");
+    let mut texts: Vec<Vec<Codepoint>> = [
+        "\u{4e2d}\u{6587}",
+        "\u{b1}\u{2500}",
+        "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+        "\u{1f1ef}\u{1f1f5}",
+        "\u{2764}\u{fe0f}x",
+        "\u{915}\u{93f}",
+        "\u{1f44d}\u{1f3fd}",
+        "\u{1100}\u{1161}\u{11a8}",
+        "a\u{903}",
+        "\u{a95}\u{abe}\u{a95}",
+        "e\u{200b}\u{301}x",
+        "\u{903}ab",
+    ]
+    .iter()
+    .map(|t| cps(t))
+    .collect();
+    for line in src.lines() {
+        let body = line.split('#').next().unwrap_or("");
+        let line: Option<Vec<Codepoint>> = body
+            .split_whitespace()
+            .filter(|t| *t != "\u{f7}" && *t != "\u{d7}")
+            .map(|h| u32::from_str_radix(h, 16).ok().and_then(Codepoint::new))
+            .collect();
+        if let Some(line) = line.filter(|l| {
+            !l.is_empty()
+                && l.iter()
+                    .all(|c| !(c.value() < 0x20 || (0x7f..=0x9f).contains(&c.value())))
+        }) {
+            texts.push(line);
+        }
+    }
+    assert!(texts.len() > 400, "the suite read: {}", texts.len());
+    let mut texts: Vec<(Vec<Codepoint>, Vec<Codepoint>)> =
+        texts.into_iter().map(|t| (cps("x"), t)).collect();
+    let heads = [
+        ("\u{915}", "\u{93f}"),
+        ("\u{1f44d}", "\u{1f3fd}x"),
+        ("\u{2620}", "\u{fe0f}x"),
+        ("\u{1f1ef}", "\u{1f1f5}"),
+        ("e", "\u{301}x"),
+        ("\u{4e2d}", "\u{301}y"),
+        ("\u{1f468}", "\u{200d}\u{1f469}"),
+    ];
+    texts.extend(heads.iter().map(|(pre, t)| (cps(pre), cps(t))));
+    let cols = baud_domain::Cols::of_index(usize::from(WIDE_WS.ws_col));
+    let measures = [
+        (
+            AmbiguousWidth::Narrow,
+            baud_domain::UnicodeWidths::Current,
+            Vs16Width::Two,
+        ),
+        (
+            AmbiguousWidth::Wide,
+            baud_domain::UnicodeWidths::Current,
+            Vs16Width::Two,
+        ),
+        (
+            AmbiguousWidth::Narrow,
+            baud_domain::UnicodeWidths::Eight,
+            Vs16Width::Two,
+        ),
+        (
+            AmbiguousWidth::Narrow,
+            baud_domain::UnicodeWidths::Current,
+            Vs16Width::One,
+        ),
+    ];
+    for (ambiguous, widths, vs16) in measures {
+        for (pre, text) in &texts {
+            let mut owned = Owned::new(&WIDE_WS);
+            let mut t = Term::new(owned.storage(), &WIDE_WS);
+            t.set_ambiguous_width(ambiguous);
+            t.set_vs16_width(vs16);
+            if widths == baud_domain::UnicodeWidths::Eight {
+                feed(&mut t, b"\x1b]1337;UnicodeVersion=8\x07");
+            }
+            let measure = Measure::of(&t);
+            assert_eq!(
+                measure,
+                Measure {
+                    ambiguous,
+                    widths,
+                    vs16
+                }
+            );
+            let s = |t: &[Codepoint]| -> String {
+                t.iter()
+                    .map(|c| char::from_u32(c.value()).unwrap())
+                    .collect()
+            };
+            feed(&mut t, s(pre).as_bytes());
+            let before = t.cursor().1.index();
+            let c = Composition::at_cursor(&t, text, &[], Caret::End);
+            if heads.iter().any(|(p, h)| cps(p) == *pre && cps(h) == *text) {
+                assert!(c.col.index() < before, "{text:x?} {measure:?}: its head");
+            }
+            feed(&mut t, s(text).as_bytes());
+            let (start, end) = c.columns(cols);
+            let at = t.cursor().1.index();
+            assert_eq!(end, at, "{text:x?} {measure:?}: where the commit lands");
+            assert_eq!(c.cursor(cols).map(|(_, x)| x.index()), Some(at));
+            let row = t.row(baud_domain::Row::ZERO).expect("row");
+            let core: Vec<(bool, Option<u32>)> = row[start..at]
+                .iter()
+                .map(|&cell| {
+                    (
+                        cell.content.is_wide_tail(),
+                        t.base_of(cell).drawn().as_codepoint().map(|c| c.value()),
+                    )
+                })
+                .collect();
+            let drawn: Vec<(bool, Option<u32>)> = c
+                .written(cols, baud_domain::StyleId::DEFAULT)
+                .iter()
+                .map(|cell| {
+                    (
+                        cell.content.is_wide_tail(),
+                        cell.content.as_codepoint().map(|c| c.value()),
+                    )
+                })
+                .collect();
+            assert_eq!(drawn, core, "{text:x?} {measure:?}: the cells");
+        }
+    }
+}
+
+/// **A composition the core clusters draws as the text written**: two CJK
+/// characters over four cells, a ZWJ family, a flag, an emoji under
+/// `U+FE0F` and a spacing mark on its letter, each composed over `cdef`
+/// equal to the same text written underlined there, the cursor after it.
+#[test]
+fn a_clustered_composition_draws_as_its_text_written() {
+    let data = jbm();
+    let noto = font("NotoColorEmoji-subset.ttf");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&noto).unwrap()];
+    let mut r = renderer(&faces);
+    for text in [
+        "\u{4e2d}\u{6587}",
+        "\u{1f468}\u{200d}\u{1f469}",
+        "\u{1f1ef}\u{1f1f5}",
+        "\u{2764}\u{fe0f}",
+        "a\u{903}b",
+    ] {
+        let base = b"abcdefgh\x1b[6D";
+        let composed = frame(&mut r, base, Some(text));
+        let written = frame(
+            &mut r,
+            format!("abcdefgh\x1b[6D\x1b[4m{text}\x1b[24m").as_bytes(),
+            None,
+        );
+        assert!(composed == written, "{text:?}: as written");
+    }
+}
+
+/// **What continues the character before the cursor is drawn on that
+/// cell**, as the commit will leave it, in the marked-text look: a vowel
+/// sign composed after its consonant, a skin tone after its emoji and a
+/// `U+FE0F` after the `☠` it widens, each composed over `cdef` equal to
+/// the cell rewritten underlined with it, the cursor after it, and each
+/// drawn (Jev's lean, `B_CELL_BEFORE`).
+#[test]
+fn a_continuation_composed_draws_on_the_cell_before_it() {
+    let data = jbm();
+    let noto = font("NotoColorEmoji-subset.ttf");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&noto).unwrap()];
+    let mut r = renderer(&faces);
+    let shot = |r: &mut Renderer<'_, '_>, bytes: &str, text: Option<&str>| {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, bytes.as_bytes());
+        r.set_composition(text.map(|s| Composition::at_cursor(&t, &cps(s), &[], Caret::End)));
+        let mut c = Canvas::for_renderer(r);
+        support::paint(r, &mut t, &mut c, Damage::Full);
+        r.set_composition(None);
+        c.pixels
+    };
+    for (pre, back, text) in [
+        ("\u{915}", 1, "\u{93f}"),
+        ("\u{1f44d}", 2, "\u{1f3fd}"),
+        ("\u{2620}", 1, "\u{fe0f}x"),
+    ] {
+        let base = format!("ab{pre}cdefgh\x1b[6D");
+        let composed = shot(&mut r, &base, Some(text));
+        let plain = shot(&mut r, &base, None);
+        let written = shot(
+            &mut r,
+            &format!("{base}\x1b[{back}D\x1b[4m{pre}{text}\x1b[24m"),
+            None,
+        );
+        assert!(composed != plain, "{text:?}: drawn");
+        assert!(composed == written, "{text:?}: as written");
+    }
+}
+
+/// **The input method's cursor and hints count past the head**: a vowel
+/// sign and `b` composed after `क` start on the `क`'s cell, the cursor
+/// before the sign on it and before the `b` on the cell after, a range
+/// over the `b` that cell alone, and the head takes the sign's hints.
+/// Past a pending wrap the cell is the cursor's own, the last column's,
+/// where the core attaches the mark.
+#[test]
+fn the_input_methods_cursor_counts_past_the_head() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "ab\u{915}".as_bytes());
+    let cols = baud_domain::Cols::of_index(usize::from(WS.ws_col));
+    let text = cps("\u{93f}b");
+    let at = |caret| Composition::at_cursor(&t, &text, &[], caret);
+    let cell = |c| Some((baud_domain::Row::ZERO, baud_domain::Col::at_index(c)));
+    assert_eq!(at(Caret::End).col.index(), 2, "its head");
+    assert_eq!(at(Caret::At(0)).cursor(cols), cell(2), "before the sign");
+    assert_eq!(at(Caret::At(1)).cursor(cols), cell(3), "before the b");
+    assert_eq!(
+        at(Caret::Range(1, 2)).caret_cells(cols),
+        Some((
+            baud_domain::Row::ZERO,
+            baud_domain::Col::at_index(3),
+            baud_domain::Cols::of_index(1)
+        )),
+        "the b selected"
+    );
+    let hinted = Composition::at_cursor(&t, &text, &[Hints::SELECTION, Hints::NONE], Caret::End);
+    assert_eq!(
+        hinted.hints,
+        [Hints::SELECTION, Hints::SELECTION, Hints::NONE],
+        "the sign's hints on its head"
+    );
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let last = usize::from(WS.ws_col) - 1;
+    feed(&mut t, format!("{}z", "a".repeat(last)).as_bytes());
+    assert_eq!(t.wrap_pending(), baud_core::WrapPending::Yes, "the premise");
+    let c = Composition::at_cursor(&t, &cps("\u{301}"), &[], Caret::End);
+    assert_eq!(c.col.index(), last, "past a pending wrap: the last column");
+    assert_eq!(c.text, cps("z\u{301}"), "led by its cell");
+    feed(&mut t, "\u{301}".as_bytes());
+    let marks: Vec<u32> = t
+        .marks(baud_domain::Row::ZERO, baud_domain::Col::at_index(last))
+        .collect();
+    assert_eq!(marks, [0x301], "where the core attaches it");
+}
+
+/// **A composition on a right-to-left line is mirrored as its text
+/// written is**: under `ambiguous_width = "wide"` on a line BDSM reset
+/// draws in reverse with `?2500` set, a box line two cells wide composed
+/// is mirrored whole as the same text written (`┌─│`), and so is a
+/// Bidi_Mirrored character with no mirror glyph, drawn flipped (`∑`),
+/// each composed over `cdef` equal to the text written underlined there,
+/// on a single-width line and a double-width one -- before the renderer
+/// has shaped a letter that takes a joining form and after, when the
+/// layout with BDSM reset keeps the last frame's joins.
+#[test]
+fn a_composition_on_a_mirrored_line_is_mirrored_as_its_text_written() {
+    let data = jbm();
+    let faces = [Face::parse(&data).unwrap()];
+    for joins in [baud_render::Joins::Unseen, baud_render::Joins::Seen] {
+        mirrored_as_written(&faces, joins);
+    }
+}
+
+fn mirrored_as_written(faces: &[Face<'_>], joins: baud_render::Joins) {
+    let mut r = renderer(faces);
+    let shot = |r: &mut Renderer<'_, '_>, bytes: &str, text: Option<&str>| {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_ambiguous_width(AmbiguousWidth::Wide);
+        feed(&mut t, bytes.as_bytes());
+        let (row, col) = t.cursor();
+        r.set_composition(text.map(|s| Composition {
+            row,
+            col,
+            text: cps(s),
+            measure: Measure::of(&t),
+            hints: Vec::new(),
+            caret: Caret::End,
+        }));
+        let mut c = Canvas::for_renderer(r);
+        support::paint(r, &mut t, &mut c, Damage::Full);
+        r.set_composition(None);
+        c.pixels
+    };
+    if joins == baud_render::Joins::Seen {
+        shot(&mut r, "\x1b[8l\x1b[1;1H\u{628}\u{628}\u{628}", None);
+    }
+    assert_eq!(r.joins_seen(), joins, "the layout the frames take");
+    for size in ["", "\x1b#6"] {
+        for text in ["\u{250C}\u{2500}\u{2502}", "a\u{2211}b"] {
+            let base = format!("\x1b[8l\x1b[3;1H{size}\x1b[?2500h\x1b[2 kabcdefgh\x1b[6D");
+            let composed = shot(&mut r, &base, Some(text));
+            let written = shot(&mut r, &format!("{base}\x1b[4m{text}\x1b[24m"), None);
+            let plain = shot(&mut r, &base, None);
+            assert_ne!(composed, plain, "{size:?} {text:?}: drawn");
+            assert!(
+                composed == written,
+                "{joins:?} {size:?} {text:?}: as written"
+            );
+        }
     }
 }
 
@@ -314,7 +661,7 @@ fn hinted(
         row,
         col,
         text: cps(s),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints,
         caret: Caret::End,
     }));
@@ -493,7 +840,7 @@ fn with_caret(
         row,
         col,
         text: cps(s),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret,
     }));
@@ -591,7 +938,7 @@ fn a_moved_input_method_cursor_repaints_on_an_incremental_frame() {
         row,
         col,
         text: cps("xyz"),
-        ambiguous: AmbiguousWidth::Narrow,
+        measure: Measure::default(),
         hints: Vec::new(),
         caret,
     };
@@ -657,4 +1004,99 @@ fn the_input_methods_cursor_follows_the_clusters() {
         written(&mut r, "\x1b[?25l\x1b[4me\u{301}x\x1b[24m", Some((1, 1))),
         "the whole cluster selected"
     );
+}
+
+/// The built faces, regular and italic, for SAPV 17's slant: the italic
+/// face is what an italic leans by, the regular one draws it upright.
+fn built_faces() -> (Vec<u8>, Vec<u8>) {
+    let read = |name: &str| {
+        std::fs::read(format!(
+            "{}/../baud-app/fonts/built/{name}.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    };
+    (read("Regular"), read("Italic"))
+}
+
+/// **A composition over text SAPV varies draws as its own text written**
+/// (`[[source: ecma48]]` 8.3.108): over digits value 2 draws as the
+/// Arabic script's, `xyz` composed draws `xyz`, not the digits under it,
+/// as the same text written does; and composed where value 17 slants one
+/// italic cell of a right-to-left line, in that cell's rendition, both of
+/// its letters lean left, as written they do, though the cell after the
+/// first holds an upright letter.
+#[test]
+fn a_composition_over_varied_text_draws_as_its_text_written() {
+    use baud_render::{FaceRole, FaceStyle, Stack};
+    let (regular, italic) = built_faces();
+    let faces = [
+        Face::parse(&regular).unwrap(),
+        Face::parse(&italic).unwrap(),
+    ];
+    let mut r = renderer(&faces[..1]);
+    let digits = "\x1b[2 ]12345\x1b[4D";
+    let composed = frame(&mut r, digits.as_bytes(), Some("xyz"));
+    let written = frame(
+        &mut r,
+        format!("{digits}\x1b[4mxyz\x1b[24m").as_bytes(),
+        None,
+    );
+    assert_ne!(composed, frame(&mut r, digits.as_bytes(), None), "drawn");
+    assert!(composed == written, "over digits value 2 draws: as written");
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Italic)];
+    let mut r = baud_render::Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        baud_render::PxSize::of(16.0).unwrap(),
+        baud_render::Theme::dark(),
+        baud_render::Blend::Native,
+        baud_domain::Cols::of_index(usize::from(WS.ws_col)),
+        baud_domain::Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let line = "\u{5D0}\u{5D1}\x1b[3m\x1b[17 ]\u{5D2}\x1b[0m\x1b[0 ]\u{5D3}\u{5D4}\u{5D5}\x1b[4D";
+    let text = "\u{5D5}\u{5D5}";
+    let composed = frame(&mut r, line.as_bytes(), Some(text));
+    let written = frame(
+        &mut r,
+        format!("{line}\x1b[3m\x1b[17 ]\x1b[4m{text}\x1b[24m").as_bytes(),
+        None,
+    );
+    let upright = frame(
+        &mut r,
+        format!("{line}\x1b[4m{text}\x1b[24m").as_bytes(),
+        None,
+    );
+    assert_ne!(written, upright, "the premise: 17 slants the vavs");
+    assert!(composed == written, "where 17 slants: as written");
+}
+
+/// **Digits composed where value 2 draws the Arabic script's are drawn
+/// as written**, as `U+0667`-`U+0669` and not as the digits under them,
+/// on SF Arabic, which macOS ships and which draws them.
+#[cfg(target_os = "macos")]
+#[test]
+fn digits_composed_under_value_2_draw_as_written() {
+    let data = jbm();
+    let arabic =
+        std::fs::read("/System/Library/Fonts/SFArabic.ttf").expect("SF Arabic, which macOS ships");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&arabic).unwrap()];
+    let mut r = renderer(&faces);
+    let digits = "\x1b[2 ]12345\x1b[4D";
+    let composed = frame(&mut r, digits.as_bytes(), Some("789"));
+    let written = frame(
+        &mut r,
+        format!("{digits}\x1b[4m789\x1b[24m").as_bytes(),
+        None,
+    );
+    let under = frame(
+        &mut r,
+        format!("{digits}\x1b[4m234\x1b[24m").as_bytes(),
+        None,
+    );
+    assert_ne!(
+        written, under,
+        "the premise: the face draws the digits apart"
+    );
+    assert!(composed == written, "as written");
 }

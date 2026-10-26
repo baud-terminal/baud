@@ -26,11 +26,9 @@ use baud_core::{
     Found, HistoryErasures, HistoryWipes, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines,
     SurfaceLine, Term,
 };
-use baud_domain::{
-    AmbiguousWidth, Classified, Codepoint, Col, Cols, LineIdx, Row, Rows, Width, WidthPolicy,
-};
+use baud_domain::{Codepoint, Col, Cols, LineIdx, Row, Rows};
 
-use crate::overlay::{Caret, Composition, Hints};
+use crate::overlay::{Caret, Composition, Hints, Measure};
 use crate::units::Tally;
 
 /// The find field's least width, in columns, where the grid has them.
@@ -63,7 +61,7 @@ impl Field {
             row: self.row,
             col: self.col,
             text: self.text.clone(),
-            ambiguous: AmbiguousWidth::Narrow,
+            measure: Measure::default(),
             hints: self.hints.clone(),
             // The field draws its own caret, a bar at `caret`
             // (`Renderer::set_find`); the terminal's cursor is not moved.
@@ -103,15 +101,6 @@ pub struct Typing<'a> {
 pub struct FindLook {
     pub marks: Vec<Mark>,
     pub field: Field,
-}
-
-/// The columns `cp` takes in the field, as the grid would write it.
-fn columns(cp: Codepoint) -> Cols {
-    Cols::of_index(match Classified::of(cp).width(WidthPolicy::DEFAULT) {
-        w if w == Width::ZERO => 0,
-        w if w == Width::WIDE => 2,
-        _ => 1,
-    })
 }
 
 fn chars(s: &str) -> impl Iterator<Item = Codepoint> + '_ {
@@ -384,28 +373,31 @@ impl Find {
                 Caret::At(n) => n.min(typing.composing.len()),
                 Caret::End | Caret::Range(..) | Caret::Hidden => typing.composing.len(),
             };
-        // The tail that fits, whole characters, marks with them.
+        // The tail that fits, whole clusters, laid out as the field's
+        // composition lays them ([`crate::overlay::clusters`]), after the
+        // label's space: what joins that space is not shown.
+        let cps: Vec<Codepoint> = typed.iter().map(|&(c, _)| c).collect();
+        let (lead, clusters) = crate::overlay::clusters(&cps, Measure::default());
         let mut first = typed.len();
         let mut used = 0;
-        while let Some(&(cp, _)) = first.checked_sub(1).and_then(|i| typed.get(i)) {
-            let w = columns(cp).index();
+        let mut kept = clusters.len();
+        while let Some(c) = kept.checked_sub(1).and_then(|k| clusters.get(k)) {
+            let w = c.span.cells().index();
             if used + w > room {
                 break;
             }
             used += w;
-            first -= 1;
+            first = c.codes.start;
+            kept -= 1;
         }
-        while typed
-            .get(first)
-            .is_some_and(|&(c, _)| columns(c).index() == 0)
-        {
-            first += 1;
-        }
+        let first = first.max(lead);
         let shown = &typed[first..];
-        let before: usize = shown
+        // The caret before the codepoint at `at`: after every cluster that
+        // ends by it, at the start of the one it is inside.
+        let before: usize = clusters[kept..]
             .iter()
-            .take(at.saturating_sub(first))
-            .map(|&(c, _)| columns(c).index())
+            .filter(|c| c.codes.end <= at)
+            .map(|c| c.span.cells().index())
             .sum();
         let pad = width.saturating_sub(1 + LABEL.len() + used + status.len() + 1);
         let mut text: Vec<Codepoint> = chars(" ").chain(chars(LABEL)).collect();

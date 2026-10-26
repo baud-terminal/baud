@@ -99,17 +99,8 @@ pub fn composition(
     hints: &[Hints],
     caret: Caret,
 ) -> Option<Composition> {
-    (!composing.is_empty() && term.window_back().index() == 0).then(|| {
-        let (row, col) = term.cursor();
-        Composition {
-            row,
-            col,
-            text: composing.to_vec(),
-            ambiguous: term.ambiguous_width(),
-            hints: hints.to_vec(),
-            caret,
-        }
-    })
+    (!composing.is_empty() && term.window_back().index() == 0)
+        .then(|| Composition::at_cursor(term, composing, hints, caret))
 }
 
 /// **The cursor's cell**, as `[x, y, width, height]` in pixels from the
@@ -238,7 +229,7 @@ mod tests {
         assert_eq!((c.row.index(), c.col.index()), (1, 2));
         assert_eq!(c.text, kana);
         assert_eq!(c.hints, marks);
-        assert_eq!(c.ambiguous, t.ambiguous_width());
+        assert_eq!(c.measure, baud_render::Measure::of(&t));
         assert_eq!(c.caret, Caret::At(1), "the input method's cursor");
         for _ in 0..8 {
             feed(&mut t, b"\r\nline");

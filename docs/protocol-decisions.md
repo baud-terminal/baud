@@ -320,6 +320,10 @@ half-built protocol feature is finished to the spec, not switched off"):
   one-cell weight, and a block is its fraction of both cells. Both shapes
   are Jev's leans, below the bar, left for the owner's veto
   (`docs/record.md`, "A box line two cells wide is drawn across both").
+  Under `?2500` on a right-to-left line such a line is mirrored whole,
+  its verticals in its last cell (Jev, 0.92/0.92; `docs/record.md`, "A
+  composition takes the cells its commit will, and a wide box line
+  mirrors whole").
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
   acts and answers only while DA lists Sixel; the choices Jev left below the

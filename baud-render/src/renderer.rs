@@ -2765,6 +2765,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// in the rendition of the cell it starts on and over the columns its
     /// line is drawn in ([`Composition::width_on`]), and, `with` the cell
     /// path's, each predicted echo on a single-width row.
+    ///
+    /// Inlined into each of its two callers: left to the compiler with two,
+    /// `btop`'s frames retired 0.06% more instructions with nothing
+    /// written.
+    #[inline(always)]
     fn write_over(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
         let predicting = match self.beside.as_deref_mut() {
             Some(b) => {
@@ -2907,7 +2912,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// compare finds changed ([`crate::Reorder::keep_displayed`]), and the
     /// find marks and the link underline drawn again if the frame before
     /// was reordered or this one is: a line SCP set right to left is drawn
-    /// in reverse with the mode reset.
+    /// in reverse with the mode reset, the composition's row read as its
+    /// text written ([`crate::bidi::Written`]). No predicted echo is read.
     fn keep_bidi_displayed(
         &mut self,
         term: &Term<'_>,
@@ -2915,12 +2921,33 @@ impl<'f, 'a> Renderer<'f, 'a> {
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
         let was = self.bidi.orders().any();
-        let rejoin = self.bidi.keep_displayed(term, back, changes);
+        let rejoin = match self.composition.is_some() || self.beside.is_some() {
+            true => self.keep_written(term, back, changes),
+            false => {
+                self.bidi
+                    .keep_displayed(term, back, changes, &crate::bidi::Written::default())
+            }
+        };
         if was || self.bidi.orders().any() {
             self.build_find();
             self.build_link();
         }
         rejoin
+    }
+
+    /// [`Renderer::keep_bidi_displayed`]'s layout over what is written:
+    /// out of line, as [`crate::bidi::Written::write`] is, so a frame with
+    /// no composition and no echo ever shown pays one test for it.
+    #[inline(never)]
+    fn keep_written(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        changes: crate::bidi::Changes,
+    ) -> crate::bidi::Rejoin {
+        self.write_over(term, back, Predicted::Unread);
+        let b = self.beside.get_or_insert_with(Box::default);
+        self.bidi.keep_displayed(term, back, changes, &b.written)
     }
 
     /// **The window laid out for the cell path**, which compares each
@@ -6737,7 +6764,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return vec![ClusterGlyph {
                 id: GlyphId::from_shaper(0),
                 source: GlyphSource::Procedural,
-                slot: self.procedural_at(base, span, stretch),
+                slot: self.procedural_at(base, (span, crate::boxes::Facing::Written), stretch),
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
@@ -6779,12 +6806,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
         style: impl Into<TextFace>,
         span: CellSpan,
     ) -> Vec<ClusterGlyph> {
-        let style = style.into();
+        self.cluster_flipped_at(cps, style.into(), span, Stretch::One)
+    }
+
+    /// [`Renderer::cluster_flipped`] on a line drawn at `stretch`, as
+    /// [`Renderer::cluster_at`] draws [`Renderer::cluster`] there: what
+    /// [`Renderer::emit`] draws for a flipped cell on a sized line. A
+    /// composition on a mirrored line is drawn by these.
+    pub(crate) fn cluster_flipped_at(
+        &mut self,
+        cps: &[Codepoint],
+        style: TextFace,
+        span: CellSpan,
+        stretch: Stretch,
+    ) -> Vec<ClusterGlyph> {
         let Some(&base) = cps.first() else {
             return Vec::new();
         };
+        if crate::boxes::covers(base) {
+            // A box drawing character mirrored whole in its cells
+            // ([`crate::boxes::Facing`]), whatever is attached to it.
+            return vec![ClusterGlyph {
+                id: GlyphId::from_shaper(0),
+                source: GlyphSource::Procedural,
+                slot: self.procedural_at(base, (span, crate::boxes::Facing::Mirrored), stretch),
+                dx: 0,
+                dy: 0,
+                phase: Phase::ZERO,
+            }];
+        }
         let face = self.face_for(cps, style);
-        let phase = self.phase_in(face, base, span);
+        let phase = match stretch {
+            Stretch::One => self.phase_in(face, base, span),
+            Stretch::Tall | Stretch::Wide => self.phase_in(face, base, span).doubled(),
+        };
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
             at: CellIx(0),
@@ -6792,23 +6847,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
-        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * stretch.x();
         let width = cell_w * i32::try_from(span.cells().index()).unwrap_or(1);
         let mut out = Vec::new();
         for (i, p) in shaped.glyphs().iter().enumerate() {
             let slot = match i {
                 0 => self
                     .atlas
-                    .slot_flipped_at(f, face, p.id, scale, phase, Stretch::One),
-                _ => self.atlas.slot(f, face, p.id, scale, phase),
+                    .slot_flipped_at(f, face, p.id, scale, phase, stretch),
+                _ => self.atlas.slot_at(f, face, p.id, scale, phase, stretch),
             };
-            let dx = scale.px(f32::from(p.dx)).round() as i32;
+            let dx = scale.px(f32::from(p.dx)).round() as i32 * stretch.x();
             out.push(ClusterGlyph {
                 id: p.id,
                 source: GlyphSource::Face(face),
                 slot,
                 dx: slot.map_or(dx, |s| InSpan { width, dx }.mirrored(s)),
-                dy: scale.px(f32::from(p.dy)).round() as i32,
+                dy: scale.px(f32::from(p.dy)).round() as i32 * stretch.y(),
                 phase,
             });
         }
@@ -7897,10 +7952,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // A mirrored cell is at an odd level, so a seam stands before it and
         // after it: it is a run of its own, and only a run's first cell is
         // asked.
+        // By a binary search: the list is by visual column, left to right,
+        // and a row of wide box lines under `?2500` holds one a cell.
         let mirrored = |v: usize| match LAID {
             true => mirrors
-                .iter()
-                .find(|&&(c, _)| c.index() == v)
+                .binary_search_by_key(&v, |&(c, _)| c.index())
+                .ok()
+                .and_then(|k| mirrors.get(k))
                 .map(|&(_, m)| m),
             false => None,
         };
@@ -7918,17 +7976,40 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // every row the embedded faces draw alone.
         let mut settled = false;
         let mut c = 0usize;
+        // The row's mirrored cells walked with `c`, which only grows.
+        let mut next = 0;
         while c < line_end {
-            let Some(base) = under(c).or_else(|| drawn_base(term, row[c])) else {
+            let m = match LAID {
+                true => {
+                    while mirrors.get(next).is_some_and(|&(v, _)| v.index() < c) {
+                        next += 1;
+                    }
+                    mirrors
+                        .get(next)
+                        .filter(|&&(v, _)| v.index() == c)
+                        .map(|&(_, m)| m)
+                }
+                false => None,
+            };
+            let mirror = match m {
+                Some(crate::bidi::Mirrored::Under(m)) => Some(m),
+                _ => None,
+            };
+            let Some(base) = mirror.or_else(|| drawn_base(term, row[c])) else {
                 c += 1;
                 continue;
             };
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
                 // at the cell origin, across both cells of a wide one, never
-                // shaped, never in a run.
+                // shaped, never in a run -- mirrored whole where L4 draws it
+                // flipped (`?2500` on a box line two cells wide).
                 let span = CellSpan::at(row, Col::at_index(c));
-                if let Some(slot) = self.procedural_at(base, span, st) {
+                let facing = match m {
+                    Some(crate::bidi::Mirrored::Flipped) => crate::boxes::Facing::Mirrored,
+                    _ => crate::boxes::Facing::Written,
+                };
+                if let Some(slot) = self.procedural_at(base, (span, facing), st) {
                     self.emit_at(r, Col::at_index(c), slot, instances);
                 }
                 c = span.after(Col::at_index(c)).index();
@@ -8636,14 +8717,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The atlas mask for a procedural codepoint at this cell size, across
     /// the cells `span` gives.
     fn procedural(&mut self, cp: Codepoint, span: CellSpan) -> Option<crate::atlas::Slot> {
-        self.procedural_at(cp, span, Stretch::One)
+        self.procedural_at(cp, (span, crate::boxes::Facing::Written), Stretch::One)
     }
 
-    /// The same for a line drawn at `stretch` ([`Atlas::synthetic_across`]).
+    /// The same for a line drawn at `stretch`, facing as `facing` says
+    /// ([`Atlas::synthetic_across`]).
     fn procedural_at(
         &mut self,
         cp: Codepoint,
-        span: CellSpan,
+        at: (CellSpan, crate::boxes::Facing),
         stretch: Stretch,
     ) -> Option<crate::atlas::Slot> {
         let cell = crate::boxes::Cell {
@@ -8651,7 +8733,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             h: self.metrics.cell_h,
         };
         self.atlas
-            .synthetic_across(cp, cell, span, self.metrics.baseline, stretch)
+            .synthetic_across(cp, cell, at, self.metrics.baseline, stretch)
     }
 
     /// One instance for a slot placed at the origin of cell `col` of row

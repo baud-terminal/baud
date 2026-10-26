@@ -528,6 +528,10 @@ struct Memo {
     /// ([`crate::boxes::draw_across`]). A map of its own, so a one-cell
     /// glyph is looked up by the key it always was.
     procedural_wide: HashMap<(u32, Stretch), Option<Slot>>,
+    /// **The same mirrored**, as `?2500` draws a box drawing character
+    /// two cells wide right to left ([`crate::boxes::Facing`]): a map of
+    /// its own, so the character as written keeps its key.
+    procedural_mirrored: HashMap<(u32, Stretch), Option<Slot>>,
     /// **The glyphs drawn flipped left to right**, under the key their
     /// unflipped image is kept by: a Bidi_Mirrored character with no
     /// Bidi_Mirroring_Glyph resolved right to left (UAX #9 L4,
@@ -539,8 +543,9 @@ struct Memo {
     sheared: HashMap<(GlyphKey, Flip, u32), Option<Slot>>,
 }
 
-/// Whether a sheared glyph's image is flipped left to right before it is
-/// sheared: a mirrored character's that L4 flips (`Atlas::slot_flipped_at`).
+/// Whether a glyph's image is flipped left to right: a mirrored
+/// character's that L4 flips (`Atlas::slot_flipped_at`), before a shear,
+/// and an input method's cluster drawn as the cell it is written in is.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Flip {
     Kept,
@@ -555,6 +560,7 @@ impl Memo {
             procedural: HashMap::new(),
             procedural_stretched: HashMap::new(),
             procedural_wide: HashMap::new(),
+            procedural_mirrored: HashMap::new(),
             flipped: HashMap::new(),
             sheared: HashMap::new(),
         }
@@ -565,6 +571,7 @@ impl Memo {
             && self.procedural.is_empty()
             && self.procedural_stretched.is_empty()
             && self.procedural_wide.is_empty()
+            && self.procedural_mirrored.is_empty()
             && self.flipped.is_empty()
             && self.sheared.is_empty()
     }
@@ -1601,55 +1608,70 @@ impl Atlas {
         slot
     }
 
-    /// [`Atlas::synthetic_at`] for a character that takes `span` cells: one
-    /// cell is that, unchanged; two is the mask across both
+    /// [`Atlas::synthetic_at`] for a character that takes `span` cells,
+    /// facing as `facing` says: one cell is that, unchanged, or its
+    /// counterpart's mirrored; two is the mask across both
     /// ([`crate::boxes::draw_across`]), its strokes at one cell's weight,
     /// then stretched as [`Atlas::synthetic_at`] stretches a one-cell mask
     /// -- drawn at the doubled cell on a double-height line, each column
     /// repeated on a double-width one. Memoised by codepoint and stretch in
-    /// a map of its own.
+    /// a map of its own for each facing.
     pub fn synthetic_across(
         &mut self,
         cp: Codepoint,
         cell: crate::boxes::Cell,
-        span: crate::cellmap::CellSpan,
+        (span, facing): (crate::cellmap::CellSpan, crate::boxes::Facing),
         baseline: Px,
         stretch: Stretch,
     ) -> Option<Slot> {
+        use crate::boxes::Facing;
         if span == crate::cellmap::CellSpan::One {
+            let cp = match facing {
+                Facing::Written => cp,
+                Facing::Mirrored => char::from_u32(cp.value())
+                    .and_then(baud_domain::box_counterpart)
+                    .map_or(cp, Codepoint::from_char),
+            };
             return self.synthetic_at(cp, cell, baseline, stretch);
         }
-        if let Some(slot) = self.held.procedural_wide.get(&(cp.value(), stretch)) {
+        let held = match facing {
+            Facing::Written => &self.held.procedural_wide,
+            Facing::Mirrored => &self.held.procedural_mirrored,
+        };
+        if let Some(slot) = held.get(&(cp.value(), stretch)) {
             return *slot;
         }
-        let slot = match stretch {
-            Stretch::One => {
-                crate::boxes::draw_across(cp, cell, span, &mut self.scratch, &mut self.coverage)
-                    .and_then(|extent| self.place_cell_mask(extent, baseline))
-            }
-            Stretch::Tall => {
-                let big = crate::boxes::Cell {
+        let (drawn, at) = match stretch {
+            Stretch::Tall => (
+                crate::boxes::Cell {
                     w: Px::of(cell.w.value() * 2),
                     h: Px::of(cell.h.value() * 2),
-                };
-                crate::boxes::draw_across(cp, big, span, &mut self.scratch, &mut self.coverage)
-                    .and_then(|extent| self.place_cell_mask(extent, Px::of(baseline.value() * 2)))
-            }
-            Stretch::Wide => {
-                crate::boxes::draw_across(cp, cell, span, &mut self.scratch, &mut self.coverage)
-                    .and_then(|extent| {
-                        self.double_columns(extent);
-                        self.place_cell_mask(
-                            Extent::new(Px::of(extent.w.value() * 2), extent.h),
-                            baseline,
-                        )
-                    })
-            }
+                },
+                Px::of(baseline.value() * 2),
+            ),
+            Stretch::One | Stretch::Wide => (cell, baseline),
         };
+        let slot = crate::boxes::draw_across(
+            cp,
+            drawn,
+            span,
+            facing,
+            &mut self.scratch,
+            &mut self.coverage,
+        )
+        .and_then(|extent| match stretch {
+            Stretch::Wide => {
+                self.double_columns(extent);
+                self.place_cell_mask(Extent::new(Px::of(extent.w.value() * 2), extent.h), at)
+            }
+            Stretch::One | Stretch::Tall => self.place_cell_mask(extent, at),
+        });
         if slot.is_some() || !crate::boxes::covers(cp) {
-            self.held
-                .procedural_wide
-                .insert((cp.value(), stretch), slot);
+            match facing {
+                Facing::Written => &mut self.held.procedural_wide,
+                Facing::Mirrored => &mut self.held.procedural_mirrored,
+            }
+            .insert((cp.value(), stretch), slot);
         }
         slot
     }

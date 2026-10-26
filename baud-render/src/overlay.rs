@@ -31,8 +31,9 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
-    AmbiguousWidth, Attrs, Chan, Classified, Codepoint, Col, ColorWord, Cols, Content, CursorStyle,
-    LineRendition, PackedCell, Row, Rows, StyleWord, UnicodeWidths, Viewport, Width, WidthPolicy,
+    AmbiguousWidth, Attrs, Chan, Classified, ClusterBreak, Codepoint, Col, ColorWord, Cols,
+    Content, CursorStyle, GraphemeClass, LineRendition, PackedCell, Row, Rows, StyleWord,
+    UnicodeWidths, Viewport, Vs16Width, Width, WidthPolicy, is_default_ignorable, vs16,
 };
 use baud_font::Px;
 use std::collections::HashMap;
@@ -2142,14 +2143,148 @@ pub struct Composition {
     pub row: Row,
     pub col: Col,
     pub text: Vec<Codepoint>,
-    /// How many columns an ambiguous character takes: the core's own
-    /// policy (`Term::ambiguous_width`), so the overlay and a write of
-    /// the same text agree. Private Use stays one column either way.
-    pub ambiguous: AmbiguousWidth,
+    /// How the core measures what it writes ([`Measure`]), so the
+    /// overlay and a write of the same text agree.
+    pub measure: Measure,
     /// The hints on each codepoint of `text`, or none at all.
     pub hints: Vec<Hints>,
     /// Where the input method puts the cursor in it.
     pub caret: Caret,
+}
+
+/// **How the core measures the text it writes**, which a composition is
+/// laid out by: the columns an ambiguous character takes
+/// (`Term::ambiguous_width`; Private Use stays one column either way),
+/// the Unicode version's widths (`Term::unicode_widths`) and whether a
+/// `U+FE0F` widens the base before it (`Term::vs16_width`). The default
+/// is the core's at power-on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Measure {
+    pub ambiguous: AmbiguousWidth,
+    pub widths: UnicodeWidths,
+    pub vs16: Vs16Width,
+}
+
+impl Default for Measure {
+    fn default() -> Measure {
+        Measure {
+            ambiguous: AmbiguousWidth::Narrow,
+            widths: UnicodeWidths::Current,
+            vs16: Vs16Width::Two,
+        }
+    }
+}
+
+impl Measure {
+    /// What `term` measures the next character it writes by.
+    pub fn of(term: &Term<'_>) -> Measure {
+        Measure {
+            ambiguous: term.ambiguous_width(),
+            widths: term.unicode_widths(),
+            vs16: term.vs16_width(),
+        }
+    }
+}
+
+/// **One cluster of a text as the core writes it**: the indices of the
+/// text's codepoints it holds, those it draws, and its cells.
+pub(crate) struct Cluster {
+    pub(crate) codes: core::ops::Range<usize>,
+    pub(crate) cps: Vec<Codepoint>,
+    pub(crate) span: CellSpan,
+}
+
+impl Cluster {
+    /// `cp`, the text's next codepoint, continuing the cluster: a `U+FE0F`
+    /// after a listed base makes a one-cell cluster two cells while the
+    /// core widens it (`baud_domain::vs16`), the codepoint before it
+    /// deciding; under Unicode 8 the second regional indicator of a flag
+    /// does (`[[source: eaw-data-8]]`), as the core's `widen_for` does.
+    fn join(&mut self, cp: Codepoint, m: Measure) {
+        let before = self.cps.last().copied();
+        let alone = self.cps.len() == 1;
+        self.cps.push(cp);
+        self.codes.end += 1;
+        if self.span == CellSpan::Two {
+            return;
+        }
+        let vs16 =
+            cp.value() == 0xFE0F && m.vs16 == Vs16Width::Two && before.is_some_and(vs16::widens);
+        let flag = cp.is_regional_indicator()
+            && alone
+            && m.widths == UnicodeWidths::Eight
+            && before.is_some_and(Codepoint::is_regional_indicator);
+        if vs16 || flag {
+            self.span = CellSpan::Two;
+        }
+    }
+}
+
+/// **`text` in clusters, as the core writes it after a character**, by
+/// `m`: `[[source: uax29]]`'s boundaries from the core's own machine,
+/// each cluster as wide as its first character and widened as the core
+/// widens it ([`Cluster::join`]); a character of no width that is not
+/// Extend or ZWJ joins the cluster before it wherever the boundaries
+/// fall, an ignorable one at a boundary is dropped and ends what may
+/// join, and a mark at a boundary after that is a defective sequence
+/// (`[[source: unicode18-ch3]]` D57) in a cell of its own, drawn on a
+/// no-break space as the core draws one. Printable ASCII starts a cluster
+/// whatever is before it, as the core's writer does -- a departure from
+/// GB9b after a Prepend the core pins (`Why::AsciiAfterPrepend` in its
+/// suite), followed so the composition draws what its commit writes. The
+/// machine starts as after a
+/// letter, so what continues the character before the text -- the
+/// count returned first -- joins it, as a write of the text does, and
+/// is in no cluster of its own: [`Composition::at_cursor`] leads the
+/// text with that character's cluster, so it is drawn there.
+pub(crate) fn clusters(text: &[Codepoint], m: Measure) -> (usize, Vec<Cluster>) {
+    let policy = WidthPolicy::of(m.ambiguous, m.widths);
+    let mut machine = ClusterBreak::after_ascii_run();
+    let mut lead = 0;
+    let mut out: Vec<Cluster> = Vec::new();
+    for (i, &cp) in text.iter().enumerate() {
+        // Printable ASCII is written without asking the machine, and tells
+        // it a letter went past: a cluster of its own, whatever is before.
+        if char::from_u32(cp.value()).is_some_and(|c| c.is_ascii() && !c.is_ascii_control()) {
+            machine = ClusterBreak::after_ascii_run();
+            out.push(Cluster {
+                codes: i..i + 1,
+                cps: vec![cp],
+                span: CellSpan::One,
+            });
+            continue;
+        }
+        let cl = Classified::of(cp);
+        let w = cl.width(policy);
+        let joins = !machine.is_break_classified(cl.class, cl.lookback);
+        let marks = matches!(cl.class, GraphemeClass::Extend | GraphemeClass::Zwj);
+        if joins || (w == Width::ZERO && !marks) {
+            match out.last_mut() {
+                Some(last) => last.join(cp, m),
+                None => lead = i + 1,
+            }
+            continue;
+        }
+        if w == Width::ZERO && is_default_ignorable(cp) {
+            machine = ClusterBreak::after_control();
+            match out.last_mut() {
+                Some(last) => last.codes.end = i + 1,
+                None => lead = i + 1,
+            }
+            continue;
+        }
+        let (cps, span) = match w {
+            w if w == Width::ZERO => (vec![Codepoint::from_char('\u{a0}'), cp], CellSpan::One),
+            w if w == Width::WIDE => (vec![cp], CellSpan::Two),
+            _ => (vec![cp], CellSpan::One),
+        };
+        out.push(Cluster {
+            codes: i..i + 1,
+            cps,
+            span,
+        });
+    }
+    (lead, out)
 }
 
 /// **Where an input method puts the cursor in its composition**, by
@@ -2201,12 +2336,14 @@ impl Hints {
 
 /// One cluster of a composition: the column it starts at, its codepoints,
 /// how many cells it takes and the hints on its first -- with the
-/// selection where the input method's range covers any of its codepoints.
+/// selection where the input method's range covers any of its codepoints
+/// -- and the indices of the text's codepoints it holds.
 struct Piece {
     col: Col,
     cps: Vec<Codepoint>,
     span: CellSpan,
     hints: Hints,
+    codes: core::ops::Range<usize>,
 }
 
 /// The line a cluster's hints draw under or through it. Later rules in
@@ -2275,53 +2412,127 @@ impl Drawing {
 }
 
 impl Composition {
-    /// Its clusters laid on a screen `cols` wide from its cell, by the
-    /// width tables the core writes by: a character of no width joins the
-    /// cluster before it, a wide one takes two cells, and one that would
-    /// cross the right edge is not drawn, nor anything after it -- a
-    /// composition is shown on its line, as `NSTextView` shows marked text
-    /// at the insertion point. Ambiguous characters take `self.ambiguous`.
+    /// **An input method's composition at `term`'s cursor**: `text`, with
+    /// its `hints` and `caret`, measured as `term` measures
+    /// ([`Measure::of`]).
+    ///
+    /// **What continues the character before the cursor is drawn on that
+    /// character's cell**, as the commit will leave it, in the marked-text
+    /// look (Jev's lean, `B_CELL_BEFORE`, 0.92/0.86 after research): where
+    /// `text` starts with what joins the cluster the core would attach it
+    /// to -- the cell before the cursor, a wide one's lead, or the cursor's
+    /// own past a pending wrap -- the composition starts on that cell, its
+    /// text led by the cell's cluster, so a vowel sign is drawn on its
+    /// consonant and a skin tone on its emoji, and what a commit widens
+    /// takes the cells it will. The head takes the hints on `text`'s first
+    /// codepoint, and `caret` is moved past it. At column 0, after a blank
+    /// cell, and where the cell's cluster and what follows would not form
+    /// one cluster, the composition starts at the cursor and what continues
+    /// is drawn at commit.
+    pub fn at_cursor(
+        term: &Term<'_>,
+        text: &[Codepoint],
+        hints: &[Hints],
+        caret: Caret,
+    ) -> Composition {
+        let (row, col) = term.cursor();
+        let plain = Composition {
+            row,
+            col,
+            text: text.to_vec(),
+            measure: Measure::of(term),
+            hints: hints.to_vec(),
+            caret,
+        };
+        plain.headed(term).unwrap_or(plain)
+    }
+
+    /// The composition led by the cluster of the cell its first codepoints
+    /// continue, if they continue one ([`Composition::at_cursor`]).
+    fn headed(&self, term: &Term<'_>) -> Option<Composition> {
+        let cells = term.row(self.row)?;
+        let pending = term.wrap_pending() == baud_core::WrapPending::Yes;
+        let mut at = match pending {
+            true => self.col.index(),
+            false => self.col.index().checked_sub(1)?,
+        };
+        if at > 0 && cells.get(at)?.content.is_wide_tail() {
+            at -= 1;
+        }
+        let cell = *cells.get(at)?;
+        let base = term.base_of(cell).drawn().as_codepoint()?;
+        let mut text: Vec<Codepoint> = core::iter::once(base)
+            .chain(term.cluster_marks(cell).filter_map(Codepoint::new))
+            .collect();
+        let k = text.len();
+        text.extend_from_slice(&self.text);
+        // The cell's cluster continued by what `text` starts with -- the
+        // machine run over the cluster itself, so a flag's second half
+        // joins its first -- as wide as the cell or as the commit widens it.
+        let (_, laid) = clusters(&text, self.measure);
+        let wide = cells.get(at + 1).is_some_and(|c| c.content.is_wide_tail());
+        let first = laid.first()?;
+        if first.codes.start != 0 || first.codes.end <= k || (wide && first.span == CellSpan::One) {
+            return None;
+        }
+        let hints = match self.hints.first() {
+            Some(&h) => core::iter::repeat_n(h, k)
+                .chain(self.hints.iter().copied())
+                .collect(),
+            None => Vec::new(),
+        };
+        Some(Composition {
+            row: self.row,
+            col: Col::at_index(at),
+            text,
+            measure: self.measure,
+            hints,
+            caret: match self.caret {
+                Caret::At(i) => Caret::At(i + k),
+                Caret::Range(s, e) => Caret::Range(s + k, e + k),
+                c @ (Caret::End | Caret::Hidden) => c,
+            },
+        })
+    }
+
+    /// Its clusters laid on a screen `cols` wide from its cell, as the core
+    /// writes them ([`clusters`]): one that would cross the right edge is
+    /// not drawn, nor anything after it -- a composition is shown on its
+    /// line, as `NSTextView` shows marked text at the insertion point.
     fn pieces(&self, cols: Cols) -> Vec<Piece> {
-        let mut out: Vec<Piece> = Vec::new();
-        let mut x = self.col.index();
+        self.laid(cols).1
+    }
+
+    /// [`Composition::pieces`], after how many of its codepoints at its
+    /// head join the character before it and so are in none.
+    fn laid(&self, cols: Cols) -> (usize, Vec<Piece>) {
         let ranged = |i: usize| match self.caret {
             Caret::Range(start, end) => (start..end).contains(&i),
             Caret::End | Caret::At(_) | Caret::Hidden => false,
         };
-        for (i, (&cp, hints)) in self.text.iter().zip(self.hints_each()).enumerate() {
-            let w =
-                Classified::of(cp).width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current));
-            if w == Width::ZERO {
-                if let Some(last) = out.last_mut() {
-                    last.cps.push(cp);
-                    if ranged(i) {
-                        last.hints = last.hints.with(Hints::SELECTION);
-                    }
-                }
-                continue;
-            }
-            let hints = match ranged(i) {
-                true => hints.with(Hints::SELECTION),
-                false => hints,
-            };
-            let span = if w == Width::WIDE {
-                CellSpan::Two
-            } else {
-                CellSpan::One
-            };
-            let n = if span == CellSpan::Two { 2 } else { 1 };
+        let hints: Vec<Hints> = self.hints_each().take(self.text.len()).collect();
+        let (lead, clusters) = clusters(&self.text, self.measure);
+        let mut out: Vec<Piece> = Vec::new();
+        let mut x = self.col.index();
+        for c in clusters {
+            let n = c.span.cells().index();
             if x + n > cols.index() {
                 break;
             }
+            let h = hints.get(c.codes.start).copied().unwrap_or(Hints::NONE);
             out.push(Piece {
                 col: Col::at_index(x),
-                cps: vec![cp],
-                span,
-                hints,
+                hints: match c.codes.clone().any(ranged) {
+                    true => h.with(Hints::SELECTION),
+                    false => h,
+                },
+                cps: c.cps,
+                span: c.span,
+                codes: c.codes,
             });
             x += n;
         }
-        out
+        (lead, out)
     }
 
     /// **The width its line gives it on `view`**: the screen's on a
@@ -2393,26 +2604,14 @@ impl Composition {
         match self.caret {
             Caret::End => Some(after(self.columns(cols))),
             Caret::At(i) => {
-                // A mark with nothing before it to join is in no cluster:
-                // the clusters' codepoints start after those.
-                let lead = self
-                    .text
-                    .iter()
-                    .take_while(|&&cp| {
-                        Classified::of(cp)
-                            .width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current))
-                            == Width::ZERO
-                    })
-                    .count();
+                // What joins the character before it is in no cluster: the
+                // clusters' codepoints start after those.
+                let (lead, pieces) = self.laid(cols);
                 if i < lead {
                     return Some((self.row, self.col));
                 }
-                let mut first = lead;
-                for p in self.pieces(cols) {
-                    if i < first + p.cps.len() {
-                        return Some((self.row, p.col));
-                    }
-                    first += p.cps.len();
+                if let Some(p) = pieces.iter().find(|p| i < p.codes.end) {
+                    return Some((self.row, p.col));
                 }
                 // At the count, or past the clusters the edge cut.
                 Some(after(self.columns(cols)))
@@ -2441,28 +2640,79 @@ impl Composition {
                 Some((row, col, w))
             }
             Caret::Range(start, end) => {
-                let lead = self
-                    .text
-                    .iter()
-                    .take_while(|&&cp| {
-                        Classified::of(cp)
-                            .width(WidthPolicy::of(self.ambiguous, UnicodeWidths::Current))
-                            == Width::ZERO
-                    })
-                    .count();
-                let mut first = lead;
                 let mut cells: Option<(Col, usize)> = None;
                 for p in &pieces {
-                    let ends = first + p.cps.len();
-                    if first < end && start < ends {
+                    if p.codes.start < end && start < p.codes.end {
                         let right = p.col.index() + width(p).index();
                         cells = Some(cells.map_or((p.col, right), |(l, _)| (l, right)));
                     }
-                    first = ends;
                 }
                 cells.map(|(l, r)| (self.row, l, Cols::of_index(r - l.index())))
             }
             Caret::Hidden => None,
+        }
+    }
+}
+
+/// Whether a composition's cluster is written where SAPV 17 slants an
+/// italic left ([`crate::bidi::Orders::slants`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Leans {
+    Left,
+    No,
+}
+
+impl Leans {
+    /// How far a cluster drawn in `style` leans, and the style it is
+    /// drawn in: its upright one, sheared, where it leans and the stack
+    /// has an italic face for it, as the same text written is drawn.
+    fn lean(
+        self,
+        r: &Renderer<'_, '_>,
+        style: crate::stack::TextFace,
+    ) -> (Option<crate::stack::Lean>, crate::stack::TextFace) {
+        let lean = match self {
+            Leans::Left => r.lean(style),
+            Leans::No => None,
+        };
+        (lean, lean.map_or(style, |_| style.upright()))
+    }
+}
+
+impl Composition {
+    /// **Whether a cluster at visual column `v`, `span` wide, leans left**:
+    /// laid as written, where the row's order slants the cell written
+    /// there -- either of a wide one's two, its lead's -- as the same text
+    /// written is slanted; on screen, never.
+    fn leans(&self, orders: &crate::bidi::Orders, laid: Laid, v: Col, span: CellSpan) -> Leans {
+        let at = |v: Col| laid == Laid::AsWritten && orders.slanted(self.row, v);
+        match at(v) || (span == CellSpan::Two && at(v.after())) {
+            true => Leans::Left,
+            false => Leans::No,
+        }
+    }
+
+    /// **The character a cluster at visual column `v` is drawn as, and
+    /// whether flipped**: laid as written, the mirror L4 gives the cell
+    /// there -- its Bidi_Mirroring_Glyph, alone or under its marks, or its
+    /// own glyph flipped, a box line two cells wide under `?2500` mirrored
+    /// whole -- as the same text written is drawn; on screen, `base` as it
+    /// is.
+    fn mirror(
+        &self,
+        orders: &crate::bidi::Orders,
+        laid: Laid,
+        v: Col,
+        base: Codepoint,
+    ) -> (Codepoint, Flip) {
+        if laid == Laid::OnScreen {
+            return (base, Flip::Kept);
+        }
+        let swapped = orders.swapped(self.row, v).and_then(|s| s.as_codepoint());
+        match orders.mirrored(self.row, v) {
+            Some(crate::bidi::Mirrored::Flipped) => (swapped.unwrap_or(base), Flip::Flipped),
+            Some(crate::bidi::Mirrored::Under(m)) => (m, Flip::Kept),
+            None => (swapped.unwrap_or(base), Flip::Kept),
         }
     }
 }
@@ -2526,9 +2776,10 @@ pub(crate) fn composition_records(
     // **Each cluster's visual cell, and the character drawn there**: laid
     // as written, the cell the row's order draws its logical cell at (a
     // wide one's two cells kept together, its lead on the left) and the
-    // mirror L4 gives it there; on screen, its own column and character.
+    // mirror L4 gives it there, flipped where the written cell is
+    // ([`Composition::mirror`]); on screen, its own column and character.
     let orders = r.bidi();
-    let placed: Vec<(Piece, usize, Codepoint)> = c
+    let placed: Vec<(Piece, usize, (Codepoint, Flip, Leans))> = c
         .pieces(cols)
         .into_iter()
         .map(|p| {
@@ -2537,14 +2788,9 @@ pub(crate) fn composition_records(
                 CellSpan::Two => v.min(laid.column(orders, c.row, p.col.after())),
                 CellSpan::One => v,
             };
-            let shown = match laid {
-                Laid::AsWritten => orders
-                    .swapped(c.row, v)
-                    .and_then(|s| s.as_codepoint())
-                    .unwrap_or(p.cps[0]),
-                Laid::OnScreen => p.cps[0],
-            };
-            (p, v.index(), shown)
+            let (shown, flip) = c.mirror(orders, laid, v, p.cps[0]);
+            let leans = c.leans(orders, laid, v, p.span);
+            (p, v.index(), (shown, flip, leans))
         })
         .collect();
     let block = block.map(|(br, bc, s)| (br, laid.column(orders, br, bc), s));
@@ -2555,7 +2801,7 @@ pub(crate) fn composition_records(
     // The selection's pages under every glyph, the glyphs, then each
     // cell's line over them, as `Renderer::convert_row` orders a row.
     let (mut pages, mut glyphs_out, mut rules) = (Vec::new(), Vec::new(), Vec::new());
-    for (p, x0, shown) in placed {
+    for (p, x0, (shown, flip, leans)) in placed {
         let look = Drawing::of(p.hints);
         let one = [base.of(r, term, look)];
         let n = if p.span == CellSpan::Two { 2 } else { 1 };
@@ -2577,7 +2823,14 @@ pub(crate) fn composition_records(
                 cursor,
             })
         };
-        let glyphs = r.cluster(&cps, one[0].shapes.text_face(), p.span);
+        let (lean, style) = leans.lean(r, one[0].shapes.text_face());
+        let mut glyphs = match flip {
+            Flip::Flipped => r.cluster_flipped(&cps, style, p.span),
+            Flip::Kept => r.cluster(&cps, style, p.span),
+        };
+        if let Some(l) = lean {
+            r.shear_glyphs(&mut glyphs, l, Stretch::One, flip);
+        }
         let cell = PackedCell {
             content: Content::codepoint(cps[0]),
             style: baud_domain::StyleId::DEFAULT,
@@ -2787,7 +3040,7 @@ fn sized_composition(
     // as `composition_records` places it on a single-width line: the line
     // is laid out over its half with the composition written in it.
     let block = block.map(|(br, bc, s)| (br, laid.column(r.bidi(), br, bc), s));
-    let placed: Vec<Piece> = c
+    let placed: Vec<(Piece, Flip, Leans)> = c
         .pieces(line)
         .into_iter()
         .map(|p| {
@@ -2798,15 +3051,13 @@ fn sized_composition(
                 CellSpan::One => v,
             };
             let mut cps = p.cps.clone();
-            if laid == Laid::AsWritten {
-                if let Some(m) = orders.swapped(c.row, v).and_then(|s| s.as_codepoint()) {
-                    cps[0] = m;
-                }
-            }
-            Piece { col: v, cps, ..p }
+            let (shown, flip) = c.mirror(orders, laid, v, p.cps[0]);
+            let leans = c.leans(orders, laid, v, p.span);
+            cps[0] = shown;
+            (Piece { col: v, cps, ..p }, flip, leans)
         })
         .collect();
-    for p in placed {
+    for (p, flip, leans) in placed {
         let look = Drawing::of(p.hints);
         let rendition = base.of(r, term, look);
         let drawn = |x: usize, line: Line| {
@@ -2858,7 +3109,14 @@ fn sized_composition(
         if !d.text.draws() {
             continue;
         }
-        let glyphs = r.cluster_at(&p.cps, rendition.shapes.text_face(), p.span, st);
+        let (lean, style) = leans.lean(r, rendition.shapes.text_face());
+        let mut glyphs = match flip {
+            Flip::Flipped => r.cluster_flipped_at(&p.cps, style, p.span, st),
+            Flip::Kept => r.cluster_at(&p.cps, style, p.span, st),
+        };
+        if let Some(l) = lean {
+            r.shear_glyphs(&mut glyphs, l, st, flip);
+        }
         let ox = i32::try_from(p.col.index()).unwrap_or(0) * cell_w * st.x();
         let oy = top + px(m.baseline) * st.y();
         for g in glyphs {

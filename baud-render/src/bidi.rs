@@ -784,11 +784,12 @@ pub struct Work {
 /// How the joins the maps hold were found: by [`Reorder::lay_out`], which
 /// finds every row's, or kept from the frame before by
 /// [`Reorder::keep_displayed`] for a window of this size and cluster epoch,
-/// the caller rejoining the rows its compare saw change.
+/// the caller rejoining the rows its compare saw change, and whether any
+/// row was read as written ([`Written`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Last {
     LaidOut,
-    Kept(Cols, ClusterEpoch, Rows, Changes),
+    Kept(Cols, ClusterEpoch, Rows, Changes, Any),
 }
 
 /// **Whose compare says which rows changed** after
@@ -984,7 +985,7 @@ impl Reorder {
                 Extent::Window => vp.rows(),
                 Extent::Top => Rows::of_index(vp.rows().index().min(1)),
             };
-            self.vary_rows(term, &vp, n);
+            self.vary_rows(term, &vp, n, written);
         }
         if extent == Extent::Window {
             self.lay_out_status(term, joins);
@@ -1018,7 +1019,7 @@ impl Reorder {
         }
         match term.bidi_support() {
             BidiSupport::Explicit => {
-                self.reverse_paths(term, &line);
+                self.reverse_paths(term, &line, &Unwritten);
                 if joins == Joins::Seen
                     && self
                         .seen
@@ -1039,7 +1040,7 @@ impl Reorder {
             ),
         }
         if term.variants_seen() {
-            self.vary_rows(term, &line, line.rows());
+            self.vary_rows(term, &line, line.rows(), &Unwritten);
         }
         let status = core::mem::replace(&mut self.orders, main);
         self.status_seen = core::mem::replace(&mut self.seen, seen);
@@ -1083,7 +1084,7 @@ impl Reorder {
         self.forget_joins(vp.rows());
         let explicit = term.bidi_support() == BidiSupport::Explicit;
         if explicit {
-            self.reverse_paths(term, &vp);
+            self.reverse_paths(term, &vp, written);
         }
         if explicit && joins == Joins::Unseen {
             return;
@@ -1139,7 +1140,19 @@ impl Reorder {
     /// before to keep: the last was laid out otherwise, or at another width,
     /// height or cluster epoch, or kept for the other compare (`changes`).
     /// A row that did not change is neither compared nor tested here.
-    pub fn keep_displayed(&mut self, term: &Term<'_>, back: Rows, changes: Changes) -> Rejoin {
+    ///
+    /// Each row `written` covers is read as written, so a composition on a
+    /// line drawn in reverse is mirrored as its text written will be; on a
+    /// frame that reads one, or follows one that did, the row's order may
+    /// have moved under unchanged cells, and the answer is
+    /// [`Rejoin::Every`].
+    pub fn keep_displayed(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        changes: Changes,
+        written: &Written,
+    ) -> Rejoin {
         let vp = term.view(term.looking_back(back));
         let nrows = vp.rows().index();
         self.orders.cols = vp.cols();
@@ -1150,24 +1163,25 @@ impl Reorder {
         // The status line's joins, after the window's, are found again
         // below whatever the window keeps.
         self.orders.joins.truncate(nrows);
-        self.reverse_paths(term, &vp);
+        self.reverse_paths(term, &vp, written);
         // SAPV's substitutions and slants, which live in the orders made
         // again above; its forms live in the joins, kept or found again by
         // `rejoin`.
         if term.variants_seen() {
-            for y in 0..nrows {
-                self.vary_swaps(term, &vp, Row::from_index(y));
-                self.vary_slants(term, &vp, Row::from_index(y));
-            }
+            self.vary_kept(term, &vp, written);
         }
-        let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
+        let read = match written.is_empty() {
+            true => Any::No,
+            false => Any::Yes,
+        };
+        let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes, read);
         // A row whose path changed is shown in another order with the same
         // cells, which no caller's compare sees: its joins are found again.
         let paths = (0..nrows).map(|y| vp.bidi(Row::from_index(y)));
         let same_paths = self.paths.len() == nrows && self.paths.iter().copied().eq(paths.clone());
         self.paths.clear();
         self.paths.extend(paths);
-        let rejoin = match self.last == now && same_paths {
+        let rejoin = match self.last == now && same_paths && read == Any::No {
             true => Rejoin::Changed,
             false => {
                 self.forget_joins(vp.rows());
@@ -1192,7 +1206,7 @@ impl Reorder {
             self.join_shown(term, r, vp.row(r));
         }
         if term.variants_seen() {
-            self.vary_joins(term, vp, r);
+            self.vary_joins(term, vp, r, &Unwritten);
         }
     }
 
@@ -1207,8 +1221,13 @@ impl Reorder {
     /// On a line that is not single-width the rightmost cell is its half's
     /// last (`[[source: dec-std-070]]` § 5.14.1), and the columns past it
     /// follow in order. One read of each row's path a frame, and the cells
-    /// of the rows that hold one.
-    fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>) {
+    /// of the rows that hold one -- as written ([`Written`]), so a
+    /// composition or an echo is mirrored as its text written will be.
+    /// Those rows by a trait object, not a type parameter: a second copy
+    /// of this function moved what the layout inlines around the
+    /// algorithm, and btop's frames retired 0.2% more instructions with no
+    /// row drawn in reverse.
+    fn reverse_paths(&mut self, term: &Term<'_>, vp: &Viewport<'_>, written: &dyn Over) {
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
             let r = Row::from_index(y);
@@ -1216,7 +1235,7 @@ impl Reorder {
             if line.path() != CharacterPath::RightToLeft {
                 continue;
             }
-            let cells = vp.row(r);
+            let cells = written.row(r).unwrap_or_else(|| vp.row(r));
             let width = vp.rendition(r).end_of_line(vp.cols()).index().min(cols);
             let mut out = RowOrder {
                 from: Vec::with_capacity(cols),
@@ -1249,9 +1268,10 @@ impl Reorder {
                 if cell.content.is_wide_tail() {
                     continue;
                 }
+                let span = crate::cellmap::CellSpan::at(cells, *l);
                 let m = match unmirrored(term, cell) {
                     true => Mirror::Not,
-                    false => mirror(term, cell, line.box_mirror()),
+                    false => mirror(term, cell, (line.box_mirror(), span)),
                 };
                 match m {
                     Mirror::Glyph(m) => out.swaps.push((v, m)),
@@ -1619,7 +1639,8 @@ impl Reorder {
                 let cell = row.cells[own.col.index()];
                 if odd {
                     let v = Col::at_index(out.from.len() - 1);
-                    match mirror(term, cell, path.box_mirror()) {
+                    let span = crate::cellmap::CellSpan::at(row.cells, own.col);
+                    match mirror(term, cell, (path.box_mirror(), span)) {
                         Mirror::Glyph(m) => out.swaps.push((v, m)),
                         Mirror::Flipped(alone) => {
                             if let Some(base) = alone {
@@ -2174,7 +2195,11 @@ enum Mirror {
     Not,
 }
 
-fn mirror(term: &Term<'_>, cell: PackedCell, boxes: BoxMirror) -> Mirror {
+fn mirror(
+    term: &Term<'_>,
+    cell: PackedCell,
+    (boxes, span): (BoxMirror, crate::cellmap::CellSpan),
+) -> Mirror {
     let Some(c) = term
         .base_of(cell)
         .drawn()
@@ -2183,6 +2208,17 @@ fn mirror(term: &Term<'_>, cell: PackedCell, boxes: BoxMirror) -> Mirror {
     else {
         return Mirror::Not;
     };
+    // **`?2500` on a box drawing character two cells wide mirrors its
+    // whole mask** (`crate::boxes::Facing`): its counterpart with its
+    // verticals in its last cell, the first the line is read in, so a
+    // character with no side in its name -- `│`, `┼` -- moves its
+    // vertical there too.
+    if boxes == BoxMirror::On
+        && span == crate::cellmap::CellSpan::Two
+        && box_counterpart(c).is_some()
+    {
+        return Mirror::Flipped(None);
+    }
     // **`?2500`: a Box Drawing character drawn right to left is drawn as
     // its counterpart** (`[[source: terminal-wg-bidi-misc]]`, "mirror the
     // U+2500 .. U+257F glyphs in RTL"; UAX #9 HL6), under its marks as a
@@ -2298,13 +2334,28 @@ fn is_digit(cell: Option<&PackedCell>) -> bool {
 impl Reorder {
     /// **SAPV's variants on the first `n` rows of `vp`** (`[[source: ecma48]]`
     /// 8.3.108): the substitutions, the forms and the slants. Only once a
-    /// program has selected one ([`Term::variants_seen`]).
-    fn vary_rows(&mut self, term: &Term<'_>, vp: &Viewport<'_>, n: Rows) {
+    /// program has selected one ([`Term::variants_seen`]). Out of line, as
+    /// a program that never sends SAPV never runs it: inlined into the
+    /// layouts with the rows as written, btop's frames retired 0.08% more
+    /// instructions with none sent.
+    #[inline(never)]
+    fn vary_rows(&mut self, term: &Term<'_>, vp: &Viewport<'_>, n: Rows, written: &dyn Over) {
         for y in 0..n.index() {
             let r = Row::from_index(y);
-            self.vary_swaps(term, vp, r);
-            self.vary_joins(term, vp, r);
-            self.vary_slants(term, vp, r);
+            self.vary_swaps(term, vp, r, written);
+            self.vary_joins(term, vp, r, written);
+            self.vary_slants(term, vp, r, written);
+        }
+    }
+
+    /// SAPV's substitutions and slants on every row of `vp`, as written,
+    /// for [`Reorder::keep_displayed`]; out of line, as
+    /// [`Reorder::vary_rows`] is.
+    #[inline(never)]
+    fn vary_kept(&mut self, term: &Term<'_>, vp: &Viewport<'_>, written: &dyn Over) {
+        for y in 0..vp.rows().index() {
+            self.vary_swaps(term, vp, Row::from_index(y), written);
+            self.vary_slants(term, vp, Row::from_index(y), written);
         }
     }
 
@@ -2314,8 +2365,8 @@ impl Reorder {
     /// 0.98/0.96, "where the bit combination 02/14 is intended to represent
     /// a decimal mark in a decimal number"), drawn as a mirrored character
     /// is, in the row's maps: every path reads the drawn cell.
-    fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
-        let cells = vp.row(r);
+    fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+        let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let mut found: Vec<(Col, Content)> = Vec::new();
         for (x, &cell) in cells.iter().enumerate() {
             if cell.flags.is_marked() {
@@ -2379,8 +2430,8 @@ impl Reorder {
     /// reset every cell of a right-to-left path -- that holds a character,
     /// not a wide one's tail, written italic under 17. At an even level its
     /// italic leans right, as the italic face draws it.
-    fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
-        let cells = vp.row(r);
+    fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+        let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let Some(order) = self.orders.rows.get_mut(r.index()).and_then(Option::as_mut) else {
             return;
         };
@@ -2401,8 +2452,8 @@ impl Reorder {
     /// asked keeps its word, and each cell of a word, whichever row it is
     /// on, is read by the shaping around it in the form its own variant
     /// draws it in.
-    fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
-        let cells = vp.row(r);
+    fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
+        let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let cols = cells.len();
         let y = r.index();
         if self.orders.joins.len() <= y {

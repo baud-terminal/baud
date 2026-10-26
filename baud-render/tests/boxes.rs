@@ -650,8 +650,15 @@ fn dump_ppm(c: &support::Canvas, path: &str) {
 fn mask_across(v: u32, cell: Cell, span: CellSpan) -> Vec<u8> {
     let mut scratch = Vec::new();
     let mut coverage = Vec::new();
-    let extent =
-        boxes::draw_across(cp(v), cell, span, &mut scratch, &mut coverage).expect("procedural");
+    let extent = boxes::draw_across(
+        cp(v),
+        cell,
+        span,
+        boxes::Facing::Written,
+        &mut scratch,
+        &mut coverage,
+    )
+    .expect("procedural");
     let cells = u32::try_from(span.cells().index()).unwrap();
     assert_eq!(
         (extent.w, extent.h),
@@ -918,4 +925,209 @@ fn a_wide_block_fills_both_cells() {
         bg,
         "narrow: nothing in the fourth column"
     );
+}
+
+/// An explicit right-to-left line with box mirroring set: BDSM reset,
+/// `?2500`, SCP 2, carried to every line written after it.
+const MIRRORED: &str = "\x1b[8l\x1b[?2500h\x1b[2 k";
+
+/// **A wide line mirrored meets a one-cell piece across and down**
+/// (`[[source: terminal-wg-bidi-misc]]`, "mirror the U+2500 .. U+257F
+/// glyphs in RTL"): the frame of
+/// `a_wide_line_meets_a_one_cell_piece_across_and_down` on a right-to-left
+/// line under `?2500`, each row drawn in reverse. The rule is lit from the
+/// wide `─`'s far cell through the tee to the `q`, and the tee's vertical
+/// runs down through the `x` into the `╵` in their cell -- the tee's last
+/// cell, the first the line is read in. Mirrored as one cell in its first,
+/// the tee's vertical stood a cell left of them.
+#[test]
+fn a_mirrored_wide_line_meets_a_one_cell_piece_across_and_down() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let text = format!("{MIRRORED}\x1b(0q\x1b(B┬─\r\n \x1b(0x\x1b(B\r\n ╵");
+        let (canvas, cw, ch, t, fg, _) = painted(AmbiguousWidth::Wide, &text, (6, 3), size);
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let (hy, vx) = ((ch - t) / 2, 4 * cw + (cw - t) / 2);
+        for x in cw..6 * cw {
+            assert_eq!(
+                px(x, hy),
+                fg,
+                "size {size}: a gap at ({x}, {hy}) in the rule"
+            );
+        }
+        for y in hy..2 * ch + ch / 4 {
+            for x in vx..vx + t {
+                assert_eq!(px(x, y), fg, "size {size}: a gap at ({x}, {y}) down");
+            }
+        }
+    }
+}
+
+/// **One frame holds a wide line mirrored and the same line as written,
+/// each its own way**: the tee on a right-to-left line under `?2500` has
+/// its vertical in its last cell, and the tee on a left-to-right line
+/// below it (SCP 1) in its first -- two masks of one character, kept
+/// apart.
+#[test]
+fn a_wide_line_mirrored_and_as_written_in_one_frame() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let text = format!("{MIRRORED}\x1b(0q\x1b(B┬─\r\n\x1b[1 k┬─");
+        let (canvas, cw, ch, t, fg, bg) = painted(AmbiguousWidth::Wide, &text, (6, 2), size);
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let v = (cw - t) / 2;
+        let below = ch - 1;
+        assert_eq!(
+            px(4 * cw + v, below),
+            fg,
+            "size {size}: mirrored, last cell"
+        );
+        assert_eq!(
+            px(3 * cw + v, below),
+            bg,
+            "size {size}: mirrored, first cell"
+        );
+        assert_eq!(px(v, 2 * ch - 1), fg, "size {size}: as written, first cell");
+        assert_eq!(
+            px(cw + v, 2 * ch - 1),
+            bg,
+            "size {size}: as written, last cell"
+        );
+    }
+}
+
+/// **A frame of wide lines mirrored is the frame mirrored**: `┌──┐` over
+/// `│    │` over `└──┘` on eight columns, on a right-to-left line under
+/// `?2500`, has its sides in the last cell of each wide piece -- columns
+/// 1 and 7 -- the rules run between them and the first cell of the far
+/// corner blank, at four sizes. Where the light stroke centres evenly in
+/// a cell, the whole canvas is the left-to-right frame's flipped.
+#[test]
+fn a_mirrored_wide_frame_is_the_frame_mirrored() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let frame = "┌──┐\r\n│    │\r\n└──┘";
+        let (canvas, cw, ch, t, fg, bg) = painted(
+            AmbiguousWidth::Wide,
+            &format!("{MIRRORED}{frame}"),
+            (8, 3),
+            size,
+        );
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let hy = (ch - t) / 2;
+        let vx = (cw - t) / 2;
+        let (left, right) = (cw + vx, 7 * cw + vx);
+        for row in [hy, 2 * ch + hy] {
+            for x in left..right + t {
+                assert_eq!(px(x, row), fg, "size {size}: a gap at ({x}, {row})");
+            }
+        }
+        for col in [left, right] {
+            for y in hy..2 * ch + hy + t {
+                assert_eq!(px(col, y), fg, "size {size}: a gap at ({col}, {y})");
+            }
+        }
+        let lit = (0..2 * cw).filter(|&x| px(x, ch + ch / 2) == fg).count();
+        assert_eq!(lit, t, "size {size}: the side's weight");
+        assert_eq!(px(cw / 2, hy), bg, "size {size}: before the corner");
+        if (cw - t).is_multiple_of(2) {
+            let (ltr, ..) = painted(AmbiguousWidth::Wide, frame, (8, 3), size);
+            let w = canvas.width;
+            for y in 0..canvas.pixels.len() / w {
+                for x in 0..w {
+                    assert_eq!(
+                        canvas.pixels[y * w + x],
+                        ltr.pixels[y * w + w - 1 - x],
+                        "size {size}: not the mirror at ({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **Mirrored, every shape a box line two cells wide takes is its
+/// left-to-right mask flipped**, where every stroke -- light, heavy and
+/// double -- centres evenly in a cell: corners, tees and the cross, heavy and double lines, a rounded
+/// corner, each mask of `Facing::Mirrored` against `Facing::Written`'s
+/// reversed row by row, exactly but for the anti-aliased arc, within the
+/// one coverage level its one-cell counterpart differs by; and in one
+/// cell the mirrored mask is the counterpart's.
+#[test]
+fn a_mirrored_two_cell_mask_is_the_mask_flipped() {
+    use baud_render::boxes::Facing;
+    let mask = |v: u32, c: Cell, span: CellSpan, facing| {
+        let (mut scratch, mut coverage) = (Vec::new(), Vec::new());
+        let e = boxes::draw_across(cp(v), c, span, facing, &mut scratch, &mut coverage)
+            .expect("procedural");
+        coverage.truncate(usize::try_from(e.w.value() * e.h.value()).unwrap());
+        coverage
+    };
+    let shapes = [
+        0x250C, 0x2510, 0x2514, 0x2518, 0x251C, 0x2524, 0x252C, 0x2534, 0x253C, 0x2502, 0x2500,
+        0x250F, 0x2513, 0x2523, 0x2550, 0x2551, 0x2554, 0x2557, 0x2560, 0x2563, 0x256C, 0x256D,
+        0x256E, 0x2570, 0x256F,
+    ];
+    let mut checked = 0;
+    for (w, h) in [(8, 17), (9, 19), (16, 33), (18, 37), (20, 41)] {
+        let c = cell(w, h);
+        if !w.is_multiple_of(2) || !(w - c.light().value()).is_multiple_of(2) {
+            continue;
+        }
+        let cw = usize::try_from(2 * w).unwrap();
+        for &v in &shapes {
+            let written = mask(v, c, CellSpan::Two, Facing::Written);
+            let mirrored = mask(v, c, CellSpan::Two, Facing::Mirrored);
+            let flipped: Vec<u8> = written
+                .chunks(cw)
+                .flat_map(|row| row.iter().rev().copied())
+                .collect();
+            // The anti-aliased arc is the rasteriser's, which a one-cell
+            // corner and its counterpart already differ by a level in.
+            let off = mirrored
+                .iter()
+                .zip(&flipped)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0);
+            let arc = (0x256D..=0x2570).contains(&v);
+            assert!(
+                off == 0 || (arc && off <= 1),
+                "U+{v:04X} at {w}x{h}: not the flip, by {off}"
+            );
+            let counterpart =
+                u32::from(baud_domain::box_counterpart(char::from_u32(v).unwrap()).unwrap());
+            assert_eq!(
+                mask(v, c, CellSpan::One, Facing::Mirrored),
+                mask(counterpart, c, CellSpan::One, Facing::Written),
+                "U+{v:04X}: one cell mirrored is the counterpart"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 2 * shapes.len(), "sizes checked: {checked}");
+}
+
+/// **Without `?2500` a wide line on a right-to-left line is drawn as
+/// written** (UAX #9 L4 mirrors only Bidi_Mirrored characters, and no box
+/// drawing character is one): the tee of `q┬─`, reversed into cells 3 and
+/// 4, is the left-to-right tee's mask, its vertical in cell 3.
+#[test]
+fn a_wide_line_right_to_left_without_box_mirroring_is_drawn_as_written() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let (rtl, cw, ch, ..) = painted(
+            AmbiguousWidth::Wide,
+            "\x1b[8l\x1b[2 k\x1b(0q\x1b(B┬─",
+            (6, 1),
+            size,
+        );
+        let (ltr, ..) = painted(AmbiguousWidth::Wide, "\x1b(0q\x1b(B┬─", (6, 1), size);
+        let w = rtl.width;
+        for y in 0..ch {
+            for x in 0..2 * cw {
+                assert_eq!(
+                    rtl.pixels[y * w + 3 * cw + x],
+                    ltr.pixels[y * w + cw + x],
+                    "size {size}: the tee at ({x}, {y})"
+                );
+            }
+        }
+    }
 }

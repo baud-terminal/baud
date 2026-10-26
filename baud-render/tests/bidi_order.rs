@@ -12,8 +12,8 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Codepoint, Col, PackedCell, ReadLen, Row, Rows, WinSize};
-use baud_render::{CursorSide, Mirrored, Reorder};
+use baud_domain::{BytePos, Codepoint, Col, Content, PackedCell, ReadLen, Row, Rows, WinSize};
+use baud_render::{Changes, CursorSide, Mirrored, Rejoin, Reorder, Written};
 
 const WS: WinSize = WinSize {
     ws_row: 4,
@@ -634,7 +634,7 @@ fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
             row,
             col,
             text: "cd".chars().map(Codepoint::from_char).collect(),
-            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+            measure: baud_render::Measure::default(),
             hints: Vec::new(),
             caret: Caret::End,
         }));
@@ -713,4 +713,51 @@ fn a_double_width_right_to_left_line_is_laid_out_over_its_drawn_half() {
         let (s, _) = drawn_with(&WS, &format!("{size}ab \u{5D0}\u{5D1}"), 0, Rows::ZERO);
         assert_eq!(s, "ab \u{5D1}\u{5D0}.......", "{size:?}: the control");
     }
+}
+
+/// **A kept layout reads a row as written over it** (BDSM reset, the last
+/// frame's joins kept for the caller's compare): a wide character written
+/// over two narrow cells of a line drawn in reverse keeps its two cells in
+/// order, as a write of it would, so the cell under its lead is drawn a
+/// column further left; and each frame that reads a row as written, and
+/// the frame after the last, find every row's joins again, since the order
+/// moved under cells no compare saw change. The control: frames with
+/// nothing written keep them.
+#[test]
+fn a_kept_layout_reads_what_is_written_and_rejoins_around_it() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "\x1b[8l\x1b[2 kabcdef");
+    let vp = t.view(Rows::ZERO);
+    let wide = |content| PackedCell {
+        content,
+        ..PackedCell::EMPTY
+    };
+    let mut written = Written::default();
+    written.write(
+        &vp,
+        Row::ZERO,
+        Col::at_index(1),
+        &[
+            wide(Content::codepoint(Codepoint::from_char('\u{4e2d}'))),
+            wide(Content::WIDE_TAIL),
+        ],
+    );
+    let none = Written::default();
+    let mut o = Reorder::new();
+    let keep = |o: &mut Reorder, w: &Written| o.keep_displayed(&t, Rows::ZERO, Changes::Copied, w);
+    let lead = |o: &Reorder| o.orders().visual_col(Row::ZERO, Col::at_index(1)).index();
+    assert_eq!(keep(&mut o, &none), Rejoin::Every, "the first frame");
+    assert_eq!(keep(&mut o, &none), Rejoin::Changed, "kept");
+    assert_eq!(lead(&o), 10, "the cell as stored");
+    assert_eq!(keep(&mut o, &written), Rejoin::Every, "read as written");
+    assert_eq!(lead(&o), 9, "the wide character's lead, left of its tail");
+    assert_eq!(
+        keep(&mut o, &written),
+        Rejoin::Every,
+        "read as written again"
+    );
+    assert_eq!(keep(&mut o, &none), Rejoin::Every, "the frame after");
+    assert_eq!(lead(&o), 10, "as stored again");
+    assert_eq!(keep(&mut o, &none), Rejoin::Changed, "kept again");
 }

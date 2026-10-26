@@ -99,7 +99,7 @@ pub use linked::{LinkLook, LinkSpan};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
     Caret, Composition, Hints, Laid, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD,
-    MASK_SELECTED, MASK_SIZED, Overlay, OverlayStats, Scene,
+    MASK_SELECTED, MASK_SIZED, Measure, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use redraw::{REDRAW_ROWS, Redraw, RowSet};
