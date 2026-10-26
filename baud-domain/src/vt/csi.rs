@@ -703,7 +703,19 @@ pub enum Csi {
     CursorDown(Count),
     CursorForward(Count),
     CursorBack(Count),
+    /// CUP, `CSI H`: the active presentation position ([`Csi::CharacterLinePosition`]
+    /// is HVP's active data position).
     CursorPosition {
+        row: OneBased,
+        col: OneBased,
+    },
+    /// HVP, `CSI f` (`[[source: ecma48]]` 8.3.63): "the active data position
+    /// ... in the data component", where CUP (8.3.21) moves "the active
+    /// presentation position ... in the presentation component". The same
+    /// cell wherever the two coincide, which is everywhere but a line the
+    /// core draws in an order other than its cells' under DCSM's
+    /// PRESENTATION.
+    CharacterLinePosition {
         row: OneBased,
         col: OneBased,
     },
@@ -813,12 +825,18 @@ pub enum Csi {
     CursorNextLine(Count),
     /// CPL, `CSI F`. Up `n` lines, to column 1.
     CursorPrevLine(Count),
-    /// CHA `CSI G` and HPA `CSI \``: absolute column, row unchanged. ECMA-48
-    /// gives them separate names; they are the same operation.
+    /// CHA, `CSI G`: absolute column, row unchanged, of the active
+    /// presentation position (`[[source: ecma48]]` 8.3.9).
     ColumnAbsolute(OneBased),
+    /// HPA, `CSI \``: absolute column of the active data position (8.3.57),
+    /// CHA's cell wherever the two positions coincide (see
+    /// [`Csi::CharacterLinePosition`]).
+    CharacterPositionAbsolute(OneBased),
     /// VPA, `CSI d`. Absolute row, column unchanged.
     LineAbsolute(OneBased),
-    /// HPR, `CSI a`. Right `n` columns -- CUF by another name.
+    /// HPR, `CSI a`. Right `n` columns of the active data position
+    /// (`[[source: ecma48]]` 8.3.59), CUF's cells wherever the presentation
+    /// is drawn in cell order.
     ColumnRelative(Count),
     /// VPR, `CSI e`. Down `n` rows, column unchanged. Unlike CNL.
     LineRelative(Count),
@@ -1423,7 +1441,11 @@ impl Csi {
             b'B' => Csi::CursorDown(p.count(ParamIdx::FIRST)),
             b'C' => Csi::CursorForward(p.count(ParamIdx::FIRST)),
             b'D' => Csi::CursorBack(p.count(ParamIdx::FIRST)),
-            b'H' | b'f' => Csi::CursorPosition {
+            b'H' => Csi::CursorPosition {
+                row: p.one_based(ParamIdx::FIRST),
+                col: p.one_based(ParamIdx::SECOND),
+            },
+            b'f' => Csi::CharacterLinePosition {
                 row: p.one_based(ParamIdx::FIRST),
                 col: p.one_based(ParamIdx::SECOND),
             },
@@ -1508,7 +1530,8 @@ impl Csi {
             // SIMD_COUNTED, 0.80/0.84).
             b'E' => Csi::CursorNextLine(p.count(ParamIdx::FIRST)),
             b'F' => Csi::CursorPrevLine(p.count(ParamIdx::FIRST)),
-            b'G' | b'`' => Csi::ColumnAbsolute(p.one_based(ParamIdx::FIRST)),
+            b'G' => Csi::ColumnAbsolute(p.one_based(ParamIdx::FIRST)),
+            b'`' => Csi::CharacterPositionAbsolute(p.one_based(ParamIdx::FIRST)),
             b'd' => Csi::LineAbsolute(p.one_based(ParamIdx::FIRST)),
             b'a' => Csi::ColumnRelative(p.count(ParamIdx::FIRST)),
             b'e' => Csi::LineRelative(p.count(ParamIdx::FIRST)),
@@ -1764,12 +1787,14 @@ impl Csi {
             | CursorNextLine(_)
             | CursorPrevLine(_)
             | ColumnAbsolute(_)
+            | CharacterPositionAbsolute(_)
             | LineAbsolute(_)
             | ColumnRelative(_)
             | LineRelative(_)
             | ColumnBackward(_)
             | LineBackward(_)
             | CursorPosition { .. }
+            | CharacterLinePosition { .. }
             | SaveCursor
             | RestoreCursor
             | EraseInDisplay(_)

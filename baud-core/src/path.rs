@@ -65,6 +65,7 @@ impl Paint<'_, '_> {
     pub(crate) fn select_path(&mut self, path: CharacterPath, cursor: PathCursor) {
         self.cold.line = self.cold.line.with_path(path);
         self.cold.modes.set(ModeBit::PathSelected);
+        self.refresh_presentation_edits();
         self.paragraph_takes(self.cy, Some(LineProperty::Path));
         if cursor == PathCursor::ToStart {
             self.set_col(self.on_line(self.place(self.confine_col(Col::ZERO))));
@@ -79,6 +80,7 @@ impl Paint<'_, '_> {
     pub(crate) fn select_presentation(&mut self, path: CharacterPath, cursor: PathCursor) {
         self.cold.line = self.cold.line.with_path(path);
         self.cold.modes.set(ModeBit::PathSelected);
+        self.refresh_presentation_edits();
         for y in 0..self.rows.index() {
             let r = Row::from_index(y);
             self.view.set_bidi(r, self.view.bidi(r).with_path(path));
@@ -98,6 +100,7 @@ impl Paint<'_, '_> {
     pub(crate) fn select_line_property(&mut self, which: LineProperty) {
         if self.cold.line != LineBidi::POWER_ON {
             self.cold.modes.set(ModeBit::PathSelected);
+            self.refresh_presentation_edits();
         }
         if self.cx.col() != Col::ZERO || self.continues_from_above(self.cy) {
             return;

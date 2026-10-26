@@ -10743,9 +10743,12 @@ fn a_clustered_composition_draws_as_its_text_written_on_every_arm() {
         arms.composition = None;
         let plain = three(&mut arms, &mut t, "plain");
         let (pre, back) = redo;
+        // Back by cells, HPB (`[[source: ecma48]]` 8.3.58, the active data
+        // position): `CUB` on a line drawn in reverse with BDSM reset moves
+        // left on the screen, away from the head.
         let rewrite = match back {
             0 => String::new(),
-            n => format!("\x1b[{n}D"),
+            n => format!("\x1b[{n}j"),
         };
         feed(
             &mut t,

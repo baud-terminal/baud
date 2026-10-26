@@ -354,8 +354,18 @@ the screen; step 3 joins Arabic letters.
   cursor's drawn place reaches, ICH opens room where the cursor is drawn,
   a line feed keeps the cursor's drawn column, and a cursor report gives
   it (`dch_deletes_the_cells_drawn_at_its_positions`,
-  `cpr_reports_the_presentation_column`). `CSI 9 h` edits the cells as
-  stored. With the mode on it does nothing, as ECMA-48 says.
+  `cpr_reports_the_presentation_column`). The cursor moves as drawn too:
+  CUP and CHA go to the character drawn at the column they name, CUF,
+  CUB, CUU, CUD and the tabs step from the cursor's drawn place, and on a
+  right-to-left line CUF moves right on the screen and CUB left, as
+  ECMA-48 words them (`cup_goes_to_the_cell_drawn_at_its_position`, `cha_goes_to_the_cell_drawn_at_its_position`,
+  `on_a_right_to_left_line_cuf_moves_right_on_the_screen`); HVP and HPA
+  still name the character stored at the column. `CSI 9 h` edits and
+  moves by the cells as stored; TR/53's worked example 2 does so for CUP
+  and CHA on its DATA lines
+  (`tr53_example_2_data_lines_address_the_cells`), and the other cursor
+  functions are an open departure (below). With the mode on it does
+  nothing, as ECMA-48 says.
 - **A program can write right to left, as on a VT510 with a Hebrew
   keyboard** (DECRLM, `CSI ? 34 h`, `[[source: vt510-decrlm]]`): each
   character is written at the cursor and the cursor moves left, BS moves
@@ -516,6 +526,9 @@ lean; the owner can veto each:**
 | which DCSM state `CSI 9 h` selects | DATA, as 7.1, 7.2 and Table 6 have it | 0.58 / 0.72, 0.72 / 0.86 |
 | DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string | 0.22 / 0.22, 0.86 / 0.86 |
 | DCSM at power-on | PRESENTATION, the reset state | 0.38 / 0.52, 0.66 / 0.42 |
+| the cursor functions and DCSM | by the positions as drawn under PRESENTATION, by cell under DATA, as TR/53's worked example 2 has `CUP` and `CHA`, where their definitions (8.3.7-8.3.23, 8.3.60, 8.3.161) move the active presentation position in every state, 7.2.3's NOTE leaves them out and Annex F calls them independent of DCSM: an open departure | 0.56 / 0.79, 0.53 / 0.77 |
+| `CUF` and `CUB` on a right-to-left line | right and left on the screen, "rightwards in the presentation component" | 0.88 / 0.96, 0.88 / 0.96 |
+| which cursor functions | every one that moves the active presentation position: the tabs, `CVT` and `VT` with `CUP` to `CUD` | the six alone 0.08 / this 0.46; then this 0.28 / 0.56 |
 | `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" | 0.80 / 0.52, 0.64 / 0.10 |
 | DECRLM under side margins | `CR` and the wrap's landing at the right margin, the wrap at the left one | 0.24 / 0.20; then the orders apart, AS_WORDED 0.23 and this 0.34, this the likelier, by mean probability 0.39 against 0.37 |
 | DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
@@ -740,10 +753,17 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- **The cursor on a line holding a string, with the mode off**: `CUP`,
-  `CHA`, `CUF` and `CUB` place the cursor by the line's cells whatever
-  DCSM says, where ECMA-48 (8.3.9, 8.3.20, 8.3.21, Annex F) moves "the
-  active presentation position" for each.
+- **The cursor under DCSM's DATA, with the mode off**: `CUP`, `CHA`,
+  `CUF`, `CUB`, `CUU`, `CUD`, `HT`, `CHT`, `CBT`, `CVT` and `VT`, and
+  `HTS`, `CTC` and `TBC`, address the line's cells, so on a line SCP set
+  right to left `CUF` moves left on the screen, where ECMA-48 (8.3.7-8.3.23,
+  8.3.60, 8.3.161, 7.2.3's NOTE, Annex F) moves "the active presentation
+  position" for each whatever DCSM says; TR/53's worked example 2 has only
+  `CUP` and `CHA` on its DATA lines.
+- **Editing a line as drawn, with the mode off**: `EA` and `EF` erase
+  the characters as stored, and a character inserted under IRM pushes
+  the characters as stored, where ECMA-48 (7.2.3, 7.2.9) has both act on
+  the positions as drawn under DCSM's PRESENTATION.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above

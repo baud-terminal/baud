@@ -538,8 +538,10 @@ pub(crate) fn act(
         // HT. One stop forward, through the same `tab_forward` that `CHT`
         // reaches -- so the character and the control sequence cannot disagree
         // about where the stops are.
-        Act::Tab if p.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
-            p.tab_leftward();
+        // Under DECRLM to the left, under DCSM's PRESENTATION by the stops
+        // as drawn (`Paint::tab_mapped`): one bit, `CR`'s.
+        Act::Tab if p.cold.modes.is_set(ModeBit::ReturnMapped) => {
+            p.tab_mapped();
             ReadLen::ONE
         }
         Act::Tab => {
@@ -2190,7 +2192,26 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         return;
     }
     match op {
-        DomCsi::CursorPosition { row, col } => {
+        // **The cursor functions under DCSM's PRESENTATION**, one bit of
+        // the mode word (`ModeBit::CursorPresented`) and the rest out of
+        // line (`Paint::cursor_presented`): each moves "the active
+        // presentation position" (`[[source: ecma48]]` 8.3.7-8.3.23). `HVP`
+        // and `HPA` move the active data position (8.3.63, 8.3.57) and take
+        // the cells in every state.
+        DomCsi::CursorPosition { .. }
+        | DomCsi::CursorUp(_)
+        | DomCsi::CursorDown(_)
+        | DomCsi::CursorForward(_)
+        | DomCsi::CursorBack(_)
+        | DomCsi::ColumnAbsolute(_)
+        | DomCsi::CursorForwardTab(_)
+        | DomCsi::CursorBackTab(_)
+        | DomCsi::CursorLineTab(_)
+            if p.cold.modes.is_set(ModeBit::CursorPresented) =>
+        {
+            p.cursor_presented(op)
+        }
+        DomCsi::CursorPosition { row, col } | DomCsi::CharacterLinePosition { row, col } => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + row.to_row(p.rows).index());
             p.goto_at(p.confine(want), p.address_col(col.to_col(p.cols)));
@@ -2229,7 +2250,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // **Absolute, and clamped into the margins under DECOM**: option
         // (a') of the record's "DECOM's origin is the left margin too", which
         // no text settles against xterm's (b), counted from the left margin.
-        DomCsi::ColumnAbsolute(c) => p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols))))),
+        DomCsi::ColumnAbsolute(c) | DomCsi::CharacterPositionAbsolute(c) => {
+            p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols)))))
+        }
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());

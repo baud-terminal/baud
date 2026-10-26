@@ -411,6 +411,16 @@ pub enum ModeBit {
     /// by whatever reads the rendition before one comes; no `DECRQM` or
     /// XTSAVE reaches it.
     FormEnd,
+    /// **Whether a cursor function may take a position in the presentation
+    /// component**: DCSM at PRESENTATION and BDSM reset, with a string
+    /// begun or a character path selected since power-on (`[[source:
+    /// ecma48]]` 8.3.9-8.3.22, "the active presentation position"; TR/53's
+    /// worked example 2 addresses the cells under DATA). Not a mode the
+    /// host names: `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD`, `CHT`, `CBT`
+    /// and `CVT` test it in one arm of the `CSI` dispatch, out of the
+    /// per-byte loop; set and reset as the four change; no `DECRQM` or
+    /// XTSAVE reaches it.
+    CursorPresented,
 }
 
 impl ModeBit {

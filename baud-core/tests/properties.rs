@@ -979,6 +979,77 @@ const ALPHABET: &[Atom] = &[
         bytes: b"\x1b[?34l",
         stride: 0,
         count: 0,
+    }, // **BDSM reset and DCSM**, last: with BDSM reset and DCSM at
+    // PRESENTATION, the cursor functions, `CR`, a line feed and the editing
+    // functions take the cursor's position as drawn on a line holding a
+    // string, and `CUF` and `CUB` run as drawn on a right-to-left line;
+    // none of it may depend on where the reads fell. `HVP` and `HPA` move
+    // by cell in every state.
+    Atom {
+        name: "bdsm-explicit",
+        bytes: b"\x1b[8l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "dcsm-data",
+        bytes: b"\x1b[9h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "dcsm-presentation",
+        bytes: b"\x1b[9l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "hvp",
+        bytes: b"\x1b[1;3f",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "hpa",
+        bytes: b"\x1b[2`",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cuf",
+        bytes: b"\x1b[2C",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cub",
+        bytes: b"\x1b[D",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cud",
+        bytes: b"\x1b[B",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cha",
+        bytes: b"\x1b[3G",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ht",
+        bytes: b"\t",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cbt",
+        bytes: b"\x1b[Z",
+        stride: 0,
+        count: 0,
     },
 ];
 
@@ -1473,6 +1544,43 @@ fn the_path_atoms_reach_the_rows() {
     );
     support::feed(&mut t, &bytes_of(&[atom("spd-rtl")]));
     assert!((0..ROWS).all(|y| path(&t, y) == RightToLeft));
+}
+
+/// **The DCSM atoms reach the presentation**, the control the path atoms
+/// have: with `bdsm-explicit`, `ab` reversed by `srs-begin` is drawn `ba`,
+/// so `cup-home` lands on `b`, column 1; after `dcsm-data` on column 0,
+/// and `hvp` and `hpa` take their columns in every state; on an
+/// `scp-rtl` line `cuf` steps right on the screen, toward column 0. An atom
+/// that never reached DCSM would leave every cursor function by cell, and
+/// every property would compare cursors no presentation moved.
+#[test]
+fn the_dcsm_atoms_reach_the_presentation() {
+    let fed_then = |names: &[&str]| {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let prog: Vec<usize> = names.iter().map(|n| atom(n)).collect();
+        support::feed(&mut t, &bytes_of(&prog));
+        t.cursor().1
+    };
+    let strung = ["bdsm-explicit", "srs-begin", "ascii-short", "srs-end"];
+    let with = |more: &[&str]| fed_then(&[&strung[..], more].concat());
+    assert_eq!(with(&["cup-home"]), Col::at_index(1));
+    assert_eq!(with(&["dcsm-data", "cup-home"]), Col::ZERO);
+    assert_eq!(
+        with(&["dcsm-data", "dcsm-presentation", "cup-home"]),
+        Col::at_index(1)
+    );
+    assert_eq!(with(&["hvp"]), Col::at_index(2));
+    assert_eq!(with(&["hpa"]), Col::at_index(1));
+    assert_eq!(
+        fed_then(&["bdsm-explicit", "scp-rtl", "ascii-short", "cuf"]),
+        Col::ZERO
+    );
+    assert_eq!(
+        fed_then(&["scp-rtl", "ascii-short", "cuf"]),
+        Col::at_index(4)
+    );
 }
 
 /// **The SAPV atoms reach the rendition**, the control the path atoms

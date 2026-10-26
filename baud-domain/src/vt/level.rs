@@ -321,6 +321,7 @@ impl Csi {
             CursorForward(_) => Function::Cuf,
             CursorBack(_) => Function::Cub,
             CursorPosition { .. } => Function::Cup,
+            CharacterLinePosition { .. } => Function::Hvp,
             EraseInDisplay(_) | EraseEach(EraseList::Display) => Function::Ed,
             EraseInLine(_) | EraseEach(EraseList::Line) => Function::El,
             InsertLines(_) => Function::Il,
@@ -387,6 +388,7 @@ impl Csi {
             | CursorNextLine(_)
             | CursorPrevLine(_)
             | ColumnAbsolute(_)
+            | CharacterPositionAbsolute(_)
             | LineAbsolute(_)
             | ColumnRelative(_)
             | LineRelative(_)

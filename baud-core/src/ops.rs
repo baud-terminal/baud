@@ -3035,7 +3035,7 @@ impl Paint<'_, '_> {
         match w {
             Some(TabClear::All | TabClear::InLine) => self.tabs.fill(false),
             Some(TabClear::AtCursor) => {
-                let x = self.cx.col().index();
+                let x = self.stop_col().index();
                 if x < self.tabs.len() {
                     self.tabs[x] = false;
                 }
@@ -3055,10 +3055,18 @@ impl Paint<'_, '_> {
 
     /// HTS, `ESC H`, and CTC 0: a character stop at the cursor's column.
     pub(crate) fn tab_set(&mut self) {
-        let x = self.cx.col().index();
+        let x = self.stop_col().index();
         if x < self.tabs.len() {
             self.tabs[x] = true;
         }
+    }
+
+    /// **The column a stop is set or cleared at**: "the active
+    /// presentation position" (`[[source: ecma48]]` 8.3.62, 8.3.154,
+    /// 8.3.17), under DCSM's PRESENTATION the cursor's position as drawn
+    /// (`crate::component`), its cell's column otherwise.
+    fn stop_col(&self) -> Col {
+        self.presented_col().unwrap_or(self.cx.col())
     }
 
     /// CTC, `CSI Ps... W`: every parameter, in order ("Notation: (Ps...)",
@@ -3126,7 +3134,12 @@ impl Paint<'_, '_> {
                     self.autoprint(crate::print::LineEnd::LineTab);
                 }
                 self.view.set_ended(self.cy);
+                // Under DCSM's PRESENTATION "the corresponding character
+                // position" is the presentation position, kept as `LF`
+                // keeps it.
+                let kept = self.presented_col();
                 self.set_row(y);
+                self.keep_presented(kept);
             }
             None => self.line_feed(crate::paint::Feed::LineTab),
         }

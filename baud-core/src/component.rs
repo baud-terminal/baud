@@ -18,14 +18,34 @@
 //! and `CPR` reports the presentation column. `DL` and `IL` act on lines,
 //! the same in both. With BDSM set DCSM "has no effect" (7.3.4 c).
 //!
+//! **The cursor functions move "the active presentation position"**
+//! (8.3.7-8.3.23, 8.3.60, 8.3.161): under PRESENTATION `CUP`, `CHA`,
+//! `CUF`, `CUB`, `CUU`, `CUD`, `HT`, `CHT`, `CBT`, `CVT` and `VT` move from
+//! the cursor's presentation position and leave it on the cell drawn where
+//! they end ([`Paint::presented`]), and `HTS`, `CTC` and `TBC` take the
+//! stop's column there. Under DATA they address the cells; TR/53's worked
+//! example 2 does so for `CUP` and `CHA` on its DATA lines (it has no other
+//! cursor function there), and for the rest it is an open departure: their
+//! definitions move the presentation position in every DCSM state, 7.2.3's
+//! NOTE leaves them out of the functions DCSM affects, and Annex F F.7
+//! calls them independent of it, so on a right-to-left line `CUF` under
+//! DATA moves left on the screen (Jev's lean, WITH_DCSM, 0.53/0.77). `CUF` is "rightwards in the presentation component" and
+//! `CUB` "leftwards", so on a right-to-left line they run back and on along
+//! its path (Jev's lean, PHYSICAL, 0.88/0.96). `HVP` and `HPA` move the
+//! active data position, by cell in both.
+//!
 //! **What it costs while nothing selects it: one bit.** The three
 //! conditions are one bit of the mode word ([`ModeBit::PresentationEdits`]),
 //! which `CR` tests beside DECLRMM's and a line feed in the test it makes
 //! for LNM.
+//! The cursor functions test another, [`ModeBit::CursorPresented`], which
+//! a path selected sets as a string begun does, in one arm of the `CSI`
+//! dispatch, out of the per-byte loop; `HT` tests `CR`'s, [`ModeBit::ReturnMapped`], in place of
+//! DECRLM's.
 
 use baud_domain::{
-    BidiDirection, BidiSupport, CharacterPath, Col, Count, CursorCol, DeviceComponent, EraseExtent,
-    ModeBit, ModeChange, Row, StringId, order_strings,
+    BidiDirection, BidiSupport, CharacterPath, Col, Count, Csi, CursorAt, CursorCol,
+    DeviceComponent, EraseExtent, ModeBit, ModeChange, Row, StringId, order_strings,
 };
 
 use crate::MAX_COLS;
@@ -77,6 +97,11 @@ impl Paint<'_, '_> {
         self.cold.modes.apply(ModeBit::PresentationEdits, on);
         let mapped = on || self.cold.modes.is_set(ModeBit::CursorRightToLeft);
         self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
+        let presented = self.cold.bidi == BidiSupport::Explicit
+            && self.cold.dcsm == DeviceComponent::Presentation
+            && (self.strs.strings.begun == Begun::Yes
+                || self.cold.modes.is_set(ModeBit::PathSelected));
+        self.cold.modes.apply(ModeBit::CursorPresented, presented);
     }
 
     /// **DECRLM set or reset** (`crate::leftward`).
@@ -188,6 +213,113 @@ impl Paint<'_, '_> {
             let c = self.line_map(self.cy).map_or(p, |m| m.data(p));
             self.set_col(CursorCol::moved(c));
         }
+    }
+
+    /// **A cursor function under PRESENTATION** (`[[source: ecma48]]`
+    /// 8.3.9-8.3.22: each moves "the active presentation position"): `f`
+    /// moves the cursor from its presentation position, counted along the
+    /// line's path, and the cursor goes to the cell drawn where `f` leaves
+    /// it, on the line it reaches. A line with no string, a cursor at a
+    /// pending wrap or placed past the margin are taken as they stand.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn presented(&mut self, f: impl FnOnce(&mut Self)) {
+        self.map_cursor(LineMap::presentation);
+        self.landed(f);
+    }
+
+    /// **An absolute move under PRESENTATION**, `CUP`'s or `CHA`'s: `f`
+    /// names the position, and the cursor goes to the cell drawn there; the
+    /// position it left is not read.
+    fn landed(&mut self, f: impl FnOnce(&mut Self)) {
+        f(self);
+        self.map_cursor(LineMap::data);
+    }
+
+    /// The cursor's column through `to` of its line's map, where it stands
+    /// on a column of a line holding a string.
+    fn map_cursor(&mut self, to: fn(&LineMap, Col) -> Col) {
+        if !self.cold.modes.is_set(ModeBit::PresentationEdits) {
+            return;
+        }
+        if let (CursorAt::Column(c), Some(m)) = (self.cursor_at(), self.line_map(self.cy)) {
+            if c.index() < m.width {
+                self.set_col(CursorCol::moved(to(&m, c)));
+            }
+        }
+    }
+
+    /// **A cursor function while [`ModeBit::CursorPresented`] is set**,
+    /// each the move its arm in `csi_final` makes, through
+    /// [`Paint::presented`].
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn cursor_presented(&mut self, op: Csi) {
+        match op {
+            Csi::CursorPosition { row, col } => self.landed(|p| {
+                let base = p.origin_row().index();
+                let want = Row::from_index(base + row.to_row(p.rows).index());
+                p.goto_at(p.confine(want), p.address_col(col.to_col(p.cols)));
+            }),
+            Csi::CursorUp(c) => self.presented(|p| p.set_row(p.up_in_margins(c))),
+            Csi::CursorDown(c) => self.presented(|p| p.set_row(p.down_in_margins(c))),
+            Csi::CursorForward(c) => self.rightward_presented(c),
+            Csi::CursorBack(c) => self.leftward_presented(c),
+            Csi::ColumnAbsolute(c) => {
+                self.landed(|p| p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols))))))
+            }
+            Csi::CursorForwardTab(c) => self.presented(|p| p.tab_forward(c)),
+            Csi::CursorBackTab(c) => self.presented(|p| p.tab_back(c)),
+            Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
+            // The arm that calls this admits only the functions above.
+            _ => {}
+        }
+    }
+
+    /// Whether the cursor's line runs right to left.
+    fn runs_leftward(&self) -> bool {
+        self.view.bidi(self.cy).path() == CharacterPath::RightToLeft
+    }
+
+    /// **`CUF` under PRESENTATION**: "rightwards in the presentation
+    /// component" (8.3.20), which on a right-to-left line is back along its
+    /// path, toward its home.
+    pub(crate) fn rightward_presented(&mut self, n: Count) {
+        self.presented(|p| {
+            let to = match p.runs_leftward() {
+                true => p.back_in_margins(n),
+                false => p.forward_in_margins(n),
+            };
+            p.set_col(to);
+        });
+    }
+
+    /// **`CUB` under PRESENTATION**: "leftwards" (8.3.18), on a
+    /// right-to-left line on along its path; on a left-to-right line as
+    /// `CUB` is, `?1045` and `?45` included.
+    pub(crate) fn leftward_presented(&mut self, n: Count) {
+        self.presented(
+            |p| match (p.runs_leftward(), p.wraps_back_extended(), p.wraps_back()) {
+                (true, _, _) => p.set_col(p.forward_in_margins(n)),
+                (false, true, _) => p.back_wrapping(n),
+                (false, false, true) => p.back_reverse_wrapping(n),
+                (false, false, false) => p.set_col(p.back_in_margins(n)),
+            },
+        );
+    }
+
+    /// **`HT` while `CR` is mapped** ([`ModeBit::ReturnMapped`]): under
+    /// DECRLM to the left (`crate::leftward`), and under PRESENTATION from
+    /// the cursor's presentation position, the stops counted along the
+    /// line's path (8.3.60).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn tab_mapped(&mut self) {
+        let leftward = self.cold.modes.is_set(ModeBit::CursorRightToLeft);
+        self.presented(|p| match leftward {
+            true => p.tab_leftward(),
+            false => p.tab_forward(Count::ONE),
+        });
     }
 
     /// **`DCH` under PRESENTATION**: the cells drawn at the `n` positions
