@@ -3329,7 +3329,8 @@ cells. The texts leave the placement open ([[source: unicode18-chart-2500]],
 [[source: unicode18-chart-2580]], [[source: uax11]]); Jev leaned to the
 first cell's centre over both cells' centre, VTE's
 ([[source: vte-minifont-0-84]]), below the bar in three askings, and to
-the blocks' fraction, below it in two. Both are on the owner's list.
+the blocks' fraction, below it in two. Both are leans left for the
+owner's veto.
 
 ### V15. Mode 2027 and U+FE0F: stop the false claim, then make it a real switch
 

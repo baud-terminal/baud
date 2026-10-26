@@ -318,8 +318,8 @@ half-built protocol feature is finished to the spec, not switched off"):
   both, since 2026-10-25 (design step 4): its lines run through the second
   cell, its verticals and corners stay at the first cell's centre at the
   one-cell weight, and a block is its fraction of both cells. Both shapes
-  are Jev's leans, below the bar, and on the owner's list (`docs/record.md`,
-  "A box line two cells wide is drawn across both").
+  are Jev's leans, below the bar, left for the owner's veto
+  (`docs/record.md`, "A box line two cells wide is drawn across both").
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
   acts and answers only while DA lists Sixel; the choices Jev left below the

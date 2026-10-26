@@ -510,6 +510,11 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   rather than in one.
 - **A predicted echo on a double-width line** is not laid out as
   written: its line is laid out without it.
+- **The row sliding out of a smooth scroll, at its edges**: a space
+  carrying a combining mark there gets no stress mark (`SGR 64`), judged
+  from the space alone, where on a still row the mark it carries gives it
+  one; and a glyph on the window's first row whose ink reaches into the
+  sliding row is not drawn in order with that row's text.
 - **A composed Arabic letter is drawn alone**, while the letters beside it
   join toward it as they will once it is written.
 - **Telling programs it is supported**: DECRQM 8 is the only probe; no

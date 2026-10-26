@@ -152,12 +152,14 @@ font_fallback = true
 # such as vim with ambiwidth=double. Set it only to match them: a program
 # counting one column for such a character puts everything after it one
 # column off. Private Use Area characters, the Nerd Font icons, stay one
-# column either way. Under "wide" a box-drawing line or block element takes
-# two cells and is drawn across both, so boxes stay unbroken: its lines run
-# on through the second cell to meet the next character, its vertical
-# strokes and corners stay in the first, at the weight of a one-cell line,
-# and a block fills its share of both cells. Read at launch; DECRQM ?1021
-# reports it.
+# column either way. Under "wide" a box-drawing line or block element that
+# East Asian Width marks Ambiguous takes two cells and is drawn across both,
+# so boxes stay unbroken: its lines run on through the second cell to meet
+# the next character, its vertical strokes and corners stay in the first, at
+# the weight of a one-cell line, and a block fills its share of both cells.
+# The pieces it leaves narrow (U+254C-254F, U+2574-257F, U+2590-2591,
+# U+2596-259F) and DEC Special Graphics lines stay one cell. Read at launch;
+# DECRQM ?1021 reports it.
 [text]
 ambiguous_width = "narrow"
 
