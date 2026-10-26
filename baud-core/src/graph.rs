@@ -494,9 +494,12 @@ pub enum Act {
     /// `Char2`, `Char3` and `Char4` of the graph [`Edge::of_graph`] reads
     /// then, whose step measures the characters by Unicode 8's widths. Its
     /// own width is one byte, so the per-step test that a character fits is
-    /// the step's to make, and `width` reads as it did.
+    /// the step's to make, and `width` reads as it did. **And a printable
+    /// byte or a lead while a SAPV form waits** (`forms`), one character at
+    /// a time, under either table.
     Lead8,
-    /// `ContEnd` under Unicode 8: the last byte of a character a read split.
+    /// `ContEnd` under Unicode 8, or while a SAPV form waits: the last byte
+    /// of a character a read split.
     ContEnd8,
 }
 
@@ -887,21 +890,66 @@ impl<T> Bytes<T> {
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 static UTF8_EIGHT: Nodes<Bytes<Edge>> = eight(build(InputEncoding::Utf8));
+static UTF8_FORMS: Nodes<Bytes<Edge>> = forms(build(InputEncoding::Utf8));
+static LATIN1_FORMS: Nodes<Bytes<Edge>> = forms(build(InputEncoding::Latin1));
 
 /// The graph a step reads: the encoding's, and under iTerm2's
 /// `UnicodeVersion=8` the UTF-8 graph whose character acts measure by
 /// Unicode 8's widths (`[[source: iterm2-escape-codes]]`). **Chosen when
 /// the encoding or the version changes, never by a step**, so the default
 /// text path asks no version: the record, "Unicode 8's widths cost the
-/// default nothing".
+/// default nothing". While a SAPV form waits for the next character, or
+/// the last one took it, the encoding's graph whose text goes one
+/// character at a time through the out-of-line step ([`forms`]), so the
+/// text path asks nothing about SAPV either.
 pub(crate) type Graph = Nodes<Bytes<Edge>>;
 
-pub(crate) fn graph_of(enc: InputEncoding, widths: UnicodeWidths) -> &'static Graph {
-    match (enc, widths) {
-        (InputEncoding::Latin1, _) => &LATIN1,
-        (InputEncoding::Utf8, UnicodeWidths::Current) => &UTF8,
-        (InputEncoding::Utf8, UnicodeWidths::Eight) => &UTF8_EIGHT,
+/// Whether the text is read one character at a time for a SAPV form:
+/// one waits for the following graphic character, or the last one took
+/// it and the next takes it out (`crate::variants`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FormRead {
+    Runs,
+    OneByOne,
+}
+
+pub(crate) fn graph_of(
+    enc: InputEncoding,
+    widths: UnicodeWidths,
+    forms: FormRead,
+) -> &'static Graph {
+    match (enc, widths, forms) {
+        (InputEncoding::Latin1, _, FormRead::Runs) => &LATIN1,
+        (InputEncoding::Utf8, UnicodeWidths::Current, FormRead::Runs) => &UTF8,
+        (InputEncoding::Utf8, UnicodeWidths::Eight, FormRead::Runs) => &UTF8_EIGHT,
+        (InputEncoding::Latin1, _, FormRead::OneByOne) => &LATIN1_FORMS,
+        (InputEncoding::Utf8, _, FormRead::OneByOne) => &UTF8_FORMS,
     }
+}
+
+/// `g` with every act that writes text taken by the out-of-line step: a
+/// printable byte's `Text` and a lead's `Char2`, `Char3` or `Char4` by
+/// `Lead8`, a split character's `ContEnd` by `ContEnd8`. Every node and
+/// every other act is `g`'s; the step asks the version itself, so one
+/// graph serves both tables. **No act is added**: the step is the one
+/// `UnicodeVersion=8` already takes, and a 48th arm in the dispatch cost
+/// programs that never reach it (`Act::Signal`).
+const fn forms(mut g: Graph) -> Graph {
+    let mut n = 0usize;
+    while n < NNODE {
+        let mut i = 0usize;
+        while i < 256 {
+            let e = g.0[n].0[i];
+            g.0[n].0[i].act = match e.act {
+                Act::Text | Act::Char2 | Act::Char3 | Act::Char4 => Act::Lead8,
+                Act::ContEnd => Act::ContEnd8,
+                a => a,
+            };
+            i += 1;
+        }
+        n += 1;
+    }
+    g
 }
 
 /// `g` with every character act taken by its Unicode 8 twin: a lead's
@@ -3943,7 +3991,7 @@ mod classes {
     /// taken by `Lead8` and its `ContEnd` by `ContEnd8`, every node the same.
     #[test]
     fn a_split_from_the_edge_s_node_is_the_split_from_its_source() {
-        let eight = graph_of(InputEncoding::Utf8, UnicodeWidths::Eight);
+        let eight = graph_of(InputEncoding::Utf8, UnicodeWidths::Eight, FormRead::Runs);
         for node in Node::FROM_INDEX {
             for b in StreamByte::ALL {
                 let e = Edge::of(InputEncoding::Utf8, node, b);
@@ -3968,6 +4016,48 @@ mod classes {
                     "{node:?} {:#04x}",
                     b.index()
                 );
+            }
+        }
+    }
+
+    /// **While a SAPV form waits the graph is the encoding's with its text
+    /// taken one character at a time**: `Text`, `Char2`, `Char3` and
+    /// `Char4` by `Lead8`, `ContEnd` by `ContEnd8`, every next node and
+    /// every other act as they were, under either table; and with no form
+    /// the graph is the one it was.
+    #[test]
+    fn a_form_s_graph_is_the_text_graph_one_character_at_a_time() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for widths in [UnicodeWidths::Current, UnicodeWidths::Eight] {
+                let runs = graph_of(enc, widths, FormRead::Runs);
+                let forms = graph_of(enc, widths, FormRead::OneByOne);
+                let a = StreamByte::from_stream(b'a');
+                assert_eq!(Edge::of_graph(runs, Node::Ground, a).act, Act::Text);
+                assert_eq!(Edge::of_graph(forms, Node::Ground, a).act, Act::Lead8);
+                for node in Node::FROM_INDEX {
+                    for b in StreamByte::ALL {
+                        let e = Edge::of(enc, node, b);
+                        let want = match e.act {
+                            Act::Text | Act::Char2 | Act::Char3 | Act::Char4 => {
+                                edge(Act::Lead8, e.next)
+                            }
+                            Act::ContEnd => edge(Act::ContEnd8, e.next),
+                            _ => e,
+                        };
+                        assert_eq!(
+                            Edge::of_graph(forms, node, b),
+                            want,
+                            "{enc:?} {node:?} {:#04x}",
+                            b.index()
+                        );
+                    }
+                }
+            }
+            let plain = graph_of(enc, UnicodeWidths::Current, FormRead::Runs);
+            for node in Node::FROM_INDEX {
+                for b in StreamByte::ALL {
+                    assert_eq!(Edge::of_graph(plain, node, b), Edge::of(enc, node, b));
+                }
             }
         }
     }

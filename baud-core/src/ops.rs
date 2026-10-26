@@ -16,6 +16,14 @@ use crate::paint::{Paint, Pen};
 use crate::term::{AltStyle, Saved, Screen, Strip, SurfaceLine};
 use baud_domain::*;
 
+/// What a rendition with SAPV's variants found on its own key's path
+/// ([`Paint::variants_probe`]).
+enum Probed {
+    Hit(StyleId),
+    Empty(StyleId),
+    Full,
+}
+
 /// Which way a full-screen scroll moved the window over the ring: up one,
 /// retiring a row, or down one, taking one back.
 #[derive(Clone, Copy)]
@@ -2124,6 +2132,12 @@ impl Paint<'_, '_> {
     /// LLVM inlined it into `apply_sgr`; when `DECRC` began interning the
     /// saved rendition again it outlined it, and every `SGR` paid a call.
     /// Forced, `apply_sgr` compiles as it did with one caller.
+    ///
+    /// **The probe inline keys a rendition without SAPV's variants**
+    /// ([`StyleId::plain_bucket`]), the key of every rendition that has
+    /// none, so it costs what it did before they were hashed. One with
+    /// variants lives on its own key's path, which the probe does not walk:
+    /// it finds it or its place out of line, at the miss ([`Paint::intern_new`]).
     #[inline(always)]
     pub(crate) fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
@@ -2142,7 +2156,7 @@ impl Paint<'_, '_> {
             let k2 = StyleId::bucket(raw, len).max(1);
             self.intern_new(StyleId::from_index(k2), raw);
         }
-        let base = StyleId::bucket(raw, len);
+        let base = StyleId::plain_bucket(raw, len);
         // Probe for this style's own slot or the first free one. `len` is a
         // power of two, so `& (len - 1)` wraps and the loop visits every slot
         // exactly once. A hit returns the slot the style already has, which is
@@ -2168,6 +2182,19 @@ impl Paint<'_, '_> {
     #[inline(never)]
     fn intern_new(&mut self, k: StyleId, raw: StyleWord) -> StyleId {
         let len = self.tmpl.len();
+        // A rendition with SAPV's variants on its own key's path, which the
+        // inline probe left unwalked: a hit there is its slot, and the
+        // first empty slot there its place.
+        let k = match raw.variants().is_default() {
+            true => k,
+            false => match self.variants_probe(raw) {
+                Probed::Hit(id) => return id,
+                Probed::Empty(k) => k,
+                Probed::Full => {
+                    return self.full_table(StyleId::from_index(StyleId::bucket(raw, len)), raw);
+                }
+            },
+        };
         if self.style_log.book.sweep.tombs > 0 {
             let mut j = StyleId::bucket(raw, len);
             while j != k.index() {
@@ -2191,16 +2218,36 @@ impl Paint<'_, '_> {
         self.write_slot(k, Some(raw))
     }
 
+    /// **`raw`'s own key's path, for a rendition with SAPV's variants**:
+    /// its slot, the first empty one, or neither.
+    fn variants_probe(&self, raw: StyleWord) -> Probed {
+        let len = self.tmpl.len();
+        let mut k = StyleId::bucket(raw, len);
+        for _ in 0..len {
+            match self.tmpl[k] {
+                Some(w) if w == raw => return Probed::Hit(StyleId::from_index(k)),
+                None => return Probed::Empty(StyleId::from_index(k)),
+                Some(_) => k = (k + 1) & (len - 1),
+            }
+        }
+        Probed::Full
+    }
+
     /// **Every slot is filled.** The first tombstone on `raw`'s path from
     /// `base` takes it, which evicts nothing; failing that a sweep, if one is
     /// due; failing that an eviction at the bucket -- except slot 0, the
     /// default every blank cell names without interning it (`Term::new`),
     /// whose eviction would recolour them all. Its bucket's victim is the
-    /// slot after it.
+    /// slot after it. A rendition with SAPV's variants takes its own key's
+    /// path, not the inline probe's.
     #[cold]
     #[inline(never)]
     fn full_table(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
         let len = self.tmpl.len();
+        let base = match raw.variants().is_default() {
+            true => base,
+            false => StyleId::from_index(StyleId::bucket(raw, len)),
+        };
         if self.style_log.book.sweep.tombs > 0 {
             let mut k = base.index();
             for _ in 0..len {
@@ -2487,8 +2534,15 @@ impl Paint<'_, '_> {
         // German drew as `Ä` counts 0x5B, under GL's pen while the set is
         // unchanged and under the set `invoke` kept for it once GL's set
         // changes.
+        // Each copy is a graphic character, so one a SAPV form waits for
+        // takes it or spends it, by SAPV's writer.
         for _ in 0..c.at_least_one().min(self.cols.index()) {
-            self.glyph_as(cp, w, pen);
+            match crate::variants::form_read(self.cold.modes) {
+                crate::graph::FormRead::OneByOne => {
+                    self.glyph_by::<crate::paint::Formed>(cp, w, pen)
+                }
+                crate::graph::FormRead::Runs => self.glyph_as(cp, w, pen),
+            }
         }
         // Through `Classified::of`, the table `glyph` asks: `is_break` takes
         // the class from a trie of its own, which nothing else on the write

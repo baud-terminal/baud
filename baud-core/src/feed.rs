@@ -546,11 +546,16 @@ fn step(
     let mut e = Edge::of_graph(p.graph, Node::Ground, b);
     #[cfg(not(feature = "probe-pinned-node"))]
     let mut e = Edge::of_graph(p.graph, *node, b);
-    // **The graph follows the encoding and the version**: a writer of either
-    // that did not `reselect` is caught here, in every debug run.
+    // **The graph follows the encoding, the version and a SAPV form's
+    // state**: a writer of any that did not `reselect` is caught here, in
+    // every debug run.
     debug_assert!(core::ptr::eq(
         p.graph,
-        crate::graph::graph_of(*enc, p.cold.widths.widths())
+        crate::graph::graph_of(
+            *enc,
+            p.cold.widths.widths(),
+            crate::variants::form_read(p.cold.modes)
+        )
     ));
     // **Whether a character fits is a property of the read, not of the byte**,
     // so the table cannot answer it and the loop does. A lead whose

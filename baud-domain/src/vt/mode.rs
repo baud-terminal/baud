@@ -348,21 +348,18 @@ pub enum ModeBit {
     PathSelected,
     /// **Whether a SAPV form waits for the following graphic character**
     /// (`[[source: ecma48]]` 8.3.108, values 5 to 8). Not a mode the host
-    /// names: **a bit here for IRM's reason**, so the writers test it in
-    /// the test of the word they make for IRM, and a program that never
-    /// asks for a form pays no extra test there; the out-of-line branch it
-    /// guards still costs code, `ingest2` retiring 1.0-1.6% more
-    /// instructions on every recording (docs/record.md, "SAPV: a program
-    /// chooses how the text after it is drawn"). Set by SAPV and by a
+    /// names: the core chooses its parse graph by it and by
+    /// [`ModeBit::FormEnd`], so text goes one character at a time while
+    /// either is set and the text path tests neither. Set by SAPV and by a
     /// rendition put back that holds a form, reset by the character that
     /// takes it, `DECSTR` and `RIS`; no `DECRQM` or XTSAVE reaches it.
     FormPending,
     /// **Whether the character a SAPV form waited for has taken it**, and
     /// the form is still in the rendition being built: the next character
-    /// takes it out before it is written, in the same test of the word,
-    /// so the one that took it needs no step after its write. Set by that
-    /// character, reset by the next and by whatever reads the rendition
-    /// before one comes; no `DECRQM` or XTSAVE reaches it.
+    /// takes it out before it is written, so the one that took it needs no
+    /// step after its write. Set by that character, reset by the next and
+    /// by whatever reads the rendition before one comes; no `DECRQM` or
+    /// XTSAVE reaches it.
     FormEnd,
 }
 

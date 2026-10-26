@@ -12,7 +12,7 @@
 
 use crate::graph::{Act, Node, split, waits_after};
 use crate::osc::StrKind;
-use crate::paint::{Paint, Pen};
+use crate::paint::{Formed, Paint, Pen, Plain, Writer};
 use crate::storage::STRIDE_MAX;
 #[cfg(feature = "sgr-table")]
 use crate::term::NSGR;
@@ -1355,16 +1355,16 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     //
     // **Under IRM the computing path writes it**, which opens the gap the
     // character goes into (`[[source: ecma48]]` 7.2.10); the read wrote
-    // over the character at the cursor. So does it a character a SAPV form
-    // waits for (`crate::variants`).
+    // over the character at the cursor.
     //
     // **Under iTerm2's `UnicodeVersion=8` no character reaches here**:
-    // that graph's `Lead8` sends each one to `eight`. The table holds the
-    // current tables' widths, so the width test stays as a guard.
+    // that graph's `Lead8` sends each one to `eight`, as the graph a SAPV
+    // form waits under does. The table holds the current tables' widths, so
+    // the width test stays as a guard.
     #[cfg(feature = "cell-table")]
     if len == 3
         && !p.cells3.is_empty()
-        && !p.writes_slowly()
+        && !p.inserting()
         && p.cold.widths.widths() == UnicodeWidths::Current
     {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);
@@ -1768,13 +1768,20 @@ fn signal(p: &mut Paint<'_, '_>, b: StreamByte) -> ReadLen {
     ReadLen::ONE
 }
 
-/// **A step under iTerm2's `UnicodeVersion=8`**, out of line: no recording
-/// selects the version, and the text path's arms above stay as they were.
-/// `Act::Lead8` is a lead byte, one character at a time through
-/// [`glyph_eight`]: the run writers are the default's alone. The act is one
-/// byte wide, so a character the read cut is this step's to split, as
-/// `step` splits a `Char` act: the `Begin` arm's work from the node the
-/// split names, and `Act::ContEnd8` finishes it.
+/// **A step under iTerm2's `UnicodeVersion=8`, or while a SAPV form
+/// waits**, out of line: no recording selects the version or sends SAPV,
+/// and the text path's arms above stay as they were. `Act::Lead8` is a
+/// lead byte, one character at a time through [`glyph_eight`]: the run
+/// writers are the default's alone. The act is one byte wide, so a
+/// character the read cut is this step's to split, as `step` splits a
+/// `Char` act: the `Begin` arm's work from the node the split names, and
+/// `Act::ContEnd8` finishes it.
+///
+/// **Under a form's graph a printable byte comes here too**, and every
+/// character is written by SAPV's writer ([`glyph_formed`]), whichever the
+/// version: the one a form waits for takes it or spends it, and the one
+/// after the one that took it takes it out. Once neither is left the
+/// graph is the text path's again, and the next byte is read by it.
 #[cold]
 #[inline(never)]
 fn eight(
@@ -1787,9 +1794,22 @@ fn eight(
     min: &mut Utf8Min,
 ) -> ReadLen {
     let b = StreamByte::from_stream(p.arena[from.index()]);
+    let formed = crate::variants::form_read(p.cold.modes) == crate::graph::FormRead::OneByOne;
     if a == Act::ContEnd8 {
         *utf8 = utf8.push(b.continuation_bits());
-        glyph_eight(p, utf8.finish(*min), Pen::Decoded);
+        match formed {
+            true => glyph_formed(p, utf8.finish(*min), Pen::Decoded),
+            false => glyph_eight::<Plain>(p, utf8.finish(*min), Pen::Decoded),
+        }
+        return ReadLen::ONE;
+    }
+    // A printable byte, which only a form's graph sends here: written as
+    // `Paint::piece` writes a run of one, by SAPV's writer.
+    if b.is_printable_ascii() {
+        debug_assert!(formed);
+        p.cluster = ClusterBreak::after_ascii_run();
+        let cp = PackedCell::translate(b, p.charset);
+        p.glyph_by::<Formed>(cp, Width::NARROW, Pen::Gl);
         return ReadLen::ONE;
     }
     let (act, len, floor) = match b.utf8_width() {
@@ -1816,17 +1836,38 @@ fn eight(
     for c in &s[1..len.index()] {
         raw = (raw << 6) | c.continuation_bits();
     }
-    glyph_eight(p, Codepoint::decoded(raw), Pen::Decoded);
+    match formed {
+        true => glyph_formed(p, Codepoint::decoded(raw), Pen::Decoded),
+        false => glyph_eight::<Plain>(p, Codepoint::decoded(raw), Pen::Decoded),
+    }
     ReadLen::of_bytes(len)
 }
 
 /// [`glyph_with`] under the version the terminal measures by: for the
 /// writers outside the text path, a GR byte, a single shift, `DEL` in a
-/// 96-character set and a replacement.
+/// 96-character set, a `SUB`'s mark and a replacement; by SAPV's writer
+/// while a form waits or was just taken.
 pub(crate) fn glyph_any(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+    if crate::variants::form_read(p.cold.modes) == crate::graph::FormRead::OneByOne {
+        return glyph_formed(p, cp, pen);
+    }
     match p.cold.widths.widths() {
         UnicodeWidths::Current => glyph_with(p, cp, pen),
-        UnicodeWidths::Eight => glyph_eight(p, cp, pen),
+        UnicodeWidths::Eight => glyph_eight::<Plain>(p, cp, pen),
+    }
+}
+
+/// **One character by SAPV's writer**, under the version the terminal
+/// measures by: the cluster step as the text path takes it, then a form
+/// left, taken or spent where the cell is written ([`Formed`]). A
+/// character that joins the cluster before it is written into that cell,
+/// and leaves a form as it was.
+#[cold]
+#[inline(never)]
+pub(crate) fn glyph_formed(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+    match p.cold.widths.widths() {
+        UnicodeWidths::Current => glyph_with_by::<Formed>(p, cp, pen),
+        UnicodeWidths::Eight => glyph_eight::<Formed>(p, cp, pen),
     }
 }
 
@@ -1834,7 +1875,7 @@ pub(crate) fn glyph_any(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
 /// from the version's code ([`Classified::width`]).
 #[cold]
 #[inline(never)]
-fn glyph_eight(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+fn glyph_eight<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -1850,7 +1891,7 @@ fn glyph_eight(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
         }
         w
     };
-    p.glyph_as(cp, w, pen);
+    p.glyph_by::<W>(cp, w, pen);
 }
 
 /// One codepoint at its own width.
@@ -1873,6 +1914,12 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
 /// [`glyph_any`] asks the version for the writers it does not route.
 #[inline(always)]
 pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
+    glyph_with_by::<Plain>(p, cp, pen);
+}
+
+/// [`glyph_with`] by the writer `W` ([`Writer`]).
+#[inline(always)]
+fn glyph_with_by<W: Writer>(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -1945,7 +1992,7 @@ pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
         return;
     }
     #[allow(unreachable_code)]
-    p.glyph_as(cp, w, pen);
+    p.glyph_by::<W>(cp, w, pen);
 }
 
 /// What a `CSI` final byte names.

@@ -528,13 +528,16 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   more a character at each doubling (pairs side by side 32, 54, 99 and
   189, nested FSIs 22, 31, 50 and 88), so the bench sees a quadratic
   when there is one.
-- **SAPV costs a program that never sends it nothing in the layout**:
-  no row is read for a variant until one is selected
-  (`Term::variants_seen`), and after that a frame reads each row's cells
-  once for the substitutions and the slants. `ingest2` reads 1.0-1.6%
-  more instructions on every recording and no difference in throughput
-  (docs/record.md, "SAPV: a program chooses how the text after it is
-  drawn").
+- **SAPV costs a program that never sends it nothing**: no row is read
+  for a variant until one is selected (`Term::variants_seen`), and after
+  that a frame reads each row's cells once for the substitutions and the
+  slants. Text is read one character at a time only while a form waits
+  for the next letter or the letter that took it was the last one
+  written; the rendition table's inline probe keys a rendition without
+  variants and with the primary font as it did before they existed; an
+  alternate font's key moved with the font, from bit 48 to bit 27. `ingest2` retires no more
+  instructions than before SAPV on any recording (docs/record.md, "SAPV
+  off the text path").
 
 ## What is not built yet
 
@@ -574,13 +577,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
 - SRS, SDS and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
-- **SAPV's instructions on the write path**: 1.0-1.6% more on every
-  recording for a control few programs send; on the cut before, a third
-  to a half of them came from the out-of-line branches the writers carry
-  for a form waiting, and the rendition table's hash adds two a rendition
-  looked up, 0.4% on `asciiquarium`, for the font and the variants. A graph that routes characters out of the loop only
-  while a form waits, as iTerm2's Unicode 8 widths are routed, would take
-  them off the loop.
 - **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
   Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a
   selection that covers only one cell of a lam-alef pair colours the whole

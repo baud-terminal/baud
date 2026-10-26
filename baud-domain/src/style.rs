@@ -308,12 +308,23 @@ impl StyleId {
     /// their products shared low bits and collided. Measured before: 8 distinct
     /// styles produced 112,144 interns at a 51.6% hit rate.
     pub fn bucket(raw: StyleWord, buckets: usize) -> usize {
+        StyleId::bucket_of_key(raw.key(), buckets)
+    }
+    /// [`StyleId::bucket`] by [`StyleWord::plain_key`]: the bucket the
+    /// rendition table's inline probe starts from, the rendition's own when
+    /// it has no SAPV variant.
+    #[inline(always)]
+    pub fn plain_bucket(raw: StyleWord, buckets: usize) -> usize {
+        StyleId::bucket_of_key(raw.plain_key(), buckets)
+    }
+    #[inline(always)]
+    fn bucket_of_key(key: u64, buckets: usize) -> usize {
         debug_assert!(buckets.is_power_of_two());
         // 64-bit now that a rendition is more than a colour, but the same
         // lesson: take the HIGH bits. The 32-bit constant is replaced by the
         // 64-bit Fibonacci one for the wider key.
         let shift = 64 - buckets.trailing_zeros();
-        (raw.key().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> shift) as usize
+        (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> shift) as usize
     }
     pub fn from_index(i: usize) -> StyleId {
         StyleId(i as u16)
@@ -714,6 +725,10 @@ impl FontId {
     }
 }
 
+/// The odd multiplier [`StyleWord::key`] mixes SAPV's variants by, apart
+/// from the one the rest is mixed by.
+const VARIANTS_MIX: u64 = 0x9FB2_1C65_1E98_DF25;
+
 impl StyleWord {
     /// All zero, so `Storage::new_box_zeroed` starts every template slot at the
     /// default rendition rather than at an arbitrary grey.
@@ -819,7 +834,25 @@ impl StyleWord {
     ///
     /// Multiply-then-xor per field, so every input bit reaches the high bits
     /// that [`StyleId::bucket`] takes.
+    ///
+    /// **SAPV's variants are mixed apart, and only when there are any**:
+    /// with none the key is [`StyleWord::plain_key`], which the rendition
+    /// table's inline probe walks by, so a rendition without variants keys
+    /// and probes as it did before they were hashed. Their product has a
+    /// multiplier of its own; `no_font_and_variant_share_a_key` holds every
+    /// font and set of variants apart from each other and from every
+    /// underline colour.
     pub fn key(self) -> u64 {
+        match self.variants.0 {
+            0 => self.plain_key(),
+            v => self.plain_key() ^ u64::from(v).wrapping_mul(VARIANTS_MIX),
+        }
+    }
+
+    /// [`StyleWord::key`] with SAPV's variants left out: the key of every
+    /// rendition that has none.
+    #[inline(always)]
+    pub fn plain_key(self) -> u64 {
         // `fg` and `bg` are laid side by side, **not overlapped**, and the
         // low-entropy tail is mixed once and xored in.
         //
@@ -832,29 +865,23 @@ impl StyleWord {
         // of those 200 cells in the wrong colour, which
         // `a_full_style_table_makes_cells_report_the_wrong_colour` caught.
         //
-        // So `fg | bg << 32` is left alone, and `underline` and `attrs`
-        // -- which are the default on essentially all text -- are
+        // So `fg | bg << 32` is left alone, and `underline`, `attrs` and
+        // `font` -- which are the default on essentially all text -- are
         // multiplied together into a constant that shifts the whole space.
-        const M: u64 = 0xD6E8_FEB8_6659_FD93;
-        let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
-        let tail = u64::from(self.underline.0) | (u64::from(self.attrs.bits()) << 32);
-        // **The font and SAPV's variants are mixed apart from the rest**:
-        // one word, the font at bit 27 and the variants at bit 7, multiplied
-        // by `M` on its own. Laid so, a word that is not zero is never a
-        // `tail`: a font sets a bit above every colour's tag, and variants
-        // alone set bits below the tags with none of them, which no colour
-        // is. So no font and variants trade places with an underline colour
-        // and attributes, and the two products may share `M`, which is in a
-        // register already. Both are zero on almost all text, which then
-        // keys as it did before either was hashed. Folded into the font's
-        // bits by exclusive or, `SGR 11` and SAPV 2 cancelled, and laid over
-        // `attrs`' top bits, `SGR 11` and `SGR 63`'s ideogram double
-        // overline did: two renditions that shared a key shared a bucket,
+        //
+        // **The font is at bit 27 of the underline's word**, above every
+        // colour's tag, where no colour sets a bit: laid at bit 48, over
+        // `attrs`' top bits, `SGR 11` keyed as `SGR 63`'s ideogram double
+        // overline, and two renditions that shared a key shared a bucket,
         // and which took it went by which was interned first -- an order a
         // read boundary can move, the status line's indicator being drawn
         // at a read's end, so one screen came out under two numberings.
-        let face = (u64::from(self.font.0) << 27) | (u64::from(self.variants.0) << 7);
-        base ^ tail.wrapping_mul(M) ^ face.wrapping_mul(M)
+        const M: u64 = 0xD6E8_FEB8_6659_FD93;
+        let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
+        let tail = u64::from(self.underline.0)
+            | (u64::from(self.font.0) << 27)
+            | (u64::from(self.attrs.bits()) << 32);
+        base ^ tail.wrapping_mul(M)
     }
 }
 

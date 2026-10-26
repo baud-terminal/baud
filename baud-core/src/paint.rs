@@ -42,6 +42,38 @@ pub(crate) enum Pen {
     Kept(Option<Received>),
 }
 
+/// **What a character's write does before its cells**, after the wrap:
+/// the text path's [`Plain`], or SAPV's [`Formed`]. A type and not a flag,
+/// so the text path is compiled with no test of SAPV's state at all; the
+/// graph sends text to SAPV's writer while a form waits or was just taken
+/// ([`crate::graph::FormRead`]).
+pub(crate) trait Writer {
+    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count);
+}
+
+/// The text path's writer: under IRM the gap opens.
+pub(crate) struct Plain;
+
+impl Writer for Plain {
+    #[inline(always)]
+    fn before(p: &mut Paint<'_, '_>, _: Codepoint, need: Count) {
+        if p.inserting() {
+            p.open_gap(need);
+        }
+    }
+}
+
+/// SAPV's writer, out of line: the form leaves, is taken or is spent, and
+/// then the gap opens under IRM (`Paint::write_slowly`).
+pub(crate) struct Formed;
+
+impl Writer for Formed {
+    #[inline(always)]
+    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count) {
+        p.write_slowly(cp, need);
+    }
+}
+
 /// The grid, the bytes, and the cursor, borrowed together for one read.
 pub(crate) struct Paint<'a, 'b> {
     pub(crate) arena: &'a [u8],
@@ -217,8 +249,9 @@ pub(crate) struct Paint<'a, 'b> {
     /// once a control sequence.
     pub(crate) cold: &'a mut crate::term::Cold,
     /// **The parse graph a step reads**, [`crate::graph::graph_of`] the
-    /// encoding and the Unicode version: chosen here and by
-    /// [`Paint::reselect`] when either changes, so no step asks them.
+    /// encoding, the Unicode version and whether a SAPV form waits: chosen
+    /// here and by [`Paint::reselect`] when any changes, so no step asks
+    /// them.
     pub(crate) graph: &'static crate::graph::Graph,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -458,7 +491,11 @@ impl<'a, 'b> Paint<'a, 'b> {
             style_log,
             strs,
             images,
-            graph: crate::graph::graph_of(cold.encoding, cold.widths.widths()),
+            graph: crate::graph::graph_of(
+                cold.encoding,
+                cold.widths.widths(),
+                crate::variants::form_read(cold.modes),
+            ),
             cold,
             view,
             cy,
@@ -563,6 +600,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
+    }
+
+    /// Whether `CSI 4 h` is in force.
+    #[inline(always)]
+    pub(crate) fn inserting(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::InsertReplace)
     }
 
     /// As much of a run as the row has room for, by whichever writer fits.
@@ -680,52 +723,24 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// **IRM (`CSI 4 h`), or a SAPV form waiting or spent**: the one test
-    /// of the mode word the writers make before they write. None is set on
-    /// almost every run.
-    #[inline(always)]
-    pub(crate) fn writes_slowly(&self) -> bool {
-        self.cold.modes.any_of_three(
-            ModeBit::InsertReplace,
-            ModeBit::FormPending,
-            ModeBit::FormEnd,
-        )
-    }
-
-    /// **Before character `cp` is written, `need` cells of it**, out of
-    /// line: a form the last character took leaves the rendition; a form
-    /// waiting is this character's, kept in the rendition for its write
-    /// if it is a letter that takes a form and spent on it unstored if it
-    /// is not ([`baud_domain::takes_form`]); and under IRM the gap opens.
+    /// **Before character `cp` is written by SAPV's writer, `need` cells
+    /// of it**, out of line: a form the last character took leaves the
+    /// rendition; a form waiting is this character's, kept in the
+    /// rendition for its write if it is a letter that takes a form and
+    /// spent on it unstored if it is not ([`baud_domain::takes_form`]); and
+    /// under IRM the gap opens.
     #[cold]
     #[inline(never)]
     fn write_slowly(&mut self, cp: Codepoint, need: Count) {
         self.form_ends();
         if self.cold.modes.is_set(ModeBit::FormPending) {
-            self.cold.modes.reset(ModeBit::FormPending);
             match takes_form(cp.value()) {
-                true => self.cold.modes.set(ModeBit::FormEnd),
+                true => self.form_taken(),
                 false => self.form_written(),
             }
         }
-        if self.cold.modes.is_set(ModeBit::InsertReplace) {
+        if self.inserting() {
             self.open_gap(need);
-        }
-    }
-
-    /// **Before a run of ASCII is written, `n` cells of it**, out of line:
-    /// a form the last character took leaves the rendition, a form waiting
-    /// is spent on the run's first character, which takes none, and under
-    /// IRM the gap opens.
-    #[cold]
-    #[inline(never)]
-    fn blit_slowly(&mut self, n: Count) {
-        self.form_ends();
-        if self.cold.modes.is_set(ModeBit::FormPending) {
-            self.form_written();
-        }
-        if self.cold.modes.is_set(ModeBit::InsertReplace) {
-            self.open_gap(n);
         }
     }
 
@@ -737,8 +752,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         // No clip: `text` sized the piece to the row before calling. Clipping
         // here is what silently dropped the tail of a long line.
         let k = n.index();
-        if self.writes_slowly() {
-            self.blit_slowly(Count::of(k));
+        if self.inserting() {
+            self.open_gap(Count::of(k));
         }
         let src = &self.arena[from.index()..from.index() + k];
         self.view.put_ascii_run(
@@ -961,7 +976,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// such as U+200B, joins the cell before the cursor as it did.
     #[cold]
     #[inline(never)]
-    fn zero_width(&mut self, cp: Codepoint, pen: Pen) {
+    fn zero_width<W: Writer>(&mut self, cp: Codepoint, pen: Pen) {
         let class = Classified::of(cp).class;
         if !matches!(class, GraphemeClass::Extend | GraphemeClass::Zwj) {
             return self.attach(cp);
@@ -973,7 +988,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cluster = ClusterBreak::after_control();
             return;
         }
-        self.glyph_as(cp, Width::NARROW, pen);
+        self.glyph_by::<W>(cp, Width::NARROW, pen);
         self.last_cp = Some((cp, Width::ZERO, pen));
         let (r, owner) = (
             self.cy,
@@ -1006,9 +1021,15 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **The graph again, after the encoding or the Unicode version
     /// changed**: `ESC %`, DECRSTS, `UnicodeVersion`, and a restore of the
     /// saved cursor (DECRC, SCORC, `?1048`, `?1049`), which carries the
-    /// version DECSC saved. `step` asserts the two agree in debug builds.
+    /// version DECSC saved; and whenever a SAPV form starts or stops
+    /// waiting (`crate::variants`). `step` asserts the two agree in debug
+    /// builds.
     pub(crate) fn reselect(&mut self) {
-        self.graph = crate::graph::graph_of(self.cold.encoding, self.cold.widths.widths());
+        self.graph = crate::graph::graph_of(
+            self.cold.encoding,
+            self.cold.widths.widths(),
+            crate::variants::form_read(self.cold.modes),
+        );
     }
 
     /// One glyph received as a GL code, under the pen that names GL's set.
@@ -1021,6 +1042,13 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// it will not fit.
     #[inline(always)]
     pub(crate) fn glyph_as(&mut self, cp: Codepoint, w: Width, pen: Pen) {
+        self.glyph_by::<Plain>(cp, w, pen);
+    }
+
+    /// [`Paint::glyph_as`] by the writer `W`: the text path's, or SAPV's
+    /// while a form waits or was just taken ([`Formed`]).
+    #[inline(always)]
+    pub(crate) fn glyph_by<W: Writer>(&mut self, cp: Codepoint, w: Width, pen: Pen) {
         // **A zero-width codepoint gets no cell of its own unless it starts a
         // cluster** (`Paint::zero_width`: after a control, a combining mark
         // takes one as a defective sequence, since 2026-10-23). The joined
@@ -1039,7 +1067,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // It stores the codepoint too, since the cluster store landed:
         // `attach` puts it in `ClusterStore`, keyed on content, not position.
         if w == Width::ZERO {
-            self.zero_width(cp, pen);
+            self.zero_width::<W>(cp, pen);
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);
@@ -1047,12 +1075,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.overflow(Count::of(need));
         }
         // After the wrap, because the gap belongs in the row the character
-        // lands in rather than the one it was pushed off. **A SAPV form
-        // waiting for the following graphic character, or spent by the last
-        // one** (`crate::variants`), is tested in the same test of the word.
-        if self.writes_slowly() {
-            self.write_slowly(cp, Count::of(need));
-        }
+        // lands in rather than the one it was pushed off; and **a SAPV form
+        // waiting for the following graphic character, or taken by the last
+        // one**, there too under SAPV's writer (`crate::variants`).
+        W::before(self, cp, Count::of(need));
         let style = self.style;
         let flags = match pen {
             Pen::Gl => self.flags,
@@ -1569,24 +1595,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = self.row_written.max(self.cx.col());
     }
 
-    /// A run whose first character a SAPV form waits for, or after one
-    /// that took it: the form ended first, then that character alone,
-    /// then the rest.
-    #[cold]
-    #[inline(never)]
-    fn run_once(&mut self, cps: &[Codepoint], w: Width) {
-        self.form_ends();
-        if !self.cold.modes.is_set(ModeBit::FormPending) {
-            return self.run(cps, w);
-        }
-        if let Some((&first, rest)) = cps.split_first() {
-            self.glyph_as(first, w, Pen::Decoded);
-            if !rest.is_empty() {
-                self.run(rest, w);
-            }
-        }
-    }
-
     /// A run of one width, eight cells to a store.
     ///
     /// **One body for both writers**, because they differ only in how many
@@ -1602,13 +1610,6 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// showed and the tests did not.
     #[inline(always)]
     pub(crate) fn run(&mut self, cps: &[Codepoint], w: Width) {
-        if self
-            .cold
-            .modes
-            .either_set(ModeBit::FormPending, ModeBit::FormEnd)
-        {
-            return self.run_once(cps, w);
-        }
         let (style, flags) = (self.style, self.decoded_pen());
         match w == Width::WIDE {
             true => self

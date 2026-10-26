@@ -21,15 +21,20 @@
 //! variants to the default presentation (Jev's lean, RESET, 0.32/0.22, as
 //! they return SCP's path); `SGR 0` leaves them, being no `SGR`.
 //!
-//! **What it costs a program that never sends it**: the writers test two
-//! more bits ([`ModeBit::FormPending`], [`ModeBit::FormEnd`]) in the test of
-//! the mode word they make for IRM, and `run` makes one test a run; they go
-//! out of line while a form waits or is spent. The out-of-line branches
-//! still cost code: `ingest2` retires 1.0-1.6% more instructions on every
-//! recording, `cat` included, with no throughput result (docs/record.md,
-//! "SAPV: a program chooses how the text after it is drawn").
+//! **What it costs a program that never sends it: nothing on the text
+//! path.** While a form waits ([`ModeBit::FormPending`]) or the character
+//! that took it was the last one written ([`ModeBit::FormEnd`]), the graph
+//! sends text one character at a time to the out-of-line step
+//! ([`crate::graph::FormRead`]), which writes it by SAPV's writer
+//! ([`crate::paint::Formed`]); every write of the two bits chooses the
+//! graph again. The text path's writers test neither bit. With 2, 10, 21
+//! or any variant but a waiting form the text goes by the text path: the
+//! variants ride in the rendition, which the core does not read per
+//! character. The record has the cost, "SAPV off the text path".
 
-use baud_domain::{Mirroring, ModeBit, Sapv, Slant, Variants};
+use baud_domain::{Mirroring, ModeBit, Modes, Sapv, Slant, Variants};
+
+use crate::graph::FormRead;
 
 use crate::paint::Paint;
 use crate::term::Term;
@@ -79,6 +84,15 @@ pub(crate) enum Forms {
     Held,
 }
 
+/// How the text is read for the form state the mode word holds: one
+/// character at a time while a form waits or the last character took it.
+pub(crate) fn form_read(m: Modes) -> FormRead {
+    match m.either_set(ModeBit::FormPending, ModeBit::FormEnd) {
+        true => FormRead::OneByOne,
+        false => FormRead::Runs,
+    }
+}
+
 impl Paint<'_, '_> {
     /// SAPV: each parameter value folded into the rendition being built,
     /// in order; an omitted one is 0.
@@ -125,6 +139,7 @@ impl Paint<'_, '_> {
             ModeBit::FormPending,
             v.form().is_some() && forms == Forms::Once,
         );
+        self.reselect();
     }
 
     /// **The form the last character took leaves the rendition being
@@ -153,9 +168,18 @@ impl Paint<'_, '_> {
     pub(crate) fn form_written(&mut self) {
         self.cold.modes.reset(ModeBit::FormPending);
         self.cold.modes.reset(ModeBit::FormEnd);
+        self.reselect();
         let v = self.style_raw.variants().with_form(None);
         self.style_raw = self.style_raw.with_variants(v);
         self.style = self.intern_style(self.style_raw);
+    }
+
+    /// **The character being written takes the form waiting**: it stays in
+    /// the rendition for this write, and the next character takes it out
+    /// ([`Paint::form_ends`]), so the text is still read one by one.
+    pub(crate) fn form_taken(&mut self) {
+        self.cold.modes.reset(ModeBit::FormPending);
+        self.cold.modes.set(ModeBit::FormEnd);
     }
 
     /// **The rendition being built was put back** (`DECRC`, `XTPOPSGR`,
@@ -166,6 +190,7 @@ impl Paint<'_, '_> {
         let pending =
             self.style_raw.variants().form().is_some() && self.strs.variants.forms == Forms::Once;
         self.cold.modes.apply(ModeBit::FormPending, pending);
+        self.reselect();
     }
 
     /// The variants' state at power-on, which `DECSTR` and `RIS` return
@@ -173,6 +198,7 @@ impl Paint<'_, '_> {
     pub(crate) fn reset_variants(&mut self) {
         self.cold.modes.reset(ModeBit::FormPending);
         self.cold.modes.reset(ModeBit::FormEnd);
+        self.reselect();
         self.strs.variants.forms = Forms::Once;
     }
 }
