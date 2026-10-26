@@ -8,22 +8,26 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # master is exempt: it is the only ref that publishes, and release-plz
-  # publishes, tags and creates a GitHub release as separate steps. A cancel
-  # between them cannot be undone, so master runs queue instead.
+  # master is exempt: its runs queue instead. This was for release-plz,
+  # which publishes, tags and makes a GitHub release as separate steps a
+  # cancel could split; release-plz.toml and every crate's
+  # `publish = false` now keep both release jobs to no-ops that publish,
+  # tag and release nothing.
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
+# Read-only by default. A job that writes says so in its own `permissions`,
+# which replaces this block rather than adding to it: a scope it leaves out
+# is none.
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 # `devenv-checks` runs `devenv test`, the same command a developer runs locally,
 # so the workflow is a thin wrapper over the tasks."test:*" set in devenv.nix.
 # Add a check by adding a task, never by adding a step here.
 #
 # release-plz-pr runs after release-plz-release: it computes the next bump from
-# the newest tag, which the release job creates.
+# the newest tag, which the release job would create. release-plz.toml turns
+# tags off, so neither job makes one.
 jobs:
   devenv-checks:
     name: Lint/UT
@@ -36,6 +40,11 @@ jobs:
     # was shut down 3 minutes into the tests. The +avx2 rebuild, as long
     # again, is the `avx2` job below. A warm run took 15 minutes.
     timeout-minutes: 120
+    # cache-nix-action purges master's superseded store entries through the
+    # API, which needs `actions: write`; nothing else here writes.
+    permissions:
+      contents: read
+      actions: write
     env:
       # CI never opens a debugger, and debuginfo is most of the codegen time and
       # most of target/ - which is also most of what rust-cache uploads and
@@ -256,10 +265,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [devenv-checks, avx2]
     timeout-minutes: 30
-    # `!cancelled()`, not `always()`: this job publishes to an IMMUTABLE
-    # registry, so running it from a cancelled workflow is the one thing that
-    # cannot be undone. `skipped` is accepted because devenv-checks skips on
-    # the release commit itself (see its `if`).
+    # `!cancelled()`, not `always()`: were publishing turned on, this job
+    # would write to an immutable registry, and a run from a cancelled
+    # workflow could not be undone. It publishes nothing (every crate's
+    # `publish = false`, and release-plz.toml). `skipped` is accepted because
+    # devenv-checks skips on the release commit itself (see its `if`).
     if: |
       !cancelled() &&
       github.event_name == 'push' &&
@@ -294,7 +304,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  # Opens/updates the Release PR that bumps the version and writes CHANGELOG.md.
+  # Would open the Release PR that bumps the version and writes CHANGELOG.md;
+  # release-plz.toml has it open none.
   # MUST run after release-plz-release — see the anti-loop note at the top.
   release-plz-pr:
     name: Release-PR

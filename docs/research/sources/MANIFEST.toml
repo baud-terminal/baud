@@ -35821,3 +35821,31 @@ bytes  = 22798
 status = "external"
 group  = "Y"
 # Retrieved 2026-10-25. Read: "From CIELAB to CIEXYZ".
+
+[sources.cache-nix-action-7df957e-readme]
+key    = "cache-nix-action-7df957e-readme"
+title  = "nix-community/cache-nix-action at 7df957e (tag v7), README.md -- for purging, the workflow or the job must have the permission actions: write"
+author = "nix-community"
+year   = 2026
+venue  = "nix-community/cache-nix-action (MIT)"
+url    = "https://raw.githubusercontent.com/nix-community/cache-nix-action/7df957e333c1e5da7721f60227dbba6d06080569/README.md"
+file   = ""
+sha256 = "86d12dd396da88b3d214b72f422d9db62de5cb04029219aa52f7b4b902b37369"
+bytes  = 65335
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-25. Read: line 136, the note on purging.
+
+[sources.github-workflow-syntax-permissions]
+key    = "github-workflow-syntax-permissions"
+title  = "GitHub Docs, Workflow syntax for GitHub Actions, permissions -- if you specify the access for any of these permissions, all of those that are not specified are set to none"
+author = "GitHub"
+year   = 2026
+venue  = "docs.github.com"
+url    = "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax"
+file   = ""
+sha256 = "97089bf528364acc6f9c8780c97caeadd3d91edcd7f89d8f340e1fb8c85ba8bb"
+bytes  = 2104873
+status = "external"
+group  = "AN"
+# Retrieved 2026-10-25. Read: permissions, and jobs.<job_id>.permissions.
