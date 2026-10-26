@@ -314,8 +314,12 @@ half-built protocol feature is finished to the spec, not switched off"):
   app's `[text] ambiguous_width` sets the core's policy at launch, Private
   Use Area characters stay one column under either (the owner), and DECRQM
   answers `?1021` `1` or `2`, `?1022` `0` and `?1023` `1` (Jev). Under
-  "wide" a box-drawing or block mask is still one cell wide: the two-cell
-  masks, design step 4, are unbuilt.
+  "wide" a box-drawing or block character two cells wide is drawn across
+  both, since 2026-10-25 (design step 4): its lines run through the second
+  cell, its verticals and corners stay at the first cell's centre at the
+  one-cell weight, and a block is its fraction of both cells. Both shapes
+  are Jev's leans, below the bar, and on the owner's list (`docs/record.md`,
+  "A box line two cells wide is drawn across both").
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
   acts and answers only while DA lists Sixel; the choices Jev left below the

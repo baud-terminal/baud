@@ -35896,3 +35896,51 @@ bytes  = 2104873
 status = "external"
 group  = "AN"
 # Retrieved 2026-10-25. Read: permissions, and jobs.<job_id>.permissions.
+
+# Note V's V14, design step 4 (lane b212, 2026-10-25): a box or block character two cells
+# wide under ambiguous_width = "wide". The two Unicode charts are not committed: their
+# Terms of Use forbid copies "for public distribution". Pinned by hash; re-fetch and compare.
+[sources.unicode18-chart-2500]
+key    = "unicode18-chart-2500"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Box Drawing (2500-257F)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/U2500.pdf"
+file   = ""
+sha256 = "4f1bede3a8eb3a4940926c92a11af5fd973897bc03f5509e9b2a3e5b19b9defb"
+bytes  = 128930
+status = "external"
+group  = "V"
+# Read (text layer): "All of these characters are intended for compatibility with
+# character cell graphic sets in use prior to 1990." No word on a character two columns wide.
+
+[sources.unicode18-chart-2580]
+key    = "unicode18-chart-2580"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Block Elements (2580-259F)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/U2580.pdf"
+file   = ""
+sha256 = "f17c43c8f766ba1d9cbfee5cd805aca0e55b31e5399f99a28d9749a15d8d81d5"
+bytes  = 111947
+status = "external"
+group  = "V"
+# Read (text layer): the names, fractions of the character cell ("258C LEFT HALF BLOCK",
+# "2594 UPPER ONE EIGHTH BLOCK"), and the "Terminal graphic characters" heading.
+
+[sources.vte-minifont-0-84]
+key    = "vte-minifont-0-84"
+title  = "VTE 0.84.1, minifont.cc -- draw_graphic: a box glyph drawn at cell_width * columns, its line width from the one-cell font width"
+author = "The GNOME VTE contributors (LGPL-3.0)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, tag 0.84.1"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.84.1/src/minifont.cc"
+file   = ""
+sha256 = "d2116f15e1c2df82d0856a096be28eadc760c7e9f74db867e4cf714805990b0f"
+bytes  = 128357
+status = "external"
+group  = "V"
+# Read 2026-10-25: draw_graphic 1157-1197 (width = cell_width * columns, xcenter at its
+# middle, light_line_width = font_width / 5), the left blocks as eighths of it 1505-1517.

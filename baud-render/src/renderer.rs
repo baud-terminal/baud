@@ -6429,7 +6429,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return vec![ClusterGlyph {
                 id: GlyphId::from_shaper(0),
                 source: GlyphSource::Procedural,
-                slot: self.procedural(base),
+                slot: self.procedural(base, span),
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
@@ -6482,7 +6482,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return vec![ClusterGlyph {
                 id: GlyphId::from_shaper(0),
                 source: GlyphSource::Procedural,
-                slot: self.procedural_at(base, stretch),
+                slot: self.procedural_at(base, span, stretch),
                 dx: 0,
                 dy: 0,
                 phase: Phase::ZERO,
@@ -6732,7 +6732,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // window and never re-shaped by a font, so the face field is
             // never read for it.
             return Some(Single {
-                slot: self.procedural(cp),
+                slot: self.procedural(cp, span),
                 glyph: GlyphId::from_shaper(0),
                 role: PairRole::Neither,
                 face: FaceIx::PRIMARY,
@@ -7588,13 +7588,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
-                // at the cell origin, never shaped, never in a run.
-                if let Some(slot) = self.procedural_at(base, st) {
+                // at the cell origin, across both cells of a wide one, never
+                // shaped, never in a run.
+                let span = CellSpan::at(row, Col::at_index(c));
+                if let Some(slot) = self.procedural_at(base, span, st) {
                     self.emit_at(r, Col::at_index(c), slot, instances);
                 }
-                c = CellSpan::at(row, Col::at_index(c))
-                    .after(Col::at_index(c))
-                    .index();
+                c = span.after(Col::at_index(c)).index();
                 continue;
             }
             // **A lam-alef pair**, drawn together over its cells from its
@@ -8164,19 +8164,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .unwrap_or(LineRendition::Single)
     }
 
-    /// The atlas mask for a procedural codepoint at this cell size.
-    fn procedural(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
-        self.procedural_at(cp, Stretch::One)
+    /// The atlas mask for a procedural codepoint at this cell size, across
+    /// the cells `span` gives.
+    fn procedural(&mut self, cp: Codepoint, span: CellSpan) -> Option<crate::atlas::Slot> {
+        self.procedural_at(cp, span, Stretch::One)
     }
 
-    /// The same for a line drawn at `stretch` ([`Atlas::synthetic_at`]).
-    fn procedural_at(&mut self, cp: Codepoint, stretch: Stretch) -> Option<crate::atlas::Slot> {
+    /// The same for a line drawn at `stretch` ([`Atlas::synthetic_across`]).
+    fn procedural_at(
+        &mut self,
+        cp: Codepoint,
+        span: CellSpan,
+        stretch: Stretch,
+    ) -> Option<crate::atlas::Slot> {
         let cell = crate::boxes::Cell {
             w: self.metrics.cell_w,
             h: self.metrics.cell_h,
         };
         self.atlas
-            .synthetic_at(cp, cell, self.metrics.baseline, stretch)
+            .synthetic_across(cp, cell, span, self.metrics.baseline, stretch)
     }
 
     /// One instance for a slot placed at the origin of cell `col` of row

@@ -1,7 +1,8 @@
 //! Box drawing, block elements and braille drawn by baud rather than by a
-//! font: a mask of exactly one cell, strokes snapped to whole pixels and
-//! run to the cell's edge, so two adjacent cells' strokes meet with no
-//! seam and no face has to carry the range at all.
+//! font: a mask of exactly the character's cells -- one, or two for one
+//! East Asian Width makes wide ([`draw_across`]) -- strokes snapped to
+//! whole pixels and run to the edge, so two adjacent cells' strokes meet
+//! with no seam and no face has to carry the range at all.
 //!
 //! A font's box glyph is designed to an em box and lands in the cell
 //! through its own advance, its own bearings and a `Fit` with a pixel of
@@ -564,15 +565,6 @@ impl Cell {
         Px::of((self.w.value() / 8).max(1))
     }
 
-    fn width(self, wt: Weight) -> Px {
-        let t = self.light().value();
-        Px::of(match wt {
-            Weight::Light => t,
-            Weight::Heavy => t * 2,
-            Weight::Double => t * 3,
-        })
-    }
-
     /// The span `[start, start + size)` a stroke of `size` pixels centred on
     /// a length of `len` pixels occupies, snapped to whole pixels: the same
     /// rows in every cell for a horizontal stroke and the same columns for a
@@ -580,6 +572,60 @@ impl Cell {
     fn span(len: Px, size: Px) -> Range {
         let (len, size) = (len.value(), size.value().min(len.value()));
         Range::of(Px::of(len.saturating_sub(size) / 2), Px::of(size))
+    }
+}
+
+/// **The box a mask is drawn into, and the cell its strokes are placed
+/// and weighed by**: a character's whole box -- one cell, or both cells of
+/// a character two cells wide -- with the light stroke of one cell and its
+/// verticals centred in the first. A box line East Asian Width makes wide
+/// under `ambiguous_width = "wide"` comes from the legacy sets where it is
+/// full width ([[source: uax11]] ED6, § 4.2); no text says where in its two
+/// columns its strokes sit. Its horizontals run the width of both cells,
+/// so it joins the next character; its verticals, junctions and corners
+/// stay at the first cell's centre, where a one-cell piece beside it
+/// (U+2574-257F, the dashed U+254C-254F, a DEC Special Graphics line) has
+/// its own; its strokes keep the one-cell weight. Jev leaned to this over
+/// the verticals centred in both cells, below its bar in all three
+/// askings. VTE's minifont centres them in both
+/// ([[source: vte-minifont-0-84]] 1157-1197, the box `cell_width *
+/// columns`), as a CJK face's full-width glyphs do: practice that differs.
+/// A diagonal runs corner to corner of the whole box, a dashed line keeps
+/// its dash count across it, and a block element is its named fraction of
+/// it, so U+258C fills exactly the first cell (Jev's lean, below its bar).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Area {
+    w: Px,
+    h: Px,
+    /// The light stroke, [`Cell::light`] of the one cell.
+    t: Px,
+    /// The width a vertical stroke is centred in: the first cell's.
+    c: Px,
+}
+
+impl Area {
+    /// `cell`'s box, the cells `span` gives wide, weighed by `cell`.
+    fn across(cell: Cell, span: crate::cellmap::CellSpan) -> Area {
+        let cells = u32::try_from(span.cells().index()).unwrap_or(1);
+        Area {
+            w: Px::of(cell.w.value() * cells),
+            h: cell.h,
+            t: cell.light(),
+            c: cell.w,
+        }
+    }
+
+    fn light(self) -> Px {
+        self.t
+    }
+
+    fn width(self, wt: Weight) -> Px {
+        let t = self.t.value();
+        Px::of(match wt {
+            Weight::Light => t,
+            Weight::Heavy => t * 2,
+            Weight::Double => t * 3,
+        })
     }
 }
 
@@ -716,7 +762,7 @@ impl Pen<'_, '_> {
 /// current coverage and the shape's -- the anti-aliased primitives compose
 /// over the straight strokes.
 fn aa(
-    cell: Cell,
+    cell: Area,
     cov: &mut [u8],
     scratch: &mut Vec<f32>,
     temp: &mut Vec<u8>,
@@ -746,9 +792,9 @@ fn aa(
 /// The straight-stroke glyphs: every arm runs from the cell's edge to the
 /// far side of the strokes it meets, so a corner or a tee is the union of
 /// its arms with the junction square filled.
-fn draw_arms(mask: &mut Mask<'_>, cell: Cell, a: Arms) {
+fn draw_arms(mask: &mut Mask<'_>, cell: Area, a: Arms) {
     let (w, h) = (cell.w, cell.h);
-    let vspan = |wt: Weight| Cell::span(w, cell.width(wt));
+    let vspan = |wt: Weight| Cell::span(cell.c, cell.width(wt));
     let hspan = |wt: Weight| Cell::span(h, cell.width(wt));
     let xs = [a.up, a.down]
         .into_iter()
@@ -780,7 +826,7 @@ fn draw_arms(mask: &mut Mask<'_>, cell: Cell, a: Arms) {
 }
 
 /// The double-line glyphs, from their segment lists.
-fn draw_double(mask: &mut Mask<'_>, cell: Cell, segs: &[Seg]) {
+fn draw_double(mask: &mut Mask<'_>, cell: Area, segs: &[Seg]) {
     let (w, h) = (cell.w, cell.h);
     let t = cell.light().value();
     let resolve = |at: At, len: Px| -> Px {
@@ -798,8 +844,14 @@ fn draw_double(mask: &mut Mask<'_>, cell: Cell, segs: &[Seg]) {
             At::S1 => single + t,
         })
     };
+    // Across, a pair or a single stroke is placed in the first cell and
+    // the far edge is the whole box's.
+    let across = |at: At| match at {
+        At::Edge1 => w,
+        _ => resolve(at, cell.c),
+    };
     for seg in segs {
-        let x = Range::to(resolve(seg.x0, w), resolve(seg.x1, w));
+        let x = Range::to(across(seg.x0), across(seg.x1));
         let y = Range::to(resolve(seg.y0, h), resolve(seg.y1, h));
         mask.rect_px(x, y);
     }
@@ -807,7 +859,7 @@ fn draw_double(mask: &mut Mask<'_>, cell: Cell, segs: &[Seg]) {
 
 /// A dashed line: `n` dashes of six tenths of their period, the gaps
 /// halved at the cell's edges so the pattern tiles across neighbours.
-fn draw_dashed(mask: &mut Mask<'_>, cell: Cell, axis: Axis, wt: Weight, dashes: Dashes) {
+fn draw_dashed(mask: &mut Mask<'_>, cell: Area, axis: Axis, wt: Weight, dashes: Dashes) {
     let (w, h) = (cell.w, cell.h);
     let n = dashes.count();
     match axis {
@@ -823,7 +875,7 @@ fn draw_dashed(mask: &mut Mask<'_>, cell: Cell, axis: Axis, wt: Weight, dashes: 
             }
         }
         Axis::Vertical => {
-            let band = Cell::span(w, cell.width(wt));
+            let band = Cell::span(cell.c, cell.width(wt));
             let (x0, x1) = (fx(band.start), fx(band.end));
             let period = fx(h) / n;
             let dash = (period * 0.6).max(1.0);
@@ -837,7 +889,7 @@ fn draw_dashed(mask: &mut Mask<'_>, cell: Cell, axis: Axis, wt: Weight, dashes: 
 }
 
 /// A block element: eighths of the cell, the edges rounded to whole pixels.
-fn draw_block(mask: &mut Mask<'_>, cell: Cell, e: Eighths) {
+fn draw_block(mask: &mut Mask<'_>, cell: Area, e: Eighths) {
     let (wf, hf) = (fx(cell.w), fx(cell.h));
     let x0 = wf * f32::from(e.0) / 8.0;
     let y0 = hf * f32::from(e.1) / 8.0;
@@ -846,7 +898,7 @@ fn draw_block(mask: &mut Mask<'_>, cell: Cell, e: Eighths) {
     mask.rect(x0, y0, x1, y1);
 }
 
-fn draw_quadrants(mask: &mut Mask<'_>, cell: Cell, q: Quadrants) {
+fn draw_quadrants(mask: &mut Mask<'_>, cell: Area, q: Quadrants) {
     let (wf, hf) = (fx(cell.w), fx(cell.h));
     let (mx, my) = (wf / 2.0, hf / 2.0);
     if q.0 & Quadrants::UL != 0 {
@@ -866,15 +918,15 @@ fn draw_quadrants(mask: &mut Mask<'_>, cell: Cell, q: Quadrants) {
 /// A rounded corner: two light legs to the cell's edges and a quarter
 /// annulus joining them, whose radius is what the cell allows. When the
 /// cell is too small for an arc it degrades to a square corner.
-fn draw_arc(mask: &mut Mask<'_>, scratch: &mut Vec<f32>, temp: &mut Vec<u8>, cell: Cell, arc: Arc) {
+fn draw_arc(mask: &mut Mask<'_>, scratch: &mut Vec<f32>, temp: &mut Vec<u8>, cell: Area, arc: Arc) {
     use core::f32::consts::PI;
     let t = cell.light();
-    let vx = Cell::span(cell.w, t).start;
+    let vx = Cell::span(cell.c, t).start;
     let hy = Cell::span(cell.h, t).start;
     let (tf, wf, hf) = (fx(t), fx(cell.w), fx(cell.h));
     let cx = fx(vx) + tf / 2.0;
     let cy = fx(hy) + tf / 2.0;
-    let room = (cx.min(wf - cx)).min(cy.min(hf - cy));
+    let room = (cx.min(fx(cell.c) - cx)).min(cy.min(hf - cy));
     let r = room - tf / 2.0;
     if r < tf {
         draw_arms(
@@ -941,7 +993,7 @@ fn draw_arc(mask: &mut Mask<'_>, scratch: &mut Vec<f32>, temp: &mut Vec<u8>, cel
 /// A diagonal stroke from corner to corner, a light stroke wide, clipped to
 /// the cell.
 fn draw_diagonal(
-    cell: Cell,
+    cell: Area,
     cov: &mut [u8],
     scratch: &mut Vec<f32>,
     temp: &mut Vec<u8>,
@@ -1025,7 +1077,7 @@ fn at_y(p: Point, q: Point, y: f32) -> Point {
 
 /// Braille: two columns of four dots, each an anti-aliased disc.
 fn draw_braille(
-    cell: Cell,
+    cell: Area,
     cov: &mut [u8],
     scratch: &mut Vec<f32>,
     temp: &mut Vec<u8>,
@@ -1071,6 +1123,33 @@ pub fn shade_coverage(s: Shade) -> Coverage {
 pub fn draw(
     cp: Codepoint,
     cell: Cell,
+    scratch: &mut Vec<f32>,
+    coverage: &mut Vec<u8>,
+) -> Option<Extent> {
+    draw_in(
+        cp,
+        Area::across(cell, crate::cellmap::CellSpan::One),
+        scratch,
+        coverage,
+    )
+}
+
+/// [`draw`] for a character that takes `span` cells: the mask the width
+/// of all of them, its strokes at `cell`'s weight ([`Area`]). One cell is
+/// [`draw`].
+pub fn draw_across(
+    cp: Codepoint,
+    cell: Cell,
+    span: crate::cellmap::CellSpan,
+    scratch: &mut Vec<f32>,
+    coverage: &mut Vec<u8>,
+) -> Option<Extent> {
+    draw_in(cp, Area::across(cell, span), scratch, coverage)
+}
+
+fn draw_in(
+    cp: Codepoint,
+    cell: Area,
     scratch: &mut Vec<f32>,
     coverage: &mut Vec<u8>,
 ) -> Option<Extent> {

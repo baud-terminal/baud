@@ -152,8 +152,11 @@ font_fallback = true
 # such as vim with ambiwidth=double. Set it only to match them: a program
 # counting one column for such a character puts everything after it one
 # column off. Private Use Area characters, the Nerd Font icons, stay one
-# column either way. Under "wide" a box-drawing line or block is still drawn
-# one cell wide, in the first of its two cells. Read at launch; DECRQM ?1021
+# column either way. Under "wide" a box-drawing line or block element takes
+# two cells and is drawn across both, so boxes stay unbroken: its lines run
+# on through the second cell to meet the next character, its vertical
+# strokes and corners stay in the first, at the weight of a one-cell line,
+# and a block fills its share of both cells. Read at launch; DECRQM ?1021
 # reports it.
 [text]
 ambiguous_width = "narrow"

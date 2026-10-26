@@ -3910,6 +3910,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     decoration_gate(&mut arms, &mut t);
     proportional_gate(&mut arms, &mut t);
     line_rendition_gate(&mut arms, &mut t);
+    ambiguous_box_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -4655,6 +4656,45 @@ fn proportional_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         "SGR 26 moved the CPU arm's pixels"
     );
     assert_eq!(differing(&a, &b), 0, "the GPU arms disagree under SGR 26");
+}
+
+/// **A box or block character two cells wide is drawn alike on all three
+/// arms**: under `ambiguous_width = "wide"` (note V, V14), box lines, a
+/// rounded box, diagonals, dashes, double lines, block elements and shades
+/// two cells each, a heavy corner in red, a reversed line, the one-cell
+/// pieces East Asian Width leaves narrow and a DEC Special Graphics frame,
+/// a wide line with a mark attached (drawn by a record on the cell arm),
+/// the block cursor over a wide line; then the same on a double-width line
+/// and a double-height pair. The cell arm takes the two-cell mask from the
+/// map entry its span bit keys, the instance and CPU arms from the
+/// renderer's procedural slot, so an arm that drew the one-cell mask would
+/// differ. Each wide frame against its premise: the same text under
+/// "narrow" paints differently. The policy is back at "narrow" after.
+fn ambiguous_box_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    use baud_domain::AmbiguousWidth;
+    let scene = "\x1bc\x1b[?25l\x1b[2;1H┌──┬──┐ ▌█▀ ╭─╮ ╱╲╳ ┄┅┆ ╔═╗\
+                 \x1b[3;1H│▒▓│    │ ▄▏▕ ╰─╯ ┊┋┃ ║ ║\
+                 \x1b[4;1H└──┴──┘ \x1b[31m━┃┏\x1b[0m \x1b[7m─┼\x1b[0m ╚═╝\
+                 \x1b[5;1H\x1b(0lqqk\x1b(B ╴─╶ ╌╍ ─╼━ ─\u{301}─\x1b[?25h\x1b[3;1H";
+    let sized = "\x1bc\x1b[?25l\x1b[2;1H\x1b#6┌──┐ ▌█ ╭╮ ╱\
+                 \x1b[4;1H\x1b#3┌──┐ ▀▄ ═║\x1b[5;1H\x1b#4┌──┐ ▀▄ ═║";
+    for (name, text) in [("single", scene), ("sized", sized)] {
+        t.set_ambiguous_width(AmbiguousWidth::Narrow);
+        feed(t, text.as_bytes());
+        let (narrow, _) = arms.draw(t);
+        t.set_ambiguous_width(AmbiguousWidth::Wide);
+        feed(t, text.as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert!(
+            differing(&narrow, &a) > 0,
+            "{name}: the policy never reached the pixels"
+        );
+        assert_eq!(differing(&a, &b), 0, "{name}: the GPU arms disagree");
+        assert_eq!(differing(&a, &cpu), 0, "{name}: the CPU arm disagrees");
+    }
+    t.set_ambiguous_width(AmbiguousWidth::Narrow);
+    feed(t, b"\x1bc");
 }
 
 /// **A line that is not single-width is drawn alike on all three arms**

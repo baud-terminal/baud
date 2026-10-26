@@ -7,6 +7,12 @@
 //! drawn across cells has no seam, on the CPU compositor, at every cell
 //! size tried.
 //!
+//! Under `ambiguous_width = "wide"` a box or block character East Asian
+//! Width marks Ambiguous takes two cells, and the tests at the end hold
+//! its mask across both: lines run on through the second cell at the
+//! one-cell weight, verticals stay at the first cell's centre, a block is
+//! its fraction of both cells, and the one-cell mask is what it was.
+//!
 //! The names are the oracle the way the rules were for the cluster table:
 //! the table in `boxes.rs` and the grammar here are two spellings of one
 //! fact, written apart, and this file is where they meet.
@@ -14,10 +20,10 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Codepoint, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{AmbiguousWidth, BytePos, Codepoint, Cols, ReadLen, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::boxes::{self, Cell, Shape, Weight};
-use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Theme};
+use baud_render::{Blend, CellSpan, Damage, PxSize, Renderer, Stack, Theme};
 use support::font;
 
 /// The pinned `UnicodeData.txt`, `[sources.unicode-data]`.
@@ -637,4 +643,279 @@ fn dump_ppm(c: &support::Canvas, path: &str) {
         out.extend_from_slice(&[b[1], b[2], b[3]]);
     }
     std::fs::write(path, out).unwrap();
+}
+
+/// A mask of `span` cells for `v`, row-major, `cell.w` times the span
+/// wide.
+fn mask_across(v: u32, cell: Cell, span: CellSpan) -> Vec<u8> {
+    let mut scratch = Vec::new();
+    let mut coverage = Vec::new();
+    let extent =
+        boxes::draw_across(cp(v), cell, span, &mut scratch, &mut coverage).expect("procedural");
+    let cells = u32::try_from(span.cells().index()).unwrap();
+    assert_eq!(
+        (extent.w, extent.h),
+        (Px::of(cell.w.value() * cells), cell.h),
+        "U+{v:04X} is not {cells} cells"
+    );
+    let n = usize::try_from(extent.w.value() * extent.h.value()).unwrap();
+    coverage.truncate(n);
+    coverage
+}
+
+/// **A line two cells wide is the one-cell line run on through the second
+/// cell**: for every straight, double and rounded box glyph at every cell
+/// size, the first cell of the two-cell mask is the one-cell mask, pixel
+/// for pixel -- its verticals where a one-cell glyph has them, at the
+/// one-cell weight -- and the second cell is the first cell's last column
+/// repeated: the horizontal strokes a right arm carries, or nothing. A
+/// rounded corner's last column carries its arc's anti-aliased edge, so
+/// its second cell is the light horizontal's mask when it turns right. A
+/// one cell span is the one-cell mask itself.
+#[test]
+fn a_line_two_cells_wide_runs_its_strokes_through_the_second_cell() {
+    let mut count = 0;
+    for v in 0x2500..=0x257Fu32 {
+        let shape = boxes::shape(cp(v)).expect("procedural");
+        if !matches!(shape, Shape::Arms(_) | Shape::Double(_) | Shape::Arc(_)) {
+            continue;
+        }
+        count += 1;
+        for &(w, h) in &CELLS {
+            let c = cell(w, h);
+            let one = mask(v, c);
+            assert_eq!(
+                mask_across(v, c, CellSpan::One),
+                one,
+                "U+{v:04X} at one cell"
+            );
+            let two = mask_across(v, c, CellSpan::Two);
+            let line = mask(0x2500, c);
+            let (w, h) = (usize::try_from(w).unwrap(), usize::try_from(h).unwrap());
+            for y in 0..h {
+                assert_eq!(
+                    &two[y * 2 * w..y * 2 * w + w],
+                    &one[y * w..(y + 1) * w],
+                    "U+{v:04X} {w}x{h}: row {y} of the first cell"
+                );
+                let last = match shape {
+                    Shape::Arc(a) if a.right => line[y * w],
+                    Shape::Arc(_) => 0,
+                    _ => one[y * w + w - 1],
+                };
+                assert!(
+                    two[y * 2 * w + w..(y + 1) * 2 * w]
+                        .iter()
+                        .all(|&p| p == last),
+                    "U+{v:04X} {w}x{h}: row {y} of the second cell"
+                );
+            }
+        }
+    }
+    // 80 straight, 29 double, 4 rounded: the control that the filter let
+    // every one through.
+    assert_eq!(count, 113, "the line glyphs");
+}
+
+/// **A block two cells wide is its fraction of both cells**: every block
+/// element, quadrant and shade drawn across two cells is the mask a cell
+/// twice as wide would take, so U+258C LEFT HALF BLOCK fills exactly the
+/// first cell and U+2588 both.
+#[test]
+fn a_block_two_cells_wide_is_its_fraction_of_both_cells() {
+    for v in 0x2580..=0x259Fu32 {
+        for &(w, h) in &CELLS {
+            let c = cell(w, h);
+            let wide = cell(2 * w, h);
+            assert_eq!(
+                mask_across(v, c, CellSpan::Two),
+                mask(v, wide),
+                "U+{v:04X} at {w}x{h}"
+            );
+        }
+    }
+    let (w, h) = (9usize, 18usize);
+    let half = mask_across(0x258C, cell(9, 18), CellSpan::Two);
+    for y in 0..h {
+        assert!(half[y * 2 * w..y * 2 * w + w].iter().all(|&p| p == 0xff));
+        assert!(half[y * 2 * w + w..(y + 1) * 2 * w].iter().all(|&p| p == 0));
+    }
+}
+
+/// `text` painted on a `cols` by `rows` screen at `size` under `policy`,
+/// the cursor hidden: the canvas, the cell and the light stroke, in pixels.
+fn painted(
+    policy: AmbiguousWidth,
+    text: &str,
+    (cols, rows): (u16, u16),
+    size: f32,
+) -> (support::Canvas, usize, usize, usize, u32, u32) {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let ws = WinSize {
+        ws_row: rows,
+        ws_col: cols,
+    };
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(size).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(cols)),
+        Rows::of_index(usize::from(rows)),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_ambiguous_width(policy);
+    let bytes = format!("\x1b[?25l{text}");
+    t.write_at(BytePos::ZERO, bytes.as_bytes());
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    let mut canvas = support::Canvas::for_renderer(&r);
+    support::paint(&mut r, &mut t, &mut canvas, Damage::Full);
+    let m = r.metrics();
+    let c = cell(m.cell_w.value(), m.cell_h.value());
+    (
+        canvas,
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+        usize::try_from(c.light().value()).unwrap(),
+        r.theme().fg.0,
+        r.theme().bg.0,
+    )
+}
+
+/// **A wide box joins its neighbours, on the CPU compositor**: a frame of
+/// box lines two cells wide each, `┌──┐` over `│    │` over `└──┘` on
+/// eight columns, at four sizes. The top and bottom rules run unbroken
+/// from the left corner's vertical to the right corner's, through every
+/// second cell; the sides run unbroken down all three rows at the first
+/// cell's centre, one light stroke wide; the right corner's second cell
+/// is left blank. Today's one-cell mask in the first cell breaks the rule
+/// in every second cell.
+#[test]
+fn a_wide_box_line_runs_through_both_cells_and_joins_its_neighbours() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let text = "┌──┐\r\n│    │\r\n└──┘";
+        let (canvas, cw, ch, t, fg, bg) = painted(AmbiguousWidth::Wide, text, (8, 3), size);
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let hy = (ch - t) / 2;
+        let vx = (cw - t) / 2;
+        let right = 6 * cw + vx;
+        for row in [hy, 2 * ch + hy] {
+            for x in vx..right + t {
+                assert_eq!(
+                    px(x, row),
+                    fg,
+                    "size {size}: a gap at ({x}, {row}) in a rule"
+                );
+            }
+        }
+        for col in [vx, right] {
+            for y in hy..2 * ch + hy + t {
+                assert_eq!(
+                    px(col, y),
+                    fg,
+                    "size {size}: a gap at ({col}, {y}) in a side"
+                );
+            }
+        }
+        // One light stroke wide, the weight a one-cell line has: on the
+        // middle row, exactly `t` pixels of the left side are lit.
+        let lit = (0..2 * cw).filter(|&x| px(x, ch + ch / 2) == fg).count();
+        assert_eq!(lit, t, "size {size}: the side's weight");
+        // The right corner's second cell, and the interior, are blank.
+        assert_eq!(px(7 * cw + cw / 2, hy), bg, "size {size}: past the corner");
+        assert_eq!(px(4 * cw, ch + ch / 2), bg, "size {size}: the interior");
+    }
+}
+
+/// **A wide line meets a one-cell one, across and down**: under "wide",
+/// DEC Special Graphics `q` (U+2500, one cell, as DEC graphics always
+/// are), then `┬─` two cells each; under the tee, DEC `x` (one cell) and
+/// U+2575 `╵` (one cell: East Asian Width N). The rule is lit from the
+/// `q` through the tee to the end of the wide `─`'s second cell -- the
+/// one-cell and the two-cell U+2500 kept apart -- and the column at the
+/// tee's first cell's centre from its rule down through the `x` into the
+/// `╵`, the property placing a wide line's verticals in its first cell
+/// buys.
+#[test]
+fn a_wide_line_meets_a_one_cell_piece_across_and_down() {
+    for size in [10.0f32, 14.0, 17.0, 23.0] {
+        let text = "\x1b(0q\x1b(B┬─\r\n \x1b(0x\x1b(B\r\n ╵";
+        let (canvas, cw, ch, t, fg, _) = painted(AmbiguousWidth::Wide, text, (6, 3), size);
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let (hy, vx) = ((ch - t) / 2, cw + (cw - t) / 2);
+        for x in 0..5 * cw {
+            assert_eq!(
+                px(x, hy),
+                fg,
+                "size {size}: a gap at ({x}, {hy}) in the rule"
+            );
+        }
+        for y in hy..2 * ch + ch / 4 {
+            for x in vx..vx + t {
+                assert_eq!(px(x, y), fg, "size {size}: a gap at ({x}, {y}) down");
+            }
+        }
+    }
+}
+
+/// **A wide line on a double-width line spans its doubled cells**: under
+/// "wide", `ESC # 6` then `┌─┐`, each two columns drawn four cells wide.
+/// The rule is lit from the corner's vertical, at the doubled first cell's
+/// centre, to the far corner's, through every second column.
+#[test]
+fn a_wide_line_on_a_double_width_line_spans_its_doubled_cells() {
+    for size in [10.0f32, 14.0, 17.0] {
+        let text = "\x1b#6┌─┐";
+        let (canvas, cw, ch, t, fg, bg) = painted(AmbiguousWidth::Wide, text, (12, 1), size);
+        let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+        let (hy, vx) = ((ch - t) / 2, 2 * ((cw - t) / 2));
+        for x in vx..8 * cw + vx + 2 * t {
+            assert_eq!(
+                px(x, hy),
+                fg,
+                "size {size}: a gap at ({x}, {hy}) in the rule"
+            );
+        }
+        assert_eq!(px(11 * cw, hy), bg, "size {size}: past the far corner");
+    }
+}
+
+/// **A wide block fills its fraction of both cells**: under "wide", `█▌▀`
+/// is six columns -- the full block lit across both its cells, the left
+/// half block its first cell and not its second, the upper half block the
+/// top of both. Under "narrow", the default, the same text is three
+/// columns, each block in its one cell.
+#[test]
+fn a_wide_block_fills_both_cells() {
+    let (canvas, cw, ch, _, fg, bg) = painted(AmbiguousWidth::Wide, "█▌▀", (8, 1), 14.0);
+    let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+    for y in 0..ch {
+        for x in 0..2 * cw {
+            assert_eq!(px(x, y), fg, "the full block at ({x}, {y})");
+        }
+        for x in 2 * cw..3 * cw {
+            assert_eq!(px(x, y), fg, "the left half block at ({x}, {y})");
+        }
+        for x in 3 * cw..4 * cw {
+            assert_eq!(px(x, y), bg, "past the left half block at ({x}, {y})");
+        }
+    }
+    for x in 4 * cw..6 * cw {
+        assert_eq!(px(x, 0), fg, "the upper half block at ({x}, 0)");
+        assert_eq!(px(x, ch - 1), bg, "under the upper half block at ({x})");
+    }
+    let (canvas, cw, ch, _, fg, bg) = painted(AmbiguousWidth::Narrow, "█▌▀", (8, 1), 14.0);
+    let px = |x: usize, y: usize| canvas.pixels[y * canvas.width + x];
+    assert_eq!(px(cw - 1, ch / 2), fg, "narrow: the full block");
+    assert_eq!(px(cw + cw / 4, ch / 2), fg, "narrow: the left half block");
+    assert_eq!(px(cw + 3 * cw / 4, ch / 2), bg, "narrow: its right half");
+    assert_eq!(px(2 * cw + cw / 2, 0), fg, "narrow: the upper half block");
+    assert_eq!(
+        px(3 * cw + cw / 2, 0),
+        bg,
+        "narrow: nothing in the fourth column"
+    );
 }

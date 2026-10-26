@@ -523,6 +523,11 @@ struct Memo {
     /// The same for a line not single-width: drawn at the doubled cell,
     /// by codepoint, or a ring part's key, and stretch.
     procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
+    /// **The procedural glyphs of a character two cells wide**, by
+    /// codepoint and stretch: a mask across both cells
+    /// ([`crate::boxes::draw_across`]). A map of its own, so a one-cell
+    /// glyph is looked up by the key it always was.
+    procedural_wide: HashMap<(u32, Stretch), Option<Slot>>,
     /// **The glyphs drawn flipped left to right**, under the key their
     /// unflipped image is kept by: a Bidi_Mirrored character with no
     /// Bidi_Mirroring_Glyph resolved right to left (UAX #9 L4,
@@ -538,6 +543,7 @@ impl Memo {
             map: HashMap::new(),
             procedural: HashMap::new(),
             procedural_stretched: HashMap::new(),
+            procedural_wide: HashMap::new(),
             flipped: HashMap::new(),
         }
     }
@@ -546,6 +552,7 @@ impl Memo {
         self.map.is_empty()
             && self.procedural.is_empty()
             && self.procedural_stretched.is_empty()
+            && self.procedural_wide.is_empty()
             && self.flipped.is_empty()
     }
 }
@@ -1452,6 +1459,59 @@ impl Atlas {
         if slot.is_some() || !crate::boxes::covers(cp) {
             self.held
                 .procedural_stretched
+                .insert((cp.value(), stretch), slot);
+        }
+        slot
+    }
+
+    /// [`Atlas::synthetic_at`] for a character that takes `span` cells: one
+    /// cell is that, unchanged; two is the mask across both
+    /// ([`crate::boxes::draw_across`]), its strokes at one cell's weight,
+    /// then stretched as [`Atlas::synthetic_at`] stretches a one-cell mask
+    /// -- drawn at the doubled cell on a double-height line, each column
+    /// repeated on a double-width one. Memoised by codepoint and stretch in
+    /// a map of its own.
+    pub fn synthetic_across(
+        &mut self,
+        cp: Codepoint,
+        cell: crate::boxes::Cell,
+        span: crate::cellmap::CellSpan,
+        baseline: Px,
+        stretch: Stretch,
+    ) -> Option<Slot> {
+        if span == crate::cellmap::CellSpan::One {
+            return self.synthetic_at(cp, cell, baseline, stretch);
+        }
+        if let Some(slot) = self.held.procedural_wide.get(&(cp.value(), stretch)) {
+            return *slot;
+        }
+        let slot = match stretch {
+            Stretch::One => {
+                crate::boxes::draw_across(cp, cell, span, &mut self.scratch, &mut self.coverage)
+                    .and_then(|extent| self.place_cell_mask(extent, baseline))
+            }
+            Stretch::Tall => {
+                let big = crate::boxes::Cell {
+                    w: Px::of(cell.w.value() * 2),
+                    h: Px::of(cell.h.value() * 2),
+                };
+                crate::boxes::draw_across(cp, big, span, &mut self.scratch, &mut self.coverage)
+                    .and_then(|extent| self.place_cell_mask(extent, Px::of(baseline.value() * 2)))
+            }
+            Stretch::Wide => {
+                crate::boxes::draw_across(cp, cell, span, &mut self.scratch, &mut self.coverage)
+                    .and_then(|extent| {
+                        self.double_columns(extent);
+                        self.place_cell_mask(
+                            Extent::new(Px::of(extent.w.value() * 2), extent.h),
+                            baseline,
+                        )
+                    })
+            }
+        };
+        if slot.is_some() || !crate::boxes::covers(cp) {
+            self.held
+                .procedural_wide
                 .insert((cp.value(), stretch), slot);
         }
         slot
