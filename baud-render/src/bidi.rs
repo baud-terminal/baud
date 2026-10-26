@@ -124,9 +124,9 @@ use baud_domain::{
     Bidi, BidiClass, BidiDirection, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror,
     CharacterPath, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm,
     JoiningType, LamAlef, LineBidi, PackedCell, Row, RowExtent, RowRot, RowWritten, Rows,
-    STRING_DEPTH, Stride, StringId, Viewport, Wrap, alaphs, box_counterpart, chain_runs,
-    in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph, opens_rtl, order_strings,
-    string_chain, takes_form,
+    STRING_DEPTH, Stride, StringId, StyleId, StyleWrites, TableSerial, Viewport, Wrap, alaphs,
+    box_counterpart, chain_runs, in_layout_block, is_table_rule, join, lam_alefs, mirroring_glyph,
+    opens_rtl, order_strings, string_chain, takes_form,
 };
 
 use crate::units::Tally;
@@ -829,8 +829,9 @@ pub enum Rejoin {
 }
 
 /// Whether a row holds a character that can make its paragraph reorder.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Opens {
+    #[default]
     Unknown,
     No,
     Yes,
@@ -849,6 +850,23 @@ struct Seen {
     /// Whether each row holds a letter that takes a joining form, found by
     /// the same test as `opens`.
     joins: Vec<Opens>,
+    /// **Whether each row holds a cell written in an SDS or SRS string**,
+    /// found when the row is tested and kept while its cells are the same,
+    /// so a frame reads the renditions of the rows that changed and no
+    /// other: once a string has been begun every frame read every cell's.
+    /// [`Opens::Unknown`] where it is to be found again.
+    strung: Vec<Opens>,
+    /// The rendition table and its count of writes the kept `strung`
+    /// answers and `string_slots` were found against
+    /// ([`Seen::styles_moved`]).
+    styles: Option<(TableSerial, StyleWrites)>,
+    /// **Which slots of the rendition table name a string**, a bit a slot,
+    /// kept from the table's log of writes, and whether any does: a row is
+    /// read for its strings one bit a cell, from a set that stays in the
+    /// first level of cache where the table itself does not, and not at
+    /// all while no slot names one.
+    string_slots: Vec<u64>,
+    string_slots_any: Opens,
     width: Option<(Cols, ClusterEpoch)>,
 }
 
@@ -859,12 +877,16 @@ struct Seen {
 struct Holds {
     opens: Opens,
     joins: Opens,
+    /// Whether it holds a cell written in an SDS or SRS string: `No`
+    /// until one has been begun ([`Term::strings_seen`]).
+    strung: Opens,
 }
 
 impl Holds {
     const NOTHING: Holds = Holds {
         opens: Opens::No,
         joins: Opens::No,
+        strung: Opens::No,
     };
 }
 
@@ -877,22 +899,128 @@ impl Seen {
             self.opens.resize(y + 1, Opens::Unknown);
             self.joins.resize(y + 1, Opens::Unknown);
         }
+        if self.strung.len() <= y {
+            self.strung.resize(y + 1, Opens::Unknown);
+        }
         if self.cells.len() < (y + 1) * n {
             self.cells.resize((y + 1) * n, PackedCell::EMPTY);
         }
         let kept = &mut self.cells[y * n..(y + 1) * n];
         work.compared.bump();
         if self.opens[y] != Opens::Unknown && PackedCell::same_cells(kept, cells) {
+            if self.strung[y] == Opens::Unknown {
+                self.strung[y] = self.row_strung(term, cells);
+            }
             return Holds {
                 opens: self.opens[y],
                 joins: self.joins[y],
+                strung: self.strung[y],
             };
         }
         kept.copy_from_slice(cells);
         work.tested.bump();
-        let h = row_holds(term, cells);
-        (self.opens[y], self.joins[y]) = (h.opens, h.joins);
+        let h = Holds {
+            strung: self.row_strung(term, cells),
+            ..row_holds(term, cells)
+        };
+        (self.opens[y], self.joins[y], self.strung[y]) = (h.opens, h.joins, h.strung);
         h
+    }
+
+    /// **The slots that name a string, brought up to the table**, and the
+    /// kept `strung` answers that may have gone wrong found again when
+    /// next asked: a slot written since that now names a string can give a
+    /// row whose cells are the same a string, and only an answer of `No`
+    /// can be wrong that way; an answer of `Yes` gone wrong costs a read of
+    /// the row. Each slot written is read again, or, for another table or
+    /// more writes than the log holds, every slot. Nothing while no string
+    /// has been begun. Once a frame, before the rows are asked.
+    fn styles_moved(&mut self, term: &Term<'_>) {
+        if !term.strings_seen() {
+            self.styles = None;
+            return;
+        }
+        let now = (term.style_table(), term.style_writes());
+        let slots = term.styles();
+        let names = |k: usize| {
+            slots
+                .get(k)
+                .copied()
+                .flatten()
+                .is_some_and(|w| !w.string().is_none())
+        };
+        let mut named = false;
+        let replay = match self.styles {
+            Some((table, at)) if table == now.0 => {
+                if at == now.1 {
+                    return;
+                }
+                term.styles_written(at)
+            }
+            _ => baud_core::Written::Every,
+        };
+        match replay {
+            baud_core::Written::Slots(parts) => {
+                for &k in parts.iter().flat_map(|p| p.iter()) {
+                    let on = match names(k.index()) {
+                        true => Opens::Yes,
+                        false => Opens::No,
+                    };
+                    named |= on == Opens::Yes;
+                    self.mark_slot(k, on);
+                }
+            }
+            baud_core::Written::Every => {
+                self.string_slots.clear();
+                self.string_slots.resize(slots.len().div_ceil(64), 0);
+                for k in (0..slots.len()).filter(|&k| names(k)) {
+                    self.mark_slot(StyleId::from_index(k), Opens::Yes);
+                }
+                named = true;
+            }
+        }
+        self.string_slots_any = match self.string_slots.iter().any(|&w| w != 0) {
+            true => Opens::Yes,
+            false => Opens::No,
+        };
+        self.styles = Some(now);
+        if named {
+            for s in self.strung.iter_mut().filter(|s| **s == Opens::No) {
+                *s = Opens::Unknown;
+            }
+        }
+    }
+
+    /// Slot `k` naming a string or not, in [`Seen::string_slots`].
+    fn mark_slot(&mut self, k: StyleId, names: Opens) {
+        let (w, b) = (k.index() / 64, 1u64 << (k.index() % 64));
+        if self.string_slots.len() <= w {
+            self.string_slots.resize(w + 1, 0);
+        }
+        match names {
+            Opens::Yes => self.string_slots[w] |= b,
+            _ => self.string_slots[w] &= !b,
+        }
+    }
+
+    /// **Whether a row holds a cell written in an SDS or SRS string**, by
+    /// [`Seen::string_slots`]: none until one has been begun, and none
+    /// while no slot names one, so a session that never sends one reads no
+    /// cell for it.
+    fn row_strung(&self, term: &Term<'_>, cells: &[PackedCell]) -> Opens {
+        if !term.strings_seen() || self.string_slots_any != Opens::Yes {
+            return Opens::No;
+        }
+        let named = |c: &PackedCell| {
+            let k = c.style.index();
+            self.string_slots
+                .get(k / 64)
+                .is_some_and(|w| w & (1u64 << (k % 64)) != 0)
+        };
+        match cells.iter().any(named) {
+            true => Opens::Yes,
+            false => Opens::No,
+        }
     }
 }
 
@@ -1024,6 +1152,7 @@ impl Reorder {
         let at = self.orders.rows.len();
         let main = core::mem::take(&mut self.orders);
         let seen = core::mem::replace(&mut self.seen, core::mem::take(&mut self.status_seen));
+        self.seen.styles_moved(term);
         self.orders.cols = line.cols();
         self.orders.rows.push(None);
         self.orders.joins.push(None);
@@ -1032,6 +1161,7 @@ impl Reorder {
             self.seen.width = width;
             self.seen.opens.clear();
             self.seen.joins.clear();
+            self.seen.strung.clear();
         }
         match term.bidi_support() {
             BidiSupport::Explicit => {
@@ -1098,6 +1228,7 @@ impl Reorder {
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
         self.forget_joins(vp.rows());
+        self.seen.styles_moved(term);
         let explicit = term.bidi_support() == BidiSupport::Explicit;
         if explicit {
             self.reverse_paths(term, &vp, written);
@@ -1110,6 +1241,7 @@ impl Reorder {
             self.seen.width = width;
             self.seen.opens.clear();
             self.seen.joins.clear();
+            self.seen.strung.clear();
         }
         let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         if explicit {
@@ -1176,6 +1308,7 @@ impl Reorder {
         self.work = Work::default();
         self.orders.rows.clear();
         self.orders.rows.resize_with(nrows, || None);
+        self.seen.styles_moved(term);
         // The status line's joins, after the window's, are found again
         // below whatever the window keeps.
         self.orders.joins.truncate(nrows);
@@ -1259,7 +1392,8 @@ impl Reorder {
                 continue;
             }
             let cells = written.row(r).unwrap_or_else(|| vp.row(r));
-            let strung = strings && cells.iter().any(|&c| !string_of(term, c).is_none());
+            // One bit a cell, from the slots that name a string.
+            let strung = strings && self.seen.row_strung(term, cells) == Opens::Yes;
             let base = match line.path() {
                 CharacterPath::RightToLeft => BidiDirection::Rtl,
                 _ => BidiDirection::Ltr,
@@ -1418,11 +1552,13 @@ impl Reorder {
         // frame.
         let mut drawn_opens = false;
         let mut drawn_joins = false;
+        let mut drawn_strung = false;
         for y in first.index()..=last.index() {
             let r = Row::from_index(y);
             let h = self.seen.holds(term, r, row_of(r), &mut self.work);
             drawn_opens |= h.opens == Opens::Yes;
             drawn_joins |= h.joins == Opens::Yes;
+            drawn_strung |= h.strung == Opens::Yes;
         }
         // The rows above the window the paragraph starts in, and below it
         // when the window looks back, nearest first: context, read only
@@ -1469,12 +1605,7 @@ impl Reorder {
         let path = vp.bidi(first);
         // A row holding an SDS or SRS string is resolved too: a string may
         // reorder text of class L alone.
-        let strung = term.strings_seen()
-            && (first.index()..=last.index()).any(|y| {
-                row_of(Row::from_index(y))
-                    .iter()
-                    .any(|&c| !string_of(term, c).is_none())
-            });
+        let strung = drawn_strung;
         let any_opens = path.path() == CharacterPath::RightToLeft
             || strung
             || drawn_opens
@@ -1589,6 +1720,20 @@ impl Reorder {
         // around it, the line's path at the top (Jev's lean, PATH). An
         // isolate still open at the paragraph's end ends there (BD9).
         let strings = term.strings_seen();
+        // Each row's cells read for their strings only where it holds one:
+        // a window row by its kept answer, a row of context read.
+        let strung: Vec<bool> = match strings {
+            true => rows
+                .iter()
+                .map(|row| match row.window {
+                    Some(r) => {
+                        self.seen.holds(term, r, row.cells, &mut self.work).strung == Opens::Yes
+                    }
+                    None => self.seen.row_strung(term, row.cells) == Opens::Yes,
+                })
+                .collect(),
+            false => Vec::new(),
+        };
         let entry = |id: StringId| term.string_entry(id);
         let top = match path.path() {
             CharacterPath::RightToLeft => BidiDirection::Rtl,
@@ -1611,7 +1756,11 @@ impl Reorder {
                 }
                 if strings {
                     let mut chain = [StringId::NONE; STRING_DEPTH];
-                    let n = string_chain(string_of(term, cell), &entry, &mut chain);
+                    // A row with no string's cells are in none.
+                    let n = match strung.get(p).copied().unwrap_or(false) {
+                        true => string_chain(string_of(term, cell), &entry, &mut chain),
+                        false => 0,
+                    };
                     let same = (0..n.min(open_n))
                         .take_while(|&i| chain[i] == open[i])
                         .count();
@@ -2382,8 +2531,6 @@ fn mirror(
     }
 }
 
-/// **The SAPV variants cell `cell` was written under**: the default
-/// presentation where its rendition names none.
 /// **The SDS or SRS string `cell` was written in** ([`StringId`]).
 fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
     term.styles()
@@ -2393,6 +2540,8 @@ fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
         .map_or(StringId::NONE, |w| w.string())
 }
 
+/// **The SAPV variants cell `cell` was written under**: the default
+/// presentation where its rendition names none.
 fn variants_of(term: &Term<'_>, cell: PackedCell) -> Variants {
     term.styles()
         .get(cell.style.index())
@@ -2731,6 +2880,8 @@ fn row_holds(term: &Term<'_>, cells: &[PackedCell]) -> Holds {
     Holds {
         opens: yes(opens_in(term, cells)),
         joins: yes(joins_in(term, cells)),
+        // [`Seen::holds`] asks it of every row, a layout block or not.
+        strung: Opens::No,
     }
 }
 

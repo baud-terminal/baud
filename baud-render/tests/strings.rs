@@ -159,3 +159,64 @@ fn a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again() {
         );
     }
 }
+
+/// **A layout kept across frames finds each row's strings as a fresh one
+/// does**: the layout keeps, for each row, whether it holds a string while
+/// its cells are the same, so a frame reads the renditions of the rows
+/// that changed and no other. Across a string begun on another row, a row
+/// gaining one, losing it, written over in a string, more of a string
+/// still open written in the rendition already made for it, and a reset,
+/// with BDSM set and reset, each row of the kept layout is drawn as a new
+/// layout draws it.
+#[test]
+fn a_kept_layout_finds_each_rows_strings_as_a_fresh_one_does() {
+    // A letter and a mark in a right-to-left string are drawn in its
+    // direction, with BDSM set as with it reset.
+    let steps = [
+        "\x1b[4;20H\x1b[1]\x1b[0]",
+        "\x1b[1;1Habc xy z",
+        "\x1b[2;1Habc \x1b[2]x !\x1b[0] z",
+        "\x1b[2;1H\x1b[2Kabc x y z",
+        "\x1b[1;5H\x1b[2]x y\x1b[0]",
+        "\x1b[3;1H\x1b[1[q r\x1b[0[ t",
+        "\x1b[2;1H\x1b[2]mn",
+        "\x1b[4;19Ho !\x1b[0]",
+        "\x1bc\x1b[1;1Hab\x1b[2]c d\x1b[0]",
+        "\x1b[1;1H\x1b[2Kabcd",
+    ];
+    for bdsm in ["", "\x1b[8l"] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, bdsm);
+        let mut kept = Reorder::new();
+        for step in steps {
+            feed(&mut t, step);
+            if step.starts_with("\x1bc") {
+                feed(&mut t, bdsm);
+            }
+            for r in 0..usize::from(WS.ws_row) {
+                let mut fresh = Reorder::new();
+                assert_eq!(
+                    row_of(&t, &mut kept, r),
+                    row_of(&t, &mut fresh, r),
+                    "{bdsm:?}, {step:?}, row {r}"
+                );
+            }
+            let mut drawn = |r| row_of(&t, &mut kept, r);
+            match step {
+                "\x1b[2;1Habc \x1b[2]x !\x1b[0] z" => {
+                    assert_eq!(drawn(1), "abc ! x z...............", "{bdsm:?}")
+                }
+                "\x1b[4;19Ho !\x1b[0]" => {
+                    assert_eq!(drawn(3), "..................! o...", "{bdsm:?}")
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            row_of(&t, &mut kept, 0),
+            "abcd....................",
+            "{bdsm:?}"
+        );
+    }
+}

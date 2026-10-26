@@ -20,6 +20,11 @@
 //! as a terminal starts, and each frame lays its rows out in the order
 //! UAX #9 gives them.
 //!
+//! `FRAME_STRING=1` begins and ends an SDS string (`CSI 1 ]`, `CSI 0 ]`)
+//! before the recording, which writes no cell in it: the arm of a
+//! terminal that has seen a string, whose frames may read each cell's
+//! string (`Term::strings_seen`), against the same recording's.
+//!
 //! `FRAME_BG_ALPHA=<0-255>` paints over a page dimmed to that alpha, the
 //! glass (`[glass] dim_dark = 0.22` is 56), where the default is
 //! `Theme::dark()`'s opaque page: the compositor blends the two pages by
@@ -233,6 +238,13 @@ fn main() {
             let bdsm = b"\x1b[8l";
             t.write_at(BytePos::ZERO, bdsm);
             t.feed(BytePos::ZERO, ReadLen::from_index(bdsm.len()));
+        }
+        // `FRAME_STRING=1`: a string begun and ended, no cell in it.
+        if std::env::var("FRAME_STRING").as_deref() == Ok("1") {
+            let sds = b"\x1b[1]\x1b[0]";
+            t.write_at(BytePos::ZERO, sds);
+            t.feed(BytePos::ZERO, ReadLen::from_index(sds.len()));
+            assert!(t.strings_seen(), "the string was begun");
         }
         let mut rep = Rep {
             frames: 0,

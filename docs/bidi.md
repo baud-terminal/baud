@@ -713,11 +713,18 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   nothing on the text path**: a string rides in the rendition, DCSM's and
   DECRLM's tests are one bit of the mode word `CR` already reads, and
   DECRLM's writer is reached only by the one-by-one graph (docs/record.md,
-  "DECRLM writes right to left"). **Unmeasured: a frame once a string has
-  been begun**, which reads every cell's rendition for its string, on
-  every draw path, until `RIS`; **and a copy under DECRLCM**, which lays
-  out a whole window for each line of the history it copies
-  (`Selection::text` reading each line through the window that shows it).
+  "DECRLM writes right to left"). **Once a string has been begun** a
+  frame reads a row's cells for strings one bit a cell, and only while a
+  rendition naming a string is in the table; with BDSM set a row keeps
+  its answer while its cells are the same (docs/record.md, "A frame
+  reads a string's renditions only on the rows that may hold one"). The
+  core pays more: from then on each erase keeps strings cell by cell
+  (`Paint::erase_keeping_strings`), and with BDSM reset every `CR` and
+  line feed maps its line (`Paint::line_map`), several times the
+  instructions on cat-cjk, less-cjk and vim, a gap.
+  **Unmeasured: a copy under DECRLCM**, which lays out a whole window
+  for each line of the history it copies (`Selection::text` reading each
+  line through the window that shows it).
 - **SAPV costs a program that never sends it nothing**: no row is read
   for a variant until one is selected (`Term::variants_seen`), and after
   that a frame reads each row's cells once for the substitutions and the
