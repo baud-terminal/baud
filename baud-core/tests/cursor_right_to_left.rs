@@ -340,3 +340,67 @@ fn il_and_dl_bring_in_lines_decrlm_never_wrote() {
     let dl = marks(format!("{RLM}\x1b[4;8Hab\x1b[?34l\x1b[1;1H\x1b[M"));
     assert_eq!(dl, [false, false, true, false]);
 }
+
+/// The SAPV form cell `(r, c)` was written under.
+fn form(t: &Term<'_>, r: usize, c: usize) -> Option<baud_domain::Form> {
+    let cell = t.viewport().row(Row::from_index(r))[c];
+    t.styles()[cell.style.index()]
+        .expect("a live rendition")
+        .variants()
+        .form()
+}
+
+const BEH: &str = "\u{0628}";
+
+/// **A SAPV form under DECRLM is the following character's alone**
+/// (`[[source: ecma48]]` 8.3.108, values 5 to 8: "the following graphic
+/// character is presented in its ... form"), written leftward as every
+/// character is: the letter at the cursor takes it, the next one to its
+/// left does not, and a character that takes no form spends it.
+#[test]
+fn under_decrlm_a_form_is_the_following_characters_alone() {
+    use baud_domain::Form;
+    for (v, f) in [
+        ("5", Form::Isolated),
+        ("6", Form::Initial),
+        ("7", Form::Medial),
+        ("8", Form::Final),
+    ] {
+        support::with_term(&WS, |t| {
+            support::feed(
+                t,
+                format!("{RLM}\x1b[1;10H\x1b[{v} ]{BEH}{BEH}x").as_bytes(),
+            );
+            assert_eq!(form(t, 0, 9), Some(f), "{v}: the following letter");
+            assert_eq!(form(t, 0, 8), None, "{v}: the one after it");
+            assert_eq!(form(t, 0, 7), None, "{v}: later text");
+        });
+    }
+    support::with_term(&WS, |t| {
+        support::feed(t, format!("{RLM}\x1b[1;10H\x1b[6 ]a{BEH}").as_bytes());
+        assert_eq!((form(t, 0, 9), form(t, 0, 8)), (None, None), "spent on a");
+    });
+}
+
+/// **The same under IRM, the line shifting once a character**, and with
+/// 21 holding the form for every following character until 22.
+#[test]
+fn under_decrlm_and_irm_a_form_shifts_the_line_once() {
+    use baud_domain::Form;
+    let irm = format!("xyz{RLM}\x1b[4h\x1b[1;3H\x1b[8 ]{BEH}{BEH}");
+    let (rows, cursor) = after(&irm);
+    assert_eq!(rows[0], format!("z{BEH}{BEH}......."));
+    assert_eq!(cursor, (0, 0));
+    support::with_term(&WS, |t| {
+        support::feed(t, irm.as_bytes());
+        assert_eq!((form(t, 0, 2), form(t, 0, 1)), (Some(Form::Final), None));
+    });
+    support::with_term(&WS, |t| {
+        let held = format!("{RLM}\x1b[1;10H\x1b[21;7 ]{BEH}{BEH}{BEH}\x1b[22 ]{BEH}{BEH}");
+        support::feed(t, held.as_bytes());
+        for c in [9, 8, 7, 6] {
+            assert_eq!(form(t, 0, c), Some(Form::Medial), "held, {c}");
+        }
+        assert_eq!(form(t, 0, 5), None, "and no more");
+    });
+}

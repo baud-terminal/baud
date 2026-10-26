@@ -376,7 +376,12 @@ the screen; step 3 joins Arabic letters.
   written on it in order is drawn by UAX #9 again
   (`a_character_is_written_and_the_cursor_moves_left`,
   `a_row_decrlm_wrote_is_drawn_as_its_cells_hold`,
-  `a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again`).
+  `a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again`). Arabic
+  written so joins in the order it was written, read from the right, and
+  a SAPV form asked goes to the next character alone, as on a line
+  written left to right
+  (`under_decrlm_a_form_is_the_following_characters_alone`,
+  `under_decrlm_letters_join_as_written_and_take_the_forms_asked`).
 - **A copy can read each line from its right edge** (DEC's DECRLCM,
   `CSI ? 96 h`, `[[source: vt510-decrlcm]]`): each line of the copy
   gives its characters in the order they are drawn, from right to left,

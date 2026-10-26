@@ -97,6 +97,11 @@ impl Paint<'_, '_> {
         if need == 2 && c.index() < left.index() + 1 {
             return;
         }
+        // **A SAPV form ends, or is this character's**, after the wrap and
+        // before the rendition is read, as the text path takes it after
+        // its wrap ([`crate::paint::Writer`]); without it a form under
+        // DECRLM stayed for every character after (`crate::variants`).
+        self.form_step(cp);
         let lead_col = Col::at_index(c.index() + 1 - need);
         let style = self.style;
         let flags = match pen {

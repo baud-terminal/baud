@@ -1345,6 +1345,29 @@ impl Reorder {
         self.join_displayed(term, r, &shown);
     }
 
+    /// **The rows `first..=last` of a paragraph DECRLM wrote, joined as
+    /// shown**, read from the right as with BDSM reset: the order DECRLM
+    /// wrote them in. Out of line, so the paragraph's own layout keeps its
+    /// shape: inlined, the frames of btop, cat-cjk, vim and less-cjk retired
+    /// 0.08-0.13% more instructions, none with a row DECRLM wrote.
+    #[cold]
+    #[inline(never)]
+    fn join_leftward(
+        &mut self,
+        term: &Term<'_>,
+        vp: &Viewport<'_>,
+        written: &impl Over,
+        (first, last): (Row, Row),
+    ) {
+        for y in first.index()..=last.index() {
+            let r = Row::from_index(y);
+            let cells = written.row(r).unwrap_or_else(|| vp.row(r));
+            if self.seen.holds(term, r, cells, &mut self.work).joins == Opens::Yes {
+                self.join_shown(term, r, cells);
+            }
+        }
+    }
+
     /// No row of a window `rows` high holds a joined cell: the maps
     /// emptied only where the last layout left one, or made at a new
     /// height, so a window that never held one costs one test.
@@ -1382,10 +1405,12 @@ impl Reorder {
         // **A paragraph a row of which DECRLM wrote is drawn as its cells
         // hold** (`baud_domain::RowWritten`; Jev, AS_STORED, 0.97/0.97): its
         // cells hold the order a VT510 shows, which UAX #9 would reverse.
+        // Its rows join as shown, read from the right, as with BDSM reset:
+        // the order DECRLM wrote them in.
         if (first.index()..=last.index())
             .any(|y| vp.bidi(Row::from_index(y)).written() == RowWritten::RightToLeft)
         {
-            return;
+            return self.join_leftward(term, vp, written, (first, last));
         }
         let budget = CONTEXT / vp.cols().index().max(1);
         let opens = |cells: &[PackedCell]| row_opens(term, cells);

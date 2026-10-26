@@ -12849,3 +12849,68 @@ fn composed_as_written(
     }
     laid.is_some()
 }
+
+/// **Arabic DECRLM wrote joins as written, and takes the forms SAPV asks,
+/// alike on every arm** (`[[source: ecma48]]` 8.3.108; `[[source:
+/// vt510-decrlm]]`): with BDSM set the row is drawn as its cells hold
+/// (Jev, AS_STORED) and its letters are read from the right, the order the
+/// program sent them, so it draws as the same cells with BDSM reset, on the
+/// cell, copied and CPU arms; the control, the word written with no form
+/// asked, draws otherwise. On Courier New, whose forms
+/// `arabic_letters_draw_joined_on_every_arm` holds.
+#[test]
+fn arabic_decrlm_wrote_draws_joined_with_its_forms_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&courier).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let cols = usize::from(WS.ws_col);
+    let word = |forms: &str| {
+        format!("\x1b[?34h\x1b[2;{cols}H{forms}\u{628}\u{64A}\u{62A}\x1b[?34l\x1b[4;1H")
+    };
+    let scene = |t: &mut Term<'_>, bdsm: &str, forms: &str| {
+        feed(
+            t,
+            format!("\x1bc\x1b[?25l\x1b[8;1HThe quick brown fox jumps 0123456789{bdsm}").as_bytes(),
+        );
+        feed(t, word(forms).as_bytes());
+    };
+    for forms in ["", "\x1b[5 ]", "\x1b[8 ]"] {
+        arms!(fresh() => arms, t);
+        scene(&mut t, "", forms);
+        let got = three(&mut arms, &mut t, &format!("BDSM set, {forms:?}"));
+        scene(&mut t, "\x1b[8l", forms);
+        let want = three(&mut arms, &mut t, &format!("BDSM reset, {forms:?}"));
+        assert_eq!(differing(&got, &want), 0, "{forms:?}: joined as written");
+        if !forms.is_empty() {
+            scene(&mut t, "", "");
+            let plain = three(&mut arms, &mut t, "no form asked");
+            assert_ne!(differing(&got, &plain), 0, "{forms:?}: the form drawn");
+        }
+    }
+}

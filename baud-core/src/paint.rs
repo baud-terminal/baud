@@ -737,15 +737,23 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn write_slowly(&mut self, cp: Codepoint, need: Count) {
+        self.form_step(cp);
+        if self.inserting() {
+            self.open_gap(need);
+        }
+    }
+
+    /// **The form's part of [`Paint::write_slowly`]**, which the leftward
+    /// writer takes too, before it reads the rendition: the gap it opens
+    /// itself, toward the left margin (`crate::leftward`).
+    #[inline(always)]
+    pub(crate) fn form_step(&mut self, cp: Codepoint) {
         self.form_ends();
         if self.cold.modes.is_set(ModeBit::FormPending) {
             match takes_form(cp.value()) {
                 true => self.form_taken(),
                 false => self.form_written(),
             }
-        }
-        if self.inserting() {
-            self.open_gap(need);
         }
     }
 

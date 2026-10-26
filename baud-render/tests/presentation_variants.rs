@@ -432,3 +432,40 @@ fn value_17_slants_right_to_left_italics_to_the_left() {
         "a right-to-left path: {leant} against {el}"
     );
 }
+
+/// **Under DECRLM the letters join as written, right to left, and take the
+/// forms SAPV asks**: a row DECRLM wrote is drawn as its cells hold (Jev,
+/// AS_STORED), the first letter sent in the last column, so it is read
+/// from the right as the program wrote it, with BDSM set and reset; the
+/// letter after a form asked is drawn as its neighbours give it, as on a
+/// row written left to right.
+#[test]
+fn under_decrlm_letters_join_as_written_and_take_the_forms_asked() {
+    use JoiningForm::{Final, Initial, Isolated};
+    for bdsm in ["", "\x1b[8l"] {
+        let at = |b: &str| {
+            let (_, o) = drawn(&format!("{bdsm}\x1b[?34h\x1b[1;10H{b}"));
+            (form(&o, 9), form(&o, 8))
+        };
+        assert_eq!(
+            at("\u{628}\u{628}"),
+            (Some(Initial), Some(Final)),
+            "{bdsm:?}"
+        );
+        assert_eq!(
+            at("\x1b[5 ]\u{628}\u{628}"),
+            (Some(Isolated), Some(Final)),
+            "{bdsm:?}: 5"
+        );
+        assert_eq!(
+            at("\x1b[6 ]\u{628}\x1b[8 ]\u{628}"),
+            (Some(Initial), Some(Final)),
+            "{bdsm:?}: 6 and 8"
+        );
+        assert_eq!(
+            at("\x1b[7 ]\u{628}a"),
+            (Some(JoiningForm::Medial), None),
+            "{bdsm:?}: 7"
+        );
+    }
+}
