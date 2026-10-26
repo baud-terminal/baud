@@ -42,7 +42,8 @@ shell on a pty, `baud-core`, `baud-render`, and the platform's window --
 root's `default-members` makes `cargo run` build it as the bundle does. The bundle gives it an `Info.plist`
 (`packaging/macos/`), a Dock icon rendered from the logo, and the embedded
 fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
-`nix shell nixpkgs#librsvg`.
+the dev shell, which runs it on macOS from the librsvg of the nixpkgs
+`devenv.lock` pins.
 
 **macOS 26 and later** (the owner, 2026-10-13): the window is Liquid Glass,
 `NSGlassEffectView`, which macOS 26 introduced

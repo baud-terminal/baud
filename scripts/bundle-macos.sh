@@ -11,7 +11,8 @@
 # release build and the bundle go under $CARGO_TARGET_DIR when it is set,
 # else target/.
 #
-# Needs iconutil (macOS) and rsvg-convert (via `nix shell nixpkgs#librsvg`).
+# Needs iconutil (macOS) and rsvg-convert, which the dev shell provides:
+# run it as `devenv shell -- scripts/bundle-macos.sh`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -68,15 +69,16 @@ plist >"$APP/Contents/Info.plist"
 ICONSET=$(mktemp -d)/baud.iconset
 mkdir -p "$ICONSET"
 SVG="$ROOT/assets/logo/baud-icon-dock.svg"
-# shellcheck disable=SC2016  # $1/$2 expand in the inner `sh -c`, not out here
-nix shell nixpkgs#librsvg --command sh -c '
-  svg="$1"; out="$2"; shift 2
-  for pair in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
-              128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
-              512:icon_256x256@2x 512:icon_512x512 1024:icon_512x512@2x; do
-    rsvg-convert -w "${pair%%:*}" -h "${pair%%:*}" "$svg" -o "$out/${pair#*:}.png"
-  done
-' sh "$SVG" "$ICONSET"
+command -v rsvg-convert >/dev/null || {
+  echo "bundle-macos.sh: no rsvg-convert; run it in the dev shell:" >&2
+  echo "  devenv shell -- scripts/bundle-macos.sh" >&2
+  exit 1
+}
+for pair in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
+  128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 \
+  512:icon_256x256@2x 512:icon_512x512 1024:icon_512x512@2x; do
+  rsvg-convert -w "${pair%%:*}" -h "${pair%%:*}" "$SVG" -o "$ICONSET/${pair#*:}.png"
+done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/baud.icns"
 
 # The executable.
