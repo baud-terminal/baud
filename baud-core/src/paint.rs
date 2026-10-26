@@ -1733,6 +1733,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// row's end keeps the mark's flags, and on a single-width line there
     /// is no rendition to keep.
     pub(crate) fn erase_line(&mut self, e: EraseExtent) {
+        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.erase_line_presented(e) {
+            return;
+        }
         let (cy, end) = (self.cy, self.line_cols());
         let (a, b) = match e {
             EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
@@ -1920,16 +1923,22 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             self.autoprint(crate::print::LineEnd::LineFeed);
         }
+        let kept = self.presented_col();
         match self.cold.modes.is_set(ModeBit::PathSelected) {
             true => self.line_fed_into_path(),
             false => {
                 self.index();
             }
         }
+        self.keep_presented(kept);
     }
 
-    /// One row up, scrolling the region when the cursor is on its first row.
+    /// One row up, scrolling the region when the cursor is on its first row,
+    /// at its presentation position under DCSM's PRESENTATION.
     pub(crate) fn reverse_index(&mut self) {
+        if self.cold.modes.is_set(ModeBit::PresentationEdits) {
+            return self.reverse_index_presented();
+        }
         if self.cy == self.cold.top {
             self.scroll_region_down(Count::ONE);
             self.row_changed_to(self.cy);
@@ -1938,6 +1947,22 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cy.index() > 0 {
             self.set_row(Row::from_index(self.cy.index() - 1));
         }
+    }
+
+    /// [`Paint::reverse_index`] under DCSM's PRESENTATION, out of line:
+    /// split into a second function in the line, `less` retired 0.5% more
+    /// instructions.
+    #[cold]
+    #[inline(never)]
+    fn reverse_index_presented(&mut self) {
+        let kept = self.presented_col();
+        if self.cy == self.cold.top {
+            self.scroll_region_down(Count::ONE);
+            self.row_changed_to(self.cy);
+        } else if self.cy.index() > 0 {
+            self.set_row(Row::from_index(self.cy.index() - 1));
+        }
+        self.keep_presented(kept);
     }
 
     /// **Caching the row's resolved address was tried and lost.** `phys` is a
@@ -2287,10 +2312,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn line_feed(&mut self, by: Feed) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        if self.cold.modes.any_of_three(
+        if self.cold.modes.any_of_four(
             ModeBit::LineFeedNewLine,
             ModeBit::AutoPrint,
             ModeBit::PathSelected,
+            ModeBit::PresentationEdits,
         ) {
             return self.line_feed_moded(by);
         }
@@ -2321,6 +2347,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
             self.carriage_return();
         }
+        // **Under DCSM's PRESENTATION** the cursor keeps its presentation
+        // position on the line it reaches (`crate::component`).
+        let kept = self.presented_col();
         // **A selected character path** goes to the line the cursor reaches
         // (`crate::path`).
         match self.cold.modes.is_set(ModeBit::PathSelected) {
@@ -2329,6 +2358,7 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.index();
             }
         }
+        self.keep_presented(kept);
     }
 
     /// Down one row, scrolling when that would leave the screen.

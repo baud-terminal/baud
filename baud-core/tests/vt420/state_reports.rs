@@ -219,6 +219,29 @@ fn decrsts_restores_decrlcm_and_dechem() {
     });
 }
 
+/// **The report carries DCSM as it is set** (version 5), though DECRQM
+/// answers DATA while BDSM is set: PRESENTATION under BDSM reset, then
+/// DATA set under BDSM set, each restored after `RIS`.
+#[test]
+fn decrsts_restores_dcsm_as_set() {
+    support::with_corpus(|t| {
+        let dcsm = |t: &mut Term<'_>| show(&reply(t, b"\x1b[9$p"));
+        support::feed(t, b"\x1b[8l");
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc\x1b[9h");
+        support::feed(t, &restore(&report));
+        t.clear_reply();
+        assert_eq!(dcsm(t), "\\x1b[9;2$y", "PRESENTATION, BDSM reset");
+        support::feed(t, b"\x1bc\x1b[9h");
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        support::feed(t, &restore(&report));
+        support::feed(t, b"\x1b[8l");
+        t.clear_reply();
+        assert_eq!(dcsm(t), "\\x1b[9;1$y", "DATA, restored under BDSM set");
+    });
+}
+
 /// **A restore replays a direct colour in every slot**, through the SGR
 /// DECRQSS answers with, `38:2::r:g:b` and its kin, which the parser reads
 /// back with the colour space left empty: `SGR 0`, then the same rendition.
@@ -392,7 +415,12 @@ fn an_invalid_field_is_stepped_over() {
         let mut d = data(&report).to_vec();
         // The version, the level, the ANSI modes, the private modes, the
         // rendition and the margins come before the cursor style.
-        let at = 1 + 1 + 3 + baud_domain::TSR_PRIVATE_MODES.div_ceil(2) + 28 + 12;
+        let at = 1
+            + 1
+            + baud_domain::TSR_ANSI_NIBBLES
+            + baud_domain::TSR_PRIVATE_MODES.div_ceil(2)
+            + 28
+            + 12;
         assert_eq!(d[at], 0x45, "the style nibble is DECSCUSR 5");
         d[at] = 0x49;
         let n = d.len() - 2;

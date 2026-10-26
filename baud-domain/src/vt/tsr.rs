@@ -24,7 +24,7 @@
 //! |---|---|
 //! | 1 | the version, [`TSR_VERSION`] |
 //! | 1 | the conformance level 1 to 4 (bits 0-1), eight-bit C1 (bit 2), ISO 8859-1 input (bit 3) |
-//! | 3 | the six ANSI modes [`TSR_ANSI_MODES`], two bits each |
+//! | 4 | the seven ANSI modes [`TSR_ANSI_MODES`], two bits each, the last nibble's low two bits zero |
 //! | 33 | the sixty-six private modes XTSAVE keeps, two bits each, by slot |
 //! | 28 | the rendition: 23 attribute bits in `Attrs::WIRE`'s order (6), the font (1), the foreground, background and underline colours (7 each) |
 //! | 12 | DECSTBM's top and bottom, DECSLRM's left and right, from 1 |
@@ -37,7 +37,7 @@
 //! | 27 | DECCIR's fields: the row and column (3 each), `Srend`, `Satt`, `Sflag` (1 each), GL and GR (1), the four designations ([`TSR_DESIGNATIONS`]) |
 //! | 53 | the shown screen's `DECSC` save: its row from 1, 0 for none (3), column from 0 (3), rendition (28), protection, DECAWM, DECOM and pending wrap (1), GL and GR (1), the four designations |
 //! | 4 | the tab stops: carried (bit 0) or every eighth column (bit 1); the columns (3) |
-//! | 0-60 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
+//! | 0-59 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
 //!
 //! **The `DECSC` save is the shown screen's** (Jev's lean, S_SHOWN,
 //! 0.86/0.88 after research): no other control reads it back, and
@@ -57,8 +57,8 @@ use crate::*;
 /// The version nibble: a report a later layout reads as foreign. 2 since
 /// the private modes took a sixty-first slot, `?1040`; 3 since they took
 /// terminal-wg's `?2500`, `?2501` and `?1243`; 4 since they took DEC's
-/// `?96` and `?36`.
-pub const TSR_VERSION: u8 = 4;
+/// `?96` and `?36`; 5 since the ANSI modes took DCSM.
+pub const TSR_VERSION: u8 = 5;
 
 /// The data nibbles 256 characters leave: less `ESC P`, `1 $ s`, the two
 /// checksum bytes and `ESC \`.
@@ -67,7 +67,7 @@ pub const TSR_DATA_MAX: usize = 256 - 2 - 3 - 2 - 2;
 /// The nibbles before the tab bitmap.
 pub const TSR_FIXED: usize = 1
     + 1
-    + 3
+    + TSR_ANSI_NIBBLES
     + TSR_PRIVATE_MODES.div_ceil(2)
     + TSR_RENDITION
     + 12
@@ -106,10 +106,14 @@ pub const TSR_REPLY_MAX: usize = 2 + 3 + TSR_DATA_MAX + 2 + 2;
 const _: () = assert!(TSR_REPLY_MAX == 256);
 
 /// The ANSI modes DECRQM answers, in the report's order: IRM, LNM, ERM, KAM,
-/// SRM and BDSM. TSM is permanently reset and carries nothing. BDSM took the
-/// two bits the five left clear, so a report written before it reads BDSM as
-/// absent and restores nothing for it.
-pub const TSR_ANSI_MODES: [u16; 6] = [4, 20, 6, 2, 12, 8];
+/// SRM, BDSM and DCSM. TSM is permanently reset and carries nothing. BDSM
+/// took the two bits the five left clear; DCSM took a fourth nibble, its
+/// low two bits zero, and the report's version 5. DCSM is carried as it is
+/// set, which DECRQM answers only once BDSM is reset.
+pub const TSR_ANSI_MODES: [u16; 7] = [4, 20, 6, 2, 12, 8, 9];
+
+/// The nibbles the ANSI modes take, two bits each.
+pub const TSR_ANSI_NIBBLES: usize = TSR_ANSI_MODES.len().div_ceil(2);
 
 /// How many private modes the report carries: XTSAVE's slots.
 pub const TSR_PRIVATE_MODES: usize = SLOT_WIRE.len();
@@ -181,7 +185,7 @@ pub struct TerminalState {
     pub c1: C1Transmit,
     /// `ESC % @` or `ESC % G`, which `?1020` reports.
     pub encoding: InputEncoding,
-    pub ansi: [TsrMode; 6],
+    pub ansi: [TsrMode; TSR_ANSI_MODES.len()],
     pub private: [TsrMode; TSR_PRIVATE_MODES],
     pub rendition: StyleWord,
     /// DECSTBM's and DECSLRM's parameters.
@@ -222,7 +226,7 @@ pub struct TerminalState {
 pub struct TerminalRestore {
     pub level: Option<(ConformanceLevel, C1Transmit)>,
     pub encoding: Option<InputEncoding>,
-    pub ansi: [Option<TsrMode>; 6],
+    pub ansi: [Option<TsrMode>; TSR_ANSI_MODES.len()],
     pub private: [Option<TsrMode>; TSR_PRIVATE_MODES],
     pub rendition: Option<StyleWord>,
     pub top: Option<u16>,
@@ -469,8 +473,10 @@ impl TerminalState {
             InputEncoding::Latin1 => 8,
         };
         p.nibbles(level_code(self.level) | eight | latin1, 1);
-        let ansi = self.ansi.iter().fold(0, |v, m| (v << 2) | m.code());
-        p.nibbles(ansi, 3);
+        let ansi = (0..2 * TSR_ANSI_NIBBLES).fold(0, |v, i| {
+            (v << 2) | self.ansi.get(i).map_or(0, |m| m.code())
+        });
+        p.nibbles(ansi, TSR_ANSI_NIBBLES);
         for pair in self.private.chunks(2) {
             let low = pair.get(1).map_or(0, |m| m.code());
             p.nibbles((pair[0].code() << 2) | low, 1);
@@ -618,10 +624,10 @@ impl TerminalRestore {
             };
             (level, c1)
         });
-        let mut ansi = [None; 6];
-        if let Some(v) = g.nibbles(3) {
+        let mut ansi = [None; TSR_ANSI_MODES.len()];
+        if let Some(v) = g.nibbles(TSR_ANSI_NIBBLES) {
             for (i, m) in ansi.iter_mut().enumerate() {
-                *m = TsrMode::of((v >> (2 * (5 - i))) & 3);
+                *m = TsrMode::of((v >> (2 * (2 * TSR_ANSI_NIBBLES - 1 - i))) & 3);
             }
         }
         let mut private = [None; TSR_PRIVATE_MODES];

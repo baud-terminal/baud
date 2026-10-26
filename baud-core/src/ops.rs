@@ -157,9 +157,20 @@ impl Paint<'_, '_> {
     /// both bits, `0x24`, is no logical immediate on arm64: it cost a `mov`
     /// and a `tst` where one `tbnz` stands, 2.4 M instructions over 100 reps
     /// of `cat` (`docs/record.md`, "Line starts and moves under side margins").
+    ///
+    /// **Under DCSM's PRESENTATION** the column chosen is the line's home
+    /// in the presentation, and the cursor goes to the cell drawn there
+    /// (`crate::component`).
+    /// Tested first, out of line, so nothing of it is live across the
+    /// column's store: kept live, it took a register the loop around `CR`
+    /// had, and `less` retired 0.5% more instructions.
     #[inline(always)]
     pub(crate) fn carriage_return(&mut self) {
-        match self.cold.modes.is_set(ModeBit::SideMargins) {
+        let modes = self.cold.modes;
+        if modes.is_set(ModeBit::PresentationEdits) {
+            return self.return_presented();
+        }
+        match modes.is_set(ModeBit::SideMargins) {
             false => self.set_col(CursorCol::moved(Col::ZERO)),
             true => self.return_fenced(),
         }
@@ -1593,6 +1604,9 @@ impl Paint<'_, '_> {
 
     /// ECH: blank `n` cells from the cursor, without moving anything.
     pub(crate) fn erase_chars(&mut self, n: Count) {
+        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.erase_chars_presented(n) {
+            return;
+        }
         let (r, from) = (self.cy, self.cx.col());
         // To the line's end, the half on a double line.
         let to = Col::at_index((from.index() + n.at_least_one()).min(self.line_cols().index()));
@@ -1603,6 +1617,9 @@ impl Paint<'_, '_> {
 
     /// DCH: pull the rest of the row left over `n` cells.
     pub(crate) fn delete_chars(&mut self, n: Count) {
+        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.delete_presented(n) {
+            return;
+        }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
         // **The right margin, not the row.** `to` was `cols` before the
         // margins existed, so a `DCH` inside a region pulled text in from
@@ -1627,6 +1644,9 @@ impl Paint<'_, '_> {
 
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
+        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.insert_presented(n) {
+            return;
+        }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
         // The line's end on a double line too (p. 5-143), as `DCH`.
         let to = self.line_fence().after();
@@ -4241,7 +4261,15 @@ impl Paint<'_, '_> {
                 self.cold.bidi = match on {
                     true => BidiSupport::Implicit,
                     false => BidiSupport::Explicit,
-                }
+                };
+                self.refresh_presentation_edits();
+            }
+            AnsiMode::DeviceComponentSelect => {
+                self.cold.dcsm = match on {
+                    true => DeviceComponent::Data,
+                    false => DeviceComponent::Presentation,
+                };
+                self.refresh_presentation_edits();
             }
             _ => self.unsupported_param += 1,
         }
@@ -4447,6 +4475,8 @@ impl Paint<'_, '_> {
         // that "may imply, if applicable". `DECSTR` keeps it, as its DEC
         // table names no BDSM.
         self.cold.bidi = BidiSupport::POWER_ON;
+        self.cold.dcsm = DeviceComponent::POWER_ON;
+        self.refresh_presentation_edits();
         // No character path, autodetection on and no box mirroring, in
         // force and on every line: the mode word above took
         // `ModeBit::PathSelected` back, and the rows below are erased with
@@ -5000,6 +5030,12 @@ impl Paint<'_, '_> {
                 AnsiMode::BiDirectionalSupport => match self.cold.bidi {
                     BidiSupport::Implicit => ModeState::Set,
                     BidiSupport::Explicit => ModeState::Reset,
+                },
+                // With BDSM set, "it is considered to be set to DATA"
+                // (`[[source: ecma48]]` 7.3.4 c).
+                AnsiMode::DeviceComponentSelect => match (self.cold.bidi, self.cold.dcsm) {
+                    (BidiSupport::Implicit, _) | (_, DeviceComponent::Data) => ModeState::Set,
+                    (BidiSupport::Explicit, DeviceComponent::Presentation) => ModeState::Reset,
                 },
                 _ => ModeState::NotRecognized,
             };

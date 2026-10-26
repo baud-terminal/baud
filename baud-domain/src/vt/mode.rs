@@ -121,6 +121,8 @@ pub enum AnsiMode {
     SendReceive,
     /// BDSM, mode 8, `[[source: ecma48]]` 7.2.1 ([`BidiSupport`]).
     BiDirectionalSupport,
+    /// DCSM, mode 9, `[[source: ecma48]]` 7.2.3 ([`DeviceComponent`]).
+    DeviceComponentSelect,
     Other(Param),
 }
 
@@ -152,6 +154,33 @@ impl BidiSupport {
     pub const POWER_ON: BidiSupport = BidiSupport::Implicit;
 }
 
+/// **DCSM's two states**, `[[source: ecma48]]` 7.2.3: "PRESENTATION:
+/// Certain control functions are performed in the presentation component
+/// ... DATA: Certain control functions are performed in the data
+/// component", the functions "CPR, CR, DCH, DL, EA, ECH, ED, EF, EL, ICH,
+/// IL, LF, NEL, RI, SLH, SLL, SPH, SPL". **RM 9 selects PRESENTATION and
+/// SM 9 DATA**: 7.1, "the reset state is shown first", 7.2, "the first
+/// state is caused by RM", and Table 6 (Jev's lean, SM_IS_DATA,
+/// 0.58/0.72 then 0.72/0.86), where 7.3.4 c) calls DATA "the reset
+/// state". It acts only with BDSM reset, 7.3.4 b): with BDSM set "The
+/// setting of the DCSM has no effect; it is considered to be set to DATA",
+/// which `DECRQM` answers then (Jev's lean, DATA_WHILE_IMPLICIT, 0.80/0.52
+/// then 0.64/0.10). PRESENTATION differs from DATA only on a line holding
+/// an SDS or SRS string, the one place a presentation position holds
+/// another data position.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DeviceComponent {
+    Presentation,
+    Data,
+}
+
+impl DeviceComponent {
+    /// The state at power-on and after `RIS`: the reset state, 7.1's
+    /// recommendation (Jev's lean, PRESENTATION, 0.38/0.52 then
+    /// 0.66/0.42); BDSM is set then, so it acts once a program resets it.
+    pub const POWER_ON: DeviceComponent = DeviceComponent::Presentation;
+}
+
 impl AnsiMode {
     pub fn from_wire(p: Option<Param>) -> AnsiMode {
         match p.map_or(0, |x| x.0) {
@@ -162,6 +191,7 @@ impl AnsiMode {
             2 => AnsiMode::KeyboardAction,
             12 => AnsiMode::SendReceive,
             8 => AnsiMode::BiDirectionalSupport,
+            9 => AnsiMode::DeviceComponentSelect,
             n => AnsiMode::Other(Param(n)),
         }
     }
@@ -346,6 +376,14 @@ pub enum ModeBit {
     /// instruction for the rules. Set by SCP and SPD, reset only by `RIS`;
     /// no `DECRQM` or XTSAVE reaches it.
     PathSelected,
+    /// **Whether an editing function may take a position in the
+    /// presentation component**: DCSM at PRESENTATION, BDSM reset and a
+    /// string begun since power-on, all three (`[[source: ecma48]]` 7.3.4
+    /// b). Not a mode the host names: `CR` tests it beside DECLRMM's, and a
+    /// line feed in the test it makes for LNM, the bit after
+    /// [`ModeBit::PathSelected`] so the `CR LF` pair's mask stays one run; set and reset as the
+    /// three change; no `DECRQM` or XTSAVE reaches it.
+    PresentationEdits,
     /// **Whether a SAPV form waits for the following graphic character**
     /// (`[[source: ecma48]]` 8.3.108, values 5 to 8). Not a mode the host
     /// names: the core chooses its parse graph by it and by
@@ -445,6 +483,10 @@ impl Modes {
     /// Whether any of three modes is set: one test of the word.
     pub fn any_of_three(self, a: ModeBit, b: ModeBit, c: ModeBit) -> bool {
         self.0 & (a.bit() | b.bit() | c.bit()) != 0
+    }
+    /// Whether any of four modes is set: one test of the word.
+    pub fn any_of_four(self, a: ModeBit, b: ModeBit, c: ModeBit, d: ModeBit) -> bool {
+        self.0 & (a.bit() | b.bit() | c.bit() | d.bit()) != 0
     }
     pub fn set(&mut self, m: ModeBit) {
         self.0 |= m.bit();

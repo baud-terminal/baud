@@ -477,11 +477,11 @@ pub(crate) fn act(
                     // Autoprint prints the line the `LF` leaves (`print.rs`),
                     // and a selected character path goes to the line it
                     // reaches (`crate::path`): one test, both out of line.
-                    match p
-                        .cold
-                        .modes
-                        .either_set(ModeBit::AutoPrint, ModeBit::PathSelected)
-                    {
+                    match p.cold.modes.any_of_three(
+                        ModeBit::AutoPrint,
+                        ModeBit::PathSelected,
+                        ModeBit::PresentationEdits,
+                    ) {
                         true => p.cr_lf_moded(),
                         false => {
                             p.index();
@@ -2731,7 +2731,9 @@ fn esc_final(
         // is `carriage_return(); line_feed();`.
         Esc::NextLine => {
             p.carriage_return();
+            let kept = p.presented_col();
             p.index_bringing_in();
+            p.keep_presented(kept);
         }
         Esc::TabSet => p.tab_set(),
         Esc::LineTabSet => p.cold.line_stops.set(p.cy),

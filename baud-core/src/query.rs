@@ -185,6 +185,12 @@ impl Paint<'_, '_> {
         // own column**: only the sentinel waits on a column it is not on
         // ([`CursorCol::reported`]).
         let col = self.cx.reported(self.line_fence(), self.cols);
+        // **Its presentation position under DCSM's PRESENTATION**, on a line
+        // holding a string (`crate::component`).
+        let col = match self.cold.modes.is_set(ModeBit::PresentationEdits) {
+            true => self.reported_presented(col),
+            false => col,
+        };
         // **And the column from the left margin under DECOM**:
         // `active_position.column - left_margin + 1` (`[[source:
         // dec-std-070]]` CPR, p. 5-54, and DECXCPR, p. 5-56), so a `CUP` and

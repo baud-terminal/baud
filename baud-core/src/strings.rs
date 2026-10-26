@@ -181,6 +181,7 @@ impl Paint<'_, '_> {
                 };
                 self.strs.strings.table[id.index()] = Some(StringEntry { parent: now, kind });
                 self.strs.strings.begun = Begun::Yes;
+                self.refresh_presentation_edits();
                 self.write_string(id);
             }
             end => {
@@ -301,6 +302,7 @@ impl Paint<'_, '_> {
     pub(crate) fn reset_strings(&mut self) {
         self.end_strings();
         self.strs.strings = Strings::POWER_ON;
+        self.refresh_presentation_edits();
     }
 
     /// **`raw` put back as the rendition being built, the string open now

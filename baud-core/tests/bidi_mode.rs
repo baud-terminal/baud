@@ -76,15 +76,28 @@ fn ris_returns_bdsm_to_set_and_decstr_keeps_it() {
     assert_eq!(after(b"\x1b[!p").0, BidiSupport::Implicit);
 }
 
-/// The control beside it: DCSM, mode 9, is not built, so it is counted and
-/// DECRQM says it is not recognised rather than answering a state.
+/// **DCSM, mode 9, beside it**: acted on and not counted, and DECRQM
+/// answers DATA's state while BDSM is set ("it is considered to be set to
+/// DATA", `[[source: ecma48]]` 7.3.4 c), the state set once BDSM is reset:
+/// PRESENTATION, the reset state, at power-on. Until now it was counted and
+/// answered `0`. The rest is `baud-core/tests/device_component.rs`.
 #[test]
-fn dcsm_stays_counted_and_not_recognised() {
+fn dcsm_answers_data_while_bdsm_is_set() {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
+    let ask = |t: &mut Term<'_>| {
+        t.clear_reply();
+        support::feed(t, b"\x1b[9$p");
+        t.reply().to_vec()
+    };
+    assert_eq!(ask(&mut t), b"\x1b[9;1$y", "BDSM set: DATA");
+    support::feed(&mut t, b"\x1b[8l");
+    assert_eq!(ask(&mut t), b"\x1b[9;2$y", "PRESENTATION at power-on");
     support::feed(&mut t, b"\x1b[9h");
-    assert_eq!(t.unsupported_param, 1);
-    t.clear_reply();
-    support::feed(&mut t, b"\x1b[9$p");
-    assert_eq!(t.reply(), b"\x1b[9;0$y");
+    assert_eq!(ask(&mut t), b"\x1b[9;1$y");
+    support::feed(&mut t, b"\x1b[9l\x1b[8h");
+    assert_eq!(ask(&mut t), b"\x1b[9;1$y", "BDSM set again");
+    support::feed(&mut t, b"\x1b[8l");
+    assert_eq!(ask(&mut t), b"\x1b[9;2$y", "the state kept");
+    assert_eq!(t.unsupported_param, 0);
 }

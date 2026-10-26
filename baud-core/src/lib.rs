@@ -64,6 +64,7 @@ mod hardcopy;
 mod iterm;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
+mod component;
 mod kitty;
 mod locator;
 mod logging;

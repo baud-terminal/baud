@@ -1243,6 +1243,9 @@ pub struct Cold {
     /// [`ModeBit`]: the mode word is read by the per-byte path and full,
     /// and nothing on that path reads this.
     pub(crate) bidi: BidiSupport,
+    /// DCSM ([`DeviceComponent`]): read by the editing functions 7.2.3
+    /// lists, through [`ModeBit::PresentationEdits`] (`crate::component`).
+    pub(crate) dcsm: DeviceComponent,
     /// The paragraph properties in force ([`LineBidi`]): SCP's and SPD's
     /// character path, `?2501`'s autodetection and `?2500`'s box
     /// mirroring, which the lines that follow take (`crate::path`). Their
@@ -2012,6 +2015,7 @@ impl Cold {
             // rendered (`tests/golden.rs`) compares like with like.
             modes: Modes::default(),
             bidi: BidiSupport::POWER_ON,
+            dcsm: DeviceComponent::POWER_ON,
             line: LineBidi::POWER_ON,
             arrows: ArrowSwap::On,
             held_arrows: HeldArrows::NONE,

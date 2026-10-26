@@ -464,6 +464,7 @@ impl AnsiMode {
             AnsiMode::Erasure
             | AnsiMode::TabulationStop
             | AnsiMode::BiDirectionalSupport
+            | AnsiMode::DeviceComponentSelect
             | AnsiMode::Other(_) => return None,
         })
     }

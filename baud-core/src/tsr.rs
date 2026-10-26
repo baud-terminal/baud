@@ -106,9 +106,17 @@ impl Paint<'_, '_> {
     /// The state DECTSR reports: what DECRQM, DECRQSS and DECRQPSR answer
     /// now.
     pub(crate) fn terminal_state(&self) -> TerminalState {
-        let mut ansi = [TsrMode::Absent; 6];
+        let mut ansi = [TsrMode::Absent; TSR_ANSI_MODES.len()];
         for (m, w) in ansi.iter_mut().zip(TSR_ANSI_MODES) {
-            *m = tsr_mode(self.mode_state(Marker::Standard, Param::from_raw(w)));
+            *m = match w {
+                // DCSM as it is set, which DECRQM answers as DATA while
+                // BDSM is set (`crate::component`).
+                9 => match self.cold.dcsm {
+                    DeviceComponent::Data => TsrMode::Set,
+                    DeviceComponent::Presentation => TsrMode::Reset,
+                },
+                _ => tsr_mode(self.mode_state(Marker::Standard, Param::from_raw(w))),
+            };
         }
         let mut private = [TsrMode::Absent; TSR_PRIVATE_MODES];
         for (m, w) in private.iter_mut().zip(SLOT_WIRE) {

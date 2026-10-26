@@ -347,6 +347,15 @@ the screen; step 3 joins Arabic letters.
   its characters, through edits, scrolling, the history and a change of
   width; erasing a character leaves its place in the string, and a copy
   gives the text as written.
+- **With the mode off, a program can edit a line as it is drawn** (DCSM,
+  `CSI 9 l`, `[[source: ecma48]]` 7.2.3, the state baud starts in): on a
+  line holding a string, CR goes to the character drawn at the line's
+  start, DCH deletes and ECH and EL erase the characters drawn where the
+  cursor's drawn place reaches, ICH opens room where the cursor is drawn,
+  a line feed keeps the cursor's drawn column, and a cursor report gives
+  it (`dch_deletes_the_cells_drawn_at_its_positions`,
+  `cpr_reports_the_presentation_column`). `CSI 9 h` edits the cells as
+  stored. With the mode on it does nothing, as ECMA-48 says.
 - **A copy can read each line from its right edge** (DEC's DECRLCM,
   `CSI ? 96 h`, `[[source: vt510-decrlcm]]`): each line of the copy
   gives its characters in the order they are drawn, from right to left,
@@ -457,6 +466,9 @@ governs. The first round gave it 0.10 and 0.14 and the re-ask's order A
 0.23; order B of the re-ask leaned to unmirroring in both states, at
 0.16. UAX #9 section 7: "mirroring must be done according to rule L4".
 
+The requests, the renders shown and the answers are in
+`docs/research/notes/ab/b211/`.
+
 **DEC's Hebrew modes and ECMA-48's strings (2026-10-26)**, read against
 the VT510's DECRLCM, DECHEM, DECSTR and chapter 4 pages (`[[source:
 vt510-decrlcm]]`, `[[source: vt510-dechem]]`, `[[source: vt510-decstr]]`,
@@ -474,10 +486,11 @@ in both. **Taken from Jev's lean; the owner can veto each:**
 | a reversed string at a line's top | reverses the line's character path, left to right where none is set | 0.74 / 0.78, 0.88 / 0.90 |
 | an end of the other kind | SDS 0 ends only a directed string and SRS 0 only a reversed one; any other end is counted | 0.82 / 0.62, 0.90 / 0.76 |
 | `DECSTR` and open strings | every string ends, the characters written keeping theirs | 0.26 / 0.46, 0.82 / 0.86 |
+| which DCSM state `CSI 9 h` selects | DATA, as 7.1, 7.2 and Table 6 have it | 0.58 / 0.72, 0.72 / 0.86 |
+| DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string | 0.22 / 0.22, 0.86 / 0.86 |
+| DCSM at power-on | PRESENTATION, the reset state | 0.38 / 0.52, 0.66 / 0.42 |
+| `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" | 0.80 / 0.52, 0.64 / 0.10 |
 | DECHEM | acted on as a Hebrew VT510: reset puts the DEC 7-bit Hebrew set in G0 to G3, set the power-up sets back, as STD 070's DECNRCM algorithms do; DECNRCM itself, the opposite, stays ignored (note AF's Q-DECNRCM), so `?36 l` acts where `?42 h`, which Table 4-8 note 1 gives the same result, does nothing: an open departure | ignored as DECNRCM is, 0.27 / 0.04; then the orders apart, ignored 0.18 and this 0.28, both askings describing G0 alone; asked again with the sets as built, this 0.51 / 0.49 |
-
-The requests, the renders shown and the answers are in
-`docs/research/notes/ab/b211/`.
 
 **Taken from Jev's lean, which held in all four answers but for the
 erased cells, where the first ask's SKIPPED (0.10 / 0.18 against a space)
@@ -690,7 +703,11 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- DCSM; DEC's DECRLM.
+- DEC's DECRLM.
+- **The cursor on a line holding a string, with the mode off**: `CUP`,
+  `CHA`, `CUF` and `CUB` place the cursor by the line's cells whatever
+  DCSM says, where ECMA-48 (8.3.9, 8.3.20, 8.3.21, Annex F) moves "the
+  active presentation position" for each.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above
