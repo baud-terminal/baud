@@ -1817,6 +1817,14 @@ impl<'b> ImageStore<'b> {
         }
     }
 
+    /// Whether placement `p` shows a kitty image.
+    fn is_kitty(&self, p: PlacementSlot) -> bool {
+        p.image
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .is_some_and(|i| matches!(i.owner, ImageOwner::Kitty(..)))
+    }
+
     /// **Tell the store the cell height in device pixels**, which sizes
     /// the rows a Sixel's or an embedder's image is drawn over
     /// ([`ImageStore::rows_over`]). Each screen's reach is recounted, so
@@ -3434,9 +3442,21 @@ impl<'b> ImageStore<'b> {
 
     /// Drop every placement on `screen` whose rows are gone: one whose last
     /// shown row is before `lo`, one anchored at or past `hi` -- `[lo, hi)`
-    /// the rows the screen retains -- or one anchored on `blanked`, a row a
-    /// scroll blanked as it came in. Each is counted in
+    /// the rows the screen retains -- or one not kitty's anchored on
+    /// `blanked`, a row a scroll blanked as it came in. Each is counted in
     /// [`ImageStore::placements_expired`]. Returns how many.
+    ///
+    /// **A kitty placement on `blanked` stays**, drawn over the blank row
+    /// its line now is: images "must be scrolled along with text", and
+    /// kitty's `INDEX_DOWN` moves every image down a row and drops none
+    /// (`[[source: kitty-screen-c]]`). A reverse scroll takes the newest
+    /// history line back as the top row, so a picture anchored there is
+    /// drawn on that row, a tall one's lower rows one row down with their
+    /// text, where kitty draws it; a line feed bringing back the row a
+    /// reverse scroll pushed under the window brings its picture back, as
+    /// kitty's `INDEX_UP` does (Jev's lean, KEEP, under the bar; on the
+    /// re-ask one order chose keeping only a picture whose rows reach the
+    /// screen, tied with KEEP; docs/vt-coverage.md has the figures).
     ///
     /// **A kitty placement goes when its last row leaves**, not its anchor:
     /// images "must be scrolled along with text" (`[[source:
@@ -3480,7 +3500,8 @@ impl<'b> ImageStore<'b> {
             if s.is_empty() || s.screen != screen {
                 continue;
             }
-            if s.line.plus(self.rows_over(s)) <= lo || s.line >= hi || Some(s.line) == blanked {
+            let blank = Some(s.line) == blanked && !self.is_kitty(s);
+            if s.line.plus(self.rows_over(s)) <= lo || s.line >= hi || blank {
                 self.unplace(PlacementId::from_index(p));
                 self.placements_expired += 1;
                 n += 1;

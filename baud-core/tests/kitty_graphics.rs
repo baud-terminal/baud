@@ -1356,6 +1356,130 @@ fn a_tall_picture_goes_when_its_last_row_leaves_the_history() {
     });
 }
 
+/// The rows from the screen's top to each placement's anchor, negative
+/// above it, and how many placements expired.
+fn shown_rows(t: &Term<'_>) -> (Vec<i64>, usize) {
+    let top = i64::try_from(t.image_origin(Rows::ZERO).top.value()).unwrap();
+    let rows = kitty_lines(t)
+        .into_iter()
+        .map(|l| i64::try_from(l).unwrap() - top)
+        .collect();
+    (rows, t.images().placements_expired)
+}
+
+/// A picture `rows` tall placed on the top row, then one line feed at
+/// the bottom, so its anchor is the newest line of the history; then
+/// `scroll` with the cursor on the top row. Returns the rows before and
+/// after.
+fn taken_back(alt: bool, rows: u32, scroll: &[u8]) -> ((Vec<i64>, usize), (Vec<i64>, usize)) {
+    with_history(1 << 16, |t| {
+        let mut r = Vec::new();
+        if alt {
+            feed(t, b"\x1b[?1049h", &mut r);
+        }
+        let ctrl = format!("a=T,f=24,s=10,v={},i=1,q=2,C=1", rows * 20);
+        let px = b64(&vec![7u8; usize::try_from(rows).unwrap() * 600]);
+        feed(t, b"\x1b[1;1H", &mut r);
+        feed(t, &apc(&ctrl, &px), &mut r);
+        feed(t, b"\x1b[24;1H\n\x1b[1;1H", &mut r);
+        let before = shown_rows(t);
+        feed(t, scroll, &mut r);
+        (before, shown_rows(t))
+    })
+}
+
+/// **A reverse scroll moves a picture down with its text, and drops
+/// none**: images "must be scrolled along with text" (`[[source:
+/// kitty-graphics]]`, "Interaction with other terminal actions"), and
+/// kitty's `INDEX_DOWN` moves every image down a row (`[[source:
+/// kitty-screen-c]]`, `[[source: kitty-graphics-c]]` `scroll_filter_func`
+/// with `amt` 1). A full-screen `RI` or `SD` takes the newest line of
+/// the history back as the blank top row, so a picture anchored there
+/// is drawn on that row, a tall one with its lower rows one row down
+/// over the text that moved: where kitty draws both. It went with the
+/// line before, the tall one's rows on screen with it.
+#[test]
+fn a_reverse_scroll_moves_a_picture_on_the_line_it_takes_back_down() {
+    for scroll in [&b"\x1bM"[..], b"\x1b[T"] {
+        for (alt, rows) in [(false, 1), (false, 4), (true, 4)] {
+            let (before, after) = taken_back(alt, rows, scroll);
+            assert_eq!(
+                before,
+                (vec![-1], 0),
+                "the premise: one row above the screen"
+            );
+            assert_eq!(after, (vec![0], 0), "alt {alt}, {rows} rows, {scroll:?}");
+        }
+    }
+}
+
+/// A picture on the top row a reverse scroll moves down is one row
+/// down after it, on either screen and with or without a history.
+#[test]
+fn a_reverse_scroll_moves_a_picture_on_the_top_row_one_row_down() {
+    for alt in [false, true] {
+        for scroll in [&b"\x1bM"[..], b"\x1b[T"] {
+            let after = with(4096, |t| {
+                let mut r = Vec::new();
+                if alt {
+                    feed(t, b"\x1b[?1049h", &mut r);
+                }
+                feed(t, b"\x1b[1;1H", &mut r);
+                feed(
+                    t,
+                    &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
+                    &mut r,
+                );
+                feed(t, b"\x1b[1;1H", &mut r);
+                feed(t, scroll, &mut r);
+                shown_rows(t)
+            });
+            assert_eq!(after, (vec![1], 0), "alt {alt}, {scroll:?}");
+        }
+    }
+}
+
+/// **A picture a reverse scroll pushes below the screen comes back with
+/// its row**: the primary keeps the row under the window, and a line
+/// feed at the bottom brings it back as the bottom row, blank, the
+/// picture drawn over it as kitty draws it (`INDEX_DOWN` drops nothing
+/// and `INDEX_UP` moves it back; Jev's lean, KEEP, under the bar; on the
+/// re-ask one order chose keeping only a picture whose rows reach the
+/// screen, tied with KEEP; docs/vt-coverage.md has the figures). The
+/// alternate screen keeps no row below the window, so there the
+/// picture goes as its row leaves the screen, counted.
+#[test]
+fn a_picture_pushed_below_the_screen_comes_back_with_its_row() {
+    for alt in [false, true] {
+        let (under, back) = with_history(4096, |t| {
+            let mut r = Vec::new();
+            if alt {
+                feed(t, b"\x1b[?1049h", &mut r);
+            }
+            feed(t, b"\x1b[24;1H", &mut r);
+            feed(
+                t,
+                &apc("a=T,f=24,s=10,v=20,i=1,q=2,C=1", &b64(&[7u8; 600])),
+                &mut r,
+            );
+            feed(t, b"\x1b[1;1H\x1bM", &mut r);
+            let under = shown_rows(t);
+            feed(t, b"\x1b[24;1H\n", &mut r);
+            (under, shown_rows(t))
+        });
+        match alt {
+            false => {
+                assert_eq!(under, (vec![24], 0), "under the window, kept");
+                assert_eq!(back, (vec![23], 0), "back on the bottom row");
+            }
+            true => {
+                assert_eq!(under, (vec![], 1), "off the alternate screen, gone");
+                assert_eq!(back, (vec![], 1));
+            }
+        }
+    }
+}
+
 /// The same on the alternate screen, which keeps no history: kitty's
 /// limit there is the screen's top (`[[source: kitty-screen-c]]`
 /// `INDEX_GRAPHICS`, `is_main ? -self->historybuf->ynum : 0`), so a
