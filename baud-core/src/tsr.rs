@@ -144,7 +144,7 @@ impl Paint<'_, '_> {
             encoding: self.cold.encoding,
             ansi,
             private,
-            rendition: self.style_raw,
+            rendition: self.kept_rendition(),
             top: self.cold.top.one_based().get(),
             bottom: self.cold.bot.one_based().get(),
             left: self.cold.left.one_based().get(),

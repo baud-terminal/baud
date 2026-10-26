@@ -16,7 +16,7 @@
 //! Nothing here is per frame except the walk, which the glyph map already
 //! makes over every cell: a byte test a cell, a lookup a marked cell.
 
-use crate::atlas::Code;
+use crate::atlas::{Code, Flip, Stretch};
 use crate::cellmap::CellSpan;
 use crate::cellmap::{
     BlockCursor, BlockPaint, Candidate, CursorLook, GlyphMap, Hilite, Line, Resolved, Selected,
@@ -347,6 +347,22 @@ struct Paint<'p> {
     block_paint: BlockPaint,
 }
 
+/// **How far the cell at visual `(x, y)` leans left, in `style`**: SAPV
+/// 17's slant where the layout found it (`Orders::slants`), and what the
+/// cell is then drawn in, its upright style.
+fn slant_at(
+    r: &Renderer<'_, '_>,
+    paint: &Paint<'_>,
+    (x, y): (usize, usize),
+    style: crate::stack::TextFace,
+) -> (Option<crate::stack::Lean>, crate::stack::TextFace) {
+    let lean = paint
+        .orders
+        .filter(|o| o.slanted(Row::from_index(y), Col::at_index(x)))
+        .and_then(|_| r.lean(style));
+    (lean, lean.map_or(style, |_| style.upright()))
+}
+
 /// The opacity a record under `block` is drawn with: its style's, or all
 /// of it where there is no cursor.
 fn opacity_of(r: &Renderer<'_, '_>, block: Option<(Row, Col, CursorStyle)>) -> Chan {
@@ -396,6 +412,13 @@ impl ClusterKey {
     /// from the same codepoints drawn as they are.
     fn flipped(self) -> ClusterKey {
         ClusterKey((self.0 ^ 0xf8).wrapping_mul(ClusterKey::PRIME))
+    }
+
+    /// A cell SAPV 17 slants left, by `lean`: a different cluster from the
+    /// same codepoints drawn upright.
+    fn sheared(self, lean: crate::stack::Lean) -> ClusterKey {
+        let bits = u64::from(lean.tan().to_bits()) << 8;
+        ClusterKey((self.0 ^ 0xf9 ^ bits).wrapping_mul(ClusterKey::PRIME))
     }
 
     /// A lam-alef pair, its lam in `form`: two cells drawn together.
@@ -798,6 +821,27 @@ impl Overlay {
                 }
             }
         }
+        // **The cells SAPV 17 slants left** that neither list above drew,
+        // before the marked ones: each by a record of its upright glyph
+        // sheared ([`Renderer::shear_glyphs`]). A list a reordered row, so a
+        // screen with none pays one test a row.
+        if orders.any() {
+            for y in 0..rows {
+                let row = Row::from_index(y);
+                if view.rendition(row).is_double() {
+                    continue;
+                }
+                for &v in orders.slants(row) {
+                    let x = v.index();
+                    if mask.get(y * cols + x).is_none_or(|b| b & MASK_RECORD != 0)
+                        || covered.holds(row, v)
+                    {
+                        continue;
+                    }
+                    self.whole(scene, r, (x, y), mask, records, &paint, &geom);
+                }
+            }
+        }
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
@@ -1001,9 +1045,9 @@ impl Overlay {
             return;
         };
         let mut cps = vec![cp];
-        let style = crate::cellmap::face_of(styles, cell);
+        let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(styles, cell));
         let mut key = ClusterKey::start().word(style.code()).fold(cp);
-        for mk in term.cluster_marks(cell) {
+        for mk in crate::renderer::drawn_marks(term, cell) {
             if let Some(c) = Codepoint::new(mk) {
                 cps.push(c);
                 key = key.fold(c);
@@ -1013,11 +1057,17 @@ impl Overlay {
         if span == CellSpan::Two {
             key = key.wide();
         }
+        if let Some(l) = lean {
+            key = key.sheared(l);
+        }
         let glyphs = match self.clusters.get(&key) {
             Some(g) => g.clone(),
             None => {
                 self.stats.misses.bump();
-                let g = r.cluster(&cps, style, span);
+                let mut g = r.cluster(&cps, style, span);
+                if let Some(l) = lean {
+                    r.shear_glyphs(&mut g, l, Stretch::One, Flip::Kept);
+                }
                 self.clusters.insert(key, g.clone());
                 g
             }
@@ -1060,7 +1110,7 @@ impl Overlay {
         if cps.is_empty() {
             return;
         }
-        let style = crate::cellmap::face_of(scene.styles, cell);
+        let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(scene.styles, cell));
         let mut key = ClusterKey::start().word(style.code());
         for &c in &cps {
             key = key.fold(c);
@@ -1073,14 +1123,24 @@ impl Overlay {
         if flipped {
             key = key.flipped();
         }
+        if let Some(l) = lean {
+            key = key.sheared(l);
+        }
         let glyphs = match self.clusters.get(&key) {
             Some(g) => g.clone(),
             None => {
                 self.stats.misses.bump();
-                let g = match flipped {
+                let mut g = match flipped {
                     true => r.cluster_flipped(&cps, style, span),
                     false => r.cluster(&cps, style, span),
                 };
+                if let Some(l) = lean {
+                    let flip = match flipped {
+                        true => Flip::Flipped,
+                        false => Flip::Kept,
+                    };
+                    r.shear_glyphs(&mut g, l, Stretch::One, flip);
+                }
                 self.clusters.insert(key, g.clone());
                 g
             }
@@ -1118,17 +1178,23 @@ impl Overlay {
         if cps.is_empty() {
             return;
         }
-        let style = crate::cellmap::face_of(scene.styles, cell);
+        let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(scene.styles, cell));
         let mut key = ClusterKey::start().word(style.code());
         for &c in &cps {
             key = key.fold(c);
         }
-        let key = key.joined(form);
+        let mut key = key.joined(form);
+        if let Some(l) = lean {
+            key = key.sheared(l);
+        }
         let glyphs = match self.clusters.get(&key) {
             Some(g) => g.clone(),
             None => {
                 self.stats.misses.bump();
-                let g = r.cluster_joined(&cps, style, form);
+                let mut g = r.cluster_joined(&cps, style, form);
+                if let Some(l) = lean {
+                    r.shear_glyphs(&mut g, l, Stretch::One, Flip::Kept);
+                }
                 self.clusters.insert(key, g.clone());
                 g
             }
@@ -1255,7 +1321,12 @@ impl Overlay {
         };
         let lam = crate::renderer::cell_cps(scene.term, lam_cell);
         let alef = crate::renderer::cell_cps(scene.term, alef_cell);
-        let style = crate::cellmap::face_of(scene.styles, lam_cell);
+        let (lean, style) = slant_at(
+            r,
+            paint,
+            (lam_x, y),
+            crate::cellmap::face_of(scene.styles, lam_cell),
+        );
         let mut key = ClusterKey::start().word(style.code());
         for &c in &lam {
             key = key.fold(c);
@@ -1278,11 +1349,19 @@ impl Overlay {
             }
             PairSpan::LamCell => key.word(Code(0xC000_0000)),
         };
+        let key = match lean {
+            Some(l) => key.sheared(l),
+            None => key,
+        };
         let drawn = match self.pairs.get(&key) {
             Some(d) => d.clone(),
             None => {
                 self.stats.misses.bump();
-                let d = r.lam_alef((&lam, &alef), lam_form, style, span, stretch);
+                let mut d = r.lam_alef((&lam, &alef), lam_form, style, span, stretch);
+                if let (Some(l), Some(g)) = (lean, d.as_mut()) {
+                    r.shear_glyphs(&mut g.lams, l, stretch, Flip::Kept);
+                    r.shear_glyphs(&mut g.alefs, l, stretch, Flip::Kept);
+                }
                 self.pairs.insert(key, d.clone());
                 d
             }
@@ -1483,7 +1562,9 @@ impl Overlay {
                 if cell.flags.is_marked() {
                     let style = crate::cellmap::face_of(scene.styles, *cell);
                     cps.push(cp);
-                    cps.extend(scene.term.cluster_marks(*cell).filter_map(Codepoint::new));
+                    cps.extend(
+                        crate::renderer::drawn_marks(scene.term, *cell).filter_map(Codepoint::new),
+                    );
                     if u32::try_from(r.face_for(&cps, style).index()).ok() != Some(face.0) {
                         entry = None;
                     }

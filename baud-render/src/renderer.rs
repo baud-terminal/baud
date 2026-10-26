@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Code, Kind, Rescaled, SizeKey, Stretch, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, Flip, Kind, Rescaled, SizeKey, Stretch, Tex};
 use crate::badge::{self, BadgeLook};
 use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
@@ -888,14 +888,16 @@ type RowCells<'a> = (
     &'a [bool],
     &'a [Option<crate::bidi::Joined>],
     &'a [(Col, crate::bidi::Mirrored)],
+    &'a [Col],
 );
 
-/// How a run's cell is drawn beyond its shaping: mirrored, and the base it
-/// was shaped from.
+/// How a run's cell is drawn beyond its shaping: mirrored, the base it was
+/// shaped from, and how far it leans left, an italic SAPV 17 slants.
 #[derive(Clone, Copy)]
 struct CellDrawn {
-    mirrored: crate::bidi::Mirrored,
+    mirrored: Option<crate::bidi::Mirrored>,
     base: Codepoint,
+    lean: Option<crate::stack::Lean>,
 }
 
 /// **Where a glyph sits in its span**, in pixels: the span's width, a
@@ -943,9 +945,28 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
 pub(crate) fn cell_cps(term: &Term<'_>, cell: PackedCell) -> Vec<Codepoint> {
     let mut cps: Vec<Codepoint> = drawn_base(term, cell).into_iter().collect();
     if cell.flags.is_marked() {
-        cps.extend(term.cluster_marks(cell).filter_map(Codepoint::new));
+        cps.extend(drawn_marks(term, cell).filter_map(Codepoint::new));
     }
     cps
+}
+
+/// **The marks a cell draws**: its cluster's, but the vowels SAPV 16
+/// writes it without, "vowels are not presented" (`[[source: ecma48]]`
+/// 8.3.108; [`baud_domain::is_vowel`]). The cell keeps them, and a copy
+/// gives them.
+pub(crate) fn drawn_marks<'t>(
+    term: &'t Term<'_>,
+    cell: PackedCell,
+) -> impl Iterator<Item = u32> + 't {
+    let hide = term.variants_seen()
+        && term
+            .styles()
+            .get(cell.style.index())
+            .copied()
+            .flatten()
+            .is_some_and(|w| w.variants().vowels() == baud_domain::Vowels::Hidden);
+    term.cluster_marks(cell)
+        .filter(move |&m| !(hide && char::from_u32(m).is_some_and(baud_domain::is_vowel)))
 }
 
 /// Whether the cell at `at` of `row` carries a run of `shape` on: it has
@@ -1728,6 +1749,11 @@ pub struct Renderer<'f, 'a> {
     /// its paragraph's direction set by the row before -- so a row whose
     /// mirrors moved is converted again. Empty while no row holds one.
     mirrors_prev: Vec<Vec<(Col, crate::bidi::Mirrored)>>,
+    /// Each row's cells SAPV 17 slanted left as the last conversion drew
+    /// them ([`crate::bidi::Orders::slants`]), compared as `mirrors_prev`
+    /// is and for its reason: a slant goes by its cell's level. Empty while
+    /// no row holds one.
+    slants_prev: Vec<Vec<Col>>,
     /// Whether `joins_prev` holds a row's joins: a frame whose window holds
     /// none, after one that held none, compares no row's.
     joins_held: crate::bidi::Joins,
@@ -2160,6 +2186,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bidi_cells: Vec::new(),
             joins_prev: Vec::new(),
             mirrors_prev: Vec::new(),
+            slants_prev: Vec::new(),
             joins_held: crate::bidi::Joins::Unseen,
             joins_seen: crate::bidi::Joins::Unseen,
             bidi_used: Vec::new(),
@@ -2494,6 +2521,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`ClusterSlot::CAPACITY`), so the read allocates nothing.
     fn face_of_cell(&mut self, term: &Term<'_>, cell: PackedCell, base: Codepoint) -> FaceIx {
         let style = self.face_style(cell);
+        self.face_of_cell_in(term, cell, base, style)
+    }
+
+    /// [`Renderer::face_of_cell`] in `style`: a cell SAPV 17 slants left
+    /// asks in its upright style.
+    fn face_of_cell_in(
+        &mut self,
+        term: &Term<'_>,
+        cell: PackedCell,
+        base: Codepoint,
+        style: TextFace,
+    ) -> FaceIx {
         if !cell.flags.is_marked() {
             return self.face_for(core::slice::from_ref(&base), style);
         }
@@ -2501,7 +2540,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut marks = 0;
         for (slot, m) in cps[1..]
             .iter_mut()
-            .zip(term.cluster_marks(cell).filter_map(Codepoint::new))
+            .zip(drawn_marks(term, cell).filter_map(Codepoint::new))
         {
             *slot = m;
             marks += 1;
@@ -5795,6 +5834,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && (0..main.index())
                 .any(|r| !self.bidi.orders().mirrors(Row::from_index(r)).is_empty());
         let mirrors_kept = mirrors_now || !self.mirrors_prev.is_empty();
+        // And its slanted cells.
+        let slants_now = self.bidi.orders().any()
+            && (0..main.index()).any(|r| !self.bidi.orders().slants(Row::from_index(r)).is_empty());
+        let slants_kept = slants_now || !self.slants_prev.is_empty();
         let orders = self.bidi.orders();
         for r in 0..main.index() {
             let row = Row::from_index(r);
@@ -6059,6 +6102,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let remirrored = mirrors_kept
                 && self.bidi.orders().mirrors(row)
                     != self.mirrors_prev.get(r).map_or(&[][..], Vec::as_slice);
+            let reslanted = slants_kept
+                && self.bidi.orders().slants(row)
+                    != self.slants_prev.get(r).map_or(&[][..], Vec::as_slice);
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -6105,7 +6151,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || linked
                 || noticed
                 || rejoined
-                || remirrored;
+                || remirrored
+                || reslanted;
             beyond_cursor |= beyond;
             self.dirty[r] =
                 full || beyond || cursor_moved || glow_moved || guide_moved || trail_moved;
@@ -6120,6 +6167,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.mirrors_prev.extend(
                     (0..rows.index())
                         .map(|r| self.bidi.orders().mirrors(Row::from_index(r)).to_vec()),
+                );
+            }
+        }
+        if slants_kept {
+            self.slants_prev.clear();
+            if slants_now {
+                self.slants_prev.extend(
+                    (0..rows.index())
+                        .map(|r| self.bidi.orders().slants(Row::from_index(r)).to_vec()),
                 );
             }
         }
@@ -6662,6 +6718,56 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         }
         out
+    }
+
+    /// **How far a cell in `style` leans when SAPV 17 slants it left**: its
+    /// italic face's angle ([`crate::stack::Stack::lean`]), or `None` for a
+    /// style that draws upright.
+    pub(crate) fn lean(&self, style: TextFace) -> Option<crate::stack::Lean> {
+        self.stack.lean(style)
+    }
+
+    /// **`glyphs` sheared left by `lean`**, as a cell SAPV 17 slants left
+    /// draws them: each glyph's image from a face sheared about the
+    /// baseline ([`Atlas::slot_sheared_at`]), its place kept -- the shear
+    /// moves `left` by what the image moved -- and the first flipped
+    /// before it is sheared with `flip`, a mirrored cell's base. A glyph
+    /// baud draws itself, box drawing and the like, is drawn upright, as
+    /// its italic is.
+    pub(crate) fn shear_glyphs(
+        &mut self,
+        glyphs: &mut [ClusterGlyph],
+        lean: crate::stack::Lean,
+        stretch: Stretch,
+        flip: Flip,
+    ) {
+        for (i, g) in glyphs.iter_mut().enumerate() {
+            let (GlyphSource::Face(face), Some(slot)) = (g.source, g.slot) else {
+                continue;
+            };
+            let flip = match i {
+                0 => flip,
+                _ => Flip::Kept,
+            };
+            let f = self.stack.face(face);
+            let scale = self.scales[face.index()];
+            let own = match flip {
+                Flip::Kept => self.atlas.slot_at(f, face, g.id, scale, g.phase, stretch),
+                Flip::Flipped => self
+                    .atlas
+                    .slot_flipped_at(f, face, g.id, scale, g.phase, stretch),
+            };
+            let sheared =
+                self.atlas
+                    .slot_sheared_at(f, face, g.id, scale, g.phase, stretch, (flip, lean));
+            if let (Some(own), Some(s)) = (own, sheared) {
+                g.slot = Some(crate::atlas::Slot {
+                    left: slot.left + s.left - own.left,
+                    top: slot.top + s.top - own.top,
+                    ..s
+                });
+            }
+        }
     }
 
     /// [`Renderer::cluster`] for a cell whose letter the layout joined:
@@ -7619,8 +7725,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The test alone here, nothing kept from it: the loop every other row
         // runs is inlined below, and holds no copy of a row's joins live.
         let orders = self.bidi.orders();
-        match orders.joins(r).is_none() && orders.mirrors(r).is_empty() {
-            true => self.runs::<false>(term, r, (row, seams, &[], &[]), at, instances, exc),
+        match orders.joins(r).is_none()
+            && orders.mirrors(r).is_empty()
+            && orders.slants(r).is_empty()
+        {
+            true => self.runs::<false>(term, r, (row, seams, &[], &[], &[]), at, instances, exc),
             false => self.joined_runs(term, r, (row, seams), at, instances, exc),
         }
     }
@@ -7644,7 +7753,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let orders = self.bidi.orders();
         let joins = orders.joins(r).map(<[_]>::to_vec).unwrap_or_default();
         let mirrors = orders.mirrors(r).to_vec();
-        self.runs::<true>(term, r, (row, seams, &joins, &mirrors), at, instances, exc);
+        let slants = orders.slants(r).to_vec();
+        let cells = (row, seams, &joins[..], &mirrors[..], &slants[..]);
+        self.runs::<true>(term, r, cells, at, instances, exc);
     }
 
     /// The runs of one row, `LAID` for a row that holds a joined or a
@@ -7654,7 +7765,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         term: &Term<'_>,
         r: Row,
-        (row, seams, joins, mirrors): RowCells<'_>,
+        (row, seams, joins, mirrors, slants): RowCells<'_>,
         (st, line_end): (Stretch, usize),
         instances: &mut Vec<Instance>,
         exc: &mut Exceptions,
@@ -7678,6 +7789,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(crate::bidi::Mirrored::Under(m)) => Some(m),
             _ => None,
         };
+        // A cell SAPV 17 slants left is at an odd level too, a run of its
+        // own.
+        let slanted = |v: usize| LAID && slants.contains(&Col::at_index(v));
         // Then runs of cells shaped by one face, in one selection of its
         // lookups. The row's scripts are settled the first time a run is on
         // a face whose scripts select different lookups, and not at all on a
@@ -7707,7 +7821,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             }
-            let face = self.face_of_cell(term, row[c], base);
+            let style = self.face_style(row[c]);
+            let lean = match slanted(c) {
+                true => self.lean(style),
+                false => None,
+            };
+            let face = match lean {
+                Some(_) => self.face_of_cell_in(term, row[c], base, style.upright()),
+                None => self.face_of_cell_in(term, row[c], base, style),
+            };
             let varies = self.varies(face);
             if !settled && varies == Varies::Yes {
                 self.settle_row(term, row);
@@ -7804,7 +7926,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 key = key.fold(cp.value());
                 if cell.flags.is_marked() {
                     exc.marked.bump();
-                    for m in term.cluster_marks(cell) {
+                    for m in drawn_marks(term, cell) {
                         if let Some(mc) = Codepoint::new(m) {
                             cps.push(mc);
                             key = key.fold(m);
@@ -7860,10 +7982,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // A mirrored cell's run is drawn by the loop that reads its
             // mirror; every other run by the loop that reads none.
             let at = Col::at_index(start);
-            match mirrored(start) {
-                None => self.emit::<false>(term, face, r, at, (&shaped, None), instances),
-                Some(m) => {
-                    let drawn = CellDrawn { mirrored: m, base };
+            match (mirrored(start), lean) {
+                (None, None) => self.emit::<false>(term, face, r, at, (&shaped, None), instances),
+                (mirrored, lean) => {
+                    let drawn = CellDrawn {
+                        mirrored,
+                        base,
+                        lean,
+                    };
                     self.emit::<true>(term, face, r, at, (&shaped, Some(drawn)), instances);
                 }
             }
@@ -8372,11 +8498,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
                 let lam_cps = cell_cps(term, lam);
                 let alef_cps = cell_cps(term, alef);
-                let Some(g) =
+                let lean = self.slant_at(r, Col::at_index(c), style);
+                let style = lean.map_or(style, |_| style.upright());
+                let Some(mut g) =
                     self.lam_alef((&lam_cps, &alef_cps), form, style, PairSpan::LamCell, st)
                 else {
                     return false;
                 };
+                if let Some(l) = lean {
+                    self.shear_glyphs(&mut g.lams, l, st, Flip::Kept);
+                    self.shear_glyphs(&mut g.alefs, l, st, Flip::Kept);
+                }
                 self.emit_glyphs(r, Col::at_index(c), &g.lams, out);
                 self.emit_glyphs(r, Col::at_index(c), &g.alefs, out);
                 return true;
@@ -8405,11 +8537,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let lam_cps = cell_cps(term, row[lam_c]);
         let alef_cps = cell_cps(term, row[alef_c]);
         let style = self.face_style(row[lam_c]);
+        let lean = self.slant_at(r, Col::at_index(lam_c), style);
+        let style = lean.map_or(style, |_| style.upright());
         let lam_at = match lam_c > alef_c {
             true => LamAt::Right,
             false => LamAt::Left,
         };
-        let Some(g) = self.lam_alef(
+        let Some(mut g) = self.lam_alef(
             (&lam_cps, &alef_cps),
             lam_form,
             style,
@@ -8418,12 +8552,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
         ) else {
             return false;
         };
+        if let Some(l) = lean {
+            self.shear_glyphs(&mut g.lams, l, st, Flip::Kept);
+            self.shear_glyphs(&mut g.alefs, l, st, Flip::Kept);
+        }
         // The left cell draws both; the right one was drawn with it.
         if end == PairEnd::Left {
             self.emit_glyphs(r, Col::at_index(lam_c), &g.lams, out);
             self.emit_glyphs(r, Col::at_index(alef_c), &g.alefs, out);
         }
         true
+    }
+
+    /// How far visual column `v` of row `r`, a cell in `style`, leans left:
+    /// SAPV 17's slant where the layout found it ([`crate::bidi::Orders::slants`]).
+    fn slant_at(&self, r: Row, v: Col, style: TextFace) -> Option<crate::stack::Lean> {
+        match self.bidi.orders().slanted(r, v) {
+            true => self.lean(style),
+            false => None,
+        }
     }
 
     /// **Whether a lam-alef pair a soft wrap parts is drawn as the
@@ -8516,7 +8663,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out: &mut Vec<Instance>,
     ) {
         let drawn = drawn.filter(|_| MIRRORED);
-        let flipped = drawn.is_some_and(|d| d.mirrored == crate::bidi::Mirrored::Flipped);
+        let flipped = drawn.is_some_and(|d| d.mirrored == Some(crate::bidi::Mirrored::Flipped));
+        let lean = drawn.and_then(|d| d.lean);
         let size = self.size_of(r);
         let st = Stretch::of(size);
         let scale = self.scales[face.index()];
@@ -8584,6 +8732,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
                 .mirrored(slot),
                 false => dx,
+            };
+            // A cell SAPV 17 slants left draws its image sheared, placed as
+            // the upright one is: the mirrored place above is the upright
+            // image's.
+            let slot = match lean.filter(|_| MIRRORED) {
+                Some(l) => {
+                    let flip = match flipped && i == 0 {
+                        true => Flip::Flipped,
+                        false => Flip::Kept,
+                    };
+                    self.atlas
+                        .slot_sheared_at(f, face, p.id, scale, phase, st, (flip, l))
+                        .unwrap_or(slot)
+                }
+                None => slot,
             };
             let x = i32::try_from(col).unwrap_or(0) * cell_w + dx + slot.left;
             let y = top + baseline - dy + slot.top;

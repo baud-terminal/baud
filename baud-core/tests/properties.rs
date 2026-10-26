@@ -890,6 +890,44 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SAPV**, last for the same reason: a form waits for the following
+    // graphic character, which may arrive in a later read, as one at a
+    // time, in a run of ASCII or of two-byte letters; held forms, digits
+    // and the decimal mark ride the rendition; and 0 cancels them all.
+    Atom {
+        name: "sapv-form",
+        bytes: b"\x1b[6 ]",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sapv-held",
+        bytes: b"\x1b[2;10;21;7 ]",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sapv-default",
+        bytes: b"\x1b[ ]",
+        stride: 0,
+        count: 0,
+    },
+    // **An alternative font**, last: its number shares a word of the
+    // rendition table's hash with SAPV's variants, so the two must part
+    // every rendition they reach together -- font 1 alone, and font 1 with
+    // the variants' first bit, SAPV 2, set by the same atom.
+    Atom {
+        name: "sgr-font",
+        bytes: b"\x1b[11m",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sgr-font-digits",
+        bytes: b"\x1b[11m\x1b[2 ]",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1383,6 +1421,91 @@ fn the_path_atoms_reach_the_rows() {
     );
     support::feed(&mut t, &bytes_of(&[atom("spd-rtl")]));
     assert!((0..ROWS).all(|y| path(&t, y) == RightToLeft));
+}
+
+/// **The SAPV atoms reach the rendition**, the control the path atoms
+/// have: `sapv-form` gives the next character a form and the one after it
+/// none, `sapv-held` holds one for every character after it, and
+/// `sapv-default` takes them all away. An atom that never reached SAPV
+/// would leave every rendition at the default, and every property would
+/// compare cells that carry no variant.
+#[test]
+fn the_sapv_atoms_reach_the_rendition() {
+    use baud_domain::{Digits, Form};
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let at = |t: &Term<'_>, x: usize| {
+        let cell = t.row(Row::ZERO).expect("a row")[x];
+        t.styles()[cell.style.index()]
+            .expect("a live rendition")
+            .variants()
+    };
+    support::feed(&mut t, &bytes_of(&[atom("sapv-form")]));
+    support::feed(&mut t, "\u{628}\u{628}".as_bytes());
+    assert_eq!(
+        (at(&t, 0).form(), at(&t, 1).form()),
+        (Some(Form::Initial), None)
+    );
+    support::feed(&mut t, &bytes_of(&[atom("sapv-held")]));
+    support::feed(&mut t, b"cd");
+    assert_eq!(
+        (at(&t, 2).form(), at(&t, 3).form()),
+        (Some(Form::Medial), Some(Form::Medial))
+    );
+    assert_eq!(at(&t, 3).digits(), Digits::ArabicIndic);
+    support::feed(&mut t, &bytes_of(&[atom("sapv-default")]));
+    support::feed(&mut t, b"e");
+    assert!(at(&t, 4).is_default());
+}
+
+/// **Two renditions SAPV alone parts are numbered the same at any read
+/// size**: pinned from 20,000 cases. A form taken by a Latin-1 run, then
+/// the status line's indicator, drawn at a read's end, and DECRARA,
+/// interned the reversed renditions of a cell with the form and one
+/// without in an order the reads decided; with the variants left out of
+/// the rendition table's hash the two shared a bucket and swapped numbers.
+#[test]
+fn renditions_sapv_parts_are_numbered_alike_at_any_read_size() {
+    let bytes = bytes_of(&[
+        atom("sapv-form"),
+        atom("latin1x3"),
+        atom("status-indicator"),
+        atom("decrara"),
+    ]);
+    let whole = drive_at(&bytes, bytes.len(), AmbiguousWidth::Wide);
+    let one = drive_at(&bytes, 1, AmbiguousWidth::Wide);
+    assert_eq!(whole, one);
+}
+
+/// **An alternative font and a variant whose bits equal its number are
+/// numbered alike at any read size**: `SGR 11` is font 1 and SAPV 2 the
+/// variants' first bit, `SGR 18` font 8 and SAPV 10 their fourth. While the
+/// hash folded the two by exclusive or they cancelled, the rendition hashed
+/// as the plain one, and the status line's indicator and DECRARA numbered
+/// the pair in an order the reads decided. Bold with 10 is the control: it
+/// shares no word with the variants.
+#[test]
+fn a_font_and_the_variant_its_number_equals_are_numbered_alike() {
+    for bytes in [
+        b"\x1b[11m\x1b[2 ]abc\x1b[1$~\x1b[1;2;3;7;7$t".as_slice(),
+        b"\x1b[18m\x1b[10 ]abc\x1b[1$~\x1b[1;2;3;7;7$t".as_slice(),
+        b"\x1b[1m\x1b[10 ]abc\x1b[1$~\x1b[1;2;3;7;7$t".as_slice(),
+    ] {
+        let whole = drive_at(bytes, bytes.len(), AmbiguousWidth::Wide);
+        let one = drive_at(bytes, 1, AmbiguousWidth::Wide);
+        assert!(whole == one, "{:?}", String::from_utf8_lossy(bytes));
+    }
+}
+
+/// **`REP` repeats a form-taking run's last character**: pinned from
+/// 200,000 cases. The run's first character, written alone for the form
+/// it takes, recorded itself as the character `REP` repeats, over the
+/// last one the run recorded, so a byte at a time and whole disagreed.
+#[test]
+fn rep_after_a_form_taking_run_repeats_its_last_character() {
+    let bytes = bytes_of(&[atom("sapv-form"), atom("ascii"), atom("rep")]);
+    assert_eq!(drive(&bytes, bytes.len()), drive(&bytes, 1));
 }
 
 /// **The paragraph-mode atoms reach the rows**, the control the path atoms

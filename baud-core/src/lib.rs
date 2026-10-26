@@ -88,6 +88,7 @@ mod status;
 mod storage;
 mod term;
 mod tsr;
+mod variants;
 mod vt52;
 mod window;
 mod write;
@@ -222,6 +223,7 @@ pub use search::{Found, SearchLines, Spot};
 pub use status::StatusBuf;
 pub use term::StatusLine;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
+pub use variants::VariantsRefused;
 pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller

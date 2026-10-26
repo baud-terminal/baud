@@ -565,12 +565,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_changed_to(r);
     }
 
-    /// Whether `CSI 4 h` is in force.
-    #[inline(always)]
-    pub(crate) fn inserting(&self) -> bool {
-        self.cold.modes.is_set(ModeBit::InsertReplace)
-    }
-
     /// As much of a run as the row has room for, by whichever writer fits.
     ///
     /// **A short run does not want the blitter.** `put_ascii_run` resolves the
@@ -686,6 +680,55 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// **IRM (`CSI 4 h`), or a SAPV form waiting or spent**: the one test
+    /// of the mode word the writers make before they write. None is set on
+    /// almost every run.
+    #[inline(always)]
+    pub(crate) fn writes_slowly(&self) -> bool {
+        self.cold.modes.any_of_three(
+            ModeBit::InsertReplace,
+            ModeBit::FormPending,
+            ModeBit::FormEnd,
+        )
+    }
+
+    /// **Before character `cp` is written, `need` cells of it**, out of
+    /// line: a form the last character took leaves the rendition; a form
+    /// waiting is this character's, kept in the rendition for its write
+    /// if it is a letter that takes a form and spent on it unstored if it
+    /// is not ([`baud_domain::takes_form`]); and under IRM the gap opens.
+    #[cold]
+    #[inline(never)]
+    fn write_slowly(&mut self, cp: Codepoint, need: Count) {
+        self.form_ends();
+        if self.cold.modes.is_set(ModeBit::FormPending) {
+            self.cold.modes.reset(ModeBit::FormPending);
+            match takes_form(cp.value()) {
+                true => self.cold.modes.set(ModeBit::FormEnd),
+                false => self.form_written(),
+            }
+        }
+        if self.cold.modes.is_set(ModeBit::InsertReplace) {
+            self.open_gap(need);
+        }
+    }
+
+    /// **Before a run of ASCII is written, `n` cells of it**, out of line:
+    /// a form the last character took leaves the rendition, a form waiting
+    /// is spent on the run's first character, which takes none, and under
+    /// IRM the gap opens.
+    #[cold]
+    #[inline(never)]
+    fn blit_slowly(&mut self, n: Count) {
+        self.form_ends();
+        if self.cold.modes.is_set(ModeBit::FormPending) {
+            self.form_written();
+        }
+        if self.cold.modes.is_set(ModeBit::InsertReplace) {
+            self.open_gap(n);
+        }
+    }
+
     /// The vectored form, for a run long enough to fill a store.
     #[inline(always)]
     fn blit(&mut self, from: BytePos, n: ByteLen) {
@@ -694,8 +737,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         // No clip: `text` sized the piece to the row before calling. Clipping
         // here is what silently dropped the tail of a long line.
         let k = n.index();
-        if self.inserting() {
-            self.open_gap(Count::of(k));
+        if self.writes_slowly() {
+            self.blit_slowly(Count::of(k));
         }
         let src = &self.arena[from.index()..from.index() + k];
         self.view.put_ascii_run(
@@ -1004,9 +1047,11 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.overflow(Count::of(need));
         }
         // After the wrap, because the gap belongs in the row the character
-        // lands in rather than the one it was pushed off.
-        if self.inserting() {
-            self.open_gap(Count::of(need));
+        // lands in rather than the one it was pushed off. **A SAPV form
+        // waiting for the following graphic character, or spent by the last
+        // one** (`crate::variants`), is tested in the same test of the word.
+        if self.writes_slowly() {
+            self.write_slowly(cp, Count::of(need));
         }
         let style = self.style;
         let flags = match pen {
@@ -1524,6 +1569,24 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = self.row_written.max(self.cx.col());
     }
 
+    /// A run whose first character a SAPV form waits for, or after one
+    /// that took it: the form ended first, then that character alone,
+    /// then the rest.
+    #[cold]
+    #[inline(never)]
+    fn run_once(&mut self, cps: &[Codepoint], w: Width) {
+        self.form_ends();
+        if !self.cold.modes.is_set(ModeBit::FormPending) {
+            return self.run(cps, w);
+        }
+        if let Some((&first, rest)) = cps.split_first() {
+            self.glyph_as(first, w, Pen::Decoded);
+            if !rest.is_empty() {
+                self.run(rest, w);
+            }
+        }
+    }
+
     /// A run of one width, eight cells to a store.
     ///
     /// **One body for both writers**, because they differ only in how many
@@ -1539,6 +1602,13 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// showed and the tests did not.
     #[inline(always)]
     pub(crate) fn run(&mut self, cps: &[Codepoint], w: Width) {
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::FormPending, ModeBit::FormEnd)
+        {
+            return self.run_once(cps, w);
+        }
         let (style, flags) = (self.style, self.decoded_pen());
         match w == Width::WIDE {
             true => self

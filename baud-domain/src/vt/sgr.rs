@@ -477,7 +477,7 @@ impl SgrAttr {
     #[inline(always)]
     fn fold_once(self, cur: &mut StyleWord) {
         match self {
-            SgrAttr::Reset => *cur = StyleWord::DEFAULT,
+            SgrAttr::Reset => *cur = cur.sgr_reset(),
             SgrAttr::Set(a) => cur.set_attrs(cur.attrs().with(a)),
             SgrAttr::Unset(a) => cur.set_attrs(cur.attrs().without(a)),
             SgrAttr::UnderlineStyle(a) => {
@@ -501,7 +501,7 @@ impl SgrAttr {
         match self {
             // `[[source: ecma48]]` § 8.3.117: SGR 0 "cancels the effect of any
             // preceding occurrence of SGR in the data stream".
-            SgrAttr::Reset => StyleWord::DEFAULT,
+            SgrAttr::Reset => cur.sgr_reset(),
             SgrAttr::Set(a) => cur.with_attrs(cur.attrs().with(a)),
             SgrAttr::Unset(a) => cur.with_attrs(cur.attrs().without(a)),
             SgrAttr::UnderlineStyle(a) => {

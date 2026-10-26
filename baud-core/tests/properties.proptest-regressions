@@ -11,3 +11,7 @@ cc 971817fff40aa2f1a8b963fa955a60e2f2091f23b91f8a5191ae90d5ddf35ee3 # shrinks to
 cc 38d84f6afd72b860e5baeca53b09abcd361554a2bef04868498aa52eb41ea7d1 # shrinks to prog = [9, 2, 64], a = 1, w = Narrow
 cc 855639deb2b40fe3fdf925dd14d958d3269da9debeb4542c840303d3c57f6ee2 # shrinks to prog = [5, 3, 64], w = Narrow
 cc cc42b02fb8256c2e25a7f5b053176ce72bd290f8d9911b035222187cd22d681e # shrinks to prog = [8, 66, 44, 15, 15, 29, 46, 64, 49, 65, 42], w = Wide
+cc c3107e364ccbd1ab99fe259203bda69ad6a9c792f1214bb3e619fa121ab8a5f8 # shrinks to prog = [109, 2, 102, 62], w = Wide
+cc 2b2655061ba938d48674762c78c23548857e2ed46e6bc8a3769b0533827d7e81 # shrinks to prog = [29, 28, 1, 12, 63, 1, 109, 67, 13, 13, 0, 66], a = 1, w = Narrow
+cc 6d45a14b5407a39ad3c93b2ab108f58e0240469e51997de08a5fe1456b2b0ca7 # shrinks to prog = [113, 102, 2, 95, 0, 0, 62], a = 1, w = Narrow
+cc ed5c626f16cd0cbe1d4ac5ed7c85fe80612ca34ae8838aa910c09c7505daeeb3 # shrinks to prog = [113, 102, 46, 62], w = Narrow

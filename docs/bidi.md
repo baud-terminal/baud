@@ -261,6 +261,24 @@ the screen; step 3 joins Arabic letters.
   are characters, ordered with the text, and each strip is drawn over its
   cells where they are drawn
   (`a_placeholder_strip_is_drawn_over_its_cells_where_they_are_drawn`).
+- **A program can choose how the text it writes after is drawn** (SAPV,
+  `CSI Ps... SP ]`, `[[source: ecma48]]` 8.3.108): Arabic-Indic digits
+  (2), a decimal number's point drawn as a comma (10), a letter drawn in
+  the joining form asked (5 to 8, held for every letter after it by 21),
+  Arabic joined without the lam-alef ligature (14) or not joined at all
+  (18, 19), vowels hidden (16), italics on a right-to-left run slanted
+  to the left (17), and, with the mode off, a right-to-left line's
+  brackets left as stored (15). Each value is carried by the characters
+  written after it, so what was written before keeps its own. With the
+  mode on, brackets on a right-to-left run are always mirrored: UAX #9
+  L4 governs there. Vowels after their letter (12) are refused and
+  counted, a vowel having no column of its own in the grid.
+  Under 17 an italic is drawn as its upright glyph sheared left by the
+  italic face's own angle, `post.italicAngle`, or 14 degrees where the
+  face gives none, on every draw path
+  (`value_17_slants_right_to_left_italics_to_the_left`); left-to-right
+  italics lean right as the italic face draws them, and an italic the
+  stack has no italic face for is drawn upright either way.
 
 ## What decided each choice
 
@@ -290,6 +308,7 @@ requests and the renders it was shown are in
 | a lam and an alef erased cells part | the ligature, centred over the cells from one to the other | 0.91 / 0.93 |
 | the host-writable status line | laid out as a line of its own under the terminal's BDSM and the direction set on it (ECMA-48 7.2.1's IMPLICIT; DEC STD 070 ch. 14 says nothing on direction) | 0.94 / 0.97 |
 | a picture on a row drawn right to left | its whole box mirrored by its anchor row's direction, unflipped (terminal-wg's images section; UAX #9 3.2); not stored, not row by row | 0.97 / 0.98 |
+| SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) | 0.98 / 0.96 |
 
 **Decided by the owner** (2026-10-24):
 
@@ -331,6 +350,30 @@ each:**
 | `?1243` at power-on | set, "needs to be the default", though baud detects direction from the start, which the draft's compatibility argument did not assume | 0.00 / 0.02, 0.86 / 0.86 |
 | which box characters `?2500` mirrors | each drawn right to left (L4's resolved R, HL6 widening which characters), so a table row's rules are not | 0.60 / 0.74, 0.88 / 0.92 |
 | `DECSTR` | returns all three in force to power-on, as mintty and VTE do | 0.30 / 0.51, 0.77 / 0.77 |
+
+**SAPV (2026-10-26)**, read against ECMA-48 8.3.108, TR/53's worked
+example 1 and section 7, UAX #9's L4 and section 7, the Unicode
+Standard's chapters 9 and 23 and ECMA-114; Jev was asked twice in each
+order (`docs/research/notes/ab/b215/`). One fork reached 0.9 in both
+orders, the decimal mark (above). **Taken from Jev's lean; the owner can
+veto each:**
+
+| choice | taken | Jev, first ask then re-ask |
+|---|---|---|
+| what a value is attached to | each character, in its rendition, as `SGR` is | 0.84 / 0.96, 0.82 / 0.96 |
+| 12, vowels after their letter | refused and counted | 0.30 / OWN_COLUMN 0.38, 0.59 / 0.61 |
+| which characters are vowels | Arabic tanwin and harakat, U+064B-U+0650, and the Hebrew vowel points, U+05B0-U+05BB and U+05C7 | 0.37 / 0.38, 0.40 / 0.23 |
+| 17, italics leaning left | the upright glyph sheared left by the italic face's angle | 0.60 / 0.40, 0.82 / 0.80 |
+| a form a letter has not got | the nearest it has, as a joiner beside it asks (Unicode 23.2) | 0.56 / 0.34, 0.22 / 0.40 |
+| 20, "device dependent" digits | as stored | 0.86 / 0.66, 0.86 / 0.82 |
+| `DECSTR` | the default presentation | 0.44 / 0.50, 0.32 / 0.22 |
+
+**15, where mirroring is the default, is Jev's lean,
+UNMIRROR_EXPLICIT_ONLY, in three of four answers; the owner can veto
+it**: unmirrors a right-to-left path with BDSM reset, and with it set L4
+governs. The first round gave it 0.10 and 0.14 and the re-ask's order A
+0.23; order B of the re-ask leaned to unmirroring in both states, at
+0.16. UAX #9 section 7: "mirroring must be done according to rule L4".
 
 The requests, the renders shown and the answers are in
 `docs/research/notes/ab/b211/`.
@@ -485,6 +528,13 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   more a character at each doubling (pairs side by side 32, 54, 99 and
   189, nested FSIs 22, 31, 50 and 88), so the bench sees a quadratic
   when there is one.
+- **SAPV costs a program that never sends it nothing in the layout**:
+  no row is read for a variant until one is selected
+  (`Term::variants_seen`), and after that a frame reads each row's cells
+  once for the substitutions and the slants. `ingest2` reads 1.0-1.6%
+  more instructions on every recording and no difference in throughput
+  (docs/record.md, "SAPV: a program chooses how the text after it is
+  drawn").
 
 ## What is not built yet
 
@@ -523,7 +573,14 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- SRS, SDS, SAPV and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
+- SRS, SDS and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
+- **SAPV's instructions on the write path**: 1.0-1.6% more on every
+  recording for a control few programs send; on the cut before, a third
+  to a half of them came from the out-of-line branches the writers carry
+  for a form waiting, and the rendition table's hash adds two a rendition
+  looked up, 0.4% on `asciiquarium`, for the font and the variants. A graph that routes characters out of the loop only
+  while a form waits, as iTerm2's Unicode 8 widths are routed, would take
+  them off the loop.
 - **Joining's edges**: Syriac's alaph forms (`fin2`, `fin3`, `med2`,
   Unicode 9.3) are not drawn, so Syriac joins by the Arabic rules alone; a
   selection that covers only one cell of a lam-alef pair colours the whole

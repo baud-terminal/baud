@@ -878,6 +878,10 @@ pub enum Csi {
         path: CharacterPath,
         cursor: PathCursor,
     },
+    /// SAPV, `CSI Ps... SP ]` (8.3.108): presentation variants for the
+    /// text that follows; the dispatch reads its parameters, as it reads
+    /// `SGR`'s ([`crate::Sapv`]).
+    SelectPresentationVariants,
     /// MC, `CSI Ps i` and `CSI ? Ps i`: a print function
     /// ([`crate::MediaCopy`]), a `Ps` it does not name being
     /// [`Csi::Unsupported`].
@@ -1134,6 +1138,7 @@ impl Csi {
                         },
                     }
                 }
+                (b' ', b']') if marker == Marker::Standard => Csi::SelectPresentationVariants,
                 (b' ', b'S') if marker == Marker::Standard => {
                     let path = match p.at(ParamIdx::FIRST).map_or(0, |x| x.0) {
                         0 => Some(CharacterPath::LeftToRight),
@@ -1765,6 +1770,7 @@ impl Csi {
             | ScrollRight(_)
             | SelectCharacterPath { .. }
             | SelectPresentationDirections { .. }
+            | SelectPresentationVariants
             | SetScrollRegion { .. }
             | CursorForwardTab(_)
             | CursorBackTab(_)

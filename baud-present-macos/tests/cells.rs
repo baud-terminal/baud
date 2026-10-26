@@ -10293,21 +10293,28 @@ fn a_right_to_left_line_slides_out_in_the_order_it_was_drawn() {
 /// is underlined in part, so a record drawn after the decoration pass
 /// would cover the line under it. A double-width right-to-left line,
 /// drawn by records, slides out the same way, against its half's right
-/// edge.
+/// edge, and so do italics SAPV 17 slants left, with BDSM set and reset.
 #[test]
 fn a_line_sliding_out_is_shaped_as_it_is_drawn_still() {
     let read =
         |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
     let built = read("baud-app/fonts/built/Regular.ttf");
+    let italic = read("baud-app/fonts/built/Italic.ttf");
     let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
         .expect("Courier New, which macOS ships; this test cannot skip itself");
     let faces = [
         Face::parse(&built).expect("parse"),
         Face::parse(&courier).expect("parse"),
+        Face::parse(&italic).expect("parse"),
+    ];
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Italic),
     ];
     let fresh = || {
         Renderer::new(
-            Stack::new(&faces).unwrap(),
+            Stack::with_roles(&faces, &roles).unwrap(),
             PxSize::of(14.0).unwrap(),
             Theme::dark(),
             Blend::Native,
@@ -10342,6 +10349,16 @@ fn a_line_sliding_out_is_shaped_as_it_is_drawn_still() {
         ("\x1b[8l", "", arabic),
         ("\x1b[8l\x1b[2 k", "", arabic),
         ("", "\x1b#6", "\u{5D0}(\u{5D1})\u{5D2} \u{2211}"),
+        (
+            "",
+            "",
+            "\x1b[3m\x1b[17 ]\u{5E9}\u{5DC}\u{5D5}\u{5DD} (\u{2211}) ok\x1b[0m\x1b[0 ]",
+        ),
+        (
+            "\x1b[8l\x1b[2 k",
+            "",
+            "\x1b[3m\x1b[17 ]\u{5E9}\u{5DC}\u{5D5}\u{5DD} (\u{2211}) ok\x1b[0m\x1b[0 ]",
+        ),
     ] {
         scene(&mut t, mode, width, line);
         arms.back = Rows::of_count(1);
@@ -10353,6 +10370,10 @@ fn a_line_sliding_out_is_shaped_as_it_is_drawn_still() {
             arms.renderer.bidi().reordered(Row::ZERO)
                 || arms.renderer.bidi().joins(Row::ZERO).is_some(),
             "{mode:?}{width:?}: the premise, the line is reordered or joined"
+        );
+        assert!(
+            !line.contains("[17 ]") || !arms.renderer.bidi().slants(Row::ZERO).is_empty(),
+            "{mode:?}: the premise, 17 slants the line's italics"
         );
         for (arm, got) in [("cell", &b), ("copied", &c), ("cpu", &cpu)] {
             let d = differing(&got[..rows * row], &a[..rows * row]);
@@ -11755,4 +11776,92 @@ fn a_line_scp_turns_draws_alike_on_every_arm() {
         let want = draw(&mut arms, &mut t, "written in visual order");
         assert_eq!(differing(&got, &want), 0, "{}", what("the reverse drawn"));
     }
+}
+
+/// **SAPV's variants draw alike on every arm, and as the characters they
+/// stand for**: Arabic-Indic digits (2), a decimal comma (10), a vowel
+/// hidden (16) and, with BDSM reset, a right-to-left line's brackets left
+/// as stored (15), each pixel for pixel on the cell, instance and CPU arms,
+/// and against the same rows written with the characters drawn.
+#[test]
+fn presentation_variants_draw_alike_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let italic = read("baud-app/fonts/built/Italic.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&italic).expect("parse"),
+    ];
+    let roles = [FaceRole::Fallback, FaceRole::Style(FaceStyle::Italic)];
+    let fresh = || {
+        Renderer::new(
+            Stack::with_roles(&faces, &roles).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let cols = usize::from(WS.ws_col);
+    // A right-to-left path with BDSM reset, at level 1 throughout: italic
+    // Latin, brackets, a vav, a square root L4 flips and a lam-alef pair,
+    // each sheared, the brackets as mirrors; and the same on a line BDSM
+    // lays out, a Hebrew word with a Latin one at level 2 between.
+    const SLANTED: &str = "\x1b[8l\x1b[5;1H\x1b[2 k\x1b[3m\x1b[17 ]l(ab)\u{5D5}\u{221A}\
+         \u{644}\u{627}\x1b[0m\x1b[0 ]\x1b[5;1H\x1b[8h\x1b[6;1H\x1b[3m\x1b[17 ]\
+         \u{5E9}\u{5DC}\u{5D5}\u{5DD} ok \u{5D5}(\u{221A})\x1b[0m\x1b[0 ]";
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    let varied = format!(
+        "\x1b[?25l\x1b[2J\x1b[H\x1b[2 ]12\x1b[0 ] \x1b[10 ]3.14\x1b[0 ]\r\n\
+         \x1b[16 ]\u{5D1}\u{5BC}\u{5B0}\x1b[0 ]\r\n\
+         \x1b[8l\x1b[3;1H\x1b[2 k\x1b[15 ](ab)\x1b[0 ]\x1b[3;1H\x1b[8h\
+         {SLANTED}\
+         \x1b[10;3HThe quick brown fox jumps 0123456789"
+    );
+    let written = format!(
+        "\x1bc\x1b[?25l\x1b[2J\x1b[H\u{661}\u{662} 3,14\r\n\
+         \u{5D1}\u{5BC}\r\n\
+         \x1b[8l\x1b[3;{}H)ba(\x1b[3;1H\x1b[8h\
+         {SLANTED}\
+         \x1b[10;3HThe quick brown fox jumps 0123456789",
+        cols - 3
+    );
+    arms!(fresh() => arms, t);
+    feed(&mut t, varied.as_bytes());
+    // The third row is drawn reversed with BDSM reset; the frames are
+    // taken with it reset so both scenes draw that row the same way.
+    feed(&mut t, b"\x1b[8l");
+    let got = three(&mut arms, &mut t, "varied");
+    feed(&mut t, written.as_bytes());
+    feed(&mut t, b"\x1b[8l");
+    let want = three(&mut arms, &mut t, "written");
+    assert_eq!(
+        differing(&got, &want),
+        0,
+        "drawn as the characters they stand for"
+    );
+    // The control: without 17 the slanted row draws otherwise.
+    let upright = written.replace("\x1b[17 ]", "");
+    feed(&mut t, upright.as_bytes());
+    feed(&mut t, b"\x1b[8l");
+    let leaning_right = three(&mut arms, &mut t, "without 17");
+    assert_ne!(differing(&got, &leaning_right), 0, "17 slants the row");
+    // With BDSM set, the sixth row's Hebrew, at the level UAX #9 gives it.
+    let bdsm = |bytes: &str| format!("\x1bc{bytes}\x1b[8h");
+    feed(&mut t, bdsm(&varied).as_bytes());
+    let implicit = three(&mut arms, &mut t, "with BDSM set");
+    feed(&mut t, bdsm(&varied.replace("\x1b[17 ]", "")).as_bytes());
+    let plain = three(&mut arms, &mut t, "with BDSM set, without 17");
+    assert_ne!(differing(&implicit, &plain), 0, "17 slants with BDSM set");
 }

@@ -51,7 +51,7 @@
 //! that cannot fire.
 
 use crate::color::Argb;
-use crate::stack::FaceIx;
+use crate::stack::{FaceIx, Lean};
 use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
@@ -534,6 +534,17 @@ struct Memo {
     /// [`Atlas::slot_flipped_at`]). A map of its own, so the key every other
     /// glyph is looked up by is no wider for it.
     flipped: HashMap<GlyphKey, Option<Slot>>,
+    /// **The glyphs drawn sheared left**, flipped first or not, by the
+    /// lean's bits: an italic SAPV 17 slants left ([`Atlas::slot_sheared_at`]).
+    sheared: HashMap<(GlyphKey, Flip, u32), Option<Slot>>,
+}
+
+/// Whether a sheared glyph's image is flipped left to right before it is
+/// sheared: a mirrored character's that L4 flips (`Atlas::slot_flipped_at`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Flip {
+    Kept,
+    Flipped,
 }
 
 impl Memo {
@@ -545,6 +556,7 @@ impl Memo {
             procedural_stretched: HashMap::new(),
             procedural_wide: HashMap::new(),
             flipped: HashMap::new(),
+            sheared: HashMap::new(),
         }
     }
 
@@ -554,6 +566,7 @@ impl Memo {
             && self.procedural_stretched.is_empty()
             && self.procedural_wide.is_empty()
             && self.flipped.is_empty()
+            && self.sheared.is_empty()
     }
 }
 
@@ -976,6 +989,130 @@ impl Atlas {
             self.held.flipped.insert(key, flipped);
         }
         flipped
+    }
+
+    /// **[`Atlas::slot_at`]'s image sheared left by `lean`**, flipped first
+    /// with `flip`, for a cell SAPV 17 slants left: each row of texels
+    /// moved left by `lean` of its centre's height above the baseline, and
+    /// right as far below it, so the baseline stays where it was and the
+    /// image leans about it. A row moves by a fraction of a texel as well,
+    /// each texel shared between the two it falls across, as a box filter
+    /// shares it. On the same sheet, `left` moved by the row moved
+    /// furthest left and `top` kept: the caller places it as it places the
+    /// upright image. Drawn once and kept, as an upright glyph is.
+    #[allow(clippy::too_many_arguments)]
+    pub fn slot_sheared_at(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        phase: Phase,
+        stretch: Stretch,
+        (flip, lean): (Flip, Lean),
+    ) -> Option<Slot> {
+        let glyph = GlyphKey {
+            face: ix,
+            glyph: GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX)),
+            stretch,
+            phase,
+        };
+        let key = (glyph, flip, lean.tan().to_bits());
+        if let Some(known) = self.held.sheared.get(&key) {
+            return *known;
+        }
+        let own = match flip {
+            Flip::Kept => self.slot_at(face, ix, id, scale, phase, stretch),
+            Flip::Flipped => self.slot_flipped_at(face, ix, id, scale, phase, stretch),
+        }?;
+        let sheared = self.shear(own, lean);
+        if sheared.is_some() {
+            self.held.sheared.insert(key, sheared);
+        }
+        sheared
+    }
+
+    /// `own`'s texels sheared left by `lean`, in a slot of their own on its
+    /// sheet; `None` where the sheet cannot grow to hold them.
+    fn shear(&mut self, own: Slot, lean: Lean) -> Option<Slot> {
+        let (w, h) = (usize::from(own.w.0), usize::from(own.h.0));
+        if w == 0 || h == 0 {
+            return Some(own);
+        }
+        // A row's move, in 256ths of a texel: its centre's depth below the
+        // baseline, `top` being the first row's, times the lean.
+        let moved = |row: usize| {
+            let depth = own.top as f32 + f32::from(u16::try_from(row).unwrap_or(u16::MAX)) + 0.5;
+            (lean.tan() * depth * 256.0).round() as i32
+        };
+        let (a, b) = (moved(0), moved(h - 1));
+        let least = a.min(b).div_euclid(256);
+        let wide = w + usize::try_from(a.max(b).div_euclid(256) - least).ok()? + 1;
+        let (x0, y0) = (usize::from(own.x.0), usize::from(own.y.0));
+        let at = Origin {
+            left: own.left + least,
+            top: own.top,
+        };
+        // Output texel `x` of a row moved by `whole` texels and `part`
+        // 256ths takes input texel `x - whole` for `256 - part` of its width
+        // and the one before it for `part`.
+        let split = |row: usize| {
+            let m = moved(row) - least * 256;
+            (
+                usize::try_from(m.div_euclid(256)).unwrap_or(0),
+                m.rem_euclid(256).unsigned_abs(),
+            )
+        };
+        let mix =
+            |here: u32, before: u32, part: u32| (here * (256 - part) + before * part + 128) >> 8;
+        let tall = Px::of(u32::from(own.h.0));
+        let across = Px::of(u32::try_from(wide).ok()?);
+        match own.kind {
+            Kind::Mask => {
+                let side = slots(Px::of(self.mask.side.0));
+                let mut image = vec![0u8; wide * h];
+                for row in 0..h {
+                    let from = (y0 + row) * side + x0;
+                    let src = self.pixels.get(from..from + w)?;
+                    let get =
+                        |i: Option<usize>| i.and_then(|i| src.get(i)).map_or(0, |&v| u32::from(v));
+                    let (whole, part) = split(row);
+                    for (x, dst) in image[row * wide..(row + 1) * wide].iter_mut().enumerate() {
+                        let here = get(x.checked_sub(whole));
+                        let before = get(x.checked_sub(whole + 1));
+                        *dst = u8::try_from(mix(here, before, part)).unwrap_or(u8::MAX);
+                    }
+                }
+                self.place_mask(&image, across, tall, at)
+            }
+            Kind::Color => {
+                let side = slots(Px::of(self.color.side.0));
+                let mut image = vec![0u32; wide * h];
+                for row in 0..h {
+                    let from = (y0 + row) * side + x0;
+                    let src = self.argb.get(from..from + w)?;
+                    let get = |i: Option<usize>| {
+                        i.and_then(|i| src.get(i))
+                            .copied()
+                            .unwrap_or(0)
+                            .to_le_bytes()
+                    };
+                    let (whole, part) = split(row);
+                    for (x, dst) in image[row * wide..(row + 1) * wide].iter_mut().enumerate() {
+                        let (here, before) =
+                            (get(x.checked_sub(whole)), get(x.checked_sub(whole + 1)));
+                        // Each premultiplied channel's byte apart.
+                        *dst = u32::from_le_bytes(core::array::from_fn(|c| {
+                            let v = mix(u32::from(here[c]), u32::from(before[c]), part);
+                            u8::try_from(v).unwrap_or(u8::MAX)
+                        }));
+                    }
+                }
+                self.place_color(&image, across, tall, at)
+            }
+            // A glyph's image is a mask or colour; any other has no texels.
+            _ => Some(own),
+        }
     }
 
     /// `own`'s texels, each row reversed, in a slot of their own on its

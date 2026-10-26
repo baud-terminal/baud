@@ -527,11 +527,12 @@ pub struct StyleWord {
     /// protected and unprotected text of the same colour are one style, not
     /// two, and the 64-entry template cache is not halved by turning DECSCA on.
     font: FontId,
-    /// Explicit, because `zerocopy`'s `IntoBytes` rejects implicit padding and
-    /// widening `attrs` to `u32` left two bytes of it. The same reason
-    /// `Run::_pad` exists: uninitialised tail bytes leak stack across any
-    /// shm or disk boundary.
-    _pad: u16,
+    /// SAPV's presentation variants (`[[source: ecma48]]` 8.3.108), in the
+    /// two bytes that were explicit padding: `zerocopy`'s `IntoBytes`
+    /// rejects implicit padding, and widening `attrs` to `u32` left two
+    /// bytes of it. A variant is a rendition of the character it was
+    /// written with, so it costs the cell nothing ([`crate::Variants`]).
+    variants: Variants,
 }
 
 impl StyleWord {
@@ -539,15 +540,16 @@ impl StyleWord {
     /// kept filled so the probe walks on to that rendition: emptied, it would
     /// end the walk there, and naming the rendition again would intern it a
     /// second time. A new rendition takes it as it takes an empty slot. No
-    /// `SGR` folds to it, because `_pad` is zero in every word a fold makes,
-    /// and no cell names it, because only a slot no cell names becomes one.
+    /// `SGR` or SAPV folds to it, because no value sets the variants' bit 15
+    /// ([`Variants::TOMBSTONE`]), and no cell names it, because only a slot
+    /// no cell names becomes one.
     pub const TOMBSTONE: StyleWord = StyleWord {
         fg: ColorWord::DEFAULT,
         bg: ColorWord::DEFAULT,
         underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
         font: FontId::PRIMARY,
-        _pad: 1,
+        variants: Variants::TOMBSTONE,
     };
 }
 
@@ -721,7 +723,7 @@ impl StyleWord {
         underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
         font: FontId::PRIMARY,
-        _pad: 0,
+        variants: Variants::DEFAULT,
     };
     /// The underline's own colour. `ColorWord::DEFAULT` means "follow the
     /// foreground", which is what every terminal does without `SGR 58`.
@@ -758,6 +760,25 @@ impl StyleWord {
     }
     pub fn with_attrs(self, a: Attrs) -> StyleWord {
         StyleWord { attrs: a, ..self }
+    }
+    /// SAPV's variants ([`Variants`]).
+    pub fn variants(self) -> Variants {
+        self.variants
+    }
+    pub fn with_variants(self, v: Variants) -> StyleWord {
+        StyleWord {
+            variants: v,
+            ..self
+        }
+    }
+    /// **What `SGR 0` leaves**: the default rendition, these variants kept,
+    /// since SAPV is no `SGR` ("cancels the effect of any preceding
+    /// occurrence of SGR", `[[source: ecma48]]` 8.3.117).
+    pub fn sgr_reset(self) -> StyleWord {
+        StyleWord {
+            variants: self.variants,
+            ..StyleWord::DEFAULT
+        }
     }
 
     /// In-place setters, for [`SgrAttr::fold_into`].
@@ -811,15 +832,29 @@ impl StyleWord {
         // of those 200 cells in the wrong colour, which
         // `a_full_style_table_makes_cells_report_the_wrong_colour` caught.
         //
-        // So `fg | bg << 32` is left alone, and `underline`, `attrs` and
-        // `font` -- which are the default on essentially all text -- are
+        // So `fg | bg << 32` is left alone, and `underline` and `attrs`
+        // -- which are the default on essentially all text -- are
         // multiplied together into a constant that shifts the whole space.
         const M: u64 = 0xD6E8_FEB8_6659_FD93;
         let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
-        let tail = u64::from(self.underline.0)
-            | (u64::from(self.attrs.bits()) << 32)
-            | (u64::from(self.font.0) << 48);
-        base ^ tail.wrapping_mul(M)
+        let tail = u64::from(self.underline.0) | (u64::from(self.attrs.bits()) << 32);
+        // **The font and SAPV's variants are mixed apart from the rest**:
+        // one word, the font at bit 27 and the variants at bit 7, multiplied
+        // by `M` on its own. Laid so, a word that is not zero is never a
+        // `tail`: a font sets a bit above every colour's tag, and variants
+        // alone set bits below the tags with none of them, which no colour
+        // is. So no font and variants trade places with an underline colour
+        // and attributes, and the two products may share `M`, which is in a
+        // register already. Both are zero on almost all text, which then
+        // keys as it did before either was hashed. Folded into the font's
+        // bits by exclusive or, `SGR 11` and SAPV 2 cancelled, and laid over
+        // `attrs`' top bits, `SGR 11` and `SGR 63`'s ideogram double
+        // overline did: two renditions that shared a key shared a bucket,
+        // and which took it went by which was interned first -- an order a
+        // read boundary can move, the status line's indicator being drawn
+        // at a read's end, so one screen came out under two numberings.
+        let face = (u64::from(self.font.0) << 27) | (u64::from(self.variants.0) << 7);
+        base ^ tail.wrapping_mul(M) ^ face.wrapping_mul(M)
     }
 }
 
@@ -1296,5 +1331,56 @@ impl SegHash {
     pub fn slot(self, buckets: usize) -> usize {
         debug_assert!(buckets.is_power_of_two());
         (self.0 >> (64 - buckets.trailing_zeros())) as usize
+    }
+}
+
+#[cfg(test)]
+mod style_key {
+    use crate::*;
+
+    /// **No font and no set of SAPV's variants share a key**: every font,
+    /// 0 to 9, against every word of the variants' eleven live bits, and
+    /// against every underline colour of the palette and of each RGB
+    /// channel's bits, which a font and variants laid where a colour is
+    /// would trade places with; and each font against every `Attrs` bit
+    /// alone. Exclusive or gave `SGR 11` and SAPV 2 one key, and `SGR 11`
+    /// and the ideogram double overline shared one by overlapping.
+    #[test]
+    fn no_font_and_variant_share_a_key() {
+        const FACES: usize = 10 << 11;
+        const N: usize = FACES + 256 + 24;
+        let mut keys = [0u64; N];
+        for (i, k) in keys.iter_mut().enumerate() {
+            let w = match i {
+                i if i < FACES => {
+                    let (f, v) = (i >> 11, i & 0x7ff);
+                    let font = FontId::from_sgr(10 + f as u16).expect("a font");
+                    StyleWord::DEFAULT
+                        .with_font(font)
+                        .with_variants(Variants(v as u16))
+                }
+                i if i < FACES + 256 => StyleWord::DEFAULT
+                    .with_underline(ColorWord(ColorWord::TAG_INDEXED | (i - FACES) as u32)),
+                i => StyleWord::DEFAULT
+                    .with_underline(ColorWord(ColorWord::TAG_RGB | 1 << (i - FACES - 256))),
+            };
+            *k = w.key();
+        }
+        keys.sort_unstable();
+        assert!(keys.windows(2).all(|p| p[0] != p[1]));
+        let fonts: [u64; 10] = core::array::from_fn(|f| {
+            StyleWord::DEFAULT
+                .with_font(FontId::from_sgr(10 + f as u16).expect("a font"))
+                .key()
+        });
+        for b in 0..u32::BITS {
+            let a = StyleWord::DEFAULT.with_attrs(Attrs(1 << b)).key();
+            assert!(!fonts.contains(&a), "attribute bit {b}");
+        }
+        assert_eq!(
+            StyleWord::DEFAULT.key(),
+            StyleWord::DEFAULT.with_variants(Variants::DEFAULT).key(),
+            "the control"
+        );
     }
 }

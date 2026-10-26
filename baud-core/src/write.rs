@@ -1355,7 +1355,8 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     //
     // **Under IRM the computing path writes it**, which opens the gap the
     // character goes into (`[[source: ecma48]]` 7.2.10); the read wrote
-    // over the character at the cursor.
+    // over the character at the cursor. So does it a character a SAPV form
+    // waits for (`crate::variants`).
     //
     // **Under iTerm2's `UnicodeVersion=8` no character reaches here**:
     // that graph's `Lead8` sends each one to `eight`. The table holds the
@@ -1363,7 +1364,7 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     #[cfg(feature = "cell-table")]
     if len == 3
         && !p.cells3.is_empty()
-        && !p.inserting()
+        && !p.writes_slowly()
         && p.cold.widths.widths() == UnicodeWidths::Current
     {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);
@@ -2210,6 +2211,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::SelectPresentationDirections { path, cursor } => {
             p.select_presentation(path, cursor)
         }
+        DomCsi::SelectPresentationVariants => p.select_variants(csi),
         DomCsi::ScrollLeft(c) => p.scroll_columns(c, ColumnShift::Delete),
         DomCsi::ScrollRight(c) => p.scroll_columns(c, ColumnShift::Insert),
         DomCsi::SetScrollRegion { top, bottom } => p.set_scroll_region(top, bottom),

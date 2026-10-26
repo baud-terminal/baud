@@ -58,6 +58,16 @@ impl FaceStyle {
         })
     }
 
+    /// The style without its italic: regular for italic, bold for bold
+    /// italic.
+    pub fn upright(self) -> FaceStyle {
+        match self {
+            FaceStyle::Italic => FaceStyle::Regular,
+            FaceStyle::BoldItalic => FaceStyle::Bold,
+            s => s,
+        }
+    }
+
     /// The style two bits name; the bits above them are ignored.
     pub const fn from_code(code: Code) -> FaceStyle {
         match code.0 & 3 {
@@ -133,7 +143,28 @@ pub struct TextFace {
     pub font: FontSlot,
 }
 
+/// **How far an italic leans, as a shear**: the tangent of its angle
+/// from the vertical, a glyph's every row moved that much of its height
+/// above the baseline, to the left ([`Stack::lean`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Lean(f32);
+
+impl Lean {
+    pub fn tan(self) -> f32 {
+        self.0
+    }
+}
+
 impl TextFace {
+    /// This face with its italic dropped: what a cell SAPV 17 slants left
+    /// is drawn from ([`Stack::lean`]).
+    pub fn upright(self) -> TextFace {
+        TextFace {
+            style: self.style.upright(),
+            font: self.font,
+        }
+    }
+
     /// The style's two bits with the font's five above them: a style's own
     /// code in the primary font.
     pub fn code(self) -> Code {
@@ -553,6 +584,43 @@ impl<'f, 'a> Stack<'f, 'a> {
             .or_else(|| (draws(chain) == want).then_some(chain))
             .or_else(|| own.into_iter().flatten().find(|ix| draws(*ix) != Draws::No))
             .unwrap_or(chain)
+    }
+
+    /// **How far `face`'s italic leans**, for a cell SAPV 17 slants left,
+    /// drawn as its upright glyph sheared by it (Jev's lean, LEFT_SHEAR,
+    /// "sheared left by the italic face's angle"): the italic face's own
+    /// `post.italicAngle`, counter-clockwise degrees from the vertical and
+    /// negative for a face that leans right (`[[source: ms-opentype-post]]`),
+    /// as far to the left; CSS's 14 degrees for an `oblique` given no angle
+    /// where it gives none (`[[source: css-fonts-4-wd-2026-10-16]]`), as
+    /// `baud_font::Described::slope` reads it. `None` for a face not
+    /// italic, and for an italic the stack has no face for: that is drawn
+    /// upright from the regular face and nothing is synthesised for it
+    /// ([`Stack::effective`]), so it leans neither way.
+    pub fn lean(&self, face: TextFace) -> Option<Lean> {
+        if face.style.upright() == face.style {
+            return None;
+        }
+        let own = |font: FontSlot| {
+            self.fonts
+                .iter()
+                .find(|f| (f.0, f.1) == (font, face.style))
+                .map(|f| f.2)
+        };
+        let ix = match face.font {
+            FontSlot::PRIMARY => self.styled.get(face.style),
+            f if f.has_fraktur() => own(FontSlot::FRAKTUR),
+            f => own(f.alternative_only()),
+        }?;
+        let angle = self
+            .face(ix)
+            .table(baud_font::Tag::POST)
+            .and_then(|t| t.read::<baud_font::var::Fixed>(baud_font::bytes::Offset::of(4u32)));
+        let degrees = match angle {
+            Some(a) if a < baud_font::var::Fixed::ZERO => -a.to_f32(),
+            _ => baud_font::Angle::OBLIQUE.get(),
+        };
+        Some(Lean(degrees.to_radians().tan()))
     }
 
     pub fn primary(&self) -> &'f Face<'a> {

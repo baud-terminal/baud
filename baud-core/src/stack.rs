@@ -154,10 +154,11 @@ impl Paint<'_, '_> {
         if listed <= 1 {
             groups = SgrGroups::ALL;
         }
+        let kept = self.kept_rendition();
         let s = &mut self.strs.renditions;
         let used = s.used;
         if let Some(level) = s.saved.get_mut(used.0) {
-            *level = (self.style_raw, groups);
+            *level = (kept, groups);
         }
         s.used = used.pushed();
     }
@@ -175,6 +176,7 @@ impl Paint<'_, '_> {
         if let Some(&(saved, groups)) = s.saved.get(used.0) {
             self.style_raw = restore_rendition(saved, self.style_raw, groups);
             self.style = self.intern_style(self.style_raw);
+            self.rendition_changed();
         }
     }
 }

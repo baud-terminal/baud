@@ -387,6 +387,9 @@ impl Paint<'_, '_> {
     /// what lies past the edge -- goes with the main display and comes back
     /// with it.
     pub(crate) fn swap_display(&mut self) {
+        // A form the last character took leaves with its display's
+        // rendition, not after it.
+        self.form_ends();
         self.cold.placement.forget();
         let into = match self.strs.status.swapped {
             Swapped::Main => Swapped::Status,
@@ -408,6 +411,7 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cold.single, &mut p.single);
         core::mem::swap(&mut self.cold.desig, &mut p.desig);
         core::mem::swap(&mut self.cold.restored_shift, &mut p.restored_shift);
+        self.rendition_changed();
         let (origin, cursor) = (
             ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
             ModeChange::of(self.cold.modes.is_set(ModeBit::CursorVisible)),

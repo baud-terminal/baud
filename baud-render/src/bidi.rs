@@ -119,6 +119,7 @@
 //! copy.
 
 use baud_core::{BidiSupport, StatusLine, Term};
+use baud_domain::{Attrs, DecimalMark, Mirroring, Slant, Variants, forced_form};
 use baud_domain::{
     Bidi, BidiClass, BidiLevel, BidiMirrored, BidiParagraph, BidiProps, BoxMirror, CharacterPath,
     ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, Content, JoiningForm, JoiningType, LamAlef,
@@ -168,6 +169,9 @@ struct RowOrder {
     /// The visual columns drawn mirrored some other way, left to right:
     /// flipped, or a mirror under the cell's marks.
     mirrors: Vec<(Col, Mirrored)>,
+    /// The visual columns whose italic SAPV 17 slants left
+    /// ([`Orders::slants`]), left to right.
+    slants: Vec<Col>,
     /// The columns the row is laid out over: the screen's, or on a line
     /// that is not single-width its half, each of its characters drawn
     /// over two of the screen's columns.
@@ -302,6 +306,21 @@ impl Orders {
     /// a row in its own order.
     pub fn mirrors(&self, r: Row) -> &[(Col, Mirrored)] {
         self.row(r).map_or(&[], |o| o.mirrors.as_slice())
+    }
+
+    /// **Row `r`'s visual columns whose italic leans left**, left to right:
+    /// a cell at a right-to-left level written under SAPV 17, "when the
+    /// string direction is right-to-left, the italicized characters are
+    /// slanted to the left" (`[[source: ecma48]]` 8.3.108). The cell is
+    /// drawn as its upright glyph sheared left (Jev's lean, LEFT_SHEAR,
+    /// 0.82/0.80); none on a row in its own order, which is left to right.
+    pub fn slants(&self, r: Row) -> &[Col] {
+        self.row(r).map_or(&[], |o| o.slants.as_slice())
+    }
+
+    /// Whether visual column `v` of row `r` leans left ([`Orders::slants`]).
+    pub fn slanted(&self, r: Row, v: Col) -> bool {
+        self.slants(r).contains(&v)
     }
 
     /// **The character visual column `v` of row `r` is drawn as, where L4
@@ -877,6 +896,14 @@ impl Reorder {
         extent: Extent,
     ) {
         self.lay_out_window(term, back, joins, written, extent);
+        if term.variants_seen() {
+            let vp = term.view(term.looking_back(back));
+            let n = match extent {
+                Extent::Window => vp.rows(),
+                Extent::Top => Rows::of_index(vp.rows().index().min(1)),
+            };
+            self.vary_rows(term, &vp, n);
+        }
         if extent == Extent::Window {
             self.lay_out_status(term, joins);
         }
@@ -928,6 +955,9 @@ impl Reorder {
                 (Row::ZERO, Row::ZERO),
                 Context::None,
             ),
+        }
+        if term.variants_seen() {
+            self.vary_rows(term, &line, line.rows());
         }
         let status = core::mem::replace(&mut self.orders, main);
         self.status_seen = core::mem::replace(&mut self.seen, seen);
@@ -1039,6 +1069,15 @@ impl Reorder {
         // below whatever the window keeps.
         self.orders.joins.truncate(nrows);
         self.reverse_paths(term, &vp);
+        // SAPV's substitutions and slants, which live in the orders made
+        // again above; its forms live in the joins, kept or found again by
+        // `rejoin`.
+        if term.variants_seen() {
+            for y in 0..nrows {
+                self.vary_swaps(term, &vp, Row::from_index(y));
+                self.vary_slants(term, &vp, Row::from_index(y));
+            }
+        }
         let now = Last::Kept(vp.cols(), term.cluster_epoch(), vp.rows(), changes);
         // A row whose path changed is shown in another order with the same
         // cells, which no caller's compare sees: its joins are found again.
@@ -1070,6 +1109,9 @@ impl Reorder {
         if row_joins(term, vp.row(r)) {
             self.join_shown(term, r, vp.row(r));
         }
+        if term.variants_seen() {
+            self.vary_joins(term, vp, r);
+        }
     }
 
     /// **With BDSM reset, each row whose line runs right to left drawn in
@@ -1100,6 +1142,7 @@ impl Reorder {
                 level: vec![BidiLevel::RTL; cols],
                 swaps: Vec::new(),
                 mirrors: Vec::new(),
+                slants: Vec::new(),
                 drawn: Cols::of_index(width),
             };
             let mut c = width;
@@ -1124,7 +1167,11 @@ impl Reorder {
                 if cell.content.is_wide_tail() {
                     continue;
                 }
-                match mirror(term, cell, line.box_mirror()) {
+                let m = match unmirrored(term, cell) {
+                    true => Mirror::Not,
+                    false => mirror(term, cell, line.box_mirror()),
+                };
+                match m {
                     Mirror::Glyph(m) => out.swaps.push((v, m)),
                     Mirror::Flipped(alone) => {
                         if let Some(base) = alone {
@@ -1463,6 +1510,7 @@ impl Reorder {
                 level: Vec::with_capacity(cols),
                 swaps: Vec::new(),
                 mirrors: Vec::new(),
+                slants: Vec::new(),
                 drawn: Cols::of_index(width),
             };
             // The erased cells past the text go at the line's end in the
@@ -1941,6 +1989,246 @@ fn mirror(term: &Term<'_>, cell: PackedCell, boxes: BoxMirror) -> Mirror {
                 .flatten(),
         ),
         (false, None) => Mirror::Flipped(None),
+    }
+}
+
+/// **The SAPV variants cell `cell` was written under**: the default
+/// presentation where its rendition names none.
+fn variants_of(term: &Term<'_>, cell: PackedCell) -> Variants {
+    term.styles()
+        .get(cell.style.index())
+        .copied()
+        .flatten()
+        .map_or(Variants::DEFAULT, |w| w.variants())
+}
+
+/// **Whether SAPV 15 left a right-to-left path's mirrored character as
+/// stored**, with BDSM reset: the device does no bidi there, and the
+/// application's SAPV says whether mirrorable glyphs are mirrored, value 3
+/// the characters with a Bidi_Mirroring_Glyph ("presented as the other
+/// member of the pair") and 4 those with none ("mirrored about that
+/// vertical axis"), `[[source: ecma48]]` 8.3.108; TR/53's worked example 1
+/// pairs SAPV 3 with EXPLICIT. With BDSM set, L4 governs: "mirroring must
+/// be done according to rule L4" (`[[source: uax9-bidi]]` section 7).
+/// Jev's lean, UNMIRROR_EXPLICIT_ONLY, in three of four answers (0.10 and
+/// 0.14 in the first round, 0.23 in the re-ask's order A; the re-ask's
+/// order B leaned to unmirroring in both states, at 0.16).
+fn unmirrored(term: &Term<'_>, cell: PackedCell) -> bool {
+    if !term.variants_seen() {
+        return false;
+    }
+    let v = variants_of(term, cell);
+    if v.is_default() {
+        return false;
+    }
+    let Some(c) = term
+        .base_of(cell)
+        .drawn()
+        .as_codepoint()
+        .and_then(|c| char::from_u32(c.value()))
+    else {
+        return false;
+    };
+    if BidiProps::of(c).mirrored != BidiMirrored::Yes {
+        return false;
+    }
+    match mirroring_glyph(c) {
+        Some(_) => v.paired() == Mirroring::Cancelled,
+        None => v.mathematical() == Mirroring::Cancelled,
+    }
+}
+
+/// **Whether `cell` holds a character written italic under SAPV 17**: a
+/// wide character's tail holds none, its lead drawing it.
+fn slanted(term: &Term<'_>, cell: PackedCell) -> bool {
+    if cell.content.is_empty() || cell.content.is_wide_tail() {
+        return false;
+    }
+    term.styles()
+        .get(cell.style.index())
+        .copied()
+        .flatten()
+        .is_some_and(|w| w.variants().slant() == Slant::ByDirection && w.attrs().has(Attrs::ITALIC))
+}
+
+/// An ASCII digit, for a decimal number's mark.
+fn is_digit(cell: Option<&PackedCell>) -> bool {
+    cell.and_then(|c| c.content.as_codepoint())
+        .is_some_and(|c| (u32::from('0')..=u32::from('9')).contains(&c.value()))
+}
+
+impl Reorder {
+    /// **SAPV's variants on the first `n` rows of `vp`** (`[[source: ecma48]]`
+    /// 8.3.108): the substitutions, the forms and the slants. Only once a
+    /// program has selected one ([`Term::variants_seen`]).
+    fn vary_rows(&mut self, term: &Term<'_>, vp: &Viewport<'_>, n: Rows) {
+        for y in 0..n.index() {
+            let r = Row::from_index(y);
+            self.vary_swaps(term, vp, r);
+            self.vary_joins(term, vp, r);
+            self.vary_slants(term, vp, r);
+        }
+    }
+
+    /// **The characters a variant draws as another**: a decimal digit as
+    /// its Arabic-Indic counterpart (value 2, unless 18), and a FULL STOP
+    /// between two digits as a COMMA (value 10; Jev BETWEEN_DIGITS,
+    /// 0.98/0.96, "where the bit combination 02/14 is intended to represent
+    /// a decimal mark in a decimal number"), drawn as a mirrored character
+    /// is, in the row's maps: every path reads the drawn cell.
+    fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
+        let cells = vp.row(r);
+        let mut found: Vec<(Col, Content)> = Vec::new();
+        for (x, &cell) in cells.iter().enumerate() {
+            if cell.flags.is_marked() {
+                continue;
+            }
+            let v = variants_of(term, cell);
+            if v.is_default() {
+                continue;
+            }
+            let Some(ch) = cell
+                .content
+                .as_codepoint()
+                .and_then(|c| char::from_u32(c.value()))
+            else {
+                continue;
+            };
+            let to = match ch {
+                '0'..='9' => v.digit(ch),
+                '.' if v.decimal_mark() == DecimalMark::Comma
+                    && x > 0
+                    && is_digit(cells.get(x - 1))
+                    && is_digit(cells.get(x + 1)) =>
+                {
+                    ','
+                }
+                _ => continue,
+            };
+            if let (true, Some(cp)) = (to != ch, Codepoint::new(u32::from(to))) {
+                found.push((Col::at_index(x), Content::codepoint(cp)));
+            }
+        }
+        if found.is_empty() {
+            return;
+        }
+        let cols = vp.cols().index();
+        let y = r.index();
+        if self.orders.rows.len() <= y {
+            self.orders.rows.resize_with(y + 1, || None);
+        }
+        let width = vp.rendition(r).end_of_line(vp.cols()).index().min(cols);
+        let order = self.orders.rows[y].get_or_insert_with(|| RowOrder {
+            from: (0..cols).map(Col::at_index).collect(),
+            to: (0..cols).map(Col::at_index).collect(),
+            level: vec![BidiLevel::LTR; cols],
+            swaps: Vec::new(),
+            mirrors: Vec::new(),
+            slants: Vec::new(),
+            drawn: Cols::of_index(width),
+        });
+        for (l, content) in found {
+            if let Some(&v) = order.to.get(l.index()) {
+                order.swaps.push((v, content));
+            }
+        }
+        self.orders.any = Any::Yes;
+    }
+
+    /// **The italic cells SAPV 17 slants left**: on a row drawn in another
+    /// order, each visual cell at an odd level -- the string direction right
+    /// to left: under IMPLICIT the level UAX #9 resolves, and with BDSM
+    /// reset every cell of a right-to-left path -- that holds a character,
+    /// not a wide one's tail, written italic under 17. At an even level its
+    /// italic leans right, as the italic face draws it.
+    fn vary_slants(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
+        let cells = vp.row(r);
+        let Some(order) = self.orders.rows.get_mut(r.index()).and_then(Option::as_mut) else {
+            return;
+        };
+        order.slants.clear();
+        for (v, &l) in order.from.iter().enumerate() {
+            let odd = order.level.get(v).is_some_and(|lv| lv.number() % 2 == 1);
+            if odd && cells.get(l.index()).is_some_and(|&c| slanted(term, c)) {
+                order.slants.push(Col::at_index(v));
+            }
+        }
+    }
+
+    /// **The forms a variant draws a letter in**: none under 18 and 19,
+    /// "presented in the form they are stored"; no lam-alef ligature under
+    /// 14, each letter in its joined form; and a form 5 to 8 asked, as
+    /// [`forced_form`] gives it. A pair one of whose letters is drawn apart
+    /// is drawn apart.
+    fn vary_joins(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row) {
+        let cells = vp.row(r);
+        let cols = cells.len();
+        let y = r.index();
+        if self.orders.joins.len() <= y {
+            self.orders.joins.resize_with(y + 1, || None);
+        }
+        let mut row: RowJoins = self.orders.joins[y]
+            .clone()
+            .unwrap_or_else(|| vec![None; cols]);
+        let mut changed = false;
+        for (v, slot) in row.iter_mut().enumerate() {
+            let l = self.orders.logical_col(r, Col::at_index(v)).index();
+            let Some(&cell) = cells.get(l) else {
+                continue;
+            };
+            let var = variants_of(term, cell);
+            if var.is_default() {
+                continue;
+            }
+            if !var.joins() {
+                changed |= slot.take().is_some();
+                continue;
+            }
+            if !var.ligates() {
+                if let Some(j) = slot.as_mut().filter(|j| j.pair.is_some()) {
+                    j.pair = None;
+                    changed = true;
+                }
+            }
+            let base = term.base_of(cell).drawn().as_codepoint();
+            let form = var
+                .form()
+                .zip(base)
+                .and_then(|(f, b)| forced_form(f, JoiningType::of(b.value())));
+            if let Some(form) = form {
+                *slot = Some(Joined { form, pair: None });
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+        // A pair whose other letter lost it is drawn apart.
+        let kept: Vec<bool> = (0..cols)
+            .map(|v| match row[v].and_then(|j| j.pair) {
+                Some((PairPart::Lam(n, end) | PairPart::Alef(n, end), _)) => {
+                    let k = n.index().saturating_sub(1);
+                    let other = match end {
+                        PairEnd::Left => v.checked_add(k),
+                        PairEnd::Right => v.checked_sub(k),
+                    };
+                    other
+                        .and_then(|o| row.get(o).copied().flatten())
+                        .is_some_and(|j| j.pair.is_some())
+                }
+                _ => true,
+            })
+            .collect();
+        for (slot, keep) in row.iter_mut().zip(kept) {
+            if let (Some(j), false) = (slot.as_mut(), keep) {
+                j.pair = None;
+            }
+        }
+        let any = row.iter().any(Option::is_some);
+        self.orders.joins[y] = any.then_some(row);
+        if any {
+            self.orders.joined_any = Any::Yes;
+        }
     }
 }
 

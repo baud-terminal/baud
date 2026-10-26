@@ -343,7 +343,7 @@ impl Paint<'_, '_> {
         Saved {
             cy: self.cy,
             cx: self.cx.col(),
-            style_raw: self.style_raw,
+            style_raw: self.kept_rendition(),
             flags: self.flags,
             g: self.cold.g,
             gl: self.cold.gl,
@@ -439,6 +439,7 @@ impl Paint<'_, '_> {
         // A hit, in the ordinary case.
         self.style = self.intern_style(s.style_raw);
         self.style_raw = s.style_raw;
+        self.rendition_changed();
         self.flags = s.flags;
         self.cold.g = s.g;
         self.cold.gl = s.gl;
@@ -475,6 +476,7 @@ impl Paint<'_, '_> {
         self.goto(Row::ZERO, Col::ZERO);
         self.style_raw = StyleWord::DEFAULT;
         self.style = StyleId::DEFAULT;
+        self.rendition_changed();
         self.cold.protect = CellFlags::NONE;
         self.reset_sets();
         self.invoke();
@@ -4157,18 +4159,23 @@ impl Paint<'_, '_> {
     /// `ORIGIN_MODE := ABSOLUTE` and the four renditions it knows to `FALSE`
     /// before it fills, then the Active Position to 1;1 and the top and
     /// bottom margins to the page's. The colours belong to the same Current
-    /// Rendition (§ 5.13.1, p. 5-186), so the whole word goes, as `SGR 0`
-    /// takes it. The 1985 algorithm predates side margins; "DECALN sets the
-    /// margins to the extremes of the page" (`[[source: vt510-decaln]]`)
-    /// takes all four, and no text resets `DECLRMM`. It kept DECOM, the
-    /// rendition and the side margins until 2026-10-14.
+    /// Rendition (§ 5.13.1, p. 5-186), so the rendition goes as `SGR 0`
+    /// takes it, SAPV's variants kept: they are no rendition of DEC's, and
+    /// a form waiting for the following character still waits. The pattern
+    /// is in the default rendition. The 1985 algorithm predates side
+    /// margins; "DECALN sets the margins to the extremes of the page"
+    /// (`[[source: vt510-decaln]]`) takes all four, and no text resets
+    /// `DECLRMM`. It kept DECOM, the rendition and the side margins until
+    /// 2026-10-14.
     pub(crate) fn screen_alignment(&mut self) {
         self.cold.modes.apply(ModeBit::Origin, false);
-        self.style_raw = StyleWord::DEFAULT;
-        self.style = StyleId::DEFAULT;
+        self.form_ends();
+        self.style_raw = self.style_raw.sgr_reset();
+        self.style = self.intern_style(self.style_raw);
+        self.rendition_changed();
         let cell = PackedCell::glyph(
             Codepoint::from_ascii(StreamByte::from_stream(b'E')),
-            self.style,
+            StyleId::DEFAULT,
             self.flags,
         );
         for y in 0..self.rows.index() {
@@ -4727,6 +4734,7 @@ impl Paint<'_, '_> {
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
         self.style = StyleId::DEFAULT;
+        self.reset_variants();
         self.reset_sets();
         // **Both resets restore the cursor shape.** A first version put this in
         // `hard_reset` only, on the argument that `DECSCUSR` is an xterm

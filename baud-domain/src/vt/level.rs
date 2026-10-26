@@ -395,6 +395,7 @@ impl Csi {
             | ScrollRight(_)
             | SelectCharacterPath { .. }
             | SelectPresentationDirections { .. }
+            | SelectPresentationVariants
             | RequestVersion
             | KeyControl(_)
             | ShiftEscape(_)

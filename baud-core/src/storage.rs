@@ -553,6 +553,9 @@ pub struct StrBuf<'b> {
     /// The status line's type, which display DECSASD selected, and the
     /// state of the display not live (`status.rs`).
     pub(crate) status: crate::status::Status,
+    /// SAPV's state beside the rendition's variants: held forms, refusals,
+    /// and whether any variant was selected (`crate::variants`).
+    pub(crate) variants: crate::variants::State,
     /// **The notifications' area** (`notice.rs`): the chunk being received,
     /// the notification being assembled, what a read published and the
     /// ids alive, [`NoticeBudget::bytes`] long. Empty through
@@ -650,6 +653,7 @@ impl<'b> StrBuf<'b> {
             reflow_dropped: Rows::ZERO,
             print_area: &mut [],
             print: crate::print::Printer::NONE,
+            variants: crate::variants::State::POWER_ON,
             status: crate::status::Status::power_on(
                 Cols::of_index(1),
                 crate::status::Room::Declined,
@@ -992,6 +996,7 @@ impl Owned {
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
+                variants: crate::variants::State::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,
@@ -1082,6 +1087,7 @@ impl Owned {
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
+                variants: crate::variants::State::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,
