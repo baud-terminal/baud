@@ -122,7 +122,8 @@ config_reload = "on"
 
 # Whether the embedded Regular, the icon face and STIX Two Math follow a `fonts`
 # stack you named. true, the default, keeps them behind your faces, in that
-# order; false leaves the stack exactly as named.
+# order; false leaves none of baud's faces behind yours. Either way, a character
+# none of them has is drawn from the font your system picks for it.
 # Without `fonts` it changes nothing: the embedded faces are the stack then.
 font_fallback = true
 

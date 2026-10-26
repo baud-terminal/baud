@@ -612,7 +612,7 @@ fn users_locale() -> (Option<String>, Option<String>, Option<String>) {
             cf_text(CFLocaleGetValue(locale, CF_LOCALE_LANGUAGE_CODE)),
             cf_text(CFLocaleGetValue(locale, CF_LOCALE_COUNTRY_CODE)),
         );
-        CFRelease(locale);
+        CFRelease(locale.object());
         got
     }
 }

@@ -30,8 +30,9 @@
 //! no config at all. A configured `fonts` replaces that stack and keeps the
 //! embedded Regular, the icon face and then STIX Two Math behind it, for the
 //! Hebrew, icons and symbols the named faces lack (the owner's order:
-//! configured, then baud's embedded font, then the system, which is not
-//! built for a configured stack yet (note AC decision 9); and the owner's
+//! configured, then baud's embedded font, then the system's faces, added
+//! behind every stack the first time a frame meets a character none of
+//! these draws (`fallback.rs`); and the owner's
 //! call of 2026-10-03, as every terminal that bundles faces keeps them behind
 //! a configured font), unless `font_fallback = false`. A configured stack's
 //! styled faces are the Bold, Italic and Bold Italic of the family of the
@@ -977,13 +978,15 @@ impl Config {
     }
 
     /// Resolve this config's family names to the installed faces, as
-    /// [`Config::launch`] does, logging what it could not find: for a
-    /// reload whose fonts changed.
+    /// [`Config::launch`] does, logging what it could not find, and keep
+    /// behind its chain the faces the system has answered this process
+    /// (`fallback::keep`): for a reload whose fonts changed.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn resolved(mut self) -> Config {
         for s in self.resolve(crate::discover::Catalogue::system()) {
             crate::warn!("{s}");
         }
+        crate::fallback::keep(&mut self);
         self
     }
 
@@ -2387,7 +2390,7 @@ impl FaceSpec {
 
     /// The installed face discovery picked, with `role`.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fn picked(p: &crate::discover::Picked, role: baud_render::FaceRole) -> FaceSpec {
+    pub fn picked(p: &crate::discover::Picked, role: baud_render::FaceRole) -> FaceSpec {
         FaceSpec {
             path: p.path.clone(),
             index: p.index,
@@ -5110,8 +5113,10 @@ shadow     = "never"
     /// A configured stack keeps the embedded font behind it -- the Regular,
     /// for the Hebrew and whatever else the named faces lack and it maps,
     /// then the icon face, so a Nerd Fonts icon still draws (and STIX after
-    /// it, below); and `font_fallback = false` leaves the text's stack
-    /// exactly as named, whichever of the two keys comes first.
+    /// it, below); and `font_fallback = false` leaves the text's stack as
+    /// named, with none of baud's faces behind it, whichever of the two keys
+    /// comes first. The system's faces are added behind either
+    /// (`fallback.rs`), and not here.
     #[test]
     fn a_configured_stack_keeps_the_embedded_font_behind_it() {
         let read = |text: &str| super::without_badge(read(text));
@@ -5146,9 +5151,9 @@ shadow     = "never"
     }
 
     /// **The embedded Regular follows a configured stack** -- the owner's
-    /// order, configured faces, then baud's embedded font, then the system,
-    /// which is not built for a configured stack yet (note AC decision 9)
-    /// -- after the named faces and ahead of the icon face and STIX, as a
+    /// order, configured faces, then baud's embedded font, then the
+    /// system's faces, which the first frame that needs one adds
+    /// (`fallback.rs`) -- after the named faces and ahead of the icon face and STIX, as a
     /// fallback face and never a styled one, and under the same switch:
     /// `font_fallback = false` takes it away with the other two.
     #[test]

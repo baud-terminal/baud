@@ -61,6 +61,10 @@ mod discover;
 // fontconfig's configuration, the scan's directory list on Linux.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod fontconf;
+// The system's face for a character no face of the chain draws: CoreText's
+// answer on macOS, fontconfig's charset match over the scan on Linux.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod fallback;
 // The font compiled into the binary: the default stack's first face.
 mod embedded;
 // A pointer event to the child or the selection, the cell under it, its

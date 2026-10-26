@@ -63,8 +63,14 @@ stack.
   Nerd scope C, which draws the fitted Nerd glyph over JetBrains Mono's own) and
   baud's own over-wide rule D are decided in TODO.md and not built (source; no
   branch carries them).
-- **There is no run-time system fallback.** A character no listed face maps
-  draws the primary's missing glyph (source).
+- **~~There is no run-time system fallback.~~** *Built 2026-10-26*: a
+  character no listed face maps is asked of the system the first time a frame
+  draws it -- CoreText's `CTFontCreateForString` from the
+  primary's bytes on macOS, fontconfig's charset match over baud's own scan
+  on Linux -- and the face answered is appended behind the chain
+  (`baud-app/src/fallback.rs`; docs/record.md, "Arabic and Syriac draw from
+  the system's faces"). The primary's missing glyph stays only where no
+  installed face has the character.
 
 ## 3. The gap
 
@@ -100,6 +106,12 @@ measured separately with the CoreText cascade (Menlo 1,587 there).
   bundle). On Linux the Menlo ones come from DejaVu Sans Mono, a different design,
   or from nothing.
 - **Hebrew and Arabic** are mapped by no face at all: 134 and 248 code points.
+  Hebrew is in the embedded font since; Arabic, Syriac and every other script
+  no listed face maps draw from the face the system answers (2026-10-26):
+  Courier New for Arabic and Urdu from JetBrains Mono's bytes, the face
+  CoreText also gives Menlo, and Noto Sans Syriac for Syriac (Jev,
+  SYSTEM_ANSWER, 1.00 and 1.00 over renders of Courier New, Geeza Pro,
+  SF Arabic and Noto Nastaliq Urdu).
 - **Which blocks baud should cover itself is a scope decision.** The historic
   and game sets (alchemy, dominoes, runes, playing cards, Yijing and the like)
   come from Apple Symbols on macOS and differ or are missing on Linux, so leaving
@@ -908,7 +920,9 @@ the bar read on confidence.
   - 360 that drew from STIX;
   - 8 that drew from the icon face.
 - The default stack already resolves those 360 and 8 from JetBrains Mono.
-- No system tier follows a configured stack yet (decision 9).
+- ~~No system tier follows a configured stack yet (decision 9).~~ The system
+  tier follows every stack since 2026-10-26, `font_fallback = false`
+  included.
 
 **Unmeasured:**
 
@@ -984,8 +998,16 @@ items 1-3 and 5-12 in brackets; items 4, 13 and 14 were not asked. All go to the
    (interim); a second ask with its measured scope gave 0.92 at 0.88, still
    interim under the bar read on confidence (section 5a)]
 9. macOS system fallback: the cascade at launch, per character, or both. [cascade at
-   launch, 0.92 at 0.88]
-10. Linux system fallback: linked, `dlopen`ed or a subprocess. [linked, 0.46 at 0.19]
+   launch, 0.92 at 0.88; *re-asked 2026-10-26* with the measured costs and
+   coverage -- the cascade maps 33 of 161 scripts' first letters, the
+   per-string answer 133, Syriac only the second -- per string, 0.88 at
+   0.82 and 0.84 at 0.76, built as the lean; asked when a frame meets the
+   character rather than at launch, 0.97 and 0.94, decided; for the
+   characters drawn rather than their whole block, 0.68 and 0.86, the lean]
+10. Linux system fallback: linked, `dlopen`ed or a subprocess. [linked, 0.46 at 0.19;
+    *re-asked 2026-10-26* with a fourth option, fontconfig's charset match
+    over baud's own scan: that, 0.92 at 0.89 and 0.94 at 0.92, built as the
+    lean]
 11. The family's name: anything but a Reserved Font Name; keeping "JetBrains
     Mono" is not barred by a Reserved Font Name, but it misnames a modified font
     and is JetBrains' trademark, to which the OFL grants no right. [a new name,

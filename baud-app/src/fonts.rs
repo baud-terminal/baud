@@ -81,6 +81,9 @@ pub struct Fonts {
     /// The mappings under `data` and every parsed slice in `built`, held
     /// so a font reload can give them back (`host::refont`).
     held: crate::pty::Held,
+    /// The config's faces these were made from, in its order: what the
+    /// system's faces are appended to (`host::follow_gaps`).
+    faces: Vec<crate::config::FaceSpec>,
 }
 
 /// A stack's faces, in its order, and each one's role.
@@ -157,7 +160,33 @@ impl Fonts {
             slots,
             asked,
             held,
+            faces: cfg.faces.clone(),
         }
+    }
+
+    /// The config's faces these were made from, in its order.
+    pub fn faces(&self) -> &[crate::config::FaceSpec] {
+        &self.faces
+    }
+
+    /// **What a program set, carried over to fonts made again from the same
+    /// faces with others added** (`host::follow_gaps`): the face that leads
+    /// and the name each face was last taken with, matched by face rather
+    /// than by slot, since a face added ahead of the styled ones moves
+    /// them. The slot that leads in `self` after, if it is not the first.
+    pub fn carry(&mut self, last: &Fonts) -> Option<Slot> {
+        let at = |spec: &crate::config::FaceSpec| {
+            self.faces
+                .iter()
+                .position(|f| f.path == spec.path && f.index == spec.index && f.from == spec.from)
+        };
+        for (spec, name) in last.faces.iter().zip(&last.asked) {
+            if let (Some(i), Some(n)) = (at(spec), name) {
+                self.asked[i] = Some(n.clone());
+            }
+        }
+        let lead = last.faces.get(last.current.0).and_then(at)?;
+        (lead != 0).then_some(Slot(lead))
     }
 
     /// **What these fonts hold, for a font reload to give back**: every

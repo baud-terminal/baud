@@ -790,6 +790,8 @@ pub fn run() {
             .and_then(|i| extra.get(i).copied())
             .unwrap_or(Ready::Idle);
         d.follow_config(heard);
+        // The system's faces for what the last frame met and no face draws.
+        d.follow_gaps();
         // What the session bus sent, never waiting, and the openers a link
         // started that have ended.
         d.pump_bus();
@@ -1644,6 +1646,27 @@ impl Driver {
         let _ = r.watch.heard_if(heard, now);
         if r.watch.due(now) == crate::reload::Due::Changed {
             self.reload_config(now);
+        }
+    }
+
+    /// **The system's faces for what no face draws** (`host::follow_gaps`),
+    /// as the macOS driver's `follow_gaps` takes them: this driver paints on
+    /// this thread, so nothing is reading the atlas.
+    fn follow_gaps(&mut self) {
+        let Some(px) = PxSize::of(self.font_size) else {
+            return;
+        };
+        match crate::host::follow_gaps(&mut self.renderer, &mut self.fonts, px) {
+            None => {}
+            Some(Ok(given)) => {
+                crate::info!(
+                    "fonts: a system face added; {}",
+                    crate::host::given_back(given)
+                );
+                self.damage = Damage::Full;
+                self.pending = Pending::Dirty;
+            }
+            Some(Err(e)) => crate::warn!("fonts: a system face did not load: {e}"),
         }
     }
 

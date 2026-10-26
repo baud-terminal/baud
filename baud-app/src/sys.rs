@@ -554,6 +554,96 @@ impl CfLocale {
     pub fn is_null(self) -> bool {
         self.0.is_null()
     }
+
+    /// The locale as the object `CFRelease` releases.
+    pub fn object(self) -> CfObject {
+        CfObject(self.0)
+    }
+}
+
+/// A CoreFoundation object the caller owns and releases once: a font, a
+/// font descriptor, a data, a string or a URL CoreText hands out under the
+/// Create or Copy rule.
+#[cfg(target_os = "macos")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct CfObject(*const c_void);
+
+#[cfg(target_os = "macos")]
+impl CfObject {
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+
+    /// The object as the string it is, for `CFStringGetCString`: only for
+    /// one a string-returning call handed out.
+    pub fn string(self) -> CfString {
+        CfString(self.0)
+    }
+}
+
+/// A UTF-16 code unit, CoreFoundation's `UniChar`.
+#[cfg(target_os = "macos")]
+pub type UniChar = u16;
+
+/// A glyph index, CoreGraphics' `CGGlyph`.
+#[cfg(target_os = "macos")]
+pub type CgGlyph = u16;
+
+/// CoreGraphics' `CGFloat`, a `double` on a 64-bit target.
+#[cfg(target_os = "macos")]
+pub type CgFloat = f64;
+
+/// CoreFoundation's `CFRange`: a start and a length, in UTF-16 units for
+/// a string.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CfRange {
+    pub location: CfIndex,
+    pub length: CfIndex,
+}
+
+// **The system's face for a character no face of baud's chain draws**
+// (`fallback.rs`): CoreText's own answer, asked of a font made from the
+// primary's bytes, and the file it is in, which baud-font parses.
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    pub fn CFDataCreate(alloc: *const c_void, bytes: *const u8, length: CfIndex) -> CfObject;
+    pub fn CFStringCreateWithCharacters(
+        alloc: *const c_void,
+        chars: *const UniChar,
+        count: CfIndex,
+    ) -> CfObject;
+    pub fn CFURLGetFileSystemRepresentation(
+        url: CfObject,
+        resolve: CfBoolean,
+        buf: *mut u8,
+        max: CfIndex,
+    ) -> CfBoolean;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreText", kind = "framework")]
+unsafe extern "C" {
+    pub fn CTFontManagerCreateFontDescriptorFromData(data: CfObject) -> CfObject;
+    pub fn CTFontCreateWithFontDescriptor(
+        descriptor: CfObject,
+        size: CgFloat,
+        matrix: *const c_void,
+    ) -> CfObject;
+    pub fn CTFontCreateForString(font: CfObject, text: CfObject, range: CfRange) -> CfObject;
+    pub fn CTFontCopyAttribute(font: CfObject, attribute: CfString) -> CfObject;
+    pub fn CTFontCopyPostScriptName(font: CfObject) -> CfObject;
+    pub fn CTFontGetGlyphsForCharacters(
+        font: CfObject,
+        chars: *const UniChar,
+        glyphs: *mut CgGlyph,
+        count: CfIndex,
+    ) -> bool;
+    #[link_name = "kCTFontURLAttribute"]
+    pub static CT_FONT_URL_ATTRIBUTE: CfString;
 }
 
 #[cfg(target_os = "macos")]
@@ -579,7 +669,7 @@ unsafe extern "C" {
         size: CfIndex,
         encoding: CfStringEncoding,
     ) -> CfBoolean;
-    pub fn CFRelease(locale: CfLocale);
+    pub fn CFRelease(object: CfObject);
     #[link_name = "kCFLocaleLanguageCode"]
     pub static CF_LOCALE_LANGUAGE_CODE: CfString;
     #[link_name = "kCFLocaleCountryCode"]
@@ -980,6 +1070,7 @@ mod tests {
 #include <unistd.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreText/CoreText.h>
 #include <mach/mach.h>
 #include <sys/posix_shm.h>
 #include <dlfcn.h>
@@ -1104,6 +1195,13 @@ int main(void) {
     printf("Boolean.size=%zu\n", sizeof(Boolean));
     printf("CFLocaleRef.size=%zu\n", sizeof(CFLocaleRef));
     printf("CFStringRef.size=%zu\n", sizeof(CFStringRef));
+    printf("CFTypeRef.size=%zu\n", sizeof(CFTypeRef));
+    printf("UniChar.size=%zu\n", sizeof(UniChar));
+    printf("UniChar.signed=%d\n", (UniChar)-1 < 0);
+    printf("CGGlyph.size=%zu\n", sizeof(CGGlyph));
+    printf("CGFloat.size=%zu\n", sizeof(CGFloat));
+    printf("CFRange.size=%zu\n", sizeof(CFRange));
+    printf("CFRange.length=%zu\n", offsetof(CFRange, length));
     printf("kCFStringEncodingUTF8=%lld\n", (long long)kCFStringEncodingUTF8);
     printf("RTLD_LAZY=%lld\n", (long long)RTLD_LAZY);
     printf("RTLD_LOCAL=%lld\n", (long long)RTLD_LOCAL);
@@ -1276,6 +1374,13 @@ int main(void) {
             assert_eq!(h["Boolean.size"], size_of::<CfBoolean>() as i128);
             assert_eq!(h["CFLocaleRef.size"], size_of::<CfLocale>() as i128);
             assert_eq!(h["CFStringRef.size"], size_of::<CfString>() as i128);
+            assert_eq!(h["CFTypeRef.size"], size_of::<CfObject>() as i128);
+            assert_eq!(h["UniChar.size"], size_of::<UniChar>() as i128);
+            assert_eq!(h["UniChar.signed"], 0, "UniChar is unsigned");
+            assert_eq!(h["CGGlyph.size"], size_of::<CgGlyph>() as i128);
+            assert_eq!(h["CGFloat.size"], size_of::<CgFloat>() as i128);
+            assert_eq!(h["CFRange.size"], size_of::<CfRange>() as i128);
+            assert_eq!(h["CFRange.length"], offset_of!(CfRange, length) as i128);
             assert_eq!(
                 h["mach_task_basic_info.size"],
                 size_of::<MachTaskBasicInfo>() as i128

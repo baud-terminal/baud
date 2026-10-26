@@ -2685,6 +2685,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.faces_of
     }
 
+    /// The characters no face of the stack draws that the frames since the
+    /// last call drew, each once ([`FaceTable::take_gaps`]): what the caller
+    /// asks the system for.
+    pub fn take_gaps(&mut self) -> Vec<Codepoint> {
+        self.faces_of.take_gaps()
+    }
+
     /// Where a cluster whose base is `base`, on `face`, sits in `span`:
     /// the grid phase in one cell; in two, its base's advance centred in
     /// the span -- half the slack, whole pixels and the fraction. The

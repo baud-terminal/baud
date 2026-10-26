@@ -250,6 +250,12 @@ pub struct FaceTable {
     /// Characters passed over on a face that refuses its glyph for them
     /// ([`FaceTable::refused`]).
     refused: Tally,
+    /// The characters no face draws that a cell was looked up for since
+    /// the last [`FaceTable::take_gaps`], and every such character this
+    /// table has listed, a bit a codepoint, so each is listed once and a
+    /// cell drawn with one again pays a bit test: made at the first miss.
+    gaps: Vec<Codepoint>,
+    met: Vec<u64>,
 }
 
 impl FaceTable {
@@ -257,6 +263,11 @@ impl FaceTable {
     const COMBOS: usize = 8;
 
     const UNFILLED: u16 = u16::MAX;
+
+    /// A row's entry for a character no face draws in any way: the primary
+    /// draws its `.notdef`, and [`FaceTable::face`] lists it. A stack holds
+    /// at most 255 faces, so no face is numbered 255.
+    const NOBODY: u8 = u8::MAX;
 
     fn empty(proposed: Vec<Vec<u8>>) -> FaceTable {
         FaceTable {
@@ -267,7 +278,18 @@ impl FaceTable {
             idle: [0; FaceTable::COMBOS],
             filled: Filled(0),
             refused: Tally::default(),
+            gaps: Vec::new(),
+            met: Vec::new(),
         }
+    }
+
+    /// **The characters no face draws that cells were drawn with since the
+    /// last call**, each once per table, in the order first met: what the
+    /// caller's system fallback is asked for. Assigned or not, control or
+    /// not: which of them a system face could draw is the caller's to
+    /// decide.
+    pub fn take_gaps(&mut self) -> Vec<Codepoint> {
+        core::mem::take(&mut self.gaps)
     }
 
     /// How many characters a face maps to a glyph it draws not at all
@@ -326,7 +348,31 @@ impl FaceTable {
         if self.blocks[at] == FaceTable::UNFILLED {
             stack.fill(self, Block(blk));
         }
-        FaceIx(self.rows[usize::from(self.blocks[at])][usize::try_from(v & 0xff).unwrap_or(0)])
+        let ix = self.rows[usize::from(self.blocks[at])][usize::try_from(v & 0xff).unwrap_or(0)];
+        if ix == FaceTable::NOBODY {
+            return self.missed(c);
+        }
+        FaceIx(ix)
+    }
+
+    /// A character no face draws, met: listed the first time, and drawn as
+    /// the primary's `.notdef`. Out of line, so a cell some face draws pays
+    /// one compare.
+    #[cold]
+    #[inline(never)]
+    fn missed(&mut self, c: Codepoint) -> FaceIx {
+        if self.met.is_empty() {
+            self.met = vec![0; 0x11_0000 / 64];
+        }
+        let v = usize::try_from(c.value()).unwrap_or(0);
+        if let Some(word) = self.met.get_mut(v / 64) {
+            let bit = 1u64 << (v % 64);
+            if *word & bit == 0 {
+                *word |= bit;
+                self.gaps.push(c);
+            }
+        }
+        FaceIx::PRIMARY
     }
 }
 
@@ -738,11 +784,13 @@ impl<'f, 'a> Stack<'f, 'a> {
 
     /// The table [`Stack::select_presented`] becomes a lookup into. It
     /// starts with every block unfilled: each face's `cmap` proposes the
-    /// blocks it could reach (`Face::candidates`), and a block no face
-    /// proposes is decided now, as the primary throughout. The rest are
-    /// decided the first time a cell lands in them ([`FaceTable::face`]),
-    /// so a launch pays for the blocks its first frame touches and not for
-    /// all of CJK.
+    /// blocks it could reach (`Face::candidates`), and every block is
+    /// decided the first time a cell lands in it ([`FaceTable::face`]), so
+    /// a launch pays for the blocks its first frame touches and not for all
+    /// of CJK. A character no face draws is entered as no face's, which
+    /// the lookup turns into the primary's `.notdef` and lists
+    /// ([`FaceTable::take_gaps`]); a block no face proposes and where
+    /// nothing comes apart is all such characters.
     pub fn table(&self) -> FaceTable {
         let mut proposed: Vec<Vec<u8>> = vec![Vec::new(); FaceTable::BLOCKS];
         for (i, face) in self.faces.iter().enumerate() {
@@ -774,11 +822,8 @@ impl<'f, 'a> Stack<'f, 'a> {
             }
         });
         let mut t = FaceTable::empty(proposed);
-        let none = vec![Draws::No; self.faces.len()];
-        for (combo, (style, p)) in FaceTable::combos().enumerate() {
-            let row = [self.choose(&none, style, p).0; 256];
-            t.idle[combo] = t.intern(row).0;
-        }
+        let row = t.intern([FaceTable::NOBODY; 256]);
+        t.idle = [row.0; FaceTable::COMBOS];
         for (blk, decomposes) in decomposing.into_iter().enumerate() {
             if t.proposed[blk].is_empty() && !decomposes {
                 for combo in 0..FaceTable::COMBOS {
@@ -797,6 +842,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     fn fill(&self, t: &mut FaceTable, blk: Block) {
         let blk = blk.0;
         let faces = core::mem::take(&mut t.proposed[blk]);
+        let base = u32::try_from(blk).unwrap_or(0) * 256;
         let mut draws = vec![Draws::No; self.faces.len()];
         let mut refused = vec![false; self.faces.len()];
         let mut rows = [[0u8; 256]; FaceTable::COMBOS];
@@ -807,7 +853,7 @@ impl<'f, 'a> Stack<'f, 'a> {
         let mut leaves: std::collections::HashMap<(usize, u32), Draws> =
             std::collections::HashMap::new();
         for lo in 0..256u32 {
-            let v = u32::try_from(blk).unwrap_or(0) * 256 + lo;
+            let v = base + lo;
             let cp = Codepoint::new(v);
             for &i in &faces {
                 let f = &self.faces[usize::from(i)];
@@ -859,11 +905,17 @@ impl<'f, 'a> Stack<'f, 'a> {
                 d
             });
             let chosen = decomposed.as_deref().unwrap_or(&draws);
+            let nobody = chosen.iter().all(|&d| d == Draws::No);
             for (combo, (style, p)) in FaceTable::combos().enumerate() {
-                rows[combo][at] = self.choose(chosen, style, p).0;
+                rows[combo][at] = match nobody {
+                    true => FaceTable::NOBODY,
+                    false => self.choose(chosen, style, p).0,
+                };
             }
             for &i in &faces {
-                if refused[usize::from(i)] && rows.iter().all(|row| row[at] != i) {
+                // No face's entry is drawn by the primary, which keeps it.
+                let keeps = |e: u8| e == i || (e == FaceTable::NOBODY && i == FaceIx::PRIMARY.0);
+                if refused[usize::from(i)] && rows.iter().all(|row| !keeps(row[at])) {
                     t.refused.bump();
                 }
             }

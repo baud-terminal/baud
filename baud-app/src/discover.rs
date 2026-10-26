@@ -649,6 +649,91 @@ impl Catalogue {
     }
 }
 
+/// **The face of the file at `path` whose PostScript name is `postscript`,
+/// at the axis values CSS 5.2's search gives the regular style**: the face
+/// the system answered for a character ([`crate::fallback`]), as baud's own
+/// reader reads it; `None` when the file has no such face.
+#[cfg(target_os = "macos")]
+pub fn named_in(path: &str, postscript: &str) -> Option<Picked> {
+    let faces = read_file(Path::new(path));
+    let k = faces.iter().find(|k| k.postscript_is(postscript))?;
+    regular_in(&faces, k.index)
+}
+
+impl Catalogue {
+    /// **fontconfig's charset match over the installed faces** (Jev's lean,
+    /// LINUX IN_HOUSE, confidence 0.89 and 0.92 after research): for each of `wanted`,
+    /// the faces whose `cmap` maps it -- fontconfig scores the characters of
+    /// a pattern's charset a font lacks, `FcCompareCharSet`, ahead of every
+    /// tier such a pattern sets (`[[source: fontconfig-fcmatch-2-15-0]]`,
+    /// `PRI_CHARSET`) -- then, among those, one of `family` (the primary's,
+    /// fontconfig's strong family tier), then the face nearest the regular
+    /// style (its slant, weight and width tiers, in that order), which a
+    /// fallback face is drawn as, rather than the primary's own style, then
+    /// the one the walk met first. fontconfig's lang tier and its aliases' weak
+    /// family tier are not taken. Each face that maps a wanted character no
+    /// earlier pick maps is returned once, in the order of the first
+    /// character it is picked for; baud's embedded faces are not the
+    /// system's and are passed over.
+    #[cfg(any(not(target_os = "macos"), test))]
+    pub fn covering(&self, family: Option<&str>, wanted: &[baud_domain::Codepoint]) -> Vec<Picked> {
+        let mut ranked: Vec<(usize, Vec<bool>)> = Vec::new();
+        for (i, k) in self.faces.iter().enumerate() {
+            if k.origin != Origin::File {
+                continue;
+            }
+            let Some(m) = Mapped::open(Path::new(&k.path)) else {
+                continue;
+            };
+            let Ok(face) = baud_font::Face::parse_index(m.bytes(), k.index) else {
+                continue;
+            };
+            let maps: Vec<bool> = wanted.iter().map(|&c| face.glyph(c).is_some()).collect();
+            if maps.contains(&true) {
+                ranked.push((i, maps));
+            }
+        }
+        let regular = |k: &Known| {
+            let slant = k
+                .slopes
+                .iter()
+                .any(|(scale, span)| *scale == Scale::Oblique && span.holds(0.0));
+            let off = |s: Span, v: f32| match s.holds(v) {
+                true => 0.0,
+                false => (s.lo - v).abs().min((s.hi - v).abs()),
+            };
+            (!slant, off(k.weight, 400.0), off(k.width, 100.0))
+        };
+        ranked.sort_by(|(a, _), (b, _)| {
+            let (ka, kb) = (&self.faces[*a], &self.faces[*b]);
+            let fam = |k: &Known| !family.is_some_and(|f| k.answers_to(f));
+            let (ra, rb) = (regular(ka), regular(kb));
+            fam(ka)
+                .cmp(&fam(kb))
+                .then(ra.0.cmp(&rb.0))
+                .then(ra.1.total_cmp(&rb.1))
+                .then(ra.2.total_cmp(&rb.2))
+                .then(a.cmp(b))
+        });
+        let mut picked: Vec<usize> = Vec::new();
+        for w in 0..wanted.len() {
+            let covered = picked
+                .iter()
+                .any(|p| ranked.iter().any(|(i, maps)| i == p && maps[w]));
+            if covered {
+                continue;
+            }
+            if let Some((i, _)) = ranked.iter().find(|(_, maps)| maps[w]) {
+                picked.push(*i);
+            }
+        }
+        picked
+            .into_iter()
+            .filter_map(|i| regular_in(core::slice::from_ref(&self.faces[i]), self.faces[i].index))
+            .collect()
+    }
+}
+
 /// **Face `index` of the file at `path` at the axis values CSS 5.2's search
 /// gives the regular style**: for a variable face, `wght` 400 where its
 /// axis reaches it, as the face named by its family is drawn; `None` when
@@ -1024,6 +1109,90 @@ mod tests {
         assert!(p.variations.is_empty(), "a static face");
         assert!(cat.family("JetBrains").is_empty(), "only whole");
         assert!(cat.family("No Such Family").is_empty());
+    }
+
+    /// **fontconfig's charset match over a font directory**, the Linux
+    /// system tier, on every OS from a fixture directory: FiraCode, then
+    /// JetBrains Mono's italic, then its Regular. A character only
+    /// JetBrains Mono maps picks the Regular (the charset tier, and the
+    /// regular style over the italic); `a`, which all three map, picks
+    /// FiraCode, the first upright one the walk met -- and not baud's
+    /// embedded faces, which the scan lists first and which are not the
+    /// system's -- unless JetBrains Mono is the primary's family, which
+    /// picks its Regular. Asked together, each picked face is returned once,
+    /// in the order of the first character it is picked for.
+    #[test]
+    fn the_charset_match_picks_a_face_per_character() {
+        let dir = std::env::temp_dir().join(format!("baud-covering-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (to, from) in [
+            ("a.ttf", "baud-font/tests/fonts/FiraCode-Regular.ttf"),
+            (
+                "b.ttf",
+                "baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf",
+            ),
+            ("c.ttf", "baud-font/tests/fonts/JetBrainsMono-Regular.ttf"),
+        ] {
+            std::fs::copy(format!("{ROOT}/{from}"), dir.join(to)).unwrap();
+        }
+        let cat = Catalogue::scan(core::slice::from_ref(&dir));
+        let bytes = |n: &str| std::fs::read(dir.join(n)).unwrap();
+        let (fira, italic, jbm) = (bytes("a.ttf"), bytes("b.ttf"), bytes("c.ttf"));
+        let maps = |b: &[u8], c: baud_domain::Codepoint| {
+            baud_font::Face::parse(b).unwrap().glyph(c).is_some()
+        };
+        let only = (0x80..0x3000)
+            .filter_map(baud_domain::Codepoint::new)
+            .find(|&c| maps(&jbm, c) && maps(&italic, c) && !maps(&fira, c))
+            .expect("a character JetBrains Mono maps and FiraCode does not");
+        let a = baud_domain::Codepoint::new(0x61).unwrap();
+        let file = |p: &[Picked]| -> Vec<String> {
+            p.iter()
+                .map(|p| p.path.rsplit('/').next().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(file(&cat.covering(None, &[only])), ["c.ttf"]);
+        assert_eq!(file(&cat.covering(None, &[a])), ["a.ttf"]);
+        assert_eq!(file(&cat.covering(Some("jetbrains mono"), &[a])), ["c.ttf"]);
+        assert_eq!(file(&cat.covering(None, &[a, only, a])), ["a.ttf", "c.ttf"]);
+        let none = baud_domain::Codepoint::new(0x0378).unwrap();
+        assert!(
+            cat.covering(None, &[none]).is_empty(),
+            "nothing maps U+0378"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The charset match finds Arabic and Syriac faces in a directory
+    /// that holds them**, macOS's own files copied into a fixture directory
+    /// so the Linux path runs headless here: beh from Courier New, alaph and
+    /// beth from Noto Sans Syriac, each face returned once.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_charset_match_finds_arabic_and_syriac() {
+        let dir = std::env::temp_dir().join(format!("baud-covering-rtl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["Courier New.ttf", "NotoSansSyriac-Regular.ttf"] {
+            std::fs::copy(
+                format!("/System/Library/Fonts/Supplemental/{f}"),
+                dir.join(f),
+            )
+            .expect("a face macOS ships; this test cannot skip itself");
+        }
+        let cat = Catalogue::scan(core::slice::from_ref(&dir));
+        let cps: Vec<baud_domain::Codepoint> = [0x0628, 0x0710, 0x0712]
+            .into_iter()
+            .filter_map(baud_domain::Codepoint::new)
+            .collect();
+        let found: Vec<String> = cat
+            .covering(Some("JetBrains Mono"), &cps)
+            .iter()
+            .map(|p| p.path.rsplit('/').next().unwrap().to_string())
+            .collect();
+        assert_eq!(found, ["Courier New.ttf", "NotoSansSyriac-Regular.ttf"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **CSS 5.2's weight search**, on the families it gives as examples

@@ -241,6 +241,16 @@ the screen; step 3 joins Arabic letters.
   draws each of those letters alone in its cell, as the grid draws no
   ligature but lam-alef
   (`a_word_takes_no_letter_into_a_ligature_across_cells`).
+- **Arabic and Syriac draw with no font of your own.** No face of baud's
+  macOS stack maps either script, and a character no listed face maps is
+  asked of the system the first frame that draws it and drawn from the face
+  answered from then on: on macOS CoreText's answer from baud's own font,
+  Courier New for Arabic and Urdu and Noto Sans Syriac for Syriac, each
+  joined as above; on Linux the installed face fontconfig's charset match
+  picks. The box is left only where no installed font has the
+  character (`[[source: unicode18-ch5]]` 5.3); each character is asked for
+  once a process, and the faces answered are kept across a config reload
+  (`the_system_draws_arabic_and_syriac_no_listed_face_has`).
 - **With the mode off, Arabic still joins, in the order it is displayed**,
   the order 9.2.2 states the rules in: a program that writes Arabic already
   reversed sees it joined, and one that sends presentation forms (vim's
@@ -636,11 +646,6 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
 - SRS, SDS and DCSM; DEC's DECRLM, DECRLCM and DECHEM.
-- **No face of the default stack draws Arabic or Syriac on macOS**: each
-  letter is a box until a configured font draws it (measured: the embedded
-  faces, Menlo, Apple Color Emoji, Apple Symbols, Hiragino Sans GB, Apple
-  SD Gothic Neo, Kohinoor and STIX map neither beh nor alaph). Which face
-  draws them is note AC's question.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above
@@ -659,6 +664,11 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   Pro) is drawn through its presentation forms, which differ from its own
   chains where those pick an alternate (a final farsi yeh) or form the
   Allah ligature without the shadda 9.2.11 asks for.
+- **A system face's letters at baud's size**: a face the system answers is
+  drawn at the embedded font's em and not narrowed to the cell (rule D,
+  decided and unbuilt), so Noto Sans Syriac, which is proportional, runs
+  past its cells into its neighbours; Courier New's Arabic is 0.6 em, the
+  cell's width, and fits.
 - **A mark on a flipped glyph**: on a flipped base a mark's image is put
   where the flip puts its box, not where the flip puts its attachment
   point, so it is exact only for a mark centred on its attachment point.

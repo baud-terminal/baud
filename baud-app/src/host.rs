@@ -321,6 +321,58 @@ pub fn refont(
     Ok(unsafe { last.into_held().release() })
 }
 
+/// **The system's faces for what no face of the stack draws**, after a
+/// frame (`fallback.rs`): the renderer's gaps asked of the system and, when
+/// it answers a face the stack lacks, the renderer restacked on the fonts
+/// with it behind the chain at `size` ([`refont`]), the face a program put
+/// in the lead, and the names it gave, kept. `None` when nothing changed;
+/// else what the restack gave back, or why it could not be made.
+pub fn follow_gaps(
+    renderer: &mut baud_render::Renderer<'static, 'static>,
+    fonts: &mut crate::fonts::Fonts,
+    size: baud_render::PxSize,
+) -> Option<Result<crate::pty::Released, String>> {
+    let gaps = renderer.take_gaps();
+    if gaps.is_empty() {
+        return None;
+    }
+    let mut cfg = Config::defaults();
+    cfg.faces = fonts.faces().to_vec();
+    if !crate::fallback::extend(&mut cfg, &gaps) {
+        return None;
+    }
+    let (data, faces, held) = match faces_again(&cfg) {
+        Ok(f) => f,
+        Err(e) => return Some(Err(e)),
+    };
+    let mut next = crate::fonts::Fonts::new(&cfg, data, faces, held);
+    let lead = next.carry(fonts);
+    let led = lead.and_then(|slot| {
+        let built = next.stack(slot)?;
+        Some((
+            slot,
+            baud_render::Stack::with_roles(built.faces, &built.roles)?,
+        ))
+    });
+    let restacked = match led {
+        Some((slot, stack)) => {
+            next.set(slot);
+            renderer.restack(stack, size)
+        }
+        None => renderer.restack(stack(&cfg, faces), size),
+    };
+    if restacked.is_none() {
+        // SAFETY: the stack made of `next`'s faces was dropped by the failed
+        // restack, which left the renderer's own as it was.
+        let _ = unsafe { next.into_held().release() };
+        return Some(Err("the fonts do not make a stack".to_string()));
+    }
+    let last = std::mem::replace(fonts, next);
+    // SAFETY: as in `refont`: the restack replaced the renderer's one
+    // borrow of the last faces, and nothing else holds them.
+    Some(Ok(unsafe { last.into_held().release() }))
+}
+
 /// The log's line for what a font reload gave back.
 pub fn given_back(given: crate::pty::Released) -> String {
     format!(
@@ -784,6 +836,248 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **A script no face of the default stack has draws from the system's
+    /// face, joined** (TUS 5.3: a box only where no font has the
+    /// character), on the path a launch takes -- `Config::defaults`, the
+    /// renderer's stack, a frame -- and then `follow_gaps`, as a driver
+    /// calls it after a frame. Before it, an Arabic word and a Syriac word
+    /// are the primary's `.notdef` boxes: an initial Syriac beth draws as
+    /// its isolated form does. After it, both draw from faces the system
+    /// answered, appended behind the chain; the Arabic word draws exactly
+    /// as its presentation forms in visual order do (`[[source:
+    /// unicode-ch9]]` 9.2.2), the initial beth differs from the isolated
+    /// one, and every frame is the one a renderer made on those faces
+    /// draws. Latin, Hebrew and Han keep their faces.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_system_draws_arabic_and_syriac_no_listed_face_has() {
+        use baud_domain::{Codepoint, Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Target};
+        let ws = WinSize {
+            ws_row: 3,
+            ws_col: 8,
+        };
+        let px = PxSize::of(26.0).unwrap();
+        let renderer = |cfg: &crate::config::Config, faces| {
+            Renderer::new(
+                super::stack(cfg, faces),
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(3),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>, bytes: &[u8]| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, b"\x1b[?25l");
+            feed(&mut t, bytes);
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let _ = r.render(&mut t, &mut target, Damage::Full);
+            frame
+        };
+        // A cell's pixels, row and column from the top left.
+        let cell = |r: &Renderer<'static, 'static>, frame: &[u32], row: usize, col: usize| {
+            let m = r.metrics();
+            let n = |p: baud_font::Px| usize::try_from(p.value()).expect("a size");
+            let (cw, ch) = (n(m.cell_w), n(m.cell_h));
+            let w = n(r.whole_size().0);
+            assert_eq!(w, 8 * cw, "no margin beside the grid");
+            (0..ch)
+                .flat_map(|y| {
+                    let at = (row * ch + y) * w + col * cw;
+                    frame[at..at + cw].to_vec()
+                })
+                .collect::<Vec<u32>>()
+        };
+        // An Arabic word on row 1, three Syriac beths on row 2, one on
+        // row 3: each a paragraph of its own, run right to left against
+        // the right edge, so the word's cells are columns 5-7 and the lone
+        // beth's column 7.
+        let scene =
+            "\x1b[1;1H\u{0628}\u{064A}\u{062A}\x1b[2;1H\u{0712}\u{0712}\u{0712}\x1b[3;1H\u{0712}";
+        // The word's presentation forms in visual order, BDSM reset:
+        // teh final, yeh medial, beh initial, from column 6.
+        let forms = "\x1b[8l\x1b[1;6H\u{FE96}\u{FEF4}\u{FE91}";
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let mut r = renderer(&cfg, faces);
+        let cp = |v| Codepoint::new(v).unwrap();
+        let (a, alef, han, beh, beth) = (cp(0x61), cp(0x05D0), cp(0x6C38), cp(0x0628), cp(0x0712));
+        let before = draw(&mut r, scene.as_bytes());
+        let stack = super::stack(&cfg, faces);
+        let kept = [a, alef, han].map(|c| stack.select(c));
+        for c in [beh, beth] {
+            assert!(
+                faces.iter().all(|f| f.glyph(c).is_none()),
+                "the control: no face of the default stack maps U+{:04X}",
+                c.value()
+            );
+        }
+        assert!(
+            cell(&r, &before, 1, 7) == cell(&r, &before, 2, 7),
+            "the control: before, the initial and the isolated beth are one box"
+        );
+        let given = super::follow_gaps(&mut r, &mut fonts, px)
+            .expect("a system face added for the characters the frame met, which no face draws")
+            .expect("the system's faces load");
+        assert_eq!(given.unmapped, 6, "the last stack's six system files");
+        let after = draw(&mut r, scene.as_bytes());
+        assert!(
+            super::follow_gaps(&mut r, &mut fonts, px).is_none(),
+            "the characters drawn again, on the new stack, ask nothing"
+        );
+        let added: Vec<&crate::config::FaceSpec> = fonts
+            .faces()
+            .iter()
+            .filter(|f| {
+                !cfg.faces
+                    .iter()
+                    .any(|g| g.path == f.path && g.index == f.index)
+            })
+            .collect();
+        assert!(!added.is_empty(), "faces were added");
+        let mut again = crate::config::Config::defaults();
+        again.faces = fonts.faces().to_vec();
+        let (data, mut held) = super::map_faces(&again);
+        let loaded = super::parse_faces(&again, &data, &mut held);
+        let stack = super::stack(&again, loaded);
+        for c in [beh, beth] {
+            let ix = stack.select(c);
+            assert!(
+                loaded[ix.index()].glyph(c).is_some(),
+                "U+{:04X} draws from a face that maps it",
+                c.value()
+            );
+            assert!(
+                added.iter().any(|f| f.path == again.faces[ix.index()].path),
+                "U+{:04X} draws from {}, a system face added behind the chain",
+                c.value(),
+                again.faces[ix.index()].path
+            );
+        }
+        assert_eq!(
+            [a, alef, han].map(|c| stack.select(c)),
+            kept,
+            "the rest keep their faces"
+        );
+        let reread = crate::config::Config::defaults().resolved();
+        for f in &added {
+            assert!(
+                reread
+                    .faces
+                    .iter()
+                    .any(|g| g.path == f.path && g.index == f.index),
+                "a config read again keeps {} behind its chain",
+                f.path
+            );
+        }
+        let fresh = draw(&mut renderer(&again, loaded), scene.as_bytes());
+        assert!(
+            after == fresh,
+            "drawn from the faces added, as a fresh stack draws them"
+        );
+        let joined = draw(&mut r, forms.as_bytes());
+        for col in 5..8 {
+            assert!(
+                cell(&r, &after, 0, col) == cell(&r, &joined, 0, col),
+                "column {col}: the Arabic word draws its joined forms"
+            );
+            assert!(
+                cell(&r, &after, 0, col) != cell(&r, &before, 0, col),
+                "column {col}: not the box"
+            );
+        }
+        assert!(
+            cell(&r, &after, 1, 7) != cell(&r, &after, 2, 7),
+            "the initial beth is not drawn as the isolated one"
+        );
+        assert!(
+            cell(&r, &after, 2, 7) != cell(&r, &before, 2, 7),
+            "the isolated beth is not the box"
+        );
+    }
+
+    /// **A face a program put in the lead keeps it when a system face is
+    /// added**: Menlo led by a program's `OSC 50`, an Arabic word drawn, and
+    /// `follow_gaps` restacks with Menlo still leading -- the fonts say it
+    /// leads, its slot moved by the face added ahead of the styled ones
+    /// matched by face, and the renderer draws Latin as a stack Menlo leads
+    /// draws it, not as the embedded font does.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_program_s_lead_stays_when_a_system_face_is_added() {
+        use baud_domain::{Cols, Rows};
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target};
+        let ws = WinSize {
+            ws_row: 2,
+            ws_col: 8,
+        };
+        let px = PxSize::of(26.0).unwrap();
+        let make = |stack| {
+            Renderer::new(
+                stack,
+                px,
+                Theme::dark(),
+                Blend::Native,
+                Cols::of_index(8),
+                Rows::of_index(2),
+            )
+            .expect("metrics")
+        };
+        let draw = |r: &mut Renderer<'static, 'static>, bytes: &[u8]| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            feed(&mut t, bytes);
+            let (w, h) = r.whole_size();
+            let area = baud_font::Extent::new(w, h).cells().expect("an area");
+            let mut frame = vec![0u32; area];
+            let mut target = Target::new(&mut frame, w, w, h).expect("a target");
+            let _ = r.render(&mut t, &mut target, Damage::Full);
+            frame
+        };
+        let mut cfg = crate::config::Config::defaults();
+        super::resolved(&mut cfg);
+        let (data, mut held) = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data, &mut held);
+        let mut fonts = crate::fonts::Fonts::new(&cfg, data, faces, held);
+        let mut r = make(super::stack(&cfg, faces));
+        let embedded = draw(&mut r, b"Ag");
+        let menlo = fonts
+            .resolve(b"Menlo")
+            .expect("Menlo, in the default stack");
+        let built = fonts.stack(menlo).expect("its stack");
+        r.restack(Stack::with_roles(built.faces, &built.roles).unwrap(), px)
+            .expect("restacked");
+        fonts.set(menlo);
+        let _ = draw(&mut r, "\u{0628}\u{064A}\u{062A}".as_bytes());
+        super::follow_gaps(&mut r, &mut fonts, px)
+            .expect("a system face added")
+            .expect("it loads");
+        let menlo = fonts.resolve(b"Menlo").expect("Menlo, after");
+        assert!(fonts.leads(menlo), "Menlo still leads");
+        assert_eq!(fonts.family(), "Menlo");
+        let built = fonts.stack(menlo).expect("its stack");
+        let led = draw(
+            &mut make(Stack::with_roles(built.faces, &built.roles).unwrap()),
+            b"Ag",
+        );
+        let drawn = draw(&mut r, b"Ag");
+        assert!(drawn == led, "drawn as the stack Menlo leads draws");
+        assert!(
+            drawn != embedded,
+            "the control: the embedded font draws Ag otherwise"
+        );
+    }
+
     /// The default stack loads with the embedded faces read from the binary
     /// rather than looked for as files -- their names are no paths, so a
     /// loader that mapped them would panic here -- and draws bold, italic
@@ -901,8 +1195,8 @@ mod tests {
 
     /// **A configured stack draws Hebrew from the embedded Regular behind
     /// it**, the owner's order: the configured faces, then baud's embedded
-    /// font, then the system, which is not built for a configured stack yet
-    /// (note AC decision 9). FiraCode, named alone in `fonts`, maps no
+    /// font, then the system's faces, which a frame that needs one adds
+    /// (`follow_gaps`). FiraCode, named alone in `fonts`, maps no
     /// Hebrew; the embedded Regular follows it, ahead of the icon face and
     /// STIX, and draws alef, while Latin stays with FiraCode. With
     /// `font_fallback = false` the stack is FiraCode alone and alef is its

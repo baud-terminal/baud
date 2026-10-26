@@ -33163,6 +33163,19 @@ bytes  = 17894
 status = "external"
 group  = "J"
 
+[sources.fontconfig-fcmatch-2-15-0]
+key    = "fontconfig-fcmatch-2-15-0"
+title  = "fontconfig 2.15.0, src/fcmatch.c -- FcCompareCharSet (the count of the pattern's characters a font lacks, FcCharSetSubtractCount) and the match priorities: PRI_CHARSET after file, wrapper, format, variable, named instance, scalable, colour and foundry, then family (strong), PostScript name (strong), lang, family (weak), PostScript name (weak), symbol, spacing, size, pixel size, style, slant, weight, width, hinting, decorative, antialias, rasteriser, outline, order, font version (lines 323-350)"
+author = "Keith Packard and fontconfig contributors"
+year   = 2023
+venue  = "gitlab.freedesktop.org/fontconfig/fontconfig, tag 2.15.0 (MIT-style)"
+url    = "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/raw/2.15.0/src/fcmatch.c"
+file   = ""
+sha256 = "f0b22cef0111f5226de7efa445887291cb74d63d681051c57af3deeff44d1764"
+bytes  = 32778
+status = "external"
+group  = "J"
+
 [sources.freetype-sfobjs-2-13-3]
 key    = "freetype-sfobjs-2-13-3"
 title  = "FreeType 2.13.3, src/sfnt/sfobjs.c -- sfnt_load_face: has_outline is glyf, CFF or CFF2 (867), false when CBLC or CBDT is present (900-903); FT_FACE_FLAG_COLOR for a CBLC or sbix sbit table, COLR or SVG (1094-1098); with outlines sbix gives FT_FACE_FLAG_SBIX, else SCALABLE (1100-1107); no bitmaps and no outlines is scalable (1319-1322)"

@@ -633,13 +633,12 @@ tests = ["baud-app/src/config.rs::the_default_stack_carries_han_kana_hangul_deva
 [[feature]]
 id = "fallback-list"
 area = "text"
-name = "A fixed list of fallback fonts"
-does = "A character the first font lacks comes from the next font that has it, one character at a time."
+name = "Any script, from the system's fonts"
+does = "A character the first font lacks comes from the next font that has it, one character at a time, and one that neither your fonts nor baud's have comes from the font your system picks for it, so Arabic, Syriac, Thaana and N'Ko draw with no font of your own, Arabic and Syriac joined: CoreText's choice on macOS, fontconfig's match on Linux, found the first time such a character appears and kept."
 status = "partial"
-gap = "the system fonts searched are a fixed list, so a script outside it and outside your own fonts shows boxes."
-platform = "macos"
-tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it"]
-behind = "most terminals search every installed font for a character the others lack; baud searches a fixed list."
+gap = "a system font's letters are drawn at the size of baud's own, not narrowed to the cell, so a proportional one such as Noto Sans Syriac overlaps its neighbours; on Linux fontconfig's language and alias preferences are not followed."
+platform = "both"
+tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it", "baud-app/src/host.rs::the_system_draws_arabic_and_syriac_no_listed_face_has", "baud-app/src/discover.rs::the_charset_match_picks_a_face_per_character"]
 
 [[feature]]
 id = "missing-glyph"

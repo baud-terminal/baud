@@ -9018,6 +9018,8 @@ impl Driver {
         // display link pauses while the window is covered, which is when
         // the config is edited in another app (`follow_config`).
         self.follow_config();
+        // The system's faces for what the last frame met and no face draws.
+        self.follow_gaps();
         // A process the title watches forked, exec'd or exited.
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             self.derive.moved();
@@ -11218,6 +11220,34 @@ impl Driver {
         };
         if r.watch.due(now) == crate::reload::Due::Changed {
             self.reload_config(now);
+        }
+    }
+
+    /// **The system's faces for what no face draws** (`host::follow_gaps`):
+    /// asked once the frames that met the characters are drawn, and taken,
+    /// like a reload's fonts, once no frame in flight reads the atlas; the
+    /// gaps wait in the renderer until then, and the frame's completion
+    /// wakes the next turn. The cell size is the primary's, so the grid
+    /// stays and the whole screen is drawn again from the new stack.
+    fn follow_gaps(&mut self) {
+        if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
+            return;
+        }
+        let Some(px) = PxSize::of(self.app.font_size * self.app.scale as f32) else {
+            return;
+        };
+        match crate::host::follow_gaps(&mut self.app.renderer, &mut self.app.fonts, px) {
+            None => {}
+            Some(Ok(given)) => {
+                crate::info!(
+                    "fonts: a system face added; {}",
+                    crate::host::given_back(given)
+                );
+                self.app.rescaled();
+                self.app.next_damage = Damage::Full;
+                self.app.pending = Pending::Dirty;
+            }
+            Some(Err(e)) => crate::warn!("fonts: a system face did not load: {e}"),
         }
     }
 
