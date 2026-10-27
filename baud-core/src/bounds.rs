@@ -172,6 +172,11 @@ impl Paint<'_, '_> {
         n: Option<OneBased>,
         csi: &crate::write::Csi,
     ) {
+        // TSR and PPA, PPB and PPR are format effectors (8.2.4), and NP and
+        // PP move the cursor: each ends an aligned string.
+        if matches!(op, PositionOp::RemoveStop | PositionOp::Page(_)) {
+            self.effector_ends_string();
+        }
         match op {
             PositionOp::RemoveStop => self.remove_stop(n),
             PositionOp::LineHome => self.set_line_home(n),

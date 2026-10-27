@@ -506,6 +506,9 @@ impl Paint<'_, '_> {
         if d == self.strs.status.active {
             return;
         }
+        // The active position goes to another display, which ends an
+        // aligned string (Jev's lean, SWITCH_ENDS).
+        self.effector_ends_string();
         self.strs.status.active = d;
         self.swap_display();
     }

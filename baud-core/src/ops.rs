@@ -109,8 +109,11 @@ impl Paint<'_, '_> {
     /// line if Origin Mode is in the reset (Absolute) state; Top and Left
     /// Margins if Origin Mode is in the set (Displaced) state." `DECSTBM`
     /// put the cursor on the region's top row with DECOM reset until the V10
-    /// oracle found it.
+    /// oracle found it. **A cursor movement, so it ends an aligned string**
+    /// (`crate::aligned`): DECSTBM's, DECSLRM's, DECOM's, DECCOLM's, NP's,
+    /// PP's and VT52's home.
     pub(crate) fn home(&mut self) {
+        self.effector_ends_string();
         self.goto(self.origin_row(), self.origin_col());
     }
 
@@ -405,6 +408,9 @@ impl Paint<'_, '_> {
     /// clamp it.
     pub(crate) fn restore(&mut self, s: Option<Saved>) {
         let Some(s) = s else { return };
+        // A cursor movement, which ends an aligned string
+        // (`Paint::effector_ends_string`).
+        self.effector_ends_string();
         self.cold.widths = WidthPolicy::of(self.cold.widths.ambiguous(), s.widths);
         self.reselect();
         // **The two flags DECSC saves that neither core restored.**
@@ -492,6 +498,7 @@ impl Paint<'_, '_> {
     /// not reset it. `SCORC` does not come here (`scorc_without_a_save_is_inert`,
     /// note AE's Q13).
     pub(crate) fn restore_unsaved(&mut self) {
+        self.effector_ends_string();
         self.cold.modes.apply(ModeBit::Origin, false);
         self.goto(Row::ZERO, Col::ZERO);
         self.style_raw = self.keeping_string(StyleWord::DEFAULT);
@@ -4312,6 +4319,9 @@ impl Paint<'_, '_> {
     /// way out; only `?1049` saves the cursor and clears on the way in and
     /// restores it on the way out.
     fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
+        // A switch takes the active position to another page buffer, and
+        // an aligned string ends (Jev's lean, SWITCH_ENDS).
+        self.effector_ends_string();
         // **The alternate screen is the main display's**: from the status
         // line it switches the main display's screen, and the line stays
         // selected.
@@ -4601,6 +4611,8 @@ impl Paint<'_, '_> {
     /// `DECLRMM`. It kept DECOM, the rendition and the side margins until
     /// 2026-10-14.
     pub(crate) fn screen_alignment(&mut self) {
+        // It homes the cursor: an aligned string ends (`crate::aligned`).
+        self.effector_ends_string();
         self.cold.modes.apply(ModeBit::Origin, false);
         self.form_ends();
         self.style_raw = self.style_raw.sgr_reset();

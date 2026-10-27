@@ -68,6 +68,7 @@ impl Paint<'_, '_> {
         self.refresh_presentation_edits();
         self.paragraph_takes(self.cy, Some(LineProperty::Path));
         if cursor == PathCursor::ToStart {
+            self.effector_ends_string();
             self.set_col(self.on_line(self.place(self.confine_col(Col::ZERO))));
         }
     }
@@ -86,6 +87,7 @@ impl Paint<'_, '_> {
             self.view.set_bidi(r, self.view.bidi(r).with_path(path));
         }
         if cursor == PathCursor::ToStart {
+            self.effector_ends_string();
             let top = self.confine(self.origin_row());
             self.goto_at(top, self.address_col(Col::ZERO));
         }

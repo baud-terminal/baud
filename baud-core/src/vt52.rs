@@ -23,6 +23,21 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn vt52(&mut self, c: Vt52, node: &mut crate::graph::Node) {
+        // **A move or an erase ends an aligned string** opened before
+        // DECANM (`Paint::effector_ends_string`).
+        if matches!(
+            c,
+            Vt52::CursorUp
+                | Vt52::CursorDown
+                | Vt52::CursorRight
+                | Vt52::CursorLeft
+                | Vt52::Home
+                | Vt52::ReverseLineFeed
+                | Vt52::EraseToEndOfScreen
+                | Vt52::EraseToEndOfLine
+        ) {
+            self.effector_ends_string();
+        }
         match c {
             // **The page's edges, not the margins**: `[[source: dec-std-070]]`
             // VT52 Cursor Up and Cursor Down (pp. A-23, A-24) "will not move
@@ -115,6 +130,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn vt52_address(&mut self, col: Vt52Coord) {
+        self.effector_ends_string();
         let (r, c) = (self.cold.vt52_row.to_row(self.rows), col.to_col(self.cols));
         let c = self.place(self.confine_col(c));
         self.goto_at(self.confine(r), c);

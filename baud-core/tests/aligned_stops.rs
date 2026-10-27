@@ -329,3 +329,163 @@ fn an_erase_of_another_line_or_an_attribute_change_keeps_it() {
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// **A cursor movement ends the string as it executes, wherever it leaves
+/// the cursor** (Jev, FORMAT_EFFECTOR, 0.92/0.92: "Any format effector
+/// ... or other cursor movement"): each of these leaves the cursor on row
+/// 0, column 8, where the string left it, so the `c` after it is plain
+/// text there; laid out, it would move the string back to column 5. Most
+/// move nothing, or go and come back by the same function: `CUU` at the
+/// top, `CUP`, `HVP`, `CHA`, `HPA` and `VPA` to the cursor's own cell, the
+/// format effectors that set or clear a stop (`HTS`, `VTS`, `TBC`, `TSR`)
+/// and the page ones (PPA, PPR, PPB), `DECRC`, `CSI u` and `?1048` after a
+/// save there, VT52's up, direct address and erases, DECSASD, and a screen
+/// switch and back (Jev's lean, SWITCH_ENDS); the rest go and come back
+/// by a pair. On the last row, `CUD`, `VPR` and `CVT` move nothing; at
+/// the last column `CUF` and `HPR` move nothing, and DECFI moves the
+/// line's columns under a cursor that stays. **SGR and DECSC keep it**,
+/// the controls.
+#[test]
+fn a_cursor_movement_ends_the_string_wherever_it_leaves_the_cursor() {
+    let mut wrong = Vec::new();
+    let ended = ("......abc...........".to_string(), 9);
+    for mv in [
+        "\x1b[A",
+        "\x1b[1;9H",
+        "\x1b[1;9f",
+        "\x1b[9G",
+        "\x1b[9`",
+        "\x1b[1d",
+        "\x1bH",
+        "\x1bJ",
+        "\x1b[g",
+        "\x1b[5 d",
+        "\x1b[1 P",
+        "\x1b[ Q",
+        "\x1b[ R",
+        "\x1b7\x1b8",
+        "\x1b[s\x1b[u",
+        "\x1b[?1048h\x1b[?1048l",
+        "\x1b[?2l\x1bA\x1b<",
+        "\x1b[?2l\x1bY (\x1b<",
+        "\x1b[?2l\x1bK\x1b<",
+        "\x1b[?2l\x1bJ\x1b<",
+        "\x1b[2$~\x1b[1$}\x1b[0$}",
+        "\x1b[?47h\x1b[?47l",
+        "\x1b[?1047h\x1b[?1047l",
+        "\x1b[?1049h\x1b[?1049l",
+        "\x1b[B\x1b[A",
+        "\x1b[C\x1b[D",
+        "\x1b[a\x1b[j",
+        "\x1b[e\x1b[k",
+        "\x1b[E\x1b[F\x1b[9G",
+        "\x1b6\x1b9",
+        "\x08\x1b[C",
+        "\x1b[U\x1b[1;9H",
+        "\x1b[r\x1b[1;9H",
+        "\x1b[?6h\x1b[?6l\x1b[1;9H",
+        "\x1b[?69h\x1b[s\x1b[?69l\x1b[1;9H",
+        "\x1b[?2l\x1bB\x1bA\x1b<",
+        "\x1b[?2l\x1bH\x1bY (\x1b<",
+    ] {
+        let got = laid(&format!("\x1b[9 a\tab{mv}c"));
+        if got != ended {
+            wrong.push(format!("{mv:?}: {} cursor {}", got.0, got.1));
+        }
+    }
+    for mv in ["\x1b[B", "\x1b[e", "\x1b[Y", "\x1b[4;9H"] {
+        let s = screen(&format!("\x1b[9 a\x1b[4;1H\tab{mv}c"));
+        if s[3] != ended.0 {
+            wrong.push(format!("last row {mv:?}: {}", s[3]));
+        }
+    }
+    for mv in ["\x1b[C", "\x1b[a"] {
+        let got = laid(&format!("\x1b[20 a\tab{mv}c"));
+        if got.0 != ".................abc" {
+            wrong.push(format!("last column {mv:?}: {}", got.0));
+        }
+    }
+    // DECFI at the right margin moves the line's columns left, the cursor
+    // staying where the string left it.
+    let got = laid("\x1b[20 a\tab\x1b9c");
+    if got != ("................ab.c".into(), 19) {
+        wrong.push(format!(
+            "DECFI at the last column: {} cursor {}",
+            got.0, got.1
+        ));
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+    for keep in ["\x1b[31m", "\x1b7"] {
+        let got = laid(&format!("\x1b[9 a\tab{keep}c"));
+        assert_eq!(got, (".....abc............".into(), 8), "{keep:?}");
+    }
+}
+
+/// **A screen switch ends the string** (Jev's lean, SWITCH_ENDS): a
+/// character written on the alternate screen where the string left the
+/// cursor is plain text there, and the primary's string stays as it was.
+#[test]
+fn a_screen_switch_ends_the_string() {
+    for sw in ["\x1b[?47h", "\x1b[?1047h"] {
+        assert_eq!(
+            laid(&format!("\x1b[9 a\tab{sw}c")),
+            ("........c...........".into(), 9),
+            "{sw:?}"
+        );
+        let back = laid(&format!("\x1b[9 a\tab{sw}c{}", sw.replace('h', "l")));
+        assert_eq!(back.0, "......ab............", "{sw:?} and back");
+    }
+}
+
+/// **A move that ends the string lands where it lands with none open**:
+/// each control sequence the string's bit routes out of line, from row 1,
+/// column 8, where the string left the cursor, against the same move from
+/// the same cell after a `CUP` there, which ends the string first. The
+/// screen and the cursor agree.
+#[test]
+fn a_routed_move_lands_where_a_plain_one_does() {
+    let state = |bytes: &str| {
+        support::render(&WS, format!("\x1b[3g{bytes}").as_bytes(), |t| {
+            (support::screen(t), t.cursor())
+        })
+    };
+    let mut wrong = Vec::new();
+    for mv in [
+        "\x1b[3;5H",
+        "\x1b[3;5f",
+        "\x1b[5G",
+        "\x1b[5`",
+        "\x1b[3d",
+        "\x1b[A",
+        "\x1b[B",
+        "\x1b[3C",
+        "\x1b[3D",
+        "\x1b[E",
+        "\x1b[F",
+        "\x1b[2a",
+        "\x1b[2j",
+        "\x1b[e",
+        "\x1b[k",
+        "\x1b[I",
+        "\x1b[Z",
+        "\x1b[Y",
+        "\x1b[g\r\t",
+    ] {
+        let routed = state(&format!("\x1b[9 a\x1b[2;1H\tab{mv}x"));
+        let plain = state(&format!("\x1b[9 a\x1b[2;1H\tab\x1b[2;9H{mv}x"));
+        if routed != plain {
+            wrong.push(format!("{mv:?}: cursor {:?}, not {:?}", routed.1, plain.1));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} wrong:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}

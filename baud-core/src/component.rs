@@ -212,6 +212,7 @@ impl Paint<'_, '_> {
             && (self.strs.strings.begun == Begun::Yes
                 || self.cold.modes.is_set(ModeBit::PathSelected));
         self.cold.modes.apply(ModeBit::CursorPresented, presented);
+        self.refresh_routed();
         self.refresh_bounds();
         self.refresh_insert();
     }
@@ -408,9 +409,22 @@ impl Paint<'_, '_> {
     /// **A cursor function while [`ModeBit::CursorPresented`] is set**,
     /// each the move its arm in `csi_final` makes, through
     /// [`Paint::presented`].
+    ///
+    /// **Reached by [`ModeBit::CursorRouted`]**, which an open aligned
+    /// string sets too: the string ends at the move (Jev, FORMAT_EFFECTOR,
+    /// 0.92/0.92, "or other cursor movement"), wherever the move leaves the
+    /// cursor, and with [`ModeBit::CursorPresented`] reset the move is the
+    /// plain arm's ([`Paint::cursor_plain`]). The string's own bit, tested
+    /// before the dispatch's match, read 0.15-0.55% more instructions on
+    /// `less`, `asciiquarium`, `btop` and `vim`; this bit replaces the one
+    /// the arm tested.
     #[cold]
     #[inline(never)]
     pub(crate) fn cursor_presented(&mut self, op: Csi) {
+        self.effector_ends_string();
+        if !self.cold.modes.is_set(ModeBit::CursorPresented) {
+            return self.cursor_plain(op);
+        }
         match op {
             Csi::CursorPosition { row, col } => self.landed(|p| {
                 let base = p.origin_row().index();
@@ -448,6 +462,67 @@ impl Paint<'_, '_> {
                 self.presented(|p| p.tab_back(c))
             }
             Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
+            // The data-position moves and `TBC`, routed here only to end a
+            // string, go as their plain arms go.
+            op => self.cursor_plain(op),
+        }
+    }
+
+    /// **A routed cursor function as its plain arm in `csi_dispatch`
+    /// makes it**, for [`Paint::cursor_presented`] where the presentation
+    /// does not take it: the same calls, kept beside the arm's.
+    fn cursor_plain(&mut self, op: Csi) {
+        match op {
+            Csi::CursorPosition { row, col } | Csi::CharacterLinePosition { row, col } => {
+                let base = self.origin_row().index();
+                let want = Row::from_index(base + row.to_row(self.rows).index());
+                self.goto_at(self.confine(want), self.address_col(col.to_col(self.cols)));
+            }
+            Csi::CursorUp(c) => self.set_row(self.up_in_margins(c)),
+            Csi::CursorDown(c) => self.set_row(self.down_in_margins(c)),
+            Csi::CursorForward(c) => self.set_col(self.forward_in_margins(c)),
+            Csi::CursorBack(c) => match (self.wraps_back_extended(), self.wraps_back()) {
+                (true, _) => self.back_wrapping(c),
+                (false, true) => self.back_reverse_wrapping(c),
+                (false, false) => self.set_col(self.back_in_margins(c)),
+            },
+            Csi::CursorNextLine(c) => {
+                self.set_row(self.down_in_margins(c));
+                self.line_start();
+            }
+            Csi::CursorPrevLine(c) => {
+                self.set_row(self.up_in_margins(c));
+                self.line_start();
+            }
+            Csi::ColumnAbsolute(c) | Csi::CharacterPositionAbsolute(c) => {
+                self.set_col(self.on_line(self.place(self.confine_col(c.to_col(self.cols)))))
+            }
+            Csi::LineAbsolute(r) => {
+                let base = self.origin_row().index();
+                let want = Row::from_index(base + r.to_row(self.rows).index());
+                self.set_row(self.confine(want));
+            }
+            Csi::ColumnRelative(c) => {
+                let from = self.cx.reported(self.report_fence(), self.cols);
+                self.set_col(self.on_line(self.place(self.confine_col(from.forward(c, self.cols)))))
+            }
+            Csi::LineRelative(c) => self.set_row(self.confine(self.cy.down(c, self.rows))),
+            Csi::ColumnBackward(c) => {
+                let from = self.cx.reported(self.report_fence(), self.cols);
+                self.set_col(self.on_line(self.place(self.confine_col(from.back(c)))))
+            }
+            Csi::LineBackward(c) => self.set_row(self.confine(self.cy.up(c))),
+            Csi::CursorForwardTab(c) => {
+                self.end_limit_wait();
+                self.tab_forward(c);
+                self.tab_landed();
+            }
+            Csi::CursorBackTab(c) => {
+                self.end_limit_wait();
+                self.tab_back(c)
+            }
+            Csi::CursorLineTab(c) => self.line_tab(c),
+            Csi::TabClear(w) => self.tab_clear(w),
             // The arm that calls this admits only the functions above.
             _ => {}
         }

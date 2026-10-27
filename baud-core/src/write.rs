@@ -2216,8 +2216,20 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // (`Paint::cursor_presented`): each moves "the active presentation
         // position" (`[[source: ecma48]]` 8.3.7-8.3.23), in both DCSM
         // states. `HVP` and `HPA` move the active data position (8.3.63,
-        // 8.3.57) and take the cells in every state.
+        // 8.3.57) and take the cells in every state. **The same bit
+        // (`ModeBit::CursorRouted`) routes them while an aligned string is
+        // open**, which the move ends, and with them the data-position moves
+        // and `TBC`, the other format effectors of 8.2.4 among the control
+        // sequences.
         DomCsi::CursorPosition { .. }
+        | DomCsi::CharacterLinePosition { .. }
+        | DomCsi::CharacterPositionAbsolute(_)
+        | DomCsi::LineAbsolute(_)
+        | DomCsi::ColumnRelative(_)
+        | DomCsi::LineRelative(_)
+        | DomCsi::ColumnBackward(_)
+        | DomCsi::LineBackward(_)
+        | DomCsi::TabClear(_)
         | DomCsi::CursorUp(_)
         | DomCsi::CursorDown(_)
         | DomCsi::CursorForward(_)
@@ -2228,7 +2240,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         | DomCsi::CursorForwardTab(_)
         | DomCsi::CursorBackTab(_)
         | DomCsi::CursorLineTab(_)
-            if p.cold.modes.is_set(ModeBit::CursorPresented) =>
+            if p.cold.modes.is_set(ModeBit::CursorRouted) =>
         {
             p.cursor_presented(op)
         }
@@ -2847,9 +2859,16 @@ fn esc_final(
             p.index_bringing_in();
             p.keep_presented(kept);
         }
-        Esc::TabSet => p.tab_set(),
+        // Format effectors (8.2.4), which end an aligned string.
+        Esc::TabSet => {
+            p.effector_ends_string();
+            p.tab_set()
+        }
         Esc::TabJustify => p.tab_justify(),
-        Esc::LineTabSet => p.cold.line_stops.set(p.cy),
+        Esc::LineTabSet => {
+            p.effector_ends_string();
+            p.cold.line_stops.set(p.cy)
+        }
         // `RIS` returns the input encoding to UTF-8. The next byte of the
         // same read is decoded by the table `hard_reset`'s `reselect`
         // chose; the loop's live copy follows the encoding, as `ESC % G`
@@ -2898,7 +2917,10 @@ fn esc_final(
         Esc::EndGuardedArea => p.end_guarded_area(),
 
         Esc::BackIndex => p.back_index(),
-        Esc::ForwardIndex => p.forward_index(),
+        Esc::ForwardIndex => {
+            p.effector_ends_string();
+            p.forward_index()
+        }
         // **The single shifts name the slot; the graph holds them pending**
         // (`Node::SingleShift`, the edge that brought the final here).
         Esc::SingleShift2 => p.cold.single = GSlot::G2,

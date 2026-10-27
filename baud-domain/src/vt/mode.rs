@@ -469,6 +469,16 @@ pub enum ModeBit {
     /// that lands on such a stop, reset when the string ends; no `DECRQM`
     /// or XTSAVE reaches it.
     Aligning,
+    /// **Whether a cursor function goes out of line**: [`ModeBit::CursorPresented`]
+    /// or [`ModeBit::Aligning`] set. The bit the `CSI` dispatch's cursor
+    /// arm tests: `CUP`, `HVP`, `CUU`, `CUD`, `CUF`, `CUB`, `CNL`, `CPL`,
+    /// `CHA`, `HPA`, `VPA`, `HPR`, `VPR`, `HPB`, `VPB`, `CHT`, `CBT`, `CVT`
+    /// and `TBC` go out of line while it is set, so an open aligned string
+    /// ends at the move that would leave it, and the arm costs what it
+    /// cost with one bit.
+    /// Not a mode the host names; set and reset as the two change; no
+    /// `DECRQM` or XTSAVE reaches it.
+    CursorRouted,
 }
 
 impl ModeBit {

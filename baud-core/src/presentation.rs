@@ -184,6 +184,7 @@ impl Paint<'_, '_> {
     pub(crate) fn restore_cursor_information(&mut self, data: &[u8]) {
         let r = CirRestore::parse(data, self.rows, self.cols);
         if let (Some(row), Some(col)) = (r.row, r.col) {
+            self.effector_ends_string();
             self.goto(row.to_row(self.rows), col.to_col(self.cols));
         }
         if let Some(rend) = r.rendition {

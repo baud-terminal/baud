@@ -23,15 +23,15 @@
 //! **A format effector or a cursor movement ends the string**; SGR and the
 //! other controls that move nothing do not, so a number coloured with SGR
 //! stays one string (Jev, FORMAT_EFFECTOR, 0.92/0.92): `CR`, `LF`, `VT`,
-//! `FF`, `IND`, `NEL` and `RI` end it themselves, so a line scrolled in
-//! under the cursor takes none, and after any other control it ends at the
-//! first character written anywhere but where it left the cursor. **An
-//! erase or edit of its line ends it too**, the decided rule's "and an
-//! erase or edit of the line", before it acts ([`EditRows`]; Jev's lean,
-//! LINE_REACHED, 0.83/0.94 on a second ask). A string that would move
-//! back past the line's start, the left margin under DECLRMM, or on past
-//! the line's end goes on as plain text (Jev's
-//! lean, AS_TEXT, 0.16/0.26 then 0.94/0.88).
+//! `FF`, `IND`, `NEL` and `RI` end it before they move anything, so a line
+//! scrolled in under the cursor takes none, and the other format effectors
+//! and the cursor movements end it as they execute
+//! ([`Paint::effector_ends_string`]). **An erase or edit of its line ends
+//! it too**, the decided rule's "and an erase or edit of the line", before
+//! it acts ([`EditRows`]; Jev's lean, LINE_REACHED, 0.83/0.94 on a second
+//! ask). A string that would move back past the line's start, the left
+//! margin under DECLRMM, or on past the line's end goes on as plain text
+//! (Jev's lean, AS_TEXT, 0.16/0.26 then 0.94/0.88).
 //!
 //! `HTS` and `CTC 0` set an ordinary stop where an aligned one was; `TBC`,
 //! `TSR` and `CTC` clear one as any stop; DECST8C, `RIS` and a restored
@@ -198,7 +198,27 @@ impl Paint<'_, '_> {
     /// **A format effector ends the string** (Jev, FORMAT_EFFECTOR):
     /// `CR`, `LF`, `VT`, `FF`, `IND`, `NEL` and `RI`, before they move
     /// anything, so a line scrolled in under the cursor, or one the cursor
-    /// stays on, takes no string.
+    /// stays on, takes no string; and, as each executes, the other format
+    /// effectors of 8.2.4 (`HPA`, `HPB`, `HPR`, `HVP`, `HTS`, `TBC`, `TSR`,
+    /// `VPA`, `VPB`, `VPR`, `VTS`, PPA, PPB and PPR) and the cursor
+    /// movements (`CUU`, `CUD`, `CUF`, `CUB`, `CUP`, `CNL`, `CPL`, `CHA`,
+    /// `CHT`, `CBT` and `CVT`, routed by [`ModeBit::CursorRouted`] with the
+    /// format effectors among the control sequences, and NP, PP, `DECRC`,
+    /// `?1048`'s restore, `CSI u`, DECFI, VT52's moves and erases, and
+    /// the controls that home the cursor, DECSTBM, DECSLRM, DECOM, DECCOLM
+    /// and DECALN), so a move away and back, or one that leaves the cursor
+    /// where the string left it, ends it; and DECSASD and a screen switch,
+    /// which take the active position to another display or page buffer
+    /// (Jev's lean, SWITCH_ENDS, 0.42/0.26 on a second ask).
+    ///
+    /// **A control that cannot leave the cursor there needs no test of its
+    /// own**: `BS` and DECBI move it off the string's end, and HTJ's tab
+    /// lands as `HT`'s does, so the next character is not written where
+    /// the string left the cursor and the string ends then, and no control
+    /// can bring the cursor back to the string's cell without ending it.
+    /// `BS` at the left margin moves nothing, and a string can be open
+    /// there only while it is empty, which lays out its next character as
+    /// plain text does.
     #[inline(always)]
     pub(crate) fn effector_ends_string(&mut self) {
         if self.cold.modes.is_set(ModeBit::Aligning) {
@@ -298,7 +318,17 @@ impl Paint<'_, '_> {
         self.cold
             .modes
             .apply(ModeBit::Aligning, self.strs.aligned.open.is_some());
+        self.refresh_routed();
         self.reselect();
+    }
+
+    /// **[`ModeBit::CursorRouted`] set as its two bits say**, wherever
+    /// either changes: the cursor functions go out of line while a string
+    /// is open, and end it ([`Paint::cursor_presented`]).
+    pub(crate) fn refresh_routed(&mut self) {
+        let on = self.cold.modes.is_set(ModeBit::CursorPresented)
+            || self.cold.modes.is_set(ModeBit::Aligning);
+        self.cold.modes.apply(ModeBit::CursorRouted, on);
     }
 
     /// The string ends: what follows is plain text.
@@ -308,6 +338,7 @@ impl Paint<'_, '_> {
         self.strs.aligned.open = None;
         self.strs.aligned.received = None;
         self.cold.modes.apply(ModeBit::Aligning, false);
+        self.refresh_routed();
         self.reselect();
     }
 
@@ -400,5 +431,69 @@ impl Paint<'_, '_> {
         self.cells = self.cells.plus(end.index() - to.index());
         self.row_changed_to(r);
         self.wrote_rows(r, r);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use baud_domain::ModeBit;
+
+    use crate::{BytePos, Owned, ReadLen, Term, WinSize};
+
+    const WS: WinSize = WinSize {
+        ws_row: 4,
+        ws_col: 20,
+    };
+
+    /// Whether a string is open after `bytes`: the string, and the two
+    /// bits it sets.
+    fn open_after(bytes: &[u8]) -> [bool; 3] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        [
+            t.store.strs.aligned.open.is_some(),
+            t.cold.modes.is_set(ModeBit::Aligning),
+            t.cold.modes.is_set(ModeBit::CursorRouted),
+        ]
+    }
+
+    /// **A control that homes the cursor ends the string as it executes**
+    /// (Jev, FORMAT_EFFECTOR, 0.92/0.92: "or other cursor movement"):
+    /// DECSTBM, DECSLRM, DECOM set and reset, DECCOLM, DECALN, SPD and SCP
+    /// with `Ps2` 1, DECRSPS's cursor restore and RIS, from the string's line,
+    /// row 4, where none of them leaves the cursor. No
+    /// character written after one can show it, since the home is never
+    /// where a string can go on being laid out, so the string's state is
+    /// read here. **SGR, and a DECSTBM that is ignored and moves nothing,
+    /// keep it**, the controls.
+    #[test]
+    fn a_control_that_homes_the_cursor_ends_the_string() {
+        let string = "\x1b[3g\x1b[9 a\x1b[4;1H\tab";
+        for keep in ["", "\x1b[31m", "\x1b[3;2r"] {
+            let bytes = [string, keep].concat();
+            assert_eq!(open_after(bytes.as_bytes()), [true; 3], "{keep:?}");
+        }
+        let open: usize = [
+            "\x1b[r",
+            "\x1b[2;4r",
+            "\x1b[?69h\x1b[3;12s",
+            "\x1b[?6h",
+            "\x1b[?6l",
+            "\x1b[?40h\x1b[?3h",
+            "\x1b#8",
+            "\x1b[0;1 S",
+            "\x1b[1;1 k",
+            "\x1bP1$t1;1;1;@;@;@;0;2;@;BBBB\x1b\\",
+            "\x1bc",
+        ]
+        .iter()
+        .filter(|home| open_after([string, home].concat().as_bytes()) != [false; 3])
+        .inspect(|home| std::eprintln!("open after {home:?}"))
+        .count();
+        assert_eq!(open, 0, "of 11");
     }
 }
