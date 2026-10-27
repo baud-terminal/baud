@@ -87,6 +87,42 @@ fn lf_nel_and_ri_keep_the_presentation_position() {
     );
 }
 
+/// **`FF` keeps the presentation position as `LF` does**: it is `LF` here,
+/// DEC STD 070 p. 5-62's "identical in function to the Line Feed",
+/// 8.3.51's move to the page home recorded as a departure (Jev's lean,
+/// DEC_LINE_FEED, 0.89/0.94 asked again).
+#[test]
+fn ff_keeps_the_presentation_position_as_lf_does() {
+    let at = |m, then| after(m, then).1;
+    assert_eq!(
+        at(PRESENTATION, "\x1b[1;1f\x0c"),
+        (Row::from_index(1), Col::at_index(2))
+    );
+    assert_eq!(at(DATA, "\x1b[1;1f\x0c"), at(DATA, "\x1b[1;1f\n"));
+    assert_eq!(
+        at(IMPLICIT, "\x1b[1;1f\x0c"),
+        (Row::from_index(1), Col::ZERO)
+    );
+}
+
+/// **SPA and EPA take the active presentation position** (8.3.129, 8.3.46:
+/// "the active presentation position is the first", "the last ... of a
+/// string of character positions in the presentation component"), in both
+/// DCSM states, as the cursor functions do: SPA on `b`, drawn at position
+/// 1, and EPA on `y`, at 3, guard the positions 1 to 3, drawn `b a y`, so
+/// `EL 2` erases only `c`. With BDSM set they guard the cells `b c y`.
+/// SPA on `a`, drawn at 2, guards `a y` alone.
+#[test]
+fn spa_and_epa_guard_the_positions_as_drawn() {
+    let el = "\x1b[1;2f\x1bV\x1b[1;4f\x1bW\x1b[2K";
+    assert_eq!(after(PRESENTATION, el).0, "ab.y..");
+    assert_eq!(after(DATA, el).0, "ab.y..");
+    assert_eq!(after(IMPLICIT, el).0, ".bcy..");
+    let from_a = "\x1b[1;1f\x1bV\x1b[1;4f\x1bW\x1b[2K";
+    assert_eq!(after(PRESENTATION, from_a).0, "a..y..");
+    assert_eq!(after(IMPLICIT, from_a).0, "abcy..");
+}
+
 /// **`DCH` deletes the cells drawn at the positions it covers**: two from
 /// `b`, position 1, take `b` and `a`, drawn after it; with DATA, `b` and
 /// `c`, stored after it.

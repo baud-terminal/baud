@@ -1068,3 +1068,22 @@ fn overwriting_half_a_wide_character_clears_the_other_half() {
         }
     }
 }
+
+/// **SPH and SPL are counted and move nothing** (`[[source: ecma48]]`
+/// 8.3.131, 8.3.133): FF is `LF` here (the `0x0C` row), so a page home
+/// would be read by nothing, and the bottom of the lines a line feed
+/// scrolls is DECSTBM's (Jev's lean, REFUSE_COUNT, 0.79/0.85 asked again).
+#[test]
+fn sph_and_spl_are_counted_and_move_nothing() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b[5;3H\x1b[3 i\x1b[10 j\x0c\x1b[50;1H\n");
+    assert_eq!(t.unsupported, 2);
+    assert_eq!(t.cursor(), (Row::from_index(49), Col::ZERO));
+    assert_eq!(
+        cursor_of(b"\x1b[5;3H\x1b[3 i\x0c"),
+        cursor_of(b"\x1b[5;3H\x0c"),
+        "FF does not go to a page home"
+    );
+}

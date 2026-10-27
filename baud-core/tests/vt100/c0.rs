@@ -75,6 +75,14 @@ fn vt_and_ff_are_an_index() {
     assert_eq!(cursor(b"abc\x0c"), cursor(b"abc\x1bD"), "FF must equal IND");
 }
 
+/// FF is `LF` under LNM too (`[[source: ctlseqs]]`, "FF is treated the
+/// same as LF"): down a line and to the line's start.
+#[test]
+fn ff_under_lnm_returns_to_the_line_start() {
+    assert_eq!(cursor(b"\x1b[20habc\x0c"), (1, 0));
+    assert_eq!(cursor(b"\x1b[20habc\x0c"), cursor(b"\x1b[20habc\n"));
+}
+
 /// They scroll at the region bottom, exactly as a line feed does.
 #[test]
 fn vt_scrolls_at_the_region_bottom() {

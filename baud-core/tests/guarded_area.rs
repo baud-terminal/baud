@@ -422,3 +422,26 @@ fn a_guarded_empty_row_keeps_every_guard_through_a_reflow() {
     assert_eq!(row(&t, 0), "GGGGGGGGGGGGGGGGGGGG");
     assert_eq!(row(&t, 1), "X...................");
 }
+
+/// **SSA and ESA select nothing and are counted** (`[[source: ecma48]]`
+/// 8.3.138, 8.3.47): a selected area is "eligible to be transmitted ... or
+/// transferred to an auxiliary input/output device", which only a
+/// transfer under SATM reads, and baud sends no screen contents and builds
+/// no SATM (Jev, REFUSE_COUNT, 1.00/1.00). `ESC F`, `ESC G`, and `86` and
+/// `87` under ISO 8859-1: no cell changes, the cursor stays, each counted.
+#[test]
+fn ssa_and_esa_select_nothing_and_are_counted() {
+    for (bytes, n) in [
+        (&b"ab\x1bFcd\x1bGef"[..], 2),
+        (&b"\x1b%@ab\x86cd\x87ef"[..], 2),
+    ] {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        support::feed(&mut t, bytes);
+        assert_eq!(t.unsupported, n, "{bytes:?}");
+        assert_eq!(t.cursor(), (Row::ZERO, Col::at_index(6)));
+        let g = run(bytes);
+        assert!(text(&g, 0).starts_with("abcdef "));
+        assert!(no_guard(&g));
+    }
+}

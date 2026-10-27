@@ -1575,6 +1575,9 @@ impl Replies {
 pub(crate) struct GuardStart {
     pub(crate) screen: ImageScreen,
     pub(crate) line: LineIdx,
+    /// The position along the line: with BDSM reset, on a line holding a
+    /// string, the presentation position SPA found the cursor at, which EPA
+    /// reads as one.
     pub(crate) col: Col,
 }
 

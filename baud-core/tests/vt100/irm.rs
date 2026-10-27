@@ -156,3 +156,25 @@ fn insert_mode_is_chunk_invariant() {
         assert_eq!(support::screen(&t), whole, "differed at chunk {chunk}");
     }
 }
+
+/// **ICH leaves the cursor where it is**: DEC STD 070 p. 5-142 note 3,
+/// "The Active Position is not affected by execution of this control", and
+/// xterm, where `[[source: ecma48]]` 8.3.64 moves it to the line home; a
+/// curses program sends `ich1` "just before sending the character to be
+/// inserted" (terminfo(5)). Decided by Jev, DEC_STAYS, 0.94/0.95 asked
+/// again, and recorded as a departure.
+#[test]
+fn ich_leaves_the_cursor_where_it_is() {
+    let at = |bytes: &[u8]| {
+        support::render(&support::CORPUS, bytes, |t| {
+            let (r, c) = t.cursor();
+            (r.index(), c.index())
+        })
+    };
+    assert_eq!(at(b"abcdef\x1b[1;3H\x1b[2@"), (0, 2));
+    assert_eq!(
+        at(b"\x1b[?69h\x1b[3;10s\x1b[1;5H\x1b[@"),
+        (0, 4),
+        "inside margins"
+    );
+}

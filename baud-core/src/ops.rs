@@ -1756,11 +1756,34 @@ impl Paint<'_, '_> {
     /// (`[[source: ecma48]]` 6.5.2.2). A second SPA before EPA starts it
     /// again: Jev's lean (docs/record.md, "SPA, EPA and ERM are built").
     /// The position is the cursor's as `CPR` reports it, so a pending wrap is
-    /// the last column, where the cursor is shown.
+    /// the last column, where the cursor is shown, and with BDSM reset its
+    /// presentation position: SPA and EPA name "the active presentation
+    /// position" (8.3.129, 8.3.46), in both DCSM states as the cursor
+    /// functions do (`crate::component`).
     pub(crate) fn start_guarded_area(&mut self) {
         let (screen, line) = self.image_anchor();
-        let col = self.cx.reported(self.cold.right, self.cols);
+        let col = self.guard_position();
         self.cold.guard_open = Some(crate::term::GuardStart { screen, line, col });
+    }
+
+    /// The cursor's position for SPA and EPA: its column as `CPR` reports
+    /// it, the position it is drawn at on a line holding a string with
+    /// BDSM reset.
+    fn guard_position(&self) -> Col {
+        let c = self.cx.reported(self.cold.right, self.cols);
+        match self.guards_drawn() {
+            true => self.line_map(self.cy).map_or(c, |m| m.presentation(c)),
+            false => c,
+        }
+    }
+
+    /// **Whether SPA and EPA take the positions as drawn**: BDSM reset,
+    /// and no SDS or SRS string open. Inside one, where 8.3.129's and
+    /// 8.3.46's NOTE says "the control functions for area definition ...
+    /// should not be used", the drawn positions move under each character
+    /// written, so the cells between the two are guarded, as before.
+    fn guards_drawn(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::CursorPresented) && self.style_raw.string().is_none()
     }
 
     /// **EPA**: guard every position from SPA's through the cursor, in the
@@ -1783,19 +1806,30 @@ impl Paint<'_, '_> {
             Some(r) if r.index() >= rows => (rows - 1, cols - 1),
             Some(r) => (r.index(), g.col.index().min(cols - 1)),
         };
-        let end = (
-            self.cy.index(),
-            self.cx.reported(self.cold.right, self.cols).index(),
-        );
+        let end = (self.cy.index(), self.guard_position().index());
         let (a, b) = match start <= end {
             true => (start, end),
             false => (end, start),
         };
+        let presented = self.guards_drawn();
         for y in a.0..=b.0 {
             let from = if y == a.0 { a.1 } else { 0 };
             let to = if y == b.0 { b.1 + 1 } else { cols };
-            self.view
-                .guard_span(Row::from_index(y), Col::at_index(from), Col::at_index(to));
+            let r = Row::from_index(y);
+            // On a line holding a string the positions are the ones drawn,
+            // each guarding the cell drawn there.
+            match presented.then(|| self.line_map(r)).flatten() {
+                Some(m) => {
+                    for p in from..to {
+                        let c = m.data(Col::at_index(p));
+                        self.view.guard_span(r, c, c.after());
+                    }
+                }
+                None => {
+                    self.view
+                        .guard_span(r, Col::at_index(from), Col::at_index(to));
+                }
+            }
         }
         self.cold.guards = crate::term::Guards::Marked;
         // The cursor's row took cells past its written extent, perhaps.
