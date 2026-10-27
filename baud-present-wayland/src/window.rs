@@ -235,10 +235,11 @@ struct Globals {
     /// Whether the `xdg_wm_base` bound has `configure_bounds`.
     configure_bounds: ConfigureBounds,
     seat: Option<ObjectId>,
-    /// What the seat's version gives the pointer, which inherits it:
-    /// `frame` from version 5, `release` from 3.
+    /// What the seat's version gives the pointer and the keyboard, which
+    /// inherit it: the pointer's `frame` from version 5, and both `release`
+    /// requests from 3.
     pointer_framing: Framing,
-    pointer_release: Release,
+    device_release: Release,
     cursor_shape: Option<ObjectId>,
     /// `wp_presentation`, where the compositor offers it (`timing.rs`).
     presentation: Option<ObjectId>,
@@ -257,10 +258,10 @@ const CADENCE_MAX: Duration = Duration::from_millis(100);
 /// selection needs is in 1; 3 changes only a drag's rules.
 const DATA_DEVICE_VERSION: u32 = 3;
 
-/// How a pointer the seat no longer has is let go.
+/// How a pointer or a keyboard the seat no longer has is let go.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Release {
-    /// Version 3 or later: `wl_pointer.release`.
+    /// Version 3 or later: `wl_pointer.release` or `wl_keyboard.release`.
     Request,
     /// Below 3 the interface has no request, and the object is dropped.
     #[default]
@@ -1208,6 +1209,22 @@ impl Window {
         self.shape_device = Some(device);
     }
 
+    /// **The keyboard's focus gone**, by its `leave` or with the keyboard
+    /// itself: nothing held is released after it, so the repeat stops, and
+    /// the modifiers go back to none -- "In the wl_keyboard logical state,
+    /// this event resets all values to their defaults" (`[[source:
+    /// wayland]]`). The pointer reads them outside the keyboard's focus, and
+    /// the compositor sends a fresh `modifiers` after the next `enter`.
+    fn keyboard_left(&mut self, s: &mut Sender<'_>) {
+        self.held = None;
+        self.swallowed.clear();
+        self.composing.reset();
+        self.clip.focus_lost(s);
+        self.mods = Mods::default();
+        self.group = 0;
+        self.events.push_back(Event::Focus(Focus::Lost));
+    }
+
     /// An enter, leave, motion or button event into the frame.
     fn pointer_event(&mut self, e: PointerEvent) {
         let events = &mut self.events;
@@ -1300,7 +1317,7 @@ impl Handler for Window {
                             true => Framing::Framed,
                             false => Framing::Single,
                         };
-                        self.globals.pointer_release = match version >= 3 {
+                        self.globals.device_release = match version >= 3 {
                             true => Release::Request,
                             false => Release::Forget,
                         };
@@ -1412,14 +1429,33 @@ impl Handler for Window {
                 }
             }
             ("wl_seat", "capabilities", [Read::Uint(caps)]) => {
-                if caps & protocol::wl_seat::capability::KEYBOARD != 0 && self.keyboard.is_none() {
-                    let kb = s.new_id(Interface::named("wl_keyboard").expect("pinned"));
-                    let _ = s.request(
-                        ev.object,
-                        Opcode(protocol::wl_seat::request::GET_KEYBOARD),
-                        &[Arg::NewId(kb)],
-                    );
-                    self.keyboard = Some(kb);
+                let keyboard = caps & protocol::wl_seat::capability::KEYBOARD != 0;
+                match (keyboard, self.keyboard) {
+                    (true, None) => {
+                        let kb = s.new_id(Interface::named("wl_keyboard").expect("pinned"));
+                        let _ = s.request(
+                            ev.object,
+                            Opcode(protocol::wl_seat::request::GET_KEYBOARD),
+                            &[Arg::NewId(kb)],
+                        );
+                        self.keyboard = Some(kb);
+                    }
+                    // The seat lost its keyboard: released where its
+                    // version has the request, as the pointer is below;
+                    // "no further ... events will be received" on it, so a
+                    // keyboard that comes back is asked for anew. A focused
+                    // one takes the focus with it.
+                    (false, Some(kb)) => {
+                        if self.globals.device_release == Release::Request {
+                            let _ =
+                                s.request(kb, Opcode(protocol::wl_keyboard::request::RELEASE), &[]);
+                        }
+                        self.keyboard = None;
+                        if self.clip.keyboard() == crate::clip::Keyboard::Here {
+                            self.keyboard_left(s);
+                        }
+                    }
+                    _ => {}
                 }
                 let pointer = caps & protocol::wl_seat::capability::POINTER != 0;
                 match (pointer, self.pointer) {
@@ -1446,7 +1482,7 @@ impl Handler for Window {
                                 &[],
                             );
                         }
-                        if self.globals.pointer_release == Release::Request {
+                        if self.globals.device_release == Release::Request {
                             let _ =
                                 s.request(p, Opcode(protocol::wl_pointer::request::RELEASE), &[]);
                         }
@@ -1652,21 +1688,7 @@ impl Handler for Window {
                 self.clip.focus_gained();
                 self.events.push_back(Event::Focus(Focus::Gained));
             }
-            // A keyboard that left the surface delivers no release for what
-            // it held, so the repeat stops here, and the modifiers go back
-            // to none: "In the wl_keyboard logical state, this event resets
-            // all values to their defaults" (`[[source: wayland]]`). The
-            // pointer reads them outside the keyboard's focus, and the
-            // compositor sends a fresh `modifiers` after the next `enter`.
-            ("wl_keyboard", "leave", _) => {
-                self.held = None;
-                self.swallowed.clear();
-                self.composing.reset();
-                self.clip.focus_lost(s);
-                self.mods = Mods::default();
-                self.group = 0;
-                self.events.push_back(Event::Focus(Focus::Lost));
-            }
+            ("wl_keyboard", "leave", _) => self.keyboard_left(s),
             // The input method (`ime.rs`): enabled on the object's own
             // enter on this surface, its state applied on `done`.
             ("zwp_text_input_v3", "enter", [Read::Object(surface)])

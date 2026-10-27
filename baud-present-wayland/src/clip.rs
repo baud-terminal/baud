@@ -116,7 +116,7 @@ pub enum Done {
 
 /// Whether the window has the keyboard, as the selections' rules read it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Keyboard {
+pub(crate) enum Keyboard {
     #[default]
     Away,
     Here,
@@ -493,6 +493,11 @@ impl Clip {
                 let _ = s.request(offer.id, o.offer_destroy, &[]);
             }
         }
+    }
+
+    /// Whether the window has the keyboard's focus.
+    pub(crate) fn keyboard(&self) -> Keyboard {
+        self.keyboard
     }
 
     /// The keyboard came: a source set without it is no longer watched.

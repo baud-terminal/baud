@@ -2264,6 +2264,72 @@ fn the_keyboards_leave_lifts_its_modifiers() {
     assert_eq!(w.modifiers(), Modifiers::NONE, "lifted by the leave");
 }
 
+/// **A seat that loses its keyboard lets it go, and asks for the next
+/// one**: "When the pointer capability is removed, a client should destroy
+/// the wl_pointer objects associated with the seat where the capability was
+/// removed, using the wl_pointer.release request. No further pointer events
+/// will be received on these objects", and "The above behavior also applies
+/// to wl_keyboard" (`[[source: wayland]]`, `wl_seat.capabilities`). So a
+/// keyboard unplugged and plugged in again is a new object, asked for when
+/// the capability comes back; a focused keyboard's loss is the focus lost,
+/// an unfocused one's is nothing, and the keys of the new one type. Found
+/// under sway's headless backend, where each wtype run is a keyboard of its
+/// own and the second typed nothing.
+#[test]
+fn a_seat_that_loses_its_keyboard_releases_it_and_asks_for_the_next() {
+    use baud_domain::{Focus, KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, surface) = keyboard_session();
+    keyboard_enter(&mut server, kb, 5, surface);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [Event::Focus(Focus::Gained)], "the control");
+    let seat = server
+        .objects
+        .iter()
+        .find(|(_, i)| i.name == "wl_seat")
+        .map(|(id, _)| *id)
+        .unwrap();
+    server.send(seat, "wl_seat", "capabilities", &[Arg::Uint(0)]);
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_keyboard", "release");
+    assert_eq!(r.sender, kb);
+    assert_eq!(drain(&mut w), [Event::Focus(Focus::Lost)]);
+    server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(protocol::wl_seat::capability::KEYBOARD)],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_seat", "get_keyboard");
+    let Val::New(next) = r.args[0] else { panic!() };
+    assert_ne!(next, kb, "a new keyboard object");
+    send_keymap(&mut server, next);
+    keyboard_enter(&mut server, next, 6, surface);
+    key(&mut server, next, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [
+            Event::Focus(Focus::Gained),
+            typed('q', Modifiers::NONE, KeyEventKind::Press)
+        ]
+    );
+    // A keyboard lost after its leave takes no focus: the leave did.
+    server.send(
+        next,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(7), Arg::Object(surface)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), [Event::Focus(Focus::Lost)]);
+    server.send(seat, "wl_seat", "capabilities", &[Arg::Uint(0)]);
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_keyboard", "release");
+    assert_eq!(r.sender, next);
+    assert_eq!(drain(&mut w), [], "no second focus lost");
+}
+
 /// A session with both selections: the globals bound -- the data device
 /// manager advertised at 4, the primary-selection manager at 1 -- the
 /// seat's two devices asked for, the keyboard made and its keymap sent.
