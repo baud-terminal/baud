@@ -41,8 +41,9 @@ use crate::term::Pinned;
 
 impl Paint<'_, '_> {
     /// **The column a write under DECRLM stops at**: the left margin for a
-    /// cursor at or right of it, the screen's first column left of it.
-    fn left_limit(&self, c: Col) -> Col {
+    /// cursor at or right of it, the screen's first column left of it; the
+    /// start of the part HEM's PRECEDING shifts (`crate::editing`).
+    pub(crate) fn left_limit(&self, c: Col) -> Col {
         match self.cold.modes.is_set(ModeBit::SideMargins) && c >= self.cold.left {
             true => self.cold.left,
             false => Col::ZERO,

@@ -48,7 +48,7 @@ fn check(d: &[u8]) -> [u8; 2] {
 /// all of them back.
 fn tsi(t: &mut Term<'_>) -> Vec<String> {
     let mut out = Vec::new();
-    for m in [2, 4, 6, 8, 12, 20] {
+    for m in [2, 4, 6, 8, 9, 10, 12, 20] {
         out.push(show(&reply(t, format!("\x1b[{m}$p").as_bytes())));
     }
     for m in baud_domain::SLOT_WIRE.into_iter().chain([1020, 1048]) {
@@ -67,7 +67,7 @@ fn tsi(t: &mut Term<'_>) -> Vec<String> {
 
 /// A state far from power-on in every field the report carries.
 const SET: &[u8] =
-    b"\x1b[4h\x1b[20h\x1b[6h\x1b[8l\x1b[12l\x1b[2$~\x1b[?1h\x1b[?5h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?1004h\
+    b"\x1b[4h\x1b[20h\x1b[6h\x1b[8l\x1b[10h\x1b[12l\x1b[2$~\x1b[?1h\x1b[?5h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?1004h\
 \x1b[?1006h\x1b[?1002h\x1b[?2004h\x1b[?12l\x1b[?1036l\x1b[?66h\x1b[?67h\
 \x1b[?2500h\x1b[?2501l\x1b[?1243l\
 \x1b[3;7r\x1b[2;30s\x1b[1;3;4:3;38;2;10;20;30;48;5;9;58;5;3;12m\x1b[5 q\
@@ -239,6 +239,25 @@ fn decrsts_restores_dcsm_as_set() {
         support::feed(t, b"\x1b[8l");
         t.clear_reply();
         assert_eq!(dcsm(t), "\\x1b[9;1$y", "DATA, restored under BDSM set");
+    });
+}
+
+/// **A restore puts HEM back as it was set** (`[[source: ecma48]]`
+/// 7.2.9): PRECEDING reported, reset by `RIS`, and answered again once
+/// the report is restored.
+#[test]
+fn decrsts_restores_hem_as_set() {
+    support::with_corpus(|t| {
+        let hem = |t: &mut Term<'_>| show(&reply(t, b"\x1b[10$p"));
+        support::feed(t, b"\x1b[10h");
+        t.clear_reply();
+        let report = reply(t, b"\x1b[1$u");
+        support::feed(t, b"\x1bc");
+        t.clear_reply();
+        assert_eq!(hem(t), "\\x1b[10;2$y", "FOLLOWING after RIS");
+        support::feed(t, &restore(&report));
+        t.clear_reply();
+        assert_eq!(hem(t), "\\x1b[10;1$y", "PRECEDING, restored");
     });
 }
 

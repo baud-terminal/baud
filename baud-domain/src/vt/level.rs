@@ -471,6 +471,7 @@ impl AnsiMode {
             | AnsiMode::TabulationStop
             | AnsiMode::BiDirectionalSupport
             | AnsiMode::DeviceComponentSelect
+            | AnsiMode::CharacterEditing
             | AnsiMode::Other(_) => return None,
         })
     }

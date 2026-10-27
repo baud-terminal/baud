@@ -85,12 +85,15 @@ pub(crate) enum Forms {
 }
 
 /// How the text is read for the form state the mode word holds: one
-/// character at a time while a form waits or the last character took it.
+/// character at a time while a form waits or the last character took it,
+/// under DECRLM, and under IRM, where each character opens its own gap and
+/// HEM or a line drawn as edited may shift it (`crate::editing`).
 pub(crate) fn form_read(m: Modes) -> FormRead {
-    match m.any_of_three(
+    match m.any_of_four(
         ModeBit::FormPending,
         ModeBit::FormEnd,
         ModeBit::CursorRightToLeft,
+        ModeBit::InsertReplace,
     ) {
         true => FormRead::OneByOne,
         false => FormRead::Runs,

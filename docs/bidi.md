@@ -363,21 +363,31 @@ the screen; step 3 joins Arabic letters.
 - **With the mode off, a program can edit a line as it is drawn** (DCSM,
   `CSI 9 l`, `[[source: ecma48]]` 7.2.3, the state baud starts in): on a
   line holding a string, CR goes to the character drawn at the line's
-  start, DCH deletes and ECH and EL erase the characters drawn where the
-  cursor's drawn place reaches, ICH opens room where the cursor is drawn,
-  a line feed keeps the cursor's drawn column, and a cursor report gives
-  it (`dch_deletes_the_cells_drawn_at_its_positions`,
-  `cpr_reports_the_presentation_column`). The cursor moves as drawn too:
-  CUP and CHA go to the character drawn at the column they name, CUF,
-  CUB, CUU, CUD and the tabs step from the cursor's drawn place, and on a
-  right-to-left line CUF moves right on the screen and CUB left, as
-  ECMA-48 words them (`cup_goes_to_the_cell_drawn_at_its_position`, `cha_goes_to_the_cell_drawn_at_its_position`,
+  start, DCH deletes and ECH, EL, EA and EF erase the characters drawn
+  where the cursor's drawn place reaches, ICH opens room where the cursor
+  is drawn, a character typed in insert mode goes in where the cursor is
+  drawn, a line feed keeps the cursor's drawn column, and a cursor report
+  gives it (`dch_deletes_the_cells_drawn_at_its_positions`,
+  `ef_erases_the_field_drawn_at_its_position`,
+  `irm_under_presentation_inserts_at_the_presentation_position`,
+  `cpr_reports_the_presentation_column`). `CSI 9 h` edits by the cells as
+  stored. **The cursor moves as drawn in both**, as ECMA-48 defines every
+  cursor function: CUP and CHA go to the character drawn at the column
+  they name, CUF, CUB, CUU, CUD, CNL, CPL and the tabs step from the
+  cursor's drawn place, and on a right-to-left line CUF moves right on the
+  screen and CUB left (`cup_goes_to_the_cell_drawn_at_its_position`,
   `on_a_right_to_left_line_cuf_moves_right_on_the_screen`); HVP and HPA
-  still name the character stored at the column. `CSI 9 h` edits and moves
-  by the cells as stored, an open departure for the cursor functions
-  (below); TR/53's worked example 2 has only CUP and CHA on its DATA lines
-  (`tr53_example_2_data_lines_address_the_cells`). With the mode on it
+  name the character stored at the column, which is how TR/53's worked
+  example 2 reaches its data columns here
+  (`tr53_example_2_data_lines_by_the_data_movers`). With the mode on it
   does nothing, as ECMA-48 says.
+- **A program can make an insertion push the text before the cursor**
+  (HEM, `CSI 10 h`, `[[source: ecma48]]` 7.2.9): DCH closes its gap from
+  the line's start, ICH pushes toward it, and a character typed in insert
+  mode goes in at the cursor, which stays where it is
+  (`irm_under_preceding_inserts_at_the_cursor_which_stays`); on a line
+  drawn as edited, the characters drawn before the cursor's place move.
+  `CSI 10 l`, the state baud starts in, pushes the text after it.
 - **A program can write right to left, as on a VT510 with a Hebrew
   keyboard** (DECRLM, `CSI ? 34 h`, `[[source: vt510-decrlm]]`): each
   character is written at the cursor and the cursor moves left, BS moves
@@ -541,6 +551,13 @@ lean; the owner can veto each:**
 | DCSM's PRESENTATION | built: the editing functions 7.2.3 lists take the presentation position on a line holding a string | 0.22 / 0.22, 0.86 / 0.86 |
 | DCSM at power-on | PRESENTATION, the reset state | 0.38 / 0.52, 0.66 / 0.42 |
 | the cursor functions and DCSM | by the positions as drawn under PRESENTATION, by cell under DATA, as TR/53's worked example 2 has `CUP` and `CHA`, where their definitions (8.3.7-8.3.23, 8.3.60, 8.3.161) move the active presentation position in every state, 7.2.3's NOTE leaves them out and Annex F calls them independent of DCSM: an open departure | 0.56 / 0.79, 0.53 / 0.77 |
+| the cursor functions under DATA, re-asked with TR/53's standing | as drawn in both states, the definitions' reading; TR/53's DATA lines by `HVP` and `HPA` (ALWAYS_EXPLICIT; keeping them by cell needed 0.9) | 0.76 / 0.84 |
+| a character inserted under PRESENTATION | drawn at the presentation position, what was drawn there moving on, as 7.2.9 says, where TR/53's line 7 inserts before the cell in the data | 0.94 / 0.96 |
+| HEM's PRECEDING under PRESENTATION | read as its DATA paragraph, the PRESENTATION paragraph's two "following" an erratum | 0.86 / 0.94, 0.92 / 0.98 |
+| HEM and `DECSTR` | kept, as its table names no HEM | 0.92 / 0.92 |
+| where PRECEDING's shifted part starts | the left margin under DECLRMM, as DECRLM's insertion stops there | 0.76 / 0.70, 0.88 / 0.86 |
+| a wide character at the shifted part's start | the cursor's column and the one after it | 0.70 / 0.56, 0.92 / 0.82 |
+| IRM under DECRLM with HEM | DECRLM's own shift in both states; `DCH` and `ICH` follow HEM | 0.84 / 0.72, 0.46 / 0.68 |
 | `CUF` and `CUB` on a right-to-left line | right and left on the screen, "rightwards in the presentation component" | 0.88 / 0.96, 0.88 / 0.96 |
 | which cursor functions | every one that moves the active presentation position: the tabs, `CVT` and `VT` with `CUP` to `CUD` | the six alone 0.08 / this 0.46; then this 0.28 / 0.56 |
 | `DECRQM 9` with the mode on | DATA's state, "considered to be set to DATA" | 0.80 / 0.52, 0.64 / 0.10 |
@@ -710,10 +727,11 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   more a character at each doubling (pairs side by side 32, 54, 99 and
   189, nested FSIs 22, 31, 50 and 88), so the bench sees a quadratic
   when there is one.
-- **SDS, SRS, DCSM and DECRLM cost a program that never sends them
+- **SDS, SRS, DCSM, HEM and DECRLM cost a program that never sends them
   nothing on the text path**: a string rides in the rendition, DCSM's and
   DECRLM's tests are one bit of the mode word `CR` already reads, and
-  DECRLM's writer is reached only by the one-by-one graph (docs/record.md,
+  DECRLM's writer, and a write under insert mode that HEM or a drawn line
+  shifts, are reached only by the one-by-one graph (docs/record.md,
   "DECRLM writes right to left"). **Once a string has been begun** a
   frame reads a row's cells for strings one bit a cell, and only while a
   rendition naming a string is in the table; with BDSM set a row keeps
@@ -774,17 +792,14 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   default, is refused, so a program that restores the default that way
   leaves its lines set until `DECSTR` or `RIS`; `DECSC` and `DECRC` do not
   save the direction (terminal-wg's open issue 3).
-- **The cursor under DCSM's DATA, with the mode off**: `CUP`, `CHA`,
-  `CUF`, `CUB`, `CUU`, `CUD`, `HT`, `CHT`, `CBT`, `CVT` and `VT`, and
-  `HTS`, `CTC` and `TBC`, address the line's cells, so on a line SCP set
-  right to left `CUF` moves left on the screen, where ECMA-48 (8.3.7-8.3.23,
-  8.3.60, 8.3.161, 7.2.3's NOTE, Annex F) moves "the active presentation
-  position" for each whatever DCSM says; TR/53's worked example 2 has only
-  `CUP` and `CHA` on its DATA lines.
-- **Editing a line as drawn, with the mode off**: `EA` and `EF` erase
-  the characters as stored, and a character inserted under IRM pushes
-  the characters as stored, where ECMA-48 (7.2.3, 7.2.9) has both act on
-  the positions as drawn under DCSM's PRESENTATION.
+- **TR/53's worked example 2 under DATA**: its lines reach their data
+  columns with `CUP` and `CHA`, which move the presentation position here
+  in both DCSM states, as ECMA-48 defines them; `HVP` and `HPA` give its
+  published result (`tr53_example_2_data_lines_by_the_data_movers`).
+- **Insert mode on a line drawn as edited**: a character typed goes in at
+  the cursor's drawn place and the cursor then moves on by the cells, so
+  two typed into a reversed string are drawn apart; TR/53's examples give
+  each insertion a string of its own, which a program sends.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above

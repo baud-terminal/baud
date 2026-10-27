@@ -7,9 +7,10 @@
 //! PRESENTATION with DATA (`CSI 9 h`) and with BDSM set, where DCSM has no
 //! effect. The cursor is placed with `HVP` (`CSI Pn ; Pn f`), which moves
 //! the active data position (8.3.63), so a setup names the same cell in
-//! every state; `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD` and the tab
-//! functions move the active presentation position (8.3.9-8.3.22), and
-//! under PRESENTATION they count the positions as drawn.
+//! every state; `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD`, `CNL`, `CPL`
+//! and the tab functions move the active presentation position
+//! (8.3.7-8.3.23), in every DCSM state, so they count the positions as
+//! drawn under DATA too.
 
 mod support;
 
@@ -118,8 +119,9 @@ fn ich_opens_its_blanks_at_the_presentation_position() {
 /// **`CUP` goes to the cell drawn at the position it names** under
 /// PRESENTATION (`[[source: ecma48]]` 8.3.21: "the active presentation
 /// position"): position 1 holds `c`, column 2, and position 3 `a`. Under
-/// DATA it addresses the cells, as TR/53's worked example 2 has it
-/// (`tr53_example_2_data_lines_address_the_cells`); with BDSM set the
+/// DATA too: its definition has no DCSM paragraph and 7.2.3's NOTE does
+/// not list it, where TR/53's worked example 2 addresses the cells
+/// (`tr53_example_2_data_lines_by_the_data_movers`); with BDSM set the
 /// control functions are performed in the data component (7.2.1).
 #[test]
 fn cup_goes_to_the_cell_drawn_at_its_position() {
@@ -132,13 +134,15 @@ fn cup_goes_to_the_cell_drawn_at_its_position() {
         col(2),
         "from another line"
     );
-    assert_eq!(at(DATA, "\x1b[1;1H"), col(0));
+    assert_eq!(at(DATA, "\x1b[1;1H"), col(2));
+    assert_eq!(at(DATA, "\x1b[1;3H"), col(0));
     assert_eq!(at(IMPLICIT, "\x1b[1;1H"), col(0));
     assert_eq!(after(PRESENTATION, "\x1b[1;1H\x1b[6n").2, "\x1b[1;1R");
 }
 
 /// **`CHA` goes to the cell drawn at the position it names** (8.3.9):
-/// position 1 holds `c`, 2 `b`, and 4 `y`, past the string.
+/// position 1 holds `c`, 2 `b`, and 4 `y`, past the string, in both
+/// DCSM states.
 #[test]
 fn cha_goes_to_the_cell_drawn_at_its_position() {
     let at = |m, then| after(m, then).1;
@@ -146,7 +150,8 @@ fn cha_goes_to_the_cell_drawn_at_its_position() {
     assert_eq!(at(PRESENTATION, "\x1b[1G"), col(2));
     assert_eq!(at(PRESENTATION, "\x1b[2G"), col(1));
     assert_eq!(at(PRESENTATION, "\x1b[4G"), col(3));
-    assert_eq!(at(DATA, "\x1b[1G"), col(0));
+    assert_eq!(at(DATA, "\x1b[1G"), col(2));
+    assert_eq!(at(DATA, "\x1b[2G"), col(1));
     assert_eq!(at(IMPLICIT, "\x1b[1G"), col(0));
 }
 
@@ -161,8 +166,7 @@ fn hvp_and_hpa_address_the_cells() {
 }
 
 /// **`CUF` steps by presentation positions** (8.3.20): from `c`, drawn at
-/// position 1, one right is `b`, two `a` and three `y`. Under DATA it
-/// steps by cells.
+/// position 1, one right is `b`, two `a` and three `y`, under DATA too.
 #[test]
 fn cuf_steps_by_presentation_positions() {
     let at = |m, then| after(m, then).1;
@@ -170,25 +174,26 @@ fn cuf_steps_by_presentation_positions() {
     assert_eq!(at(PRESENTATION, "\x1b[1;3f\x1b[C"), col(1));
     assert_eq!(at(PRESENTATION, "\x1b[1;3f\x1b[2C"), col(0));
     assert_eq!(at(PRESENTATION, "\x1b[1;3f\x1b[3C"), col(3));
-    assert_eq!(at(DATA, "\x1b[1;3f\x1b[C"), col(3));
+    assert_eq!(at(DATA, "\x1b[1;3f\x1b[C"), col(1));
+    assert_eq!(at(DATA, "\x1b[1;3f\x1b[3C"), col(3));
 }
 
 /// **`CUB` steps by presentation positions** (8.3.18): from `y`, drawn at
-/// position 4, one left is `a` and three `c`. Under DATA it steps by
-/// cells.
+/// position 4, one left is `a` and three `c`, under DATA too.
 #[test]
 fn cub_steps_by_presentation_positions() {
     let at = |m, then| after(m, then).1;
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(at(PRESENTATION, "\x1b[1;4f\x1b[D"), col(0));
     assert_eq!(at(PRESENTATION, "\x1b[1;4f\x1b[3D"), col(2));
-    assert_eq!(at(DATA, "\x1b[1;4f\x1b[D"), col(2));
+    assert_eq!(at(DATA, "\x1b[1;4f\x1b[D"), col(0));
+    assert_eq!(at(DATA, "\x1b[1;4f\x1b[3D"), col(2));
 }
 
 /// **`CUU` keeps the presentation position** on the line it reaches, as
 /// `RI` does (8.3.22): column 0 of row 1 is position 1, which on row 0
 /// holds `c`; and from row 1 holding the string, `a`, column 0, drawn at
-/// position 3, is column 2 of row 0.
+/// position 3, is column 2 of row 0. Under DATA too.
 #[test]
 fn cuu_keeps_the_presentation_position() {
     let at = |m, then| after(m, then).1;
@@ -196,7 +201,7 @@ fn cuu_keeps_the_presentation_position() {
         at(PRESENTATION, "\x1b[2;1f\x1b[A"),
         (Row::ZERO, Col::at_index(2))
     );
-    assert_eq!(at(DATA, "\x1b[2;1f\x1b[A"), (Row::ZERO, Col::ZERO));
+    assert_eq!(at(DATA, "\x1b[2;1f\x1b[A"), (Row::ZERO, Col::at_index(2)));
     let from_the_string = |mode: &str| {
         support::with_term(&WS, |t| {
             let setup = format!("\x1b[8l\x1b[2;1f\x1b[1[abc\x1b[0[y{mode}\x1b[2;1f\x1b[A");
@@ -205,11 +210,11 @@ fn cuu_keeps_the_presentation_position() {
         })
     };
     assert_eq!(from_the_string(PRESENTATION), (Row::ZERO, Col::at_index(2)));
-    assert_eq!(from_the_string(DATA), (Row::ZERO, Col::ZERO));
+    assert_eq!(from_the_string(DATA), (Row::ZERO, Col::at_index(2)));
 }
 
 /// **`CUD` keeps the presentation position**, as `LF` does (8.3.19): `a`,
-/// drawn at position 3, is column 2 of row 1.
+/// drawn at position 3, is column 2 of row 1, under DATA too.
 #[test]
 fn cud_keeps_the_presentation_position() {
     let at = |m, then| after(m, then).1;
@@ -217,7 +222,10 @@ fn cud_keeps_the_presentation_position() {
         at(PRESENTATION, "\x1b[1;1f\x1b[B"),
         (Row::from_index(1), Col::at_index(2))
     );
-    assert_eq!(at(DATA, "\x1b[1;1f\x1b[B"), (Row::from_index(1), Col::ZERO));
+    assert_eq!(
+        at(DATA, "\x1b[1;1f\x1b[B"),
+        (Row::from_index(1), Col::at_index(2))
+    );
 }
 
 /// The reversed string `abcdefghi` on row 0, drawn `ihgfedcba`, BDSM
@@ -232,12 +240,12 @@ fn reversed_nine(mode: &str, then: &str) -> (Row, Col) {
 
 /// **`HT` counts the tab stops in presentation positions** (8.3.60: "in
 /// the presentation component"): from `i`, drawn at position 1, the stop
-/// at column 9 is position 9, which holds `a`.
+/// at column 9 is position 9, which holds `a`, in both DCSM states.
 #[test]
 fn ht_counts_its_stops_in_presentation_positions() {
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(reversed_nine(PRESENTATION, "\x1b[1;9f\t"), col(0));
-    assert_eq!(reversed_nine(DATA, "\x1b[1;9f\t"), col(9));
+    assert_eq!(reversed_nine(DATA, "\x1b[1;9f\t"), col(0));
 }
 
 /// **`CHT` counts them so too** (8.3.10, "according to the character
@@ -246,7 +254,7 @@ fn ht_counts_its_stops_in_presentation_positions() {
 fn cht_counts_its_stops_in_presentation_positions() {
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(reversed_nine(PRESENTATION, "\x1b[1;9f\x1b[I"), col(0));
-    assert_eq!(reversed_nine(DATA, "\x1b[1;9f\x1b[I"), col(9));
+    assert_eq!(reversed_nine(DATA, "\x1b[1;9f\x1b[I"), col(0));
 }
 
 /// **`CBT` counts them back** (8.3.7): from `a`, drawn at position 9, no
@@ -255,7 +263,7 @@ fn cht_counts_its_stops_in_presentation_positions() {
 fn cbt_counts_its_stops_in_presentation_positions() {
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(reversed_nine(PRESENTATION, "\x1b[1;1f\x1b[Z"), col(8));
-    assert_eq!(reversed_nine(DATA, "\x1b[1;1f\x1b[Z"), col(0));
+    assert_eq!(reversed_nine(DATA, "\x1b[1;1f\x1b[Z"), col(8));
 }
 
 /// A line tabulation stop on row 3, then the cursor on `b`, drawn at
@@ -273,7 +281,7 @@ fn vt_keeps_the_presentation_position() {
     );
     assert_eq!(
         reversed_nine(DATA, &vt),
-        (Row::from_index(2), Col::at_index(1))
+        (Row::from_index(2), Col::at_index(7))
     );
 }
 
@@ -287,7 +295,7 @@ fn cvt_keeps_the_presentation_position() {
     );
     assert_eq!(
         reversed_nine(DATA, &cvt),
-        (Row::from_index(2), Col::at_index(1))
+        (Row::from_index(2), Col::at_index(7))
     );
 }
 
@@ -303,44 +311,52 @@ fn right_to_left(mode: &str, then: &str) -> (Row, Col) {
 
 /// **On a right-to-left line `CUF` moves right on the screen** (8.3.20,
 /// "rightwards in the presentation component"): from column 3 right is
-/// column 2, and at the home, column 0, it stays. Under DATA, and with
-/// BDSM set, it steps by cells.
+/// column 2, and at the home, column 0, it stays, under DATA too. With
+/// BDSM set it steps by cells.
 #[test]
 fn on_a_right_to_left_line_cuf_moves_right_on_the_screen() {
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(right_to_left(PRESENTATION, "\x1b[C"), col(2));
     assert_eq!(right_to_left(PRESENTATION, "\x1b[9C"), col(0));
     assert_eq!(right_to_left(PRESENTATION, "\x1b[1;1f\x1b[C"), col(0));
-    assert_eq!(right_to_left(DATA, "\x1b[C"), col(4));
+    assert_eq!(right_to_left(DATA, "\x1b[C"), col(2));
     let implicit = format!("{PRESENTATION}{IMPLICIT}");
     assert_eq!(right_to_left(&implicit, "\x1b[C"), col(4));
 }
 
-/// **And `CUB` left** (8.3.18, "leftwards"): from column 3, column 4.
+/// **And `CUB` left** (8.3.18, "leftwards"): from column 3, column 4, in
+/// both DCSM states.
 #[test]
 fn on_a_right_to_left_line_cub_moves_left_on_the_screen() {
     let col = |c| (Row::ZERO, Col::at_index(c));
     assert_eq!(right_to_left(PRESENTATION, "\x1b[D"), col(4));
-    assert_eq!(right_to_left(DATA, "\x1b[D"), col(2));
+    assert_eq!(right_to_left(DATA, "\x1b[D"), col(4));
+    let implicit = format!("{PRESENTATION}{IMPLICIT}");
+    assert_eq!(right_to_left(&implicit, "\x1b[D"), col(2));
 }
 
 /// **TR/53's worked example 2, its line 3, under DATA** (`[[source:
 /// ecma-tr53]]` Annex A): worked example 1's line written from column 1
-/// rather than SLH's 7, so each published column less 6. `CUP(3;11)`
-/// inserts at data column 5, between `m` and `n`, where position 5 holds
-/// `v`; `CHA(25)` `DCH(2)` deletes `r` and `s`; `CHA(27)` replaces `u v w`.
-/// The published data component: `kl_mABC123DEFnop_qt_GHI_xyz`.
+/// rather than SLH's 7, so each published column less 6. TR/53 reaches its
+/// data columns with `CUP(3;11)`, `CHA(25)` and `CHA(27)`, where ECMA-48's
+/// `CUP` and `CHA` move the active presentation position in both DCSM
+/// states (8.3.21, 8.3.9); `HVP` and `HPA`, which move the active data
+/// position (8.3.63, 8.3.57), reach them: the insertion at data column 5,
+/// between `m` and `n`, `DCH(2)` deleting `r` and `s`, and `u v w`
+/// replaced, the published data component `kl_mABC123DEFnop_qt_GHI_xyz`.
+/// `CUP(1;5)` goes to the cell drawn at position 5, `v`, column 14
+/// counted from 0.
 #[test]
-fn tr53_example_2_data_lines_address_the_cells() {
+fn tr53_example_2_data_lines_by_the_data_movers() {
     const WIDE: WinSize = WinSize {
         ws_row: 2,
         ws_col: 40,
     };
+    let line = "\x1b[8lkl_\x1b[1[mnop_\x1b[1[qrst\x1b[0[_uvw\x1b[0[_xyz";
     support::with_term(&WIDE, |t| {
-        let line = "kl_\x1b[1[mnop_\x1b[1[qrst\x1b[0[_uvw\x1b[0[_xyz";
-        let edit = "\x1b[9h\x1b[4h\x1b[1;5H\x1b[2]ABC\x1b[1]123\x1b[0]DEF\x1b[0]\
-                    \x1b[19G\x1b[2P\x1b[21G\x1b[4l\x1b[2]GHI\x1b[0]";
-        support::feed(t, format!("\x1b[8l{line}{edit}").as_bytes());
+        let edit = "\x1b[9h\x1b[4h\x1b[1;5f\x1b[2]ABC\x1b[1]123\x1b[0]DEF\x1b[0]\
+                    \x1b[19`\x1b[2P\x1b[21`\x1b[4l\x1b[2]GHI\x1b[0]";
+        support::feed(t, format!("{line}{edit}").as_bytes());
         let row: String = t.viewport().row(Row::ZERO)[..27]
             .iter()
             .map(|c| {
@@ -352,17 +368,49 @@ fn tr53_example_2_data_lines_address_the_cells() {
             .collect();
         assert_eq!(row, "kl_mABC123DEFnop_qt_GHI_xyz");
     });
+    support::with_term(&WIDE, |t| {
+        support::feed(t, format!("{line}\x1b[9h\x1b[1;5H").as_bytes());
+        assert_eq!(t.cursor(), (Row::ZERO, Col::at_index(14)));
+    });
+}
+
+/// **`CNL` and `CPL` go to the cell drawn at the line's first position**
+/// (8.3.12, 8.3.13: "the first character position of the n-th following
+/// line in the presentation component"), in both DCSM states: on row 0
+/// that is `c`, column 2, where `CR` under DATA goes to column 0.
+#[test]
+fn cnl_and_cpl_go_to_the_cell_drawn_at_the_first_position() {
+    let at = |mode, then| after(mode, then).1;
+    let col = |c| (Row::ZERO, Col::at_index(c));
+    for m in [PRESENTATION, DATA] {
+        assert_eq!(at(m, "\x1b[2;5f\x1b[F"), col(2), "CPL");
+    }
+    assert_eq!(at(IMPLICIT, "\x1b[2;5f\x1b[F"), col(0));
+    let from_above = |mode: &str| {
+        support::with_term(&WS, |t| {
+            let setup = format!("\x1b[8l\x1b[2;1f\x1b[1[abc\x1b[0[{mode}\x1b[1;5f\x1b[E");
+            support::feed(t, setup.as_bytes());
+            t.cursor()
+        })
+    };
+    assert_eq!(
+        from_above(PRESENTATION),
+        (Row::from_index(1), Col::at_index(2))
+    );
+    assert_eq!(from_above(DATA), (Row::from_index(1), Col::at_index(2)));
+    assert_eq!(at(DATA, "\x1b[1;2f\r"), col(0), "CR under DATA");
 }
 
 /// **`HTS` sets the stop at the presentation position** (8.3.62, "at the
 /// active presentation position"): on `a`, drawn at position 3, the stop
-/// goes to column 3, so an `HT` from column 1 of row 2 stops there.
+/// goes to column 3, so an `HT` from column 1 of row 2 stops there, in
+/// both DCSM states.
 #[test]
 fn hts_sets_its_stop_at_the_presentation_position() {
     let row1 = |c| (Row::from_index(1), Col::at_index(c));
     let hts = "\x1b[3g\x1b[1;1f\x1bH\x1b[2;1f\t";
     assert_eq!(after(PRESENTATION, hts).1, row1(2));
-    assert_eq!(after(DATA, hts).1, row1(9));
+    assert_eq!(after(DATA, hts).1, row1(2));
 }
 
 /// **`CTC 0` sets it there too** (8.3.17).
@@ -371,7 +419,7 @@ fn ctc_0_sets_its_stop_at_the_presentation_position() {
     let row1 = |c| (Row::from_index(1), Col::at_index(c));
     let ctc = "\x1b[3g\x1b[1;1f\x1b[0W\x1b[2;1f\t";
     assert_eq!(after(PRESENTATION, ctc).1, row1(2));
-    assert_eq!(after(DATA, ctc).1, row1(9));
+    assert_eq!(after(DATA, ctc).1, row1(2));
 }
 
 /// **`TBC 0` clears the stop at the presentation position** (8.3.154):
@@ -382,5 +430,76 @@ fn tbc_0_clears_the_stop_at_the_presentation_position() {
     let row1 = |c| (Row::from_index(1), Col::at_index(c));
     let clear = "\x1b[2;3f\x1bH\x1b[1;1f\x1b[0g\x1b[2;1f\t";
     assert_eq!(after(PRESENTATION, clear).1, row1(8));
-    assert_eq!(after(DATA, clear).1, row1(2));
+    assert_eq!(after(DATA, clear).1, row1(8));
+}
+
+/// **`EF` erases the field holding the presentation position** (8.3.40:
+/// "the field which contains the active presentation position in the
+/// presentation component"), its stops counted in presentation positions
+/// as `HT` counts them. A stop at column 3 of row 1, the line with no
+/// string, is position 2 everywhere: the field `[2, 8)` holds `a` and `y`
+/// as drawn, `[0, 2)` `c` and `b`. Under DATA the fields are the cells'.
+#[test]
+fn ef_erases_the_field_drawn_at_its_position() {
+    let row = |m, then: &str| after(m, &format!("\x1b[2;3f\x1bH{then}")).0;
+    assert_eq!(row(PRESENTATION, "\x1b[1;1f\x1b[N"), ".bc...");
+    assert_eq!(row(DATA, "\x1b[1;1f\x1b[N"), "..cy..");
+    assert_eq!(row(PRESENTATION, "\x1b[1;2f\x1b[1N"), "a..y..");
+    assert_eq!(row(DATA, "\x1b[1;2f\x1b[1N"), "..cy..");
+    assert_eq!(row(PRESENTATION, "\x1b[1;2f\x1b[2N"), "a..y..");
+    assert_eq!(row(PRESENTATION, "\x1b[1;4f\x1b[2N"), ".bc...");
+}
+
+/// The reversed string `a b c`, `b` guarded by `SPA` and `EPA`, then `y`,
+/// on row 0 and `z` on row 1, BDSM reset, `mode` and `then`: rows 0 and 1.
+fn guarded(mode: &str, then: &str) -> (String, String) {
+    support::with_term(&WS, |t| {
+        let setup = format!("\x1b[8l\x1b[1[a\x1bVb\x1bWc\x1b[0[y\x1b[2;1fz{mode}{then}");
+        support::feed(t, setup.as_bytes());
+        let row = |r: usize| -> String {
+            t.viewport().row(Row::from_index(r))[..6]
+                .iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or('.')
+                })
+                .collect()
+        };
+        (row(0), row(1))
+    })
+}
+
+/// **`EA` erases the qualified area holding the presentation position**
+/// (8.3.37: "the qualified area in the presentation component which
+/// contains the active presentation position"): drawn `c b a y`, the
+/// guarded `b` at position 1 parts `c` from `a y` and what follows. From
+/// `a`, `EA 0` erases `a`, `y` and row 1, where under DATA `b`, stored
+/// after `a`, ends the area at once; from `y`, `EA 1` erases `a` and `y`,
+/// where under DATA `c` and `y`.
+#[test]
+fn ea_erases_the_area_drawn_at_its_position() {
+    let at = |m, then| guarded(m, then);
+    assert_eq!(
+        at(PRESENTATION, "\x1b[1;1f\x1b[O"),
+        (".bc...".into(), "......".into())
+    );
+    assert_eq!(
+        at(DATA, "\x1b[1;1f\x1b[O"),
+        (".bcy..".into(), "z.....".into())
+    );
+    assert_eq!(
+        at(PRESENTATION, "\x1b[1;4f\x1b[1O"),
+        (".bc...".into(), "z.....".into())
+    );
+    assert_eq!(
+        at(DATA, "\x1b[1;4f\x1b[1O"),
+        ("ab....".into(), "z.....".into())
+    );
+    assert_eq!(
+        at(PRESENTATION, "\x1b[1;3f\x1b[2O"),
+        ("ab.y..".into(), "z.....".into()),
+        "from c, position 0: the area is c alone"
+    );
 }

@@ -1051,6 +1051,66 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **HEM, IRM and the editing functions**, last: under PRECEDING `DCH`
+    // and `ICH` shift the cells before the cursor and a character written
+    // under IRM goes in at the cursor, which stays; under DCSM's
+    // PRESENTATION each shifts the positions as drawn, and `EA` and `EF`
+    // erase them; `CNL` goes to the cell drawn at the line's first
+    // position. None of it may depend on where the reads fell.
+    Atom {
+        name: "hem-preceding",
+        bytes: b"\x1b[10h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "hem-following",
+        bytes: b"\x1b[10l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "irm-on",
+        bytes: b"\x1b[4h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "irm-off",
+        bytes: b"\x1b[4l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "dch",
+        bytes: b"\x1b[2P",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ich",
+        bytes: b"\x1b[@",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ea",
+        bytes: b"\x1b[O",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ef",
+        bytes: b"\x1b[1N",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cnl",
+        bytes: b"\x1b[E",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1548,11 +1608,12 @@ fn the_path_atoms_reach_the_rows() {
 
 /// **The DCSM atoms reach the presentation**, the control the path atoms
 /// have: with `bdsm-explicit`, `ab` reversed by `srs-begin` is drawn `ba`,
-/// so `cup-home` lands on `b`, column 1; after `dcsm-data` on column 0,
-/// and `hvp` and `hpa` take their columns in every state; on an
-/// `scp-rtl` line `cuf` steps right on the screen, toward column 0. An atom
-/// that never reached DCSM would leave every cursor function by cell, and
-/// every property would compare cursors no presentation moved.
+/// so `cup-home` lands on `b`, column 1, in both DCSM states, and `hvp`
+/// and `hpa` take their columns in every state; `ich` on `b` opens its
+/// blank after it under PRESENTATION and before it after `dcsm-data`; on
+/// an `scp-rtl` line `cuf` steps right on the screen, toward column 0. An
+/// atom that never reached DCSM would leave every editing function by
+/// cell, and every property would compare cells no presentation moved.
 #[test]
 fn the_dcsm_atoms_reach_the_presentation() {
     let fed_then = |names: &[&str]| {
@@ -1566,10 +1627,28 @@ fn the_dcsm_atoms_reach_the_presentation() {
     let strung = ["bdsm-explicit", "srs-begin", "ascii-short", "srs-end"];
     let with = |more: &[&str]| fed_then(&[&strung[..], more].concat());
     assert_eq!(with(&["cup-home"]), Col::at_index(1));
-    assert_eq!(with(&["dcsm-data", "cup-home"]), Col::ZERO);
+    assert_eq!(with(&["dcsm-data", "cup-home"]), Col::at_index(1));
+    let cells = |names: &[&str]| {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let prog: Vec<usize> = [&strung[..], names]
+            .concat()
+            .iter()
+            .map(|n| atom(n))
+            .collect();
+        support::feed(&mut t, &bytes_of(&prog));
+        t.row(Row::ZERO).expect("a row")[..3]
+            .iter()
+            .map(|c| c.content.as_codepoint().map_or(0, |cp| cp.value()))
+            .collect::<Vec<u32>>()
+    };
+    let (a, b) = (u32::from(b'a'), u32::from(b'b'));
+    assert_eq!(cells(&["hpa", "ich"]), [a, b, 0]);
+    assert_eq!(cells(&["dcsm-data", "hpa", "ich"]), [a, 0, b]);
     assert_eq!(
-        with(&["dcsm-data", "dcsm-presentation", "cup-home"]),
-        Col::at_index(1)
+        cells(&["dcsm-data", "dcsm-presentation", "hpa", "ich"]),
+        [a, b, 0]
     );
     assert_eq!(with(&["hvp"]), Col::at_index(2));
     assert_eq!(with(&["hpa"]), Col::at_index(1));
@@ -1581,6 +1660,67 @@ fn the_dcsm_atoms_reach_the_presentation() {
         fed_then(&["scp-rtl", "ascii-short", "cuf"]),
         Col::at_index(4)
     );
+}
+
+/// **The HEM atoms reach the editing functions**, the control the DCSM
+/// atoms have: on `the quick brown fox`, `cup-home` then `cuf` puts the
+/// cursor on `e`, column 2; `hem-preceding` and `dch` then remove `h` and
+/// `e` and close up from the line's start, and `irm-on` writes `ab` at the
+/// cursor, which stays, pushing `t` and `h` off; `hem-following` puts both
+/// back to the cells after the cursor. `ea`, `ef` and `cnl` erase and move
+/// as they always did on a line with no string. An atom that never reached
+/// HEM would leave every shift on the cells after the cursor.
+#[test]
+fn the_hem_atoms_reach_the_editing_functions() {
+    let fed_then = |names: &[&str]| {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let prog: Vec<usize> = ["ascii", "cup-home", "cuf"]
+            .iter()
+            .chain(names)
+            .map(|n| atom(n))
+            .collect();
+        support::feed(&mut t, &bytes_of(&prog));
+        let text: String = t.row(Row::ZERO).expect("a row")[..6]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        (text, t.cursor().1)
+    };
+    let col = Col::at_index;
+    assert_eq!(
+        fed_then(&["hem-preceding", "dch"]),
+        ("..t qu".into(), col(2))
+    );
+    assert_eq!(
+        fed_then(&["hem-following", "dch"]),
+        ("thquic".into(), col(2))
+    );
+    assert_eq!(
+        fed_then(&["hem-preceding", "irm-on", "ascii-short"]),
+        ("eab qu".into(), col(2))
+    );
+    assert_eq!(
+        fed_then(&["hem-preceding", "irm-on", "irm-off", "ascii-short"]),
+        ("thabqu".into(), col(4))
+    );
+    assert_eq!(
+        fed_then(&["hem-preceding", "hem-following", "irm-on", "ascii-short"]),
+        ("thabe ".into(), col(4))
+    );
+    assert_eq!(
+        fed_then(&["hem-preceding", "ich"]),
+        ("he. qu".into(), col(2))
+    );
+    assert_eq!(fed_then(&["ef"]), ("... qu".into(), col(2)));
+    assert_eq!(fed_then(&["ea"]), ("th....".into(), col(2)));
+    assert_eq!(fed_then(&["cnl"]).1, Col::ZERO);
 }
 
 /// **The SAPV atoms reach the rendition**, the control the path atoms

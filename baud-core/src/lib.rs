@@ -56,6 +56,7 @@ mod clip;
 mod colour;
 mod cwd;
 mod dcs;
+mod editing;
 mod feed;
 mod file;
 mod font;

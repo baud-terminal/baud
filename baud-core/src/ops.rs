@@ -1617,7 +1617,14 @@ impl Paint<'_, '_> {
 
     /// DCH: pull the rest of the row left over `n` cells.
     pub(crate) fn delete_chars(&mut self, n: Count) {
-        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.delete_presented(n) {
+        // Under HEM's PRECEDING or DCSM's PRESENTATION, out of line
+        // (`crate::editing`).
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::PresentationEdits, ModeBit::EditPreceding)
+            && self.edit_moded(n, crate::editing::CharEdit::Delete)
+        {
             return;
         }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
@@ -1644,7 +1651,12 @@ impl Paint<'_, '_> {
 
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
-        if self.cold.modes.is_set(ModeBit::PresentationEdits) && self.insert_presented(n) {
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::PresentationEdits, ModeBit::EditPreceding)
+            && self.edit_moded(n, crate::editing::CharEdit::Insert)
+        {
             return;
         }
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
@@ -1859,7 +1871,10 @@ impl Paint<'_, '_> {
     /// end (Jev's lean, RUN, 2026-10-19). Two guarded areas that touch read
     /// as one. Guarded positions go as ERM says, through `erase_span`, and
     /// the blank is DECECM's. Out of line, and a walk over the area it
-    /// erases.
+    /// erases. **Under DCSM's PRESENTATION** the walk is over presentation
+    /// positions, each line's as drawn, and the cells drawn at the positions
+    /// it covers are erased where they stand (8.3.37, "the qualified area in
+    /// the presentation component"; `crate::component`).
     #[cold]
     #[inline(never)]
     pub(crate) fn erase_in_area(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
@@ -1870,15 +1885,16 @@ impl Paint<'_, '_> {
                 .end_of_line(p.cols)
                 .index()
         };
-        let guarded = |p: &Self, r: usize, c: usize| {
-            p.view
-                .get(Row::from_index(r), Col::at_index(c))
-                .flags
-                .is_guarded()
+        let mut drawn = crate::component::Drawn::of(self.cold.modes);
+        let cursor = self.drawn_from(&mut drawn, self.cy, self.cx.col());
+        let mut guarded = |p: &Self, r: usize, c: usize| {
+            let r = Row::from_index(r);
+            let c = p.drawn_at(&mut drawn, r, Col::at_index(c));
+            p.view.get(r, c).flags.is_guarded()
         };
         let at = (
             self.cy.index(),
-            self.cx.col().index().min(end(self, self.cy.index()) - 1),
+            cursor.index().min(end(self, self.cy.index()) - 1),
         );
         let g = guarded(self, at.0, at.1);
         let mut start = at;
@@ -1922,12 +1938,11 @@ impl Paint<'_, '_> {
                 let at = self.view.rotation().advance(r, self.view.ring());
                 self.clear_erased_past_edge(at, blank);
             }
-            self.erase_span(
-                Row::from_index(r),
-                Col::at_index(a),
-                Col::at_index(b),
-                blank,
-            );
+            let (row, a, b) = (Row::from_index(r), Col::at_index(a), Col::at_index(b));
+            match drawn.map_of(self, row) {
+                Some(m) => self.erase_drawn_span(row, &m, (a, b), blank),
+                None => self.erase_span(row, a, b, blank),
+            }
         }
         self.wrote_rows(Row::from_index(from.0), Row::from_index(to.0));
     }
@@ -1946,7 +1961,16 @@ impl Paint<'_, '_> {
         self.count_past_first(csi);
         let r = self.cy;
         let end = self.line_cols().index();
-        let x = self.cx.col().index().min(end - 1);
+        // **Under DCSM's PRESENTATION** the field holding the cursor's
+        // presentation position, its stops at presentation positions as
+        // `HT` counts them (8.3.40, "the active field (the field which
+        // contains the active presentation position in the presentation
+        // component)"), and the cells drawn there erased where they stand.
+        let mut drawn = crate::component::Drawn::of(self.cold.modes);
+        let x = self
+            .drawn_from(&mut drawn, r, self.cx.col())
+            .index()
+            .min(end - 1);
         let start = (0..=x).rev().find(|&c| self.tabs[c]).unwrap_or(0);
         let stop = (x + 1..end).find(|&c| self.tabs[c]).unwrap_or(end);
         let (a, b) = match e {
@@ -1961,7 +1985,11 @@ impl Paint<'_, '_> {
             let at = self.view.rotation().advance(r.index(), self.view.ring());
             self.clear_erased_past_edge(at, blank);
         }
-        self.erase_span(r, Col::at_index(a), Col::at_index(b), blank);
+        let (a, b) = (Col::at_index(a), Col::at_index(b));
+        match drawn.map_of(self, r) {
+            Some(m) => self.erase_drawn_span(r, &m, (a, b), blank),
+            None => self.erase_span(r, a, b, blank),
+        }
         self.wrote_rows(r, r);
     }
 
@@ -3074,10 +3102,10 @@ impl Paint<'_, '_> {
 
     /// **The column a stop is set or cleared at**: "the active
     /// presentation position" (`[[source: ecma48]]` 8.3.62, 8.3.154,
-    /// 8.3.17), under DCSM's PRESENTATION the cursor's position as drawn
-    /// (`crate::component`), its cell's column otherwise.
+    /// 8.3.17), with BDSM reset the cursor's position as drawn, in both
+    /// DCSM states (`crate::component`), its cell's column otherwise.
     fn stop_col(&self) -> Col {
-        self.presented_col().unwrap_or(self.cx.col())
+        self.cursor_presented_col().unwrap_or(self.cx.col())
     }
 
     /// CTC, `CSI Ps... W`: every parameter, in order ("Notation: (Ps...)",
@@ -3145,10 +3173,9 @@ impl Paint<'_, '_> {
                     self.autoprint(crate::print::LineEnd::LineTab);
                 }
                 self.view.set_ended(self.cy);
-                // Under DCSM's PRESENTATION "the corresponding character
-                // position" is the presentation position, kept as `LF`
-                // keeps it.
-                let kept = self.presented_col();
+                // With BDSM reset "the corresponding character position"
+                // is the presentation position, in both DCSM states.
+                let kept = self.cursor_presented_col();
                 self.set_row(y);
                 self.keep_presented(kept);
             }
@@ -4290,7 +4317,10 @@ impl Paint<'_, '_> {
         }
         let on = change == ModeChange::Set;
         match mode {
-            AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
+            AnsiMode::InsertReplace => {
+                self.cold.modes.apply(ModeBit::InsertReplace, on);
+                self.refresh_insert();
+            }
             AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
             AnsiMode::Erasure => self.cold.modes.apply(ModeBit::EraseGuarded, on),
             AnsiMode::KeyboardAction => self.cold.modes.apply(ModeBit::KeyboardAction, on),
@@ -4308,6 +4338,11 @@ impl Paint<'_, '_> {
                     false => DeviceComponent::Presentation,
                 };
                 self.refresh_presentation_edits();
+            }
+            // HEM: set PRECEDING, reset FOLLOWING (`crate::editing`).
+            AnsiMode::CharacterEditing => {
+                self.cold.modes.apply(ModeBit::EditPreceding, on);
+                self.refresh_insert();
             }
             _ => self.unsupported_param += 1,
         }
@@ -4910,6 +4945,8 @@ impl Paint<'_, '_> {
         ] {
             self.cold.modes.apply(m, power_on.is_set(m));
         }
+        // IRM reset, so a write under it shifts nothing; HEM is kept.
+        self.refresh_insert();
         // The keypad and the key-modifier resources, in `ReallyReset`'s
         // common path -- `MODE_DECKPAM` cleared and `modify_now = modify_1st`
         // -- so both resets restore them. `[[source: vt510-decstr]]` gives the
@@ -5081,6 +5118,7 @@ impl Paint<'_, '_> {
                     (BidiSupport::Implicit, _) | (_, DeviceComponent::Data) => ModeState::Set,
                     (BidiSupport::Explicit, DeviceComponent::Presentation) => ModeState::Reset,
                 },
+                AnsiMode::CharacterEditing => bit_state(self.cold.modes, ModeBit::EditPreceding),
                 _ => ModeState::NotRecognized,
             };
         }

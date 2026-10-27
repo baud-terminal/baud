@@ -123,6 +123,8 @@ pub enum AnsiMode {
     BiDirectionalSupport,
     /// DCSM, mode 9, `[[source: ecma48]]` 7.2.3 ([`DeviceComponent`]).
     DeviceComponentSelect,
+    /// HEM, mode 10, `[[source: ecma48]]` 7.2.9 ([`ModeBit::EditPreceding`]).
+    CharacterEditing,
     Other(Param),
 }
 
@@ -192,6 +194,7 @@ impl AnsiMode {
             12 => AnsiMode::SendReceive,
             8 => AnsiMode::BiDirectionalSupport,
             9 => AnsiMode::DeviceComponentSelect,
+            10 => AnsiMode::CharacterEditing,
             n => AnsiMode::Other(Param(n)),
         }
     }
@@ -218,7 +221,9 @@ pub enum ModeBit {
     /// LNM. Off by default: `[[source: ctlseqs]]` lists mode 20 as reset, so
     /// LF moves down without returning to column 1.
     LineFeedNewLine,
-    /// IRM.
+    /// IRM. **While set the core chooses the one-by-one graph**, as for a
+    /// SAPV form waiting, so each character opens its own gap and the bulk
+    /// writers, which open none, never see the text.
     InsertReplace,
     /// DECOM, origin mode: cursor addressing is relative to the scroll region.
     Origin,
@@ -391,10 +396,12 @@ pub enum ModeBit {
     /// `[[source: vt510-decstr]]`) and `RIS`. While set the core chooses
     /// the one-by-one graph, so the text path's writers never read it.
     CursorRightToLeft,
-    /// **Whether `CR` lands anywhere but the line's home**: DECRLM set or
-    /// [`ModeBit::PresentationEdits`], so `CR` tests one bit as it did for
-    /// the second alone. Not a mode the host names; set and reset as the two
-    /// change; no `DECRQM` or XTSAVE reaches it.
+    /// **Whether `CR` or `HT` may land anywhere but where the cells say**:
+    /// DECRLM set, or BDSM reset with a string begun, which
+    /// [`ModeBit::PresentationEdits`] needs too, so `CR` tests one bit as it
+    /// did for the second alone and `HT` the same bit. Not a mode the host
+    /// names; set and reset as they change; no `DECRQM` or XTSAVE reaches
+    /// it.
     ReturnMapped,
     /// **Whether a SAPV form waits for the following graphic character**
     /// (`[[source: ecma48]]` 8.3.108, values 5 to 8). Not a mode the host
@@ -412,15 +419,31 @@ pub enum ModeBit {
     /// XTSAVE reaches it.
     FormEnd,
     /// **Whether a cursor function may take a position in the presentation
-    /// component**: DCSM at PRESENTATION and BDSM reset, with a string
-    /// begun or a character path selected since power-on (`[[source:
-    /// ecma48]]` 8.3.9-8.3.22, "the active presentation position"; TR/53's
-    /// worked example 2 addresses the cells under DATA). Not a mode the
-    /// host names: `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD`, `CHT`, `CBT`
-    /// and `CVT` test it in one arm of the `CSI` dispatch, out of the
-    /// per-byte loop; set and reset as the four change; no `DECRQM` or
-    /// XTSAVE reaches it.
+    /// component**: BDSM reset, with a string begun or a character path
+    /// selected since power-on, in both DCSM states (`[[source: ecma48]]`
+    /// 8.3.7-8.3.23, "the active presentation position", and no DCSM
+    /// paragraph; 7.2.3's NOTE does not list them). Not a mode the host
+    /// names: `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD`, `CNL`, `CPL`,
+    /// `CHT`, `CBT` and `CVT` test it in one arm of the `CSI` dispatch, out
+    /// of the per-byte loop; set and reset as the three change; no `DECRQM`
+    /// or XTSAVE reaches it.
     CursorPresented,
+    /// **HEM, `SM 10`, set: PRECEDING** (`[[source: ecma48]]` 7.2.9): a
+    /// character insertion shifts "the contents of the active data position
+    /// and of preceding character positions" toward the line's start, a
+    /// deletion closes the gap from it, and under IRM "the active position
+    /// does not move" (7.3.3 b); `DCH`, `ICH` and the write under IRM read
+    /// it. Reset, FOLLOWING, at power-on and by `RIS`, the reset state 7.1
+    /// recommends as the initial one; kept by `DECSTR`, whose table names
+    /// no HEM. `DECRQM` answers it.
+    EditPreceding,
+    /// **Whether a character written under IRM shifts other than the cells
+    /// after the cursor's**: IRM set, and HEM's PRECEDING or
+    /// [`ModeBit::PresentationEdits`]. Not a mode the host names: SAPV's
+    /// writer, which IRM's one-by-one graph sends each character to, reads
+    /// it, so the text path's writers never test it; set and reset as the
+    /// three change; no `DECRQM` or XTSAVE reaches it.
+    InsertShifted,
 }
 
 impl ModeBit {

@@ -594,7 +594,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// and a run-level branch at nothing.
     #[cold]
     #[inline(never)]
-    fn open_gap(&mut self, n: Count) {
+    pub(crate) fn open_gap(&mut self, n: Count) {
         // After the fit test, so never a tagged value.
         let (r, at, b) = (self.cy, self.cx.raw(), self.blank());
         // The line's end: the gap pushes off a double line's last column,
@@ -736,7 +736,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// under IRM the gap opens.
     #[cold]
     #[inline(never)]
-    fn write_slowly(&mut self, cp: Codepoint, need: Count) {
+    pub(crate) fn write_slowly(&mut self, cp: Codepoint, need: Count) {
         self.form_step(cp);
         if self.inserting() {
             self.open_gap(need);
@@ -865,7 +865,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// "A cursor placed right of the fence writes on").
     #[cold]
     #[inline(never)]
-    fn overflow(&mut self, need: Count) {
+    pub(crate) fn overflow(&mut self, need: Count) {
         // A fence read low after the cursor left a sized line: the
         // character fits after all, and goes where the cursor is.
         self.refresh_fence();
@@ -1087,6 +1087,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         // writer alone: the text path's never reads the bit.
         if W::LEFTWARD && self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
             return self.glyph_leftward(cp, w, pen);
+        }
+        // **Under IRM, shifted by HEM or as drawn** (`crate::editing`),
+        // by SAPV's writer alone, as DECRLM's.
+        if W::LEFTWARD && self.cold.modes.is_set(ModeBit::InsertShifted) {
+            return self.glyph_shifted(cp, w, pen);
         }
         let need = 1 + usize::from(w == Width::WIDE);
         if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
@@ -1473,9 +1478,36 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// reset and nothing has moved the cursor across since
     /// ([`crate::term::Pinned`]).
     fn after_last_write(&self) -> Col {
-        if self.cold.modes.is_set(ModeBit::CursorRightToLeft) {
-            return self.after_leftward_write();
+        if self
+            .cold
+            .modes
+            .either_set(ModeBit::CursorRightToLeft, ModeBit::InsertShifted)
+        {
+            return self.after_moded_write();
         }
+        self.after_plain_write()
+    }
+
+    /// [`Paint::after_last_write`] under DECRLM, and under IRM with HEM's
+    /// PRECEDING, where the cursor stays on the character it wrote
+    /// (`crate::editing`), out of line.
+    #[cold]
+    #[inline(never)]
+    fn after_moded_write(&self) -> Col {
+        let m = self.cold.modes;
+        match (
+            m.is_set(ModeBit::CursorRightToLeft),
+            m.is_set(ModeBit::EditPreceding),
+        ) {
+            (true, _) => self.after_leftward_write(),
+            (false, true) => self.cx.col().after(),
+            (false, false) => self.after_plain_write(),
+        }
+    }
+
+    /// [`Paint::after_last_write`] for a cursor the write moved on.
+    #[inline(always)]
+    fn after_plain_write(&self) -> Col {
         let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
             && self.cold.pinned == crate::term::Pinned::OnLast;
         // The column, placed or not: a mark after a move to one past the
@@ -1631,6 +1663,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// showed and the tests did not.
     #[inline(always)]
     pub(crate) fn run(&mut self, cps: &[Codepoint], w: Width) {
+        // **Never under IRM**: the one-by-one graph takes the text then
+        // (`crate::variants::form_read`), each character opening its gap.
+        // A run here wrote over the line, so a uniform run that fit lost
+        // what it should have pushed on.
+        debug_assert!(!self.inserting(), "a run under IRM opens no gap");
         let (style, flags) = (self.style, self.decoded_pen());
         match w == Width::WIDE {
             true => self

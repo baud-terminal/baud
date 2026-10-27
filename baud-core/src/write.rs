@@ -538,8 +538,8 @@ pub(crate) fn act(
         // HT. One stop forward, through the same `tab_forward` that `CHT`
         // reaches -- so the character and the control sequence cannot disagree
         // about where the stops are.
-        // Under DECRLM to the left, under DCSM's PRESENTATION by the stops
-        // as drawn (`Paint::tab_mapped`): one bit, `CR`'s.
+        // Under DECRLM to the left, with BDSM reset and a string begun by
+        // the stops as drawn (`Paint::tab_mapped`): one bit, `CR`'s.
         Act::Tab if p.cold.modes.is_set(ModeBit::ReturnMapped) => {
             p.tab_mapped();
             ReadLen::ONE
@@ -2192,17 +2192,19 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         return;
     }
     match op {
-        // **The cursor functions under DCSM's PRESENTATION**, one bit of
-        // the mode word (`ModeBit::CursorPresented`) and the rest out of
-        // line (`Paint::cursor_presented`): each moves "the active
-        // presentation position" (`[[source: ecma48]]` 8.3.7-8.3.23). `HVP`
-        // and `HPA` move the active data position (8.3.63, 8.3.57) and take
-        // the cells in every state.
+        // **The cursor functions with BDSM reset**, one bit of the mode word
+        // (`ModeBit::CursorPresented`) and the rest out of line
+        // (`Paint::cursor_presented`): each moves "the active presentation
+        // position" (`[[source: ecma48]]` 8.3.7-8.3.23), in both DCSM
+        // states. `HVP` and `HPA` move the active data position (8.3.63,
+        // 8.3.57) and take the cells in every state.
         DomCsi::CursorPosition { .. }
         | DomCsi::CursorUp(_)
         | DomCsi::CursorDown(_)
         | DomCsi::CursorForward(_)
         | DomCsi::CursorBack(_)
+        | DomCsi::CursorNextLine(_)
+        | DomCsi::CursorPrevLine(_)
         | DomCsi::ColumnAbsolute(_)
         | DomCsi::CursorForwardTab(_)
         | DomCsi::CursorBackTab(_)

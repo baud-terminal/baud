@@ -19,20 +19,20 @@
 //! the same in both. With BDSM set DCSM "has no effect" (7.3.4 c).
 //!
 //! **The cursor functions move "the active presentation position"**
-//! (8.3.7-8.3.23, 8.3.60, 8.3.161): under PRESENTATION `CUP`, `CHA`,
-//! `CUF`, `CUB`, `CUU`, `CUD`, `HT`, `CHT`, `CBT`, `CVT` and `VT` move from
-//! the cursor's presentation position and leave it on the cell drawn where
-//! they end ([`Paint::presented`]), and `HTS`, `CTC` and `TBC` take the
-//! stop's column there. Under DATA they address the cells, an open
-//! departure: their definitions move the presentation position in every
-//! DCSM state, 7.2.3's NOTE leaves them out of the functions DCSM affects,
-//! and Annex F F.7 calls them independent of it, so on a right-to-left line
-//! `CUF` under DATA moves left on the screen; TR/53's worked example 2 has
-//! only `CUP` and `CHA` on its DATA lines (Jev's lean, WITH_DCSM,
-//! 0.53/0.77). `CUF` is "rightwards in the presentation component" and
-//! `CUB` "leftwards", so on a right-to-left line they run back and on along
-//! its path (Jev's lean, PHYSICAL, 0.88/0.96). `HVP` and `HPA` move the
-//! active data position, by cell in both.
+//! (8.3.7-8.3.23, 8.3.60, 8.3.161) **in both DCSM states**: their
+//! definitions have no DCSM paragraph, 7.2.3's NOTE does not list them and
+//! Annex F F.7, informative, calls them "independent of the setting of"
+//! DCSM (Jev's lean, ALWAYS_EXPLICIT, 0.76/0.84, where keeping them by
+//! cell under DATA needed 0.9). With BDSM reset `CUP`, `CHA`, `CUF`,
+//! `CUB`, `CUU`, `CUD`, `CNL`, `CPL`, `HT`, `CHT`, `CBT`, `CVT` and `VT`
+//! move from the cursor's presentation position and leave it on the cell
+//! drawn where they end ([`Paint::presented`]), and `HTS`, `CTC` and `TBC`
+//! take the stop's column there. TR/53's worked example 2 reaches data
+//! columns with `CUP` and `CHA` on its DATA lines; `HVP` and `HPA`, which
+//! move the active data position, by cell in both states, reach them here.
+//! `CUF` is "rightwards in the presentation component" and `CUB`
+//! "leftwards", so on a right-to-left line they run back and on along its
+//! path (Jev's lean, PHYSICAL, 0.88/0.96).
 //!
 //! **What it costs while nothing selects it: one bit.** The three
 //! conditions are one bit of the mode word ([`ModeBit::PresentationEdits`]),
@@ -40,12 +40,14 @@
 //! for LNM.
 //! The cursor functions test another, [`ModeBit::CursorPresented`], which
 //! a path selected sets as a string begun does, in one arm of the `CSI`
-//! dispatch, out of the per-byte loop; `HT` tests `CR`'s, [`ModeBit::ReturnMapped`], in place of
-//! DECRLM's.
+//! dispatch, out of the per-byte loop; `HT` tests `CR`'s,
+//! [`ModeBit::ReturnMapped`], in place of DECRLM's, set with BDSM reset
+//! and a string begun in either DCSM state, and `CR` maps only under
+//! PRESENTATION, behind it.
 
 use baud_domain::{
     BidiDirection, BidiSupport, CharacterPath, Col, Count, Csi, CursorAt, CursorCol,
-    DeviceComponent, EraseExtent, ModeBit, ModeChange, Row, StringId, order_strings,
+    DeviceComponent, EraseExtent, ModeBit, ModeChange, PackedCell, Row, StringId, order_strings,
 };
 
 use crate::MAX_COLS;
@@ -87,7 +89,78 @@ impl LineMap {
     }
 }
 
+/// **The lines a walk over positions reads**, `EA`'s and `EF`'s: in the
+/// presentation component, while [`ModeBit::PresentationEdits`] is set,
+/// each line's map, the last one read kept; in the data component every
+/// position its own cell.
+pub(crate) struct Drawn {
+    component: DeviceComponent,
+    row: Option<Row>,
+    map: Option<LineMap>,
+}
+
+impl Drawn {
+    /// The walk for the edits the mode word says: PRESENTATION's while
+    /// they take the positions as drawn.
+    pub(crate) fn of(modes: baud_domain::Modes) -> Drawn {
+        let component = match modes.is_set(ModeBit::PresentationEdits) {
+            true => DeviceComponent::Presentation,
+            false => DeviceComponent::Data,
+        };
+        Drawn {
+            component,
+            row: None,
+            map: None,
+        }
+    }
+
+    /// Row `r`'s map, `None` in the data component or where the row holds
+    /// no string.
+    fn read(&mut self, p: &Paint<'_, '_>, r: Row) -> Option<&LineMap> {
+        if self.component == DeviceComponent::Data {
+            return None;
+        }
+        if self.row != Some(r) {
+            self.map = p.line_map(r);
+            self.row = Some(r);
+        }
+        self.map.as_ref()
+    }
+
+    /// Row `r`'s map, taken out for an erase that writes the row.
+    pub(crate) fn map_of(&mut self, p: &Paint<'_, '_>, r: Row) -> Option<LineMap> {
+        self.read(p, r)?;
+        self.row = None;
+        self.map.take()
+    }
+}
+
 impl Paint<'_, '_> {
+    /// The cell drawn at presentation position `p` of row `r`.
+    pub(crate) fn drawn_at(&self, d: &mut Drawn, r: Row, p: Col) -> Col {
+        d.read(self, r).map_or(p, |m| m.data(p))
+    }
+
+    /// The presentation position data column `c` of row `r` is drawn at.
+    pub(crate) fn drawn_from(&self, d: &mut Drawn, r: Row, c: Col) -> Col {
+        d.read(self, r).map_or(c, |m| m.presentation(c))
+    }
+
+    /// **The cells drawn at presentation positions `[from, to)` of row `r`
+    /// erased**, each where it stands.
+    pub(crate) fn erase_drawn_span(
+        &mut self,
+        r: Row,
+        m: &LineMap,
+        (from, to): (Col, Col),
+        blank: PackedCell,
+    ) {
+        for q in from.index()..to.index().min(m.width) {
+            let c = m.data(Col::at_index(q));
+            self.erase_span(r, c, c.after(), blank);
+        }
+    }
+
     /// **[`ModeBit::PresentationEdits`] set as its three conditions say**:
     /// called wherever BDSM, DCSM or the strings' first begin change.
     pub(crate) fn refresh_presentation_edits(&mut self) {
@@ -95,13 +168,17 @@ impl Paint<'_, '_> {
             && self.cold.dcsm == DeviceComponent::Presentation
             && self.strs.strings.begun == Begun::Yes;
         self.cold.modes.apply(ModeBit::PresentationEdits, on);
-        let mapped = on || self.cold.modes.is_set(ModeBit::CursorRightToLeft);
+        // The cursor functions take the presentation position in both DCSM
+        // states, so `HT` maps wherever a string was begun.
+        let strung =
+            self.cold.bidi == BidiSupport::Explicit && self.strs.strings.begun == Begun::Yes;
+        let mapped = strung || self.cold.modes.is_set(ModeBit::CursorRightToLeft);
         self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
         let presented = self.cold.bidi == BidiSupport::Explicit
-            && self.cold.dcsm == DeviceComponent::Presentation
             && (self.strs.strings.begun == Begun::Yes
                 || self.cold.modes.is_set(ModeBit::PathSelected));
         self.cold.modes.apply(ModeBit::CursorPresented, presented);
+        self.refresh_insert();
     }
 
     /// **DECRLM set or reset** (`crate::leftward`).
@@ -169,7 +246,7 @@ impl Paint<'_, '_> {
     }
 
     /// The cursor's line's map, while presentation edits may apply.
-    fn cursor_map(&self) -> Option<LineMap> {
+    pub(crate) fn cursor_map(&self) -> Option<LineMap> {
         match self.cold.modes.is_set(ModeBit::PresentationEdits) {
             true => self.line_map(self.cy),
             false => None,
@@ -182,6 +259,16 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn return_presented(&mut self) {
+        self.line_home();
+        if let Some(m) = self.cursor_map() {
+            let home = self.cx.col();
+            self.set_col(CursorCol::moved(m.data(home)));
+        }
+    }
+
+    /// The cursor at the column `CR` chooses, before any map: the line's
+    /// home, the right margin under DECRLM.
+    fn line_home(&mut self) {
         match (
             self.cold.modes.is_set(ModeBit::CursorRightToLeft),
             self.cold.modes.is_set(ModeBit::SideMargins),
@@ -189,10 +276,6 @@ impl Paint<'_, '_> {
             (true, _) => self.return_leftward(),
             (false, false) => self.set_col(CursorCol::moved(Col::ZERO)),
             (false, true) => self.return_fenced(),
-        }
-        if let Some(m) = self.cursor_map() {
-            let home = self.cx.col();
-            self.set_col(CursorCol::moved(m.data(home)));
         }
     }
 
@@ -207,6 +290,18 @@ impl Paint<'_, '_> {
         Some(self.line_map(self.cy).map_or(c, |m| m.presentation(c)))
     }
 
+    /// **The cursor's presentation position for a cursor function**:
+    /// `VT`'s, and the column `HTS`, `CTC` and `TBC` set or clear a stop
+    /// at, which take "the active presentation position" in both DCSM
+    /// states (8.3.161, 8.3.62, 8.3.17, 8.3.154).
+    pub(crate) fn cursor_presented_col(&self) -> Option<Col> {
+        if !self.cold.modes.is_set(ModeBit::CursorPresented) {
+            return None;
+        }
+        let c = self.cx.col();
+        Some(self.line_map(self.cy).map_or(c, |m| m.presentation(c)))
+    }
+
     /// The cursor at presentation position `p` of its line.
     pub(crate) fn keep_presented(&mut self, p: Option<Col>) {
         if let Some(p) = p {
@@ -215,8 +310,9 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **A cursor function under PRESENTATION** (`[[source: ecma48]]`
-    /// 8.3.9-8.3.22: each moves "the active presentation position"): `f`
+    /// **A cursor function with BDSM reset** (`[[source: ecma48]]`
+    /// 8.3.7-8.3.23: each moves "the active presentation position", in both
+    /// DCSM states): `f`
     /// moves the cursor from its presentation position, counted along the
     /// line's path, and the cursor goes to the cell drawn where `f` leaves
     /// it, on the line it reaches. A line with no string, a cursor at a
@@ -228,7 +324,7 @@ impl Paint<'_, '_> {
         self.landed(f);
     }
 
-    /// **An absolute move under PRESENTATION**, `CUP`'s or `CHA`'s: `f`
+    /// **An absolute move**, `CUP`'s, `CHA`'s, `CNL`'s or `CPL`'s: `f`
     /// names the position, and the cursor goes to the cell drawn there; the
     /// position it left is not read.
     fn landed(&mut self, f: impl FnOnce(&mut Self)) {
@@ -239,7 +335,7 @@ impl Paint<'_, '_> {
     /// The cursor's column through `to` of its line's map, where it stands
     /// on a column of a line holding a string.
     fn map_cursor(&mut self, to: fn(&LineMap, Col) -> Col) {
-        if !self.cold.modes.is_set(ModeBit::PresentationEdits) {
+        if !self.cold.modes.is_set(ModeBit::CursorPresented) {
             return;
         }
         if let (CursorAt::Column(c), Some(m)) = (self.cursor_at(), self.line_map(self.cy)) {
@@ -268,6 +364,17 @@ impl Paint<'_, '_> {
             Csi::ColumnAbsolute(c) => {
                 self.landed(|p| p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols))))))
             }
+            // "The first character position of the n-th following line in
+            // the presentation component" (8.3.12, 8.3.13): `CR`'s home,
+            // mapped here whatever DCSM says, where `CR`'s map follows it.
+            Csi::CursorNextLine(c) => self.landed(|p| {
+                p.set_row(p.down_in_margins(c));
+                p.line_home();
+            }),
+            Csi::CursorPrevLine(c) => self.landed(|p| {
+                p.set_row(p.up_in_margins(c));
+                p.line_home();
+            }),
             Csi::CursorForwardTab(c) => self.presented(|p| p.tab_forward(c)),
             Csi::CursorBackTab(c) => self.presented(|p| p.tab_back(c)),
             Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
@@ -281,7 +388,7 @@ impl Paint<'_, '_> {
         self.view.bidi(self.cy).path() == CharacterPath::RightToLeft
     }
 
-    /// **`CUF` under PRESENTATION**: "rightwards in the presentation
+    /// **`CUF` with BDSM reset**: "rightwards in the presentation
     /// component" (8.3.20), which on a right-to-left line is back along its
     /// path, toward its home.
     pub(crate) fn rightward_presented(&mut self, n: Count) {
@@ -294,7 +401,7 @@ impl Paint<'_, '_> {
         });
     }
 
-    /// **`CUB` under PRESENTATION**: "leftwards" (8.3.18), on a
+    /// **`CUB` with BDSM reset**: "leftwards" (8.3.18), on a
     /// right-to-left line on along its path; on a left-to-right line as
     /// `CUB` is, `?1045` and `?45` included.
     pub(crate) fn leftward_presented(&mut self, n: Count) {
@@ -309,9 +416,9 @@ impl Paint<'_, '_> {
     }
 
     /// **`HT` while `CR` is mapped** ([`ModeBit::ReturnMapped`]): under
-    /// DECRLM to the left (`crate::leftward`), and under PRESENTATION from
-    /// the cursor's presentation position, the stops counted along the
-    /// line's path (8.3.60).
+    /// DECRLM to the left (`crate::leftward`), and with BDSM reset and a
+    /// string begun from the cursor's presentation position, the stops
+    /// counted along the line's path (8.3.60), in both DCSM states.
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_mapped(&mut self) {
@@ -332,6 +439,18 @@ impl Paint<'_, '_> {
             return false;
         };
         let p = m.presentation(self.cx.col());
+        self.delete_drawn(&m, p, n);
+        self.keep_presented(Some(p));
+        self.row_changed_to(self.cy);
+        self.wrote_rows(self.cy, self.cy);
+        true
+    }
+
+    /// **The cells drawn at the `n` presentation positions from `p` of the
+    /// cursor's line deleted**, each where it is stored and the rest of the
+    /// line closing up after it, from the rightmost, so each one's place in
+    /// the presentation closes as it goes.
+    pub(crate) fn delete_drawn(&mut self, m: &LineMap, p: Col, n: Count) {
         let to = self.line_fence().after();
         let mut cols = [Col::ZERO; MAX_COLS];
         let mut k = 0;
@@ -349,10 +468,6 @@ impl Paint<'_, '_> {
             self.erase_images(self.cy, at, to);
         }
         self.cells = self.cells.plus(k);
-        self.keep_presented(Some(p));
-        self.row_changed_to(self.cy);
-        self.wrote_rows(self.cy, self.cy);
-        true
     }
 
     /// **`ICH` under PRESENTATION**: `n` blanks opened at the cursor's
@@ -365,21 +480,84 @@ impl Paint<'_, '_> {
         let Some(m) = self.cursor_map() else {
             return false;
         };
-        let c = self.cx.col();
-        let p = m.presentation(c);
+        let p = m.presentation(self.cx.col());
+        self.open_following_drawn(&m, p, n);
+        self.keep_presented(Some(p));
+        self.row_changed_to(self.cy);
+        self.wrote_rows(self.cy, self.cy);
+        true
+    }
+
+    /// **`n` blanks opened at presentation position `p` of the cursor's
+    /// line**, mapped by `m`, the cell drawn there pushed on in the
+    /// presentation and the blanks joining its string (TR/53 note A.1 ii);
+    /// with no map, at column `p`. The line keeps the cells it holds past
+    /// the gap only where it has room for them: the callers, which make
+    /// that room first, are PRECEDING's. The column the blanks start at,
+    /// past the line's end where none fits.
+    pub(crate) fn insert_drawn(&mut self, m: Option<&LineMap>, p: Col, n: Count) -> Col {
+        let (c, at) = match m {
+            Some(m) => self.gap_of(m, p),
+            None => (p, p),
+        };
+        if at > self.line_fence().after() {
+            return at;
+        }
+        let s = match m {
+            Some(_) => self.string_of(self.view.get(self.cy, c).style),
+            None => StringId::NONE,
+        };
+        self.open_gap_at(at, n, s);
+        at
+    }
+
+    /// **`n` blanks opened under FOLLOWING at presentation position `p`**
+    /// of the cursor's line, mapped by `m` (7.2.9: "the contents of the
+    /// active presentation position and of the following character
+    /// positions in the presentation component to be shifted in the
+    /// direction of the character path"): the cells drawn at the last `n`
+    /// positions before the fence, the ones the shift takes off the line,
+    /// deleted first, and the gap opened where the cell drawn at `p` stood
+    /// in the data, so the blanks are drawn at `p` and after it. A string
+    /// that ends at the line's edge is shifted as one in its middle is. The
+    /// column the blanks start at.
+    pub(crate) fn open_following_drawn(&mut self, m: &LineMap, p: Col, n: Count) -> Col {
+        let to = self.line_fence().after();
+        if p >= to {
+            return self.insert_drawn(Some(m), p, n);
+        }
+        let k = n.at_least_one().min(to.index() - p.index());
+        let (c, at) = self.gap_of(m, p);
+        let s = self.string_of(self.view.get(self.cy, c).style);
+        let last = Col::at_index(to.index() - k);
+        let gone = (last.index()..to.index().min(m.width))
+            .filter(|&q| m.data(Col::at_index(q)) < at)
+            .count();
+        self.delete_drawn(m, last, Count::of(k));
+        let at = Col::at_index(at.index() - gone);
+        self.open_gap_at(at, Count::of(k), s);
+        at
+    }
+
+    /// **Where a gap at presentation position `p` opens in the data**: the
+    /// cell drawn there, and the column before it where it runs with the
+    /// line's path, after it where it runs against.
+    fn gap_of(&self, m: &LineMap, p: Col) -> (Col, Col) {
         let base = match self.view.bidi(self.cy).path() {
             CharacterPath::RightToLeft => BidiDirection::Rtl,
             _ => BidiDirection::Ltr,
         };
-        let at = match m.runs(c) == base {
-            true => c,
-            false => c.after(),
-        };
-        let to = self.line_fence().after();
-        if at > to {
-            return true;
+        let c = m.data(p);
+        match m.runs(c) == base {
+            true => (c, c),
+            false => (c, c.after()),
         }
-        let s = self.string_of(self.view.get(self.cy, c).style);
+    }
+
+    /// `n` blanks opened at column `at` of the cursor's line, the cells
+    /// from it shifted on to the fence, the first `n` joining string `s`.
+    fn open_gap_at(&mut self, at: Col, n: Count, s: StringId) {
+        let to = self.line_fence().after();
         let blank = self.blank();
         let k = n.at_least_one().min(to.index() - at.index());
         self.view.insert_cells(self.cy, at, n, to, blank);
@@ -387,20 +565,13 @@ impl Paint<'_, '_> {
         self.strings_kept(self.cy, (at, end), blank, |_| s);
         self.erase_images(self.cy, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
-        self.keep_presented(Some(p));
-        self.row_changed_to(self.cy);
-        self.wrote_rows(self.cy, self.cy);
-        true
     }
 
     /// **The cells drawn at presentation positions `[from, to)` of the
     /// cursor's line erased**, each where it stands.
-    fn erase_presented_span(&mut self, m: &LineMap, (from, to): (Col, Col)) {
+    fn erase_presented_span(&mut self, m: &LineMap, span: (Col, Col)) {
         let blank = self.blank();
-        for q in from.index()..to.index().min(m.width) {
-            let c = m.data(Col::at_index(q));
-            self.erase_span(self.cy, c, c.after(), blank);
-        }
+        self.erase_drawn_span(self.cy, m, span, blank);
     }
 
     /// **`ECH` under PRESENTATION.** `false` where the line has no string.

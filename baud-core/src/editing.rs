@@ -1,0 +1,278 @@
+//! **HEM, `CSI 10 h` / `CSI 10 l`** (`[[source: ecma48]]` 7.2.9): which
+//! way a character insertion or deletion shifts the line. FOLLOWING, RM
+//! 10, the state at power-on: "the contents of the active presentation
+//! position and of the following character positions" move on along the
+//! character path, as `ICH`, `DCH` and IRM always did here. PRECEDING, SM
+//! 10: "the contents of the active presentation position and of preceding
+//! character positions" move back toward the line's start, a deletion
+//! closes its gap from there, and under IRM "the active position does not
+//! move" (7.3.3 b). "Control functions affected are: DCH, ICH", and the
+//! write under IRM (7.3.3 b).
+//!
+//! **The shifted part** runs from the line's start, the left margin under
+//! DECLRMM for a cursor inside it, to the cursor, as FOLLOWING's runs from
+//! the cursor to the right margin; SEE, which would choose it, is not
+//! built. A wide character written under PRECEDING takes the cursor's
+//! column and the one before it, the positions after the cursor kept.
+//!
+//! **Under DCSM's PRESENTATION**, on a line holding a string, the
+//! positions shifted are the ones drawn ([`crate::component`]): the cells
+//! drawn at the positions that leave are deleted and blanks opened where
+//! the gap belongs, by the two moves `DCH` and `ICH` make there, so each
+//! cell keeps its string. A character written under IRM is inserted at the
+//! cursor's presentation position in either state of HEM (7.2.10,
+//! "inserted at the active presentation position").
+//!
+//! **What it costs while nothing selects it: nothing on the text path.**
+//! `DCH` and `ICH` test HEM's bit beside [`ModeBit::PresentationEdits`] in
+//! one test; under IRM the text goes one character at a time, the
+//! one-by-one graph SAPV's forms take, and SAPV's writer sends a character
+//! here while [`ModeBit::InsertShifted`] is set, so the text path's
+//! writers never read it.
+
+use baud_domain::{Codepoint, Col, Count, ModeBit, PackedCell, StringId, Width};
+
+use crate::component::LineMap;
+use crate::paint::{Paint, Pen, Writer};
+
+/// **`DCH` or `ICH`**, for [`Paint::edit_moded`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CharEdit {
+    Delete,
+    Insert,
+}
+
+/// The writer for a character whose gap is open already: a SAPV form's
+/// step, and no gap.
+pub(crate) struct Gapless;
+
+impl Writer for Gapless {
+    #[inline(always)]
+    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, _: Count) {
+        p.form_step(cp);
+    }
+}
+
+/// SAPV's writer without the dispatch to this module: the form's step,
+/// then the gap IRM opens after the cursor.
+pub(crate) struct Gapped;
+
+impl Writer for Gapped {
+    #[inline(always)]
+    fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count) {
+        p.write_slowly(cp, need);
+    }
+}
+
+impl Paint<'_, '_> {
+    /// **[`ModeBit::InsertShifted`] set as its conditions say**, and the
+    /// graph chosen again: called wherever IRM, HEM or
+    /// [`ModeBit::PresentationEdits`] change.
+    pub(crate) fn refresh_insert(&mut self) {
+        let m = self.cold.modes;
+        let on = m.is_set(ModeBit::InsertReplace)
+            && m.either_set(ModeBit::EditPreceding, ModeBit::PresentationEdits);
+        self.cold.modes.apply(ModeBit::InsertShifted, on);
+        self.reselect();
+    }
+
+    /// **One graphic character under IRM while [`ModeBit::InsertShifted`]
+    /// is set**: under PRECEDING at the cursor, which stays; under
+    /// FOLLOWING at the cursor's presentation position, the cursor going on
+    /// as after any write.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn glyph_shifted(&mut self, cp: Codepoint, w: Width, pen: Pen) {
+        if self.cold.modes.is_set(ModeBit::EditPreceding) {
+            return self.glyph_preceding(cp, w, pen);
+        }
+        let need = 1 + usize::from(w == Width::WIDE);
+        let mut map = self.cursor_map();
+        let raw = self.cx.raw().index();
+        let fits = raw + need <= self.cold.fence.index() + 1;
+        // Under the map the room is the presentation position's: a string
+        // drawn to the line's edge holds the cell at its far end at the
+        // string's start. A pending wrap, or a cursor past the fence, is
+        // the cells' as before.
+        let to = self.line_fence().index() + 1;
+        let drawn = match &map {
+            Some(m) if raw < to => {
+                let p = m.presentation(self.cx.col()).index();
+                (p < to).then_some(p + need <= to)
+            }
+            _ => None,
+        };
+        if !drawn.unwrap_or(fits) {
+            // With autowrap reset a wide character too wide for the last
+            // position goes in at the two positions ending at the margin,
+            // the cells drawn there pushed on (Jev's lean, LAST_TWO); a line
+            // with no string writes its lead at the last column instead.
+            let pin = map.as_ref().filter(|_| fits).and_then(|m| {
+                (!self.cold.modes.is_set(ModeBit::AutoWrap))
+                    .then(|| m.data(Col::at_index(to.saturating_sub(need))))
+            });
+            match (fits, pin) {
+                (false, _) => self.overflow(Count::of(need)),
+                (true, Some(c)) => self.set_col(baud_domain::CursorCol::moved(c)),
+                (true, None) => self.wrap(),
+            }
+            map = self.cursor_map();
+        }
+        match map {
+            Some(m) => {
+                let p = m.presentation(self.cx.col());
+                let at = self.open_following_drawn(&m, p, Count::of(need));
+                self.row_changed_to(self.cy);
+                self.set_col(baud_domain::CursorCol::moved(at));
+                self.glyph_by::<Gapless>(cp, w, pen);
+            }
+            None => self.glyph_by::<Gapped>(cp, w, pen),
+        }
+    }
+
+    /// **One graphic character under IRM and PRECEDING**: written at the
+    /// cursor, a wide one taking the column before it too, the positions
+    /// before them pushed toward the line's start, and the cursor where it
+    /// was, at its presentation position under DCSM's PRESENTATION.
+    fn glyph_preceding(&mut self, cp: Codepoint, w: Width, pen: Pen) {
+        let need = 1 + usize::from(w == Width::WIDE);
+        self.refresh_fence();
+        let fence = self.line_fence();
+        let c = self.cx.col().min(fence);
+        let left = self.left_limit(c);
+        // A wide character at the line's start takes the column after it.
+        let c = Col::at_index(c.index().max(left.index() + need - 1));
+        if c > fence {
+            return;
+        }
+        self.form_step(cp);
+        let blank = self.blank();
+        let (lead_col, kept) = match self.cursor_map() {
+            Some(m) => {
+                let p = m.presentation(c);
+                (self.open_preceding_drawn(&m, p, Count::of(need)), Some(p))
+            }
+            None => {
+                let after = c.after();
+                self.view
+                    .delete_cells(self.cy, left, Count::of(need), after, blank);
+                self.erase_images(self.cy, left, after);
+                self.cells = self.cells.plus(after.index() - left.index());
+                (Col::at_index(c.index() + 1 - need), None)
+            }
+        };
+        let style = self.style;
+        let flags = match pen {
+            Pen::Gl => self.flags,
+            Pen::Decoded => self.decoded_pen(),
+            Pen::Kept(set) => self.flags.with_received(set),
+        };
+        let tail = match w == Width::WIDE {
+            true => Some(PackedCell::wide_tail(style, flags)),
+            false => None,
+        };
+        let lead = PackedCell::glyph(cp, style, flags);
+        self.last_cp = Some((cp, w, pen));
+        self.view
+            .put_glyph(self.cy, lead_col, lead, tail, PackedCell::empty_with(style));
+        self.cells = self.cells.plus(need);
+        let end = Col::at_index(lead_col.index() + need);
+        self.overwrote(lead_col, end);
+        self.row_written = self.row_written.max(end);
+        self.keep_presented(kept);
+        self.row_changed_to(self.cy);
+    }
+
+    /// **`n` blanks opened under PRECEDING at presentation position `p`**
+    /// of the cursor's line, mapped by `m`: the cells drawn at the line's
+    /// first `n` positions deleted, and the blanks opened at the position
+    /// `p` has moved back to, so they are drawn at `p` and the `n - 1`
+    /// before it. The column the blanks start at.
+    fn open_preceding_drawn(&mut self, m: &LineMap, p: Col, n: Count) -> Col {
+        let k = Count::of(n.at_least_one().min(p.index() + 1));
+        self.delete_drawn(m, Col::ZERO, k);
+        let at = Col::at_index(p.index() + 1 - k.index());
+        let after = self.line_map(self.cy);
+        self.insert_drawn(after.as_ref(), at, k)
+    }
+
+    /// **`DCH` or `ICH` under PRECEDING, or under DCSM's PRESENTATION**,
+    /// out of line: `false` where neither applies, which leaves the cells'
+    /// shift to the caller.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn edit_moded(&mut self, n: Count, edit: CharEdit) -> bool {
+        match (self.cold.modes.is_set(ModeBit::EditPreceding), edit) {
+            (true, CharEdit::Delete) => self.delete_preceding(n),
+            (true, CharEdit::Insert) => self.insert_preceding(n),
+            (false, CharEdit::Delete) => return self.delete_presented(n),
+            (false, CharEdit::Insert) => return self.insert_presented(n),
+        }
+        true
+    }
+
+    /// **`DCH` under PRECEDING** (`[[source: ecma48]]` 8.3.26): the active
+    /// position and the `n - 1` before it removed, the positions before
+    /// them shifted on to close the gap, and `n` blanks at the line's
+    /// start. Right of the fence it is ignored, as FOLLOWING's is.
+    fn delete_preceding(&mut self, n: Count) {
+        let c = self.cx.col();
+        if c > self.line_fence() {
+            return;
+        }
+        match self.cursor_map() {
+            Some(m) => {
+                let p = m.presentation(c);
+                let k = Count::of(n.at_least_one().min(p.index() + 1));
+                self.delete_drawn(&m, Col::at_index(p.index() + 1 - k.index()), k);
+                let after = self.line_map(self.cy);
+                self.insert_drawn(after.as_ref(), Col::ZERO, k);
+                self.keep_presented(Some(p));
+            }
+            None => {
+                let (left, after, blank) = (self.left_limit(c), c.after(), self.blank());
+                self.view.insert_cells(self.cy, left, n, after, blank);
+                self.erase_images(self.cy, left, after);
+                self.cells = self.cells.plus(after.index() - left.index());
+            }
+        }
+        self.row_changed_to(self.cy);
+        self.wrote_rows(self.cy, self.cy);
+    }
+
+    /// **`ICH` under PRECEDING** (8.3.64): `n` blanks at
+    /// the active position and the `n - 1` before it, what stood there and
+    /// before it shifted toward the line's start and the first `n` leaving
+    /// the line. The blanks join the string of the character they pushed
+    /// (TR/53 note A.1 i). Right of the fence it is ignored.
+    fn insert_preceding(&mut self, n: Count) {
+        let c = self.cx.col();
+        if c > self.line_fence() {
+            return;
+        }
+        match self.cursor_map() {
+            Some(m) => {
+                let p = m.presentation(c);
+                self.open_preceding_drawn(&m, p, n);
+                self.keep_presented(Some(p));
+            }
+            None => {
+                let (left, after, blank) = (self.left_limit(c), c.after(), self.blank());
+                self.view.delete_cells(self.cy, left, n, after, blank);
+                let k = n.at_least_one().min(after.index() - left.index());
+                let from = Col::at_index(after.index() - k);
+                if self.strs.strings.begun == crate::strings::Begun::Yes {
+                    let s = match from > left {
+                        true => self.string_of(self.view.get(self.cy, from.before()).style),
+                        false => StringId::NONE,
+                    };
+                    self.strings_kept(self.cy, (from, after), blank, |_| s);
+                }
+                self.erase_images(self.cy, left, after);
+                self.cells = self.cells.plus(after.index() - left.index());
+            }
+        }
+        self.row_changed_to(self.cy);
+        self.wrote_rows(self.cy, self.cy);
+    }
+}
