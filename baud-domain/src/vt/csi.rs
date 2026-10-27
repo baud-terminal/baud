@@ -814,11 +814,13 @@ pub enum Csi {
     /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, `None` for
     /// any other.
     TabClear(Option<TabClear>),
-    /// TSR, `CSI Pn SP d` (`[[source: ecma48]]` 8.3.156): "any character
-    /// tabulation stop at character position n in the active line ... and
-    /// lines of subsequent text" cleared. `Pn` has no default, so `None`
-    /// for an omitted or zero one.
-    RemoveStop(Option<OneBased>),
+    /// **A control that names one character position in the active line**,
+    /// `CSI Pn SP` and a final ([`PositionOp`]): TSR, SLH and SLL. `Pn` has
+    /// no default value for any of them, so `None` for an omitted or zero
+    /// one. One variant, read in one arm: an arm each in `baud-core`'s
+    /// dispatch made it save two more register pairs on every control
+    /// sequence.
+    Position(PositionOp, Option<OneBased>),
     /// CTC, `CSI Ps... W` (`[[source: ecma48]]` 8.3.17, "Notation:
     /// (Ps...)"): sets and clears stops of both kinds,
     /// every parameter in order, which the caller walks through
@@ -1206,8 +1208,10 @@ impl Csi {
                 }
                 // TSR, `CSI Pn 02/00 06/04` (`[[source: ecma48]]` 8.3.156),
                 // the standard namespace's.
-                (b' ', b'd') if marker == Marker::Standard => {
-                    Csi::RemoveStop(p.required_position(ParamIdx::FIRST))
+                // and SLH and SLL, `CSI Pn 02/00 05/05` and `05/06` (8.3.122,
+                // 8.3.123).
+                (b' ', b'd' | b'U' | b'V') if marker == Marker::Standard => {
+                    Csi::Position(PositionOp::of(f), p.required_position(ParamIdx::FIRST))
                 }
                 (b' ', b'A') if marker == Marker::Standard => {
                     Csi::ScrollRight(p.count(ParamIdx::FIRST))
@@ -1614,6 +1618,28 @@ impl Csi {
     }
 }
 
+/// **Which position a [`Csi::Position`] control names**, by its final.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PositionOp {
+    /// TSR, `SP d` (8.3.156): the character stop there is removed.
+    RemoveStop,
+    /// SLH, `SP U` (8.3.122): the line home.
+    LineHome,
+    /// SLL, `SP V` (8.3.123): the line limit.
+    LineLimit,
+}
+
+impl PositionOp {
+    /// The op for final `f`, one of `d`, `U` and `V`.
+    fn of(f: FinalByte) -> PositionOp {
+        match f.raw() {
+            b'U' => PositionOp::LineHome,
+            b'V' => PositionOp::LineLimit,
+            _ => PositionOp::RemoveStop,
+        }
+    }
+}
+
 /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, the line
 /// tabulation stops' included. `[[source: vt510-tbc]]` and xterm keep 0 and
 /// 3 ("There are only two values for Ps"); ECMA-48's whole set was decided
@@ -1836,7 +1862,7 @@ impl Csi {
             | CursorForwardTab(_)
             | CursorBackTab(_)
             | TabClear(_)
-            | RemoveStop(_)
+            | Position(..)
             | CursorTabControl
             | CursorLineTab(_)
             | Mode { .. }

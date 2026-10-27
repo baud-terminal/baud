@@ -873,7 +873,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         match self.cx.raw().index() > self.cold.fence.index() + 1 {
-            false => self.wrap(),
+            false => self.wrap_bounded(),
             true => self.past_margin(need),
         }
     }
@@ -906,7 +906,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
-            true => self.wrap(),
+            true => self.wrap_bounded(),
             false => self.cx = CursorCol::written(Col::at_index(self.cols.index() - 1)),
         }
     }
@@ -1638,7 +1638,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.row_written = self.row_written.max(Col::at_index(x + 2));
         } else if o == self.cold.fence && self.cold.fence > self.cold.left {
             self.view.put_glyph(r, o, blank, None, blank);
-            self.wrap();
+            self.wrap_bounded();
             let start = self.cx.raw();
             self.view.put_glyph(self.cy, start, cell, Some(tail), blank);
             self.cells = self.cells.plus(2);
@@ -1881,7 +1881,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if whole {
             self.view.set_rendition(self.cy, LineRendition::Single);
             self.row_changed_to(self.cy);
-            self.cold.fence = self.cold.right;
+            self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
         }
     }
 
@@ -2130,7 +2130,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     pub(crate) fn refresh_fence(&mut self) {
         if self.cold.fence != self.cold.right {
-            self.cold.fence = self.fence_of_line();
+            self.cold.fence = self.write_fence_of_line();
         }
     }
 
@@ -2145,7 +2145,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn enter_sized(&mut self, r: LineRendition, how: Arrival) {
-        self.cold.fence = fence_of(r, self.cold.right, self.cols);
+        self.cold.fence = crate::bounds::limited(
+            fence_of(r, self.cold.right, self.cols),
+            self.cold,
+            self.cols,
+        );
         if !r.is_double() {
             return;
         }
@@ -2242,7 +2246,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.view.set_rendition(cy, to);
         self.row_changed_to(cy);
-        self.cold.fence = fence_of(to, self.cold.right, self.cols);
+        self.cold.fence = crate::bounds::limited(
+            fence_of(to, self.cold.right, self.cols),
+            self.cold,
+            self.cols,
+        );
         // **And none of the four leaves a wrap pending**: D.6.1 (pp. D-13
         // and D-14) lists SINGLE_WIDTH_LINE, DOUBLE_WIDTH_LINE and both
         // DOUBLE_HEIGHT_LINE controls among those that reset the Last

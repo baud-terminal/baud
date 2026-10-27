@@ -1132,6 +1132,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SLH and SLL**: a line home at 5 and a line limit at 12, which send
+    // the text a character at a time and wrap it at the limit to the home.
+    Atom {
+        name: "slh",
+        bytes: b"\x1b[5 U",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sll",
+        bytes: b"\x1b[12 V",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1991,6 +2005,30 @@ fn the_tab_atoms_reach_tsr_and_htj() {
         fed_then(&["latin1", "ascii-short", "htj-8bit"]),
         ("......ab........".into(), col(8))
     );
+}
+
+/// **The SLH and SLL atoms reach the wrap**: the text wraps at the limit,
+/// column 12, to the home, column 5.
+#[test]
+fn the_bound_atoms_reach_slh_and_sll() {
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let prog: Vec<usize> = ["sll", "slh", "ascii"].iter().map(|n| atom(n)).collect();
+    support::feed(&mut t, &bytes_of(&prog));
+    let row = |y: usize| -> String {
+        t.row(Row::from_index(y)).expect("a row")[..12]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect()
+    };
+    assert_eq!(row(0), "the quick br");
+    assert_eq!(row(1), "....own fox.");
 }
 
 proptest! {

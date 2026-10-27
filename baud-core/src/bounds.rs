@@ -1,0 +1,168 @@
+//! **SLH and SLL, `CSI Pn SP U` and `CSI Pn SP V`** (`[[source: ecma48]]`
+//! 8.3.122, 8.3.123): a line home and a line limit of their own, apart from
+//! DEC's margins (Jev, OWN_POSITIONS, 0.96/0.98).
+//!
+//! The line home is "the position to which the active presentation position
+//! will be moved by subsequent occurrences of CARRIAGE RETURN (CR), DELETE
+//! LINE (DL), INSERT LINE (IL) or NEXT LINE (NEL)", in both DCSM states;
+//! the line limit takes `CR` and `NEL` only "if the parameter value of
+//! SELECT IMPLICIT MOVEMENT DIRECTION (SIMD) is equal to 1", which it never
+//! is here, SIMD being counted. **Under DATA**, and with BDSM set, which
+//! reads DCSM as DATA (7.3.4 c), the home is also "the position ahead of
+//! which no implicit movement of the active data position shall occur" and
+//! the limit "the position beyond which no implicit movement ... shall
+//! occur": a character written at the limit wraps to the next line's home
+//! under DECAWM, or stays there with DECAWM reset, as at a right margin.
+//! Under PRESENTATION those clauses are a "device without data
+//! component"'s, and baud has one, so the limit does nothing there and a
+//! wrap goes to DEC's left margin.
+//!
+//! **DEC's margins still bound ICH, DCH, scrolling and DECOM**, and where
+//! both are set the inner bound holds: the home past the left margin, the
+//! limit short of the right. `CNL` and `CPL` go to "the first character
+//! position" (8.3.12, 8.3.13), DEC's line start, and `ICH` leaves the
+//! cursor (the `CSI @` row). Under DECRLM `CR` keeps DECRLM's right margin
+//! (Jev's lean, DECRLM_MARGIN, 0.74/0.88 then 0.46/0.42).
+//!
+//! **A position past the line is its last column** (Jev split: CLAMPED
+//! 0.04/0.06 asked again, after IGNORED_COUNTED 0.10/0.18), and an omitted
+//! or zero `Pn`, which has no default, is counted and changes nothing. A
+//! resize keeps both, each acting as the line's last column while the line
+//! is narrower (Jev, KEPT_CLAMPED, 1.00/1.00). `RIS` forgets them; `DECSTR`
+//! keeps them, as no DEC or xterm soft reset names them (Jev, KEEP,
+//! 0.96/0.96).
+//!
+//! **What it costs while nothing sets them: nothing on the text path.**
+//! The writes the limit and the home change go a character at a time, the
+//! one-by-one graph IRM's and SAPV's take, chosen by
+//! [`ModeBit::LineBounded`]; the limit lowers the fence those writes test,
+//! where a double line's half lowers it, and the home is read by the out of
+//! line wraps. `CR` maps through [`ModeBit::ReturnMapped`], the bit it
+//! already tests.
+
+use baud_domain::{
+    BidiSupport, Col, Cols, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
+};
+
+use crate::paint::Paint;
+use crate::term::Cold;
+
+/// SLH's line home and SLL's line limit, each a column once set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct LineBounds {
+    pub(crate) home: Option<Col>,
+    pub(crate) limit: Option<Col>,
+}
+
+impl LineBounds {
+    /// Neither set: power-on and after `RIS`.
+    pub(crate) const NONE: LineBounds = LineBounds {
+        home: None,
+        limit: None,
+    };
+}
+
+/// Whether the implicit-movement clauses apply: DCSM at DATA, or BDSM set.
+fn data_rules(cold: &Cold) -> bool {
+    cold.bidi == BidiSupport::Implicit || cold.dcsm == DeviceComponent::Data
+}
+
+/// **The fence a write tests**: `f`, a line's own, lowered to the line
+/// limit while it bounds implicit movement.
+pub(crate) fn limited(f: Col, cold: &Cold, cols: Cols) -> Col {
+    match (cold.modes.is_set(ModeBit::LineBounded), cold.bounds.limit) {
+        (true, Some(l)) => f.min(l.min(Col::at_index(cols.index() - 1))),
+        _ => f,
+    }
+}
+
+impl Paint<'_, '_> {
+    /// **TSR, SLH or SLL**, out of line ([`baud_domain::Csi::Position`]).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn set_position(&mut self, op: PositionOp, n: Option<OneBased>) {
+        match op {
+            PositionOp::RemoveStop => self.remove_stop(n),
+            PositionOp::LineHome => self.set_line_home(n),
+            PositionOp::LineLimit => self.set_line_limit(n),
+        }
+    }
+
+    /// **SLH**: the line home at position `n`, the last column for one
+    /// past the line.
+    fn set_line_home(&mut self, n: Option<OneBased>) {
+        let Some(n) = n else {
+            self.unsupported_param += 1;
+            return;
+        };
+        self.cold.bounds.home = Some(n.to_col(self.cols));
+        self.refresh_presentation_edits();
+    }
+
+    /// **SLL**: the line limit at position `n`, the last column for one
+    /// past the line.
+    fn set_line_limit(&mut self, n: Option<OneBased>) {
+        let Some(n) = n else {
+            self.unsupported_param += 1;
+            return;
+        };
+        self.cold.bounds.limit = Some(n.to_col(self.cols));
+        self.refresh_presentation_edits();
+    }
+
+    /// **[`ModeBit::LineBounded`] set as its conditions say**, and the fence
+    /// the cursor's line has under it: called from
+    /// [`Paint::refresh_presentation_edits`], wherever BDSM, DCSM, SLH or
+    /// SLL change, before the graph is chosen again.
+    pub(crate) fn refresh_bounds(&mut self) {
+        let b = self.cold.bounds;
+        let on = (b.home.is_some() || b.limit.is_some()) && data_rules(self.cold);
+        self.cold.modes.apply(ModeBit::LineBounded, on);
+        self.cold.fence = self.write_fence_of_line();
+    }
+
+    /// The fence a write on the cursor's line tests: its own, lowered to
+    /// the line limit while it bounds implicit movement. Out of line, as
+    /// the line's own fence is, for [`Paint::refresh_fence`].
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn write_fence_of_line(&self) -> Col {
+        let own = crate::paint::fence_of(self.view.rendition(self.cy), self.cold.right, self.cols);
+        limited(own, self.cold, self.cols)
+    }
+
+    /// **The column `CR`, `NEL`, `IL` and `DL` take**: `dec`, the line start
+    /// DEC's margins give, moved on to the line home once SLH has set one,
+    /// as the inner of the two; under DECRLM DEC's alone.
+    pub(crate) fn homed(&self, dec: Col) -> Col {
+        match self.cold.bounds.home {
+            Some(h) if !self.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
+                dec.max(h.min(Col::at_index(self.cols.index() - 1)))
+            }
+            _ => dec,
+        }
+    }
+
+    /// **A wrap, then the line home under DATA**: the next line starts no
+    /// further back than the home, "the position ahead of which no implicit
+    /// movement ... shall occur". For the out of line writers, which the
+    /// one-by-one graph sends every character to while
+    /// [`ModeBit::LineBounded`] is set. The wrap inline, as those writers
+    /// had it, and the home one bit and a call out of line.
+    #[inline(always)]
+    pub(crate) fn wrap_bounded(&mut self) {
+        self.wrap();
+        if self.cold.modes.is_set(ModeBit::LineBounded) {
+            self.home_after_wrap();
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn home_after_wrap(&mut self) {
+        if self.cold.modes.is_set(ModeBit::AutoWrap) {
+            let c = self.homed(self.cx.col());
+            self.cx = CursorCol::moved(c);
+        }
+    }
+}

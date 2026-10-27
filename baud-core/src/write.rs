@@ -2241,13 +2241,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // `CursorUp` and then `CarriageReturn` (`[[source: xterm-cursor-c]]`
         // 527-549), so they stop at the top and bottom margins where those
         // do. No DEC text has a `CNL`: the record lists the reading.
+        // SLH's line home is not theirs (`crate::bounds`).
         DomCsi::CursorNextLine(c) => {
             p.set_row(p.down_in_margins(c));
-            p.carriage_return();
+            p.line_start();
         }
         DomCsi::CursorPrevLine(c) => {
             p.set_row(p.up_in_margins(c));
-            p.carriage_return();
+            p.line_start();
         }
         // **Absolute, and clamped into the margins under DECOM**: option
         // (a') of the record's "DECOM's origin is the left margin too", which
@@ -2336,7 +2337,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorForwardTab(c) => p.tab_forward(c),
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
-        DomCsi::RemoveStop(n) => p.remove_stop(n),
+        DomCsi::Position(op, n) => p.set_position(op, n),
         DomCsi::CursorTabControl => p.tab_control(csi),
         DomCsi::CursorLineTab(c) => p.line_tab(c),
         DomCsi::TabsEveryEight => p.reset_tabs(),

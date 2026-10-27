@@ -114,7 +114,7 @@ impl Paint<'_, '_> {
             match (fits, pin) {
                 (false, _) => self.overflow(Count::of(need)),
                 (true, Some(c)) => self.set_col(baud_domain::CursorCol::moved(c)),
-                (true, None) => self.wrap(),
+                (true, None) => self.wrap_bounded(),
             }
             map = self.cursor_map();
         }

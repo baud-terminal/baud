@@ -1282,6 +1282,9 @@ pub struct Cold {
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
     pub(crate) line_stops: LineStops,
+    /// SLH's line home and SLL's line limit (`crate::bounds`): neither at
+    /// power-on and after `RIS`, kept by `DECSTR` and a resize.
+    pub(crate) bounds: crate::bounds::LineBounds,
     /// DECBKM `?67`, `?1037` and `?1035`, which `Term::key` hands the
     /// encoder: each its power-on value at power-on and after `RIS`, and
     /// kept by `DECSTR`, whose table names none of them (`[[source:
@@ -1504,9 +1507,13 @@ pub struct Cold {
 // mark's attach while DECRLM is set, never by the text path. DECHEBM's
 // byte and the embedder's Hebrew layout landed in its padding: written by
 // `?35`, `RIS` and the embedder, read by a key, DECRQM and a change of GL.
+// SLH's and SLL's two positions (`bounds`) took it to 1008: written by
+// SLH, SLL and `RIS`, read by `CR`, `NEL`, `IL`, `DL` and the fence and
+// wraps of the writes `ModeBit::LineBounded` sends out of line, never by
+// the text path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 976);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1008);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -2001,6 +2008,7 @@ impl Cold {
             pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
             line_stops: LineStops::NONE,
+            bounds: crate::bounds::LineBounds::NONE,
             backarrow: BackarrowKey::Delete,
             delete: DeleteKey::Remove,
             resources: baud_domain::Resources::POWER_ON,
@@ -3241,11 +3249,13 @@ impl<'b> Term<'b> {
         // The cursor's line keeps its rendition through the resize, so its
         // half is taken at the new width and the cursor kept inside it.
         let r = self.row_extent(self.cy).rendition();
-        self.cold.fence = crate::paint::fence_of(r, self.cold.right, self.cols);
-        if self.cx.raw() > self.cold.fence && r.is_double() {
-            self.cx = CursorCol::moved(self.cold.fence);
+        let own = crate::paint::fence_of(r, self.cold.right, self.cols);
+        if self.cx.raw() > own && r.is_double() {
+            self.cx = CursorCol::moved(own);
             self.cold.pinned = Pinned::Before;
         }
+        // A line limit set wider than the screen acts as its last column.
+        self.cold.fence = crate::bounds::limited(own, &self.cold, self.cols);
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
         // shorter alternate screen, which keeps nothing below it.

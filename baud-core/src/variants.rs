@@ -89,11 +89,12 @@ pub(crate) enum Forms {
 /// under DECRLM, and under IRM, where each character opens its own gap and
 /// HEM or a line drawn as edited may shift it (`crate::editing`).
 pub(crate) fn form_read(m: Modes) -> FormRead {
-    match m.any_of_four(
+    match m.any_of_five(
         ModeBit::FormPending,
         ModeBit::FormEnd,
         ModeBit::CursorRightToLeft,
         ModeBit::InsertReplace,
+        ModeBit::LineBounded,
     ) {
         true => FormRead::OneByOne,
         false => FormRead::Runs,

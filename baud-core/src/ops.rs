@@ -1519,7 +1519,8 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
-        self.set_col(CursorCol::moved(self.cold.left));
+        // The line home once SLH has set one (`crate::bounds`).
+        self.set_col(CursorCol::moved(self.homed(self.cold.left)));
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Down);
             return;
@@ -1564,7 +1565,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
-        self.set_col(CursorCol::moved(self.cold.left));
+        self.set_col(CursorCol::moved(self.homed(self.cold.left)));
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Up);
             return;
@@ -3358,7 +3359,7 @@ impl Paint<'_, '_> {
     pub(crate) fn reset_side_margins(&mut self) {
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
-        self.cold.fence = self.cold.right;
+        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
         self.cx = CursorCol::moved(self.cx.col());
         self.row_changed_to(self.cy);
     }
@@ -3392,7 +3393,7 @@ impl Paint<'_, '_> {
             }
             self.view.swap_surface(&mut self.other);
         }
-        self.cold.fence = self.cold.right;
+        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
     }
 
     /// `DECSLRM`, `CSI Pl ; Pr s`.
@@ -3432,7 +3433,7 @@ impl Paint<'_, '_> {
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
         // Only under `DECLRMM`, which no sized line survives (p. 5-29).
-        self.cold.fence = self.cold.right;
+        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
         self.home();
     }
 
@@ -4646,6 +4647,8 @@ impl Paint<'_, '_> {
         // table names no BDSM.
         self.cold.bidi = BidiSupport::POWER_ON;
         self.cold.dcsm = DeviceComponent::POWER_ON;
+        // SLH's and SLL's positions go (`crate::bounds`).
+        self.cold.bounds = crate::bounds::LineBounds::NONE;
         self.refresh_presentation_edits();
         // No character path, autodetection on and no box mirroring, in
         // force and on every line: the mode word above took

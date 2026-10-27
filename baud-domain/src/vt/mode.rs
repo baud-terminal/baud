@@ -444,6 +444,15 @@ pub enum ModeBit {
     /// it, so the text path's writers never test it; set and reset as the
     /// three change; no `DECRQM` or XTSAVE reaches it.
     InsertShifted,
+    /// **Whether SLH's line home or SLL's line limit bounds implicit
+    /// movement** (`[[source: ecma48]]` 8.3.122, 8.3.123): one is set, and
+    /// DCSM is DATA or BDSM is set, which reads it as DATA (7.3.4 c); under
+    /// PRESENTATION the clauses are a "device without data component"'s,
+    /// which baud is not. Not a mode the host names: the core chooses the
+    /// one-by-one graph by it, so the text path's writers never test it,
+    /// and the writes it sends out of line wrap at the limit to the home;
+    /// set and reset as the three change; no `DECRQM` or XTSAVE reaches it.
+    LineBounded,
 }
 
 impl ModeBit {

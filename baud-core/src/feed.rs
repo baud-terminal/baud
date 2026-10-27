@@ -497,7 +497,9 @@ impl Term<'_> {
             self.line_fence()
         );
         debug_assert!(
-            self.cold.fence == self.cold.right || !self.cold.modes.is_set(ModeBit::SideMargins),
+            self.cold.fence == self.cold.right
+                || !self.cold.modes.is_set(ModeBit::SideMargins)
+                || self.cold.modes.is_set(ModeBit::LineBounded),
             "a sized line's fence under side margins"
         );
     }

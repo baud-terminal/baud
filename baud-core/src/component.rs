@@ -54,6 +54,14 @@ use crate::MAX_COLS;
 use crate::paint::Paint;
 use crate::strings::Begun;
 
+/// **Which line start a return takes**: `CR`'s, the line home once SLH has
+/// set one, or `CNL`'s and `CPL`'s "first character position".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LineStart {
+    Home,
+    First,
+}
+
 /// **One line's presentation positions**, where they differ from its data
 /// positions: the position along the line's path each cell is drawn at,
 /// and the cell drawn at each position, over the line's `width`.
@@ -172,12 +180,17 @@ impl Paint<'_, '_> {
         // states, so `HT` maps wherever a string was begun.
         let strung =
             self.cold.bidi == BidiSupport::Explicit && self.strs.strings.begun == Begun::Yes;
-        let mapped = strung || self.cold.modes.is_set(ModeBit::CursorRightToLeft);
+        // And once SLH has set a line home, which `CR` goes to
+        // (`crate::bounds`).
+        let mapped = strung
+            || self.cold.modes.is_set(ModeBit::CursorRightToLeft)
+            || self.cold.bounds.home.is_some();
         self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
         let presented = self.cold.bidi == BidiSupport::Explicit
             && (self.strs.strings.begun == Begun::Yes
                 || self.cold.modes.is_set(ModeBit::PathSelected));
         self.cold.modes.apply(ModeBit::CursorPresented, presented);
+        self.refresh_bounds();
         self.refresh_insert();
     }
 
@@ -255,11 +268,35 @@ impl Paint<'_, '_> {
 
     /// **`CR` under PRESENTATION**: the column `CR` just chose is the
     /// line's home in the presentation, and the cursor goes to the cell
-    /// drawn there.
+    /// drawn there. Once SLH has set a line home, `CR` goes no further back
+    /// than it (`crate::bounds`).
     #[cold]
     #[inline(never)]
     pub(crate) fn return_presented(&mut self) {
+        self.return_mapped(LineStart::Home);
+    }
+
+    /// **`CNL`'s and `CPL`'s line start**: "the first character position"
+    /// (8.3.12, 8.3.13), `CR`'s without SLH's line home. Out of line, as
+    /// the rest of a mapped `CR` is.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn line_start(&mut self) {
+        match self.cold.modes.is_set(ModeBit::ReturnMapped) {
+            true => self.return_mapped(LineStart::First),
+            false => self.carriage_return(),
+        }
+    }
+
+    /// `CR`'s column, the line home's once SLH has set one for
+    /// [`LineStart::Home`], mapped to the cell drawn there under
+    /// PRESENTATION.
+    fn return_mapped(&mut self, to: LineStart) {
         self.line_home();
+        if to == LineStart::Home {
+            let c = self.homed(self.cx.col());
+            self.set_col(CursorCol::moved(c));
+        }
         if let Some(m) = self.cursor_map() {
             let home = self.cx.col();
             self.set_col(CursorCol::moved(m.data(home)));

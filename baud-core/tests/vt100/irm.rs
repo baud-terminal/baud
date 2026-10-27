@@ -177,4 +177,9 @@ fn ich_leaves_the_cursor_where_it_is() {
         (0, 4),
         "inside margins"
     );
+    assert_eq!(
+        at(b"\x1b[10 Uabcdef\x1b[1;3H\x1b[2@"),
+        (0, 2),
+        "with a line home SLH set"
+    );
 }
