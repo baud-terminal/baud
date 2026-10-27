@@ -373,12 +373,11 @@ the screen; step 3 joins Arabic letters.
   right-to-left line CUF moves right on the screen and CUB left, as
   ECMA-48 words them (`cup_goes_to_the_cell_drawn_at_its_position`, `cha_goes_to_the_cell_drawn_at_its_position`,
   `on_a_right_to_left_line_cuf_moves_right_on_the_screen`); HVP and HPA
-  still name the character stored at the column. `CSI 9 h` edits and
-  moves by the cells as stored; TR/53's worked example 2 does so for CUP
-  and CHA on its DATA lines
-  (`tr53_example_2_data_lines_address_the_cells`), and the other cursor
-  functions are an open departure (below). With the mode on it does
-  nothing, as ECMA-48 says.
+  still name the character stored at the column. `CSI 9 h` edits and moves
+  by the cells as stored, an open departure for the cursor functions
+  (below); TR/53's worked example 2 has only CUP and CHA on its DATA lines
+  (`tr53_example_2_data_lines_address_the_cells`). With the mode on it
+  does nothing, as ECMA-48 says.
 - **A program can write right to left, as on a VT510 with a Hebrew
   keyboard** (DECRLM, `CSI ? 34 h`, `[[source: vt510-decrlm]]`): each
   character is written at the cursor and the cursor moves left, BS moves

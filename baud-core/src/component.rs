@@ -23,13 +23,13 @@
 //! `CUF`, `CUB`, `CUU`, `CUD`, `HT`, `CHT`, `CBT`, `CVT` and `VT` move from
 //! the cursor's presentation position and leave it on the cell drawn where
 //! they end ([`Paint::presented`]), and `HTS`, `CTC` and `TBC` take the
-//! stop's column there. Under DATA they address the cells; TR/53's worked
-//! example 2 does so for `CUP` and `CHA` on its DATA lines (it has no other
-//! cursor function there), and for the rest it is an open departure: their
-//! definitions move the presentation position in every DCSM state, 7.2.3's
-//! NOTE leaves them out of the functions DCSM affects, and Annex F F.7
-//! calls them independent of it, so on a right-to-left line `CUF` under
-//! DATA moves left on the screen (Jev's lean, WITH_DCSM, 0.53/0.77). `CUF` is "rightwards in the presentation component" and
+//! stop's column there. Under DATA they address the cells, an open
+//! departure: their definitions move the presentation position in every
+//! DCSM state, 7.2.3's NOTE leaves them out of the functions DCSM affects,
+//! and Annex F F.7 calls them independent of it, so on a right-to-left line
+//! `CUF` under DATA moves left on the screen; TR/53's worked example 2 has
+//! only `CUP` and `CHA` on its DATA lines (Jev's lean, WITH_DCSM,
+//! 0.53/0.77). `CUF` is "rightwards in the presentation component" and
 //! `CUB` "leftwards", so on a right-to-left line they run back and on along
 //! its path (Jev's lean, PHYSICAL, 0.88/0.96). `HVP` and `HPA` move the
 //! active data position, by cell in both.
