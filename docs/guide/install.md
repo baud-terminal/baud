@@ -59,9 +59,12 @@ cursor or window, see [Configuration](configuration.md).
 
 ## Linux
 
-The Linux version builds and has run in a headless session, but it has no
-mouse input yet and nobody has looked at what it draws, so it is not ready
-to use. [Status](status.md) says what is missing.
+The Linux version builds and has run in headless sessions. There, given
+the same fonts and colours, it draws the same pixels as the Mac version,
+and it copies and pastes with the desktop's clipboard; characters drawn
+from each system's own fonts, and some programs' dim colours, can still
+look different. Nobody has used it with a mouse on a real screen yet, so
+it is not ready to use. [Status](status.md) says what is missing.
 
 ## For contributors
 

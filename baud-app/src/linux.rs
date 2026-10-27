@@ -8,15 +8,15 @@
 //! reader thread and a waker because its run loop cannot wait on a
 //! descriptor.
 //!
-//! **Type-checked on a Mac against the Linux target, and run only on a
-//! headless compositor.** weston's headless backend accepted its frames, a
-//! shell on its pty answered `stty size`, and the grid followed the
-//! configure (`docs/record.md`, "The Linux app is wired and type-checked,
-//! and it has not run"). A headless backend has no display, so nobody has
-//! looked at its pixels, and nothing has typed into it on a compositor;
-//! the protocol, the keymap compiler and the window are tested here over
-//! a socket pair, and this file is the wiring between them and the core.
-//! It says so at startup.
+//! **Type-checked on a Mac against the Linux target, and run only on
+//! headless compositors.** Under weston's headless backend its frames
+//! equal, on every pixel, the CPU renderer's on macOS set up as this
+//! driver sets it up, and under sway's a virtual keyboard types into it
+//! and its clipboard and wl-copy's trade text (`scripts/linux-pixels.sh`,
+//! note BE). No pointer has moved over it on a compositor and no screen
+//! has shown it; the protocol, the keymap compiler and the window are
+//! tested here over a socket pair, and this file is the wiring between
+//! them and the core. It says so at startup.
 //!
 //! **The timed effects are the macOS app's, on the CPU path** (`timed.rs`):
 //! `SGR 5` and `SGR 6` text blink at their own rates, the cursor trail --
@@ -352,7 +352,7 @@ enum Said {
 
 pub fn run() {
     crate::warn!(
-        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels, typed into it, moved a mouse over it or pasted into it"
+        "baud on Wayland: run only on headless compositors, where its pixels, keys and clipboard are checked; no mouse has moved over it and no screen has shown it"
     );
     // **The watch before the read** (`reload::Watch::around`), so an edit
     // that lands while the config is read is heard; the themes and fonts

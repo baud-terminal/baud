@@ -22,10 +22,12 @@ programs, and pictures.
 - **Key releases and modifier keys on macOS.** Programs that ask to be told
   when a key is let go, or when Shift or Control alone is pressed, are not
   told yet. Key presses themselves work.
-- **Linux.** The Linux version builds and has run in a headless session, but
-  nobody has looked at what it draws, or used its mouse, copied or pasted on
-  a real desktop, and its GPU drawing is not started. It is not ready to
-  use.
+- **Linux.** The Linux version builds and has run in headless sessions.
+  There, given the same fonts and colours, it draws the same pixels as the
+  Mac version, and it copies and pastes with the desktop's clipboard;
+  characters drawn from each system's own fonts, and some programs' dim
+  colours, can still look different. Nobody has used it with a mouse on a
+  real screen, and its GPU drawing is not started. It is not ready to use.
 - **A few control sequences.** The single shifts SS2 and SS3, and the
   locking shifts LS2, LS3 and LS1R to LS3R, are not supported. The other
   gaps are each listed with their reason in [vt-coverage](../vt-coverage.md),
