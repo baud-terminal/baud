@@ -817,9 +817,11 @@ pub enum Csi {
     /// **A control that names one character position in the active line**,
     /// `CSI Pn SP` and a final ([`PositionOp`]): TSR, SLH and SLL. `Pn` has
     /// no default value for any of them, so `None` for an omitted or zero
-    /// one. One variant, read in one arm: an arm each in `baud-core`'s
-    /// dispatch made it save two more register pairs on every control
-    /// sequence.
+    /// one. **And one that names a page**, NP, PP, PPA, PPR and PPB, whose
+    /// `Pn` of 0 or omitted is 1 (`[[source: dec-std-070]]` pp. 5-77 to
+    /// 5-83, "if (parv[0] == 0) parv[0] = 1"), so `None` is 1 there. One
+    /// variant, read in one arm: an arm each in `baud-core`'s dispatch made
+    /// it save two more register pairs on every control sequence.
     Position(PositionOp, Option<OneBased>),
     /// SEE, `CSI Ps Q` (`[[source: ecma48]]` 8.3.115): "the editing extent
     /// for subsequent character or line insertion or deletion", `None` for
@@ -1216,7 +1218,9 @@ impl Csi {
                 // TCC, `06/00` to `06/03` (8.3.151 to 8.3.153, 8.3.155), the
                 // op by its final alone: TCC's target is read where it is
                 // performed, as [`Csi::Area`]'s parameters are.
-                (b' ', b'd' | b'U' | b'V' | b'`' | b'a' | b'b' | b'c')
+                // PPA, PPR and PPB, `02/00 05/00` to `05/02` (8.3.96 to
+                // 8.3.98).
+                (b' ', b'd' | b'U' | b'V' | b'`' | b'a' | b'b' | b'c' | b'P' | b'Q' | b'R')
                     if marker == Marker::Standard =>
                 {
                     Csi::Position(PositionOp::of(f), p.required_position(ParamIdx::FIRST))
@@ -1567,6 +1571,16 @@ impl Csi {
             b'e' => Csi::LineRelative(p.count(ParamIdx::FIRST)),
             b'j' => Csi::ColumnBackward(p.count(ParamIdx::FIRST)),
             b'k' => Csi::LineBackward(p.count(ParamIdx::FIRST)),
+            // NP and PP, `CSI Pn 05/05` and `05/06` (`[[source: ecma48]]`
+            // 8.3.87, 8.3.95), the standard namespace's.
+            b'U' => Csi::Position(
+                PositionOp::Page(PageOp::Next),
+                p.required_position(ParamIdx::FIRST),
+            ),
+            b'V' => Csi::Position(
+                PositionOp::Page(PageOp::Preceding),
+                p.required_position(ParamIdx::FIRST),
+            ),
             // SCOSC and SCORC take no parameter (`[[source: ctlseqs]]` 1592
             // and 1734), so a defaulted one is the bare form. Anything else
             // is DECSLRM's shape for `s`, "available only when DECLRMM is
@@ -1672,6 +1686,49 @@ pub enum PositionOp {
     /// TCC, `SP 06/03`: a stop centring a target character, the target
     /// its second parameter ([`TargetChar::of_params`]).
     CentredOnTarget,
+    /// NP, PP, PPA, PPR or PPB: a page of page memory.
+    Page(PageOp),
+}
+
+/// **The page a page function moves the active position to**
+/// (`[[source: ecma48]]` 8.3.87, 8.3.95 to 8.3.98; `[[source:
+/// dec-std-070]]` pp. 5-77 to 5-83), `Pn` its count or its page.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PageOp {
+    /// NP, `CSI Pn U`: `Pn` pages on, "to the home position in the new
+    /// page obeying Origin Mode".
+    Next,
+    /// PP, `CSI Pn V`: `Pn` pages back, to the home position.
+    Preceding,
+    /// PPA, `CSI Pn SP P`: page `Pn`, "the corresponding line and column".
+    Absolute,
+    /// PPR, `CSI Pn SP Q`: `Pn` pages on, the line and column kept.
+    /// ECMA-48's PAGE POSITION FORWARD, DEC's Page Position Relative.
+    Forward,
+    /// PPB, `CSI Pn SP R`: `Pn` pages back, the line and column kept.
+    Backward,
+}
+
+/// **Whether a page function asks for the first page**, against a page
+/// memory of one page, or for one it does not have.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PageSought {
+    /// Page 1: PPA 1, or PPA's 0 or omitted `Pn`.
+    First,
+    /// Any other: NP, PP, PPR and PPB, which move at least one page, and
+    /// PPA past 1. STD 070 clamps it to the first or the last page.
+    Other,
+}
+
+impl PageOp {
+    /// The page asked for, `n` the function's `Pn` (`None` for 0 or
+    /// omitted, which is 1).
+    pub fn sought(self, n: Option<OneBased>) -> PageSought {
+        match (self, n.map_or(1, OneBased::get)) {
+            (PageOp::Absolute, 1) => PageSought::First,
+            _ => PageSought::Other,
+        }
+    }
 }
 
 /// **The alignment a stop calls for** (`[[source: ecma48]]` 8.3.151 to
@@ -1720,9 +1777,13 @@ impl TargetChar {
 }
 
 impl PositionOp {
-    /// The op for final `f`, one of `d`, `U`, `V` and `06/00` to `06/03`.
+    /// The op for final `f` after `SP`, one of `d`, `U`, `V`, `P` to `R`
+    /// and `06/00` to `06/03`.
     fn of(f: FinalByte) -> PositionOp {
         match f.raw() {
+            b'P' => PositionOp::Page(PageOp::Absolute),
+            b'Q' => PositionOp::Page(PageOp::Forward),
+            b'R' => PositionOp::Page(PageOp::Backward),
             b'U' => PositionOp::LineHome,
             b'V' => PositionOp::LineLimit,
             b'`' => PositionOp::Aligned(Align::TrailingEdge),

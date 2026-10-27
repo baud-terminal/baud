@@ -1187,6 +1187,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **NP and PPA** on the one page: NP homes the cursor, and PPA 2 asks
+    // for a page baud lacks and keeps the line and column.
+    Atom {
+        name: "np",
+        bytes: b"\x1b[2U",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ppa",
+        bytes: b"\x1b[2 P",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2116,6 +2130,22 @@ fn the_aligned_atoms_reach_the_layout() {
         })
         .collect();
     assert_eq!(row, "......ab.");
+}
+
+/// **The page atoms reach the page functions**: NP takes the cursor home
+/// from the end of the text, PPA leaves it there and is counted.
+#[test]
+fn the_page_atoms_reach_np_and_ppa() {
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let before = t.pages_missing();
+    let prog: Vec<usize> = ["ascii", "ppa"].iter().map(|n| atom(n)).collect();
+    support::feed(&mut t, &bytes_of(&prog));
+    assert_eq!(t.cursor().1.index(), 19);
+    assert_ne!(t.pages_missing(), before);
+    support::feed(&mut t, &bytes_of(&[atom("np")]));
+    assert_eq!((t.cursor().0.index(), t.cursor().1.index()), (0, 0));
 }
 
 proptest! {

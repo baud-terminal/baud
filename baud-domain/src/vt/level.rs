@@ -177,6 +177,13 @@ functions! {
     Deccolm "DECCOLM" Since(One), Field(326);
     Decscpp "DECSCPP" Since(Three), Field(328);
     Decslpp "DECSLPP" Since(Three), Field(330);
+    // "Levels: 3x (Windowing), 4", the Windowing Extension's at Level 3
+    // as DECRQDE, SU and SD are.
+    Np "NP" Since(Three), Field(332);
+    Pp "PP" Since(Three), Field(334);
+    Ppa "PPA" Since(Three), Field(336);
+    Ppr "PPR" Since(Three), Field(337);
+    Ppb "PPB" Since(Three), Field(338);
     Decrqde "DECRQDE" Since(Three), Field(343);
     Su "SU" Since(Three), Field(346);
     Sd "SD" Since(Three), Field(347);
@@ -352,6 +359,11 @@ impl Csi {
             TabsEveryEight => Function::Decst8c,
             ScrollUp(_) => Function::Su,
             ScrollDown(_) => Function::Sd,
+            Position(PositionOp::Page(PageOp::Next), _) => Function::Np,
+            Position(PositionOp::Page(PageOp::Preceding), _) => Function::Pp,
+            Position(PositionOp::Page(PageOp::Absolute), _) => Function::Ppa,
+            Position(PositionOp::Page(PageOp::Forward), _) => Function::Ppr,
+            Position(PositionOp::Page(PageOp::Backward), _) => Function::Ppb,
             Mode { .. } | PrivateMode { .. } => return None,
             Sgr => Function::Sgr,
             CursorStyle(_) => Function::Decscusr,

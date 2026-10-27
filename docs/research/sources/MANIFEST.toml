@@ -136,6 +136,9 @@ group  = "C"
 # `SGR 20/26/50-65` are implemented from this text, not transcribed by eye.
 # Read 2026-10-19 (lane b94) through `--find`: § 8.3.125 SM and § 8.3.106 RM,
 # "Notation: (Ps...)", the modes "set [reset] as specified by the parameter values".
+# Read 2026-10-27 (lane b230) through `--find`: § 8.3.87 NP, § 8.3.95 PP, § 8.3.96 PPA,
+# § 8.3.97 PPB and § 8.3.98 PPR (PAGE POSITION FORWARD); NP and PP's 'The effect of this
+# control function on the active presentation position is not defined by this Standard'.
 
 [sources.vt510-decom]
 key    = "vt510-decom"
@@ -407,6 +410,12 @@ group  = "C"
 # of D1 + D2 + ... + Dn; 8-bit addition with no Carry', 'If the checksum fails, the entire
 # sequence is ignored', 'ignore the error if possible'; DECCTR (p. 5-109); DECSLPP, 'if
 # (parv[0] <= 24) lines_per_page = 24' (pp. 5-75, 5-76) [text].
+# Re-fetched 2026-10-27 (lane b230), the sha256 matching, and read on the text layer
+# [text]: 5.4.7 Page Movement, NP, PP, PPA, PPR and PPB with their algorithms (pp. 5-77 to
+# 5-83), 'NP moves the Active Position to the home position in the new page obeying Origin
+# Mode', the page clamped to number_of_pages before the home; 5.5 the Windowing Extension
+# (p. 5-84); DECPCCM (p. 5-87); DECRQM's report values and 'DEC Private modes that cannot be
+# set or reset from the host will report as unknown' (pp. 5-193, 5-194).
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -15662,6 +15671,11 @@ group  = "C"
 # except for user-defined key definitions and the current soft character set', and 'If
 # there is an invalid value in the DECRSTS sequence, the terminal ignores the rest of the
 # sequence'.
+# Re-fetched 2026-10-27 (lane b230), the sha256 matching, and read on the text layer
+# [text]: chapter 6, Page Memory (pp. 126-141), '144 lines by 80 or 132 columns', the page
+# sizes for one session, six pages of 24 lines to one of 144, chosen by DECSLPP, and NP, PP,
+# PPA, PPB and PPR, each 'If there is only one page, the terminal ignores' it; chapter 10,
+# DECPCCM (p. 184).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -36103,6 +36117,109 @@ sha256 = "377424ba9caffbe64ea8cf4ac37f798554732cc38ec08ed56c60cc28c93c7580"
 bytes  = 111478
 status = "retrieved"
 group  = "C"
+
+# lane b230, the page functions NP, PP, PPA, PPB and PPR, and DECPCCM: baud's one page.
+[sources.vt510-np]
+key    = "vt510-np"
+title  = "NP — Next Page (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/NP.html"
+file   = "vt510-NP.html"
+sha256 = "bdfa110408ada4b37d21201c434df54c372b4cc960aa07e3963e62d84f245a02"
+bytes  = 19510
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'This control function moves the cursor
+# forward to the home position on one of the following pages in page memory. If there is
+# only one page, then the terminal ignores NP.' Default Pn = 0; 'If Pn is 0 or 1, then
+# the cursor moves to the next page in page memory. If Pn tries to move the cursor past
+# the last page in memory, then the cursor stops at the last page.'
+
+[sources.vt510-pp]
+key    = "vt510-pp"
+title  = "PP — Preceding Page (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/PP.html"
+file   = "vt510-PP.html"
+sha256 = "596e1a5ed52a83e5a7a14e23296dbdb7e75a89a3789fdeb13920222a9a76ca82"
+bytes  = 19532
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'moves the cursor backward to the home
+# position on one of the preceding pages in page memory. If there is only one page, then
+# the terminal ignores PP.' Pn 0 or 1 one page; past the first page 'the cursor stops at
+# the first page'.
+
+[sources.vt510-ppa]
+key    = "vt510-ppa"
+title  = "PPA — Page Position Absolute (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/PPA.html"
+file   = "vt510-PPA.html"
+sha256 = "1f91ba10f326f8fdc392ffbb8ab7780c5ad77f73b8a82c7db020148f3d5a7543"
+bytes  = 19579
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'can move the cursor to the corresponding
+# row and column on any page in page memory. You select the page by its number. If there
+# is only one page, then the terminal ignores PPA.' Default: page 1; clamped to the
+# first and last page.
+
+[sources.vt510-ppb]
+key    = "vt510-ppb"
+title  = "PPB — Page Position Backward (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/PPB.html"
+file   = "vt510-PPB.html"
+sha256 = "c3c1d2bda45108d07ffbb57b194cecb17b7b81b190970e7c2576d7e9aa159927"
+bytes  = 19504
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'moves the cursor backward to the
+# corresponding row and column on one of the preceding pages in page memory. If there is
+# only one page, then the terminal ignores PPB.'
+
+[sources.vt510-ppr]
+key    = "vt510-ppr"
+title  = "PPR — Page Position Relative (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/PPR.html"
+file   = "vt510-PPR.html"
+sha256 = "dd8d07b25cb17c2539ec6298d659b43afb6d95c9702e4bb4bbb27bf5ce8e445a"
+bytes  = 19483
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'moves the cursor forward to the
+# corresponding row and column on one of the following pages in page memory. If there is
+# only one page, then the terminal ignores PPR.' ECMA-48 8.3.98 names it PAGE POSITION
+# FORWARD.
+
+[sources.vt510-decpccm]
+key    = "vt510-decpccm"
+title  = "DECPCCM — Page Cursor-Coupling Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECPCCM.html"
+file   = "vt510-DECPCCM.html"
+sha256 = "374f5f4c0026add7d1cf4354c41fdb935c300c713e2e8237db23b50d93803290"
+bytes  = 19978
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-27 (lane b230). Read [text]: 'This control function determines if a
+# new page appears in the display when the cursor moves to a new page. DECPCCM is only
+# useful with a multiple-page format.' Set (?64h) couples, reset uncouples: 'If the
+# cursor moves to a new page, then the cursor disappears.'
 
 # lane b224, DECHEBM (?35): the layout its Group 2 maps keys through, and rxvt-unicode's ?35.
 [sources.xkb-symbols-il-2ec770a]

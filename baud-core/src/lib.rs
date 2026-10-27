@@ -78,6 +78,7 @@ mod margin;
 mod notice;
 mod ops;
 mod osc;
+mod page;
 mod paint;
 mod path;
 mod placed;
@@ -260,7 +261,7 @@ pub use storage::{
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
     ColumnRefusals, Erasure, HistoryErasures, HistoryMark, HistoryWipes, Looking, Moved, Overrides,
-    PaintRole, ProgramPaint, RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen,
-    ScreenEpoch, SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors, TitleReportsRefused,
-    UpdatesOpened, WatchedLines, WidthRequests, WrapPending, Written, Zone,
+    PagesMissing, PaintRole, ProgramPaint, RegionScrolls, Resets, Resized, Rest, ReverseFlips,
+    RowMoves, Screen, ScreenEpoch, SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors,
+    TitleReportsRefused, UpdatesOpened, WatchedLines, WidthRequests, WrapPending, Written, Zone,
 };

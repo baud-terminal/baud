@@ -118,7 +118,8 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **TSR, SLH or SLL**, out of line ([`baud_domain::Csi::Position`]).
+    /// **TSR, SLH, SLL, the aligned stops or a page function**, out of
+    /// line ([`baud_domain::Csi::Position`]).
     #[cold]
     #[inline(never)]
     pub(crate) fn set_position(
@@ -140,6 +141,7 @@ impl Paint<'_, '_> {
                     None => self.unsupported_param += 1,
                 }
             }
+            PositionOp::Page(p) => self.move_page(p, n),
         }
     }
 

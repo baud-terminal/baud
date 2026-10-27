@@ -780,6 +780,21 @@ impl WidthAsk {
     };
 }
 
+/// A count of the page functions that asked for a page baud does not have,
+/// as a reading to compare: two equal readings saw none, or a multiple of
+/// 65,536 ([`Term::pages_missing`]). Sixteen bits, so it fits `Cold`'s
+/// padding.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PagesMissing(u16);
+
+impl PagesMissing {
+    pub(crate) const FIRST: PagesMissing = PagesMissing(0);
+
+    pub(crate) fn next(self) -> PagesMissing {
+        PagesMissing(self.0.wrapping_add(1))
+    }
+}
+
 /// A count of `?5` DECSCNM changes, as a reading to compare. The core keeps
 /// two: the changes made where a frame could show them
 /// ([`Term::reverse_flips`]), and the changes made inside a synchronised
@@ -1295,6 +1310,9 @@ pub struct Cold {
     /// SEE's editing extent (`crate::extent`): `None`, DEC's, at power-on
     /// and after `RIS`, kept by `DECSTR` and a resize.
     pub(crate) extent: Option<baud_domain::EditExtent>,
+    /// The page functions that asked for a page past the one page
+    /// (`crate::page`): [`Term::pages_missing`]. It survives `RIS`.
+    pub(crate) pages_missing: PagesMissing,
     /// DECBKM `?67`, `?1037` and `?1035`, which `Term::key` hands the
     /// encoder: each its power-on value at power-on and after `RIS`, and
     /// kept by `DECSTR`, whose table names none of them (`[[source:
@@ -1521,6 +1539,9 @@ pub struct Cold {
 // SLH, SLL and `RIS`, read by `CR`, `NEL`, `IL`, `DL` and the fence and
 // wraps of the writes `ModeBit::LineBounded` sends out of line, never by
 // the text path.
+// The page functions' count (`pages_missing`) landed in its padding:
+// written by NP, PP, PPA, PPR and PPB, read by the embedder, never by a
+// glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1008);
@@ -2020,6 +2041,7 @@ impl Cold {
             line_stops: LineStops::NONE,
             bounds: crate::bounds::LineBounds::NONE,
             extent: None,
+            pages_missing: PagesMissing::FIRST,
             backarrow: BackarrowKey::Delete,
             delete: DeleteKey::Remove,
             resources: baud_domain::Resources::POWER_ON,
@@ -4583,6 +4605,15 @@ impl<'b> Term<'b> {
     /// honouring it, because it stayed open too long, draws what they left.
     pub fn reverse_flips_held(&self) -> ReverseFlips {
         self.cold.flips_held
+    }
+
+    /// How many NP, PP, PPA, PPR and PPB controls asked for a page baud does
+    /// not have, as a reading to compare: see [`PagesMissing`]. baud's page
+    /// memory is one page, its screen; each such control is clamped to it
+    /// as `[[source: dec-std-070]]` clamps a page past the first or the
+    /// last, and counted here.
+    pub fn pages_missing(&self) -> PagesMissing {
+        self.cold.pages_missing
     }
 
     /// How many times a synchronised update has opened, as a reading to
