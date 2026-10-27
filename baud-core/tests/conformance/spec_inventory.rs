@@ -370,6 +370,10 @@ struct Snapshot {
     /// enables the locator, asked after everything above: DECSLE chooses
     /// the transitions, and nothing else shows them.
     locator: Vec<u8>,
+    /// A line printed with a guarded position on it, the printer made
+    /// ready after everything above: GATM chooses whether the guarded
+    /// contents print, and nothing else shows it.
+    guarded_print: Vec<Vec<u8>>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -404,7 +408,7 @@ const PROBE: &[u8] = b"X";
 
 fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
     let ws = support::CORPUS;
-    let mut s = Owned::new(&ws);
+    let mut s = Owned::new(&ws).with_printer(PrintBudget::of_bytes(4096));
     let mut t = Term::new(s.storage(), &ws);
     let tail: &[u8] = if probe { PROBE } else { b"" };
     for chunk in [PREAMBLE, extra, tail] {
@@ -536,6 +540,14 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
             });
             t.reply().to_vec()
         },
+        guarded_print: {
+            t.clear_print_jobs();
+            t.set_printer(PrinterPort::Ready);
+            let ask = b"\x1b[4;1H\x1bVg\x1b[D\x1bW\x1b[Ch\x1b[?1i";
+            t.write_at(BytePos::ZERO, ask);
+            t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            t.print_jobs().map(|j| j.bytes.to_vec()).collect()
+        },
     }
 }
 
@@ -608,12 +620,6 @@ fn every_spec_csi_form_is_handled_or_counted() {
             b"\x1b[1$}",
             "DECSASD 1 selects nothing with no host-writable status line, \
              as 070-14 says -- decsasd_selects_the_line_only_when_it_is_host_writable",
-        ),
-        (
-            b"\x1b[1h",
-            "GATM ALL changes only what a print takes of a guarded position, \
-             and this harness has no printer -- \
-             under_gatm_guard_a_print_leaves_out_the_guarded_contents",
         ),
         (
             b"\x1b[1l",
