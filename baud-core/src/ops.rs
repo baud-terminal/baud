@@ -3208,7 +3208,8 @@ impl Paint<'_, '_> {
     /// So the shift is an `ICH` at the field's start of the erased
     /// positions after its contents, within the field: nothing leaves it.
     /// The stops are found at the cursor's presentation position, as `HT`
-    /// finds them, and the cells at the field's columns are shifted.
+    /// finds them, and with BDSM reset on a line holding a string the
+    /// content drawn at the field's positions moves (`crate::extent`).
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_justify(&mut self) {
@@ -3217,18 +3218,37 @@ impl Paint<'_, '_> {
         let x = self.stop_col().index().min(end - 1);
         let start = (0..=x).rev().find(|&c| self.tabs[c]).unwrap_or(0);
         let stop = (x + 1..end).find(|&c| self.tabs[c]).unwrap_or(end);
-        let written = (start..stop)
-            .rev()
-            .find(|&c| !self.view.get(r, Col::at_index(c)).content.is_empty());
+        // With BDSM reset on a line holding a string the positions are the
+        // ones drawn, and their content moves (Jev's lean, BUILD_DRAWN).
+        let mut d = crate::component::Drawn::presented(self.cold.modes);
+        let written = (start..stop).rev().find(|&p| {
+            let c = self.drawn_at(&mut d, r, Col::at_index(p));
+            !self.view.get(r, c).content.is_empty()
+        });
         if let Some(last) = written {
             let n = stop - (last + 1);
-            if n > 0 {
-                let (at, to, b) = (Col::at_index(start), Col::at_index(stop), self.blank());
-                self.view.insert_cells(r, at, Count::of(n), to, b);
-                self.erase_images(r, at, to);
-                self.cells = self.cells.plus(stop - start);
-                self.row_changed_to(r);
-                self.wrote_rows(r, r);
+            let (at, to) = (Col::at_index(start), Col::at_index(stop));
+            match (n > 0, d.is_drawn() && self.line_map(r).is_some()) {
+                (false, _) => {}
+                (true, true) => {
+                    let run = crate::extent::Run {
+                        from: (r, at),
+                        to: (r, to.before()),
+                        left: at,
+                        right: to.before(),
+                    };
+                    let end = crate::extent::Toward::End;
+                    let ins = crate::editing::CharEdit::Insert;
+                    self.shift_run(&run, Count::of(n), ins, end, &mut d);
+                }
+                (true, false) => {
+                    let b = self.blank();
+                    self.view.insert_cells(r, at, Count::of(n), to, b);
+                    self.erase_images(r, at, to);
+                    self.cells = self.cells.plus(stop - start);
+                    self.row_changed_to(r);
+                    self.wrote_rows(r, r);
+                }
             }
         }
         match self.cold.modes.is_set(ModeBit::ReturnMapped) {

@@ -485,6 +485,58 @@ fn tsr_clears_the_stop_hts_set_at_the_presentation_position() {
     assert_eq!(after(DATA, &kept).1, row1(2));
 }
 
+/// **HTJ shifts the field's positions as drawn** (8.3.61, "the contents of
+/// the active field (the field in the presentation component ...)"; Jev's
+/// lean, BUILD_DRAWN): with a stop at 6 and the cursor on `y`, drawn at 3,
+/// the content drawn at 0 to 3, `c b a y`, moves to 2 to 5, each cell
+/// keeping its string, so `c` is stored at column 0. In both DCSM states,
+/// as `HT` counts its stops; with BDSM set the cells.
+#[test]
+fn htj_shifts_the_positions_drawn() {
+    let htj = "\x1b[3g\x1b[1;7f\x1bH\x1b[1;4f\x1bI";
+    assert_eq!(after(PRESENTATION, htj).0, "c..bay");
+    assert_eq!(after(DATA, htj).0, "c..bay");
+    assert_eq!(after(IMPLICIT, htj).0, "..abcy");
+    assert_eq!(after(PRESENTATION, htj).1, (Row::ZERO, Col::at_index(6)));
+    assert_eq!(
+        after(PRESENTATION, &format!("{htj}\x1b[1;1f\x1b[6n")).2,
+        "\x1b[1;3R",
+        "column 0 is still in the string, drawn at position 2"
+    );
+}
+
+/// **An aligned stop is found and laid out at the positions drawn**: TALE
+/// at position 5, column 4; from `a`, drawn at 2, `HT` reaches it, and
+/// `de` ends before it, `d` moved back to position 2, the cell drawn there
+/// column 0.
+#[test]
+fn an_aligned_string_moves_by_the_positions_drawn() {
+    let tale = "\x1b[3g\x1b[5 a\x1b[1;1f\tde";
+    assert_eq!(after(PRESENTATION, tale).0, "dbce..");
+    assert_eq!(after(DATA, tale).0, "dbce..");
+    assert_eq!(after(IMPLICIT, tale).0, "abde..");
+    // TALE at position 3, column 2, drawn over column 0: from `c`, at 0,
+    // `HT` lands there, so the stop is found at the position, not at the
+    // cell the cursor stands on.
+    let inside = "\x1b[3g\x1b[3 a\x1b[1;3f\td";
+    assert_ne!(
+        after(PRESENTATION, inside).0,
+        after(PRESENTATION, "\x1b[3g\x1b[3 `\x1b[1;3f\td").0
+    );
+}
+
+/// **SEE's extents shift the positions drawn under PRESENTATION** (the
+/// `ICH` they bound acts there "in the presentation component", 8.3.64):
+/// `ICH` on `b`, drawn at 1, under the page moves `b a y` on to 2 to 4;
+/// under DATA it shifts the cells.
+#[test]
+fn see_shifts_the_positions_drawn_under_presentation() {
+    let ich = "\x1b[Q\x1b[1;2f\x1b[@";
+    assert_eq!(after(PRESENTATION, ich).0, "b.cay.");
+    assert_eq!(after(DATA, ich).0, "a.bcy.");
+    assert_eq!(after(IMPLICIT, ich).0, "a.bcy.");
+}
+
 /// **`EF` erases the field holding the presentation position** (8.3.40:
 /// "the field which contains the active presentation position in the
 /// presentation component"), its stops counted in presentation positions
@@ -554,4 +606,46 @@ fn ea_erases_the_area_drawn_at_its_position() {
         ("ab.y..".into(), "z.....".into()),
         "from c, position 0: the area is c alone"
     );
+}
+
+/// **A shift by the positions drawn keeps a wide character whole**: on the
+/// reversed string `a中c` then `y`, in both DCSM states and from every
+/// column, `ICH`, `DCH` and a write under IRM under SEE 0 and SEE 2, and
+/// `HTJ`, leave no lead without its tail and no tail without its lead.
+#[test]
+fn a_shift_by_the_positions_drawn_keeps_a_wide_character_whole() {
+    let mut split = Vec::new();
+    for mode in [PRESENTATION, DATA] {
+        for col in 1..=6 {
+            for op in [
+                "\x1b[Q\x1b[@",
+                "\x1b[Q\x1b[P",
+                "\x1b[Q\x1b[2@",
+                "\x1b[Q\x1b[2P",
+                "\x1b[Q\x1b[4hX",
+                "\x1b[2Q\x1b[@",
+                "\x1b[2Q\x1b[P",
+                "\x1b[2Q\x1b[4hX",
+                "\x1b[3g\x1b[1;9f\x1bH\x1b[1;{col}f\x1bI",
+            ] {
+                let op = op.replace("{col}", &col.to_string());
+                let bytes = format!("\x1b[8l\x1b[1[a\u{4e2d}c\x1b[0[y{mode}\x1b[1;{col}f{op}");
+                support::with_term(&WS, |t| {
+                    support::feed(t, bytes.as_bytes());
+                    let row = t.viewport().row(Row::ZERO);
+                    let lead =
+                        |i: usize| row[i].content.as_codepoint().map(|c| c.value()) == Some(0x4e2d);
+                    for i in 0..10 {
+                        let tail = row[i].content.is_wide_tail();
+                        if (lead(i) && !row[i + 1].content.is_wide_tail())
+                            || (tail && (i == 0 || !lead(i - 1)))
+                        {
+                            split.push(format!("{mode:?} col {col} {op:?} at {i}"));
+                        }
+                    }
+                });
+            }
+        }
+    }
+    assert!(split.is_empty(), "{split:#?}");
 }

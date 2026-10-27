@@ -156,7 +156,8 @@ impl Paint<'_, '_> {
             // (`crate::extent`).
             None if self.extent_chosen() => {
                 let to = crate::extent::Toward::Start;
-                self.shift_extent(c, Count::of(need), CharEdit::Insert, to);
+                let x = self.presented_at(c);
+                self.shift_extent(x, Count::of(need), CharEdit::Insert, to);
                 (Col::at_index(c.index() + 1 - need), None)
             }
             None => {

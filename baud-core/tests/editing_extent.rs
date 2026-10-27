@@ -258,3 +258,126 @@ fn decrqss_answers_see_as_invalid() {
         assert_eq!(t.reply(), b"\x1bP0$r\x1b\\");
     });
 }
+
+/// Row `y` after `bytes` alone, as [`rows`] draws it.
+fn row_of(bytes: &str, y: usize) -> String {
+    support::with_term(&WS, |t| {
+        support::feed(t, bytes.as_bytes());
+        t.viewport().row(Row::from_index(y))[..10]
+            .iter()
+            .map(|c| match c.content {
+                x if x.is_wide_tail() => '_',
+                x => x
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.'),
+            })
+            .collect()
+    })
+}
+
+/// **An edit on a wide character's tail takes the whole character**, as
+/// DEC's does: `ICH` and a write under IRM open the gap at its lead, and
+/// `DCH` removes both halves. Under SEE 0 and SEE 2 the row is the one no
+/// SEE leaves, on `a中cy` with the cursor on the tail.
+#[test]
+fn an_edit_on_a_wide_tail_takes_the_whole_character() {
+    let text = "a\u{4e2d}cy\x1b[1;3H";
+    let mut wrong = Vec::new();
+    for (edit, want) in [
+        ("\x1b[@", "a.\u{4e2d}_cy...."),
+        ("\x1b[2@", "a..\u{4e2d}_cy..."),
+        ("\x1b[P", "acy......."),
+        ("\x1b[4hX", "a.X.cy...."),
+    ] {
+        assert_eq!(row_of(&format!("{text}{edit}"), 0), want, "{edit:?}");
+        for see in ["\x1b[Q", "\x1b[2Q"] {
+            let got = row_of(&format!("{see}{text}{edit}"), 0);
+            if got != want {
+                wrong.push(format!("{see:?} {edit:?}: {got}, not {want}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **`DCH` on a wide character's lead removes both halves** under SEE
+/// 0, as with no SEE.
+#[test]
+fn dch_on_a_wide_lead_removes_both_halves() {
+    let text = "a\u{4e2d}cy\x1b[1;2H\x1b[P";
+    assert_eq!(row_of(text, 0), "acy.......");
+    assert_eq!(row_of(&format!("\x1b[Q{text}"), 0), "acy.......");
+}
+
+/// **A wide character the shift would carry across a line end is erased**,
+/// both halves: `DCH` under the page pulls `中` from row 1's start toward
+/// row 0's last column, where its tail would land on row 1.
+#[test]
+fn a_wide_character_pulled_across_a_line_end_is_erased() {
+    let text = "abcdefghi\x1b[2;1H\u{4e2d}z\x1b[Q\x1b[1;1H\x1b[P";
+    assert_eq!(row_of(text, 0), "bcdefghi..");
+    assert_eq!(row_of(text, 1), ".z........");
+}
+
+/// **Under HEM's PRECEDING an edit on either half takes the whole
+/// character**: `ICH` shifts `中` toward the line's start, `a` leaving,
+/// and `DCH` removes both halves, `a` closing up, under SEE 0 and SEE 2
+/// with the cursor on the lead and on the tail.
+#[test]
+fn preceding_on_a_wide_character_takes_the_whole_character() {
+    let mut wrong = Vec::new();
+    for see in ["\x1b[Q", "\x1b[2Q"] {
+        for col in [2, 3] {
+            for (edit, want) in [("\x1b[@", "中_.cy....."), ("\x1b[P", "..acy.....")] {
+                let bytes = format!("a中cy{see}\x1b[10h\x1b[1;{col}H{edit}");
+                let got = row_of(&bytes, 0);
+                if got != want {
+                    wrong.push(format!("{see:?} col {col} {edit:?}: {got}, not {want}"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **A wide character the shifted part's end cuts is erased**, both
+/// halves: under SEE 2 with a stop at column 3 the field is columns 1
+/// and 2, and `ICH` pushes `a` onto the lead of the `中` whose tail is
+/// past the field.
+#[test]
+fn a_wide_character_the_field_end_cuts_is_erased() {
+    let text = "\x1b[3g\x1b[1;3H\x1bH\x1b[1;1Ha中中cy\x1b[2Q\x1b[1;1H\x1b[@";
+    assert_eq!(row_of(text, 0), ".a.中_cy...");
+}
+
+/// **`DCH` of two or more on a wide character's tail removes the
+/// character and the positions after the cursor**, as with no SEE
+/// (`Grid::delete_cells`, ECMA-48 8.3.26): the snap to the lead does not
+/// shorten the span; under HEM's PRECEDING the mirror holds on the lead.
+#[test]
+fn a_long_dch_on_a_wide_half_removes_as_many_positions_as_asked() {
+    let mut wrong = Vec::new();
+    for (text, n) in [
+        ("a\u{4e2d}a\x1b[1;3H", 2),
+        ("a\u{4e2d}cy\x1b[1;3H", 2),
+        ("a\u{4e2d}cy\x1b[1;3H", 3),
+        ("\u{4e2d}\u{4e2d}\x1b[1;2H", 2),
+    ] {
+        let dch = format!("{text}\x1b[{n}P");
+        let plain = row_of(&dch, 0);
+        for see in ["\x1b[Q", "\x1b[2Q"] {
+            let got = row_of(&format!("{see}{dch}"), 0);
+            if got != plain {
+                wrong.push(format!("{see:?} {dch:?}: {got} want {plain}"));
+            }
+        }
+    }
+    let preceding = row_of("a\u{4e2d}cy\x1b[Q\x1b[10h\x1b[1;2H\x1b[2P", 0);
+    if preceding != "...cy....." {
+        wrong.push(format!(
+            "PRECEDING on the lead: {preceding} want ...cy....."
+        ));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

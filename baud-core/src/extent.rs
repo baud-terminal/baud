@@ -30,10 +30,20 @@
 //! area's last, within the scrolling region (Jev's lean, AREA_LINES,
 //! 0.24/0.22 then 0.66/0.86); with the page as before.
 //!
-//! **A wide character a line end would cut is erased**, both halves, and
-//! one pushed off the shifted part's end leaves no tail behind. With BDSM
-//! reset, on a line holding a string, the cells are shifted, not the
-//! positions as drawn.
+//! **A wide character stays whole, as under DEC's `ICH` and `DCH`**: an
+//! edit at either half takes the whole character, the shift starting at
+//! whichever half it reaches first (the lead under FOLLOWING, the tail
+//! under PRECEDING), a delete taking the character and the n-1 positions
+//! after it in the shift's direction, and a character the shift
+//! would part is erased, both halves: one a line end would cut, one pushed
+//! off the shifted part's end or out of it, one whose other half lies
+//! outside it. Under DCSM's PRESENTATION, on a line holding a string, the
+//! positions are the ones drawn and their content moves between the cells
+//! drawn there, each keeping the string it is stored in, so the line is
+//! drawn as before with the content shifted (Jev's lean, BUILD_DRAWN,
+//! 0.66/0.66 then 0.69/0.76); a wide character there moves whole where
+//! its two halves land side by side in their order, and is erased where
+//! they would not.
 //!
 //! **What it costs while no SEE has chosen another: nothing on the text
 //! path.** `ICH` and `DCH` test it out of line, and a write under IRM is a
@@ -41,6 +51,7 @@
 
 use baud_domain::{Col, Cols, Count, EditExtent, ModeBit, PackedCell, PathIdx, Row};
 
+use crate::component::Drawn;
 use crate::editing::CharEdit;
 use crate::paint::Paint;
 
@@ -58,10 +69,10 @@ pub(crate) enum Toward {
 /// `right`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Run {
-    from: (Row, Col),
-    to: (Row, Col),
-    left: Col,
-    right: Col,
+    pub(crate) from: (Row, Col),
+    pub(crate) to: (Row, Col),
+    pub(crate) left: Col,
+    pub(crate) right: Col,
 }
 
 impl Run {
@@ -101,6 +112,26 @@ impl Run {
             Row::from_index(self.from.0.index() + 1 + j / w),
             Col::at_index(self.left.index() + j % w),
         )
+    }
+
+    /// The index from `from` of position `x` of row `y`, if the run holds
+    /// it.
+    fn index_of(&self, y: Row, x: Col) -> Option<PathIdx> {
+        if y < self.from.0 || y > self.to.0 {
+            return None;
+        }
+        let (a, b) = self.cols_on(y);
+        if x < a || x > b {
+            return None;
+        }
+        Some(PathIdx::at_index(match y == self.from.0 {
+            true => x.index() - self.from.1.index(),
+            false => {
+                self.first_len().index()
+                    + (y.index() - self.from.0.index() - 1) * self.width().index()
+                    + (x.index() - self.left.index())
+            }
+        }))
     }
 
     /// The columns the run covers on row `y`.
@@ -166,10 +197,10 @@ impl Paint<'_, '_> {
 
     /// **The extent holding the cursor**: its first and last positions and
     /// the columns its rows between span; `None` outside DEC's margins.
-    fn extent_ends(&self) -> Option<Run> {
+    fn extent_ends(&self, d: &mut Drawn) -> Option<Run> {
         let whole = self.rectangle()?;
         let (left, right) = (whole.left, whole.right);
-        let (y, x) = (self.cy, self.cx.col());
+        let (y, x) = (self.cy, self.drawn_from(d, self.cy, self.cx.col()));
         let run = |from, to| Run { from, to, ..whole };
         Some(match self.cold.extent.unwrap_or(EditExtent::Line) {
             EditExtent::Line => run((y, left), (y, right)),
@@ -181,8 +212,9 @@ impl Paint<'_, '_> {
                 run((y, Col::at_index(start).max(left)), (y, end))
             }
             EditExtent::QualifiedArea => {
-                let guard = |i: usize| {
-                    let (r, c) = whole.at(PathIdx::at_index(i));
+                let mut guard = |i: usize| {
+                    let (r, p) = whole.at(PathIdx::at_index(i));
+                    let c = self.drawn_at(d, r, p);
                     self.view.get(r, c).flags.is_guarded()
                 };
                 let at = (y.index() - whole.from.0.index()) * whole.width().index()
@@ -215,8 +247,16 @@ impl Paint<'_, '_> {
             true => Toward::Start,
             false => Toward::End,
         };
-        self.shift_extent(self.cx.col(), n, edit, toward);
+        let x = self.presented_at(self.cx.col());
+        self.shift_extent(x, n, edit, toward);
         self.row_changed_to(self.cy);
+    }
+
+    /// Column `c` of the cursor's line as the position it is drawn at,
+    /// under DCSM's PRESENTATION on a line holding a string.
+    pub(crate) fn presented_at(&self, c: Col) -> Col {
+        let mut d = Drawn::of(self.cold.modes);
+        self.drawn_from(&mut d, self.cy, c)
     }
 
     /// **The gap a write under IRM opens under an extent other than the
@@ -224,21 +264,109 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn open_gap_extent(&mut self, n: Count) {
-        self.shift_extent(self.cx.col(), n, CharEdit::Insert, Toward::End);
+        let x = self.presented_at(self.cx.col());
+        self.shift_extent(x, n, CharEdit::Insert, Toward::End);
         self.row_changed_to(self.cy);
     }
 
-    /// **`n` positions opened or closed at column `x` of the cursor's line**,
-    /// along the extent toward `toward`. Ignored outside DEC's margins.
+    /// **`n` positions opened or closed at position `x` of the cursor's
+    /// line**, along the extent toward `toward`. Ignored outside DEC's
+    /// margins. Under DCSM's PRESENTATION the positions are the ones drawn.
     pub(crate) fn shift_extent(&mut self, x: Col, n: Count, edit: CharEdit, toward: Toward) {
-        let Some(ends) = self.extent_ends() else {
+        let mut d = Drawn::of(self.cold.modes);
+        let Some(ends) = self.extent_ends(&mut d) else {
             return;
         };
-        let c = (self.cy, x.max(ends.left).min(ends.right));
+        let mut x = x.max(ends.left).min(ends.right);
+        // **On a wide character's second half the edit takes the whole
+        // character**, as DEC's `ICH` and `DCH` do (`Grid::insert_cells`):
+        // the shift starts at whichever half it reaches first where the
+        // extent holds it.
+        let (first, last) = ends.cols_on(self.cy);
+        let at = x;
+        if let Some((_, p)) = self.other_half(&mut d, self.cy, x) {
+            match toward {
+                Toward::End if p.index() + 1 == x.index() && p >= first => x = p,
+                Toward::Start if p.index() == x.index() + 1 && p <= last => x = p,
+                _ => {}
+            }
+        }
+        let c = (self.cy, x);
         let run = match toward {
             Toward::End => Run { from: c, ..ends },
             Toward::Start => Run { to: c, ..ends },
         };
+        // A delete snapped to the character's other half still removes the
+        // `n` positions from the cursor's own (ECMA-48 8.3.26: the active
+        // position and the n-1 after it), so the span grows by the half the
+        // snap took in; a delete whose last position is a wide character's
+        // first half takes its second (`Grid::delete_cells`).
+        let mut k = n.at_least_one();
+        if edit == CharEdit::Delete && x != at {
+            k += 1;
+        }
+        if edit == CharEdit::Delete && k < run.len().index() {
+            let last = PathIdx::at_index(k - 1);
+            if let Some((_, _, Some(j))) = self.half_of(&run, toward, &mut d, last) {
+                if j.index() == k {
+                    k += 1;
+                }
+            }
+        }
+        self.shift_run(&run, Count::of(k), edit, toward, &mut d);
+    }
+
+    /// **The other half of the wide character drawn at position `x` of row
+    /// `r`**: its cell, and the position it is drawn at; `None` where the
+    /// cell holds no wide character. A first half is told by the tail
+    /// after it.
+    fn other_half(&self, d: &mut Drawn, r: Row, x: Col) -> Option<(Col, Col)> {
+        let c = self.drawn_at(d, r, x);
+        let tail = |c: Col| self.view.get(r, c).content.is_wide_tail();
+        let other = match c.index() > 0 && tail(c) {
+            true => c.before(),
+            false if c.index() + 1 < self.cols.index() && tail(c.after()) => c.after(),
+            false => return None,
+        };
+        Some((other, self.drawn_from(d, r, other)))
+    }
+
+    /// The other half of the wide character at the run's `i`-th position in
+    /// the shift's order: its row and cell, and its index there if the run
+    /// holds it.
+    fn half_of(
+        &self,
+        run: &Run,
+        toward: Toward,
+        d: &mut Drawn,
+        i: PathIdx,
+    ) -> Option<(Row, Col, Option<PathIdx>)> {
+        let last = run.len().index() - 1;
+        let (r, x) = match toward {
+            Toward::End => run.at(i),
+            Toward::Start => run.at(PathIdx::at_index(last - i.index())),
+        };
+        let (c, p) = self.other_half(d, r, x)?;
+        let j = run.index_of(r, p).map(|j| match toward {
+            Toward::End => j,
+            Toward::Start => PathIdx::at_index(last - j.index()),
+        });
+        Some((r, c, j))
+    }
+
+    /// **`n` positions opened or closed along `run`**, from its start
+    /// toward its end or from its end toward its start, through `d`: where
+    /// `d` reads a line's map the content moves between the cells drawn at
+    /// the positions, each cell keeping the string it is stored in, so the
+    /// line is drawn as it was with the content moved.
+    pub(crate) fn shift_run(
+        &mut self,
+        run: &Run,
+        n: Count,
+        edit: CharEdit,
+        toward: Toward,
+        d: &mut Drawn,
+    ) {
         let len = run.len().index();
         let pos = |i: usize| match toward {
             Toward::End => run.at(PathIdx::at_index(i)),
@@ -246,68 +374,108 @@ impl Paint<'_, '_> {
         };
         let n = n.at_least_one().min(len);
         let blank = self.blank();
-        let get = |p: &Self, i: usize| {
+        // The cell drawn at the run's `i`-th position.
+        let cell_at = |p: &Self, d: &mut Drawn, i: usize| {
             let (r, c) = pos(i);
+            (r, p.drawn_at(d, r, c))
+        };
+        let get = |p: &Self, d: &mut Drawn, i: usize| {
+            let (r, c) = cell_at(p, d, i);
             p.view.get(r, c)
         };
+        let put = |p: &mut Self, d: &mut Drawn, i: usize, cell: PackedCell| {
+            let (r, c) = cell_at(p, d, i);
+            let cell = p.kept_in_place(r, c, cell);
+            p.view.put(r, c, cell);
+        };
+        // **A wide character the shift would part is erased first**, both
+        // halves: one half outside the run, one pushed off its end or
+        // deleted while the other stays, or the two landing anywhere but
+        // side by side in their order, across a line end or out of a
+        // string drawn reversed. Told before anything moves, as a first
+        // half is told by the tail after it.
+        let dest = |k: usize| match edit {
+            CharEdit::Insert => (k + n < len).then(|| k + n),
+            CharEdit::Delete => (k >= n).then(|| k - n),
+        };
+        let mut erased = 0;
+        for i in 0..len {
+            let Some((r, other, j)) = self.half_of(run, toward, d, PathIdx::at_index(i)) else {
+                continue;
+            };
+            let j = j.map(PathIdx::index);
+            let whole = match j {
+                Some(j) if j < i => continue,
+                Some(j) if j == i + 1 => match (dest(i), dest(j)) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => {
+                        let (ra, ca) = cell_at(self, d, a);
+                        let (rb, cb) = cell_at(self, d, b);
+                        let (_, ci) = cell_at(self, d, i);
+                        ra == rb && (cb.index() + ci.index() == ca.index() + other.index())
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            if !whole {
+                put(self, d, i, blank);
+                let cell = self.kept_in_place(r, other, blank);
+                self.view.put(r, other, cell);
+                self.erase_images(r, other, other.after());
+                erased += 1;
+            }
+        }
         match edit {
             CharEdit::Insert => {
-                // A wide character whose tail the shift pushes off the end
-                // leaves its lead with none (DEC's ICH loses it whole).
-                let cut = n < len && get(self, len - n).content.is_wide_tail();
                 for i in (n..len).rev() {
-                    let (r, c) = pos(i);
-                    let cell = get(self, i - n);
-                    self.view.put(r, c, cell);
+                    let cell = get(self, d, i - n);
+                    put(self, d, i, cell);
                 }
                 for i in 0..n {
-                    let (r, c) = pos(i);
-                    self.view.put(r, c, blank);
-                }
-                if cut && toward == Toward::End {
-                    let (r, c) = pos(len - 1);
-                    self.view.put(r, c, blank);
+                    put(self, d, i, blank);
                 }
             }
             CharEdit::Delete => {
                 for i in 0..len - n {
-                    let (r, c) = pos(i);
-                    let cell = get(self, i + n);
-                    self.view.put(r, c, cell);
+                    let cell = get(self, d, i + n);
+                    put(self, d, i, cell);
                 }
                 for i in len - n..len {
-                    let (r, c) = pos(i);
-                    self.view.put(r, c, blank);
+                    put(self, d, i, blank);
                 }
             }
         }
-        self.mend_cut_characters(&run, blank);
         for y in run.from.0.index()..=run.to.0.index() {
             let r = Row::from_index(y);
             let (a, b) = run.cols_on(r);
             self.erase_images(r, a, b.after());
             self.row_changed_to(r);
         }
-        self.cells = self.cells.plus(len);
+        self.cells = self.cells.plus(len + 2 * erased);
         self.wrote_rows(run.from.0, run.to.0);
     }
 
-    /// **A wide character the shift left cut**: one whose halves a line end
-    /// parts is erased, both halves, and a tail at the run's start whose
-    /// lead is outside it is erased.
-    fn mend_cut_characters(&mut self, run: &Run, blank: PackedCell) {
-        for y in run.from.0.index()..=run.to.0.index() {
-            let r = Row::from_index(y);
-            let (a, _) = run.cols_on(r);
-            if !self.view.get(r, a).content.is_wide_tail() {
-                continue;
-            }
-            self.view.put(r, a, blank);
-            if r > run.from.0 {
-                let above = Row::from_index(y - 1);
-                let (_, b) = run.cols_on(above);
-                self.view.put(above, b, blank);
-            }
+    /// **`cell` put in the string the cell at column `c` of row `r` is in
+    /// now**: a move by drawn position keeps each cell's string where it is
+    /// stored, so the line's map stays as it was.
+    fn kept_in_place(&mut self, r: Row, c: Col, cell: PackedCell) -> PackedCell {
+        if self.strs.strings.begun != crate::strings::Begun::Yes {
+            return cell;
+        }
+        let s = self.string_of(self.view.get(r, c).style);
+        if self.string_of(cell.style) == s {
+            return cell;
+        }
+        let word = self
+            .tmpl
+            .get(cell.style.index())
+            .copied()
+            .flatten()
+            .unwrap_or(baud_domain::StyleWord::DEFAULT);
+        PackedCell {
+            style: self.intern_style(word.with_string(s)),
+            ..cell
         }
     }
 
@@ -335,7 +503,7 @@ impl Paint<'_, '_> {
         if self.cold.extent != Some(EditExtent::QualifiedArea) {
             return None;
         }
-        let run = self.extent_ends()?;
+        let run = self.extent_ends(&mut Drawn::of(self.cold.modes))?;
         Some(run.to.0.min(self.cold.bot))
     }
 }

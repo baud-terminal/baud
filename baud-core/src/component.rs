@@ -122,6 +122,26 @@ impl Drawn {
         }
     }
 
+    /// The walk for the functions that act in the presentation component
+    /// in both DCSM states, as the cursor functions do: HTJ and the aligned
+    /// stops (`crate::aligned`).
+    pub(crate) fn presented(modes: baud_domain::Modes) -> Drawn {
+        let component = match modes.is_set(ModeBit::CursorPresented) {
+            true => DeviceComponent::Presentation,
+            false => DeviceComponent::Data,
+        };
+        Drawn {
+            component,
+            row: None,
+            map: None,
+        }
+    }
+
+    /// Whether the walk takes the positions as drawn.
+    pub(crate) fn is_drawn(&self) -> bool {
+        self.component == DeviceComponent::Presentation
+    }
+
     /// Row `r`'s map, `None` in the data component or where the row holds
     /// no string.
     fn read(&mut self, p: &Paint<'_, '_>, r: Row) -> Option<&LineMap> {

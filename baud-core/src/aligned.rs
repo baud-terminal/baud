@@ -33,8 +33,10 @@
 //! `HTS` and `CTC 0` set an ordinary stop where an aligned one was; `TBC`,
 //! `TSR` and `CTC` clear one as any stop; DECST8C, `RIS` and a restored
 //! report's stops are ordinary. DECTABSR reports an aligned stop as a stop.
-//! With BDSM reset, on a line holding a string, the cells are moved, not
-//! the positions as drawn.
+//! With BDSM reset, on a line holding a string, the stop is found at the
+//! cursor's presentation position, where `HT` counted it, and the string
+//! moves by the positions as drawn, each cell keeping the string it is
+//! stored in (Jev's lean, BUILD_DRAWN, 0.66/0.66 then 0.69/0.76).
 //!
 //! **What it costs while no stop calls for alignment: nothing on the text
 //! path.** An `HT` maps through [`ModeBit::ReturnMapped`] once an aligned
@@ -45,6 +47,7 @@
 use baud_domain::{Align, Codepoint, Col, Count, CursorCol, ModeBit, OneBased, Row, TargetChar};
 
 use crate::MAX_COLS;
+use crate::component::Drawn;
 use crate::paint::Paint;
 
 /// What a column's stop calls for, where the column has one.
@@ -203,7 +206,9 @@ impl Paint<'_, '_> {
         if !self.strs.aligned.any() {
             return;
         }
-        let c = self.cx.col();
+        // The stop at the cursor's presentation position, where `HT`
+        // counted it (`crate::component`).
+        let c = self.presented_cursor();
         let kind = match self.tabs.get(c.index()) {
             Some(&true) => self.strs.aligned.kind_at(c),
             _ => StopKind::Plain,
@@ -243,7 +248,7 @@ impl Paint<'_, '_> {
         let Some(o) = self.strs.aligned.open else {
             return self.aligned_ends();
         };
-        if self.cy != o.row || self.cx.col() != o.at {
+        if self.cy != o.row || self.presented_cursor() != o.at {
             return self.aligned_ends();
         }
         let need = need.index();
@@ -261,7 +266,7 @@ impl Paint<'_, '_> {
                 match start >= floor + back {
                     true => {
                         self.move_back(o.row, o.start, o.len, Count::of(back));
-                        self.set_col(CursorCol::moved(o.stop));
+                        self.cursor_to_position(o.stop);
                         return self.aligned_ends();
                     }
                     false => None,
@@ -276,7 +281,7 @@ impl Paint<'_, '_> {
             self.move_back(o.row, o.start, o.len, Count::of(start - to));
         }
         let at = to + len;
-        self.set_col(CursorCol::moved(Col::at_index(at)));
+        self.cursor_to_position(Col::at_index(at));
         self.strs.aligned.open = Some(Open {
             start: Col::at_index(to),
             len: Count::of(len + need),
@@ -285,14 +290,40 @@ impl Paint<'_, '_> {
         });
     }
 
-    /// The `len` columns from `start` of row `r` moved back `by`, the cells
-    /// they leave erased.
+    /// The cursor's position along its line: the one drawn, with BDSM
+    /// reset on a line holding a string, where `HT` counts its stops.
+    fn presented_cursor(&self) -> Col {
+        let mut d = Drawn::presented(self.cold.modes);
+        self.drawn_from(&mut d, self.cy, self.cx.col())
+    }
+
+    /// The cursor on the cell drawn at position `p` of its line.
+    fn cursor_to_position(&mut self, p: Col) {
+        let mut d = Drawn::presented(self.cold.modes);
+        let c = self.drawn_at(&mut d, self.cy, p);
+        self.set_col(CursorCol::moved(c));
+    }
+
+    /// The `len` positions from `start` of row `r` moved back `by`, the
+    /// positions they leave erased; on a line drawn as edited the content
+    /// moves between the cells drawn there (`crate::extent`).
     fn move_back(&mut self, r: Row, start: Col, len: Count, by: Count) {
         if by.index() == 0 {
             return;
         }
         let to = Col::at_index(start.index() - by.index());
         let end = Col::at_index(start.index() + len.index());
+        let mut d = Drawn::presented(self.cold.modes);
+        if d.is_drawn() && self.line_map(r).is_some() {
+            let run = crate::extent::Run {
+                from: (r, to),
+                to: (r, end.before()),
+                left: to,
+                right: end.before(),
+            };
+            let del = crate::editing::CharEdit::Delete;
+            return self.shift_run(&run, by, del, crate::extent::Toward::End, &mut d);
+        }
         let b = self.blank();
         self.view.delete_cells(r, to, by, end, b);
         self.erase_images(r, to, end);
