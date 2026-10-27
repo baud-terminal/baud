@@ -228,6 +228,7 @@ pub use graph::Node;
 pub use iterm::ItermCounts;
 pub use logging::LogsRefused;
 pub use notice::ReportCount;
+pub use prompt::PromptsOpened;
 pub use search::{Found, SearchLines, Spot};
 pub use status::StatusBuf;
 pub use strings::StringsRefused;

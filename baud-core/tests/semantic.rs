@@ -1064,3 +1064,85 @@ fn a_full_reset_forgets_the_prompt_from_either_screen() {
         );
     }
 }
+
+/// **A prompt opening on the primary is counted as the bytes come**, so a
+/// read carrying a whole command -- `C`, its output, `D` and the next
+/// prompt -- moves the count though the zone is `Prompt` on both sides of
+/// it. The same at every split of the stream in two, and at every read
+/// size. The controls: a redraw's mark, arriving in the prompt zone,
+/// opens nothing; a mark on the alternate screen is the program's; `RIS`
+/// does not take the count back, so no reading after it equals one before.
+#[test]
+fn a_prompt_opening_is_counted_whatever_the_reads() {
+    let ws = WinSize {
+        ws_col: 40,
+        ws_row: 8,
+    };
+    let stream: &[u8] = b"\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07out\r\n\
+        \x1b]133;D;0\x07\x1b]133;A\x07$ \x1b]133;A\x07$ \x1b]133;B\x07";
+    let opened = |t: &Term<'_>| t.prompts_opened();
+    support::with_term(&ws, |t| {
+        let before = opened(t);
+        feed_in(t, b"\x1b]133;A\x07$ ", 4096);
+        let first = opened(t);
+        assert_ne!(first, before, "the control: the first prompt opened");
+        feed_in(t, b"\x1b]133;A\x07$ \x1b]133;P;k=s\x07\x1b]133;B\x07", 4096);
+        assert_eq!(
+            opened(t),
+            first,
+            "a redraw's A, a P and a B in the zone open nothing"
+        );
+        feed_in(
+            t,
+            b"\x1b[?1049h\x1b]133;A\x07$ \x1b]133;D\x07\x1b]133;A\x07",
+            4096,
+        );
+        assert_eq!(
+            opened(t),
+            first,
+            "the alternate screen's marks are the program's"
+        );
+        feed_in(t, b"\x1b[?1049l", 4096);
+        feed_in(
+            t,
+            b"\x1b]133;C\x07out\r\n\x1b]133;D\x07\x1b]133;A\x07$ ",
+            4096,
+        );
+        let second = opened(t);
+        assert_ne!(second, first, "one read, a whole command: a prompt opened");
+        feed_in(t, b"\x1bc", 4096);
+        assert_eq!(opened(t), second, "RIS does not take the count back");
+    });
+    let end = support::with_term(&ws, |t| {
+        feed_in(t, stream, 4096);
+        opened(t)
+    });
+    for cut in 0..=stream.len() {
+        let (a, b) = stream.split_at(cut);
+        let split = support::with_term(&ws, |t| {
+            feed_in(t, a, 4096);
+            feed_in(t, b, 4096);
+            opened(t)
+        });
+        assert_eq!(split, end, "cut at {cut}");
+    }
+    for n in [1, 2, 3, 7] {
+        let read = support::with_term(&ws, |t| {
+            feed_in(t, stream, n);
+            opened(t)
+        });
+        assert_eq!(read, end, "read size {n}");
+    }
+    let twice = support::with_term(&ws, |t| {
+        let before = opened(t);
+        feed_in(t, b"\x1b]133;A\x07$ ", 4096);
+        let one = opened(t);
+        feed_in(t, b"\x1b]133;C\x07\x1b]133;A\x07$ ", 4096);
+        (before, one, opened(t))
+    });
+    assert!(
+        twice.0 != twice.1 && twice.1 != twice.2,
+        "each prompt moves the count"
+    );
+    assert_eq!(end, twice.2, "the stream opened two prompts, as two do");
+}

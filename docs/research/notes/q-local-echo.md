@@ -118,14 +118,17 @@ prediction after it, because the chain stood on it. And a read that
 a prediction names a screen row, so a scroll moves its cell out from
 under it, and only a read can rotate the ring.
 
-A contradiction holds predictions until the next prompt -- as built,
-that is: until one read leaves the core in `Zone::Output` and a later
-one finds it back in `Zone::Prompt`. The zone is sampled once per read,
-after every chunk of it is fed, so a single read carrying the whole of
-`C`, the program's output and the next prompt's `A` is invisible to it
-and the hold stays on until the read after. Keying the reopen on a
-prompt *count* rather than on the level would close that; the core
-already carries the marks to do it with.
+A contradiction holds predictions until the next prompt: until a read
+after which the core's count of prompts opened on the primary
+(`Term::prompts_opened`) has moved. The core bumps it as the bytes come,
+wherever the primary's zone turns from output to `Zone::Prompt`, so a
+single read carrying the whole of `C`, the program's output and the next
+prompt's `A` releases the hold at its end, at any split of the read
+(`a_command_in_one_read_releases_the_hold`). Until 2026-10-27 the reopen
+was the zone sampled once a read, which that read left at `Prompt` on
+both sides, and the hold stayed on until a later prompt. A redraw's mark,
+which arrives in the prompt zone, and a mark on the alternate screen
+open nothing (`a_prompt_opening_is_counted_whatever_the_reads`).
 A prediction outstanding past `PREDICT_MAX` (150 ms, checked on the tick)
 is dropped as expired and counted as contradicted: a shell that did not
 echo a printable at its prompt is a shell whose widgets are eating keys.

@@ -152,6 +152,25 @@ impl InitialMark {
     }
 }
 
+/// **How many prompts have opened on the primary**: the times its zone
+/// turned from output to [`crate::term::Zone::Prompt`], as a reading to
+/// compare. An embedder that samples the zone once a read cannot see a
+/// command whose `C`, output and next `A` came in one read, which leaves
+/// the zone at `Prompt` on both sides; the count has moved. A redraw's mark,
+/// which arrives in the prompt zone, opens nothing, and a mark on the
+/// alternate screen is the program's, not the shell's. Not reset by `RIS`,
+/// so a reading taken before one never equals one taken after a prompt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PromptsOpened(u32);
+
+impl PromptsOpened {
+    pub(crate) const NONE: PromptsOpened = PromptsOpened(0);
+
+    fn next(self) -> PromptsOpened {
+        PromptsOpened(self.0.wrapping_add(1))
+    }
+}
+
 impl Shell {
     /// A screen no mark has spoken about: output, which is what a stream
     /// with no shell integration is.
@@ -214,7 +233,7 @@ impl Paint<'_, '_> {
                     col: self.cx.col(),
                     end,
                 };
-                self.strs.shell.zone = crate::term::Zone::Prompt;
+                self.prompt_zone();
             }
             Semantic::OutputStart => self.output_began(),
             // `D` closes the zone as `C` does: Enter on an empty line sends
@@ -254,8 +273,8 @@ impl Paint<'_, '_> {
             self.replace_prompt_block();
         }
         self.open_prompt_block();
+        self.prompt_zone();
         let shell = &mut self.strs.shell;
-        shell.zone = crate::term::Zone::Prompt;
         shell.input = Input::None;
         shell.secondary = Later::None;
         if self.cold.screen != crate::term::Screen::Normal {
@@ -269,11 +288,22 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// The live screen's zone turns to the prompt; on the primary, from
+    /// output, that is a prompt opening ([`PromptsOpened`]).
+    fn prompt_zone(&mut self) {
+        let opens = self.strs.shell.zone != crate::term::Zone::Prompt
+            && self.cold.screen == crate::term::Screen::Normal;
+        if opens {
+            self.strs.prompts_opened = self.strs.prompts_opened.next();
+        }
+        self.strs.shell.zone = crate::term::Zone::Prompt;
+    }
+
     /// A later line of the block: `k=s`, `k=c` or `k=r`.
     fn later_prompt(&mut self, kind: PromptKind) {
+        self.prompt_zone();
         let (rot, ring) = (self.view.rotation(), self.view.ring());
         let shell = &mut self.strs.shell;
-        shell.zone = crate::term::Zone::Prompt;
         if matches!(kind, PromptKind::Secondary | PromptKind::Continuation) {
             shell.secondary = Later::At(rot.advance(self.cy.index(), ring));
         }

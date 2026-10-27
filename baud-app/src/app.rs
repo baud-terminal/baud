@@ -23,7 +23,9 @@ use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Reveal, Scale, shown_gutter};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, grid_stride};
+use baud_core::{
+    Depth, Erasure, Looking, Owned, PromptJump, PromptsOpened, Screen, Term, Zone, grid_stride,
+};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers,
@@ -530,7 +532,8 @@ struct App {
     composing: Vec<Codepoint>,
     marked: Marked,
     hold: Hold,
-    last_zone: Zone,
+    /// The core's prompt count at the last read, for [`hold_after`].
+    last_prompts: PromptsOpened,
     last_tick: Option<f64>,
     /// When the synchronised update (`?2026`) open now opened, timed from its
     /// own opening. A frame is held while one is open, so a half-drawn screen --
@@ -1272,6 +1275,7 @@ impl App {
             None => None,
         });
         let notes = crate::notify::Delivery::new(notifications, &term);
+        let last_prompts = term.prompts_opened();
         App {
             bell,
             bell_style,
@@ -1332,7 +1336,7 @@ impl App {
             composing: Vec::new(),
             marked: Marked::Drawn,
             hold: Hold::Open,
-            last_zone: Zone::Output,
+            last_prompts,
             last_tick: None,
             updates: UpdateClock::new(SYNC_MAX),
             blink: BlinkPhases::SHOWN,
@@ -3676,7 +3680,6 @@ mod alt_window_tests {
         Before, Hold, Ring, erased, hold_after, live_cursor, live_moved, numbered, oldest,
         snap_live, stale_in_moved_rows, switched, whole_screen_scrolled, window_of,
     };
-    use baud_core::Zone;
     use baud_core::{Depth, Owned, Screen, Term};
     use baud_domain::{BytePos, ReadLen, Rows, WinSize};
     use baud_font::Px;
@@ -4907,8 +4910,8 @@ mod alt_window_tests {
 
     /// **A full-screen program started from the prompt is not a prompt
     /// opening.** A contradicted prediction holds prediction until the
-    /// shell's next prompt, and the hold is released when the zone turns to
-    /// `Prompt`. Each screen has its own zone, so a program a line-editor
+    /// shell's next prompt, and the hold is released when a prompt opens on
+    /// the primary. Each screen has its own zone, so a program a line-editor
     /// widget opens with no `C` -- fzf full-screen, `edit-command-line` --
     /// turned the live zone to `Output` and back, which read as a prompt
     /// opening when it closed. The control is a real next prompt, which
@@ -4917,12 +4920,16 @@ mod alt_window_tests {
     fn an_alternate_screen_round_trip_is_not_a_prompt_opening() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        let before = t.prompts_opened();
         feed(&mut t, b"\x1b]133;P;k=i\x07$ ");
-        let (mut hold, mut last) = hold_after(&t, Hold::Open, Zone::Output);
+        let (mut hold, mut last) = hold_after(&t, Hold::UntilNextPrompt, before);
         assert!(hold == Hold::Open, "the control: a prompt opened");
         // A prediction the echo contradicted.
         hold = Hold::UntilNextPrompt;
-        for read in [&b"\x1b[?1049h\x1b[Hpicker"[..], b"\x1b[?1049l"] {
+        // The program's screen carries a mark of its own, which is the
+        // program's and opens no prompt of the shell's.
+        let program = b"\x1b[?1049h\x1b]133;A\x07\x1b[Hpicker";
+        for read in [&program[..], b"\x1b[?1049l"] {
             (hold, last) = hold_after(&t, hold, last);
             feed(&mut t, read);
             (hold, last) = hold_after(&t, hold, last);
@@ -4937,6 +4944,47 @@ mod alt_window_tests {
         feed(&mut t, b"out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
         (hold, _) = hold_after(&t, hold, last);
         assert!(hold == Hold::Open, "the next prompt released the hold");
+    }
+
+    /// **A command whose `C`, output and next prompt come in one read
+    /// opens a prompt all the same.** The hold was released by the zone
+    /// turning to `Prompt` between two reads, and a one-read command leaves
+    /// it at `Prompt` on both sides, so prediction stayed held until a later
+    /// prompt. At every split of the read in two the hold is released at its
+    /// end; the control is the read with no prompt in it, which keeps it.
+    #[test]
+    fn a_command_in_one_read_releases_the_hold() {
+        let prompt = b"\x1b]133;P;k=i\x07$ ";
+        let read = b"\r\n\x1b]133;C\x07out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ";
+        let control = b"\r\n\x1b]133;C\x07out\r\n\x1b]133;D\x07";
+        for (bytes, opens) in [(&read[..], true), (&control[..], false)] {
+            for cut in 0..bytes.len() {
+                let mut owned = Owned::new(&WS);
+                let mut t = Term::new(owned.storage(), &WS);
+                let (_, last) = hold_after(&t, Hold::Open, t.prompts_opened());
+                feed(&mut t, prompt);
+                let (_, mut last) = hold_after(&t, Hold::Open, last);
+                // A prediction the echo contradicted, at this prompt.
+                let mut hold = Hold::UntilNextPrompt;
+                let (one, two) = bytes.split_at(cut);
+                match cut == 0 {
+                    // One read, the whole of it.
+                    true => feed(&mut t, bytes),
+                    // Two reads, the hold sampled after each.
+                    false => {
+                        feed(&mut t, one);
+                        (hold, last) = hold_after(&t, hold, last);
+                        feed(&mut t, two);
+                    }
+                }
+                (hold, _) = hold_after(&t, hold, last);
+                assert_eq!(
+                    hold == Hold::Open,
+                    opens,
+                    "{bytes:?} cut at {cut}: a prompt opened or not"
+                );
+            }
+        }
     }
 
     /// **The display-link tick reads the link preview's modifiers**, so a
@@ -8740,20 +8788,23 @@ enum Hold {
     UntilNextPrompt,
 }
 
-/// The hold after a read, and the zone to remember for the next: a prompt
-/// opening -- the zone turning to `Prompt` -- releases a hold a contradicted
-/// prediction set. **The primary's zone, not the live screen's.** Each
-/// screen has its own, so a full-screen program a line-editor widget opens
-/// with no `C` turned the live zone to `Output` and back, and its closing
-/// read as a prompt opening. The primary's stays `Prompt` across it, and on
-/// the primary the two are one.
-fn hold_after(term: &Term<'_>, hold: Hold, last: Zone) -> (Hold, Zone) {
-    let zone = term.primary_zone();
-    let hold = match zone == Zone::Prompt && last != Zone::Prompt {
+/// The hold after a read, and the prompt count to remember for the next: a
+/// prompt opening on the primary since the last read releases a hold a
+/// contradicted prediction set. **A count, not the zone sampled.** A read
+/// carrying a whole command -- its `C`, the output and the next `A` --
+/// leaves the zone at `Prompt` on both sides, and the hold stayed on until
+/// a later prompt; the core counts each turn of the primary's zone to
+/// `Prompt` as the bytes come, whatever the reads. **The primary's, not the
+/// live screen's**: a full-screen program a line-editor widget opens with
+/// no `C` turned the live zone to `Output` and back, and its closing read as
+/// a prompt opening.
+fn hold_after(term: &Term<'_>, hold: Hold, last: PromptsOpened) -> (Hold, PromptsOpened) {
+    let now = term.prompts_opened();
+    let hold = match now != last {
         true => Hold::Open,
         false => hold,
     };
-    (hold, zone)
+    (hold, now)
 }
 
 /// A prediction outstanding this long is dropped as contradicted: a shell
@@ -8984,7 +9035,7 @@ impl Driver {
                 app.guess = Guess::None;
             }
         }
-        (app.hold, app.last_zone) = hold_after(&app.term, app.hold, app.last_zone);
+        (app.hold, app.last_prompts) = hold_after(&app.term, app.hold, app.last_prompts);
     }
 
     /// Row 9: predictions outstanding past `PREDICT_MAX` are dropped as

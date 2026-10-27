@@ -3589,6 +3589,14 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// **How many prompts have opened on the primary**, a reading to
+    /// compare after a read: moved, a prompt opened in it, though the read
+    /// carried a whole command and [`Term::primary_zone`] is `Prompt` on
+    /// both sides of it. See [`PromptsOpened`](crate::PromptsOpened).
+    pub fn prompts_opened(&self) -> crate::PromptsOpened {
+        self.store.strs.prompts_opened
+    }
+
     /// Whether a change of width re-cuts the primary: in [`Zone::Output`],
     /// and at a prompt the shell said it will not redraw -- kitty's
     /// `redraw=0`, "the shell will not redraw the prompt on resize", under

@@ -526,6 +526,10 @@ pub struct StrBuf<'b> {
     /// `clip_area` is: only a mark and a resize reach them.
     pub(crate) shell: crate::prompt::Shell,
     pub(crate) shell_other: crate::prompt::Shell,
+    /// The prompts opened on the primary ([`crate::Term::prompts_opened`]):
+    /// beside the marks' state, not in either screen's, because `?1049`
+    /// swaps those and this is the primary's whichever is up.
+    pub(crate) prompts_opened: crate::prompt::PromptsOpened,
     /// **Whether a new prompt is drawn on the window's last row**
     /// ([`crate::Term::set_prompt_at_bottom`]): beside the marks' state for
     /// the reason it is, only a mark and the setter read it.
@@ -653,6 +657,7 @@ impl<'b> StrBuf<'b> {
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
+            prompts_opened: crate::prompt::PromptsOpened::NONE,
             prompt_at_bottom: PromptAtBottom::Off,
             prompts: PromptLog::new(&mut []),
             reflow_dropped: Rows::ZERO,
@@ -998,6 +1003,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                prompts_opened: crate::prompt::PromptsOpened::NONE,
                 prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
@@ -1091,6 +1097,7 @@ impl Owned {
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
+                prompts_opened: crate::prompt::PromptsOpened::NONE,
                 prompt_at_bottom: PromptAtBottom::Off,
                 prompts: PromptLog::new(&mut self.prompts),
                 reflow_dropped: Rows::ZERO,
