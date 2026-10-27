@@ -2338,6 +2338,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
         DomCsi::Position(op, n) => p.set_position(op, n),
+        DomCsi::SelectEditingExtent(e) => p.select_editing_extent(e),
         DomCsi::CursorTabControl => p.tab_control(csi),
         DomCsi::CursorLineTab(c) => p.line_tab(c),
         DomCsi::TabsEveryEight => p.reset_tabs(),

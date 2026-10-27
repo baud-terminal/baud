@@ -821,6 +821,10 @@ pub enum Csi {
     /// dispatch made it save two more register pairs on every control
     /// sequence.
     Position(PositionOp, Option<OneBased>),
+    /// SEE, `CSI Ps Q` (`[[source: ecma48]]` 8.3.115): "the editing extent
+    /// for subsequent character or line insertion or deletion", `None` for
+    /// a value 8.3.115 does not define.
+    SelectEditingExtent(Option<EditExtent>),
     /// CTC, `CSI Ps... W` (`[[source: ecma48]]` 8.3.17, "Notation:
     /// (Ps...)"): sets and clears stops of both kinds,
     /// every parameter in order, which the caller walks through
@@ -1502,6 +1506,7 @@ impl Csi {
                     final_byte: f,
                 },
             },
+            b'Q' => Csi::SelectEditingExtent(EditExtent::from_param(p.at(ParamIdx::FIRST))),
             b'b' => Csi::Repeat(p.count(ParamIdx::FIRST)),
             // **Only a request is answered**: `[[source: ecma48]]` 8.3.24,
             // "With a parameter value not equal to 0, DA is used to identify
@@ -1614,6 +1619,37 @@ impl Csi {
                 marker,
                 final_byte: f,
             },
+        }
+    }
+}
+
+/// **SEE's editing extent** (`[[source: ecma48]]` 8.3.115): what "the
+/// shifted part" of an `ICH`, `DCH`, `IL`, `DL` or a write under IRM is
+/// limited to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EditExtent {
+    /// 0, "the active page in the presentation component"; the default.
+    Page,
+    /// 1, "the active line in the presentation component".
+    Line,
+    /// 2, "the active field in the presentation component".
+    Field,
+    /// 3, "the active qualified area".
+    QualifiedArea,
+    /// 4, "the relevant part of the entire presentation component".
+    Entire,
+}
+
+impl EditExtent {
+    /// The extent for `Ps`, an omitted one 0; `None` past 4.
+    pub fn from_param(p: Option<Param>) -> Option<EditExtent> {
+        match p.map_or(0, |x| x.0) {
+            0 => Some(EditExtent::Page),
+            1 => Some(EditExtent::Line),
+            2 => Some(EditExtent::Field),
+            3 => Some(EditExtent::QualifiedArea),
+            4 => Some(EditExtent::Entire),
+            _ => None,
         }
     }
 }
@@ -1863,6 +1899,7 @@ impl Csi {
             | CursorBackTab(_)
             | TabClear(_)
             | Position(..)
+            | SelectEditingExtent(_)
             | CursorTabControl
             | CursorLineTab(_)
             | Mode { .. }

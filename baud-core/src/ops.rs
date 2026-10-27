@@ -1521,6 +1521,19 @@ impl Paint<'_, '_> {
         }
         // The line home once SLH has set one (`crate::bounds`).
         self.set_col(CursorCol::moved(self.homed(self.cold.left)));
+        // SEE 1 and 2 erase the active line; SEE 3 shifts to the area's
+        // last line (`crate::extent`).
+        if self.lines_in_line() {
+            return;
+        }
+        if let Some(last) = self.area_last_line() {
+            return self.lines_to(last, |p| p.insert_lines_in_region(n));
+        }
+        self.insert_lines_in_region(n);
+    }
+
+    /// `IL` from the cursor's line to the bottom margin.
+    fn insert_lines_in_region(&mut self, n: Count) {
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Down);
             return;
@@ -1566,6 +1579,28 @@ impl Paint<'_, '_> {
             return;
         }
         self.set_col(CursorCol::moved(self.homed(self.cold.left)));
+        if self.lines_in_line() {
+            return;
+        }
+        if let Some(last) = self.area_last_line() {
+            return self.lines_to(last, |p| p.delete_lines_in_region(n));
+        }
+        self.delete_lines_in_region(n);
+    }
+
+    /// **`IL` or `DL` with the bottom margin at `last`** for the shift, SEE
+    /// 3's area's last line, and put back after.
+    #[cold]
+    #[inline(never)]
+    fn lines_to(&mut self, last: Row, f: impl FnOnce(&mut Self)) {
+        let bot = self.cold.bot;
+        self.cold.bot = last;
+        f(self);
+        self.cold.bot = bot;
+    }
+
+    /// `DL` from the cursor's line to the bottom margin.
+    fn delete_lines_in_region(&mut self, n: Count) {
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Up);
             return;
@@ -1618,6 +1653,11 @@ impl Paint<'_, '_> {
 
     /// DCH: pull the rest of the row left over `n` cells.
     pub(crate) fn delete_chars(&mut self, n: Count) {
+        // Under an extent SEE chose other than the line, out of line
+        // (`crate::extent`).
+        if self.extent_chosen() {
+            return self.edit_extent(n, crate::editing::CharEdit::Delete);
+        }
         // Under HEM's PRECEDING or DCSM's PRESENTATION, out of line
         // (`crate::editing`).
         if self
@@ -1652,6 +1692,9 @@ impl Paint<'_, '_> {
 
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
+        if self.extent_chosen() {
+            return self.edit_extent(n, crate::editing::CharEdit::Insert);
+        }
         if self
             .cold
             .modes
@@ -4649,6 +4692,7 @@ impl Paint<'_, '_> {
         self.cold.dcsm = DeviceComponent::POWER_ON;
         // SLH's and SLL's positions go (`crate::bounds`).
         self.cold.bounds = crate::bounds::LineBounds::NONE;
+        self.cold.extent = None;
         self.refresh_presentation_edits();
         // No character path, autodetection on and no box mirroring, in
         // force and on every line: the mode word above took

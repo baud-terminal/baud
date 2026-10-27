@@ -1,0 +1,260 @@
+//! **SEE, `CSI Ps Q`** (`[[source: ecma48]]` 8.3.115): "SEE is used to
+//! establish the editing extent for subsequent character or line insertion
+//! or deletion ... 0 the shifted part is limited to the active page in the
+//! presentation component 1 the shifted part is limited to the active line
+//! ... 2 ... the active field ... 3 ... the active qualified area 4 the
+//! shifted part consists of the relevant part of the entire presentation
+//! component." Each test writes `abcdefghij`, `klmnopqrst` and `uvwxyz` on
+//! a ten-column screen, then the edit.
+
+mod support;
+
+use baud_core::*;
+
+const WS: WinSize = WinSize {
+    ws_row: 4,
+    ws_col: 10,
+};
+
+const TEXT: &str = "\x1b[1;1Habcdefghij\x1b[2;1Hklmnopqrst\x1b[3;1Huvwxyz";
+
+/// The four rows as text, `.` for an empty position, `_` for a wide tail.
+fn rows(then: &str) -> [String; 4] {
+    support::with_term(&WS, |t| {
+        support::feed(t, format!("{TEXT}{then}").as_bytes());
+        core::array::from_fn(|y| {
+            t.viewport().row(Row::from_index(y))[..10]
+                .iter()
+                .map(|c| match c.content {
+                    x if x.is_wide_tail() => '_',
+                    x => x
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or('.'),
+                })
+                .collect()
+        })
+    })
+}
+
+fn cursor(then: &str) -> (usize, usize) {
+    support::with_term(&WS, |t| {
+        support::feed(t, format!("{TEXT}{then}").as_bytes());
+        let (r, c) = t.cursor();
+        (r.index(), c.index())
+    })
+}
+
+/// **Before any SEE, DEC's extent**: `ICH` shifts within the line and the
+/// characters pushed past its end are lost (DEC STD 070 ICH note 1), as
+/// SEE 1 does (Jev's lean, LINE).
+#[test]
+fn before_any_see_ich_shifts_within_the_line() {
+    let dec = rows("\x1b[1;9H\x1b[2@");
+    assert_eq!(
+        dec,
+        ["abcdefgh..", "klmnopqrst", "uvwxyz....", ".........."]
+    );
+    assert_eq!(rows("\x1b[1Q\x1b[1;9H\x1b[2@"), dec);
+    assert_eq!(
+        rows("\x1bc"),
+        ["..........", "..........", "..........", ".........."]
+    );
+}
+
+/// **SEE 0, the page**: what `ICH` pushes off a line's end goes on at the
+/// next line's start, and the page's last positions leave; `DCH` pulls the
+/// following lines back. `CSI Q`, the parameter omitted, is 0.
+#[test]
+fn see_page_shifts_across_line_ends() {
+    assert_eq!(
+        rows("\x1b[Q\x1b[1;9H\x1b[2@"),
+        ["abcdefgh..", "ijklmnopqr", "stuvwxyz..", ".........."]
+    );
+    assert_eq!(
+        rows("\x1b[0Q\x1b[1;9H\x1b[2P"),
+        ["abcdefghkl", "mnopqrstuv", "wxyz......", ".........."]
+    );
+    assert_eq!(cursor("\x1b[Q\x1b[1;9H\x1b[2@"), (0, 8), "the cursor stays");
+}
+
+/// **SEE 4 is the page here** (Jev, AS_PAGE, 1.00/1.00).
+#[test]
+fn see_four_is_the_page() {
+    assert_eq!(
+        rows("\x1b[4Q\x1b[1;9H\x1b[2@"),
+        rows("\x1b[0Q\x1b[1;9H\x1b[2@")
+    );
+}
+
+/// **SEE 2, the field**: the stop at 8 bounds it, so `ICH` at column 2
+/// loses `g h` and leaves `i j`, and `DCH` closes the gap before the stop.
+#[test]
+fn see_field_shifts_within_the_field() {
+    assert_eq!(rows("\x1b[2Q\x1b[1;3H\x1b[2@")[0], "ab..cdefij");
+    assert_eq!(rows("\x1b[2Q\x1b[1;3H\x1b[2P")[0], "abefgh..ij");
+}
+
+/// **SEE 3, the qualified area**: inside the guarded `d e f` a `DCH`
+/// closes up there alone; in the unguarded run before it an `ICH` loses
+/// `c` at the run's end.
+#[test]
+fn see_qualified_area_shifts_within_the_area() {
+    let guard = "\x1b[1;4H\x1bV\x1b[1;6H\x1bW";
+    assert_eq!(
+        rows(&format!("{guard}\x1b[3Q\x1b[1;4H\x1b[P"))[0],
+        "abcef.ghij"
+    );
+    assert_eq!(
+        rows(&format!("{guard}\x1b[3Q\x1b[1;2H\x1b[@"))[0],
+        "a.bdefghij"
+    );
+}
+
+/// **Across lines the shift keeps within DEC's margins** (Jev's lean,
+/// WITHIN_MARGINS): the region's last line ends it, the line below keeps
+/// its text; between side margins a line's right margin goes on at the
+/// next line's left margin.
+#[test]
+fn a_shift_across_lines_keeps_within_the_margins() {
+    assert_eq!(
+        rows("\x1b[1;2r\x1b[Q\x1b[1;9H\x1b[2@"),
+        ["abcdefgh..", "ijklmnopqr", "uvwxyz....", ".........."]
+    );
+    assert_eq!(
+        rows("\x1b[?69h\x1b[3;8s\x1b[Q\x1b[1;7H\x1b[2@"),
+        ["abcdef..ij", "klghmnopst", "uvqrwxyz..", ".........."]
+    );
+    assert_eq!(
+        rows("\x1b[1;2r\x1b[Q\x1b[3;1H\x1b[2@")[2],
+        "uvwxyz....",
+        "outside the margins it is ignored"
+    );
+}
+
+/// **HEM's PRECEDING shifts from the extent's start to the cursor**:
+/// `DCH` on `l` under the page takes it out and the page closes up from its
+/// first position.
+#[test]
+fn preceding_shifts_from_the_extent_start() {
+    assert_eq!(
+        rows("\x1b[10h\x1b[Q\x1b[2;2H\x1b[P"),
+        [".abcdefghi", "jkmnopqrst", "uvwxyz....", ".........."]
+    );
+}
+
+/// **A write under IRM opens its gap along the extent**: under the page
+/// `X` goes in at `i`, which goes on at the next line's start; under
+/// PRECEDING the positions before the cursor move back, the first leaving.
+#[test]
+fn a_write_under_irm_shifts_along_the_extent() {
+    assert_eq!(
+        rows("\x1b[4h\x1b[Q\x1b[1;9HX"),
+        ["abcdefghXi", "jklmnopqrs", "tuvwxyz...", ".........."]
+    );
+    assert_eq!(
+        rows("\x1b[4h\x1b[10h\x1b[Q\x1b[2;2HX"),
+        ["bcdefghijk", "lXmnopqrst", "uvwxyz....", ".........."]
+    );
+    assert_eq!(cursor("\x1b[4h\x1b[10h\x1b[Q\x1b[2;2HX"), (1, 1));
+}
+
+/// **`IL` and `DL` under SEE 1 and 2 erase the active line** (Jev,
+/// ERASE_ACTIVE, 0.98/0.98): the shifted part is that line alone.
+#[test]
+fn il_and_dl_under_a_line_or_field_extent_erase_the_active_line() {
+    let erased = ["abcdefghij", "..........", "uvwxyz....", ".........."];
+    assert_eq!(rows("\x1b[1Q\x1b[2;5H\x1b[L"), erased);
+    assert_eq!(rows("\x1b[2Q\x1b[2;5H\x1b[M"), erased);
+    assert_eq!(cursor("\x1b[1Q\x1b[2;5H\x1b[L"), (1, 0));
+    assert_eq!(
+        rows("\x1b[2;5H\x1b[L"),
+        ["abcdefghij", "..........", "klmnopqrst", "uvwxyz...."],
+        "before any SEE, the region"
+    );
+}
+
+/// **`IL` and `DL` under SEE 3 shift the area's lines** (Jev's lean,
+/// AREA_LINES): an area over rows 1 and 2, so row 3 keeps its place.
+#[test]
+fn il_and_dl_under_a_qualified_area_shift_its_lines() {
+    let guard = "\x1b[2;1H\x1bV\x1b[3;10H\x1bW";
+    assert_eq!(
+        rows(&format!("{guard}\x1b[4;1Hend\x1b[3Q\x1b[2;1H\x1b[L")),
+        ["abcdefghij", "..........", "klmnopqrst", "end......."]
+    );
+    assert_eq!(
+        rows(&format!("{guard}\x1b[4;1Hend\x1b[3Q\x1b[2;1H\x1b[M")),
+        ["abcdefghij", "uvwxyz....", "..........", "end......."]
+    );
+}
+
+/// **A wide character a line end would cut is erased**, both halves.
+#[test]
+fn a_wide_character_a_line_end_cuts_is_erased() {
+    support::with_term(&WS, |t| {
+        support::feed(
+            t,
+            "\x1b[1;1Habcdefgh中\x1b[2;1Hklm\x1b[Q\x1b[1;1H\x1b[@".as_bytes(),
+        );
+        let row = |y: usize| -> String {
+            t.viewport().row(Row::from_index(y))[..10]
+                .iter()
+                .map(|c| match c.content {
+                    x if x.is_wide_tail() => '_',
+                    x => x
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or('.'),
+                })
+                .collect()
+        };
+        assert_eq!(row(0), ".abcdefgh.");
+        assert_eq!(row(1), ".klm......");
+    });
+}
+
+/// **A value past 4 is counted and keeps the extent** (Jev, COUNTED_KEEP,
+/// 0.98/0.94); the private namespace is no SEE.
+#[test]
+fn see_with_an_undefined_value_is_counted() {
+    support::with_term(&WS, |t| {
+        support::feed(t, b"\x1b[Q\x1b[5Q\x1b[?1Q");
+        assert_eq!(t.unsupported_param, 1);
+        assert_eq!(t.unsupported, 1);
+    });
+    assert_eq!(
+        rows("\x1b[Q\x1b[5Q\x1b[1;9H\x1b[2@")[1],
+        "ijklmnopqr",
+        "the page still"
+    );
+}
+
+/// **`RIS` returns to DEC's extent, `DECSTR` keeps it** (Jev, KEEP,
+/// 0.96/0.96).
+#[test]
+fn ris_returns_to_decs_extent_and_decstr_keeps_it() {
+    assert_eq!(rows("\x1b[Q\x1b[!p\x1b[1;9H\x1b[2@")[1], "ijklmnopqr");
+    support::with_term(&WS, |t| {
+        support::feed(t, format!("\x1b[Q\x1bc{TEXT}\x1b[1;9H\x1b[2@").as_bytes());
+        let row1: String = t.viewport().row(Row::from_index(1))[..10]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        assert_eq!(row1, "klmnopqrst");
+    });
+}
+
+/// **DECRQSS does not answer SEE**, as it answers SCP: `DCS 0 $ r ST`.
+#[test]
+fn decrqss_answers_see_as_invalid() {
+    support::with_term(&WS, |t| {
+        support::feed(t, b"\x1b[2Q\x1bP$qQ\x1b\\");
+        assert_eq!(t.reply(), b"\x1bP0$r\x1b\\");
+    });
+}

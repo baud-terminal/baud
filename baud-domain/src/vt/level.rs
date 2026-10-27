@@ -388,6 +388,7 @@ impl Csi {
             | CursorBackTab(_)
             | CursorTabControl
             | Position(..)
+            | SelectEditingExtent(_)
             | CursorLineTab(_)
             | CursorNextLine(_)
             | CursorPrevLine(_)

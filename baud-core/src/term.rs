@@ -1285,6 +1285,9 @@ pub struct Cold {
     /// SLH's line home and SLL's line limit (`crate::bounds`): neither at
     /// power-on and after `RIS`, kept by `DECSTR` and a resize.
     pub(crate) bounds: crate::bounds::LineBounds,
+    /// SEE's editing extent (`crate::extent`): `None`, DEC's, at power-on
+    /// and after `RIS`, kept by `DECSTR` and a resize.
+    pub(crate) extent: Option<baud_domain::EditExtent>,
     /// DECBKM `?67`, `?1037` and `?1035`, which `Term::key` hands the
     /// encoder: each its power-on value at power-on and after `RIS`, and
     /// kept by `DECSTR`, whose table names none of them (`[[source:
@@ -2009,6 +2012,7 @@ impl Cold {
             keypad: KeypadMode::Numeric,
             line_stops: LineStops::NONE,
             bounds: crate::bounds::LineBounds::NONE,
+            extent: None,
             backarrow: BackarrowKey::Delete,
             delete: DeleteKey::Remove,
             resources: baud_domain::Resources::POWER_ON,

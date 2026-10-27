@@ -519,6 +519,23 @@ impl Col {
     }
 }
 
+/// **A position's index along a run of character positions**, in the
+/// order of the character path and across lines: `baud-core`'s SEE extents
+/// walk one, a page of them at most.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[repr(transparent)]
+pub struct PathIdx(pub(crate) usize);
+
+impl PathIdx {
+    pub const ZERO: PathIdx = PathIdx(0);
+    pub fn at_index(i: usize) -> PathIdx {
+        PathIdx(i)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
 /// A repeat count or distance. Omitted or zero both mean 1 — a rule that was
 /// previously restated as `if a != 0 { a } else { 1 }` in every arm.
 #[derive(Clone, Copy)]

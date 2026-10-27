@@ -739,7 +739,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn write_slowly(&mut self, cp: Codepoint, need: Count) {
         self.form_step(cp);
         if self.inserting() {
-            self.open_gap(need);
+            // Under an extent SEE chose other than the line, along it
+            // (`crate::extent`).
+            match self.extent_chosen() {
+                false => self.open_gap(need),
+                true => self.open_gap_extent(need),
+            }
         }
     }
 

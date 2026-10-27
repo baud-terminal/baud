@@ -1146,6 +1146,19 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SEE**: the page, whose shifts cross line ends, and the line again.
+    Atom {
+        name: "see-page",
+        bytes: b"\x1b[Q",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "see-line",
+        bytes: b"\x1b[1Q",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2029,6 +2042,28 @@ fn the_bound_atoms_reach_slh_and_sll() {
     };
     assert_eq!(row(0), "the quick br");
     assert_eq!(row(1), "....own fox.");
+}
+
+/// **The SEE atoms reach the extent**: under the page an `ICH` at the
+/// start of a full first row pushes its last character onto the second.
+#[test]
+fn the_see_atoms_reach_the_extent() {
+    let second = |names: &[&str]| {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let mut b = b"abcdefghijklmnopqrst".to_vec();
+        let prog: Vec<usize> = names.iter().map(|n| atom(n)).collect();
+        b.extend_from_slice(&bytes_of(&prog));
+        b.extend_from_slice(b"\x1b[1;1H\x1b[@");
+        support::feed(&mut t, &b);
+        t.row(Row::from_index(1)).expect("a row")[0]
+            .content
+            .as_codepoint()
+            .map(|c| c.value())
+    };
+    assert_eq!(second(&["see-page"]), Some(0x74));
+    assert_eq!(second(&["see-page", "see-line"]), None);
 }
 
 proptest! {

@@ -87,7 +87,7 @@ impl Paint<'_, '_> {
             return self.glyph_preceding(cp, w, pen);
         }
         let need = 1 + usize::from(w == Width::WIDE);
-        let mut map = self.cursor_map();
+        let mut map = self.edit_map();
         let raw = self.cx.raw().index();
         let fits = raw + need <= self.cold.fence.index() + 1;
         // Under the map the room is the presentation position's: a string
@@ -116,7 +116,7 @@ impl Paint<'_, '_> {
                 (true, Some(c)) => self.set_col(baud_domain::CursorCol::moved(c)),
                 (true, None) => self.wrap_bounded(),
             }
-            map = self.cursor_map();
+            map = self.edit_map();
         }
         match map {
             Some(m) => {
@@ -147,10 +147,17 @@ impl Paint<'_, '_> {
         }
         self.form_step(cp);
         let blank = self.blank();
-        let (lead_col, kept) = match self.cursor_map() {
+        let (lead_col, kept) = match self.edit_map() {
             Some(m) => {
                 let p = m.presentation(c);
                 (self.open_preceding_drawn(&m, p, Count::of(need)), Some(p))
+            }
+            // Under an extent SEE chose other than the line, along it
+            // (`crate::extent`).
+            None if self.extent_chosen() => {
+                let to = crate::extent::Toward::Start;
+                self.shift_extent(c, Count::of(need), CharEdit::Insert, to);
+                (Col::at_index(c.index() + 1 - need), None)
             }
             None => {
                 let after = c.after();

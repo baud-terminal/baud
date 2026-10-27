@@ -68,6 +68,7 @@ mod iterm;
 pub use graph::Hist;
 mod bounds;
 mod component;
+mod extent;
 mod kitty;
 mod leftward;
 mod locator;
