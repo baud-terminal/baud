@@ -239,3 +239,93 @@ fn a_carriage_return_to_the_strings_column_ends_it() {
     assert_eq!(s[2], "......ab............");
     assert_eq!(s[3], "........c...........");
 }
+
+/// **An erase or edit of the string's line ends it** (Jev, FORMAT_EFFECTOR,
+/// 0.92/0.92: "and an erase or edit of the line"; which ones, Jev's lean,
+/// LINE_REACHED, 0.83/0.94): each of these leaves the cursor where the
+/// string left it, column 8, and reaches row 0, so the `c` after it is
+/// plain text there, where laid out it would end the string at column 7:
+/// among them `ICH` and `DCH` from row 1 under SEE 0, whose shift crosses
+/// into row 0, and `IL` and `DL`, which put the cursor on SLH's home at
+/// the string's column, and `ICH` and `DCH` under HEM's PRECEDING.
+#[test]
+fn an_erase_or_edit_of_the_strings_line_ends_it() {
+    let mut wrong = Vec::new();
+    for edit in [
+        "\x1b[K",
+        "\x1b[1K",
+        "\x1b[2K",
+        "\x1b[X",
+        "\x1b[P",
+        "\x1b[@",
+        "\x1b[J",
+        "\x1b[1J",
+        "\x1b[2J",
+        "\x1b[?K",
+        "\x1b[?J",
+        "\x1b[N",
+        "\x1b[O",
+        "\x1b[S",
+        "\x1b[T",
+        "\x1b[ @",
+        "\x1b[ A",
+        "\x1b['}",
+        "\x1b['~",
+        "\x1b[1;1;1;20$z",
+        "\x1b[1;1;1;20${",
+        "\x1b[88;1;1;1;20$x",
+        "\x1b[3;1;3;20;1;1;1;1$v",
+        "\x1b[B\x1b[1J\x1b[A",
+        "\x1b[Q\x1b[10h\x1b[B\x1b[@\x1b[A",
+        "\x1b[Q\x1b[10h\x1b[B\x1b[P\x1b[A",
+        "\x1b[9 U\x1b[L",
+        "\x1b[9 U\x1b[M",
+        "\x1b[0;1K",
+        "\x1b[1;1J",
+        "\x1b[?0;1K",
+        "\x1b[?0;1J",
+        "\x1b[10h\x1b[@",
+        "\x1b[10h\x1b[P",
+    ] {
+        let (row, cursor) = laid(&format!("\x1b[9 a\tab{edit}c"));
+        if row.find('c') != Some(8) || cursor != 9 {
+            wrong.push(format!("{edit:?}: {row} cursor {cursor}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **One that reaches only other lines leaves it open**, and so does an
+/// attribute change: `DECERA` and `DECFRA` on row 3, and `DECCARA` over
+/// row 0. **So does one the margins make a no-op**, which erases and
+/// shifts nothing: `IL` and `DL` above DECSTBM's region, and `ICH`, `DCH`,
+/// `DECIC` and `DECDC` right of DECSLRM's, under no SEE, SEE's page and
+/// HEM's PRECEDING.
+#[test]
+fn an_erase_of_another_line_or_an_attribute_change_keeps_it() {
+    for edit in ["\x1b[4;1;4;20$z", "\x1b[88;4;1;4;20$x", "\x1b[1;1;1;20;1$r"] {
+        let (row, _) = laid(&format!("\x1b[9 a\tab{edit}c"));
+        assert_eq!(row.find('c'), Some(7), "{edit:?}: {row}");
+    }
+    let region = "\x1b[2;4r\x1b[H";
+    let margins = "\x1b[?69h\x1b[1;5s\x1b[1;7H";
+    let mut wrong = Vec::new();
+    for (pre, edit) in [
+        (region, "\x1b[L"),
+        (region, "\x1b[M"),
+        (margins, "\x1b[@"),
+        (margins, "\x1b[P"),
+        (margins, "\x1b['}"),
+        (margins, "\x1b['~"),
+        (margins, "\x1b[Q\x1b[@"),
+        (margins, "\x1b[Q\x1b[P"),
+        (margins, "\x1b[10h\x1b[@"),
+        (margins, "\x1b[10h\x1b[P"),
+    ] {
+        let (row, _) = laid(&format!("{pre}\x1b[9 a\tab{edit}c"));
+        if row.find('c') != Some(7) {
+            wrong.push(format!("{pre:?} {edit:?}: {row}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

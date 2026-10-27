@@ -233,6 +233,7 @@ impl Paint<'_, '_> {
         if c > self.line_fence() {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         match self.cursor_map() {
             Some(m) => {
                 let p = m.presentation(c);
@@ -275,6 +276,7 @@ impl Paint<'_, '_> {
         if c > self.line_fence() {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         match self.cursor_map() {
             Some(m) => {
                 let p = m.presentation(c);

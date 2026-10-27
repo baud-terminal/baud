@@ -25,9 +25,12 @@
 //! stays one string (Jev, FORMAT_EFFECTOR, 0.92/0.92): `CR`, `LF`, `VT`,
 //! `FF`, `IND`, `NEL` and `RI` end it themselves, so a line scrolled in
 //! under the cursor takes none, and after any other control it ends at the
-//! first character written anywhere but where it left the cursor. A
-//! string that would move back past the line's start, the left margin
-//! under DECLRMM, or on past the line's end goes on as plain text (Jev's
+//! first character written anywhere but where it left the cursor. **An
+//! erase or edit of its line ends it too**, the decided rule's "and an
+//! erase or edit of the line", before it acts ([`EditRows`]; Jev's lean,
+//! LINE_REACHED, 0.83/0.94 on a second ask). A string that would move
+//! back past the line's start, the left margin under DECLRMM, or on past
+//! the line's end goes on as plain text (Jev's
 //! lean, AS_TEXT, 0.16/0.26 then 0.94/0.88).
 //!
 //! `HTS` and `CTC 0` set an ordinary stop where an aligned one was; `TBC`,
@@ -44,7 +47,10 @@
 //! time, the one-by-one graph [`ModeBit::Aligning`] chooses, laid out by
 //! SAPV's writer's step out of line.
 
-use baud_domain::{Align, Codepoint, Col, Count, CursorCol, ModeBit, OneBased, Row, TargetChar};
+use baud_domain::{
+    Align, Codepoint, Col, Count, CursorCol, EditExtent, EraseExtent, ModeBit, OneBased, Row,
+    TargetChar,
+};
 
 use crate::MAX_COLS;
 use crate::component::Drawn;
@@ -72,6 +78,28 @@ pub(crate) struct Open {
     len: Count,
     /// Where the string left the cursor.
     at: Col,
+}
+
+/// **The lines an erase or edit reaches**, read only while a string is
+/// open ([`Paint::edit_reaches`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EditRows {
+    /// The cursor's line: EL, ECH, EF and DECSEL.
+    Line,
+    /// `ICH`'s and `DCH`'s: the cursor's line, or under SEE's page or
+    /// qualified area the rows the shift runs through within DEC's margins,
+    /// from the top margin to the cursor under HEM's PRECEDING and from the
+    /// cursor to the bottom margin under FOLLOWING (`crate::extent`).
+    Chars,
+    /// `IL`'s and `DL`'s: the cursor's line through the bottom margin.
+    Lines,
+    /// ED's and DECSED's: below the cursor and its line, above it and its
+    /// line, or the page.
+    Display(EraseExtent),
+    /// The scrolling region: SU, SD, SL, SR, DECIC and DECDC.
+    Region,
+    /// Rows from the first through the second: EA's run and a rectangle.
+    Span(Row, Row),
 }
 
 /// What each column's stop calls for, and the string being laid out.
@@ -174,6 +202,48 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn effector_ends_string(&mut self) {
         if self.cold.modes.is_set(ModeBit::Aligning) {
+            self.aligned_ends();
+        }
+    }
+
+    /// **An erase or edit reaching `rows` ends a string open on one of
+    /// them**, before it acts (Jev, FORMAT_EFFECTOR, 0.92/0.92: "an erase or
+    /// edit of the line"; Jev's lean, LINE_REACHED, 0.83/0.94 on a second
+    /// ask): one that moves or erases the string's cells under it would
+    /// leave the layout moving what is no longer the string. One that
+    /// reaches only other lines, and an attribute change, leave it open,
+    /// and so does one the margins or the region make a no-op: `IL`, `DL`,
+    /// `ICH`, `DCH`, `DECIC` and `DECDC` ask past the guards that ignore
+    /// them.
+    #[inline(always)]
+    pub(crate) fn edit_reaches(&mut self, rows: EditRows) {
+        if self.cold.modes.is_set(ModeBit::Aligning) {
+            self.aligned_edited(rows);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn aligned_edited(&mut self, rows: EditRows) {
+        let Some(o) = self.strs.aligned.open else {
+            return;
+        };
+        let last = Row::from_index(self.rows.index() - 1);
+        let (top, bottom) = match rows {
+            EditRows::Line => (self.cy, self.cy),
+            EditRows::Chars => match (self.cold.extent, self.cold.modes) {
+                (None | Some(EditExtent::Line | EditExtent::Field), _) => (self.cy, self.cy),
+                (_, m) if m.is_set(ModeBit::EditPreceding) => (self.cold.top, self.cy),
+                _ => (self.cy, self.cold.bot),
+            },
+            EditRows::Lines => (self.cy, self.cold.bot.max(self.cy)),
+            EditRows::Display(EraseExtent::ToEnd) => (self.cy, last),
+            EditRows::Display(EraseExtent::ToStart) => (Row::ZERO, self.cy),
+            EditRows::Display(EraseExtent::All) => (Row::ZERO, last),
+            EditRows::Region => (self.cold.top, self.cold.bot),
+            EditRows::Span(a, b) => (a, b),
+        };
+        if o.row >= top && o.row <= bottom {
             self.aligned_ends();
         }
     }

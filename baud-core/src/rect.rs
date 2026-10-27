@@ -10,6 +10,7 @@
 //! inside `csi_final`, its prologue saved six register pairs where it saved
 //! three, on every `CSI` it dispatches.
 
+use crate::aligned::EditRows;
 use crate::paint::Paint;
 use crate::storage::MAX_COLS;
 use baud_domain::*;
@@ -175,6 +176,7 @@ impl Paint<'_, '_> {
         let Some(rect) = self.page_rect(a) else {
             return;
         };
+        self.edit_reaches(EditRows::Span(rect.top, rect.bottom));
         let space = PackedCell::glyph(Codepoint::SPACE, StyleId::DEFAULT, CellFlags::NONE);
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
@@ -211,6 +213,7 @@ impl Paint<'_, '_> {
         let Some(rect) = self.page_rect(a) else {
             return;
         };
+        self.edit_reaches(EditRows::Span(rect.top, rect.bottom));
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
             let Some(right) = self.line_right(r, rect.left, rect.right) else {
@@ -255,6 +258,7 @@ impl Paint<'_, '_> {
         let Some(rect) = self.page_rect(a) else {
             return;
         };
+        self.edit_reaches(EditRows::Span(rect.top, rect.bottom));
         let cell = match (fill.gl(), fill.gr()) {
             (Some(b), _) => PackedCell::glyph(
                 PackedCell::translate(b, self.charset),
@@ -313,6 +317,10 @@ impl Paint<'_, '_> {
         let left = page_col(to_left, self.origin_col(), self.cols);
         let h = src.rows().index().min(self.rows.index() - top.index());
         let w = src.cols().index().min(self.cols.index() - left.index());
+        if h > 0 {
+            let bottom = Row::from_index(top.index() + h - 1);
+            self.edit_reaches(EditRows::Span(top, bottom));
+        }
         let mut buf = [PackedCell::EMPTY; MAX_COLS];
         let down = top > src.top;
         for i in 0..h {

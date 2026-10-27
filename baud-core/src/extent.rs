@@ -247,6 +247,11 @@ impl Paint<'_, '_> {
             true => Toward::Start,
             false => Toward::End,
         };
+        // Outside DEC's margins the shift is ignored and a string stays
+        // open (`Paint::edit_reaches`).
+        if self.rectangle().is_some() {
+            self.edit_reaches(crate::aligned::EditRows::Chars);
+        }
         let x = self.presented_at(self.cx.col());
         self.shift_extent(x, n, edit, toward);
         self.row_changed_to(self.cy);

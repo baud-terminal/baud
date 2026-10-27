@@ -501,6 +501,7 @@ impl Paint<'_, '_> {
         let Some(m) = self.cursor_map() else {
             return false;
         };
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         let p = m.presentation(self.cx.col());
         self.delete_drawn(&m, p, n);
         self.keep_presented(Some(p));
@@ -543,6 +544,7 @@ impl Paint<'_, '_> {
         let Some(m) = self.cursor_map() else {
             return false;
         };
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         let p = m.presentation(self.cx.col());
         self.open_following_drawn(&m, p, n);
         self.keep_presented(Some(p));

@@ -2301,14 +2301,17 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // (`Paint::end_left_edge`).
         DomCsi::EraseInLine(e) => {
             p.end_left_edge();
+            p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_line(e)
         }
         DomCsi::EraseInDisplay(e) => {
             p.end_left_edge();
+            p.edit_reaches(crate::aligned::EditRows::Display(e));
             p.erase_display(e)
         }
         DomCsi::EraseChars(c) => {
             p.end_left_edge();
+            p.edit_reaches(crate::aligned::EditRows::Line);
             p.erase_chars(c)
         }
         DomCsi::DeleteChars(c) => {
@@ -2329,11 +2332,13 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         }
         // The cursor stays and its row's text moves under it.
         DomCsi::ScrollUp(c) => {
+            p.edit_reaches(crate::aligned::EditRows::Region);
             p.scroll_region_up(c);
             p.scrolled_lines_bounded(c, BandMove::Up);
             p.row_changed_to(p.cy);
         }
         DomCsi::ScrollDown(c) => {
+            p.edit_reaches(crate::aligned::EditRows::Region);
             p.scroll_region_down(c);
             p.scrolled_lines_bounded(c, BandMove::Down);
             p.row_changed_to(p.cy);
@@ -2386,10 +2391,12 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         }
         DomCsi::SelectiveEraseLine(e) => {
             p.end_left_edge();
+            p.edit_reaches(crate::aligned::EditRows::Line);
             p.selective_erase_line(e)
         }
         DomCsi::SelectiveEraseDisplay(e) => {
             p.end_left_edge();
+            p.edit_reaches(crate::aligned::EditRows::Display(e));
             p.selective_erase_display(e)
         }
         DomCsi::EraseSavedLines => p.erase_saved_lines(),

@@ -1519,6 +1519,9 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
+        // Past the guards, so one they ignore leaves a string open
+        // (`Paint::edit_reaches`).
+        self.edit_reaches(crate::aligned::EditRows::Lines);
         // The line home once SLH has set one (`crate::bounds`).
         self.set_col(CursorCol::moved(self.homed(self.cold.left)));
         // SEE 1 and 2 erase the active line; SEE 3 shifts to the area's
@@ -1578,6 +1581,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Lines);
         self.set_col(CursorCol::moved(self.homed(self.cold.left)));
         if self.lines_in_line() {
             return;
@@ -1683,6 +1687,7 @@ impl Paint<'_, '_> {
         if at > to {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         self.view.delete_cells(r, at, n, to, b);
         self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
@@ -1711,6 +1716,7 @@ impl Paint<'_, '_> {
         if at > to {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Chars);
         self.view.insert_cells(r, at, n, to, b);
         // The blanks join the string of the character they pushed on, the
         // active position's (TR/53 note A.1 i).
@@ -1924,16 +1930,31 @@ impl Paint<'_, '_> {
     /// skipped, and counted. **So is a `3`**: xterm's "Erase Saved Lines" is
     /// the value of a lone parameter, and STD 070's `switch` has no case 3
     /// (Jev's lean, SKIP, 2026-10-19). Out of line: a lone parameter never
-    /// comes here.
+    /// comes here. **Each extent ends an aligned string open on a line it
+    /// reaches**, before it erases, as the lone parameter's does
+    /// ([`Paint::edit_reaches`]).
     #[cold]
     #[inline(never)]
     pub(crate) fn erase_each(&mut self, csi: &crate::write::Csi, which: EraseList) {
+        use crate::aligned::EditRows;
         csi.for_each_param(|v| match EraseExtent::from_param(v) {
             Some(e) => match which {
-                EraseList::Display => self.erase_display(e),
-                EraseList::Line => self.erase_line(e),
-                EraseList::SelectiveDisplay => self.selective_erase_display(e),
-                EraseList::SelectiveLine => self.selective_erase_line(e),
+                EraseList::Display => {
+                    self.edit_reaches(EditRows::Display(e));
+                    self.erase_display(e)
+                }
+                EraseList::Line => {
+                    self.edit_reaches(EditRows::Line);
+                    self.erase_line(e)
+                }
+                EraseList::SelectiveDisplay => {
+                    self.edit_reaches(EditRows::Display(e));
+                    self.selective_erase_display(e)
+                }
+                EraseList::SelectiveLine => {
+                    self.edit_reaches(EditRows::Line);
+                    self.selective_erase_line(e)
+                }
             },
             None => self.unsupported_param += 1,
         });
@@ -2005,6 +2026,8 @@ impl Paint<'_, '_> {
             EraseExtent::ToStart => (start, at),
             EraseExtent::All => (start, stop),
         };
+        let span = (Row::from_index(from.0), Row::from_index(to.0));
+        self.edit_reaches(crate::aligned::EditRows::Span(span.0, span.1));
         let blank = self.blank();
         for r in from.0..=to.0 {
             let a = if r == from.0 { from.1 } else { 0 };
@@ -2037,6 +2060,7 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn erase_in_field(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
         self.count_past_first(csi);
+        self.edit_reaches(crate::aligned::EditRows::Line);
         let r = self.cy;
         let end = self.line_cols().index();
         // **Under DCSM's PRESENTATION** the field holding the cursor's
@@ -3541,6 +3565,7 @@ impl Paint<'_, '_> {
     /// margins and a sized line never meet (p. 5-29), so the left margin is
     /// column 1 on any line that is not single-width.
     pub(crate) fn scroll_columns(&mut self, n: Count, dir: ColumnShift) {
+        self.edit_reaches(crate::aligned::EditRows::Region);
         let (left, b) = (self.cold.left, self.blank());
         self.shift_columns_at(left, n, dir, b);
     }
@@ -3554,6 +3579,7 @@ impl Paint<'_, '_> {
         if !self.within_margins() {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Region);
         self.shift_columns(n, ColumnShift::Insert);
     }
 
@@ -3562,6 +3588,7 @@ impl Paint<'_, '_> {
         if !self.within_margins() {
             return;
         }
+        self.edit_reaches(crate::aligned::EditRows::Region);
         self.shift_columns(n, ColumnShift::Delete);
     }
 
