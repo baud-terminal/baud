@@ -433,6 +433,22 @@ fn tbc_0_clears_the_stop_at_the_presentation_position() {
     assert_eq!(after(DATA, clear).1, row1(8));
 }
 
+/// **`TSR` names a presentation position** (8.3.156, "character position
+/// n in the active line"), the one `HTS` sets its stop at in both DCSM
+/// states: the stop `HTS` set on `a`, drawn at position 3, goes with
+/// `TSR 3`, and `TSR 1` leaves it.
+#[test]
+fn tsr_clears_the_stop_hts_set_at_the_presentation_position() {
+    let row1 = |c| (Row::from_index(1), Col::at_index(c));
+    let set = "\x1b[3g\x1b[2;9f\x1bH\x1b[1;1f\x1bH";
+    let gone = format!("{set}\x1b[3 d\x1b[2;1f\t");
+    assert_eq!(after(PRESENTATION, &gone).1, row1(8));
+    assert_eq!(after(DATA, &gone).1, row1(8));
+    let kept = format!("{set}\x1b[1 d\x1b[2;1f\t");
+    assert_eq!(after(PRESENTATION, &kept).1, row1(2));
+    assert_eq!(after(DATA, &kept).1, row1(2));
+}
+
 /// **`EF` erases the field holding the presentation position** (8.3.40:
 /// "the field which contains the active presentation position in the
 /// presentation component"), its stops counted in presentation positions

@@ -387,6 +387,7 @@ impl Csi {
             | CursorForwardTab(_)
             | CursorBackTab(_)
             | CursorTabControl
+            | RemoveStop(_)
             | CursorLineTab(_)
             | CursorNextLine(_)
             | CursorPrevLine(_)

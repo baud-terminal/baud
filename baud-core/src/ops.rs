@@ -3092,6 +3092,25 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **TSR**, `CSI Pn SP d` (`[[source: ecma48]]` 8.3.156): "any
+    /// character tabulation stop at character position n in the active line
+    /// ... and lines of subsequent text in the presentation component to be
+    /// cleared, but does not affect other tabulation stops". A character
+    /// stop is in every line under TSM MULTIPLE, so the stop at column `n`
+    /// goes from them all; a position past the line holds none. Position `n`
+    /// is a presentation position, the column `HTS` sets a stop at. `Pn` has
+    /// no default, so an omitted or zero one clears nothing and is counted
+    /// (Jev, COUNTED, 0.98/0.96).
+    pub(crate) fn remove_stop(&mut self, n: Option<baud_domain::OneBased>) {
+        let Some(n) = n else {
+            self.unsupported_param += 1;
+            return;
+        };
+        if let Some(c) = n.col_within(self.cols) {
+            self.tabs[c.index()] = false;
+        }
+    }
+
     /// HTS, `ESC H`, and CTC 0: a character stop at the cursor's column.
     pub(crate) fn tab_set(&mut self) {
         let x = self.stop_col().index();

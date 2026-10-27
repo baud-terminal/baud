@@ -389,6 +389,13 @@ impl<'a> Params<'a> {
     pub fn one_based(&self, i: ParamIdx) -> OneBased {
         OneBased::from_param(self.at(i))
     }
+    /// A position with **no parameter default value**, as
+    /// `[[source: ecma48]]` gives TSR, SLH, SLL, TAC, TALE, TATE and TCC's
+    /// `Pn1`: `None` when omitted or 0, which name no position, and the
+    /// position otherwise.
+    pub fn required_position(&self, i: ParamIdx) -> Option<OneBased> {
+        self.at(i).filter(|x| x.0 != 0).map(|x| OneBased(x.0))
+    }
     /// A margin's far end: `None` when omitted or 0, which means the page's
     /// last column or line, and the line or column otherwise.
     ///
@@ -807,6 +814,11 @@ pub enum Csi {
     /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, `None` for
     /// any other.
     TabClear(Option<TabClear>),
+    /// TSR, `CSI Pn SP d` (`[[source: ecma48]]` 8.3.156): "any character
+    /// tabulation stop at character position n in the active line ... and
+    /// lines of subsequent text" cleared. `Pn` has no default, so `None`
+    /// for an omitted or zero one.
+    RemoveStop(Option<OneBased>),
     /// CTC, `CSI Ps... W` (`[[source: ecma48]]` 8.3.17, "Notation:
     /// (Ps...)"): sets and clears stops of both kinds,
     /// every parameter in order, which the caller walks through
@@ -1191,6 +1203,11 @@ impl Csi {
                 // and `04/01`, and no prefix.
                 (b' ', b'@') if marker == Marker::Standard => {
                     Csi::ScrollLeft(p.count(ParamIdx::FIRST))
+                }
+                // TSR, `CSI Pn 02/00 06/04` (`[[source: ecma48]]` 8.3.156),
+                // the standard namespace's.
+                (b' ', b'd') if marker == Marker::Standard => {
+                    Csi::RemoveStop(p.required_position(ParamIdx::FIRST))
                 }
                 (b' ', b'A') if marker == Marker::Standard => {
                     Csi::ScrollRight(p.count(ParamIdx::FIRST))
@@ -1819,6 +1836,7 @@ impl Csi {
             | CursorForwardTab(_)
             | CursorBackTab(_)
             | TabClear(_)
+            | RemoveStop(_)
             | CursorTabControl
             | CursorLineTab(_)
             | Mode { .. }

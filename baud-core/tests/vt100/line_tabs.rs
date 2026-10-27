@@ -200,6 +200,48 @@ fn tbc_with_a_value_ecma48_does_not_define_is_counted() {
     assert_eq!(at(b"\x1b[6g\x1b[1;1H\t"), (0, 8), "nothing cleared");
 }
 
+// ── TSR ─────────────────────────────────────────────────────────────────────
+
+/// "TSR causes any character tabulation stop at character position n ...
+/// to be cleared, but does not affect other tabulation stops"
+/// (`[[source: ecma48]]` 8.3.156): the stop at column 9 (index 8) goes and
+/// the one at 17 stays.
+#[test]
+fn tsr_clears_the_stop_at_position_n_and_no_other() {
+    assert_eq!(at(b"\x1b[9 d\x1b[1;1H\t"), (0, 16));
+    assert_eq!(at(b"\x1b[9 d\x1b[1;1H\t\t"), (0, 24));
+    assert_eq!(counted(b"\x1b[9 d"), (0, 0));
+    assert_eq!(
+        at(b"\x1b[20;1H\x1b[9 d\x1b[1;1H\t"),
+        (0, 16),
+        "a stop is in every line"
+    );
+}
+
+/// A position with no stop, or past the line, clears nothing.
+#[test]
+fn tsr_where_no_stop_is_set_clears_nothing() {
+    assert_eq!(at(b"\x1b[5 d\x1b[1;1H\t"), (0, 8));
+    assert_eq!(at(b"\x1b[999 d\x1b[1;1H\t"), (0, 8));
+    assert_eq!(counted(b"\x1b[999 d"), (0, 0));
+}
+
+/// `Pn` has no default value (8.3.156), so an omitted or zero one names no
+/// position: counted, and nothing cleared (Jev, COUNTED, 0.98/0.96).
+#[test]
+fn tsr_with_no_position_is_counted() {
+    assert_eq!(counted(b"\x1b[ d"), (0, 1));
+    assert_eq!(counted(b"\x1b[0 d"), (0, 1));
+    assert_eq!(at(b"\x1b[ d\x1b[0 d\x1b[1;1H\t"), (0, 8));
+}
+
+/// TSR is the standard namespace's: `CSI ? 9 SP d` is no control.
+#[test]
+fn tsr_with_a_private_marker_is_no_control() {
+    assert_eq!(counted(b"\x1b[?9 d"), (1, 0));
+    assert_eq!(at(b"\x1b[?9 d\x1b[1;1H\t"), (0, 8));
+}
+
 // ── CTC ─────────────────────────────────────────────────────────────────────
 
 #[test]
