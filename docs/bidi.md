@@ -164,6 +164,9 @@ the screen; step 3 joins Arabic letters.
   (`a_right_to_left_line_slides_out_in_the_order_it_was_drawn` and
   `a_line_sliding_out_is_shaped_as_it_is_drawn_still`, the leaving row
   against the same line drawn still, every arm agreeing on that frame).
+  Its joined letters read their own words, not the first row's below
+  them, also a word a soft wrap carries onto that row
+  (`a_sliding_lines_letter_reads_its_word_as_drawn_still`).
 - **A double-width line runs right to left within its half.** A line
   DECDWL or DECDHL makes double-width shows half the screen's columns
   (DEC STD 070 5.14.1), and UAX #9 orders each display line (3.4), so a
@@ -327,7 +330,12 @@ the screen; step 3 joins Arabic letters.
   fit its neighbours, and they read it in the form asked
   (`a_form_asked_wins_over_the_word_and_the_word_reads_it`); a word
   slanted under 17 reads its own letters as it does upright
-  (`sapv_meets_a_letters_word_on_every_arm`).
+  (`sapv_meets_a_letters_word_on_every_arm`), a lam-alef pair among them
+  (`a_slanted_lam_alef_is_read_in_its_word_on_every_arm`). A letter's
+  word reads the digits and the decimal mark beside it as 2 and 10 draw
+  them, Arabic-Indic and a comma, so a face's contextual lookups meet
+  what is shown (`a_word_reads_its_digits_as_drawn`,
+  `a_letters_word_reads_its_digits_as_drawn_on_every_arm`).
   Text an input method is composing is drawn as it will be written:
   over digits drawn as Arabic-Indic it shows its own characters, and
   where 17 slants the cell it starts on it leans left
@@ -802,7 +810,9 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   edge the second goes to the next line, or with autowrap reset in front
   of the first; TR/53's examples give each insertion a string of its
   own, which a program sends.
-- **Joining's edges**: a
+- **Joining's edges**: with BDSM reset an erased cell between two
+  letters parts them on a right-to-left path, where on a left-to-right
+  one and with the mode set joining passes through it; a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above
   the window, or is above it while looking back, keeps its final form, the

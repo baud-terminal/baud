@@ -2152,7 +2152,7 @@ impl Reorder {
             }
         }
         if let (Some(r), false) = (row.as_mut(), self.reach.is_zero()) {
-            self.store_words(r, line, joined, &to, &cell_of);
+            self.store_words(term, r, line, joined, &to, &cell_of);
         }
         if let Some(slots) = row.as_mut().map(|r| &mut r.cells) {
             for p in &joined.pairs {
@@ -2200,6 +2200,7 @@ impl Reorder {
     /// joined cell's place among them.
     fn store_words(
         &self,
+        term: &Term<'_>,
         row: &mut RowJoins,
         line: &core::ops::Range<usize>,
         joined: &JoinedText,
@@ -2207,6 +2208,7 @@ impl Reorder {
         cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
     ) {
         let reach = usize::try_from(self.reach.value()).unwrap_or(usize::MAX);
+        let varies = term.variants_seen();
         for run in &joined.runs {
             if run.end <= line.start || run.start >= line.end {
                 continue;
@@ -2249,8 +2251,13 @@ impl Reorder {
                 let hi = last.saturating_add(reach.saturating_add(1)).min(piece.end);
                 let base = row.words.len();
                 for &t in &cells[lo..hi] {
+                    let o = self.owner[t];
+                    let cell = match varies {
+                        true => word_cell_drawn(term, o, cell_of),
+                        false => cell_of(o).0,
+                    };
                     row.words.push(WordCell {
-                        cell: cell_of(self.owner[t]).0,
+                        cell,
                         form: joined.forms[t].map(|j| j.form),
                     });
                 }
@@ -2618,6 +2625,65 @@ fn is_digit(cell: Option<&PackedCell>) -> bool {
         .is_some_and(|c| (u32::from('0')..=u32::from('9')).contains(&c.value()))
 }
 
+/// **The character a variant draws `cell` as, where it is another**
+/// ([`Reorder::vary_swaps`]), the cells stored either side of it in its
+/// row `(before, after)`: a decimal digit as its Arabic-Indic counterpart
+/// (value 2, unless 18), and a FULL STOP between two digits as a COMMA
+/// (value 10). A cell carrying a mark is drawn as stored.
+fn varied(
+    term: &Term<'_>,
+    cell: PackedCell,
+    (before, after): (Option<&PackedCell>, Option<&PackedCell>),
+) -> Option<Content> {
+    if cell.flags.is_marked() {
+        return None;
+    }
+    let v = variants_of(term, cell);
+    if v.is_default() {
+        return None;
+    }
+    let ch = cell
+        .content
+        .as_codepoint()
+        .and_then(|c| char::from_u32(c.value()))?;
+    let to = match ch {
+        '0'..='9' => v.digit(ch),
+        '.' if v.decimal_mark() == DecimalMark::Comma && is_digit(before) && is_digit(after) => ',',
+        _ => return None,
+    };
+    (to != ch)
+        .then(|| Codepoint::new(u32::from(to)).map(Content::codepoint))
+        .flatten()
+}
+
+/// **A cell of a joined letter's word as it is drawn**: the character a
+/// variant draws it as ([`varied`]), read with the cells stored either side
+/// of it in its row, through `cell_of`, so the word a letter is shaped
+/// with holds what its neighbours show (`[[source: ecma48]]` 8.3.108).
+/// Out of line, as [`Reorder::vary_rows`] is: a program that never sends
+/// SAPV never calls it.
+#[inline(never)]
+fn word_cell_drawn(
+    term: &Term<'_>,
+    o: Owner,
+    cell_of: &impl Fn(Owner) -> (PackedCell, Drawn),
+) -> PackedCell {
+    let cell = cell_of(o).0;
+    let at = |c: usize| {
+        cell_of(Owner {
+            col: Col::at_index(c),
+            ..o
+        })
+        .0
+    };
+    let before = o.col.index().checked_sub(1).map(at);
+    let after = at(o.col.index() + 1);
+    match varied(term, cell, (before.as_ref(), Some(&after))) {
+        Some(content) => PackedCell { content, ..cell },
+        None => cell,
+    }
+}
+
 impl Reorder {
     /// **SAPV's variants on the first `n` rows of `vp`** (`[[source: ecma48]]`
     /// 8.3.108): the substitutions, the forms and the slants. Only once a
@@ -2656,33 +2722,12 @@ impl Reorder {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let mut found: Vec<(Col, Content)> = Vec::new();
         for (x, &cell) in cells.iter().enumerate() {
-            if cell.flags.is_marked() {
-                continue;
-            }
-            let v = variants_of(term, cell);
-            if v.is_default() {
-                continue;
-            }
-            let Some(ch) = cell
-                .content
-                .as_codepoint()
-                .and_then(|c| char::from_u32(c.value()))
-            else {
-                continue;
-            };
-            let to = match ch {
-                '0'..='9' => v.digit(ch),
-                '.' if v.decimal_mark() == DecimalMark::Comma
-                    && x > 0
-                    && is_digit(cells.get(x - 1))
-                    && is_digit(cells.get(x + 1)) =>
-                {
-                    ','
-                }
-                _ => continue,
-            };
-            if let (true, Some(cp)) = (to != ch, Codepoint::new(u32::from(to))) {
-                found.push((Col::at_index(x), Content::codepoint(cp)));
+            let around = (
+                x.checked_sub(1).and_then(|b| cells.get(b)),
+                cells.get(x + 1),
+            );
+            if let Some(content) = varied(term, cell, around) {
+                found.push((Col::at_index(x), content));
             }
         }
         if found.is_empty() {

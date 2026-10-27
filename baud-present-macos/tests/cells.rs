@@ -10440,6 +10440,108 @@ fn a_line_sliding_out_is_shaped_as_it_is_drawn_still() {
     }
 }
 
+/// **A sliding line's joined letter reads its word, as drawn still**, on
+/// every frame of a smooth scroll: the leaving row is laid out on its own
+/// ([`Renderer::copy_leaving`]), and its joined cells are shaped with the
+/// words that layout gives them, not the window's first row's. On Noto
+/// Sans Syriac an alaph's `rlig` picks a wider final after a beth than
+/// after a yudh (`a_joined_letter_reads_its_word_on_every_arm`); the
+/// sliding line's alaph follows a beth and the window's first row holds
+/// the same columns with a yudh, with BDSM set and reset; and a beth
+/// ending the sliding line has its alaph on the window's first row, a
+/// soft wrap between them. The expected frame is the line drawn still as
+/// the window's first row, one line up, where every arm agrees.
+#[test]
+fn a_sliding_lines_letter_reads_its_word_as_drawn_still() {
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let syriac = std::fs::read("/System/Library/Fonts/Supplemental/NotoSansSyriac-Regular.ttf")
+        .expect("Noto Sans Syriac, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&syriac).expect("parse"),
+    ];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    arms.reads = Reads::Copy;
+    let rows = usize::from(WS.ws_row);
+    let cols = usize::from(WS.ws_col);
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let row = ch * fw;
+    let (beth, yudh, alaph) = ('\u{0712}', '\u{071D}', '\u{0710}');
+    // The lines above the screen's, and the line the slide moves out of.
+    let same = format!("\x1b[3G{beth}\x1b[C{alaph}\r\n\x1b[3G{yudh}\x1b[C{alaph}");
+    // With BDSM reset on a right-to-left path an erased cell parts two
+    // letters.
+    let touching = format!("\x1b[4G{beth}{alaph}\r\n\x1b[4G{yudh}{alaph}");
+    let wrapped = format!("\x1b[{cols}G{beth}{alaph}");
+    for (mode, line) in [("", &same), ("\x1b[8l\x1b[2 k", &touching), ("", &wrapped)] {
+        feed(&mut t, b"\x1bc\x1b[?25l");
+        feed(&mut t, format!("{mode}{line}").as_bytes());
+        for i in 1..rows {
+            feed(
+                &mut t,
+                format!("\r\nThe quick brown fox {i:02} jumps 0123456789").as_bytes(),
+            );
+        }
+        // The sliding line is the one above the window's first row.
+        arms.back = Rows::of_count(1);
+        arms.slide = None;
+        let (a, b) = arms.draw(&mut t);
+        let c = arms.draw_copied(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        assert!(
+            arms.renderer.bidi().joins(Row::ZERO).is_some(),
+            "{mode:?}{line:?}: the premise, the sliding line joins"
+        );
+        for (arm, got) in [("cell", &b), ("copied", &c), ("cpu", &cpu)] {
+            let d = differing(&got[..rows * row], &a[..rows * row]);
+            assert_eq!(
+                d, 0,
+                "{mode:?}{line:?}: still, the {arm} arm differs, {d} pixels"
+            );
+        }
+        if line != &wrapped {
+            // The premise: the two alaphs, after a beth and after a yudh,
+            // draw apart.
+            assert_ne!(
+                crop_cell(&arms, &a, (0, 4)),
+                crop_cell(&arms, &a, (1, 4)),
+                "{mode:?}: the premise, the rlig reads the letter before it"
+            );
+        }
+        arms.back = Rows::ZERO;
+        for pan in [ch, ch / 2] {
+            arms.slide = Some(Px::of(u32::try_from(pan).unwrap()));
+            let (_, slid) = arms.draw(&mut t);
+            let copied = arms.draw_copied(&mut t);
+            let off = (ch - pan) * fw;
+            let n = rows * row - off;
+            for (arm, got) in [("cell", &slid), ("copied", &copied)] {
+                let d = differing(&got[..n], &a[off..off + n]);
+                assert_eq!(
+                    d, 0,
+                    "{mode:?}{line:?}: a slide of {pan} on the {arm} arm is not the line drawn \
+                     still, {d} pixels"
+                );
+            }
+        }
+        arms.slide = None;
+    }
+}
+
 /// **A double-width right-to-left line is drawn within its half, right
 /// to left**, on every arm: UAX #9 3.4 reorders each display line, and a
 /// double-width line's is its half (`[[source: dec-std-070]]` § 5.14.1;
@@ -11927,6 +12029,170 @@ fn sapv_meets_a_letters_word_on_every_arm() {
     );
     assert_eq!(asked, after_beth, "8: final, with its word");
     assert_ne!(asked, after_yudh, "8: not the final drawn alone");
+}
+
+/// **Digits SAPV draws as Arabic-Indic are read in a letter's word as
+/// drawn, on every arm** (`[[source: ecma48]]` 8.3.108, values 2 and 10):
+/// with BDSM reset a row is one run, so a joined letter's word holds the
+/// digits and the decimal mark beside it, read as the Arabic-Indic digits
+/// and the comma they are drawn as, and the row draws as those characters
+/// written, on Courier New, which draws both. A frame after the digits'
+/// SAPV changes, the letters' cells unchanged, draws as a fresh renderer
+/// draws it.
+#[test]
+fn a_letters_word_reads_its_digits_as_drawn_on_every_arm() {
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let courier = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf")
+        .expect("Courier New, which macOS ships; this test cannot skip itself");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&courier).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let beh = '\u{0628}';
+    let scene = |digits: &str| {
+        format!(
+            "\x1bc\x1b[?25l\x1b[8l\x1b[8;3HThe quick brown fox jumps 0123456789\
+             \x1b[2;3H{beh}{beh}{digits}\x1b[0 ]"
+        )
+    };
+    let varied = scene("\x1b[2;10 ]3.1");
+    let written = scene("\u{0663},\u{0661}");
+    arms!(fresh() => arms, t);
+    feed(&mut t, varied.as_bytes());
+    let got = three_arms(&mut arms, &mut t, "varied");
+    feed(&mut t, written.as_bytes());
+    let want = three_arms(&mut arms, &mut t, "written");
+    assert_eq!(differing(&got, &want), 0, "drawn as the characters drawn");
+    // The digits' SAPV changes under unchanged letters.
+    arms!(fresh() => arms, t);
+    feed(&mut t, scene("3.1").as_bytes());
+    let stored = three_arms(&mut arms, &mut t, "stored");
+    feed(&mut t, varied.as_bytes());
+    let again = three_arms(&mut arms, &mut t, "varied after stored");
+    assert_ne!(differing(&stored, &again), 0, "the premise: 2 and 10 draw");
+    arms!(fresh() => fresh_arms, u);
+    feed(&mut u, varied.as_bytes());
+    let fresh_frame = three_arms(&mut fresh_arms, &mut u, "varied, fresh");
+    assert_eq!(
+        differing(&again, &fresh_frame),
+        0,
+        "as a fresh renderer draws it"
+    );
+}
+
+/// **A lam-alef pair SAPV 17 slants is read in its word as it is
+/// upright, on every arm** (`[[source: ecma48]]` 8.3.108): on SF Arabic,
+/// macOS's own Arabic face, an initial kaf before a lam draws the form
+/// its `rclt` picks there and not the one before a meem, so a kaf before
+/// a lam-alef pair reads the pair's lam in its word. Italic under 17 on a
+/// right-to-left row, the pair is drawn as its upright glyph sheared
+/// left; the kaf before it, upright, reads the slanted lam on its upright
+/// face, as it reads it upright, though the stack's italic face draws
+/// Arabic too; a slanted kaf reads its word; and the pair draws alike
+/// whether the kaf is slanted or not. With BDSM set, an erased cell
+/// between the kaf and the pair, which joining passes through and the
+/// word leaves out, keeping each one's ink out of the other's cells; with
+/// BDSM reset on a right-to-left path, where an erased cell parts two
+/// letters, the kaf touching the pair, whose cells a slanted kaf's ink
+/// then reaches, so the pair is not compared there.
+#[test]
+fn a_slanted_lam_alef_is_read_in_its_word_on_every_arm() {
+    use baud_render::{FaceRole, FaceStyle};
+    let built = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let arabic = std::fs::read("/System/Library/Fonts/SFArabic.ttf")
+        .expect("SF Arabic, which macOS ships; this test cannot skip itself");
+    // The italic face a second SF Arabic: a face of its own for the
+    // italic style, which draws Arabic.
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&arabic).expect("parse"),
+        Face::parse(&arabic).expect("parse"),
+    ];
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Italic),
+    ];
+    let renderer = Renderer::new(
+        Stack::with_roles(&faces, &roles).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    let (kaf, lam, meem, alef) = ('\u{0643}', '\u{0644}', '\u{0645}', '\u{0627}');
+    let slant = "\x1b[3m\x1b[17 ]";
+    for (mode, gap) in [("\x1b[8h", "\x1b[C"), ("\x1b[8l\x1b[2 k", "")] {
+        // The kaf's cell and the two after it, written from column 3 of
+        // row 2 with `gap` between the kaf and them.
+        let at = 3 + gap.len().min(1);
+        let cells = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, word: &str| {
+            feed(t, b"\x1b[?25l\x1b[0m\x1b[0 ]\x1b[2J\x1b[H");
+            feed(
+                t,
+                format!("\x1b[8;3HThe quick brown fox jumps 0123456789\x1b[2;1H{mode}").as_bytes(),
+            );
+            feed(t, format!("\x1b[2;3H{word}").as_bytes());
+            let frame = three_arms(arms, t, &format!("{mode:?} {word:?}"));
+            let mut pair = crop_cell(arms, &frame, (1, at));
+            pair.extend(crop_cell(arms, &frame, (1, at + 1)));
+            (crop_cell(arms, &frame, (1, 2)), pair)
+        };
+        let (upright, upright_pair) = cells(&mut arms, &mut t, &format!("{kaf}{gap}{lam}{alef}"));
+        let r = Row::from_index(1);
+        let v = arms.renderer.bidi().visual_col(r, Col::at_index(at));
+        assert!(
+            arms.renderer
+                .bidi()
+                .joined(r, v)
+                .is_some_and(|j| j.pair.is_some()),
+            "{mode:?}: the premise, the lam and alef make a pair"
+        );
+        let (before_meem, _) = cells(&mut arms, &mut t, &format!("{kaf}{gap}{meem}{alef}"));
+        let (alone, alone_pair) =
+            cells(&mut arms, &mut t, &format!("{kaf}{gap}{slant}{lam}{alef}"));
+        let (both, both_pair) = cells(&mut arms, &mut t, &format!("{slant}{kaf}{gap}{lam}{alef}"));
+        let (both_meem, _) = cells(&mut arms, &mut t, &format!("{slant}{kaf}{gap}{meem}{alef}"));
+        assert_ne!(
+            upright, before_meem,
+            "{mode:?}: the premise, the kaf's rclt reads the lam after it"
+        );
+        assert_eq!(
+            alone, upright,
+            "{mode:?}: the kaf reads the slanted lam on its upright face"
+        );
+        assert_ne!(alone_pair, upright_pair, "{mode:?}: 17 slants the pair");
+        assert_ne!(both, both_meem, "{mode:?}: the slanted kaf reads its word");
+        // Touching, a slanted kaf's ink reaches the pair's cells.
+        if !gap.is_empty() {
+            assert_eq!(
+                both_pair, alone_pair,
+                "{mode:?}: the pair draws alike beside a slanted kaf"
+            );
+        }
+    }
 }
 
 /// **A status line's joined letter reads its word, on every arm**, as a

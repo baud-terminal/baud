@@ -265,6 +265,34 @@ fn a_form_asked_wins_over_the_word_and_the_word_reads_it() {
     );
 }
 
+/// **A letter's word reads the digits and the decimal mark as SAPV draws
+/// them** (`[[source: ecma48]]` 8.3.108, values 2 and 10): the cells of
+/// the word a joined letter is shaped with hold the Arabic-Indic digit
+/// and the comma drawn, not the digit and the FULL STOP stored, so a
+/// face's contextual lookups read what is drawn beside the letter. With
+/// BDSM reset, where a row is one run and its digits are in its letters'
+/// words; a FULL STOP that is not between two digits stays one.
+#[test]
+fn a_word_reads_its_digits_as_drawn() {
+    let beh = '\u{0628}';
+    let word = |bytes: String| with_words(&bytes)[1].1.0.clone();
+    assert_eq!(
+        word(format!("\x1b[8l{beh}{beh}3.1")),
+        [('.', None), ('3', None)],
+        "the control: as stored"
+    );
+    assert_eq!(
+        word(format!("\x1b[8l\x1b[2;10 ]{beh}{beh}3.1")),
+        [(',', None), ('\u{0663}', None)],
+        "2 and 10: as drawn"
+    );
+    assert_eq!(
+        word(format!("\x1b[8l\x1b[2;10 ]{beh}{beh}3.")),
+        [('.', None), ('\u{0663}', None)],
+        "10: a FULL STOP after a digit alone"
+    );
+}
+
 /// **With BDSM reset, value 15 leaves a right-to-left path's paired
 /// characters as stored**, the line reversed and its brackets not
 /// swapped, and 3 swaps them again; with BDSM set L4 still mirrors them.
