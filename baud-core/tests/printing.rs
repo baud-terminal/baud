@@ -526,3 +526,89 @@ fn autoprint_prints_each_row_a_long_run_and_a_wide_wrap_leave() {
         .concat()]
     );
 }
+
+/// `abcdef` on row 0 with `cd` guarded: SPA at `c`, EPA on `d` (the
+/// position "before the receipt of EPA is the last", `[[source: ecma48]]`
+/// 8.3.46), then `ef`.
+const GUARDED: &[u8] = b"ab\x1bVcd\x1b[D\x1bW\x1b[Cef";
+
+/// **Under GATM's GUARD, its reset state, a print leaves out a guarded
+/// position's contents, printing it as a space**: "Only the contents of
+/// unguarded areas in an eligible area are transmitted or transferred"
+/// (`[[source: ecma48]]` 7.2.7), excluded "from transfer to an auxiliary
+/// input/output device" (6.5.2.2), which MC initiates (6.6); as a space,
+/// as an invisible character prints, so `ef` keeps its columns (Jev's
+/// lean, AS_SPACES). `CSI 1 h`, ALL, prints them; `CSI 1 l` excludes
+/// them again.
+#[test]
+fn under_gatm_guard_a_print_leaves_out_the_guarded_contents() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, GUARDED);
+    assert_eq!(row(&t, 0), "abcdef", "the screen keeps them");
+    support::feed(&mut t, b"\x1b[i");
+    assert_eq!(
+        jobs(&mut t),
+        [format!("\x1b[0m\x1b#5ab  ef\r\n{}\x1b[0m", empty(3))]
+    );
+    support::feed(&mut t, b"\x1b[1h\x1b[i");
+    assert_eq!(
+        jobs(&mut t),
+        [format!("\x1b[0m\x1b#5abcdef\r\n{}\x1b[0m", empty(3))]
+    );
+    support::feed(&mut t, b"\x1b[1l\x1b[i");
+    assert_eq!(
+        jobs(&mut t),
+        [format!("\x1b[0m\x1b#5ab  ef\r\n{}\x1b[0m", empty(3))]
+    );
+    assert_eq!(t.unsupported_param, 0, "GATM is no longer counted");
+}
+
+/// **Every print of screen contents is a transfer GATM governs** (Jev,
+/// EVERY_SCREEN_PRINT, 0.90/0.98): print screen, all pages, print line and
+/// autoprint, as well as print page. A guarded position at a line's end is
+/// left off as a trailing space is (070-7 § 7.4.3).
+#[test]
+fn every_screen_print_leaves_out_the_guarded_contents() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(&mut t, GUARDED);
+    support::feed(&mut t, b"\x1b[?10i\x1b[?11i\x1b[?1i");
+    assert_eq!(
+        jobs(&mut t),
+        [
+            format!("\x1b[0m\x1b#5ab  ef\r\n{}\x1b[0m", empty(3)),
+            format!("\x1b[0m\x1b#5ab  ef\r\n{}\x1b[0m", empty(3)),
+            "\x1b[0m\x1b#5ab  ef\r\n\x1b[0m".into(),
+        ]
+    );
+    support::feed(&mut t, b"\x1b[2;1Hxy\x1bVzw\x1b[D\x1bW\x1b[?5i\n\x1b[?4i");
+    assert_eq!(jobs(&mut t), ["\x1b[0m\x1b#5xy\r\n\x1b[0m"]);
+}
+
+/// **An area only partly inside a print is left out where it is inside**
+/// (Jev's lean, EXCLUDE_PART; 7.3.1 g leaves it to the implementation):
+/// guarded from row 0's `e` through row 1's `c`, print line on row 1.
+#[test]
+fn a_guarded_area_partly_inside_a_print_is_left_out_there() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(
+        &mut t,
+        b"abcdefgh\x1b[2;1Habcdef\x1b[1;5H\x1bV\x1b[2;3H\x1bW\x1b[?1i",
+    );
+    assert_eq!(jobs(&mut t), ["\x1b[0m\x1b#5   def\r\n\x1b[0m"]);
+}
+
+/// **DECRQM answers GATM**, reset at power-on; `RIS` resets it and `DECSTR`
+/// keeps it, as ERM (Jev's lean, KEEP, 0.90/0.88).
+#[test]
+fn decrqm_answers_gatm_and_ris_resets_it_and_decstr_keeps_it() {
+    let mut s = owned();
+    let mut t = ready(&mut s);
+    support::feed(
+        &mut t,
+        b"\x1b[1$p\x1b[1h\x1b[1$p\x1b[!p\x1b[1$p\x1bc\x1b[1$p",
+    );
+    assert_eq!(t.reply(), b"\x1b[1;2$y\x1b[1;1$y\x1b[1;1$y\x1b[1;2$y");
+}

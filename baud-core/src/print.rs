@@ -478,7 +478,7 @@ impl Paint<'_, '_> {
                 let cell = self.view.get(r, Col::at_index(x));
                 let attrs = self.word_of(cell.style).attrs();
                 let base = self.clusters.base_of(cell.content);
-                let hidden = attrs.has(Attrs::HIDDEN);
+                let hidden = attrs.has(Attrs::HIDDEN) || self.excluded(cell);
                 if base.is_wide_tail() && !hidden {
                     continue;
                 }
@@ -519,7 +519,24 @@ impl Paint<'_, '_> {
         let cell = self.view.get(r, x);
         let base = self.clusters.base_of(cell.content);
         let blank = base.is_empty() || base.as_codepoint().is_some_and(|c| c.value() == 0x20);
-        blank && self.word_of(cell.style).attrs().only(PRINTED) == Attrs::NONE
+        (blank || self.excluded(cell))
+            && self.word_of(cell.style).attrs().only(PRINTED) == Attrs::NONE
+    }
+
+    /// **Whether a print leaves out a cell's contents**: a guarded position
+    /// while GATM is GUARD, its reset state. "Only the contents of
+    /// unguarded areas in an eligible area are transmitted or transferred"
+    /// (`[[source: ecma48]]` 7.2.7), a guarded area's contents "excluded
+    /// ... from transfer to an auxiliary input/output device" (6.5.2.2),
+    /// which MC initiates (6.6). Each such position prints as a space, as
+    /// an invisible character does (Jev's lean, AS_SPACES, 0.92/0.84), so
+    /// the columns after it keep their places; every guarded position a
+    /// print reaches is left out, an area only partly inside it too, which
+    /// 7.3.1 g leaves to the implementation (Jev's lean, EXCLUDE_PART); and
+    /// every print of screen contents is a transfer, page, screen, all
+    /// pages, line and autoprint (Jev, EVERY_SCREEN_PRINT, 0.90/0.98).
+    fn excluded(&self, cell: PackedCell) -> bool {
+        cell.flags.is_guarded() && !self.cold.modes.is_set(ModeBit::TransferGuarded)
     }
 
     /// `ESC [ 0 ; Ps ... m` for the attributes now in force, 070-7's SEND

@@ -609,6 +609,17 @@ fn every_spec_csi_form_is_handled_or_counted() {
             "DECSASD 1 selects nothing with no host-writable status line, \
              as 070-14 says -- decsasd_selects_the_line_only_when_it_is_host_writable",
         ),
+        (
+            b"\x1b[1h",
+            "GATM ALL changes only what a print takes of a guarded position, \
+             and this harness has no printer -- \
+             under_gatm_guard_a_print_leaves_out_the_guarded_contents",
+        ),
+        (
+            b"\x1b[1l",
+            "GATM GUARD is the reset state, already in force -- \
+             decrqm_answers_gatm_and_ris_resets_it_and_decstr_keeps_it",
+        ),
     ];
 
     let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));

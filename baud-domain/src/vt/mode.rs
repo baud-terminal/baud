@@ -125,6 +125,8 @@ pub enum AnsiMode {
     DeviceComponentSelect,
     /// HEM, mode 10, `[[source: ecma48]]` 7.2.9 ([`ModeBit::EditPreceding`]).
     CharacterEditing,
+    /// GATM, mode 1, `[[source: ecma48]]` 7.2.7 ([`ModeBit::TransferGuarded`]).
+    GuardedAreaTransfer,
     Other(Param),
 }
 
@@ -195,6 +197,7 @@ impl AnsiMode {
             8 => AnsiMode::BiDirectionalSupport,
             9 => AnsiMode::DeviceComponentSelect,
             10 => AnsiMode::CharacterEditing,
+            1 => AnsiMode::GuardedAreaTransfer,
             n => AnsiMode::Other(Param(n)),
         }
     }
@@ -347,6 +350,12 @@ pub enum ModeBit {
     /// modes into the reset state"; kept by `DECSTR`, whose DEC table and
     /// xterm's soft reset name no ERM.
     EraseGuarded,
+    /// GATM, `SM 1`, set, ALL: a print of screen contents takes the
+    /// contents of guarded positions too ([`AnsiMode::GuardedAreaTransfer`]);
+    /// reset, GUARD, it prints each as a space (`[[source: ecma48]]` 7.2.7,
+    /// 6.5.2.2 and 7.3.1 g). Reset at power-on and by `RIS`, as ERM is;
+    /// kept by `DECSTR`, whose table names no GATM. Read only by a print.
+    TransferGuarded,
     /// DECECM, `?117`, set: an erase, and a line scrolled or opened onto the
     /// screen, takes the screen background, the default rendition, where
     /// reset it takes the current rendition (`[[source: vt520-rm]]`

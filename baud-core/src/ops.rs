@@ -4522,6 +4522,8 @@ impl Paint<'_, '_> {
             }
             AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
             AnsiMode::Erasure => self.cold.modes.apply(ModeBit::EraseGuarded, on),
+            // GATM: set ALL, reset GUARD (`crate::print`).
+            AnsiMode::GuardedAreaTransfer => self.cold.modes.apply(ModeBit::TransferGuarded, on),
             AnsiMode::KeyboardAction => self.cold.modes.apply(ModeBit::KeyboardAction, on),
             AnsiMode::SendReceive => self.cold.modes.apply(ModeBit::SendReceive, on),
             AnsiMode::BiDirectionalSupport => {
@@ -5321,6 +5323,9 @@ impl Paint<'_, '_> {
                     (BidiSupport::Explicit, DeviceComponent::Presentation) => ModeState::Reset,
                 },
                 AnsiMode::CharacterEditing => bit_state(self.cold.modes, ModeBit::EditPreceding),
+                AnsiMode::GuardedAreaTransfer => {
+                    bit_state(self.cold.modes, ModeBit::TransferGuarded)
+                }
                 _ => ModeState::NotRecognized,
             };
         }

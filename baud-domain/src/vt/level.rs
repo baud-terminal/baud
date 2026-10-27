@@ -476,6 +476,7 @@ impl AnsiMode {
             | AnsiMode::BiDirectionalSupport
             | AnsiMode::DeviceComponentSelect
             | AnsiMode::CharacterEditing
+            | AnsiMode::GuardedAreaTransfer
             | AnsiMode::Other(_) => return None,
         })
     }

@@ -1173,6 +1173,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **GATM**, at the end so the seeds saved before it keep their atoms:
+    // ALL, a print taking the guarded positions too, and GUARD again.
+    Atom {
+        name: "gatm-all",
+        bytes: b"\x1b[1h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "gatm-guard",
+        bytes: b"\x1b[1l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
