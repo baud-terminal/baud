@@ -9,9 +9,10 @@
 //! page obeying Origin Mode" whichever page that is, so on one page NP and
 //! PP home the cursor and PPA, PPR and PPB, which keep "the corresponding
 //! line and column", move nothing (Jev, STD070_HOME, 0.92/0.98). The
-//! VT420's and VT510's "If there is only one page, then the terminal
-//! ignores NP" (`[[source: vt510-np]]`) is the products' departure, not
-//! followed. A control asking for a page past the first is counted
+//! VT510's "If there is only one page, then the terminal ignores NP"
+//! (`[[source: vt510-np]]`), the VT420's "If there is only one page, the
+//! terminal ignores NP", is the products' departure, not followed. A
+//! control asking for a page baud does not have is counted
 //! ([`crate::Term::pages_missing`]).
 //!
 //! **Off the write path**: one arm of `Csi::Position`, out of line, so the
