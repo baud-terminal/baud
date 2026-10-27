@@ -86,6 +86,12 @@ pub enum Esc {
     /// presentation position is the last of a string of character positions
     /// in the presentation component" whose beginning SPA indicates.
     EndGuardedArea,
+    /// HTJ -- Character Tabulation with Justification, `ESC I` (`89` as a
+    /// C1; `[[source: ecma48]]` 8.3.61): "the contents of the active field
+    /// ... shifted forward so that it ends at the character position
+    /// preceding the following character tabulation stop", and the active
+    /// position "moved to that following character tabulation stop".
+    TabJustify,
 
     /// DECBI -- Back Index, `ESC 6`. Back one column, and at the left margin
     /// the rectangle the margins bound moves right one column instead
@@ -135,6 +141,7 @@ impl Esc {
             b'Z' => Esc::Identify,
             b'V' => Esc::StartGuardedArea,
             b'W' => Esc::EndGuardedArea,
+            b'I' => Esc::TabJustify,
 
             b'6' => Esc::BackIndex,
             b'9' => Esc::ForwardIndex,

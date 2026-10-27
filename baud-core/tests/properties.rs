@@ -1111,6 +1111,27 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **TSR and HTJ**, at the end so the seeds saved before them keep their
+    // atoms: the stop at column 9 removed, a field justified against the
+    // next stop, and HTJ's C1 form, which is HTJ under ISO 8859-1 alone.
+    Atom {
+        name: "tsr",
+        bytes: b"\x1b[9 d",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "htj",
+        bytes: b"\x1bI",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "htj-8bit",
+        bytes: b"\x89",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -1933,6 +1954,43 @@ fn the_osc52_atoms_reach_the_clipboard() {
         assert_eq!(t.clipboard_reads_refused, 1);
         assert!(t.reply().is_empty(), "and is answered with silence");
     });
+}
+
+/// **The TSR and HTJ atoms reach their functions**: `ab` justified
+/// against the stop at 8, and against the one at 16 once TSR has removed
+/// it; `89` does it under ISO 8859-1.
+#[test]
+fn the_tab_atoms_reach_tsr_and_htj() {
+    let fed_then = |names: &[&str]| {
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let prog: Vec<usize> = names.iter().map(|n| atom(n)).collect();
+        support::feed(&mut t, &bytes_of(&prog));
+        let text: String = t.row(Row::ZERO).expect("a row")[..16]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        (text, t.cursor().1)
+    };
+    let col = Col::at_index;
+    assert_eq!(
+        fed_then(&["ascii-short", "htj"]),
+        ("......ab........".into(), col(8))
+    );
+    assert_eq!(
+        fed_then(&["tsr", "ascii-short", "htj"]),
+        ("..............ab".into(), col(16))
+    );
+    assert_eq!(
+        fed_then(&["latin1", "ascii-short", "htj-8bit"]),
+        ("......ab........".into(), col(8))
+    );
 }
 
 proptest! {

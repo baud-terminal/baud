@@ -3111,6 +3111,47 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **HTJ**, `ESC I` (`[[source: ecma48]]` 8.3.61): "the contents of
+    /// the active field ... to be shifted forward so that it ends at the
+    /// character position preceding the following character tabulation
+    /// stop", the positions before it "put into the erased state", and the
+    /// cursor to that stop, where `HT` takes it. The field is `EF`'s, from
+    /// the stop at or before the cursor to the next, bounded by the line
+    /// (4.2.40; Jev's lean, LINE_BOUNDED); its contents run from its start
+    /// through its last position not in the erased state, wherever the
+    /// cursor is in it (Jev's lean, WRITTEN_EXTENT, 0.52/0.18 asked again).
+    /// So the shift is an `ICH` at the field's start of the erased
+    /// positions after its contents, within the field: nothing leaves it.
+    /// The stops are found at the cursor's presentation position, as `HT`
+    /// finds them, and the cells at the field's columns are shifted.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn tab_justify(&mut self) {
+        let r = self.cy;
+        let end = self.line_cols().index();
+        let x = self.stop_col().index().min(end - 1);
+        let start = (0..=x).rev().find(|&c| self.tabs[c]).unwrap_or(0);
+        let stop = (x + 1..end).find(|&c| self.tabs[c]).unwrap_or(end);
+        let written = (start..stop)
+            .rev()
+            .find(|&c| !self.view.get(r, Col::at_index(c)).content.is_empty());
+        if let Some(last) = written {
+            let n = stop - (last + 1);
+            if n > 0 {
+                let (at, to, b) = (Col::at_index(start), Col::at_index(stop), self.blank());
+                self.view.insert_cells(r, at, Count::of(n), to, b);
+                self.erase_images(r, at, to);
+                self.cells = self.cells.plus(stop - start);
+                self.row_changed_to(r);
+                self.wrote_rows(r, r);
+            }
+        }
+        match self.cold.modes.is_set(ModeBit::ReturnMapped) {
+            true => self.tab_mapped(),
+            false => self.tab_forward(Count::ONE),
+        }
+    }
+
     /// HTS, `ESC H`, and CTC 0: a character stop at the cursor's column.
     pub(crate) fn tab_set(&mut self) {
         let x = self.stop_col().index();

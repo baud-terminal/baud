@@ -450,11 +450,13 @@ impl Esc {
             Esc::LockingShift1Right => Function::Ls1r,
             Esc::LockingShift2Right => Function::Ls2r,
             Esc::LockingShift3Right => Function::Ls3r,
-            // ECMA-48's VTS, SPA and EPA; ST, which performs nothing here.
+            // ECMA-48's VTS, SPA, EPA and HTJ; ST, which performs nothing
+            // here.
             Esc::LineTabSet
             | Esc::StringTerminator
             | Esc::StartGuardedArea
             | Esc::EndGuardedArea
+            | Esc::TabJustify
             | Esc::Unsupported => return None,
         })
     }

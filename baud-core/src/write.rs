@@ -2810,6 +2810,7 @@ fn esc_final(
             p.keep_presented(kept);
         }
         Esc::TabSet => p.tab_set(),
+        Esc::TabJustify => p.tab_justify(),
         Esc::LineTabSet => p.cold.line_stops.set(p.cy),
         // `RIS` returns the input encoding to UTF-8. The next byte of the
         // same read is decoded by the table `hard_reset`'s `reselect`

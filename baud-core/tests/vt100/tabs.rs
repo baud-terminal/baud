@@ -130,3 +130,111 @@ fn cht_with_a_huge_count_clamps() {
 fn ris_restores_default_stops() {
     assert_eq!(col(b"\x1b[3g\x1bc\t"), 8);
 }
+
+// ── HTJ ─────────────────────────────────────────────────────────────────────
+
+const NARROW: WinSize = WinSize {
+    ws_row: 4,
+    ws_col: 24,
+};
+
+/// Row 0 as text, `.` for an erased position and `_` for a wide tail, and
+/// the cursor's column.
+fn justified(bytes: &[u8]) -> (String, usize) {
+    support::render(&NARROW, bytes, |t| {
+        let row: String = t.viewport().row(Row::ZERO)[..24]
+            .iter()
+            .map(|c| match c.content {
+                x if x.is_empty() => '.',
+                x if x.is_wide_tail() => '_',
+                x => x
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('?'),
+            })
+            .collect();
+        (row, t.cursor().1.index())
+    })
+}
+
+/// "HTJ causes the contents of the active field ... to be shifted forward
+/// so that it ends at the character position preceding the following
+/// character tabulation stop. The active presentation position is moved to
+/// that following character tabulation stop. The character positions which
+/// precede the beginning of the shifted string are put into the erased
+/// state" (`[[source: ecma48]]` 8.3.61): `ab` written at the stop at 8
+/// ends at 15, before the stop at 16, and the cursor goes there.
+#[test]
+fn htj_shifts_the_field_to_end_before_the_next_stop() {
+    assert_eq!(
+        justified(b"\tab\x1bI"),
+        ("..............ab........".into(), 16)
+    );
+    assert_eq!(
+        justified(b"xy\x1bI"),
+        ("......xy................".into(), 8),
+        "the first field starts at the line's start"
+    );
+    assert_eq!(
+        justified(b"xy\tab\x1bI"),
+        ("xy............ab........".into(), 16),
+        "the field before it stays"
+    );
+}
+
+/// **The field's contents are its written positions, wherever the cursor
+/// is in it** (Jev's lean, WRITTEN_EXTENT): with the cursor moved back over
+/// `cd`, all of `abcd` is justified.
+#[test]
+fn htj_shifts_the_whole_written_field_with_the_cursor_inside_it() {
+    assert_eq!(
+        justified(b"\tabcd\x1b[2D\x1bI"),
+        ("............abcd........".into(), 16)
+    );
+}
+
+/// An empty field holds nothing to shift: the cursor still goes to the
+/// following stop. A field already ending before its stop is left as is.
+#[test]
+fn htj_on_an_empty_or_full_field_only_moves_the_cursor() {
+    assert_eq!(
+        justified(b"\t\x1bI"),
+        ("........................".into(), 16)
+    );
+    assert_eq!(
+        justified(b"\tabcdefgh\x1b[3D\x1bI"),
+        ("........abcdefgh........".into(), 16)
+    );
+}
+
+/// With no stop following, the field ends at the line's end (`EF`'s field)
+/// and the cursor goes where `HT` does, the last column.
+#[test]
+fn htj_with_no_following_stop_ends_the_field_at_the_line_end() {
+    assert_eq!(
+        justified(b"\t\t\x1b[3gab\x1bI"),
+        ("......................ab".into(), 23)
+    );
+}
+
+/// A wide character moves whole.
+#[test]
+fn htj_moves_a_wide_character_whole() {
+    assert_eq!(
+        justified("\t中\x1bI".as_bytes()),
+        ("..............中_........".into(), 16)
+    );
+}
+
+/// `89` under ISO 8859-1 is HTJ; in VT52 mode `ESC I` is still the
+/// reverse line feed.
+#[test]
+fn htj_as_a_c1_under_latin1_and_not_in_vt52() {
+    assert_eq!(
+        justified(b"\x1b%@\tab\x89"),
+        ("..............ab........".into(), 16)
+    );
+    support::render(&NARROW, b"\x1b[3;5H\x1b[?2l\x1bI", |t| {
+        assert_eq!(t.cursor(), (Row::from_index(1), Col::at_index(4)));
+    });
+}
