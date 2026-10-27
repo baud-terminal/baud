@@ -11,9 +11,14 @@
 //!
 //! **The shifted part** runs from the line's start, the left margin under
 //! DECLRMM for a cursor inside it, to the cursor, as FOLLOWING's runs from
-//! the cursor to the right margin; SEE, which would choose it, is not
-//! built. A wide character written under PRECEDING takes the cursor's
-//! column and the one before it, the positions after the cursor kept.
+//! the cursor to the right margin, before any SEE and under SEE 1
+//! (`crate::extent` for the other extents). **A wide character stays
+//! whole**, as under SEE's shifts: on its lead the part runs on through
+//! its tail, so an edit on either half takes the whole character, and one
+//! the part's ends or the shift would cut is erased, both halves. A wide
+//! character written under PRECEDING takes the cursor's column and the one
+//! before it, the positions after the cursor kept; on a wide character's
+//! lead, that character's two columns.
 //!
 //! **Under DCSM's PRESENTATION**, on a line holding a string, the
 //! positions shifted are the ones drawn ([`crate::component`]): the cells
@@ -133,7 +138,9 @@ impl Paint<'_, '_> {
     /// **One graphic character under IRM and PRECEDING**: written at the
     /// cursor, a wide one taking the column before it too, the positions
     /// before them pushed toward the line's start, and the cursor where it
-    /// was, at its presentation position under DCSM's PRESENTATION.
+    /// was, at its presentation position under DCSM's PRESENTATION. On a
+    /// wide character's lead it ends where that character's tail is, the
+    /// shift taking the character whole.
     fn glyph_preceding(&mut self, cp: Codepoint, w: Width, pen: Pen) {
         let need = 1 + usize::from(w == Width::WIDE);
         self.refresh_fence();
@@ -153,20 +160,18 @@ impl Paint<'_, '_> {
                 (self.open_preceding_drawn(&m, p, Count::of(need)), Some(p))
             }
             // Under an extent SEE chose other than the line, along it
-            // (`crate::extent`).
+            // (`crate::extent`). On a wide character's lead the gap opens
+            // after its tail, the shift taking the whole character.
             None if self.extent_chosen() => {
                 let to = crate::extent::Toward::Start;
                 let x = self.presented_at(c);
-                self.shift_extent(x, Count::of(need), CharEdit::Insert, to);
-                (Col::at_index(c.index() + 1 - need), None)
+                let start = self.shift_extent(x, Count::of(need), CharEdit::Insert, to);
+                let end = start.filter(|&s| s > c).unwrap_or(c).after();
+                (Col::at_index(end.index() - need), None)
             }
             None => {
-                let after = c.after();
-                self.view
-                    .delete_cells(self.cy, left, Count::of(need), after, blank);
-                self.erase_images(self.cy, left, after);
-                self.cells = self.cells.plus(after.index() - left.index());
-                (Col::at_index(c.index() + 1 - need), None)
+                let (_, end) = self.open_preceding_line(c, Count::of(need), blank);
+                (Col::at_index(end.index() - need), None)
             }
         };
         let style = self.style;
@@ -238,10 +243,22 @@ impl Paint<'_, '_> {
                 self.keep_presented(Some(p));
             }
             None => {
-                let (left, after, blank) = (self.left_limit(c), c.after(), self.blank());
-                self.view.insert_cells(self.cy, left, n, after, blank);
-                self.erase_images(self.cy, left, after);
-                self.cells = self.cells.plus(after.index() - left.index());
+                let blank = self.blank();
+                let (left, end, took) = self.preceding_part(c, blank);
+                // The `n` positions from the cursor's own, and the half the
+                // tail took in (8.3.26); a span whose last position is a
+                // wide character's tail takes its lead, as
+                // `Grid::delete_cells` widens one.
+                let len = end.index() - left.index();
+                let mut k = (n.at_least_one() + usize::from(took)).min(len);
+                let last = Col::at_index(end.index() - k);
+                if last > left && self.is_tail(last) {
+                    k += 1;
+                }
+                self.view
+                    .insert_cells(self.cy, left, Count::of(k), end, blank);
+                self.erase_images(self.cy, left, end);
+                self.cells = self.cells.plus(len);
             }
         }
         self.row_changed_to(self.cy);
@@ -265,8 +282,8 @@ impl Paint<'_, '_> {
                 self.keep_presented(Some(p));
             }
             None => {
-                let (left, after, blank) = (self.left_limit(c), c.after(), self.blank());
-                self.view.delete_cells(self.cy, left, n, after, blank);
+                let blank = self.blank();
+                let (left, after) = self.open_preceding_line(c, n, blank);
                 let k = n.at_least_one().min(after.index() - left.index());
                 let from = Col::at_index(after.index() - k);
                 if self.strs.strings.begun == crate::strings::Begun::Yes {
@@ -276,11 +293,73 @@ impl Paint<'_, '_> {
                     };
                     self.strings_kept(self.cy, (from, after), blank, |_| s);
                 }
-                self.erase_images(self.cy, left, after);
-                self.cells = self.cells.plus(after.index() - left.index());
             }
         }
         self.row_changed_to(self.cy);
         self.wrote_rows(self.cy, self.cy);
+    }
+
+    /// **`n` blanks opened under PRECEDING on the cursor's line**, its
+    /// cells' shift where no map draws it: the shifted part's first `n`
+    /// positions leave the line and the blanks end where it does. A wide
+    /// character whose lead would leave and whose tail stay is erased,
+    /// both halves, as SEE's shift erases one it pushes off. The shifted
+    /// part, as [`Paint::preceding_part`] gives it.
+    fn open_preceding_line(&mut self, c: Col, n: Count, blank: PackedCell) -> (Col, Col) {
+        let (left, end, _) = self.preceding_part(c, blank);
+        let k = n.at_least_one().min(end.index() - left.index());
+        let kept = Col::at_index(left.index() + k);
+        if kept < end && self.is_tail(kept) {
+            self.erase_whole(kept.before(), blank);
+        }
+        self.view
+            .delete_cells(self.cy, left, Count::of(k), end, blank);
+        self.erase_images(self.cy, left, end);
+        self.cells = self.cells.plus(end.index() - left.index());
+        (left, end)
+    }
+
+    /// **The shifted part of the cursor's line under PRECEDING**, `[left,
+    /// end)`: from the line's start to the cursor, and on to a wide
+    /// character's tail where the cursor is on its lead, so an edit on
+    /// either half takes the whole character, as SEE's shifts do
+    /// (`crate::extent`); and whether it took the tail in. A character the
+    /// part's ends would cut is erased first, both halves: a tail past the
+    /// fence, or one at the line's start whose lead is before it.
+    fn preceding_part(&mut self, c: Col, blank: PackedCell) -> (Col, Col, bool) {
+        let left = self.left_limit(c);
+        if left.index() > 0 && self.is_tail(left) {
+            self.erase_whole(left.before(), blank);
+        }
+        let after = c.after();
+        if !self.is_tail(after) {
+            return (left, after, false);
+        }
+        if after <= self.line_fence() {
+            return (left, after.after(), true);
+        }
+        self.erase_whole(c, blank);
+        (left, after, false)
+    }
+
+    /// Whether column `x` of the cursor's line holds a wide character's
+    /// tail; `false` past the line.
+    fn is_tail(&self, x: Col) -> bool {
+        x.index() < self.cols.index() && self.view.get(self.cy, x).content.is_wide_tail()
+    }
+
+    /// **The wide character whose lead is at `lead` erased**, both halves,
+    /// each position kept in the string it was in.
+    fn erase_whole(&mut self, lead: Col, blank: PackedCell) {
+        let (r, to) = (self.cy, lead.after().after());
+        let was = match self.strs.strings.begun == crate::strings::Begun::Yes {
+            true => [lead, lead.after()].map(|c| self.string_of(self.view.get(r, c).style)),
+            false => [StringId::NONE; 2],
+        };
+        self.view.put(r, lead, blank);
+        self.view.put(r, lead.after(), blank);
+        self.strings_kept(r, (lead, to), blank, |c| was[c.index() - lead.index()]);
+        self.erase_images(r, lead, to);
+        self.cells = self.cells.plus(2);
     }
 }

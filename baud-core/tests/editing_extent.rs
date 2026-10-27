@@ -322,14 +322,21 @@ fn a_wide_character_pulled_across_a_line_end_is_erased() {
 
 /// **Under HEM's PRECEDING an edit on either half takes the whole
 /// character**: `ICH` shifts `中` toward the line's start, `a` leaving,
-/// and `DCH` removes both halves, `a` closing up, under SEE 0 and SEE 2
-/// with the cursor on the lead and on the tail.
+/// `DCH` removes both halves, `a` closing up, and a write under IRM goes
+/// in after the character, a wide one pushing it off the line's start,
+/// before any SEE and under SEE 0, 1 and 2, with the cursor on the lead
+/// and on the tail.
 #[test]
 fn preceding_on_a_wide_character_takes_the_whole_character() {
     let mut wrong = Vec::new();
-    for see in ["\x1b[Q", "\x1b[2Q"] {
+    for see in ["", "\x1b[Q", "\x1b[1Q", "\x1b[2Q"] {
         for col in [2, 3] {
-            for (edit, want) in [("\x1b[@", "中_.cy....."), ("\x1b[P", "..acy.....")] {
+            for (edit, want) in [
+                ("\x1b[@", "中_.cy....."),
+                ("\x1b[P", "..acy....."),
+                ("\x1b[4hX", "中_Xcy....."),
+                ("\x1b[4h一", ".一_cy....."),
+            ] {
                 let bytes = format!("a中cy{see}\x1b[10h\x1b[1;{col}H{edit}");
                 let got = row_of(&bytes, 0);
                 if got != want {
@@ -373,11 +380,57 @@ fn a_long_dch_on_a_wide_half_removes_as_many_positions_as_asked() {
             }
         }
     }
-    let preceding = row_of("a\u{4e2d}cy\x1b[Q\x1b[10h\x1b[1;2H\x1b[2P", 0);
-    if preceding != "...cy....." {
-        wrong.push(format!(
-            "PRECEDING on the lead: {preceding} want ...cy....."
-        ));
+    for see in ["", "\x1b[Q", "\x1b[1Q"] {
+        let preceding = row_of(&format!("a\u{4e2d}cy{see}\x1b[10h\x1b[1;2H\x1b[2P"), 0);
+        if preceding != "...cy....." {
+            wrong.push(format!(
+                "{see:?} PRECEDING on the lead: {preceding} want ...cy....."
+            ));
+        }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// **Under HEM's PRECEDING the line is the first line of the page**:
+/// before any SEE and under SEE 1, `ICH`, `DCH` and a write under IRM
+/// leave row 0 as SEE 0 leaves it, on lines of wide characters with the
+/// cursor at every column, so a character the shift parts at the line's
+/// start is erased whole and one at the cursor moves whole; and with
+/// DECLRMM's margins at columns 3 and 9, where a wide character can
+/// straddle either, with the cursor inside them.
+#[test]
+fn preceding_on_the_line_is_the_page_on_its_first_line() {
+    let mut wrong = Vec::new();
+    let margins = "\x1b[?69h\x1b[3;9s";
+    let lines = ["a中cy", "a中中cy", "中中中中中", "ab中c中d", "中a中"]
+        .map(|t| (t, "", 1..=10))
+        .into_iter()
+        .chain(["a中中中中c", "中中中中中", "ab中cd中"].map(|t| (t, margins, 3..=9)));
+    for (text, set, cols) in lines {
+        for col in cols {
+            for edit in [
+                "\x1b[@",
+                "\x1b[2@",
+                "\x1b[3@",
+                "\x1b[P",
+                "\x1b[2P",
+                "\x1b[3P",
+                "\x1b[4hX",
+                "\x1b[4h一",
+            ] {
+                let at =
+                    |see: &str| row_of(&format!("{text}{set}{see}\x1b[10h\x1b[1;{col}H{edit}"), 0);
+                let page = at("\x1b[Q");
+                for see in ["", "\x1b[1Q"] {
+                    let got = at(see);
+                    if got != page {
+                        wrong.push(format!(
+                            "{text} {see:?} col {col} {edit:?}: {got}, page {page}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{} differ: {wrong:#?}", wrong.len());
 }

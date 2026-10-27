@@ -272,11 +272,17 @@ impl Paint<'_, '_> {
     /// **`n` positions opened or closed at position `x` of the cursor's
     /// line**, along the extent toward `toward`. Ignored outside DEC's
     /// margins. Under DCSM's PRESENTATION the positions are the ones drawn.
-    pub(crate) fn shift_extent(&mut self, x: Col, n: Count, edit: CharEdit, toward: Toward) {
+    /// The cell the shift starts at, a wide character's other half where
+    /// it took the whole character; `None` where it was ignored.
+    pub(crate) fn shift_extent(
+        &mut self,
+        x: Col,
+        n: Count,
+        edit: CharEdit,
+        toward: Toward,
+    ) -> Option<Col> {
         let mut d = Drawn::of(self.cold.modes);
-        let Some(ends) = self.extent_ends(&mut d) else {
-            return;
-        };
+        let ends = self.extent_ends(&mut d)?;
         let mut x = x.max(ends.left).min(ends.right);
         // **On a wide character's second half the edit takes the whole
         // character**, as DEC's `ICH` and `DCH` do (`Grid::insert_cells`):
@@ -313,7 +319,9 @@ impl Paint<'_, '_> {
                 }
             }
         }
+        let start = self.drawn_at(&mut d, self.cy, x);
         self.shift_run(&run, Count::of(k), edit, toward, &mut d);
+        Some(start)
     }
 
     /// **The other half of the wide character drawn at position `x` of row
