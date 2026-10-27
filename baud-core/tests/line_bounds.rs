@@ -216,3 +216,119 @@ fn slh_with_a_private_marker_is_no_control() {
         assert_eq!(t.cursor().1, Col::ZERO);
     });
 }
+
+/// **A wrap pending at the line limit is reported on the limit**: the
+/// character written there leaves the active position on it, "the
+/// position beyond which no implicit movement of the active data position
+/// shall occur" (8.3.123), as DEC's Last Column Flag leaves it on the
+/// last column, "the Active Position cannot be advanced" (`[[source:
+/// dec-std-070]]` D.6.1), and CPR reports the active position (8.3.14;
+/// 070's CPR algorithm, p. 5-54). Limit 5, column 4: `CPR`, DECXCPR,
+/// DECCIR, [`Term::cursor`], [`Term::wrap_pending`], HPB, DECBI, DECFI,
+/// SPA and EPA, the indicator and a status line's cursor; after a line
+/// feed, across which baud keeps the wait as it does at the right margin,
+/// where D.6.1 lists LINE FEED, ECH, EL and RM(DECAWM) among the controls
+/// that reset the Last Column Flag ("existing products vary widely"), the
+/// position the same either way; and after DECSWL and DECAWM reset, which
+/// end it.
+#[test]
+fn a_wrap_pending_at_the_line_limit_is_reported_on_the_limit() {
+    let pending = b"\x1b[5 Vabcde";
+    support::render(&WS, &[&pending[..], b"\x1b[6n\x1b[?6n"].concat(), |t| {
+        assert_eq!(t.reply(), b"\x1b[1;5R\x1b[?1;5;1R");
+        assert_eq!(t.cursor(), (Row::ZERO, Col::at_index(4)));
+        assert_eq!(t.wrap_pending(), WrapPending::Yes);
+    });
+    support::render(&WS, &[&pending[..], b"\n\x1b[6n"].concat(), |t| {
+        assert_eq!(t.reply(), b"\x1b[2;5R");
+    });
+    // DECAWM reset ends the wrap and leaves the position on the limit.
+    support::render(&WS, &[&pending[..], b"\x1b[?7l\x1b[6n"].concat(), |t| {
+        assert_eq!(t.reply(), b"\x1b[1;5R");
+        assert_eq!(t.wrap_pending(), WrapPending::No);
+    });
+    // The wrap it reports: the next character goes to the next line.
+    assert_eq!(
+        after(&[&pending[..], b"f"].concat()).1,
+        "f..................."
+    );
+    // DECCIR names the limit, with Sflag's bit 4, "auto-wrap pending".
+    support::render(&WS, &[&pending[..], b"\x1b[1$w"].concat(), |t| {
+        let r = t.reply().to_vec();
+        let want = b"\x1bP1$u1;5;1;@;@;H;";
+        assert!(r.starts_with(want), "{:?}", String::from_utf8_lossy(&r));
+    });
+    // HPB 1 and DECBI move one position back from the limit, DECFI one on.
+    for (step, want) in [
+        (&b"\x1b[j"[..], &b"\x1b[1;4R"[..]),
+        (b"\x1b6", b"\x1b[1;4R"),
+        (b"\x1b9", b"\x1b[1;6R"),
+    ] {
+        support::render(&WS, &[&pending[..], step, b"\x1b[6n"].concat(), |t| {
+            assert_eq!(t.reply(), want, "{:?}", String::from_utf8_lossy(step));
+        });
+    }
+    // DECSWL, one of the controls that reset the Last Column Flag (D.6.1),
+    // ends the wait on the limit.
+    support::render(&WS, &[&pending[..], b"\x1b#5\x1b[6n"].concat(), |t| {
+        assert_eq!(t.reply(), b"\x1b[1;5R");
+        assert_eq!(t.wrap_pending(), WrapPending::No);
+    });
+    // SPA and EPA guard the limit, the active position.
+    support::render(&WS, &[&pending[..], b"\x1bV\x1bW"].concat(), |t| {
+        let row = t.viewport().row(Row::ZERO)[..20]
+            .iter()
+            .map(|c| if c.flags.is_guarded() { 'G' } else { '.' })
+            .collect::<String>();
+        assert_eq!(row, "....G...............");
+    });
+    // The indicator shows it, drawn by the read and again between reads.
+    let shown = |t: &Term<'_>| -> String {
+        let line = t.status_line().expect("an indicator");
+        line.cells
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or(' ')
+            })
+            .collect()
+    };
+    support::render(&WS, &[b"\x1b[1$~", &pending[..]].concat(), |t| {
+        assert!(shown(t).contains("1(01,005)"), "{:?}", shown(t));
+        t.set_printer(PrinterPort::Ready);
+        assert!(shown(t).contains("1(01,005)"), "{:?}", shown(t));
+    });
+    // A host-writable status line's cursor, parked between reads, is
+    // drawn on the limit as CPR names it.
+    support::render(
+        &WS,
+        &[b"\x1b[2$~\x1b[1$}", &pending[..], b"\x1b[6n"].concat(),
+        |t| {
+            assert_eq!(t.reply(), b"\x1b[1;5R");
+            let line = t.status_line().expect("a status line");
+            assert_eq!(line.cursor, Some(Col::at_index(4)));
+        },
+    );
+}
+
+/// **A cursor a move put past the limit is reported where it is**: `CUP`
+/// and `CHA` to position 6, past limit 5, and `CUF` to position 6 after
+/// `CUB` ended a wrap waiting at the limit, which leaves the cursor on
+/// the limit as it leaves one at a right margin on the margin. The limit
+/// bounds implicit movement only, so the active position is the one the
+/// move named.
+#[test]
+fn a_cursor_moved_past_the_line_limit_is_reported_where_it_is() {
+    for (bytes, want) in [
+        (&b"\x1b[5 V\x1b[1;6H\x1b[6n"[..], &b"\x1b[1;6R"[..]),
+        (b"\x1b[5 V\x1b[6G\x1b[6n", b"\x1b[1;6R"),
+        (b"\x1b[5 Vabcde\x1b[D\x1b[C\x1b[6n", b"\x1b[1;6R"),
+    ] {
+        support::render(&WS, bytes, |t| {
+            assert_eq!(t.reply(), want, "{:?}", String::from_utf8_lossy(bytes));
+            assert_eq!(t.wrap_pending(), WrapPending::No);
+        });
+    }
+}

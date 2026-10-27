@@ -539,6 +539,14 @@ impl Paint<'_, '_> {
         self.report_rendition(common.unwrap_or(StyleWord::DEFAULT));
     }
 
+    /// The column DECBI and DECFI step from: a pending wrap's, the right
+    /// margin, or SLL's line limit while a wrap waits there, where a
+    /// report names it (`crate::bounds`).
+    fn index_from(&self) -> Col {
+        let fence = crate::bounds::report_fence(self.cold.right, self.cold, self.cols);
+        self.cx.reported(fence, self.cols)
+    }
+
     /// DECBI, `ESC 6`.
     ///
     /// `[[source: dec-std-070]]` p. 5-39: "If the active position was
@@ -556,7 +564,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn back_index(&mut self) {
-        let x = self.cx.reported(self.cold.right, self.cols);
+        let x = self.index_from();
         if x == self.cold.left && !self.cx.is_placed() {
             let left = self.cold.left;
             self.shift_columns_at(left, Count::ONE, ColumnShift::Insert, PackedCell::EMPTY);
@@ -578,7 +586,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn forward_index(&mut self) {
-        let x = self.cx.reported(self.cold.right, self.cols);
+        let x = self.index_from();
         if x == self.cold.right && !self.cx.is_placed() {
             let (left, right) = (self.cold.left, self.cold.right);
             self.shift_columns_at(left, Count::ONE, ColumnShift::Delete, PackedCell::EMPTY);

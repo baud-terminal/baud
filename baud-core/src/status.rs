@@ -46,7 +46,7 @@
 
 use crate::paint::{Paint, Pen};
 use crate::term::Term;
-use crate::term::{GuardStart, Pinned, Saved, Screen, Watched};
+use crate::term::{Cold, GuardStart, Pinned, Saved, Screen, Watched};
 use baud_domain::*;
 
 /// The line's row, lent by the embedder: `cells` at least the pitch, and
@@ -227,9 +227,15 @@ impl Status {
     }
 
     /// The line's cursor between reads, when its DECTCEM shows it: the
-    /// column the cell is drawn at, a pending wrap's the last.
-    pub(crate) fn park_cursor(&self, cols: Cols) -> Option<Col> {
-        (self.park.cursor == ModeChange::Set).then(|| self.park.cx.reported(self.park.right, cols))
+    /// column the cell is drawn at, a pending wrap's the last, and SLL's
+    /// line limit while a wrap waits there, as a report reads it
+    /// (`crate::bounds`).
+    pub(crate) fn park_cursor(&self, cold: &Cold, cols: Cols) -> Option<Col> {
+        let fence = match self.park.pinned == Pinned::AtLimit {
+            true => crate::bounds::limited(self.park.right, cold, cols),
+            false => self.park.right,
+        };
+        (self.park.cursor == ModeChange::Set).then(|| self.park.cx.reported(fence, cols))
     }
 
     /// The style ids a sweep must keep beside the cells: the parked
@@ -619,7 +625,7 @@ impl Paint<'_, '_> {
         let ind = Indicators {
             at: (
                 self.cy.one_based(),
-                self.cx.reported(self.cold.right, self.cols).one_based(),
+                self.cx.reported(self.report_fence(), self.cols).one_based(),
             ),
             wait: ModeChange::of(self.cold.modes.is_set(ModeBit::KeyboardAction)),
             // ReGIS's input position while its input runs, the envelope
@@ -675,7 +681,7 @@ impl Term<'_> {
         let ind = Indicators {
             at: (
                 self.cy.one_based(),
-                self.cx.reported(self.cold.right, self.cols).one_based(),
+                self.cx.reported(self.report_fence(), self.cols).one_based(),
             ),
             wait: ModeChange::of(self.cold.modes.is_set(ModeBit::KeyboardAction)),
             locator: crate::regis::indicated(self.store.strs.regis, self.regis_inside())

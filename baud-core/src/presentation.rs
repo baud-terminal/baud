@@ -31,8 +31,9 @@ impl Paint<'_, '_> {
     /// cursor position, including visual attributes and character protection
     /// attributes"). The position is the screen's, from 1, and a pending
     /// wrap reports the column it is pending on with Sflag's bit 4, as CPR
-    /// reports it: the line's last, the right margin under DECSLRM and the
-    /// end of a double-width line ([`CursorCol::reported`]). Srend reports
+    /// reports it: the line's last, the right margin under DECSLRM, the
+    /// end of a double-width line ([`CursorCol::reported`]) and SLL's line
+    /// limit (`crate::bounds`). Srend reports
     /// any underline style as underline and either blink as blink, the one
     /// bit each DECCIR has. The single-shift bits are 0: the `CSI` that asks
     /// has cancelled any shift (070-3 p. 3-81).
@@ -44,12 +45,12 @@ impl Paint<'_, '_> {
             .with(CirBits::BIT2, on(a.bits() & Attrs::UNDERLINES.bits() != 0))
             .with(CirBits::BIT3, on(a.bits() & Attrs::BLINKS.bits() != 0))
             .with(CirBits::BIT4, on(a.has(Attrs::REVERSE)));
-        let pending =
-            !self.cx.is_placed() && self.cx.col().index() == self.line_fence().index() + 1;
+        let fence = self.report_fence();
+        let pending = !self.cx.is_placed() && self.cx.col().index() == fence.index() + 1;
         let flags = CirBits::NONE
             .with(CirBits::BIT1, on(self.cold.modes.is_set(ModeBit::Origin)))
             .with(CirBits::BIT4, on(pending));
-        let col = self.cx.reported(self.line_fence(), self.cols);
+        let col = self.cx.reported(fence, self.cols);
         CursorInformation {
             row: self.cy.one_based(),
             col: col.one_based(),

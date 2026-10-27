@@ -15,7 +15,10 @@
 //! under DECAWM, or stays there with DECAWM reset, as at a right margin.
 //! Under PRESENTATION those clauses are a "device without data
 //! component"'s, and baud has one, so the limit does nothing there and a
-//! wrap goes to DEC's left margin.
+//! wrap goes to DEC's left margin. **A wrap waiting at the limit is
+//! reported on it**: the active position never passed it, as DEC's Last
+//! Column Flag leaves it on the last column (`[[source: dec-std-070]]`
+//! D.6.1), so `CPR` names the limit ([`report_fence`]).
 //!
 //! **DEC's margins still bound ICH, DCH, scrolling and DECOM**, and where
 //! both are set the inner bound holds: the home past the left margin, the
@@ -41,11 +44,11 @@
 //! already tests.
 
 use baud_domain::{
-    Align, BidiSupport, Col, Cols, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
+    Align, BidiSupport, Col, Cols, Count, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
 };
 
 use crate::paint::Paint;
-use crate::term::Cold;
+use crate::term::{Cold, Pinned};
 
 /// SLH's line home and SLL's line limit, each a column once set.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -76,7 +79,45 @@ pub(crate) fn limited(f: Col, cold: &Cold, cols: Cols) -> Col {
     }
 }
 
+/// **The fence a report reads the cursor against**: `own`, the line's, or
+/// the line limit while a write left a wrap waiting there
+/// ([`Pinned::AtLimit`]), "the position beyond which no implicit movement
+/// of the active data position shall occur" (8.3.123), as DEC's Last
+/// Column Flag leaves the active position on the last column, "the Active
+/// Position cannot be advanced" (`[[source: dec-std-070]]` D.6.1).
+pub(crate) fn report_fence(own: Col, cold: &Cold, cols: Cols) -> Col {
+    match cold.pinned == Pinned::AtLimit {
+        true => limited(own, cold, cols),
+        false => own,
+    }
+}
+
 impl Paint<'_, '_> {
+    /// The fence a report reads the cursor against ([`report_fence`]).
+    pub(crate) fn report_fence(&self) -> Col {
+        report_fence(self.line_fence(), self.cold, self.cols)
+    }
+
+    /// **Before a character of `need` columns is written while the line is
+    /// bounded**: one that fills the line to its limit, short of the line's
+    /// own end, with DECAWM set, leaves a wrap waiting at the limit, and
+    /// any other write ends one.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn limit_step(&mut self, need: Count) {
+        if !self.cold.modes.is_set(ModeBit::AutoWrap) {
+            return;
+        }
+        let own = self.line_fence();
+        let limit = limited(own, self.cold, self.cols);
+        let end = self.cx.raw().index() + need.index();
+        if limit < own && end == limit.index() + 1 {
+            self.cold.pinned = Pinned::AtLimit;
+        } else if self.cold.pinned == Pinned::AtLimit {
+            self.cold.pinned = Pinned::Before;
+        }
+    }
+
     /// **TSR, SLH or SLL**, out of line ([`baud_domain::Csi::Position`]).
     #[cold]
     #[inline(never)]

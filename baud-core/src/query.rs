@@ -183,8 +183,9 @@ impl Paint<'_, '_> {
         //
         // **A cursor placed one past it, or right of the fence, reports its
         // own column**: only the sentinel waits on a column it is not on
-        // ([`CursorCol::reported`]).
-        let col = self.cx.reported(self.line_fence(), self.cols);
+        // ([`CursorCol::reported`]). **And a wrap waiting at SLL's line
+        // limit is on the limit** (`crate::bounds`).
+        let col = self.cx.reported(self.report_fence(), self.cols);
         // **Its presentation position under DCSM's PRESENTATION**, on a line
         // holding a string (`crate::component`).
         let col = match self.cold.modes.is_set(ModeBit::PresentationEdits) {

@@ -2294,7 +2294,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // first position and the page's first line, the margins aside, and
         // confined under DECOM. No DEC text and no ctlseqs entry has either.
         DomCsi::ColumnBackward(c) => p.set_col(
-            p.on_line(p.place(p.confine_col(p.cx.reported(p.line_fence(), p.cols).back(c)))),
+            p.on_line(p.place(p.confine_col(p.cx.reported(p.report_fence(), p.cols).back(c)))),
         ),
         DomCsi::LineBackward(c) => p.set_row(p.confine(p.cy.up(c))),
         // Each of the edits ends a wrap a DECRLM write left waiting

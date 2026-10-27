@@ -1814,7 +1814,7 @@ impl Paint<'_, '_> {
     /// it, the position it is drawn at on a line holding a string with
     /// BDSM reset.
     fn guard_position(&self) -> Col {
-        let c = self.cx.reported(self.cold.right, self.cols);
+        let c = self.cx.reported(self.report_fence(), self.cols);
         match self.guards_drawn() {
             true => self.line_map(self.cy).map_or(c, |m| m.presentation(c)),
             false => c,
@@ -3801,9 +3801,15 @@ impl Paint<'_, '_> {
             // `DECAWM` set a write does not touch `Cold::pinned`, so a pin left
             // from before a `?7h` would name a character long since passed by
             // the time a `?7l` makes it readable again.
+            //
+            // **A wrap waiting at the line limit stays on the limit**: the
+            // active position never left it (`crate::bounds`), and a report
+            // names it with the wrap ended.
             PrivateMode::AutoWrap => {
                 self.cold.modes.apply(ModeBit::AutoWrap, on);
-                self.cold.pinned = crate::term::Pinned::Before;
+                if self.cold.pinned != crate::term::Pinned::AtLimit {
+                    self.cold.pinned = crate::term::Pinned::Before;
+                }
             }
             // **`?3` DECCOLM, behind xterm's `?40`** -- the owner's call of
             // 2026-10-13. While `?40` is reset the control is ignored, as

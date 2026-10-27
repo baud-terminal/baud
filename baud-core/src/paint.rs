@@ -738,6 +738,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(never)]
     pub(crate) fn write_slowly(&mut self, cp: Codepoint, need: Count) {
         self.form_step(cp);
+        // A wrap waiting at SLL's line limit, for the reports
+        // (`crate::bounds`).
+        if self.cold.modes.is_set(ModeBit::LineBounded) {
+            self.limit_step(need);
+        }
         // A string laid out against an aligned stop (`crate::aligned`).
         if self.cold.modes.is_set(ModeBit::Aligning) {
             self.align_step(cp, need);
@@ -2243,9 +2248,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         let (cy, cols) = (self.cy, self.cols.index());
         // Read against the old line's fence: DECSWL widens it, and the
-        // sentinel one past the old half would read as a column after.
-        let pending = matches!(self.cursor_at(), CursorAt::Pending(_));
-        let on = self.cx.reported(self.line_fence(), self.cols);
+        // sentinel one past the old half would read as a column after. A
+        // wrap waiting at SLL's line limit is read against the limit, as a
+        // report reads it (`crate::bounds`).
+        let fence = self.report_fence();
+        let pending = matches!(self.cx.at(fence, self.cols), CursorAt::Pending(_));
+        let on = self.cx.reported(fence, self.cols);
         if to.is_double() {
             let eol = Col::at_index(to.end_of_line(self.cols).index());
             let n = self

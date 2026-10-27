@@ -472,6 +472,10 @@ group  = "C"
 # its character-set table (pp. 5-117 to 5-122) [text]; 070-3 § 3.7.5.1 (p. 3-67) [text];
 # 070-6 § 6.2.1-6.2.6 (pp. 6-16 to 6-21) [text]; 070-0A ENTER VT52 EMULATION MODE
 # (p. A-14) and its change history A.9.1 [text].
+# Read 2026-10-27 for a wrap pending at SLL's line limit (lane b229), the copy whose
+# sha256 matches: 070-D D.6.1 Auto Wrap Mode and the Last Column Flag, "the Active
+# Position cannot be advanced", and the controls that reset it (PDF 1200-1201) [text];
+# CPR and its algorithm (pp. 5-53 to 5-54, PDF 308-309) [text].
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

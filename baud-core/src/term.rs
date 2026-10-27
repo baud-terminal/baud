@@ -843,7 +843,8 @@ pub(crate) enum SixelBg {
 /// `Paint::after_last_write`. A zero-width codepoint after a control can
 /// follow any control, so every horizontal move ends the pin
 /// (`Paint::set_col`), as do `?7h`, `?7l` and a resize that clamps the
-/// cursor; a vertical move keeps it.
+/// cursor; a vertical move keeps it. `Pinned::AtLimit` survives `?7h` and
+/// `?7l`: the active position stays on the line limit (`crate::bounds`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pinned {
     /// The character ended before the last column; the cursor is after it.
@@ -855,6 +856,12 @@ pub(crate) enum Pinned {
     /// row [`Cold::left_edge`] names: every horizontal move ends it, as it
     /// ends the pin, and a move to another row leaves it naming another.
     LeftEdge,
+    /// **With DECAWM set a write put a character at SLL's line limit**
+    /// (`crate::bounds`) and the cursor is the sentinel one past it, a wrap
+    /// waiting there, so a report names the limit: every horizontal move
+    /// ends it, as it ends the pin, and a cursor a move put one past the
+    /// limit is a column.
+    AtLimit,
 }
 
 /// The host stream's parser state, which the local echo swaps for its own
@@ -2494,6 +2501,12 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// The fence a report reads the cursor against: the line's own, or
+    /// the line limit while a write left a wrap waiting there.
+    pub(crate) fn report_fence(&self) -> Col {
+        crate::bounds::report_fence(self.line_fence(), &self.cold, self.cols)
+    }
+
     /// Screen row `y`'s line rendition (`ESC # 3`, `# 4`, `# 5`, `# 6`):
     /// single-width, or drawn two columns a character and, for the two
     /// double-height renditions, the top or the bottom half of each.
@@ -3813,7 +3826,7 @@ impl<'b> Term<'b> {
             .first()
             .map_or(LineRendition::Single, |u| u.rendition());
         let cursor = (st.active == ActiveDisplay::Status)
-            .then(|| st.park_cursor(self.cols))
+            .then(|| st.park_cursor(&self.cold, self.cols))
             .flatten();
         Some(StatusLine {
             cells,
@@ -5024,7 +5037,7 @@ impl<'b> Term<'b> {
         // application counting columns then disagrees with. **Only the
         // sentinel is clamped**: a cursor a move placed one past the margin,
         // or right of the fence, is on its own column ([`CursorCol::reported`]).
-        (self.cy, self.cx.reported(self.line_fence(), self.cols))
+        (self.cy, self.cx.reported(self.report_fence(), self.cols))
     }
 
     /// **Whether the next graphic character wraps before it is written**:
@@ -5040,7 +5053,7 @@ impl<'b> Term<'b> {
     /// terminal with a flag answers, because a write from there writes on.
     pub fn wrap_pending(&self) -> WrapPending {
         let pending = matches!(
-            self.cx.at(self.line_fence(), self.cols),
+            self.cx.at(self.report_fence(), self.cols),
             CursorAt::Pending(_)
         );
         match pending && self.cold.modes.is_set(ModeBit::AutoWrap) {
