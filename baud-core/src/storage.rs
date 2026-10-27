@@ -558,6 +558,9 @@ pub struct StrBuf<'b> {
     pub(crate) variants: crate::variants::State,
     /// SDS's and SRS's strings, by identifier (`crate::strings`).
     pub(crate) strings: crate::strings::Strings,
+    /// The tab stops' alignments and the string being laid out against
+    /// one (`crate::aligned`).
+    pub(crate) aligned: crate::aligned::Aligned,
     /// **The notifications' area** (`notice.rs`): the chunk being received,
     /// the notification being assembled, what a read published and the
     /// ids alive, [`NoticeBudget::bytes`] long. Empty through
@@ -657,6 +660,7 @@ impl<'b> StrBuf<'b> {
             print: crate::print::Printer::NONE,
             variants: crate::variants::State::POWER_ON,
             strings: crate::strings::Strings::POWER_ON,
+            aligned: crate::aligned::Aligned::POWER_ON,
             status: crate::status::Status::power_on(
                 Cols::of_index(1),
                 crate::status::Room::Declined,
@@ -1001,6 +1005,7 @@ impl Owned {
                 print: crate::print::Printer::NONE,
                 variants: crate::variants::State::POWER_ON,
                 strings: crate::strings::Strings::POWER_ON,
+                aligned: crate::aligned::Aligned::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,
@@ -1093,6 +1098,7 @@ impl Owned {
                 print: crate::print::Printer::NONE,
                 variants: crate::variants::State::POWER_ON,
                 strings: crate::strings::Strings::POWER_ON,
+                aligned: crate::aligned::Aligned::POWER_ON,
                 status: crate::status::Status::power_on(
                     Cols::of_index(1),
                     crate::status::Room::Declined,

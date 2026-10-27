@@ -196,6 +196,7 @@ impl Paint<'_, '_> {
     /// line feed: a line a scroll brings in takes the direction in force;
     /// a move to a line already there takes nothing.
     pub(crate) fn index_bringing_in(&mut self) {
+        self.effector_ends_string();
         let scrolls = self.cy == self.cold.bot;
         self.index();
         if scrolls && self.cold.modes.is_set(ModeBit::PathSelected) {

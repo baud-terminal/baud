@@ -2744,6 +2744,7 @@ impl Paint<'_, '_> {
         for (i, stop) in self.tabs.iter_mut().enumerate() {
             *stop = i % 8 == 0 && i != 0;
         }
+        self.strs.aligned.all_plain();
     }
 
     /// `HT` and `CHT`: the next stop, or the edge [`Paint::tab_end`] names
@@ -3150,17 +3151,22 @@ impl Paint<'_, '_> {
     /// number of lines affected depends on the setting of" TSM).
     pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
         match w {
-            Some(TabClear::All | TabClear::InLine) => self.tabs.fill(false),
+            Some(TabClear::All | TabClear::InLine) => {
+                self.tabs.fill(false);
+                self.strs.aligned.all_plain();
+            }
             Some(TabClear::AtCursor) => {
                 let x = self.stop_col().index();
                 if x < self.tabs.len() {
                     self.tabs[x] = false;
+                    self.strs.aligned.plain_at(Col::at_index(x));
                 }
             }
             Some(TabClear::LineAtCursor) => self.cold.line_stops.clear(self.cy),
             Some(TabClear::AllLines) => self.cold.line_stops.clear_all(),
             Some(TabClear::Everything) => {
                 self.tabs.fill(false);
+                self.strs.aligned.all_plain();
                 self.cold.line_stops.clear_all();
             }
             // A value 8.3.154 does not define: counted, and no stop moves.
@@ -3186,6 +3192,7 @@ impl Paint<'_, '_> {
         };
         if let Some(c) = n.col_within(self.cols) {
             self.tabs[c.index()] = false;
+            self.strs.aligned.plain_at(c);
         }
     }
 
@@ -3235,6 +3242,7 @@ impl Paint<'_, '_> {
         let x = self.stop_col().index();
         if x < self.tabs.len() {
             self.tabs[x] = true;
+            self.strs.aligned.plain_at(Col::at_index(x));
         }
     }
 

@@ -1210,11 +1210,15 @@ impl Csi {
                 (b' ', b'@') if marker == Marker::Standard => {
                     Csi::ScrollLeft(p.count(ParamIdx::FIRST))
                 }
-                // TSR, `CSI Pn 02/00 06/04` (`[[source: ecma48]]` 8.3.156),
-                // the standard namespace's.
-                // and SLH and SLL, `CSI Pn 02/00 05/05` and `05/06` (8.3.122,
-                // 8.3.123).
-                (b' ', b'd' | b'U' | b'V') if marker == Marker::Standard => {
+                // The standard namespace's: TSR, `CSI Pn 02/00 06/04`
+                // (`[[source: ecma48]]` 8.3.156), and SLH and SLL, `05/05`
+                // and `05/06` (8.3.122, 8.3.123), and TATE, TALE, TAC and
+                // TCC, `06/00` to `06/03` (8.3.151 to 8.3.153, 8.3.155), the
+                // op by its final alone: TCC's target is read where it is
+                // performed, as [`Csi::Area`]'s parameters are.
+                (b' ', b'd' | b'U' | b'V' | b'`' | b'a' | b'b' | b'c')
+                    if marker == Marker::Standard =>
+                {
                     Csi::Position(PositionOp::of(f), p.required_position(ParamIdx::FIRST))
                 }
                 (b' ', b'A') if marker == Marker::Standard => {
@@ -1663,14 +1667,68 @@ pub enum PositionOp {
     LineHome,
     /// SLL, `SP V` (8.3.123): the line limit.
     LineLimit,
+    /// TAC, TALE or TATE: a stop calling for alignment.
+    Aligned(Align),
+    /// TCC, `SP 06/03`: a stop centring a target character, the target
+    /// its second parameter ([`TargetChar::of_params`]).
+    CentredOnTarget,
+}
+
+/// **The alignment a stop calls for** (`[[source: ecma48]]` 8.3.151 to
+/// 8.3.155).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Align {
+    /// TATE, `SP 06/00`: "the (trailing edge of the) first graphic
+    /// character of the string is placed at the tabulation stop".
+    TrailingEdge,
+    /// TALE, `SP 06/01`: "the (leading edge of the) last graphic character
+    /// of the string is placed at the tabulation stop".
+    LeadingEdge,
+    /// TAC, `SP 06/02`: the string centred on the stop.
+    Centred,
+    /// TCC, `SP 06/03`: the first occurrence of the target character
+    /// centred upon the stop.
+    OnCharacter(TargetChar),
+}
+
+/// **TCC's target**, `Pn2`: "the code table position (binary value) of the
+/// target character in the currently invoked code", 32 to 127 and, for an
+/// 8-bit code, 160 to 255 (8.3.155).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TargetChar(pub(crate) u8);
+
+impl TargetChar {
+    /// TCC's target, its `Pn2`: 32 when omitted or 0, else 32 to 127 or
+    /// 160 to 255, `None` for any other.
+    pub fn of_params(p: &Params<'_>) -> Option<TargetChar> {
+        match p.at(ParamIdx::SECOND).map_or(0, |x| x.0) {
+            0 => Some(TargetChar(32)),
+            v @ (32..=127 | 160..=255) => Some(TargetChar(v as u8)),
+            _ => None,
+        }
+    }
+
+    /// The target's code table position, "the code table position (binary
+    /// value) of the target character in the currently invoked code"
+    /// (8.3.155): compared with the position a character was received at,
+    /// which a designated set can draw as another character (DEC Special
+    /// Graphics' 113 is drawn `─`), and for a decoded character with its
+    /// scalar value.
+    pub fn value(self) -> u32 {
+        u32::from(self.0)
+    }
 }
 
 impl PositionOp {
-    /// The op for final `f`, one of `d`, `U` and `V`.
+    /// The op for final `f`, one of `d`, `U`, `V` and `06/00` to `06/03`.
     fn of(f: FinalByte) -> PositionOp {
         match f.raw() {
             b'U' => PositionOp::LineHome,
             b'V' => PositionOp::LineLimit,
+            b'`' => PositionOp::Aligned(Align::TrailingEdge),
+            b'a' => PositionOp::Aligned(Align::LeadingEdge),
+            b'b' => PositionOp::Aligned(Align::Centred),
+            b'c' => PositionOp::CentredOnTarget,
             _ => PositionOp::RemoveStop,
         }
     }

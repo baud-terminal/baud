@@ -1159,6 +1159,20 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **Aligned stops**: TALE at 9 and TCC at 17 on `.`, which an `HT` then
+    // reaches, and the `ht` atom above with them.
+    Atom {
+        name: "tale",
+        bytes: b"\x1b[9 a",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "tcc",
+        bytes: b"\x1b[17;46 c",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2064,6 +2078,30 @@ fn the_see_atoms_reach_the_extent() {
     };
     assert_eq!(second(&["see-page"]), Some(0x74));
     assert_eq!(second(&["see-page", "see-line"]), None);
+}
+
+/// **The aligned-stop atoms reach the layout**: `ab` after TALE's stop
+/// at 9 ends before it.
+#[test]
+fn the_aligned_atoms_reach_the_layout() {
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    let prog: Vec<usize> = ["tale", "ht", "ascii-short"]
+        .iter()
+        .map(|n| atom(n))
+        .collect();
+    support::feed(&mut t, &bytes_of(&prog));
+    let row: String = t.row(Row::ZERO).expect("a row")[..9]
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|cp| char::from_u32(cp.value()))
+                .unwrap_or('.')
+        })
+        .collect();
+    assert_eq!(row, "......ab.");
 }
 
 proptest! {

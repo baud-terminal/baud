@@ -498,6 +498,9 @@ impl Paint<'_, '_> {
     /// columns, which must fit the screen, or every eighth column.
     fn restore_tabs(&mut self, t: TsrTabs) {
         let cols = self.cols.index().min(self.tabs.len());
+        if t != TsrTabs::Absent {
+            self.strs.aligned.all_plain();
+        }
         match t {
             TsrTabs::Absent => {}
             TsrTabs::EveryEighth => {

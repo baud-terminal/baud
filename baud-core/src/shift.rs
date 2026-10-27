@@ -33,6 +33,7 @@ impl Paint<'_, '_> {
             (false, 0xff) => return,
             _ => PackedCell::translate(b.seven_bit(), set),
         };
+        self.received(cp, Some(b.raw_byte()));
         glyph_any(self, cp, Pen::Kept(Received::of(set)));
     }
 
@@ -57,11 +58,9 @@ impl Paint<'_, '_> {
             return ReadLen::ZERO;
         }
         self.cluster = ClusterBreak::after_control();
-        glyph_any(
-            self,
-            PackedCell::translate(code, set),
-            Pen::Kept(Received::of(set)),
-        );
+        let cp = PackedCell::translate(code, set);
+        self.received(cp, Some(b.raw_byte()));
+        glyph_any(self, cp, Pen::Kept(Received::of(set)));
         ReadLen::ONE
     }
 
@@ -72,6 +71,7 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn gl_del(&mut self) {
         let cp = PackedCell::translate(StreamByte::DEL, self.charset);
+        self.received(cp, Some(0x7f));
         glyph_any(self, cp, Pen::Gl);
     }
 }

@@ -66,6 +66,7 @@ mod hebrew_keys;
 mod iterm;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
+mod aligned;
 mod bounds;
 mod component;
 mod extent;

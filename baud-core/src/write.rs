@@ -1809,7 +1809,11 @@ fn eight(
     if a == Act::ContEnd8 {
         *utf8 = utf8.push(b.continuation_bits());
         match formed {
-            true => glyph_formed(p, utf8.finish(*min), Pen::Decoded),
+            true => {
+                let cp = utf8.finish(*min);
+                p.received(cp, None);
+                glyph_formed(p, cp, Pen::Decoded)
+            }
             false => glyph_eight::<Plain>(p, utf8.finish(*min), Pen::Decoded),
         }
         return ReadLen::ONE;
@@ -1820,6 +1824,7 @@ fn eight(
         debug_assert!(formed);
         p.cluster = ClusterBreak::after_ascii_run();
         let cp = PackedCell::translate(b, p.charset);
+        p.received(cp, Some(b.raw_byte()));
         p.glyph_by::<Formed>(cp, Width::NARROW, Pen::Gl);
         return ReadLen::ONE;
     }
@@ -1848,7 +1853,10 @@ fn eight(
         raw = (raw << 6) | c.continuation_bits();
     }
     match formed {
-        true => glyph_formed(p, Codepoint::decoded(raw), Pen::Decoded),
+        true => {
+            p.received(Codepoint::decoded(raw), None);
+            glyph_formed(p, Codepoint::decoded(raw), Pen::Decoded)
+        }
         false => glyph_eight::<Plain>(p, Codepoint::decoded(raw), Pen::Decoded),
     }
     ReadLen::of_bytes(len)
@@ -2138,11 +2146,6 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         let _ = (&p, &csi, f, &node, at);
         return;
     }
-    #[allow(unreachable_code)]
-    let lrm = match p.cold.modes.is_set(ModeBit::SideMargins) {
-        true => MarginMode::On,
-        false => MarginMode::Off,
-    };
     // **SGR before anything is built, because it needs none of it.**
     // `fold_sgr` reads the parameter array directly, so the `Params` below and
     // the whole `baud_domain::Csi` this function would parse are dead for the
@@ -2151,10 +2154,26 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
     // git-log's. The condition is exactly the general path's -- standard
     // namespace, no intermediate, final `m` -- so anything else falls through
     // unchanged.
+    #[allow(unreachable_code)]
     if csi.is_plain_sgr(f) {
         p.apply_sgr(csi);
         return;
     }
+    csi_dispatch(p, csi, f, node, at);
+}
+
+/// **Every `CSI` but a plain SGR**, out of line from [`csi_final`]: SGR
+/// reaches `apply_sgr` with no frame of this function's, which saves as
+/// many registers as its widest arm needs. Split when TATE, TALE, TAC and
+/// TCC took this match to two more saved pairs, which SGR, 63% of `btop`'s
+/// finals, paid on each.
+#[cold]
+#[inline(never)]
+fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at: BytePos) {
+    let lrm = match p.cold.modes.is_set(ModeBit::SideMargins) {
+        true => MarginMode::On,
+        false => MarginMode::Off,
+    };
     // **A `:` ignores the whole sequence, but in the two that define
     // sub-parameters.** `[[source: dec-std-070]]` 3.5.3.1: "The bit
     // combination 3/10 is reserved for future standardization. If 3/10 is
@@ -2334,10 +2353,13 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             let s = p.cold.saved;
             p.restore(s);
         }
-        DomCsi::CursorForwardTab(c) => p.tab_forward(c),
+        DomCsi::CursorForwardTab(c) => {
+            p.tab_forward(c);
+            p.tab_landed();
+        }
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
-        DomCsi::Position(op, n) => p.set_position(op, n),
+        DomCsi::Position(op, n) => p.set_position(op, n, csi),
         DomCsi::SelectEditingExtent(e) => p.select_editing_extent(e),
         DomCsi::CursorTabControl => p.tab_control(csi),
         DomCsi::CursorLineTab(c) => p.line_tab(c),

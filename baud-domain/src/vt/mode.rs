@@ -453,6 +453,13 @@ pub enum ModeBit {
     /// and the writes it sends out of line wrap at the limit to the home;
     /// set and reset as the three change; no `DECRQM` or XTSAVE reaches it.
     LineBounded,
+    /// **Whether a string is being laid out against a stop TAC, TALE or
+    /// TCC set** (`[[source: ecma48]]` 8.3.151, 8.3.152, 8.3.155). Not a
+    /// mode the host names: the core chooses the one-by-one graph by it,
+    /// and SAPV's writer's step lays each character out; set by an `HT`
+    /// that lands on such a stop, reset when the string ends; no `DECRQM`
+    /// or XTSAVE reaches it.
+    Aligning,
 }
 
 impl ModeBit {
@@ -545,6 +552,14 @@ impl Modes {
     /// Whether any of five modes is set: one test of the word.
     pub fn any_of_five(self, a: ModeBit, b: ModeBit, c: ModeBit, d: ModeBit, e: ModeBit) -> bool {
         self.0 & (a.bit() | b.bit() | c.bit() | d.bit() | e.bit()) != 0
+    }
+    /// Whether any of six modes is set: one test of the word.
+    pub fn any_of_six(self, m: [ModeBit; 6]) -> bool {
+        let mut bits = 0;
+        for b in m {
+            bits |= b.bit();
+        }
+        self.0 & bits != 0
     }
     pub fn set(&mut self, m: ModeBit) {
         self.0 |= m.bit();

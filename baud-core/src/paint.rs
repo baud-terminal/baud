@@ -738,6 +738,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(never)]
     pub(crate) fn write_slowly(&mut self, cp: Codepoint, need: Count) {
         self.form_step(cp);
+        // A string laid out against an aligned stop (`crate::aligned`).
+        if self.cold.modes.is_set(ModeBit::Aligning) {
+            self.align_step(cp, need);
+        }
         if self.inserting() {
             // Under an extent SEE chose other than the line, along it
             // (`crate::extent`).
@@ -1999,6 +2003,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One row up, scrolling the region when the cursor is on its first row,
     /// at its presentation position under DCSM's PRESENTATION.
     pub(crate) fn reverse_index(&mut self) {
+        self.effector_ends_string();
         // At the top margin the cursor stays where the write left it.
         self.end_left_edge();
         if self.cold.modes.is_set(ModeBit::PresentationEdits) {
@@ -2398,18 +2403,20 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// which byte moved the cursor, which is the line's ending in print. A
     /// selected character path is a third bit of the same test, and DECRLM
     /// a fifth, whose wrap waiting at the left margin a line feed ends
-    /// (`crate::leftward`).
+    /// (`crate::leftward`). A string laid out against an aligned stop is a
+    /// sixth, which the line feed ends (`crate::aligned`).
     #[inline(always)]
     pub(crate) fn line_feed(&mut self, by: Feed) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        if self.cold.modes.any_of_five(
+        if self.cold.modes.any_of_six([
             ModeBit::LineFeedNewLine,
             ModeBit::AutoPrint,
             ModeBit::PathSelected,
             ModeBit::PresentationEdits,
             ModeBit::CursorRightToLeft,
-        ) {
+            ModeBit::Aligning,
+        ]) {
             return self.line_feed_moded(by);
         }
         self.index();
@@ -2423,6 +2430,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn line_feed_moded(&mut self, by: Feed) {
+        self.effector_ends_string();
         self.end_left_edge();
         if self.cold.modes.is_set(ModeBit::AutoPrint) {
             let end = match by {

@@ -184,7 +184,8 @@ impl Paint<'_, '_> {
         // (`crate::bounds`).
         let mapped = strung
             || self.cold.modes.is_set(ModeBit::CursorRightToLeft)
-            || self.cold.bounds.home.is_some();
+            || self.cold.bounds.home.is_some()
+            || self.strs.aligned.any();
         self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
         let presented = self.cold.bidi == BidiSupport::Explicit
             && (self.strs.strings.begun == Begun::Yes
@@ -292,6 +293,7 @@ impl Paint<'_, '_> {
     /// [`LineStart::Home`], mapped to the cell drawn there under
     /// PRESENTATION.
     fn return_mapped(&mut self, to: LineStart) {
+        self.effector_ends_string();
         self.line_home();
         if to == LineStart::Home {
             let c = self.homed(self.cx.col());
@@ -412,7 +414,10 @@ impl Paint<'_, '_> {
                 p.set_row(p.up_in_margins(c));
                 p.line_home();
             }),
-            Csi::CursorForwardTab(c) => self.presented(|p| p.tab_forward(c)),
+            Csi::CursorForwardTab(c) => {
+                self.presented(|p| p.tab_forward(c));
+                self.tab_landed();
+            }
             Csi::CursorBackTab(c) => self.presented(|p| p.tab_back(c)),
             Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
             // The arm that calls this admits only the functions above.
@@ -464,6 +469,7 @@ impl Paint<'_, '_> {
             true => p.tab_leftward(),
             false => p.tab_forward(Count::ONE),
         });
+        self.tab_landed();
     }
 
     /// **`DCH` under PRESENTATION**: the cells drawn at the `n` positions

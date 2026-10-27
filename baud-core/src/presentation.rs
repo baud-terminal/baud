@@ -153,6 +153,7 @@ impl Paint<'_, '_> {
         for (i, t) in self.tabs[..cols].iter_mut().enumerate() {
             *t = self.strs.pending[i / 8] & (1 << (i % 8)) != 0;
         }
+        self.strs.aligned.all_plain();
     }
 
     /// Keep column `c` as a stop to restore, or stop the restore there.

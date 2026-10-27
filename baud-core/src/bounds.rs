@@ -41,7 +41,7 @@
 //! already tests.
 
 use baud_domain::{
-    BidiSupport, Col, Cols, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
+    Align, BidiSupport, Col, Cols, CursorCol, DeviceComponent, ModeBit, OneBased, PositionOp,
 };
 
 use crate::paint::Paint;
@@ -80,11 +80,25 @@ impl Paint<'_, '_> {
     /// **TSR, SLH or SLL**, out of line ([`baud_domain::Csi::Position`]).
     #[cold]
     #[inline(never)]
-    pub(crate) fn set_position(&mut self, op: PositionOp, n: Option<OneBased>) {
+    pub(crate) fn set_position(
+        &mut self,
+        op: PositionOp,
+        n: Option<OneBased>,
+        csi: &crate::write::Csi,
+    ) {
         match op {
             PositionOp::RemoveStop => self.remove_stop(n),
             PositionOp::LineHome => self.set_line_home(n),
             PositionOp::LineLimit => self.set_line_limit(n),
+            PositionOp::Aligned(a) => self.set_aligned_stop(a, n),
+            // TCC's target, its second parameter (8.3.155); one it does not
+            // permit is counted.
+            PositionOp::CentredOnTarget => {
+                match baud_domain::TargetChar::of_params(&csi.params()) {
+                    Some(t) => self.set_aligned_stop(Align::OnCharacter(t), n),
+                    None => self.unsupported_param += 1,
+                }
+            }
         }
     }
 

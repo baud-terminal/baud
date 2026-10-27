@@ -3326,6 +3326,7 @@ impl<'b> Term<'b> {
         for (i, stop) in store.tabs.iter_mut().enumerate() {
             *stop = i % 8 == 0 && i != 0;
         }
+        store.strs.aligned.all_plain();
         let (cols, rows) = ws.geometry();
         // The pitch admits the provisioned width by construction and not
         // `MAX_COLS`, so the width is bounded by both.
