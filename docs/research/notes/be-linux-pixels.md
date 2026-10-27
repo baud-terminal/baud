@@ -1,4 +1,4 @@
-# BE. Linux draws what macOS draws, pixel for pixel
+# BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor
 
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; and the Linux clipboard
@@ -103,12 +103,12 @@ luminance).
 ![btop with the Linux driver's floor, over black](be/btop-floor-linux.png)
 ![btop with the macOS app's floor, over black](be/btop-floor-macos.png)
 
-Jev, with these four renders (each floor over black and over grey 33):
-keep a floor per backdrop and record the difference as the platform's,
-PER_BACKDROP at 0.80 and 0.80; re-asked once with the contrasts above,
-0.74 and 0.82. Below 0.9, so the lean is taken and nothing changes: on
-Linux btop's dim greys are brighter than on macOS, and legible over any
-background.
+The floor reading black to white on Linux is b83's decision (Jev
+0.98/0.97, decisions 796-797; the record, "The window body is the
+standard material"). Jev re-weighed it with these renders, PER_BACKDROP
+at 0.80/0.80 and then 0.74/0.82: below 0.9, so the lean is taken and
+b83's decision stands unchanged. On Linux btop's dim greys are brighter
+than on macOS, and legible over any background.
 
 **The window's default size.** The Linux window opens at 800x600 pixels
 when the compositor leaves the size to it, 100x35 cells; the macOS
@@ -151,8 +151,10 @@ Bluetooth keyboard reconnecting.
   rounding one: the control's 476,000 pixels and 3-6% of each text
   frame's pixels one level off (less-pager 20,437, cat-cjk 14,685,
   vim-unicode 29,155, btop 25,947); swirl's picture, opaque, none.
-- The bench's page alpha 178 in place of 179 on the Mac arm: 93% to
-  100% of every frame's pixels, by 1 (btop by up to 4).
+- The bench's page alpha 178 in place of 179 on the Mac arm: 93% to 100%
+  of every frame's pixels (vim-unicode 441,007 to control 476,000), by 1
+  on the text frames and swirl, by up to 4 on btop and by up to 15 on
+  the control.
 - weston 10's kiosk-shell shows its screenshooter nothing, not even
   weston-simple-shm, where desktop-shell shows both; that is why the
   run uses desktop-shell.

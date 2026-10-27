@@ -796,10 +796,12 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   columns with `CUP` and `CHA`, which move the presentation position here
   in both DCSM states, as ECMA-48 defines them; `HVP` and `HPA` give its
   published result (`tr53_example_2_data_lines_by_the_data_movers`).
-- **Insert mode on a line drawn as edited**: a character typed goes in at
-  the cursor's drawn place and the cursor then moves on by the cells, so
-  two typed into a reversed string are drawn apart; TR/53's examples give
-  each insertion a string of its own, which a program sends.
+- **Insert mode on a line drawn as edited**: a character typed goes in
+  at the cursor's drawn place and the cursor then moves on by the cells,
+  so two typed into a reversed string are drawn apart, and at the line's
+  edge the second goes to the next line, or with autowrap reset in front
+  of the first; TR/53's examples give each insertion a string of its
+  own, which a program sends.
 - **Joining's edges**: a
   selection that covers only one cell of a lam-alef pair colours the whole
   ligature in the lam cell's colours; an alef whose lam has scrolled above
