@@ -260,13 +260,13 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn forward_to_line_end(&self, n: Count) -> CursorCol {
-        CursorCol::moved(self.cx.raw().forward_to(n, self.line_fence()))
+        CursorCol::moved(self.moved_from().forward_to(n, self.line_fence()))
     }
 
     #[cold]
     #[inline(never)]
     fn forward_fenced(&self, n: Count) -> CursorCol {
-        let x = self.cx.col().index();
+        let x = self.moved_from().index();
         let end = match self.at_or_inside_right() {
             true => self.cold.right.index(),
             false => self.cols.index() - 1,
@@ -3295,7 +3295,7 @@ impl Paint<'_, '_> {
     /// 8.3.17), with BDSM reset the cursor's position as drawn, in both
     /// DCSM states (`crate::component`), its cell's column otherwise.
     fn stop_col(&self) -> Col {
-        self.cursor_presented_col().unwrap_or(self.cx.col())
+        self.cursor_presented_col().unwrap_or(self.moved_from())
     }
 
     /// CTC, `CSI Ps... W`: every parameter, in order ("Notation: (Ps...)",

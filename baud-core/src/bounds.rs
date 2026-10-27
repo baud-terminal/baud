@@ -70,6 +70,14 @@ fn data_rules(cold: &Cold) -> bool {
     cold.bidi == BidiSupport::Implicit || cold.dcsm == DeviceComponent::Data
 }
 
+/// **Whether a line limit bounds implicit movement**, so a write can leave
+/// a wrap waiting at it: `HT` then maps through
+/// [`ModeBit::ReturnMapped`], out of line, where the wait is ended on the
+/// limit before the stops are counted ([`Paint::end_limit_wait`]).
+pub(crate) fn limit_bounds(cold: &Cold) -> bool {
+    cold.bounds.limit.is_some() && data_rules(cold)
+}
+
 /// **The fence a write tests**: `f`, a line's own, lowered to the line
 /// limit while it bounds implicit movement.
 pub(crate) fn limited(f: Col, cold: &Cold, cols: Cols) -> Col {
@@ -96,6 +104,42 @@ impl Paint<'_, '_> {
     /// The fence a report reads the cursor against ([`report_fence`]).
     pub(crate) fn report_fence(&self) -> Col {
         report_fence(self.line_fence(), self.cold, self.cols)
+    }
+
+    /// **The column a forward move counts from**: the cursor's, or the
+    /// line limit where a wrap waits there, the active position a report
+    /// names (Jev, FROM_LIMIT, 0.92/0.96): 8.3.123 bounds only implicit
+    /// movement, DEC's Last Column Flag leaves "the Active Position" on
+    /// the last column (`[[source: dec-std-070]]` D.6.1) and its CUF and
+    /// HT algorithms add to that column, and xterm's `CursorForward` and
+    /// `TabNext` count from the cursor column, which stays there while the wrap
+    /// waits (`[[source: xterm-cursor-c]]` 211-241, `[[source:
+    /// xterm-tabs-c]]` 109-124). So `CUF`, `HT`, `CHT`, `CBT`, `HTS`,
+    /// `TBC 0` and HTJ count from the limit. `CUB` counts the wait as its
+    /// first step, as at a right margin, and `HPB` from the reported column.
+    pub(crate) fn moved_from(&self) -> Col {
+        match self.cold.pinned == Pinned::AtLimit {
+            true => self.cx.reported(self.report_fence(), self.cols),
+            false => self.cx.col(),
+        }
+    }
+
+    /// **A wrap waiting at the line limit ended on the limit**, before a
+    /// move that counts from the cursor's column ([`Paint::moved_from`]).
+    /// One test inline; the rest out of line.
+    #[inline(always)]
+    pub(crate) fn end_limit_wait(&mut self) {
+        if self.cold.pinned == Pinned::AtLimit {
+            self.end_limit_wait_on_limit();
+        }
+    }
+
+    /// The cursor put on the limit it waited past, which ends the wait.
+    #[cold]
+    #[inline(never)]
+    fn end_limit_wait_on_limit(&mut self) {
+        let on = self.moved_from();
+        self.set_col(CursorCol::moved(on));
     }
 
     /// **Before a character of `need` columns is written while the line is
@@ -176,6 +220,19 @@ impl Paint<'_, '_> {
         let on = (b.home.is_some() || b.limit.is_some()) && data_rules(self.cold);
         self.cold.modes.apply(ModeBit::LineBounded, on);
         self.cold.fence = self.write_fence_of_line();
+        // **A wrap waiting at a limit that moved ends on the position it
+        // waited on**, the cursor one back from the sentinel, as DECSWL,
+        // DECDWL and DECDHL end one when a line's end changes (D.6.1;
+        // `Paint::line_rendition`): an SLL elsewhere, or BDSM or DCSM
+        // making the limit bound nothing (Jev's lean, END_ON_POSITION, by
+        // mean probability 0.44 against END_AFTER's 0.30 and KEEP_WAIT's
+        // 0.27 on a second ask). An SLL naming the same position keeps it.
+        if self.cold.pinned == Pinned::AtLimit {
+            let waited = self.cx.raw().before();
+            if self.cold.fence != waited {
+                self.set_col(CursorCol::moved(waited));
+            }
+        }
     }
 
     /// The fence a write on the cursor's line tests: its own, lowered to

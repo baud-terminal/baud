@@ -332,3 +332,157 @@ fn a_cursor_moved_past_the_line_limit_is_reported_where_it_is() {
         });
     }
 }
+
+/// What `CPR` answers after `bytes`, and whether a wrap still waits.
+fn reported(bytes: &[u8]) -> (String, WrapPending) {
+    let b = [bytes, b"\x1b[6n"].concat();
+    support::render(&WS, &b, |t| {
+        (
+            String::from_utf8_lossy(t.reply()).into_owned(),
+            t.wrap_pending(),
+        )
+    })
+}
+
+/// Every case of `cases` whose report is not the one it names, each named.
+fn wrong(cases: &[(&[u8], &str, WrapPending)]) -> Vec<String> {
+    cases
+        .iter()
+        .filter(|(b, want, w)| reported(b) != ((*want).into(), *w))
+        .map(|(b, want, _)| {
+            let got = reported(b).0;
+            format!("{:?}: {:?}, not {want:?}", String::from_utf8_lossy(b), got)
+        })
+        .collect()
+}
+
+/// **A cursor movement from a wrap waiting at the line limit counts from
+/// the limit**, the active position (8.3.123 bounds only implicit
+/// movement; `[[source: dec-std-070]]` D.6.1, "the Active Position cannot
+/// be advanced", its CUF and HT algorithms adding to the active column):
+/// limit 5, a stop set at 6, then `CUF`, `CUF 2`, `HPR`, `HT` and `CHT`
+/// from the wait; `CBT` with a stop at the limit goes to the stop before
+/// it; `CUF` under DECLRMM and under DCSM's DATA with BDSM reset and a
+/// string begun, the paths those take, and with a string on the line, whose
+/// map the move reads the cursor through, `CHT` and `CBT` too; and `HTS` and `TBC 0` set and clear
+/// the stop at the limit, which an `HT` from the line's start then finds.
+/// The control, `CUB`, counts the wait as its first step as it does at a
+/// right margin.
+#[test]
+fn a_move_from_a_wrap_waiting_at_the_line_limit_counts_from_the_limit() {
+    const W: &[u8] = b"\x1b[1;6H\x1bH\x1b[1;1H\x1b[5 Vabcde";
+    let no = WrapPending::No;
+    let cases: &[(&[u8], &str, WrapPending)] = &[
+        (&[W, b"\x1b[C"].concat(), "\x1b[1;6R", no),
+        (&[W, b"\x1b[2C"].concat(), "\x1b[1;7R", no),
+        (&[W, b"\x1b[a"].concat(), "\x1b[1;6R", no),
+        (&[W, b"\t"].concat(), "\x1b[1;6R", no),
+        (&[W, b"\x1b[I"].concat(), "\x1b[1;6R", no),
+        (
+            b"\x1b[3g\x1b[1;5H\x1bH\x1b[1;1H\x1b[5 Vabcde\x1b[Z",
+            "\x1b[1;1R",
+            no,
+        ),
+        (b"\x1b[?69h\x1b[1;15s\x1b[5 Vabcde\x1b[C", "\x1b[1;6R", no),
+        (
+            b"\x1b[8l\x1b[9h\x1b[1]\x1b[0]\x1b[5 Vabcde\x1b[C",
+            "\x1b[1;6R",
+            no,
+        ),
+        (
+            b"\x1b[8l\x1b[9h\x1b[1]ab\x1b[0]\x1b[5 Vcde\x1b[C",
+            "\x1b[1;6R",
+            no,
+        ),
+        (
+            b"\x1b[1;6H\x1bH\x1b[1;1H\x1b[8l\x1b[9h\x1b[1]ab\x1b[0]\x1b[5 Vcde\x1b[I",
+            "\x1b[1;6R",
+            no,
+        ),
+        (
+            b"\x1b[3g\x1b[1;5H\x1bH\x1b[1;1H\x1b[8l\x1b[9h\x1b[1]ab\x1b[0]\x1b[5 Vcde\x1b[Z",
+            "\x1b[1;1R",
+            no,
+        ),
+        (b"\x1b[3g\x1b[5 Vabcde\x1bH\r\t", "\x1b[1;5R", no),
+        (
+            b"\x1b[1;5H\x1bH\x1b[1;1H\x1b[5 Vabcde\x1b[g\r\t",
+            "\x1b[1;9R",
+            no,
+        ),
+        // The control.
+        (&[W, b"\x1b[D"].concat(), "\x1b[1;5R", no),
+    ];
+    let bad = wrong(cases);
+    assert!(
+        bad.is_empty(),
+        "{} of {}:\n{}",
+        bad.len(),
+        cases.len(),
+        bad.join("\n")
+    );
+}
+
+/// **`HPR` from a wrap waiting at a DECSLRM right margin counts from the
+/// margin**, as `HPB` does: margins 1 to 10, ten letters, `HPR` to
+/// position 11, the column one past the margin, where xterm's cursor column
+/// is still on the margin while the wrap waits.
+#[test]
+fn hpr_from_a_wrap_waiting_at_the_right_margin_counts_from_the_margin() {
+    let b = b"\x1b[?69h\x1b[1;10sabcdefghij\x1b[a";
+    assert_eq!(reported(b), ("\x1b[1;11R".into(), WrapPending::No));
+}
+
+/// **An SLL that moves the limit a wrap waits at ends the wait on the
+/// position it waited on**, as DECSWL does (`[[source: dec-std-070]]`
+/// D.6.1 lists it among the controls that reset the Last Column Flag): to
+/// the right and to the left of it, and BDSM reset, under which the limit
+/// bounds nothing; moved back, the limit finds no wait left marked; the
+/// next character goes on that position. An SLL that names the same
+/// position keeps the wait.
+#[test]
+fn an_sll_that_moves_the_limit_ends_a_wrap_waiting_there() {
+    const W: &[u8] = b"\x1b[5 Vabcde";
+    const BACK: &[u8] = b"\x1b[5 V\x1b[8h";
+    let no = WrapPending::No;
+    let cases: &[(&[u8], &str, WrapPending)] = &[
+        (&[W, b"\x1b[10 V"].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[3 V"].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[8l"].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[10 V", BACK].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[3 V", BACK].concat(), "\x1b[1;5R", no),
+        (&[W, b"\x1b[8l", BACK].concat(), "\x1b[1;5R", no),
+        // The control: the same position.
+        (&[W, b"\x1b[5 V"].concat(), "\x1b[1;5R", WrapPending::Yes),
+    ];
+    let bad = wrong(cases);
+    assert!(
+        bad.is_empty(),
+        "{} of {}:\n{}",
+        bad.len(),
+        cases.len(),
+        bad.join("\n")
+    );
+    assert_eq!(after(b"\x1b[5 Vabcde\x1b[10 Vf").0, "abcdf...............");
+}
+
+/// **A cursor past the line limit on a double-width line stays inside the
+/// line's half, not the limit's**: the limit bounds only implicit
+/// movement. DECDWL with the cursor at 8, past limit 5, and `CUD` onto a
+/// double line at 8, keep it at 8, where both put it back on the limit;
+/// and text written from there runs on to the half's last position, 10,
+/// and wraps, where it ran on to the screen's last column, 20.
+#[test]
+fn past_the_limit_on_a_double_line_the_half_bounds_the_cursor() {
+    assert_eq!(
+        reported(b"\x1b[5 V\x1b[1;8H\x1b#6"),
+        ("\x1b[1;8R".into(), WrapPending::No)
+    );
+    assert_eq!(
+        reported(b"\x1b[2;1H\x1b#6\x1b[5 V\x1b[1;8H\x1b[B"),
+        ("\x1b[2;8R".into(), WrapPending::No)
+    );
+    let (r0, r1, _) = after(b"\x1b#6\x1b[5 V\x1b[1;8Habcdef");
+    assert_eq!(r0, ".......abc..........");
+    assert_eq!(r1, "def.................");
+}

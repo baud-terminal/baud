@@ -904,6 +904,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the fence leaves.
     ///
     /// What fits before the screen's edge is written where the cursor is.
+    /// **On a double line that edge is its half**, which a cursor reaches
+    /// right of the fence only past SLL's line limit, side margins and a
+    /// sized line never meeting: it wrote on to the screen's last column.
     /// What does not -- the sentinel, or a wide character on the last
     /// column (charproc.c 7130-7138, `force_wrap`) -- wraps with `DECAWM`
     /// set, to the left margin of the next line as [`Paint::wrap`] goes and
@@ -914,14 +917,15 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(never)]
     fn past_margin(&mut self, need: Count) {
         let c = self.cx.col();
-        let fits = c.index() + need.index() <= self.cols.index();
+        let end = self.line_cols().index();
+        let fits = c.index() + need.index() <= end;
         self.cx = CursorCol::moved(c);
         if fits {
             return;
         }
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
             true => self.wrap_bounded(),
-            false => self.cx = CursorCol::written(Col::at_index(self.cols.index() - 1)),
+            false => self.cx = CursorCol::written(Col::at_index(end - 1)),
         }
     }
 
@@ -2160,20 +2164,22 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn enter_sized(&mut self, r: LineRendition, how: Arrival) {
-        self.cold.fence = crate::bounds::limited(
-            fence_of(r, self.cold.right, self.cols),
-            self.cold,
-            self.cols,
-        );
+        let own = fence_of(r, self.cold.right, self.cols);
+        self.cold.fence = crate::bounds::limited(own, self.cold, self.cols);
         if !r.is_double() {
             return;
         }
+        // **Inside the half, not the line limit**: SLL's limit bounds only
+        // implicit movement (`crate::bounds`), so a cursor past it stays
+        // where it is. Clamped to the limit, a cursor past it on a double
+        // line went back to the limit when a read began on the status line,
+        // which enters its row again.
         let last = match how {
-            Arrival::Moved => self.cold.fence.index(),
-            Arrival::InPlace => self.cold.fence.index() + 1,
+            Arrival::Moved => own.index(),
+            Arrival::InPlace => own.index() + 1,
         };
         if self.cx.raw().index() > last {
-            self.set_col(CursorCol::moved(self.cold.fence));
+            self.set_col(CursorCol::moved(own));
         }
     }
 
@@ -2264,11 +2270,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.view.set_rendition(cy, to);
         self.row_changed_to(cy);
-        self.cold.fence = crate::bounds::limited(
-            fence_of(to, self.cold.right, self.cols),
-            self.cold,
-            self.cols,
-        );
+        let own = fence_of(to, self.cold.right, self.cols);
+        self.cold.fence = crate::bounds::limited(own, self.cold, self.cols);
         // **And none of the four leaves a wrap pending**: D.6.1 (pp. D-13
         // and D-14) lists SINGLE_WIDTH_LINE, DOUBLE_WIDTH_LINE and both
         // DOUBLE_HEIGHT_LINE controls among those that reset the Last
@@ -2277,8 +2280,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         if pending {
             self.set_col(CursorCol::moved(on));
         }
-        if to.is_double() && self.cx.raw() > self.cold.fence {
-            self.set_col(CursorCol::moved(self.cold.fence));
+        // Into the half, not to SLL's limit, which bounds only implicit
+        // movement (`Paint::enter_sized`).
+        if to.is_double() && self.cx.raw() > own {
+            self.set_col(CursorCol::moved(own));
         }
         self.wrote_rows(cy, cy);
     }

@@ -205,6 +205,7 @@ impl Paint<'_, '_> {
         let mapped = strung
             || self.cold.modes.is_set(ModeBit::CursorRightToLeft)
             || self.cold.bounds.home.is_some()
+            || crate::bounds::limit_bounds(self.cold)
             || self.strs.aligned.any();
         self.cold.modes.apply(ModeBit::ReturnMapped, mapped);
         let presented = self.cold.bidi == BidiSupport::Explicit
@@ -418,7 +419,10 @@ impl Paint<'_, '_> {
             }),
             Csi::CursorUp(c) => self.presented(|p| p.set_row(p.up_in_margins(c))),
             Csi::CursorDown(c) => self.presented(|p| p.set_row(p.down_in_margins(c))),
-            Csi::CursorForward(c) => self.rightward_presented(c),
+            Csi::CursorForward(c) => {
+                self.end_limit_wait();
+                self.rightward_presented(c)
+            }
             Csi::CursorBack(c) => self.leftward_presented(c),
             Csi::ColumnAbsolute(c) => {
                 self.landed(|p| p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols))))))
@@ -435,10 +439,14 @@ impl Paint<'_, '_> {
                 p.line_home();
             }),
             Csi::CursorForwardTab(c) => {
+                self.end_limit_wait();
                 self.presented(|p| p.tab_forward(c));
                 self.tab_landed();
             }
-            Csi::CursorBackTab(c) => self.presented(|p| p.tab_back(c)),
+            Csi::CursorBackTab(c) => {
+                self.end_limit_wait();
+                self.presented(|p| p.tab_back(c))
+            }
             Csi::CursorLineTab(c) => self.presented(|p| p.line_tab(c)),
             // The arm that calls this admits only the functions above.
             _ => {}
@@ -484,6 +492,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_mapped(&mut self) {
+        self.end_limit_wait();
         let leftward = self.cold.modes.is_set(ModeBit::CursorRightToLeft);
         self.presented(|p| match leftward {
             true => p.tab_leftward(),

@@ -2284,10 +2284,13 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // (`[[source: vt510-hpr]]`), the side margins aside: no DEC algorithm
         // has an `HPR`, and xterm's (`CursorSet`, `[[source: xterm-cursor-c]]`
         // 68-90) and ghostty's pass the right margin too. Under DECOM it is
-        // confined as every move is.
-        DomCsi::ColumnRelative(c) => {
-            p.set_col(p.on_line(p.place(p.confine_col(p.cx.col().forward(c, p.cols)))))
-        }
+        // confined as every move is. From a wrap waiting at the right margin
+        // or the line limit it counts from where the wrap waits, as `HPB`
+        // does (Jev's lean, FROM_MARGIN, 0.56/0.86; Jev, FROM_LIMIT,
+        // 0.92/0.96).
+        DomCsi::ColumnRelative(c) => p.set_col(p.on_line(
+            p.place(p.confine_col(p.cx.reported(p.report_fence(), p.cols).forward(c, p.cols))),
+        )),
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         // **`HPB` and `VPB` mirror `HPR` and `VPR`** (`[[source: ecma48]]`
         // 8.3.58 and 8.3.159, "in the direction opposite"): to the line's
@@ -2359,10 +2362,14 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.restore(s);
         }
         DomCsi::CursorForwardTab(c) => {
+            p.end_limit_wait();
             p.tab_forward(c);
             p.tab_landed();
         }
-        DomCsi::CursorBackTab(c) => p.tab_back(c),
+        DomCsi::CursorBackTab(c) => {
+            p.end_limit_wait();
+            p.tab_back(c)
+        }
         DomCsi::TabClear(w) => p.tab_clear(w),
         DomCsi::Position(op, n) => p.set_position(op, n, csi),
         DomCsi::SelectEditingExtent(e) => p.select_editing_extent(e),

@@ -1201,6 +1201,27 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **A second line limit, HPR and CHT**, at the end so the seeds saved
+    // before them keep their atoms: an SLL at 5 moves `sll`'s limit, and a
+    // wrap waiting at either, and HPR and CHT move from such a wait.
+    Atom {
+        name: "sll-near",
+        bytes: b"\x1b[5 V",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "hpr",
+        bytes: b"\x1b[a",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cht",
+        bytes: b"\x1b[I",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -2084,6 +2105,33 @@ fn the_bound_atoms_reach_slh_and_sll() {
     };
     assert_eq!(row(0), "the quick br");
     assert_eq!(row(1), "....own fox.");
+}
+
+/// **The second limit, HPR and CHT atoms reach what they move**: the
+/// text wraps at column 5, HPR moves on one column and CHT to the stop at
+/// column 8.
+#[test]
+fn the_second_limit_hpr_and_cht_atoms_reach_the_cursor() {
+    let w = ws();
+    let run = |names: &[&str]| -> (String, Col) {
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        let prog: Vec<usize> = names.iter().map(|n| atom(n)).collect();
+        support::feed(&mut t, &bytes_of(&prog));
+        let row: String = t.row(Row::from_index(1)).expect("a row")[..6]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        (row, t.cursor().1)
+    };
+    assert_eq!(run(&["sll-near", "ascii"]).0, "uick .");
+    assert_eq!(run(&["ascii-short", "hpr"]).1, Col::at_index(3));
+    assert_eq!(run(&["cht"]).1, Col::at_index(8));
 }
 
 /// **The SEE atoms reach the extent**: under the page an `ICH` at the
