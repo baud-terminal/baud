@@ -8,7 +8,7 @@
 //! still show something, because TUS § 5.3 says a character an
 //! implementation cannot render "can only be indicated by some
 //! placeholder" (`[[source: unicode18-ch5]]`), and a silent blank is a
-//! defect here (e0a611d). So a glyph past the budget is treated as a
+//! defect here (11827bf). So a glyph past the budget is treated as a
 //! refused one is (`refused_glyph.rs`): the stack passes over its face for
 //! the next face that carries the character, and when none does, the cell
 //! draws the primary's `.notdef`.

@@ -1,9 +1,9 @@
 # Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports
 
-Written 2026-09-29, read against `c836eaf` (branch smooth-scroll); `e4db454`
+Written 2026-09-29, read against `a276f44` (branch smooth-scroll); `56202db`
 and `534643a`, which built steps 1 and 2 of section 12 in another session
 while this was being written, are described from their commits and tests. Line numbers in baud files are at
-`c836eaf` unless a line says otherwise. This note
+`a276f44` unless a line says otherwise. This note
 is V16 of note V, re-researched after the owner's answers of 2026-09-25 and
 decided by their answers of 2026-09-29. It synthesises eight source sweeps
 (formats, switching, notify, floor, lightset, lscolors, baud's own code, and
@@ -540,7 +540,7 @@ unless marked:
 | VTE, Ptyxis, GNOME Terminal | Ptyxis faces | libadwaita | kept | kept | every entry | **both reset 0-255, keep 10/11/12** |
 | alacritty | none | none | kept | kept | every entry | RIS keeps |
 | xterm | none | none | – | – | every entry | **both reset all, keep 10-19** |
-| **baud, decided** | built-in or named files | glass crate `Responder::appearance`, `auto` only | **dropped** | **dropped** | every entry (`e4db454`) | both drop, keep 10/11/12 |
+| **baud, decided** | built-in or named files | glass crate `Responder::appearance`, `auto` only | **dropped** | **dropped** | every entry (`56202db`) | both drop, keep 10/11/12 |
 
 - **ghostty keeps overrides** because `DynamicPalette.changeDefault`
   re-applies the masked entries ([[source: ghostty-color-d9840f3]] 361-376).
@@ -573,7 +573,7 @@ unless marked:
   calls `set_theme(theme_for(appearance))` and `tell_defaults`, and
   `set_default_colors` writes only the embedder defaults, so every override
   survives (`baud-app/src/app.rs` lines 5574-5608,
-  `baud-core/src/term.rs` lines 2298-2307 at `c836eaf`). A pinned theme
+  `baud-core/src/term.rs` lines 2298-2307 at `a276f44`). A pinned theme
   returns early (5593-5600). The palette itself is xterm's in both themes
   (`baud-render/src/color.rs` lines 156-193).
 
@@ -644,7 +644,7 @@ colorsaurus, contour, the Oklab comparison, xterm.js), and that pair is
 3.95:1, below AA. baud's WCAG comparison says dark there too: the page's
 relative luminance 0.216 is below the text's 1.0.
 
-**baud today** (VERIFIED at `c836eaf`): no 2031, 996 or 997 anywhere in
+**baud today** (VERIFIED at `a276f44`): no 2031, 996 or 997 anywhere in
 baud-core, baud-domain, baud-app or baud-render (control: `?2026` in
 `baud-domain/src/vt/mode.rs`); DECRQM ?2031 answers 0, not recognised, so
 neovim would never subscribe; `CSI ? 996 n` falls to `Csi::Unsupported`,
@@ -957,7 +957,7 @@ test against the WCAG formula.
   110-119 dispatch (around 4291). So xterm keeps OSC 10-12 on both resets.
 - **This is also the pin V17 waits on**, so V17 can proceed.
 
-**baud at `c836eaf`** (VERIFIED):
+**baud at `a276f44`** (VERIFIED):
 
 - `OSC 4 ; n ; ?` is answered only for an overridden entry
   (`baud-core/src/osc.rs` lines 268-290), because "no built-in palette to
@@ -965,7 +965,7 @@ test against the WCAG formula.
   `docs/vt-coverage.md` said "done -- including the ? query".
 - `hard_reset` and `soft_reset` touch no colour (`baud-core/src/ops.rs`).
 
-**The OSC 4 half is built, at `e4db454`**, which landed while this note was
+**The OSC 4 half is built, at `56202db`**, which landed while this note was
 written: it takes placement (a) below, and its record is its commit message
 and `baud-core/tests/palette_query.rs`. It is described here, not re-verified
 by this note. **The resets are built too, at `534643a`**: one primitive,
@@ -984,7 +984,7 @@ in the next paragraph.
   `ColorWord`s, overrides in 0..256 and the embedder's in 256..512, the
   `Storage::new` assert at `>= 512` and `Owned` allocating 512, `StrBuf::new`
   keeping its six arguments; or (b) a seventh `StrBuf` field. (a) is the one
-  taken at `e4db454` (`PALETTE_LEN`, `EMBEDDER_PALETTE`). **Either
+  taken at `56202db` (`PALETTE_LEN`, `EMBEDDER_PALETTE`). **Either
   way `baud-bench/benches/ingest2.rs` builds `Storage` and `StrBuf` by hand
   (lines 300-343) and changes in the same commit**, because
   `scripts/check-features.sh` builds every bench arm.
@@ -993,7 +993,7 @@ in the next paragraph.
   caller-provided buffer grows a field"), `term.rs` 2272-2279 and `osc.rs`
   273-278 (the core "deliberately holds no default palette ... a second copy
   here would be one to keep in step"). Those three doc comments are rewritten
-  in the same commit (`e4db454` rewrote the `term.rs` ones and the `osc.rs`
+  in the same commit (`56202db` rewrote the `term.rs` ones and the `osc.rs`
   one). The second copy is held in step by a gate: after `tell_defaults`,
   every `OSC 4` answer equals the theme's entry, for all 256 entries and both
   themes (`every_osc_4_answer_is_the_colour_the_theme_draws`, in
@@ -1062,10 +1062,10 @@ Each rule is written once, in the crate where its inputs live.
 **baud-core:**
 
 - The embedder's 256-entry table; OSC 4 queries answer every entry (built,
-  `e4db454`).
+  `56202db`).
 - Resets per xterm (built, `534643a`); the clear widens to a scope for the
   palette switch (OSC 4, 10, 11, 12).
-- Mode 2031 (a `ModeBit`; `c836eaf` already made the bitset bound count the
+- Mode 2031 (a `ModeBit`; `a276f44` already made the bitset bound count the
   variants), DSR 996, the exact 997 report, the WCAG class of what OSC 10/11
   would answer, and at most one unsolicited 997 per embedder call, from a
   before/after comparison inside that call. Nothing grows `Cold` for it.
@@ -1155,13 +1155,13 @@ written per ingested byte, and the palette slice sits behind the `&mut StrBuf`
 reference `Paint` already carries, not in `Paint` or `Cold`. An ingest sweep
 still runs, to show it.
 
-0. **ModeBit's bound. Done at `c836eaf`**: the const assertion now counts the
+0. **ModeBit's bound. Done at `a276f44`**: the const assertion now counts the
    variants (`variant_count::<ModeBit>() <= 32`) instead of naming a `LAST`
    that had gone stale twice. Perturbed: at a bound of 18 the new assertion
    fails the build where the old one compiled; `ingest2` built before and
    after at one path is byte-identical (the commit's own record).
 1. **OSC 4 answers every entry** (baud-core, baud-app, baud-bench). **Built at
-   `e4db454`**; its commit records red first (three of five tests in
+   `56202db`**; its commit records red first (three of five tests in
    `baud-core/tests/palette_query.rs` red against a stub, two controls), four
    perturbations and an `ingest2` sweep with every range overlapping. What
    the step asked for, for the record:
@@ -1441,8 +1441,8 @@ unsolicited report is sent for `?5`.
    asciiquarium.raw). Decision 10.
 2. **Linux draws a pinned light theme at `dim_dark`** (`baud-app/src/linux.rs`
    line 133).
-3. **`docs/vt-coverage.md` overstated the OSC 4 query** at `c836eaf`;
-   `e4db454` rewrote the row.
+3. **`docs/vt-coverage.md` overstated the OSC 4 query** at `a276f44`;
+   `56202db` rewrote the row.
 4. **`scripts/luma-swatch.sh` states a premise that stopped holding** on
    2026-09-19.
 5. **Nothing asserts `size_of::<Resolved>() == Resolved::BYTES`**
@@ -1514,7 +1514,7 @@ unsolicited report is sent for `?5`.
 - **baud-difftest cannot pin an OSC 4 reset difference**: it compares
   characters and whether the background word is set. sfte can.
 - **"At all three theme sites"**: `tell_defaults` has four call sites.
-- **ModeBit's stale bound is fixed** (`c836eaf`), by counting variants rather
+- **ModeBit's stale bound is fixed** (`a276f44`), by counting variants rather
   than deriving a `LAST`.
 
 
@@ -1609,8 +1609,8 @@ the rest of this note does not change.
 
 ## 16. What is not built, measured or verified
 
-- **Nothing designed here is built** except step 0 (`c836eaf`), step 1
-  (`e4db454`) and step 2 (`534643a`, its sfte cases after it), built by
+- **Nothing designed here is built** except step 0 (`a276f44`), step 1
+  (`56202db`) and step 2 (`534643a`, its sfte cases after it), built by
   another session while this note was written.
 - **Unmeasured**: the floor's cost in baud (a full pass on a filled table);
   startup with theme files read at launch; which space Core Animation blends

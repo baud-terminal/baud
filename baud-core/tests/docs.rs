@@ -1431,7 +1431,7 @@ fn undocumented_after_a_seamed_doc(text: &str) -> Vec<usize> {
 /// ("... on their own." / "The palette index ..."), and `Color`'s on `Chan`,
 /// `LineIdx`'s on `ByteGap`, `csi_param`'s on `csi_entry`, `fast_try`'s on
 /// `scroll_rot` and a test's `dynamic` on `Rgb`: the six a reading pass over
-/// the workspace missed, all of which this flags. On `606ea59`, before that
+/// the workspace missed, all of which this flags. On `4b703f8`, before that
 /// pass, it flags fourteen of the forty-nine the pass repaired as well.
 ///
 /// **A doc of the item's own that trips it** separates its summary with a

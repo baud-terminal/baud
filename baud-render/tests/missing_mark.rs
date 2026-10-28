@@ -73,7 +73,7 @@ fn top_ink_in_first_cell(faces: &[Face<'_>], text: &str) -> Option<usize> {
 }
 
 /// **And it draws**: through the core and the CPU path, the acute's ink is
-/// still above the `q` when a mark the face lacks rides with it. At d841644,
+/// still above the `q` when a mark the face lacks rides with it. At 1392223,
 /// before a cluster's face was chosen for the whole cluster, the acute
 /// vanished and a missing-glyph box drew instead, in either order (measured
 /// 2026-10-07 with the scratch renderer).

@@ -1,4 +1,4 @@
-# baud-core/tests/conformance/input_caps.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD); the run at e2c3b24 printed the same lines but for the elapsed time (38.56s there).
+# baud-core/tests/conformance/input_caps.rs, run 2026-10-09 in a git-archive copy of baud at 4911bf0 (HEAD); the run at 6802227 printed the same lines but for the elapsed time (38.56s there).
 # (The note was lettered AL when this ran and is AM now; the scratch test quoted below is as it ran.)
 # Command: cargo test -p baud-core --test conformance input_caps -- --nocapture
 # The second test is a scratch addition appended to the copy's input_caps.rs (not in the repo); it names

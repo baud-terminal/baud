@@ -16,15 +16,15 @@ require; the frames staged with this note (section 4) are the material.
 **The letter.** AL is this note's letter; the XTGETTCAP draft takes AM, and
 no key here collides with that draft's.
 
-**Base.** Line numbers in baud's code are at `c00dfd1`, where the census and
+**Base.** Line numbers in baud's code are at `6541bdf`, where the census and
 the four prototypes were made, except where a line says otherwise. HEAD is
-`5477bf7`. Between the two, `baud-app/src/trail.rs`, `baud-app/src/config.rs`,
+`4911bf0`. Between the two, `baud-app/src/trail.rs`, `baud-app/src/config.rs`,
 `baud-app/src/bell.rs`, `baud-render/src/` and `MANIFEST.toml` are unchanged.
-`baud-app/src/app.rs` changed in `8be07e8` (+71/-4) and `1f50d88` (+2/-2),
+`baud-app/src/app.rs` changed in `f716c6a` (+71/-4) and `54b7f5f` (+2/-2),
 all below its line 881, so its lines up to 881 read the same at HEAD and
 later ones sit six lower there. `baud-app/src/linux.rs` changed in both
 commits too, and the statement that the Linux driver draws no trail is
-quoted at `5477bf7`.
+quoted at `4911bf0`.
 
 **Where it comes from.** Three read-only investigations under
 `.claude/research/flash-fix/` (the governing texts in `standards/`, prior art
@@ -170,7 +170,7 @@ distance will be affected by flashing areas that normatively pass. The same
 problem applies to users who rely on zoom or screen magnification."
 
 **The largest scale a baud user may view is not 72 pt** (**C**, from the
-code at `c00dfd1`). `ZOOM_MAX`, 72 pt, bounds only the View menu's zoom
+code at `6541bdf`). `ZOOM_MAX`, 72 pt, bounds only the View menu's zoom
 (`app.rs` 5191, applied in `zoom` at 5858). The config's `font_size` is
 parsed with no bound (`config.rs` 506-507), and the renderer is built at it
 through `PxSize::of` (`app.rs` 690), whose only bound is 512 px per em
@@ -348,7 +348,7 @@ users with photo-sensitive epilepsy."
 found: GNOME's animation keys and the desktop portal's `reduced-motion` speak
 only of motion ([[source: gnome-a11y-interface-schema-2417a27]],
 [[source: xdg-portal-settings]]). The Linux driver draws no trail today
-(`baud-app/src/linux.rs` 25-27 at `5477bf7`, quoting the record).
+(`baud-app/src/linux.rs` 25-27 at `4911bf0`, quoting the record).
 
 ### 1.8 Where the texts disagree
 
@@ -499,7 +499,7 @@ Traced through `baud-app/src/trail.rs` (**C**, `baud/analysis.md` section 2):
 
 `REIGNITE` held every back-and-forth to 8 ignitions in 3 s, as written; one
 pixel still flashed up to 23 times in one second (the liquid, at 32 pt 2x,
-120 Hz; the record). The module doc has said so since `c00dfd1`: "It limits
+120 Hz; the record). The module doc has said so since `6541bdf`: "It limits
 ignitions, not flashes".
 
 ### 3.3 What flashes, and why the light page
@@ -534,7 +534,7 @@ light page still fails at 50%, 25% and 10% of its opacity (43,191, 38,129,
 
 ### 3.4 baud's idioms that apply, and what else flashes
 
-- **Reduce Motion** (commit `336d269`): `[cursor] trail` reads into
+- **Reduce Motion** (commit `bc7cd03`): `[cursor] trail` reads into
   `TrailPick::{Default, Named}` (`config.rs` 343); `TrailPick::effective`
   (363) lets a named trail win over the system, and the reader's comment is
   "A typo must not override an accessibility setting" (341). The owner's
@@ -583,7 +583,7 @@ font px) (**C**), which the sizes in section 4.1 use.
 harness is in both builds of each prototype, not behind its feature (O2's
 commit: "in both builds"; O4's: unconditional), and the new parameter on
 `Chase::frame` is unconditional in all four; only each option's mechanism
-sits behind its feature. So each base arm is `c00dfd1`'s trail code plus the
+sits behind its feature. So each base arm is `6541bdf`'s trail code plus the
 harness, which the census-row gate and the comparison with the committed
 census tie to the shipped frames.
 
@@ -852,7 +852,7 @@ from the cells under the pass (the record, "A trail's repeat pass is drawn
 under the flash thresholds").* `baud-render`'s CPU drawing path
 ignores the cap, and the macOS driver draws a trail through it whenever
 `BAUD_GPU=0` forces that path or no Metal device is found, every effect then
-running as the quad (`app.rs` 130-140, 160-171 and 805-809 at `c00dfd1`); the
+running as the quad (`app.rs` 130-140, 160-171 and 805-809 at `6541bdf`); the
 Linux driver draws none (section 1.7). On that path O2 bounds nothing, and the
 shipped quad fails 78 of 192 cases at 72 pt (section 3.1); O1's, O3's and
 O4's mechanisms are in `trail.rs` and `config.rs` and reach it by

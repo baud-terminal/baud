@@ -285,7 +285,7 @@ frames the capture sent. The still has to find at least 20 changed
 samples for every trail, and fewer for `off`, which is recorded as the control
 and not kept.
 
-The committed clips were recorded with the app as of `e13d1b4`, with the system
+The committed clips were recorded with the app as of `9e06507`, with the system
 in Dark mode and no frame dropped; the theme follows the system's appearance. The capture is baud's
 window alone, so the glass shows as flat dark rather than the desktop behind
 it.

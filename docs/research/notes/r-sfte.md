@@ -66,7 +66,7 @@ the state `ESC P`, `ESC _` and `ESC ^` all enter: a DCS, an APC and a PM, none
 of which a BEL ends. `[[source: ctlseqs]]` gives BEL as a terminator for OSC
 alone (2023-2024), and `[[source: williams]]` puts it in a DCS body (388) and
 ignores it in an APC or PM (426). baud-core ended all of them on BEL too until
-83fee5d, so the two agreed in the departure; once baud followed the texts, the
+72e5ce0, so the two agreed in the departure; once baud followed the texts, the
 patch was narrowed to the OSC, and four fixtures, a BEL inside a DCS, a
 DECRQSS, an APC and a PM, hold it there. Under the old condition sfte drew the
 byte after the BEL in each.
@@ -108,7 +108,7 @@ recording is truncated mid-session, `less-pager.raw` never leaves the
 alternate screen, and sfte cleared the screen on a second `?1049 h` where
 baud and alacritty treated it as a no-op. Two whole passes still agreed,
 because the pager redraws everything; the harness's cut 1,934 bytes into a
-pass was where 155 cells showed. **Since `96949c2` baud clears on re-entry
+pass was where 155 cells showed. **Since `3024b2b` baud clears on re-entry
 too**, as xterm's set arm does, and that cut agrees. What differs now is the
 fill: xterm and baud clear in the background in force (`ClearCurBackground`),
 sfte in the default, and `btop.raw`'s second pass re-enters under a coloured

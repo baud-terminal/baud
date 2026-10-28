@@ -14,7 +14,7 @@ The record entry is "A colour bitmap is drawn from a strike that holds it, and
 
 ## 1. The walk is the wrong axis
 
-**What is walked** (READ, at `b1c70db`). baud reads colour bitmaps from `sbix`
+**What is walked** (READ, at `bc8252a`). baud reads colour bitmaps from `sbix`
 (`numStrikes`, a uint32; a strike's ppem is a uint16) and `CBLC`/`CBDT`
 (`numSizes`, a uint32; ppemX and ppemY are uint8). It defines no `EBLC`,
 `bloc` or `EBSC` tag (`baud-font/src/lib.rs`). In production one path asks

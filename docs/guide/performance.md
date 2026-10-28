@@ -15,23 +15,23 @@ just because it is printed: code has changed since most of them.
 
 - **Taking in output: faster than ghostty and alacritty on every recording
   measured.** baud's core is 1.19 to 5.80 times as fast as ghostty's on
-  nine recordings of real programs, in memory (`935e4f1`, 2026-09-20).
+  nine recordings of real programs, in memory (`e5bc3ef`, 2026-09-20).
 - **Through a real terminal connection: the fastest of five terminals.**
   Replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
   baud had the highest throughput on every recording, tied
   with alacritty on one, and used the least CPU, or tied for least, on all
-  but one (`a9bb28c`, 2026-09-12; before baud kept scrollback).
+  but one (`46f5e1c`, 2026-09-12; before baud kept scrollback).
 - **Answering a key: about 3 ms to a new frame.** From a key arriving to
   the new frame being handed to the display took a median of 3.0 ms when the
-  program echoing it was `cat` (`e8bb82d`, 2026-09-18).
+  program echoing it was `cat` (`28f2382`, 2026-09-18).
 - **Starting up: about 0.1 s to the first frame.** 99 ms with the system's
-  shader caches warm and 134 ms with them cleared (`4d583bb`, 2026-09-19).
+  shader caches warm and 134 ms with them cleared (`bdc99eb`, 2026-09-19).
 - **Sitting idle: under half a percent of one CPU core.** 0.46% with a
-  program that prints nothing (`59e6476`, 2026-09-18).
+  program that prints nothing (`e8fe895`, 2026-09-18).
 
 ## Taking in output, against other terminals
 
-Measured at `935e4f1` on 2026-09-20 with `bench-others/multibench`: each
+Measured at `e5bc3ef` on 2026-09-20 with `bench-others/multibench`: each
 terminal's core fed the same recorded bytes, in memory, each keeping 10,000
 lines of scrollback; medians of 9 runs, taken in turn. Megabytes per second, higher is better:
 
@@ -70,7 +70,7 @@ What this does and does not show:
 
 ## Through a real terminal connection, against other terminals
 
-Measured at `a9bb28c` on 2026-09-12: each terminal opened fresh at 200x50 in
+Measured at `46f5e1c` on 2026-09-12: each terminal opened fresh at 200x50 in
 Menlo 13, with a recording replayed twenty times into it through a pty, the
 same connection a shell uses.
 Throughput in MiB per second:
@@ -96,7 +96,7 @@ has the CPU time of each run too.
 
 ## Typing
 
-Measured at `e8bb82d` on 2026-09-18, on the built-in 120 Hz display, medians
+Measured at `28f2382` on 2026-09-18, on the built-in 120 Hz display, medians
 of 120 keys:
 
 | from a key arriving to | with `cat` | with the shell |
@@ -111,17 +111,17 @@ there is no comparison.
 
 ## Starting up and idling
 
-- **Launch** (`4d583bb`, 2026-09-19): 99 ms from starting to the first frame
+- **Launch** (`bdc99eb`, 2026-09-19): 99 ms from starting to the first frame
   with the system's shader caches warm, 134 ms with them cleared. baud ships
   its shaders compiled, which saved 256 ms on that cold launch.
-- **Idle** (`59e6476`, 2026-09-18): 0.46% of one core with nothing being
+- **Idle** (`e8fe895`, 2026-09-18): 0.46% of one core with nothing being
   printed.
 
 ## Memory
 
 baud's screen storage is about 24 MB reserved but only +0.3 MB actually
 used for a 50x200 screen fed data, because pages never touched are never
-allocated. That figure was taken on baud's previous core, at `8c2d182`
+allocated. That figure was taken on baud's previous core, at `7b00e4c`
 (2026-08-29), and is argued, not re-measured, for the current one.
 No memory figure has been compared with another terminal.
 

@@ -45,7 +45,7 @@
 # the Pier" (unsplash.com/photos/ces8_Bo7bhQ).
 #
 # kitten runs with --transfer-mode=stream. Its default, detect, timed out
-# after its ten seconds in baud at 6f630fb4 ("Timed out waiting for a
+# after its ten seconds in baud at e73843fa ("Timed out waiting for a
 # response from the terminal"), while file, memory and stream each drew.
 # Until the detect-mode timeout is settled, the README must not say plain
 # `kitten icat` draws in baud; the demos show --transfer-mode=stream on film.
@@ -76,7 +76,7 @@ only=${ONLY:-"text hero images tools trail social"}
 TAGLINE=${TAGLINE:-"The terminal with character:|its own font,|its own cursor effects,|and the speed to keep up."}
 NIXPKGS=github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a
 # The revision of this repository whose log the clips show.
-REV=6f630fb4
+REV=e73843fa
 # Frames a second, and gifski's quality: the tools clip redraws the whole
 # screen on every frame of its scroll and resize, and at 25 and 90 it
 # came to 7.3 MB.

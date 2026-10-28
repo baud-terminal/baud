@@ -3,12 +3,12 @@
 #
 # `check-features.sh` builds every arm alone and runs none of them. An arm
 # that compiles can still be wrong, and two were: `two-pass-csi` declined a
-# `CSI` without resetting its parameters (fixed in 7d21de1), and on 9f392ce
+# `CSI` without resetting its parameters (fixed in 08bc0f9), and on c6a5494
 # this suite's own
 # `a_gr_byte_in_any_escape_or_control_sequence_acts_as_its_seven_bit_byte_under_latin1`
 # was red under it while no gate ran the suite under it; and an `sgr-table`
 # hit left the parser inside the sequence, so five of the suite's tests, the
-# golden digests among them, were red under it on 9f392ce and bc39889. This
+# golden digests among them, were red under it on c6a5494 and a9bf3a1. This
 # runs the suite through nextest, as `test:unit` does.
 #
 # **Every declared baud-core feature is in exactly one class, and the

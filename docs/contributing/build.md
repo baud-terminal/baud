@@ -124,7 +124,7 @@ the absolute path `/home/<user>/t/alacritty/alacritty_terminal`, which no
 checkout has, so **it had never compiled** while this table listed it as "the
 only oracle outside this repo" and its own doc comment described what it fed to
 `baud-core`. Being excluded from the workspace is what kept that quiet. Running
-it at `d7bddf0`: **32 of 32 cases agree**, with two representation differences
+it at `f87eadf`: **32 of 32 cases agree**, with two representation differences
 normalised and counted rather than pinned -- baud stores `Content::WIDE_TAIL` where
 alacritty stores a space flagged `WIDE_CHAR_SPACER`, and alacritty keeps the
 `\t` byte in a blank cell for selection fidelity where baud leaves the cells

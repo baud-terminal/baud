@@ -1,4 +1,4 @@
-# sixel-scan.py, run 2026-10-10 at 2543f8b from the repository root over every tracked
+# sixel-scan.py, run 2026-10-10 at 80dcc7d from the repository root over every tracked
 # recording and Sixel file:
 #   python3 -I docs/research/notes/an/sixel-scan.py $(git ls-files '*.raw' '*.six')
 tests/recordings/sixel/img2sixel-96x72.six: P - body 2157 B cut ST; raster 1;1 first; SPACE 0 C0 0 DEL 0 80-FF 0; repeat then other command 0; colour defines 32, Pu not 2 or value over 100 0; selections 75, of a register never defined 0; data bytes before any '#' 0

@@ -3,7 +3,7 @@
 **Status: research draft, 2026-10-09; revised the same day after a read-only
 review. The RD and SD pair was built on 2026-10-24 (section 10); every other
 light in this note is unbuilt.** Every baud file:line citation in this note is
-pinned at commit `ccb8aaa`.
+pinned at commit `473ff12`.
 
 - Section 1 holds the owner's two requests.
 - Sections 2 to 5 cover the sources each LED would rest on, what one process
@@ -455,7 +455,7 @@ What this means for the LEDs:
   (2.1, **D**) it exceeds the three-flash limit whatever its size. So does any
   timing that flashes once per event when events come more than three times a
   second (6.2).
-- baud already honours Reduce Motion for the cursor trail. Commit 336d269 is
+- baud already honours Reduce Motion for the cursor trail. Commit bc7cd03 is
   titled "Reduce Motion means no trail, unless the config names one". Whether
   the LEDs follow Reduce Motion is Q6.
 

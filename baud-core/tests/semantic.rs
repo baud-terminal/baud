@@ -923,7 +923,7 @@ fn the_alternate_screens_prompt_state_starts_fresh_on_each_entry() {
     }
 }
 
-/// The second shape `caadcf1` fixed, and the one that reached the history: a block
+/// The second shape `7e4051a` fixed, and the one that reached the history: a block
 /// opened on the alternate screen and left without a `C` was "redrawn" on
 /// the primary against the alternate ring's row number -- nine lines of
 /// the primary's history and its whole screen erased. The primary was in

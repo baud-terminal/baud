@@ -10,17 +10,17 @@ reader re-checked each survey before this note used it.
 
 ## Provenance
 
-- **baud** was read at `1413048`, and every baud line number below is that
+- **baud** was read at `b0f4b89`, and every baud line number below is that
   commit's. Two later commits act on this note, which is why some items
   below are marked done:
-  - `27afdd9` fixed D1 and D2, and made `altresize.rs` able to fail. It
+  - `5be8d20` fixed D1 and D2, and made `altresize.rs` able to fail. It
     also found and fixed that a growth at a prompt raised no mark on the
     *primary* either: nothing but the gated re-cut touched the primary's
     marks. Making the marks
     honest exposed that the height step's content test reads a mark, which
     is the owner's question 9 below. The record is CLAUDE.md, "A width growth
     keeps the marks honest at a prompt".
-  - `a10b440` corrected the four stale passages this read found, which
+  - `e3f23da` corrected the four stale passages this read found, which
     were the draft's appendix and are gone for that reason, but missed one
     of the three places the second of them named: `Term::screen`'s doc,
     still calling the primary parked. The commit that corrects this note
@@ -65,7 +65,7 @@ record itself was not read.
    one whose viewport goes stale across a reflow.
 3. **Two defects found by reading come from how resize is *structured*,
    not from where reflow runs.** Both sit at the seam between the primary's
-   two width models. **Both are fixed in `27afdd9`**, each red first. A third
+   two width models. **Both are fixed in `5be8d20`**, each red first. A third
    item, DECSC not following a re-cut, is a policy gap rather than a defect,
    and it goes to the owner.
 
@@ -93,7 +93,7 @@ record itself was not read.
 | **kitty** | `Screen.scrolled_by`, in the core | **Not re-anchored**: it keeps its number and is only clamped (`screen.c:4087`) | **[corr]** Cursors: the rewrap moves the main screen's; the alternate screen's are only clamped. `prompt_kind` goes to the first new row | Selections, URL ranges and the last-visited prompt are cleared. Ordinary image placements move only when the width is unchanged | Truncated. **[corr]** Its widen branch that extends the style is dead code | Blanks the prompt rows before the rewrap and pastes them back un-reflowed at the old width, truncated when narrower. Relies on the shell's redraw. `redraw=0` opts out |
 | **wezterm** | **The GUI**: `PaneState.viewport: Option<StableRowIndex>` | **Stale** **[read]**. The rewrap never adjusts `stable_row_index_offset`, so the same number names other content (read from the code; draft PR #4995, open, reports the same staleness for kitty placements) | Cursor. The *inactive* screen's saved cursor. OSC 133, OSC 8 and image tiles travel in the cells; **[corr, read]** rows holding only an image are not re-cut and can be pre-pruned | The active screen's DECSC is not remapped (#6669, open). Kitty placements go stale (#4995). The selection goes stale, and is cleared only if dirty in the visible range | Truncated when narrower; only dirtied when wider | None. #2162 and #2987 are open. (#7853, unmerged, is about output cleared with Ctrl+L coming back on a resize, not about prompts.) |
 | **VTE** | `VteScreen.scroll_delta` (`vteinternal.hh:159`) | Exact: the cell below the viewport's bottom-left corner is a marker carried through the rewrap, plus snaps to top and bottom (`vte.cc:8113-8195`) | Markers: cursor, saved cursor, selection ends, the end of the cursor's paragraph. Attributes, hyperlinks and OSC 133 bits stay in the untouched streams | Block selection deselected. Region and DECOM reset | Never rewrapped, and it cannot be: that ring has no streams | None: "There's not much VTE could do here" (`doc/rewrap.txt:189-193`). #2919, #2294, and #2374 (**[corr]** the final diagnosis is rewrap, not timing) |
-| **baud** | **The app**: `App::back` (`app.rs:341-345`) | Exact, but only because the app passes it in. `resize_holding` maps the window's first row through the re-cut and returns it (`term.rs:1039-1091`) | The cursor (the primary's own, or `alt_saved`). Images, via the `Follow` hook. The prompt block, as a ring row | DECSC (`cold.saved`) is never remapped; it is clamped at restore (`ops.rs:67-70`). The app clears the selection, predictions and slide (`app.rs:4146-4198`). Margins reset | Cell-addressed at the fixed pitch: narrower hides columns, wider blanks the revealed ones (`widened`). D1 was here, fixed in `27afdd9` | In `Zone::Prompt` the primary is not re-cut at all. The block is tracked as a ring row and replaced at the redraw mark |
+| **baud** | **The app**: `App::back` (`app.rs:341-345`) | Exact, but only because the app passes it in. `resize_holding` maps the window's first row through the re-cut and returns it (`term.rs:1039-1091`) | The cursor (the primary's own, or `alt_saved`). Images, via the `Follow` hook. The prompt block, as a ring row | DECSC (`cold.saved`) is never remapped; it is clamped at restore (`ops.rs:67-70`). The app clears the selection, predictions and slide (`app.rs:4146-4198`). Margins reset | Cell-addressed at the fixed pitch: narrower hides columns, wider blanks the revealed ones (`widened`). D1 was here, fixed in `5be8d20` | In `Zone::Prompt` the primary is not re-cut at all. The block is tracked as a ring row and replaced at the redraw mark |
 
 ### What the tables say
 
@@ -181,7 +181,7 @@ value coming out, is a question-2 problem. It is not a question-1 problem.
 
 ### Two defects in resize, from its structure, and one policy gap
 
-Found by reading at `1413048`. Both defects are **fixed in `27afdd9`**, each
+Found by reading at `b0f4b89`. Both defects are **fixed in `5be8d20`**, each
 proved red first; the tests are named below.
 
 **D1. The alternate screen's widen is gated on the primary's zone.**
@@ -198,7 +198,7 @@ proved red first; the tests are named below.
   (`the_alternate_screen_grows_whatever_the_shells_zone`,
   `a_wider_alternate_screen_blanks_what_it_reveals_while_the_shell_is_at_a_prompt`).
   The same gate also kept a growth at a prompt from raising any mark on the
-  *primary*, which `27afdd9` found and `View::settle_growth` fixes
+  *primary*, which `5be8d20` found and `View::settle_growth` fixes
   (`at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge`).
 
 **D2. A narrowing re-cut leaves other lines' bytes past the new width.**
@@ -212,7 +212,7 @@ proved red first; the tests are named below.
   width and cleans it. A widen in `Zone::Prompt` neither re-cuts nor calls
   `widened` on the primary, so it would expose those bytes. Example: narrow
   while a build scrolls, then widen at the prompt.
-- **Corroboration:** the full-reset commit (`5e00c08`) had found the same
+- **Corroboration:** the full-reset commit (`8a2493d`) had found the same
   mechanism for rows past the screen after `RIS` and fixed that one path with
   `erase_ring`.
 - **Fixed:** `finish_line` blanks every row it writes from the new width to
@@ -235,7 +235,7 @@ through a re-cut.**
 
 **Also by reading:** `baud-core/tests/altresize.rs` provisioned exactly 50
 rows and discarded `Resized` with `let _ =`, so its growth was truncated and
-the test could not fire. Fixed in `27afdd9`: it provisions sixty rows and
+the test could not fire. Fixed in `5be8d20`: it provisions sixty rows and
 asserts `Ok`, and its primary half is rewritten to the rule in force since
 2026-09-18 (question 6).
 
@@ -476,21 +476,21 @@ the owner (Q5).
      `history.rs:131`). Two scratch timings of a full-ring narrow-and-widen
      round trip disagree by about 2x: ~0.6 ms plus ~0.7 ms
      (CLAUDE.md:11969-11972), against 654.5 us for the whole round trip
-     (:17180-17184). A third scratch bench, taken for `27afdd9`, reads the
+     (:17180-17184). A third scratch bench, taken for `5be8d20`, reads the
      narrowing at 299 us and the widening at 347 us before that change, so
      it agrees with the second. The ~0.6 ms plus ~0.7 ms is the odd one out
      and is unexplained. One candidate: a lone, non-interleaved run of the
      third bench's changed build read 457 and 597 us, where the interleaved
      sweep reads 317 and 412, so a run by itself has read high at least
      once. None
-     of the three benches is kept runnable. After `27afdd9` the third reads
+     of the three benches is kept runnable. After `5be8d20` the third reads
      317 us and 412 us, ranges disjoint from before, and a 100-column growth
      at a
      prompt, which cost nothing, costs 46-54 us (CLAUDE.md, "A width growth
      keeps the marks honest at a prompt").
    - Row 10's per-step figures (0.19-0.56 us; a width change in
      `Zone::Output` 1.5-7.0 us) come from fixtures with 0-19 retained
-     lines, and are from before `27afdd9`: since, `live-drag`'s resize is
+     lines, and are from before `5be8d20`: since, `live-drag`'s resize is
      1.44 us a step. The `Zone::Output` control moved on both gestures,
      `drag` 5.67 to 7.02 us and `live-drag` 4.88 to 6.58, disjoint
      (interleaved, at one build path; a first reading from one launch a
@@ -498,7 +498,7 @@ the owner (Q5).
    - A full-ring drag in `Zone::Output` is **unmeasured**, and so is any
      depth past the default. The cost scales with the ring.
 2. **~~Fix D1 and D2 first, each red before it is fixed.~~ Done in
-   `27afdd9`.** E1, splitting `resize_holding` into per-screen steps, was
+   `5be8d20`.** E1, splitting `resize_holding` into per-screen steps, was
    not done with them: the fix moved the alternate screen's `widened` out
    of the zone gate, which is the nesting bug, added `View::settle_growth`
    for the primary beside it, and left the function whole. G3 waits for
@@ -613,7 +613,7 @@ section for it.
       and blank-fill only when nothing is left to pull" (M note 306-308,
       `term.rs:900-903`).
 
-   `27afdd9` found that `altresize.rs`'s primary test, which encoded the
+   `5be8d20` found that `altresize.rs`'s primary test, which encoded the
    first, had never been able to fail, and rewrote it to the third, which
    its record calls the owner's rule for the primary since 2026-09-18. If
    the owner means the first, that test is the one to flip.
@@ -638,11 +638,11 @@ section for it.
    SIGWINCH plus a resize on every drag step that changes the grid.**" Note
    V's design for it: "No code."
 9. **What does a cut row have to hold to count when a growth reveals it?**
-   This was found after the draft, when `27afdd9` made the marks honest. The
+   This was found after the draft, when `5be8d20` made the marks honest. The
    height step reveals the cut rows "as far as the last one that holds
    anything", and it asks each row by reading the row's mark. A mark says
    where a row stops being uniform, so the test misfires in both directions.
-   It does so on the code before `27afdd9` as much as after:
+   It does so on the code before `5be8d20` as much as after:
    - A row of blanks in a foreground-only rendition counts. It is revealed
      while a history line was left to pull.
    - A row erased whole in a visible background colour has a mark of zero,

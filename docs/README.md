@@ -102,12 +102,12 @@ its filename's prefix, and several notes share one.
 | [az-background-window.md](research/notes/az-background-window.md) | AZ. A window in the background: the cursor and the selection | open |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
-| [ba-link-preview.md](research/notes/ba-link-preview.md) | BA. Holding Cmd over a link: prior art, the modifiers and every perturbation | done 2026-10-22, `b43ab68` |
+| [ba-link-preview.md](research/notes/ba-link-preview.md) | BA. Holding Cmd over a link: prior art, the modifiers and every perturbation | done 2026-10-22, `475f2dd` |
 | [bc-frame-ring.md](research/notes/bc-frame-ring.md) | BC. How the frame path becomes a ring: D4 revisited | open |
 | [bd-bidi-wrap.md](research/notes/bd-bidi-wrap.md) | BD. A right-to-left paragraph that wraps | open |
 | [be-linux-pixels.md](research/notes/be-linux-pixels.md) | BE. Linux draws what macOS draws, pixel for pixel, given the same faces and floor | open |
 | [bf-unsupported-walk.md](research/notes/bf-unsupported-walk.md) | BF. What baud still counts as unsupported, walked again | open |
-| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
+| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `158996a` |
 | [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
 | [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |
 | [f-cluster-storage.md](research/notes/f-cluster-storage.md) | Where a multi-codepoint cluster lives — three terminals, three answers | open |

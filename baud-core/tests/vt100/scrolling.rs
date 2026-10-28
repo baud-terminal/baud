@@ -665,7 +665,7 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
 /// rotation rather than about the test.
 ///
 /// core2 ran this in `OpMode::Computed`, not `Runs`, whose viewport reported
-/// representation rather than rendered content (`git show b10c006^:CLAUDE.md`,
+/// representation rather than rendered content (`git show c1d710c^:CLAUDE.md`,
 /// "Tests", lines 698-705). baud-core has one mode (see the top of this file).
 #[test]
 fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
@@ -780,7 +780,7 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
 /// `head` did not move during an alternate-screen session, so a region scroll
 /// there wrote over the primary's bookkeeping. No public accessor showed that
 /// state: in core2's Runs mode a viewport showed representation, so every
-/// case came back empty (`git show b10c006^:CLAUDE.md`, lines 698-705). The
+/// case came back empty (`git show c1d710c^:CLAUDE.md`, lines 698-705). The
 /// test checked the rendered content then, as it does now.
 #[test]
 fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {

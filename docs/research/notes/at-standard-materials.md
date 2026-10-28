@@ -44,7 +44,7 @@ shows through.
 - **WCAG 2.2 was not re-fetched.** The committed copy is cited: the
   contrast ratio is [[source: wcag22]]'s.
 - **Local files.** The material recipes and Apple's app binaries were read
-  on macOS 27.0 (26A5425a). baud is cited at `a0822e39`. The owner's crate
+  on macOS 27.0 (26A5425a). baud is cited at `dbd309c9`. The owner's crate
   is cited at 1.0.0-beta.5, the version baud links.
 
 ## 1. The question
@@ -212,13 +212,13 @@ section 6's model.
 
 | body | dims 0.70 / 0.60 | the contrast floor | spread |
 |---|---|---|---|
-| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `a0822e39`, reads against the page mixed over the default page at the dim (note AS, section 6); since `a15c6a9c`, reads against the page at its alpha over black to white (record, "The glass floor reads against the whole backdrop") | 41-78 (glass rows, both halves, both bounds) |
+| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `dbd309c9`, reads against the page mixed over the default page at the dim (note AS, section 6); since `36be4250`, reads against the page at its alpha over black to white (record, "The glass floor reads against the whole backdrop") | 41-78 (glass rows, both halves, both bounds) |
 | see-through standard (Sidebar stand-in) | hold by the same bound; could come down, unmeasured | same as glass | 10-11 |
 | `.windowBackground` / `.contentBackground` | no effect on what shows through: the body is opaque at any dim | its page is what is behind the text | 0 |
 
 **btop's meters.** The floor change that reads text against the whole
 backdrop, black to white, covers either glass bound. It landed at
-`a15c6a9c`, after this note's base. With it, btop's `#404040` meter ground
+`36be4250`, after this note's base. With it, btop's `#404040` meter ground
 on its black page goes to `#bcbcbc` at dark 0.70, so its meters read full.
 The figures are in the record entry
 "The glass floor reads against the whole backdrop".
@@ -232,7 +232,7 @@ would have far less to lift. How many lifts would remain was not counted.
 
 **Reduce Transparency and Increase Contrast.**
 
-- baud's own response stays as built at `a0822e39`, whatever the material:
+- baud's own response stays as built at `dbd309c9`, whatever the material:
   - Reduce Transparency draws every cell background opaque.
   - Increase Contrast raises the floor's trigger to 3.0 and its target to
     4.5.

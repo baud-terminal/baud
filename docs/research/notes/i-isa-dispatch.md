@@ -1,6 +1,6 @@
 # Instruction-set dispatch — why the seam is a trait and not a crate
 
-> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]`, `[[source: arm-neon-bitmask]]` · **Status:** the split is built and measured free; ~~the `shrn` experiment is not started~~ the `shrn` experiment is built and measured: `Neon` in `baud-isa-aarch64` (`76b5769`, 2026-08-28), +10% on asciiquarium and +3.5% on btop on the core later renamed `baud-core2`; wired into `baud-core`'s run scan (`6c9b926`) a null on all nine recordings, and its `stride_three` (`2ff81d8`) +4.2% on cat-cjk and +4.0% on less-cjk; on by default since `2a0c15e` (corrected 2026-10-10; the status line said "not started" while the section below reported the measurement)
+> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]`, `[[source: arm-neon-bitmask]]` · **Status:** the split is built and measured free; ~~the `shrn` experiment is not started~~ the `shrn` experiment is built and measured: `Neon` in `baud-isa-aarch64` (`2960dd9`, 2026-08-28), +10% on asciiquarium and +3.5% on btop on the core later renamed `baud-core2`; wired into `baud-core`'s run scan (`390fdd0`) a null on all nine recordings, and its `stride_three` (`5fa797d`) +4.2% on cat-cjk and +4.0% on less-cjk; on by default since `c3c7c5e` (corrected 2026-10-10; the status line said "not started" while the section below reported the measurement)
 
 ## Why this note exists
 
@@ -195,12 +195,12 @@ That is a concrete, measurable per-ISA experiment ~~and it is unstarted~~:
 hand-write the aarch64 mask extraction with `shrn #4`, take `rbit`/`clz` on the
 resulting 64-bit value, and shift the nibble index down to a byte index. It is
 the first thing to try behind `Scan`, and it needs no crate. **Built and
-measured since** (corrected 2026-10-10): `76b5769` wrote it and measured +10%
+measured since** (corrected 2026-10-10): `2960dd9` wrote it and measured +10%
 on asciiquarium and +3.5% on btop on the core of the day, later renamed
 `baud-core2`. On `baud-core` the two results are the last section's, from
 the record, "The NEON scan was wired in and it is a null, because the
-trait cannot reach the cost" (`6c9b926`) and "Then the stride-three scan was
-written, and it is +4% on both CJK rows" (`2ff81d8`).
+trait cannot reach the cost" (`390fdd0`) and "Then the stride-three scan was
+written, and it is +4% on both CJK rows" (`5fa797d`).
 
 ## The split was built, and it costs nothing
 
@@ -209,7 +209,7 @@ was `baud-core2`'s scan module, the crate then named `baud-core` -- and that
 crate depended on it. The `baud-core` of today depends on it behind its scan
 features (`neon-scan`, the default, and `avx2-scan`). It holds the
 `Scan` trait, the `Portable` scanner struct and the other portable traits
-(`Decode`, `CacheProbe`, `Warm`, each added after `76b5769`), and the intrinsics live in the
+(`Decode`, `CacheProbe`, `Warm`, each added after `2960dd9`), and the intrinsics live in the
 per-architecture crates: `Avx2` in `baud-isa-x86-64`, `Neon` in
 `baud-isa-aarch64` (corrected 2026-10-10).
 
@@ -237,7 +237,7 @@ falling to 2 and called relocation an improvement, which is this repo's
 ~~What is *not* yet done is the second ISA implementation this was for. The
 `shrn` experiment below is the first candidate, and it now has somewhere to
 live.~~ Done: the second implementation is `Neon`, the `shrn` experiment, in
-`baud-isa-aarch64` (`76b5769`; corrected 2026-10-10).
+`baud-isa-aarch64` (`2960dd9`; corrected 2026-10-10).
 
 ## The conclusion, and the part that is not settled
 

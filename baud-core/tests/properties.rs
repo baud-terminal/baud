@@ -31,7 +31,7 @@
 //! an oracle. When this was written that was `baud-core2` through
 //! `baud-bench/tests/differential.rs`, or `GraphemeBreakTest.txt`, and it was
 //! a direct argument against retiring core2 on the strength of a property
-//! suite, cheaper to measure than to argue. core2 was retired in bcefaae,
+//! suite, cheaper to measure than to argue. core2 was retired in 2538310,
 //! with its renderings frozen in `tests/golden.rs`; the oracles now are those,
 //! `GraphemeBreakTest.txt` (`tests/encoding/graphemes.rs`), and the two
 //! external differentials, `baud-difftest` against alacritty and

@@ -1,6 +1,6 @@
 # V. The owner's open decisions, researched
 
-Taken at `0987b98`, 2026-09-25. **Nothing in this note is built.** Each
+Taken at `f68375c`, 2026-09-25. **Nothing in this note is built.** Each
 decision waited on the owner's answer; the answers are the next section.
 
 ## Decisions taken, 2026-09-25
@@ -36,8 +36,8 @@ Two requests arrived with the answers, and are not decisions from this note:
   it off.
 - **The cursor's shape and blink set in the config**, blinking block by
   default. The core has defaulted to a blinking block all along; no renderer
-  path drew the cursor's blink then (it has since 2026-09-25, `d6bab1b`).
-  SGR 5 text had blinked since 2026-09-13 (`d28e6f9`); that is not the
+  path drew the cursor's blink then (it has since 2026-09-25, `7f8413d`).
+  SGR 5 text had blinked since 2026-09-13 (`54286f4`); that is not the
   cursor.
 
 Later the same day the owner answered the cursor's questions, and these steer
@@ -52,7 +52,7 @@ the builds that follow them:
   "The plasma is the default trail, and the fire stays by name").
 - **The flame is opaque over glass**, and the light theme gets a darker
   variant that is not additive. **Met by one rule since the fire was built**
-  (`2dcb9b5`): the flame is drawn in the cursor's colour, premultiplied, with
+  (`8211be4`): the flame is drawn in the cursor's colour, premultiplied, with
   its heat as its opacity, which "is valid over a glass window by
   construction ... and is dark on a light theme, whose cursor is dark, so the
   two variants the owner asked for (opaque over glass, darker over light) are
@@ -68,27 +68,27 @@ the builds that follow them:
 - **The per-frame cost first**: the resolved rendition table kept as a cache
   in baud's own idiom, then the trail styles one commit each.
 
-Built since: the rendition cache (`fe776c9`), the quad trail (`6872f61`),
-sfte's swept box (`trail = "sweep"`, `6700c54`), and the fire trail
-(`2dcb9b5`), the default until the plasma replaced it (`898f9e6`) -- drawn in
+Built since: the rendition cache (`60cce43`), the quad trail (`c2e20be`),
+sfte's swept box (`trail = "sweep"`, `8da4787`), and the fire trail
+(`8211be4`), the default until the plasma replaced it (`eb2f75e`) -- drawn in
 the cursor's colour, the owner's word mid-build: "the flame should not use a
 special color, we use the cursor color, default color". Then plasma
-(`e8798ae`), lightning (`dbea478`), ice (`301f589`), ufo (`32042ce`), orb
-(`4478fb2`) and liquid (`6daf3d3`), ten trails with the ghost: the one-cell
-box that was the trail before these decisions (`c77d2ef`, 2026-09-20), named
-`ghost` by the quad's commit and drawn in the cursor's colour since `c632ae3`.
-Then Reduce Motion (`336d269`): the default trail is off under it and a named
+(`bc40570`), lightning (`0cef30d`), ice (`26b26b0`), ufo (`90bb30d`), orb
+(`1488b3c`) and liquid (`818daaa`), ten trails with the ghost: the one-cell
+box that was the trail before these decisions (`6cecea6`, 2026-09-20), named
+`ghost` by the quad's commit and drawn in the cursor's colour since `84c7726`.
+Then Reduce Motion (`bc7cd03`): the default trail is off under it and a named
 one is kept (CLAUDE.md, "Reduce Motion means no trail, unless the config names
 one"). Then the blink from the OS, with the owner's answers of 2026-09-27
-(`9c4769d`) -- hard edges at 650/350, every other sub-question as recommended:
+(`5fb5eec`) -- hard edges at 650/350, every other sub-question as recommended:
 the rate read from the system's keys, macOS 15's non-blinking switch holding
 the drawing steady unless the config says `true`, and
 `[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The cursor blinks at the
-system caret's rate"). Then rule F (`2b54cfd`), the owner's call the same day:
+system caret's rate"). Then rule F (`0c8ed2d`), the owner's call the same day:
 `?12` or-ed with the style's own blink, as foot does, and the style saved and
 restored across `?1049`, so vim and helix leave the shell its configured
 cursor (CLAUDE.md, "`?12` is a second input to the blink"). Then the ride
-(`cd5bc29`), with the owner's bound of the same day -- two rows, then fold in:
+(`0415566`), with the owner's bound of the same day -- two rows, then fold in:
 a trail in flight moves up with the text under a smooth scroll, and `[cursor]
 trail_scroll = "stay"` keeps it put (CLAUDE.md, "A trail rides a smooth
 scroll, two rows at most").
@@ -119,7 +119,7 @@ would change the answer.
 **Two kinds of claim, kept apart.**
 
 - **"By reading".** Most "today" claims were traced through the code at
-  `0987b98` and not run. They are labelled "by reading" or "not run" where
+  `f68375c` and not run. They are labelled "by reading" or "not run" where
   they appear, and each test in a design must go red before its effect is
   claimed.
 - **UNVERIFIED and UNPINNED.** A claim marked UNVERIFIED was not checked. A
@@ -278,7 +278,7 @@ The same output can arrive in one read or several, depending on timing.
 
 **What you would notice**
 
-Today, there are four effects. Each is traced by reading the code at 0987b98;
+Today, there are four effects. Each is traced by reading the code at f68375c;
 none has been run. Each test below must go red before its effect is claimed.
 
 1. **The highlight outlives the reset.** Select a word, then type `reset`. The
@@ -340,7 +340,7 @@ takes it live in the same pump as the reset still depends on the
 batching (note V's V2); the record names it. Q2 is not decided by it.
 Both options are now batching-invariant, so the request round 2026-10-11d
 sent describes neither as built: its DRAWN_WINDOW Does slot and
-`baud_probe` (d) give fbc69f0's batching dependence, and a re-ask must
+`baud_probe` (d) give e8f1d54's batching dependence, and a re-ask must
 carry this change's rule. The record: "A reset's
 reveal is decided at the reset's byte, not at the pump's edges
 (2026-10-11)", which also holds what an emptied history shows: Jev's
@@ -354,7 +354,7 @@ Why this is open now: all four used to be handled by accident. The old reset
 rewound the ring's *rotation* (the offset that says which stored row is the
 top of the screen). The app read that rewind as "rows restored" and dropped
 the selection, and the same rewind tripped the prediction check. Commit
-5e00c08 correctly kept the rotation, and the accidents went with it.
+8a2493d correctly kept the rotation, and the accidents went with it.
 
 **Today**
 
@@ -750,7 +750,7 @@ Measurement:
   - `cells_written` identical on all nine recordings;
   - a disassembly compare of the ingest loop.
 
-  HEAD 0987b98 aligns every function to 64 bytes. That weakens the layout
+  HEAD f68375c aligns every function to 64 bytes. That weakens the layout
   argument but does not remove the sweep.
 - **Oracles.** Run `cargo test --workspace` before committing: the sfte and
   alacritty cross-checks live outside `baud-core`.
@@ -959,7 +959,7 @@ public tracked-point array yet.**
   an `ingest2` sweep. Both arms built at one path (a worktree build once moved
   code 96 bytes and read -6.5% on `cat`), 7 rounds rotated, the first dropped,
   an A/A copy, the nine recordings plus `mix`, `cells_written` identical.
-  Commit 0987b98, which starts every function on a 64-byte boundary, shrinks
+  Commit f68375c, which starts every function on a 64-byte boundary, shrinks
   the layout risk; the sweep is still owed. The cost is argued to be nil and
   is unmeasured.
 
@@ -2025,7 +2025,7 @@ and the record must say so.
 **Measurement.**
 - Make a same-path build, then disassemble ingest2's `main`, where feed and
   act inline.
-- HEAD aligns every function to 64 bytes (0987b98). That fixes where functions
+- HEAD aligns every function to 64 bytes (f68375c). That fixes where functions
   start, but not the code inside an edited function, and this change edits
   `glyph`'s inlined body.
   - The record prices that class of change: `for w in [WIDE, NARROW]` cost
@@ -4177,7 +4177,7 @@ already draws like xterm and A is the only consistent completion of that.
   - `cells_written` identical on all ten recordings and `mix`;
   - **either** the ingest loop's disassembly shown unchanged outside the OSC
     functions (cheaper and stronger now that every function starts on a
-    64-byte boundary, commit 0987b98), **or** `ingest2` on cava, btop and
+    64-byte boundary, commit f68375c), **or** `ingest2` on cava, btop and
     asciiquarium, with both arms built at one path, at least five rounds
     interleaved, the first dropped, and an A/A copy. Say which proof was
     taken;
@@ -4205,7 +4205,7 @@ already draws like xterm and A is the only consistent completion of that.
 - **Left open:** xterm's cursor-colour rule under `?5` (util.c around 3293),
   and the reset gap. xterm's DECSTR and RIS reset every OSC 4 entry; baud's
   keep every colour override. That gap exists today and is its own item.
-  *(Since closed: both resets clear every OSC 4 override as of 38f0247,
+  *(Since closed: both resets clear every OSC 4 override as of a8b1179,
   2026-09-29; and the cursor-colour rule is built, 2026-10-11, the record's
   "A cursor colour equal to the text keeps its colour across `?5`".)*
 
@@ -5647,7 +5647,7 @@ set-aside change from August). Can they be deleted, together with twelve old
 branches already merged into `master`?
 
 `smooth-scroll` is already pushed: it tracks `origin/smooth-scroll` at
-`0987b98`. So the precondition this item waited on is met.
+`f68375c`. So the precondition this item waited on is met.
 
 **What you would notice**
 
@@ -5656,12 +5656,12 @@ branches already merged into `master`?
 
 **Today**
 
-- `smooth-scroll` is at 0987b98 and on origin. `master` equals `origin/master`
-  (9a60cc3).
+- `smooth-scroll` is at f68375c and on origin. `master` equals `origin/master`
+  (f5e6156).
 - **The six candidates:**
   - `backup-pre-squash-smooth-scroll` (959cdbe);
   - `backup-pre-fixup-squash` (ce70108);
-  - `backup-pre-split-ris-prompt` (713493c);
+  - `backup-pre-split-ris-prompt` (aa8c76f);
   - `sfte-oracle` (0d7c5ba);
   - `backup-pre-trailer-rewrite` (0cc2fa7);
   - `stash@{0}` (c5f2198): "graph-walks-everything: -45% btop, -23%
@@ -5677,7 +5677,7 @@ Each claim was checked read-only with git; there is no outside practice to
 cite.
 
 - **`backup-pre-squash-smooth-scroll`.** Its code is already on
-  `smooth-scroll`: its tip tree is identical to that of 6b51c36, which is an
+  `smooth-scroll`: its tip tree is identical to that of 9ad4070, which is an
   ancestor. What is unique to it is 63 pre-squash commit messages, 88,673
   bytes, which were condensed to 30,173 on purpose under the
   one-commit-per-feature rule. That is about 58 KB of prose.
@@ -5840,7 +5840,7 @@ of this core.
   character long. The lever the record keeps naming is bytes per loop
   iteration, not the decode.
 - **Caveat:** both figures predate the GB11 work and the 64-byte function
-  alignment (0987b98).
+  alignment (f68375c).
 
 **Options**
 

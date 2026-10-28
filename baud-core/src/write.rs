@@ -3191,7 +3191,7 @@ fn fast_csi(
     // the commit below does for every sequence taken whole. It returns before
     // that line, and without its own the node stayed inside the sequence, so
     // the byte after a repeated `SGR` was parsed as part of another control
-    // sequence (`tests/sgr_repeat.rs`). It went when e105e7d moved the
+    // sequence (`tests/sgr_repeat.rs`). It went when 97733d1 moved the
     // commit out of `Act::CsiStart` and into this function, below the hit;
     // that commit found the same gap in `fast_esc` and closed it there.
     // Not at Level 1, whose SGR folds fewer attributes than an entry holds.
@@ -3218,7 +3218,7 @@ fn fast_csi(
     // `cells_written` is unchanged by it, which is exactly why that counter
     // cannot be the check here: the same glyphs land in the same cells and
     // only the `StyleId` differs. **That holds only while it commits the
-    // node**, as the `sgr-table` hit above must: from e105e7d it returned
+    // node**, as the `sgr-table` hit above must: from 97733d1 it returned
     // with the node inside the sequence, the byte after every plain `SGR`
     // was parsed as part of another, and the arm priced dropped text too.
     #[cfg(feature = "ceiling-free-sgr")]

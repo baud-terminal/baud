@@ -15,7 +15,7 @@ follow apple recommendations for osx".
 from the documentation JSON endpoint and the WWDC and support pages as HTML,
 and each is pinned by key in `docs/research/sources/MANIFEST.toml` (group AS)
 with its SHA-256. The SDK headers are Xcode's MacOSX27.0.sdk; the Mac runs
-macOS 27.0. baud's lines are cited at `dad9260c`. The contrast figures in
+macOS 27.0. baud's lines are cited at `f6302a23`. The contrast figures in
 sections 3 and 4 are **computed from a model, not measured in pixels**: no
 screen capture was taken.
 
@@ -88,7 +88,7 @@ offers opacity and blur sliders. Its Clear Dark profile
 blur 0.5; Clear Light ([[source: macos-terminal-clear-light]]) is white at
 0.93. That is a nearly opaque background, not Liquid Glass and not a 22% dim.
 
-## 2. What baud drew at `dad9260c`
+## 2. What baud drew at `f6302a23`
 
 - `[glass]` defaulted to the clear material, `dim_dark` 0.22, `dim_light`
   0.12, tints 0.54 and 0.14. The comments justifying clear said the HIG pairs

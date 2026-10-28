@@ -8,7 +8,7 @@
 - full text engines;
 - where RTL would live in baud.
 
-Every baud citation is at e138e34 on branch `smooth-scroll`, not master, so line numbers may differ on master [measured: `git rev-parse HEAD`].
+Every baud citation is at a8114e2 on branch `smooth-scroll`, not master, so line numbers may differ on master [measured: `git rev-parse HEAD`].
 
 Evidence is tagged as follows:
 
@@ -23,15 +23,15 @@ Where the critic found that a claim does not hold, this note gives the corrected
 
 **What the owner said.**
 
-- The owner asked for RTL support, "the best one - windows level", with research "beyond vts". At first they said not to start until they gave the word [source: docs/research/notes/aa-shell-locale.md:13-15 @e138e34].
+- The owner asked for RTL support, "the best one - windows level", with research "beyond vts". At first they said not to start until they gave the word [source: docs/research/notes/aa-shell-locale.md:13-15 @a8114e2].
 - On 2026-10-07 the owner said: "yes start the rtl research", "also you drew it ltr not rtl which is how hebtrew is written", "and rtl is a must have feature for rtl langs", and "and rtl we need to see how windows does it , windows terminal , etc, windows has the best hebrew support and we need to do it better" / "best rtl support that is sorry" (TODO.md, verbatim).
 - The same day the owner answered Q22 below: "and yeah if these symbols aren't found in the configured font then it should look at the system's font" (note AC records the font order it set).
 
 **Where baud stands today.**
 
-- There is no bidi. Hebrew draws in logical order, left to right [source: baud-core/src/paint.rs:651-731 @e138e34].
-- Shaping selects the `latn` LangSys, else `DFLT`, for every face whatever the script [source: baud-font/src/layout.rs:713-717 @e138e34]. Some faces, such as Liberation Mono, put their Hebrew mark anchors only under `hebr`. With those faces the vowel points land one cell to the right [source: aa-shell-locale.md:181-186, 248-253].
-- Note J's D15 recorded "no bidi (a grid-level concern per the terminal-wg spec, owned by the VT core's mode bits if ever)" and "No Arabic joining" [source: docs/research/notes/j-rendering.md:244-247 @e138e34].
+- There is no bidi. Hebrew draws in logical order, left to right [source: baud-core/src/paint.rs:651-731 @a8114e2].
+- Shaping selects the `latn` LangSys, else `DFLT`, for every face whatever the script [source: baud-font/src/layout.rs:713-717 @a8114e2]. Some faces, such as Liberation Mono, put their Hebrew mark anchors only under `hebr`. With those faces the vowel points land one cell to the right [source: aa-shell-locale.md:181-186, 248-253].
+- Note J's D15 recorded "no bidi (a grid-level concern per the terminal-wg spec, owned by the VT core's mode bits if ever)" and "No Arabic joining" [source: docs/research/notes/j-rendering.md:244-247 @a8114e2].
 
 ## 2. The specifications
 
@@ -485,7 +485,7 @@ The tester asked for a configurable base direction, defaulting to LTR.
 
 **The owner's own workload is untested on screen.** iTerm2 makes two special cases for agent CLIs: empty cells become spaces, and an opt-out disables bidi on the alternate screen for CLIs that order their own text [source: iTerm2@91411f5]. A Windows console fork's README says Claude Code reorders RTL text itself and lists claude.exe as a visual-order app, and Claude Code's 2.1.74 changelog fixed RTL rendering in Windows Terminal, conhost and the VS Code terminal [doc]; its behaviour on macOS terminals is unchecked. iTerm2 #13102 is a RatatuiRuby TUI whose popups bidi distorts [doc]. No researcher ran Claude Code or any other agent CLI with RTL text under a reordering terminal. A default that reorders the alternate screen should be tested against these first (Q17).
 
-**tmux isolates and baud (corrected).** tmux emits its isolates only when terminfo carries `Bidi`. baud ships no terminfo entry of its own: it advertises `TERM=xterm-256color` from a pinned entry [source: baud-app/src/bell.rs:67-74; baud-app/src/pty.rs:189 @e138e34]. Getting tmux's isolates would first need a baud entry to be shipped and installed, or users to set `terminal-overrides`. Even then the isolates do nothing at terminal-wg level 1, which discards them; they help only at level 2 [inferred].
+**tmux isolates and baud (corrected).** tmux emits its isolates only when terminfo carries `Bidi`. baud ships no terminfo entry of its own: it advertises `TERM=xterm-256color` from a pinned entry [source: baud-app/src/bell.rs:67-74; baud-app/src/pty.rs:189 @a8114e2]. Getting tmux's isolates would first need a baud entry to be shipped and installed, or users to set `terminal-overrides`. Even then the isolates do nothing at terminal-wg level 1, which discards them; they help only at level 2 [inferred].
 
 ## 6. "Windows level": what full text engines do, and what a grid can do
 
@@ -568,7 +568,7 @@ Note AA already recorded that Windows Terminal never reorders RTL text, so "Wind
 
 ## 7. Where it lives in baud
 
-All file:line citations are at e138e34 on `smooth-scroll` [source] unless tagged otherwise.
+All file:line citations are at a8114e2 on `smooth-scroll` [source] unless tagged otherwise.
 
 ### 7.1 Integration map
 
@@ -1357,7 +1357,7 @@ Pages that are not files in a repository, in full:
 
 ## 11. Script selection after phase 0: the four questions Q6 left (2026-10-13)
 
-Q6's postscript built phase 0 at 6b53a66 and left four choices the texts do not settle. They were put to Jev twice: round 2026-10-13f asked all four (decisions.jsonl lines 527 and 528, the second a replicate with the options reversed), and round 2026-10-13g asked Q-A and Q-C again with two research lanes' measurements (lines 529 and 530). The rounds' requests and results are kept untracked in `.claude/research/jev-program/round-2026-10-13f/script-select/` and `round-2026-10-13g/script-select/`; decisions.jsonl lives outside the repository, beside `jev.py`. The data, harnesses and patch the decisions rest on are committed in [ab/](ab/), listed in 11.6. Every figure below is taken from those files. This section's baud citations are at bc39889, not the e138e34 of the note's header.
+Q6's postscript built phase 0 at 5d44960 and left four choices the texts do not settle. They were put to Jev twice: round 2026-10-13f asked all four (decisions.jsonl lines 527 and 528, the second a replicate with the options reversed), and round 2026-10-13g asked Q-A and Q-C again with two research lanes' measurements (lines 529 and 530). The rounds' requests and results are kept untracked in `.claude/research/jev-program/round-2026-10-13f/script-select/` and `round-2026-10-13g/script-select/`; decisions.jsonl lives outside the repository, beside `jev.py`. The data, harnesses and patch the decisions rest on are committed in [ab/](ab/), listed in 11.6. Every figure below is taken from those files. This section's baud citations are at a9bf3a1, not the a8114e2 of the note's header.
 
 ### 11.1 What Jev answered
 
@@ -1385,7 +1385,7 @@ So Jev's answers change nothing built; the owner's pick of C2 for Q-C (11.4) did
 
 **The survey** measured: ab/qa/counted.txt, over [ab/qa/survey.jsonl (sha256 `fd2d2372ef71ea6d358b748765da63e0e2e322614bbefbed0a01acf5d106772d`, as counted.txt records it) from [ab/qa/survey_run.py](ab/qa/survey_run.py)]. 837 faces on this Mac and in the repository, 2 of which could not be parsed; 541 have a `GSUB` or `GPOS` ScriptList; 323 have a `DFLT` Script table; none has a Script table tagged 'dflt'. A raw table walk over the 420 font files ([ab/qa/langdflt2.py](ab/qa/langdflt2.py) over ab/qa/fontlist.txt, re-run for this note: [ab/qa/langdflt2.out](ab/qa/langdflt2.out)) finds no Script record tagged 'dflt' and none of the 1,414 LangSys records tagged 'dflt' or `DFLT`, and counts 556 `DFLT` and 437 `latn` Script records; the lane's fontTools count was 554 and 437, the two extra being NotoSansPhagsPa's, which fontTools could not parse. Every repository face with a ScriptList, 24 of them, has `DFLT`, so Q-A arises only for a system fallback face; whether baud's fallback ever picks one of the faces below is unmeasured.
 
-**The faces where the options shape differently.** 40 faces lack `DFLT` and have a `latn` default LangSys naming lookups baud applies. They were shaped under three builds of `git archive bc39889` that differ only at `baud-font/src/layout.rs:768` -- A1 `[DFLT, LATN]` as built, A2 `[DFLT]`, A3 `[DFLT, dflt, LATN]` -- by a harness that clusters and resolves scripts as `baud-font/tests/shape.rs` does ([ab/qa/shapeq.rs.txt](ab/qa/shapeq.rs.txt)), checked first against two lines of `script.txt`. **A3 equals A1 on every line** (the final files hash alike). A1 and A2 differ on 28 faces ([ab/qa/faces-differ.tsv](ab/qa/faces-differ.tsv)), and only on strings that resolve to Common or Greek; digits never differed on a face that has a script table. Each of the 11 non-Hiragino faces had 134,143 to 375,886 strings tried, each Hiragino face 48,474; the distinct strings that differ number 5,951 on each of Arial's four faces, Times New Roman Italic and Bold Italic, and Tahoma; 27,718 on Times New Roman, 28,078 on its Bold and on Tahoma Bold, 27,599 on Microsoft Sans Serif, and 2 on each Hiragino face (`02E5 02E9` and `02E9 02E5`). Notation `glyph=cell@dx,dy`; hb-shape is 13.2.1 with the script fixture's features, script guessed:
+**The faces where the options shape differently.** 40 faces lack `DFLT` and have a `latn` default LangSys naming lookups baud applies. They were shaped under three builds of `git archive a9bf3a1` that differ only at `baud-font/src/layout.rs:768` -- A1 `[DFLT, LATN]` as built, A2 `[DFLT]`, A3 `[DFLT, dflt, LATN]` -- by a harness that clusters and resolves scripts as `baud-font/tests/shape.rs` does ([ab/qa/shapeq.rs.txt](ab/qa/shapeq.rs.txt)), checked first against two lines of `script.txt`. **A3 equals A1 on every line** (the final files hash alike). A1 and A2 differ on 28 faces ([ab/qa/faces-differ.tsv](ab/qa/faces-differ.tsv)), and only on strings that resolve to Common or Greek; digits never differed on a face that has a script table. Each of the 11 non-Hiragino faces had 134,143 to 375,886 strings tried, each Hiragino face 48,474; the distinct strings that differ number 5,951 on each of Arial's four faces, Times New Roman Italic and Bold Italic, and Tahoma; 27,718 on Times New Roman, 28,078 on its Bold and on Tahoma Bold, 27,599 on Microsoft Sans Serif, and 2 on each Hiragino face (`02E5 02E9` and `02E9 02E5`). Notation `glyph=cell@dx,dy`; hb-shape is 13.2.1 with the script fixture's features, script guessed:
 
 | face | string | A1 (`latn`), = A3 | A2 (nothing) | hb-shape |
 |---|---|---|---|---|
@@ -1434,13 +1434,13 @@ Chapter 23: Hebrew accents and marks "were assigned fixed-position combining cla
 - The engine-documentation project, opentype-shaping-documents at bd64cf1, lines 285-286: "For `<hebr>` text runs, normalizing the sequence of marks using the Unicode _canonical combining class_ of each mark should be sufficient" [[source: osd-opentype-shaping-hebrew]]. It is the only text found that names an order for a Hebrew engine; it names C1, it is not normative, and Courier New contradicts it.
 - Microsoft's Hebrew page names no order for the marks [[source: ms-hebrew-script-development]]. A FontLab VOLT forum post was not retrieved (403 directly, 429 from Wayback).
 
-**C2, built as a patch and measured.** [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch) applies to bc39889 (`git apply --check`). It adds `SORT_CLASS`, a 256-entry table built at compile time mapping classes 10..26 as hb-unicode.hh:333-349 does -- 10→22, 11→15, 12→16, 13→17, 14→23, 15→18, 16→19, 17→20, 18→21, 19→14, 20→24, 21→12, 22→25, 23→13, 24→10, 25→11, 26→26 -- and uses it only in the insertion sort in `baud-font/src/shape.rs`; `glyph.ccc`, which the fallback placer reads, and the composition-blocking key keep Unicode's classes. Its reach, measured:
+**C2, built as a patch and measured.** [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch) applies to a9bf3a1 (`git apply --check`). It adds `SORT_CLASS`, a 256-entry table built at compile time mapping classes 10..26 as hb-unicode.hh:333-349 does -- 10→22, 11→15, 12→16, 13→17, 14→23, 15→18, 16→19, 17→20, 18→21, 19→14, 20→24, 21→12, 22→25, 23→13, 24→10, 25→11, 26→26 -- and uses it only in the insertion sort in `baud-font/src/shape.rs`; `glyph.ccc`, which the fallback placer reads, and the composition-blocking key keep Unicode's classes. Its reach, measured:
 
 - Hebrew only: every class in 10..26 is in U+05B0-05C7 or FB1E.
 - Composition blocking is moot: no composition row has a Hebrew point as its second element (0 of 961; the control, U+0301 as second element, finds 117).
 - It is a permutation: HarfBuzz's values for 10..26 sort back to exactly 10..26.
 - Where the two orders agree, output is byte-identical on every face (0 differences).
-- It fails the audit budget. `git apply` at bc39889, then `audit_all.sh`, gives "FAIL baud-font: 13 raw-integer sites, 61 signature (limit 12 and 60)", from `shape.rs`'s `i as u8` (a raw-integer site) and `fn sort_class(...) -> u8` (a signature site); the base passes at 12 and 60. Budgets are never raised, so applying the patch requires typing those two sites first.
+- It fails the audit budget. `git apply` at a9bf3a1, then `audit_all.sh`, gives "FAIL baud-font: 13 raw-integer sites, 61 signature (limit 12 and 60)", from `shape.rs`'s `i as u8` (a raw-integer site) and `fn sort_class(...) -> u8` (a signature site); the base passes at 12 and 60. Budgets are never raised, so applying the patch requires typing those two sites first.
 - The control, Courier New shin + qamats + shin dot: C1 `[697, 661, 669@+1229]`, C2 `[711, 661]`, which is hb-shape's `[661, 711]` in logical order.
 - `cargo test -p baud-font` on C2: 136 passed, 0 failed, over 18 test binaries (ab/qc/test-c2.log); `every_script_fixture_shapes_as_harfbuzz_does` passes on both arms (ab/qc/test-c1-script.log). The fixtures cannot tell the arms apart: `script.txt`'s 26 Hebrew lines, 13 on each face, have no cell with two marks.
 - Invariance: the 360 canonically equivalent spellings of the 120 corpus clusters with two or more marks ([ab/qc/perms.txt](ab/qc/perms.txt)) shape alike within each arm on the built Regular, Courier New, Arial Hebrew and SF Hebrew.
@@ -1515,7 +1515,7 @@ Not built: an Appendix B arm (merged classes, outside the FAQ's rule) and HarfBu
 
 All copied from the session scratchpad on 2026-10-13, except `qc/residuals.py` and `qc/residuals.txt`, written for this note, and `qc/counted.txt`, whose header now names the committed files; the large intermediate outputs (the per-string `out*-A*.tsv`, 30-323 MB each, and the candidate lists) and the modified system fonts in the perturbation set are not committed.
 
-- [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch): arm C2, sha256 `8527558c8fe1ac3afc28b10ff9cb66a147147b07fff0bf50b3429c2b3813a81c`, the bytes the 529-530 request carried. Apply at bc39889 with `git apply docs/research/notes/ab/c2-sbl-sort.patch`; as it stands it fails `audit_all.sh` (baud-font at 13 and 61 against 12 and 60), so its `i as u8` and its `-> u8` signature are typed before it lands (11.4).
+- [ab/c2-sbl-sort.patch](ab/c2-sbl-sort.patch): arm C2, sha256 `8527558c8fe1ac3afc28b10ff9cb66a147147b07fff0bf50b3429c2b3813a81c`, the bytes the 529-530 request carried. Apply at a9bf3a1 with `git apply docs/research/notes/ab/c2-sbl-sort.patch`; as it stands it fails `audit_all.sh` (baud-font at 13 and 61 against 12 and 60), so its `i as u8` and its `-> u8` signature are typed before it lands (11.4).
 - `ab/qa/`: the 420 font files surveyed (`fontlist.txt`, whose 51 rows under `baud-app/` and `baud-font/` were absolute paths into the checkout when the survey ran, as `survey.jsonl` still shows), the survey runner, its library and its output (`survey_run.py`, `survey.py`, `survey.jsonl`, 413,644 bytes), the raw table walk and its re-run output (`langdflt2.py`, `langdflt2.out`), the string generators (`gen.py`, `gen2.py`, `gen3.py`), the comparison and count scripts, the harness (`shapeq.rs.txt`, an example in a scratch copy of `baud-font`), the 28 faces, the 112 final lines (`final-in.tsv`, `final-A1.tsv`, `final-A2.tsv`, `final-hb.tsv`; `final-A3.tsv` hashed equal to A1's and is not kept), DejaVu 2.20's survey row, and `counted.txt`.
 - `ab/qc/`: the harness (`qc.rs.txt`), `make_c2.py`, the measurement scripts, the corpora as clustered (`corpus-gen5.txt`, `corpus-pango.txt`, their `-occ.json` occurrence counts and `-differ.txt` order-differs lists, `clusters-all.txt` and its UTF-8 form), the per-cluster results (`measure.json.gz`, gzip of the lane's 1.1 MB `measure.json`, sha256 `420b0f477fad79edaa2778b8aac234de879ae044f5813f04a6ce2f3c4fcf1253`), `tables.md`, `attrib.md`, `residuals.py` and its output `residuals.txt`, the 850 timed clusters (`bench-clusters.txt`), `timing.txt` and `timing.sh.txt`, the 360 spellings, the CGJ probes, both test logs, the Genesis text and `counted.txt`. `tables.py` over `measure.json` and the two `-occ.json` files regenerates `tables.md` byte for byte (checked for this note); `attrib.py` and `measure.py` also need fontTools and the faces.
 

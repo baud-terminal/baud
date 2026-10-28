@@ -3,10 +3,10 @@
 > **Group:** F · **Sources:** `[[source: kitty-text-cache]]`, `[[source: kitty-line]]`, `[[source: ghostty-page]]`, `[[source: uax29]]` · **Status:** partial
 
 **Dated 2026-10-10.** Written on 2026-08-29 against the core then named
-`baud-core`, renamed `baud-core2` later that day and deleted in `bcefaae`
+`baud-core`, renamed `baud-core2` later that day and deleted in `2538310`
 (2026-09-10). Every "baud" below that keys on position, holds `MarkSlot`s or
 truncates is that core. `baud-core` took this note's direction:
-`ClusterStore` (`6d727ec`, 2026-09-09; `baud-domain/src/cell.rs`) is keyed on
+`ClusterStore` (`365650b`, 2026-09-09; `baud-domain/src/cell.rs`) is keyed on
 the cluster's content, a cell finds its cluster by the index in its
 `CellFlags`, and the store is 63 usable slots probed twice that **refuses**
 rather than evicts, so a cluster that finds no slot, or has more than

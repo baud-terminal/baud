@@ -3,7 +3,7 @@
 //! It was written as `ingest`'s twin -- same payloads, same rep protocol, same
 //! self-timing, same power-source report -- so the two numbers were comparable
 //! and the only difference was which core parsed the bytes. `ingest` drove
-//! `baud-core2` and went with it (bcefaae).
+//! `baud-core2` and went with it (2538310).
 //!
 //! ```text
 //! ingest2 cat-cjk 250
@@ -134,7 +134,7 @@ fn main() {
     // **Homogeneous CJK.** `CLAUDE.md`'s 2,440 MB/s for this name is a
     // `baud-core2` figure (2026-08-28), and this generated payload did not
     // enter `ingest2` until core2 was deleted -- on `baud-core` it reads
-    // 1,137-1,159 over three launches at `4d8825d`, and always has. Not a
+    // 1,137-1,159 over three launches at `bfc6632`, and always has. Not a
     // regression; a different core. `CLAUDE.md`'s `opcost` entry has the
     // attribution.
     //

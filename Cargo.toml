@@ -49,7 +49,7 @@ exclude = ["bench-others"]
 # features across every member, and `baud-bench` turns on `baud-render`'s
 # `exceptions`, which that manifest says the app does not get, and libc's
 # `std`: 4,160 more bytes of `__text` than `scripts/bundle-macos.sh`'s
-# `cargo build --release -p baud-app`, measured at 6bd4702. With it a bare
+# `cargo build --release -p baud-app`, measured at 1e02e6b. With it a bare
 # `cargo run`, `build`, `test` or `clippy` covers `baud-app` alone; the gate
 # passes `--workspace`.
 default-members = ["baud-app"]

@@ -196,7 +196,7 @@ the owner's call. It is open in the record, "DEC Special Graphics begins at
 This section said the opposite: the cell kept "the byte the application sent,
 flagged", because `[[source: ctlseqs]]` names the set without a mapping and
 `MANIFEST.toml` recorded `dec-special-graphics` as gated. That was a reason not
-to guess, and not a reason never to have a table. f297b21 translated through
+to guess, and not a reason never to have a table. f10c5ed translated through
 foot's, and the DEC pages pinned since then name every position.
 
 **The UK and national sets translate too**, through `[[source: xterm-charsets]]`,

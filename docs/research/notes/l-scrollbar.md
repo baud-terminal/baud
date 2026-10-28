@@ -101,7 +101,7 @@ line with the rows it re-cuts, so across a change of width the measure is
 the renumbering of the window's top, not the rows between it and the live
 screen. ~~-- a gap that predates this and is recorded rather than closed.~~
 The measure is still a renumbering across a reflow, and nothing reads it
-there: a resize anchors the window with `Term::resize_holding` (`1413048`,
+there: a resize anchors the window with `Term::resize_holding` (`b0f4b89`,
 note U), which is the "anchors by the primary alone through a read and a
 resize" the tests below hold (corrected 2026-10-10).
 

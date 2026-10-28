@@ -64,7 +64,7 @@ in
   #
   # **No `--all-features`.** It turned on every ceiling and probe arm at once,
   # and the arms are wrong by construction and stub one another out: on
-  # 5f1d5f0 baud-core's lib did not compile that way under `-D warnings`
+  # e2dc386 baud-core's lib did not compile that way under `-D warnings`
   # (an unreachable statement, an unused `mut`, an unused parameter, two
   # methods never called), so the script was red on a green tree.
   # `test:features` checks each arm alone, which is how an arm is used.
@@ -322,7 +322,7 @@ in
 
     # --release is for speed now, not correctness. The throughput floors this
     # comment once cited (baud-core/tests/perf_floor.rs) left with baud-core2
-    # (5562be5), and the last wall-clock bound became a bench on 2026-09-22
+    # (108f7ef), and the last wall-clock bound became a bench on 2026-09-22
     # (docs/record.md, "A timing bound in `cargo test` measured the load, and it
     # is a bench now"), so nothing in the suite fails on the profile. A debug run
     # takes minutes where release takes seconds (docs/record.md, "The tests run
@@ -376,7 +376,7 @@ in
       after = [ "test:linux@completed" ];
     };
     # Every feature arm must build on its own. `--all-features` builds them all
-    # at once, which masks per-arm rot and, on 5f1d5f0, did not compile under
+    # at once, which masks per-arm rot and, on e2dc386, did not compile under
     # `-D warnings` (dev-test ran it until 2026-10-11); this checks each
     # individually, the way the arms are actually used for measurement. It
     # checks; `test:feature-suites` runs the tests.
@@ -390,9 +390,9 @@ in
     # (`probe-double-final-scan` rides with the `two-pass-csi` it implies);
     # `diag`, which adds counters and the tests that read them, alone; and
     # the additive probes in one build. Off aarch64, `route-stride` is a
-    # sixth. A compiled arm can still be wrong: 7d21de1 fixed
+    # sixth. A compiled arm can still be wrong: 08bc0f9 fixed
     # `two-pass-csi`, under which a test already in the suite was red on
-    # 9f392ce while no gate ran the suite under it. Every baud-core feature
+    # c6a5494 while no gate ran the suite under it. Every baud-core feature
     # is in one of the script's classes -- run, run by host, or excluded
     # with the test it turns red -- so a new arm cannot go unclassified.
     # `cell-table` is excluded as wrong, not by construction: its read

@@ -1,6 +1,6 @@
-# bounds.py, run 2026-10-10 from the repository at dedd796 (HEAD; baud's files at 5477bf7 are unchanged there): python3 -I bounds.py
+# bounds.py, run 2026-10-10 from the repository at ffa436f (HEAD; baud's files at 4911bf0 are unchanged there): python3 -I bounds.py
 # (about 57 s; the per-read figures come from a dynamic programme over every body length).
-# Output below is the script's stdout, unedited. Against the 2026-10-09 run at 5477bf7, only the k-prefixed
+# Output below is the script's stdout, unedited. Against the 2026-10-09 run at 4911bf0, only the k-prefixed
 # capabilities' labels and the question 4 section are new; every figure printed then is printed unchanged.
 
 terminfo(5) aliases parsed: 464 (positive control: colors->Co, sgr->sa, kbs->kb)

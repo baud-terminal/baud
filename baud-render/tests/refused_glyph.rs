@@ -5,7 +5,7 @@
 //! still show something, because TUS § 5.3 says a character an
 //! implementation cannot render "can only be indicated by some
 //! placeholder" (`[[source: unicode18-ch5]]`), and a silent blank is a
-//! defect here (e0a611d). So the stack passes over a face whose mapped
+//! defect here (11827bf). So the stack passes over a face whose mapped
 //! glyph is refused, to the next face that carries the character, as it
 //! passes over one that does not map it; when no other face does, the cell
 //! draws the primary's `.notdef`. A colour glyph whose outline is refused is

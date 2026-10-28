@@ -4,7 +4,7 @@
 
 **Dated 2026-10-10.** Written on 2026-08-27 and 2026-08-28 against the core
 then named `baud-core`, renamed `baud-core2` on 2026-08-29 and deleted in
-`bcefaae` (2026-09-10). Its `Term::blit`, `feed`/`feed_avx2` split,
+`2538310` (2026-09-10). Its `Term::blit`, `feed`/`feed_avx2` split,
 `feed_with` and `fast_utf8` were that core's. In `baud-core` an ASCII run
 goes through `Paint::blit` to `View::put_ascii_run`, the vector scan is
 reached from `run_of_text` (`baud-core/src/write.rs`): `Neon::run` under
@@ -22,19 +22,19 @@ Group A has been declared since the corpus was set up with `simdjson` in it and
 **no note**. It got one because a measurement asked for it rather than because
 the group looked empty.
 
-Profiling the gradual erosion between `2d23dc8` and `9f6ddc3` on multibench —
+Profiling the gradual erosion between `81238de` and `473a97a` on multibench —
 the first time that range had been measured on a harness that can resolve it —
-the largest single step is `036a432`, *"Reject overlong UTF-8, and stop error
+the largest single step is `2931154`, *"Reject overlong UTF-8, and stop error
 recovery eating a valid successor"*:
 
 | commit | spans, streaming |
 |---|---|
-| `2d23dc8` | 1660.8 / 1690.1 |
-| `43f91d4` VT52 and nine private modes | 1672.3 / 1647.5 |
-| `8b6b3c3` williams' anywhere block | 1647.6 |
-| **`036a432` reject overlong UTF-8** | **1567.1 / 1570.7** |
-| `a4cecba` width tables from Unicode data | 1553.3 / 1524.5 |
-| `931906a` UAX #29 clustering | 1561.1 |
+| `81238de` | 1660.8 / 1690.1 |
+| `43f8a69` VT52 and nine private modes | 1672.3 / 1647.5 |
+| `bf16b2c` williams' anywhere block | 1647.6 |
+| **`2931154` reject overlong UTF-8** | **1567.1 / 1570.7** |
+| `33570a3` width tables from Unicode data | 1553.3 / 1524.5 |
+| `7e92ef1` UAX #29 clustering | 1561.1 |
 
 **That 5% is almost certainly not decoder work, and this note said it was.**
 The first draft argued "unlike the width tables this is not a layout ghost,
@@ -43,7 +43,7 @@ because an ASCII byte goes through the decoder on every pass". It does not.
 cells from raw bytes -- no `Codepoint`, no `Utf8Acc`, no decoding at all -- and
 that is the path 95% of streaming bytes take. The decoder sees the other 5%.
 
-So `036a432` looks like the same layout effect as the width tables, and the
+So `2931154` looks like the same layout effect as the width tables, and the
 honest reading of the profile is that **no step in it has been shown to be work
 in a function**. The check that settles it costs nothing and has not been run:
 count how many bytes reach the decoder on each payload.
@@ -97,14 +97,14 @@ the input, lookup requires fewer than one retired instruction per byte".
 Its rules are the ones baud implements, named the same way: *Too Short*, *Too
 Long*, *Overlong* — "the decoded character must be above U+7F for two-byte
 characters, U+7FF for three-byte, U+FFFF for four-byte" — *Too Large*, and
-*Surrogate*. `036a432` implemented those with a state machine; this is the same
+*Surrogate*. `2931154` implemented those with a state machine; this is the same
 correctness with a different instruction count.
 
 ## Why baud is unusually well placed to take it
 
 * **The instruction class is already here.** The algorithm is built on
   `pshufb` / `vpshufb`, and `scan_avx2` already lives in the `_mm256`
-  neighbourhood, in `baud-isa-x86-64` since `76b5769` -- its movemask is the one
+  neighbourhood, in `baud-isa-x86-64` since `2960dd9` -- its movemask is the one
   point where an intrinsic's result enters the type system. The `Scan` trait
   and `baud-core2`'s `feed`/`feed_avx2` split were the structure a vectorised
   decoder would slot into; in `baud-core` it is `baud-isa`'s `Decode` trait

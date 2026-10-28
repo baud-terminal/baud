@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UFO trail, second prototype: one member of the effect family (f0ab2ba).
+"""UFO trail, second prototype: one member of the effect family (f202aea).
 
 The saucer rides kitty's quad: its centre is the centroid of the corners the
 uniform carries this frame (baud-render/src/trail.rs Segment, ported below),

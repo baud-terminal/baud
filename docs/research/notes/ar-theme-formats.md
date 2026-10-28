@@ -18,10 +18,10 @@ evidence:
 
 - `specs.md`: the governing texts.
 - `peers.md`: how other terminals read theme files.
-- `baud.md`: baud's code at `33975a05`, and a probe run through its real
+- `baud.md`: baud's code at `c417553d`, and a probe run through its real
   readers.
 
-baud's lines are cited at `33975a05`.
+baud's lines are cited at `c417553d`.
 
 **Provenance.**
 
@@ -539,7 +539,7 @@ and `night.yaml` can now be different formats with the same name.
 
 ## 5. Tests
 
-Every test is red first, against `33975a05`, with the failure seen.
+Every test is red first, against `c417553d`, with the failure seen.
 
 Fixtures are hand-made in each format's spelling, like the existing ones
 (`tests/themes/README.md`), and none is from a published collection. A
@@ -876,7 +876,7 @@ c379d7a3 `Xresources/` (815) and xcolors b424d25e `themes/` (113) -- the
 reader gives the same scheme from each file as from clang 21's
 `cpp -P -DCOLOR` output of it, 1503 of 1503. Tests:
 `baud-domain/tests/themexresources.rs` and three in `baud-app/src/palette.rs`,
-red on dad9260c (refused as "X resources, which baud does not read").
+red on f6302a23 (refused as "X resources, which baud does not read").
 
 **Open, found while building.**
 
@@ -1030,7 +1030,7 @@ out. It now compiles kitty's body (colors.c 1510-1542) from the fetched,
 hash-checked file. Its case notes watch the arguments of kitty's
 lab_to_oklch() and oklch_to_srgb_gamut_map() go by, through two macros,
 where before they restated parse_oklch(). On all 2855 values it prints
-the same bytes as the script at bb05bb30. It also prints a values file
+the same bytes as the script at acb4bcad. It also prints a values file
 with no colour outside sRGB, which the old script's last step emptied.
 555 values were added: the length limits, the comment cut on a tab, the
 grey threshold, the `#` and `rgb:` forms' unread digits, dark and light Lab
@@ -1038,7 +1038,7 @@ colours outside sRGB, eight Lab colours whose search numbers fall below
 black, and six Lab colours inside sRGB whose round trip through OKLCH moves
 a byte.
 
-### Line by line, at bb05bb30
+### Line by line, at acb4bcad
 
 | element | kitty v0.49.2 | baud before | reading |
 |---|---|---|---|

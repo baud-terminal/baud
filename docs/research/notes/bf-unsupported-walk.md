@@ -2,7 +2,7 @@
 
 **Status: 2026-10-28.** Note AV took this walk on 2026-10-19, and most of
 what it listed to build has been built since. This note takes it again
-at `411bdc8c` and records only the change: what is still counted, what
+at `c3ff466d` and records only the change: what is still counted, what
 the governing text says of each, and which of three it is --
 
 - **(a)** buildable to the text with a true answer or action;

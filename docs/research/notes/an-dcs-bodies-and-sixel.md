@@ -8,7 +8,7 @@ Sixel HLS register is converted, with DEC's hue origin"), and items 2 and 3,
 a `SPACE` in a Sixel body ignored and a GR byte in one read as its GL byte
 under ISO 8859-1, since 2026-10-13 (the record, "A SPACE in a Sixel body is
 ignored, and a GR byte is its GL byte under ISO 8859-1"). Item 9, a GR byte
-in the DCS introducer, was built by 3c34afe (the record, "A GR byte in a DCS
+in the DCS introducer, was built by ba1a369 (the record, "A GR byte in a DCS
 prefix is its 7-bit byte under ISO 8859-1"). Items 1, 10 and 11 are built
 since 2026-10-19, by Jev's decision B_PUT_ALL (0.99/0.99) and lean STRIP
 (0.60/0.56): every C0 of a DCS body is put, DECRQSS and DECRSPS drop them
@@ -19,7 +19,7 @@ questions 1 and 2 are built the same day: a Sixel cut off by `ESC` or a C1
 what it received, and a `SUB` in one is a blank sixel (BLANK_SIXEL,
 0.92/0.94) (the record, "A Sixel cut off keeps what it drew, and a SUB in
 one is a blank sixel"). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
-DCS command string, and what baud does since `e6a817f`. Part 2 reads DEC STD
+DCS command string, and what baud does since `dd4dbe5`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and
 baud departs, the item is listed as work (section 10.1). Where one option
@@ -34,31 +34,31 @@ from the review page. So items 10, 11 and 12 are work, for Jev, and questions
 2026-10-19 (the record, "Every C0 of a DCS body reaches its handler, and
 a Sixel rings a BEL").
 
-**Base.** Line numbers in baud's code are at `e6a817f`, which built the two
+**Base.** Line numbers in baud's code are at `dd4dbe5`, which built the two
 classes the texts agree on in a DCS body: the format effectors `08-0D` are put
 to the handler and `DEL` is ignored (the record, "A DCS body puts the format
 effectors and ignores DEL, where every text agrees"). smooth-scroll's HEAD is
-now `5ad5913`; no file this note cites a line of changed between the two
-(`git diff --stat e6a817f 5ad5913` over those files), and the harness below
-gives the same 55 lines at `e6a817f` and at `2543f8b`. Every line number and
-every answer of baud's in Part 1 was derived at `e6a817f`.
+now `527ce01`; no file this note cites a line of changed between the two
+(`git diff --stat dd4dbe5 527ce01` over those files), and the harness below
+gives the same 55 lines at `dd4dbe5` and at `80dcc7d`. Every line number and
+every answer of baud's in Part 1 was derived at `dd4dbe5`.
 
 **Evidence.** The harness is `docs/research/notes/an/an-controls.rs`, run in a
-git-archive copy of baud at `e6a817f` as a `baud-core` test. Its output is
+git-archive copy of baud at `dd4dbe5` as a `baud-core` test. Its output is
 `docs/research/notes/an/an-controls-output.txt`, and its lines are cited D1-D4
 (a DECRQSS) and S1-S20 (a Sixel). The two scripts that searched and printed
 DEC STD 070's text are `docs/research/notes/an/std070-find.py` and
 `docs/research/notes/an/std070-page.py`, and
 `docs/research/notes/an/change-bars.py` finds the change bars on its page
 images. `docs/research/notes/an/sixel-scan.py` counts the Sixel shapes in the
-tree's recordings; run at `2543f8b` over its 27 `.raw` files and its one
+tree's recordings; run at `80dcc7d` over its 27 `.raw` files and its one
 `.six`, it finds two Sixels: `swirl.raw` and
 `tests/recordings/sixel/img2sixel-96x72.six`, which
 `baud-domain/tests/sixel_oracle.rs` decodes. Its output, with a positive
 control that fires every count, is
 `docs/research/notes/an/sixel-scan-output.txt`. Sections 5.3 and 5.4's test
 costs come from the arms in `docs/research/notes/an/q1-arms/`, each applied to a
-git-archive copy at `2543f8b` and run under `cargo nextest run --workspace`.
+git-archive copy at `80dcc7d` and run under `cargo nextest run --workspace`.
 
 **Tags.** **M**: measured by that harness, through `Term` and its real graph,
 `str_put` and decoder. **C**: read from the code. **R**: this note's reading of
@@ -68,7 +68,7 @@ described, never used as a mark.
 
 **How the sources were read.**
 
-* Every repository source was read from the tree at `e6a817f`, and each hashes
+* Every repository source was read from the tree at `dd4dbe5`, and each hashes
   to its manifest entry: [[source: ecma48]], [[source: williams]],
   [[source: ctlseqs]], [[source: xterm-reset]] (charproc.c),
   [[source: xterm-vtprstbl-c]], [[source: xterm-misc]],
@@ -127,7 +127,7 @@ described, never used as a mark.
 
 ## 0. In plain words
 
-- **A DCS body.** Since `e6a817f` baud does what every text allows for the six
+- **A DCS body.** Since `dd4dbe5` baud does what every text allows for the six
   format effectors and for `DEL`. The other C0 controls in a body, `BEL`
   among them, looked like a conflict and are not one: williams' parser row
   passes every one to the handler; DEC STD 070 recommends ignoring the ones a
@@ -177,7 +177,7 @@ described, never used as a mark.
 
 # Part 1. A DCS command string
 
-## 1. What baud does at `e6a817f`, class by class
+## 1. What baud does at `dd4dbe5`, class by class
 
 The path, read from the code (**C**) and run (**M**, D1-D4):
 
@@ -192,9 +192,9 @@ The path, read from the code (**C**) and run (**M**, D1-D4):
   * `1B` goes to `StrEsc` (1200). There `\` ends the string and dispatches it;
     any other byte cancels the string and is dispatched again from `Escape`
     (917-922).
-  * `08-0D` are `StrPut` (1225-1228), since `e6a817f`.
+  * `08-0D` are `StrPut` (1225-1228), since `dd4dbe5`.
   * `00-06`, `0E-17`, `19` and `1C-1F` are `Consume`, dropped (1252).
-  * `7F` is `Consume` in a DCS body (1274-1277), since `e6a817f`.
+  * `7F` is `Consume` in a DCS body (1274-1277), since `dd4dbe5`.
   * Everything else is `StrPut` (1278): `20-7E`, `A0-FF`, and `80-9F` under
     UTF-8.
 * **From any node**, `CAN` and `SUB` go to ground (700-702). Under ISO 8859-1
@@ -469,9 +469,9 @@ that CAN, SUB, ESC or a C1 ends a string.
 - CAN and SUB end the string (D3, V1, W5); ECMA's CAN (E6) is
   consistent.
 - **The format effectors `08-0D` are allowed in the body and need not change
-  its meaning** (E1, E2, D1, D3, V5, W1, W3). Built at `e6a817f`.
+  its meaning** (E1, E2, D1, D3, V5, W1, W3). Built at `dd4dbe5`.
 - **`DEL` is dropped or may be** (W1, D3 with §3.3.4.1, D6, V1, E7). Built at
-  `e6a817f`.
+  `dd4dbe5`.
 - **A GR byte in the introducer is its 7-bit equivalent** (D4, W7, E4, C3).
   Not built (section 5.5).
 - **The other C0 in the body, `BEL` included, are put to the handler, and
@@ -521,8 +521,8 @@ a request holds, and it leaves what a terminal does with any other byte to
 error recovery, "implementation-dependent" (C4), so a handler that ignores the
 byte before it reads the `Pt` reads a `Pt` of printable characters (**R**).
 The other reading, that C1 makes a `Pt` received with such a byte invalid, is
-not C1's text, and it would make the `e6a817f` answers to `m CR` and `m DEL`
-departures from ctlseqs, where the record of `e6a817f` lists ctlseqs among the
+not C1's text, and it would make the `dd4dbe5` answers to `m CR` and `m DEL`
+departures from ctlseqs, where the record of `dd4dbe5` lists ctlseqs among the
 texts that let the byte be dropped.
 
 **`b` = CR, LF or HT.**
@@ -534,7 +534,7 @@ texts that let the byte be dropped.
 - ctlseqs (1 is valid): the byte dropped, `m` is the `Pt` and valid (**R**,
   above).
 - xterm: stored, `strcmp` fails, `DCS 0 $ r ST` (X4).
-- **baud: `DCS 1 $ r 0 m ST`.** The handler drops the byte, since `e6a817f`;
+- **baud: `DCS 1 $ r 0 m ST`.** The handler drops the byte, since `dd4dbe5`;
   the graph dropped it before, with the same answer.
 
 **`b` = NUL.**
@@ -549,7 +549,7 @@ texts that let the byte be dropped.
   (D3, D6), valid. VT510: ignored (V1), valid. williams: ignored before the
   handler (W1), valid. ctlseqs: valid once dropped (**R**).
 - xterm: stored, `DCS 0 $ r ST`.
-- **baud: valid since `e6a817f`** (D2); it answered `0$r` at `83fee5d`.
+- **baud: valid since `dd4dbe5`** (D2); it answered `0$r` at `72e5ce0`.
 
 **`b` = BEL.** STD 070's recommendation (D3) and W3 give valid; williams' row
 puts it; ctlseqs gives valid once it is dropped (**R**). xterm rings, stores
@@ -620,8 +620,8 @@ invalid for any of them and gives no reply for a NUL (X4), and it rings a
   from C1 and B' alone conforms; B' departs from D3, V1 and W3, so no option
   would conform to every text and this would be a question with C1 on one
   side. That reading is not in C1's text, and applied to every byte, as this
-  note must apply it, it makes the `e6a817f` answers to `m CR`, `m LF`, `m HT`
-  and `m DEL` departures from ctlseqs as well, where the record of `e6a817f`
+  note must apply it, it makes the `dd4dbe5` answers to `m CR`, `m LF`, `m HT`
+  and `m DEL` departures from ctlseqs as well, where the record of `dd4dbe5`
   lists ctlseqs, C1 with C4, among the texts that let `DEL` be dropped. STD
   070's DECRQSS describes the request the same way, as the "intermediate and
   final characters" its data holds (D11), and says nothing of a C0 in it.
@@ -662,7 +662,7 @@ string is section 5.5's open item, under every option.
   `string_truncations` can tell, on a string past `OSC_MAX`.
 - **On the path**: each such byte in a DCS body is a cold call to `str_put`
   where it cost nothing. No recording or fixture holds one in a DCS (the
-  record's scan at `e6a817f`, and the two Sixel streams, section 13).
+  record's scan at `dd4dbe5`, and the two Sixel streams, section 13).
 - **The stride ladder** moves from 36/1,075/27,634/663,397 classes at strides
   1 to 4 to 36/1,075/27,640/664,425: stride 3 by 6 and stride 4 by 1,028,
   +0.15% (**M**: the counts `the_alphabet_reduces_as_the_stride_doubles`
@@ -701,7 +701,7 @@ string is section 5.5's open item, under every option.
 
 ### 5.4 The alternatives considered, measured
 
-Six arms, each applied to a git-archive copy at `2543f8b` and run under
+Six arms, each applied to a git-archive copy at `80dcc7d` and run under
 `cargo nextest run --workspace`, 1,951 tests, none red on the copy unperturbed
 (2 skipped): **E** the 44 edges alone, **D** the DECRQSS drop widened alone,
 **S** the Sixel bell alone, **B** = E + D + S, **B'** = E + S, and **C** the 2
@@ -740,7 +740,7 @@ red list are in `docs/research/notes/an/q1-arms/`.
 
 ### 5.5 The other classes, still open, and two to build
 
-These stay as the record of `e6a817f` names them and are not re-optioned here:
+These stay as the record of `dd4dbe5` names them and are not re-optioned here:
 
 - SO and SI in a body: E4 lets them affect what follows; baud drops them
   without a shift.
@@ -756,11 +756,11 @@ These stay as the record of `e6a817f` names them and are not re-optioned here:
 - **Item 9**: a GR byte in the DCS introducer under ISO 8859-1 is its 7-bit
   equivalent (D4, W7, E4, C3). baud sends it to the body (graph.rs 901, 909),
   so `ESC P A4 F1 m ST` is no DECRQSS (**M**, D4). The `dcs_entry` and
-  `dcs_param` rows read done; the record of `e6a817f` found this and left it
+  `dcs_param` rows read done; the record of `dd4dbe5` found this and left it
   for its own change.
 - **Item 11**, for Jev: a GR byte in a DECRQSS body under ISO 8859-1 is its
   7-bit equivalent (section 3: E4, W7, C3, and D4 through D11 and D8, **R**).
-  The record of `e6a817f` left `A0-FF` in a body open as E4 against D4; for a
+  The record of `dd4dbe5` left `A0-FF` in a body open as E4 against D4; for a
   DECRQSS, D4 hands the meaning to a format whose texts say nothing of GR and
   whose data are a control sequence's characters, so the record's conflict is
   none there. A Sixel's format sets it (build 3, section 7.10), and every
@@ -993,7 +993,7 @@ texts agree. 070-9 quotes are as extracted.
   ([[source: xterm-graphics-sixel]] 541-548).
 - **baud**: put (graph.rs 1225-1228), dropped by the handler (osc.rs 75-77).
   **M**: S5, `!1 CR 0~` is 10 wide.
-- **Conforms**, since `e6a817f`. The texts agree.
+- **Conforms**, since `dd4dbe5`. The texts agree.
 
 ### 7.7 The other C0: NUL, XON, XOFF and the rest
 
@@ -1045,7 +1045,7 @@ texts agree. 070-9 quotes are as extracted.
 - **xterm** hands it to the parser, where it ends a number.
 - **baud**: ignored by the graph (graph.rs 1274-1277). **M**: S5, `!1 DEL 0~`
   is 10 wide.
-- **Conforms**, since `e6a817f`. The texts agree.
+- **Conforms**, since `dd4dbe5`. The texts agree.
 
 ### 7.10 `A0-FF`, GR
 
@@ -1391,7 +1391,7 @@ times.
 
 ## 11. Found on the way, decided by no question
 
-- **Stale comments**, at `e6a817f`:
+- **Stale comments**, at `dd4dbe5`:
   - `baud-domain/src/sixel.rs` 205-206 says `[[source: vt3xx-sixel]]` "is
     silent on `Pn = 0`" and that one is "a guess the source does not settle".
     070-9 §8.1.1 settles it, as baud does it.
@@ -1401,7 +1401,7 @@ times.
     when Sixel mode was entered." The column baud keeps is that one.
   - `baud-domain/src/sixel.rs` 269-270 says what the catch-all skips is
     "newlines an encoder wrapped the data with, stray whitespace". Since
-    `e6a817f` no C0 reaches the decoder, and what does is SPACE, GR bytes and
+    `dd4dbe5` no C0 reaches the decoder, and what does is SPACE, GR bytes and
     the unrecognised commands (7.8, 7.10, 8).
   - `docs/research/notes/s-sixel.md` calls `!0` a repeat "which the source does
     not define".
@@ -1439,7 +1439,7 @@ times.
     Sixel `BEL` and `ENQ`, and `A0-FF` in a body as "Open, the owner's call,
     where the texts conflict", and its `0x07` BEL row says that inside a
     control string it "rings nothing".
-  - The record of `e6a817f` lists the other C0, the `BEL` and `A0-FF` in a
+  - The record of `dd4dbe5` lists the other C0, the `BEL` and `A0-FF` in a
     body as left "because the texts conflict", with ECMA-48's "error"
     attribution.
 - **`P2` reads differently in the two DEC texts.** 070-9 §7.2 (PDF 918): 0
@@ -1453,7 +1453,7 @@ times.
 
 ## 12. Red-first tests
 
-For the builds (section 10.1), each red on `e6a817f` and green after, at every
+For the builds (section 10.1), each red on `dd4dbe5` and green after, at every
 read size and under both encodings where the byte is not 8859-1-only:
 
 - A `BEL` between two data bytes, inside a number and inside a colour command

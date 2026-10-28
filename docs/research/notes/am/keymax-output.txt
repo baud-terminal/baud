@@ -1,4 +1,4 @@
-# keymax-main.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD), placed at
+# keymax-main.rs, run 2026-10-09 in a git-archive copy of baud at 4911bf0 (HEAD), placed at
 # baud-domain/examples/xtgettcap_keymax.rs. Command, from the copy's root:
 #   cargo build --offline --release -p baud-domain --example xtgettcap_keymax
 #   ./target/release/examples/xtgettcap_keymax
@@ -8,7 +8,7 @@
 # U+0009 in D0's text keys; and the kcbt, D1b and D1corners sections at the end. Every maximum
 # the previous run printed is unchanged.
 # Re-run 2026-10-10 from the formatted harness (treefmt's rustfmt, which changed layout only) in a
-# fresh git-archive copy at 5477bf7, with the same commands: stdout byte-identical, 2.0 s wall.
+# fresh git-archive copy at 4911bf0, with the same commands: stdout byte-identical, 2.0 s wall.
 
 codes 128 (D0), xterm table rows baud can name 190 over 64 distinct keys; base-layer states 3072, all states 98304
 -- positive controls

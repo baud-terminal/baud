@@ -1,9 +1,9 @@
-# an-controls.rs, run 2026-10-10 in a git-archive copy of baud at e6a817f (smooth-scroll's HEAD then),
+# an-controls.rs, run 2026-10-10 in a git-archive copy of baud at dd4dbe5 (smooth-scroll's HEAD then),
 # placed at baud-core/tests/an_controls.rs after treefmt's rustfmt had formatted it. Command, from
 # the copy's root:
 #   CARGO_INCREMENTAL=0 cargo test --offline -p baud-core --test an_controls -- --nocapture
 # rustc 1.96.0-nightly (bcded3316 2026-04-06). The output below is the test's stdout, unedited;
-# the first run, before formatting, printed the same lines. Re-run at 2543f8b, smooth-scroll's
+# the first run, before formatting, printed the same lines. Re-run at 80dcc7d, smooth-scroll's
 # HEAD later the same day, without --offline: its 55 D and S lines are identical to these.
 
 running 1 test

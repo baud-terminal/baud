@@ -3,8 +3,8 @@
 **Status: research, 2026-10-09; revised three times the same day after
 read-only reviews. Jev asked, with renders, on 2026-10-21 (below).** The owner,
 2026-10-08, verbatim: "title , we need standard options like current dir,
-current process i believe, so research here". In-repo lines are at ccb8aaa;
-the cited files are unchanged at 37cbf67.
+current process i believe, so research here". In-repo lines are at 473ff12;
+the cited files are unchanged at 2d8afea.
 
 **Decided and built, 2026-10-21.** Re-asked with renders, both orders
 (Jev decisions 1207-1210, and 1215-1216 for the three forks this note

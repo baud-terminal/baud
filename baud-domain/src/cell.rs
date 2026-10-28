@@ -539,7 +539,7 @@ impl PackedCell {
     }
     /// An ASCII byte under whatever character set `flags` says is invoked.
     ///
-    /// Written (f297b21) for the core since retired as `baud-core2`, whose
+    /// Written (f10c5ed) for the core since retired as `baud-core2`, whose
     /// `promote` replayed stored runs with their flags. Nothing in this core
     /// calls it. The bulk path translates through `with_charset` in
     /// `View::put_ascii_run` and the per-byte path through `translate`, both
@@ -605,7 +605,7 @@ impl PackedCell {
     /// **Every set that substitutes anything goes through here**, from
     /// `View::put_ascii_run` and from `translate`, so a path cannot honour DEC
     /// graphics and forget Finnish -- the shape `baud-core2`'s `promote` had
-    /// before `from_wire` existed. This doc sat on `translate` from 01b11dc,
+    /// before `from_wire` existed. This doc sat on `translate` from c1f9670,
     /// which inserted `translate` between the two.
     ///
     /// **`#[inline(always)]`, into the two out-of-line callers on the

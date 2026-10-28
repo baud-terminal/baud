@@ -4,7 +4,7 @@
 //! boundary of ONE pass; this is what found that a *replayed* pass differs:
 //! `less-pager.raw` never leaves the alternate screen, so the second pass
 //! re-enters it, and sfte cleared on re-entry where baud did not. Since
-//! `96949c2` baud clears too, as xterm does, in the background in force where
+//! `3024b2b` baud clears too, as xterm does, in the background in force where
 //! sfte clears to the default -- which is what `btop.raw`'s 2,800 cells are.
 //!
 //!     cargo run --release -p baud-sfte-difftest --example cut -- tests/recordings/ascii/less-pager.raw

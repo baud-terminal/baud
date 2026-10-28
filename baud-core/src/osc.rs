@@ -14,7 +14,7 @@
 //! control-string differential against `baud-core2`, which compared the title,
 //! the icon, the palette, the link index of a written cell, the URI it
 //! resolves to, and the two refusal counters -- and it was perturbed both ways
-//! before it was believed. All three went with that crate (bcefaae). The
+//! before it was believed. All three went with that crate (2538310). The
 //! golden capture that replaced them keeps cells, the cursor and the reply,
 //! and no title, icon, palette or link, so what holds this file now is chiefly the
 //! hand-written suites, `tests/xterm/osc.rs` and `tests/xterm/hyperlinks.rs`.

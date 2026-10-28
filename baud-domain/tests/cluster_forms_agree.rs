@@ -4,7 +4,7 @@
 //! UAX #29 rules over four fields that the table is generated from. Until
 //! 2026-10-16 they were one struct, each public method moved one half, and
 //! a machine could answer one way by its table and another by its fields:
-//! on `dc7caec7`, 6977 of `from_bits`'s answers over the reachable states
+//! on `a43d9455`, 6977 of `from_bits`'s answers over the reachable states
 //! and 228 of the constructors stepped once by the table disagreed. Now
 //! each form answers only from itself, and this holds them to each other.
 

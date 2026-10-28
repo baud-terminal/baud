@@ -1,7 +1,7 @@
 //! Every cell the store this replaced kept whole, this one keeps whole.
 //!
 //! **The superset of the base, cell by cell.** The 63-slot store this
-//! replaced (59a5a0bb) refused far more than this one, but a count says
+//! replaced (0c0c30a8) refused far more than this one, but a count says
 //! nothing about *which* cells: a store that refuses fewer points in all
 //! can still lose a cluster the old one kept. A sweep that ran whenever one
 //! cluster's eight slots were full did exactly that -- it freed the growing
@@ -17,7 +17,7 @@
 //! on the screen that fills the store's windows short of filling the
 //! store, and the first clusters written again. Each cell's truth is known
 //! by construction. `BASE_RIGHT` is which clusters the base drew whole,
-//! taken by running this file on `git archive 59a5a0bb`, where the test
+//! taken by running this file on `git archive 0c0c30a8`, where the test
 //! prints the set it found before comparing: there the comparison holds
 //! and the test fails at the second pass, which the base did not keep
 //! whole.
@@ -144,7 +144,7 @@ fn ranges(set: &[bool]) -> Vec<(usize, usize)> {
 
 /// The clusters the base drew whole, `[from, to)` into `payload`.
 ///
-/// What 59a5a0bb prints: nine of the 24 recurring clusters' first pass,
+/// What 0c0c30a8 prints: nine of the 24 recurring clusters' first pass,
 /// 18 of the 900 churn clusters and nine of the second pass, among
 /// 924-936; it refused 936 points. A sweep run whenever one cluster's eight
 /// slots were full drew 924, 926, 927, 930, 933, 934 and 936 without all

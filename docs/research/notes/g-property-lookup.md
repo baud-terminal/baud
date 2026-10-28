@@ -3,9 +3,9 @@
 > **Group:** G · **Sources:** `[[source: ugrapheme]]`, `[[source: uax29]]`, `[[source: uax11]]`, `[[source: lemire-transcoding]]` · **Status:** partial
 
 **Dated 2026-10-10.** Written on 2026-08-29 against the core then named
-`baud-core`, renamed `baud-core2` later that day and deleted in `bcefaae`
+`baud-core`, renamed `baud-core2` later that day and deleted in `2538310`
 (2026-09-10); the 410 MB/s below is that core's. Step 1 of "What to try" was
-built the same day, `670d0ef`, as a palette rather than the packed leaf this
+built the same day, `c91936e`, as a palette rather than the packed leaf this
 note describes, one two-stage lookup into 37,204 bytes, measured 1.5% slower
 and kept as smaller and correct. `Classified::of`
 (`baud-domain/src/merged.rs`) has since become one load for the Basic

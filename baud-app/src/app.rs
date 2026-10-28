@@ -2514,7 +2514,7 @@ impl App {
 ///
 /// `superseded` is the one to read: a frame that finished after the
 /// surfaces it drew into had been replaced. Shown, it was the doubled image
-/// on a grow and the old font size on a zoom; since `3c7e589` `admits`
+/// on a grow and the old font size on a zoom; since `a9c1a16` `admits`
 /// drops it, so the count is of frames kept off the layer, not of the
 /// artefact happening.
 impl App {
@@ -6731,7 +6731,7 @@ mod restart_tests {
     /// a window five lines up, and from the live screen, the control, where
     /// nothing reveals; one row after an erasure in a pump before, so the
     /// watch must be armed at each pump's reading and not left where the
-    /// terminal began. The rows pin the answer built at 232e1ab for a pump
+    /// terminal began. The rows pin the answer built at 7ade145 for a pump
     /// of its own: the reset reveals when the window it took live was the
     /// primary's and over the history at that byte (V1's first fork), so
     /// only the first erasure in a pump can, since any erasure takes the

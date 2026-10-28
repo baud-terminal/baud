@@ -16,10 +16,10 @@ Evidence tags:
 - **M**: measured on this Mac (macOS 27.0 build 26A5425a, Xcode 27.0 27A266a,
   on AC power), with the raw output saved as an `ai-obs-*` entry, cited where
   it is used.
-- **C**: read from baud's code at `ddf6d28`. Since then `baud-app/src/app.rs`
-  has changed (63596fd): at ccb8aaa its lines from 2180 on are shifted, so
+- **C**: read from baud's code at `85e1fc1`. Since then `baud-app/src/app.rs`
+  has changed (60a4eb1): at 473ff12 its lines from 2180 on are shifted, so
   app.rs:3978 is 4155 and the cited lines from 5102 on are +186. Every other
-  cited file is unchanged at ccb8aaa. The files are
+  cited file is unchanged at 473ff12. The files are
   `baud-app/` (`src/`, `build.rs`, `Cargo.toml`), `baud-domain/src/image.rs`,
   `baud-domain/tests/image_store.rs`, `baud-core/tests/image_anchor.rs`,
   `baud-core/tests/sixel.rs`, `baud-bench/benches/ingest2.rs`,

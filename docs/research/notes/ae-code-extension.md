@@ -35,16 +35,16 @@ Evidence is tagged as in the other notes:
 
 **What the code citations rest on.**
 
-- Every behaviour of baud is read from source at `8ccfff8`.
-- Between `8ccfff8` and `eeb5496` (HEAD when this was written), the only
-  change under any `src/` is `baud-domain/src/store.rs`. `eeb5496`'s only code
+- Every behaviour of baud is read from source at `d894ebb`.
+- Between `d894ebb` and `8cf753d` (HEAD when this was written), the only
+  change under any `src/` is `baud-domain/src/store.rs`. `8cf753d`'s only code
   change is the coverage-table reader in `enumerated.rs`; it also touched
   the record.
 - Nothing was built or run. Every behaviour of baud, xterm and foot here is
   traced, not observed.
 - **What moved while this was written.** D1 and D2 (§8) were fixed in
-  `90860a4`, with the two tests this note names (test 17); the description of
-  each as found stays, because it is what the reading found at `8ccfff8`. The
+  `bdd59c6`, with the two tests this note names (test 17); the description of
+  each as found stays, because it is what the reading found at `d894ebb`. The
   change to `baud-core/tests/coverage.rs` (TODO.md:1952) is still uncommitted:
   it turns the DEC Special Graphics row red until the owner answers which
   codepoint `0x5F` stores. The new manifest keys below are committed with this
@@ -1476,7 +1476,7 @@ set to `StyleId::DEFAULT`, slot 0, rather than re-interned.
 
 ## 6. Red-first tests
 
-Unless marked, each test is red at `8ccfff8` for the reason given.
+Unless marked, each test is red at `d894ebb` for the reason given.
 
 - **Guard** tests are green today and must stay green. Each one names the
   perturbation that turns it red.
@@ -1553,7 +1553,7 @@ Level 2-4 reading of DA. Under Q9(b) with the VT102 reading, `ESC n` and
       saved. **Guard**.
     - Under Q6(b), also feed `ESC * 0 ESC N ESC 7 q ESC 8 q` and assert `─`,
       `─`. Red.
-17. (a) **D1 and D2.** Landed in `90860a4`:
+17. (a) **D1 and D2.** Landed in `bdd59c6`:
     `eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms` and
     `a_c1_control_does_not_inherit_the_last_escapes_intermediate`, in
     `encoding/latin1.rs`. Each holds an 8-bit form against its 7-bit twin at
@@ -1693,7 +1693,7 @@ default-GR glyphs change.
     - Write the new `vt-coverage.md` rows as **done** first.
       `every_done_sequence_reaches_a_handler` then goes red for each until its
       sequence acts.
-    - `ESC |` is reachable, because `eeb5496` made `cells()` keep an escaped
+    - `ESC |` is reachable, because `8cf753d` made `cells()` keep an escaped
       `\|` inside its cell (`an_escaped_pipe_does_not_split_a_row`; row 725
       surfaced there).
 31. (b) **`properties.rs` atoms.** In `ALPHABET` (properties.rs:71-185), add:
@@ -1731,7 +1731,7 @@ default-GR glyphs change.
 - **Stage (a) corrections:**
   - lines 213-216 and 423-426 ("8-bit C1 controls are therefore out"; "`80..9F`
     stay ignored in Latin-1") are stale;
-  - row 234's `84 85 88 8D`: done in `90860a4`, with the heading and the `80..9F` paragraph;
+  - row 234's `84 85 88 8D`: done in `bdd59c6`, with the heading and the `80..9F` paragraph;
   - DECSC's "the one slot this core has" (540) is stale;
   - a DEL row (D4);
   - an `ESC SP L/M/N` row. There is none today. It records the count as an
@@ -1763,7 +1763,7 @@ budget.
 - Lines 717-718: "done but for DECSC/DECRC and DEC graphics (partial)" becomes
   "but for DEC graphics (partial)" (stage (c)).
 - Line 751: "8-bit C1 controls work under Latin-1" became true of every C1
-  `esc_final` handles when D1 landed (`90860a4`). Keep the sentence.
+  `esc_final` handles when D1 landed (`bdd59c6`). Keep the sentence.
 
 **Other docs and code comments.**
 
@@ -1810,9 +1810,9 @@ pinned by the parallel change.
 **Defects found by reading, none executed.**
 
 - **D1.** A Latin-1 C1 final reached `esc_final` as the raw byte. Section 2
-  has the detail. Fixed in `90860a4` (test 17).
+  has the detail. Fixed in `bdd59c6` (test 17).
 - **D2.** A stale intermediate sent a C1 byte to the designation arm. Section
-  2 has the detail. Fixed in `90860a4` (test 17).
+  2 has the detail. Fixed in `bdd59c6` (test 17).
 - **D3. A Latin-1 C1 byte leaves VT52 mode.**
   - Under Latin-1, the ground row's C1 branch (graph.rs:871-873) returns
     `escape(b - 0x40)`, whose edges all name ANSI nodes (`Escape`, `CsiEntry`,
@@ -1911,11 +1911,11 @@ in the first bullet at the head of this note.
 
 **(a) Buildable now, with no decision.**
 
-- **D1 and D2: landed in `90860a4`.** `Act::EscFinal` maps with
+- **D1 and D2: landed in `bdd59c6`.** `Act::EscFinal` maps with
   `c1_as_escape` and resets `csi` on the C1 path (test 17). `8E`/`8F` stay
   counted, as `ESC N`/`ESC O` are, until (b).
 - **D3: read first, do not build.** §8 says what must be read.
-- **The `rows()` fix for an escaped `\|`: landed in `eeb5496`**, with row 725
+- **The `rows()` fix for an escaped `\|`: landed in `8cf753d`**, with row 725
   surfaced. Nothing is left to do.
 - **Test 18**, the G-slot save pin, red by perturbation.
 - **D4 (test 32)**, once the red test confirms the reading. It edits Ground's

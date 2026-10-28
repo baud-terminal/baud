@@ -1,5 +1,5 @@
 //! Controls for note AN (DCS bodies and Sixel), committed in docs/research/notes/an/ and not
-//! built there. Run in a git-archive copy of baud at e6a817f as baud-core/tests/an_controls.rs:
+//! built there. Run in a git-archive copy of baud at dd4dbe5 as baud-core/tests/an_controls.rs:
 //!   cargo test -p baud-core --test an_controls -- --nocapture
 //!
 //! Every line prints what baud does today. The lines marked "control" are the positive
@@ -151,7 +151,7 @@ fn controls() {
         "#1 SPACE ;2;100;0;0#1~",
         &sixel(&[b"#1 ;2;100;0;0#1~"]),
     );
-    // S5: a format effector and DEL inside a number (built at e6a817f): controls.
+    // S5: a format effector and DEL inside a number (built at dd4dbe5): controls.
     line("S5", "!1 CR 0~ (control, built)", &sixel(&[RED, b"!1\r0~"]));
     line(
         "S5",

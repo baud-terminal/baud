@@ -21,7 +21,7 @@ fi
 # repo already records that "the gate must follow the code in the same commit".
 # It did not, for as long as one limit covered both.
 #
-# **It was three, the same cast in three AVX2 scans, until 4089bc3
+# **It was three, the same cast in three AVX2 scans, until 48b4934
 # (2026-09-19) deleted `find_final` and `find_st` with theirs -- and the limit
 # stayed at 3 after**, slack that would have let two new casts land green. A
 # budget that is not equal to the count measures nothing; set at the count.
@@ -234,7 +234,7 @@ crate_audit "baud-xkb" 10 6 baud-xkb/src
 # `present`, an offset into the file -- which the wire carries as `int`; plus
 # the keyboard's `group` field and `bind`'s wire `name` and `version`, which
 # sit one to a line and so read to the audit as fields. Set at the count.
-# (This comment said 4 from the commit that set the limit at 6, 20ab159.) It
+# (This comment said 4 from the commit that set the limit at 6, 2f50e24.) It
 # was 14 until `premultiply` moved to `baud-domain`, which both presenters
 # call, and 6 and 12 until the mapping's length became `sys::FileLen`, which
 # took three signatures and a field as `fcntl` added one.

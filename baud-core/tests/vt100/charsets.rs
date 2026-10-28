@@ -261,7 +261,7 @@ fn selective_erase_respects_protected_graphics() {
 /// **DECSC saves the four slots and which one GL reads through, and DECRC
 /// brings both back.** `[[source: vt510-decsc]]` lists "Character sets (G0,
 /// G1, G2, or G3) currently in GL and GR". `Saved` has held `g` and `gl`
-/// since 6ecee7c, and no test held either: a restore that dropped one left
+/// since bf8c5cd, and no test held either: a restore that dropped one left
 /// the suite green. Here G1 holds DEC graphics and is invoked when the cursor
 /// is saved; SI and a redesignation of G1 to ASCII undo both, and DECRC must
 /// redo both. GR is held by `decrc_restores_gr`.

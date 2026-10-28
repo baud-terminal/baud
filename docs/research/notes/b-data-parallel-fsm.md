@@ -53,7 +53,7 @@ to come before any implementation.
 
 Worth stating plainly, because the sections above read like a design. **baud
 vectorises scanning, not the state machine.** When this was written
-(2026-08-27), in the core later renamed `baud-core2` and deleted in `bcefaae`,
+(2026-08-27), in the core later renamed `baud-core2` and deleted in `2538310`,
 the `Scan` trait was three functions -- `run`, `final_byte`, `st` -- and every
 one of them answered "where is the next interesting byte". `feed_with` used
 them to skip ahead and then fell back to `control(byte)`, one byte at a time,

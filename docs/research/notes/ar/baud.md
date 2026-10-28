@@ -2,8 +2,8 @@
 
 Read-only research for the owner's "we probably want to autodetect
 ansi/base16/base24" and "we might want to research on that" (2026-10-16;
-TODO.md:2106-2108). Read at HEAD `33975a05`. The last commit that touched the
-files below is `8c8fe760`. Nothing in the repository was edited:
+TODO.md:2106-2108). Read at HEAD `c417553d`. The last commit that touched the
+files below is `aea1a4aa`. Nothing in the repository was edited:
 `git status --short` still shows only the two entries that were there at the
 start (the owner's uncommitted edits to the coverage test and an untracked Hebrew test file).
 
@@ -318,7 +318,7 @@ are** (data only, not a design):
 - **Bold.** Bold brightens entries 0-7 to 8-15 (`color.rs:451`). Under base16,
   9-14 copy 1-6, so **bold changes nothing visible for colours 1-6**. Bold
   black (0 to 8) becomes base03.
-- **Kitty images.** TODO.md:2061 (landed `8c8fe760`): the default background
+- **Kitty images.** TODO.md:2061 (landed `aea1a4aa`): the default background
   is now judged by its drawn colour (`Theme::default_bg`, `color.rs:415-418`).
   "In a theme whose colour 0 equals the background, SGR 40 cells show a deep
   image (kitty the same)", and every base16 or base24 scheme is such a theme.

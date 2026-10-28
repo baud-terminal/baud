@@ -1,8 +1,8 @@
 # keyprobe-main.rs (with keyprobe-Cargo.toml), built against baud-domain in a git-archive copy of
-# baud at 5477bf7 (HEAD): cargo run --offline --release. The output is byte-identical to the
-# run at e2c3b24 against the working tree. Re-run 2026-10-10 from the formatted harness, which
+# baud at 4911bf0 (HEAD): cargo run --offline --release. The output is byte-identical to the
+# run at 6802227 against the working tree. Re-run 2026-10-10 from the formatted harness, which
 # takes the two entries' paths relative to the directory it runs in and baud-domain's relative to
-# target/keyprobe/: built and run from the root of a fresh git-archive copy at 5477bf7, as
+# target/keyprobe/: built and run from the root of a fresh git-archive copy at 4911bf0, as
 # keyprobe-Cargo.toml says, it printed these lines byte for byte again. Output below is the
 # program's stdout, unedited.
 

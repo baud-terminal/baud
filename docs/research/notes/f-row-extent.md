@@ -169,7 +169,7 @@ Three things this note got right, and one it did not.
 in the same loop. `Term::viewport` is the single site outside `Grid` that
 changes which physical row holds which content, and it rotates the marks with
 the rows. (That is the core of 2026-08-28, renamed `baud-core2` the next day
-and deleted in `bcefaae`; in `baud-core` a scroll of the whole screen moves
+and deleted in `2538310`; in `baud-core` a scroll of the whole screen moves
 the ring's rotation and no row, and `insert_lines_in` and `delete_lines_in`,
 which `IL`, `DL` and a copied region scroll call, copy each row's mark with
 its cells, as the gaps below say. Dated 2026-10-10.)
@@ -207,7 +207,7 @@ The reason the change was refused:
 
 ~~What remains genuinely open is whether it pays *here*.~~ It was measured and
 it pays, less-pager +37% and cat-scroll +16% ("What this changed for baud",
-above; `3f14cda`, 2026-08-28). The sentence is corrected on 2026-10-10; the
+above; `769cce1`, 2026-08-28). The sentence is corrected on 2026-10-10; the
 reasoning it opened stays as written then. baud's `fill_row` is a
 `slice::fill` that lowers to vector stores over 1600 contiguous bytes; the
 saving is the shortened store minus a load of `occ` and a compare, and 60 of
@@ -234,7 +234,7 @@ that eliminates 70% of it is worth up to about 40%.
 
 - **~~No measurement.~~** ~~Everything here is a reading of other people's code. The
   ceiling is measured (51-61%); the mark itself is not implemented.~~ The mark
-  is implemented and measured: `RowExtent`, `3f14cda` (2026-08-28), the
+  is implemented and measured: `RowExtent`, `769cce1` (2026-08-28), the
   figures in "What this changed for baud" above (corrected 2026-10-10; this
   bullet contradicted that section since it was written).
 - **ghostty's 4x is not transferable** and is quoted only as evidence that

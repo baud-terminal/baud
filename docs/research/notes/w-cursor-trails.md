@@ -1,7 +1,7 @@
 # W. The cursor trails: where each design came from, what was decided, and what is lost
 
-**Status: a record of provenance, written 2026-10-12 at `92ed850`. Nothing is
-built or changed by it.** The ghost was built on 2026-09-20 (`c77d2ef`).
+**Status: a record of provenance, written 2026-10-12 at `b42083b`. Nothing is
+built or changed by it.** The ghost was built on 2026-09-20 (`6cecea6`).
 The other nine (`quad`, `sweep`, `fire`, `plasma`, `lightning`, `ice`,
 `ufo`, `orb`, `liquid`) were researched, specified and built on 2026-09-25 to
 2026-09-27 in one session, <session>. Its scratchpad was wiped, so the research files under it are gone from disk. This
@@ -119,14 +119,14 @@ they are stated here.
    137 assistant entries and 65 tool calls in its transcript. It wrote notes and a Metal harness measured against a CPU
    reference, and hit the weekly limit before returning a spec. The main
    session never read those notes: no read of the orb's notes appears in its
-   transcript before the orb was built (`4478fb2`). So the record's line
+   transcript before the orb was built (`1488b3c`). So the record's line
    that "the effect-trail research had no orb spec, so this one was designed
    here" stands. The orb's design is section 5.9.
 3. **"CLAUDE.md's fire citation" is not in CLAUDE.md.** CLAUDE.md names no
    fire research. The citation is in the record, "The fire trail is a flame
    in the cursor's colour, held to a Rust reference": "proposal C in note V's
-   research, scratchpad `trail/effects/`". `2dcb9b5` wrote it into
-   CLAUDE.md, and `b8e6d2e` moved it, verbatim, into the record on
+   research, scratchpad `trail/effects/`". `8211be4` wrote it into
+   CLAUDE.md, and `960503a` moved it, verbatim, into the record on
    2026-10-02. It is wrong twice. Note V's research has no fire proposal (the
    research workflows behind note V name no flame, no "burning fuse" and no
    proposal C), and the scratchpad is gone. The record now points here.
@@ -141,22 +141,22 @@ note X's.
 | when (UTC) | where | the owner's words, or the answer picked | what it decided |
 |---|---|---|---|
 | 2026-09-25 20:31 | l.5251 | "i also miss the cursor trail feature" | the trail comes back |
-| 2026-09-25 20:37 | l.5295 | "On by default" | the trail is on by default (`d6bab1b`) |
+| 2026-09-25 20:37 | l.5295 | "On by default" | the trail is on by default (`7f8413d`) |
 | 2026-09-25 22:03 | l.6611, l.6619 | "the way the trail works on other it looks like a very strong animation , looks like even gpu, have you checked ? though i like what you did also so keep that as an option as well"; "i always want you to research first" | the quad and sweep research (section 1), and the ghost kept as a style |
 | 2026-09-25 22:41 | l.6800 | on smooth scroll: "can we have option for both?"; on the default: "how is the C/C++ VT doing it swte?" (sfte) | the ride as an option; sfte's sweep read |
 | 2026-09-25 22:43 | l.6809 | "can we have all styles as config, i would want baud to have a unique one, i was thinking like fire or something ... with gpu shader"; smooth scroll: "Ride the scroll (Recommended)" | every style as config; the fire research; the ride by default |
-| 2026-09-25 23:35 | l.7630 | default trail: "Fire"; over glass: "Opaque flame (Recommended)"; Reduce Motion: "No trail (Recommended)" | the fire is the default; the opaque-flame call, later met by the cursor-colour rule; no trail under Reduce Motion unless named (`336d269`) |
+| 2026-09-25 23:35 | l.7630 | default trail: "Fire"; over glass: "Opaque flame (Recommended)"; Reduce Motion: "No trail (Recommended)" | the fire is the default; the opaque-flame call, later met by the cursor-colour rule; no trail under Reduce Motion unless named (`bc7cd03`) |
 | 2026-09-26 04:03 | l.12191 | "important the flame should not use a special color, we use the cursor color, default color" | every effect is drawn in the cursor's colour, with intensity as opacity, and the research's black-body ramp is dropped |
 | 2026-09-26 04:04 | l.12209, l.12210 | "and i would want also an ice shader for the trail and liquid as well (should be amazing and maybe default like liquid glass of osx ) just call it liquid"; "and if you have other ideas let me know" | ice and liquid |
-| 2026-09-26 04:04 | l.12233 to l.12263 | "in helix when i gg and ge, the trail isn't working"; "i would say read helix code also" | the placed cursor (`8e51cf5`) |
+| 2026-09-26 04:04 | l.12233 to l.12263 | "in helix when i gg and ge, the trail isn't working"; "i would say read helix code also" | the placed cursor (`145ef81`) |
 | 2026-09-26 04:43 | l.12873 | "i'm thinking besides fire, ice, liquid to also have lightning and plasma" | lightning and plasma |
 | 2026-09-26 04:54 | l.13057 | "add also orb and ufo" | orb and ufo |
 | 2026-09-26 04:59 | l.13120 | "B it is" | helix's trail by option B, the placed cursor |
-| 2026-09-26 12:11 to 12:15 | l.14919, l.14946 | "i didn't see the ice, liquid, electricity, plasma, only fire"; "we should have something like this in docs like cursor.md or cursor.html i like it" | `docs/cursor.md` and `docs/cursor.html` (`1889287`) |
+| 2026-09-26 12:11 to 12:15 | l.14919, l.14946 | "i didn't see the ice, liquid, electricity, plasma, only fire"; "we should have something like this in docs like cursor.md or cursor.html i like it" | `docs/cursor.md` and `docs/cursor.html` (`bfd8371`) |
 | 2026-09-26 13:02 | l.15722 | "the fire looks slugish for some reason ... redo the videos" | the clips re-recorded. The fire's timing is still open (section 6) |
-| 2026-09-27 | note X | rule F; ride-scroll "rides at most two rows, then folds in"; the blink "with hard edges at 650/350"; every other sub-question at its recommended default | `2b54cfd`, `cd5bc29`, `9c4769d` |
+| 2026-09-27 | note X | rule F; ride-scroll "rides at most two rows, then folds in"; the blink "with hard edges at 650/350"; every other sub-question at its recommended default | `0c8ed2d`, `0415566`, `5fb5eec` |
 | 2026-09-27 20:36 | <session> l.241 | "oh and i like the particles in fire plasma etc these are awesome" | the effects' particles stay as built |
-| 2026-09-29 08:03 | <session> l.1004 | "also i want the plasma trail as default and i want to ensure the trail is a single implementation that can have different visualizaiton" | the plasma replaces the fire as the default (built 2026-10-10, `898f9e6`); one trail implementation (work list) |
+| 2026-09-29 08:03 | <session> l.1004 | "also i want the plasma trail as default and i want to ensure the trail is a single implementation that can have different visualizaiton" | the plasma replaces the fire as the default (built 2026-10-10, `eb2f75e`); one trail implementation (work list) |
 
 **Jev.** No trail's design went through Jev. Every trail was built by
 2026-09-27, and the record first mentions Jev in a later section, "Bold draws
@@ -219,7 +219,7 @@ are, the review it had, and what is lost. "Pinned" means a key in
 `docs/research/sources/MANIFEST.toml`. "Named" means a URL at a commit, with
 the SHA-256 the research recorded where it survives, and no copy in the tree.
 
-### 5.1 ghost (`c77d2ef`, 2026-09-20)
+### 5.1 ghost (`6cecea6`, 2026-09-20)
 
 - **Design source:** sfte's `SFTE_CURSOR_TRAIL` ([[source: sfte]]), built to
   baud's blink standard rather than sfte's full wipe. No research agent:
@@ -227,14 +227,14 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   (section 1) is what found it weak (a one-cell box, linear, 0.1 s, on every
   cell change).
 - **Decisions:** on by default (l.5295), then a style named `ghost` once the
-  quad landed. Drawn in the cursor's colour since `c632ae3`, under the
+  quad landed. Drawn in the cursor's colour since `84c7726`, under the
   owner's colour rule.
 - **Measured:** the record, "The cursor trail is the scrollbar's shape, and a
   bool became an enum"; "The CPU path draws the trail and the screen fade";
   "The ghost is the cursor's colour too".
 - **Lost:** nothing that was not already in the record.
 
-### 5.2 quad (`6872f61`, 2026-09-25)
+### 5.2 quad (`c2e20be`, 2026-09-25)
 
 - **Design source:** kitty's `cursor_trail` at `1e1486e`
   ([[source: kitty-cursor-trail]], [[source: kitty-options-definition]],
@@ -259,7 +259,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Lost:** the replay outputs and the 66 fetched files. The replay scripts
   stay in the transcript (section 1).
 
-### 5.3 sweep (`6700c54`, 2026-09-25)
+### 5.3 sweep (`8da4787`, 2026-09-25)
 
 - **Design source:** sfte `5d7ac25` ([[source: sfte]]), `_sfte_render_trail`
   and the chase update, read through the owner's question at l.6800 and the
@@ -269,7 +269,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Lost:** fuzz_and_sfte.out (sfte's snap times at 60 and 120 Hz). The
   number the record quotes survives there.
 
-### 5.4 fire (`2dcb9b5`, 2026-09-25; the default until `898f9e6`)
+### 5.4 fire (`8211be4`, 2026-09-25; the default until `eb2f75e`)
 
 - **Design source:** proposal C of `docs/research/notes/w/fire-report.txt`,
   "burning fuse": proposal A's flame, built from fBM value noise on a PCG
@@ -291,7 +291,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   colour, not the research's 800-6500 K black-body ramp (l.12191). That
   colour also met the opaque-over-glass call of l.7630 and the light-theme
   variant the research asked for, as one rule. The plasma replaced it as the
-  default (2026-09-29, built `898f9e6`), and it stays by name.
+  default (2026-09-29, built `eb2f75e`), and it stays by name.
 - **Measured:** in the research, GPU +1.5 to 4.5 us a frame on the M5 Max
   at full clock (proposal A's summary; the separate `fire_fragment` pipeline
   measured +1.6 us on a 30-column hop), 5.3 to 33 ms on the CPU (hence GPU
@@ -311,7 +311,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   committed: `fire-flame.metal` is its first write, and the edits that made
   the measured version are at the fire agent's l.342, 389, 408, 415 and 505.
 
-### 5.5 plasma (`e8798ae`, 2026-09-26; the default since `898f9e6`)
+### 5.5 plasma (`bc40570`, 2026-09-26; the default since `eb2f75e`)
 
 - **Design source:** `docs/research/notes/w/spec-plasma.json`. Prior art
   named: orbkit's SHDR-13 plasma globe and SHDR-14 sine plasma (MIT per the
@@ -334,7 +334,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Lost:** the sources' local copies (their SHA-256s are in the spec) and
   the area check's outputs. The two scripts survive.
 
-### 5.6 lightning (`dbea478`, 2026-09-26)
+### 5.6 lightning (`0cef30d`, 2026-09-26)
 
 - **Design source:** `docs/research/notes/w/spec-lightning.json` and the
   agent's longer `docs/research/notes/w/lightning-design.txt`. Prior art
@@ -357,7 +357,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   survives, with its three later edits replayed to the SHA-256 its agent
   printed (452ad54d…).
 
-### 5.7 ice (`301f589`, 2026-09-26)
+### 5.7 ice (`26b26b0`, 2026-09-26)
 
 - **Design source:** `docs/research/notes/w/spec-ice.json`, "rime fuse", with
   `docs/research/notes/w/ice-prototype.swift`, which the agent's notes call
@@ -381,7 +381,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
   `docs/research/notes/w/ice-notes.txt`.
 - **Lost:** the contact sheets and the montage outputs.
 
-### 5.8 ufo (`32042ce`, 2026-09-26)
+### 5.8 ufo (`90bb30d`, 2026-09-26)
 
 - **Design source:** `docs/research/notes/w/spec-ufo.json`. Prior art named:
   iq's 2D distance functions, smooth minimum and little functions, and
@@ -398,7 +398,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Lost:** proto3.py, which the spec's "look" was rendered from, and its
   stills. proto.py and proto2.py survive.
 
-### 5.9 orb (`4478fb2`, landing fixed `e13d1b4`, 2026-09-26)
+### 5.9 orb (`1488b3c`, landing fixed `9e06507`, 2026-09-26)
 
 - **Design source:** designed in the main session, in the family's shape. The
   research agent's design was never read (section 2), and it differs from
@@ -424,7 +424,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Lost:** the agent's pins.txt (its prior art was never written down
   anywhere that survives), its run outputs and its images.
 
-### 5.10 liquid (`6daf3d3`, 2026-09-26)
+### 5.10 liquid (`818daaa`, 2026-09-26)
 
 - **Design source:** `docs/research/notes/w/spec-liquid.json`, design (a): a
   gel of the cursor's colour with a rim and a glint, bending nothing. Prior
@@ -443,7 +443,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 - **Decisions:** design (a) was built. (b), refraction, is the owner's call:
   a second render pass a frame, and even then it cannot bend what the window
   server composites behind baud's glass window. The owner's "maybe default"
-  (l.12209) was not built; the default has been the plasma since `898f9e6`.
+  (l.12209) was not built; the default has been the plasma since `eb2f75e`.
   The rest are owner's calls recorded rather than taken.
 - **Measured:** the record, "The liquid trail is a glass gel on kitty's quad,
   and it bends nothing", including its cost on mains, taken 2026-09-27.
@@ -452,14 +452,14 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 
 ### 5.11 What every trail later gained
 
-The ride on a smooth scroll (`cd5bc29`; note X, "Ride-scroll"; the record,
+The ride on a smooth scroll (`0415566`; note X, "Ride-scroll"; the record,
 "A trail rides a smooth scroll, two rows at most"), Reduce Motion
-(`336d269`; the record, "Reduce Motion means no trail, unless the config
+(`bc7cd03`; the record, "Reduce Motion means no trail, unless the config
 names one"), a refused ignition owing no frames (`eca6815`; "A refused
 ignition owes no frames"), the clips and their page ("The trails are
 recorded, and the page that shows them is gated"; "The clips drop no frames,
 and the recorder says so now"; `the_cursor_page_shows_every_trail`), and the
-flash census (`d098cb7`; note AL). None of these rested on the lost files.
+flash census (`486a91f`; note AL). None of these rested on the lost files.
 
 ## 6. Open questions, with their options; none is picked here
 
@@ -547,7 +547,7 @@ kitty's motion-blur shaders. baud never read that hunk, and line numbers up
 to 162 are the same in both copies. `trail.slang` is the same bytes at both
 commits.
 
-### 8.2 Line by line, at `0c20d017`
+### 8.2 Line by line, at `d600b4e8`
 
 | element | kitty v0.49.2 | baud | reading |
 |---|---|---|---|

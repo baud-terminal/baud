@@ -1,4 +1,4 @@
-//! The buffered Sixel decoder as it was built at 2992a8e9, kept as the
+//! The buffered Sixel decoder as it was built at e46ee3a7, kept as the
 //! oracle the streaming one is held to: the body whole, `Sixel::extent`'s
 //! walk to measure it, a span reserved at the lowest gap that holds the
 //! measured size and cleared, and the same walk again to paint it. It is

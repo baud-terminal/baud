@@ -2139,7 +2139,7 @@ pub enum Overrides {
 ///
 /// **All of it behind one `&mut self`, and state does not migrate to
 /// statics.** A C prototype from before the import is said to have run slower
-/// with file-scope globals (`git show f5399fb:CLAUDE.md`, line 39); no harness,
+/// with file-scope globals (`git show d8262f5:CLAUDE.md`, line 39); no harness,
 /// data or record survives, so no figure is quoted here, and the mechanism,
 /// LLVM's `noalias`, is presumed rather than shown.
 pub struct Term<'b> {

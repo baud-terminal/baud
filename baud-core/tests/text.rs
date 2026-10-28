@@ -2,7 +2,7 @@
 //!
 //! Written before any measurement: a fast loop that renders the wrong thing is
 //! not a result, and this crate was written to be compared against
-//! `baud-core2`, so it had to be right first. core2 is gone (bcefaae); what
+//! `baud-core2`, so it had to be right first. core2 is gone (2538310); what
 //! it rendered is frozen in `tests/golden.rs`.
 
 #[path = "support/mod.rs"]

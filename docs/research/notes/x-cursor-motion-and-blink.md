@@ -16,10 +16,10 @@ design, is recorded in `CLAUDE.md` under each feature's own section:
 
 | design | built | section |
 |---|---|---|
-| Reduce Motion | `336d269` | "Reduce Motion means no trail, unless the config names one" |
-| blink from the OS | `9c4769d` | "The cursor blinks at the system caret's rate" |
-| rule F for `?12` | `2b54cfd` | "`?12` is a second input to the blink" |
-| ride-scroll | the commit after `a349d7e` | "A trail rides a smooth scroll, two rows at most" |
+| Reduce Motion | `bc7cd03` | "Reduce Motion means no trail, unless the config names one" |
+| blink from the OS | `5fb5eec` | "The cursor blinks at the system caret's rate" |
+| rule F for `?12` | `0c8ed2d` | "`?12` is a second input to the blink" |
+| ride-scroll | the commit after `be25132` | "A trail rides a smooth scroll, two rows at most" |
 
 
 ## Reduce Motion

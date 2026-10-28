@@ -1448,7 +1448,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// without it, in the registers the rest of the function lost to it;
     /// here, before the capacity branch called it, it cost 0.12% over that
     /// arm, and the change as a whole equals the base before the watch
-    /// (b122f7bf) on `cat-cjk` (the record, "A selection is numbered by the
+    /// (287e328d) on `cat-cjk` (the record, "A selection is numbered by the
     /// lines the surface moved"). A mark past a cluster's capacity changes
     /// no cell and is told too, as xterm's row is written whether or not a
     /// combining slot was free.
@@ -1502,7 +1502,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **Out of line, and that is measured.** Inline in `attach_before`,
     /// the full-store test cost the hit path a few instructions an intern
     /// in register choices and block order: `cat-cjk` +0.62%, Genesis 1:1-5
-    /// +3.86% and Pango's Genesis 1 +7.63% against 59a5a0bb, where out of
+    /// +3.86% and Pango's Genesis 1 +7.63% against 0c0c30a8, where out of
     /// line they are +0.30%, +3.11% and +6.84% (docs/record.md, "The
     /// cluster store holds 1024 clusters and sweeps the dead ones").
     #[cold]

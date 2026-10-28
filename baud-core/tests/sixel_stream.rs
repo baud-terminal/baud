@@ -7,7 +7,7 @@
 //! `q` claimed (`SixelStream`), so what limits an image is its pixels, as
 //! `[[source: dec-std-070]]` 070-9 §8.1.2 has it: the raster extent "does
 //! not limit the number of pixels a device may image" (its p. 9, PDF p.
-//! 920). The oracle is the buffered decoder as built at 2992a8e9
+//! 920). The oracle is the buffered decoder as built at e46ee3a7
 //! (`sixel_stream/buffered.rs`), a second spelling of the grammar on purpose.
 //!
 //! Three things are held here: the store a program of Sixels and frees leaves
@@ -730,7 +730,7 @@ fn a_raster_that_overstates_or_understates_the_image_draws_the_datas_extent() {
 
 /// **A body past any scratch the app had draws**: the swirl with 8 MiB of
 /// graphics carriage returns before its terminator, each a no-op at the
-/// left edge, draws the swirl's image exactly. At 2992a8e9 the app's 3 MiB
+/// left edge, draws the swirl's image exactly. At e46ee3a7 the app's 3 MiB
 /// scratch refused it for its body (the record, "A Sixel is decoded as its
 /// body arrives").
 #[test]
@@ -790,7 +790,7 @@ fn ten_bands(w: usize, rgb: &str) -> Vec<u8> {
 /// * where the bytes before the resize reach at most the third band, 540
 ///   words, the image is drawn at row 1, every pixel red -- the rows painted
 ///   before the resize moved into the larger gap, none of the freed blue
-///   showing -- and refused for nothing, as 2992a8e9's buffered decoder,
+///   showing -- and refused for nothing, as e46ee3a7's buffered decoder,
 ///   which measured at the terminator, drew it;
 /// * where they reach the fourth band, 720 words painted into a 600-word
 ///   claim, the band that did not fit was refused with its bytes, and the

@@ -733,7 +733,7 @@ splits, are under "What is not built yet".
 
 Measured with the `frame` bench's convert column (then with the mode set
 before a recording; since BDSM is set at power-on the bench draws with it
-on and `FRAME_BIDI=explicit` turns it off), base 9dd37f0f against step 2
+on and `FRAME_BIDI=explicit` turns it off), base 1b335a67 against step 2
 built the same way from `git archive`, an A/A copy, four arms rotated over
 eight rounds with the first dropped, on mains (the record's entry,
 "Right-to-left lines are drawn in their visual order", has the table):

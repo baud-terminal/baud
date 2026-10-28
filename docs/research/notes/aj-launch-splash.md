@@ -74,7 +74,7 @@ Seven keys are already in `MANIFEST.toml` and are cited as they are:
 - `wcag2ict-22`: defined by note AH's commit, from this note's manifest
   unchanged.
 
-**In-repo citations are to baud at commit `ccb8aaa`.** Line numbers are
+**In-repo citations are to baud at commit `473ff12`.** Line numbers are
 that commit's. No file cited changes in the two later commits, which add
 notes, their sources and a docs test.
 
@@ -245,7 +245,7 @@ the first screen is ready". baud has three candidates for that moment:
 
 - **The first present**, about 88-92 ms after `main` (3.6). The frame is on
   the layer, but the menu, the key responder, the display link and the run
-  loop are all set up after it. In `baud-app/src/app.rs` at `ccb8aaa`:
+  loop are all set up after it. In `baud-app/src/app.rs` at `473ff12`:
   - the first frame, at 5106;
   - `install_main_menu`, at 5179;
   - `view.set_responder`, at 5181;
@@ -552,7 +552,7 @@ output:
 [[source: aj-obs-flash-area-tool]]
 [[source: aj-obs-flash-area]]
 
-It reads no files. Its constants are copied from baud at `ccb8aaa`:
+It reads no files. Its constants are copied from baud at `473ff12`:
 
 - `REACH` = 1, `SHEATH` = 0.20, `DECAY` = 5, `FILAMENT` = 0.95 and the ions
   (`baud-render/src/plasma.rs`);
@@ -1375,7 +1375,7 @@ practices.
 
 ### 3.4 Reduce Motion is already read, and an explicit choice wins
 
-The owner's rule of 2026-09-25, built in commit `336d269` and recorded in
+The owner's rule of 2026-09-25, built in commit `bc7cd03` and recorded in
 "Reduce Motion means no trail, unless the config names one":
 
 - **Two kinds of value.** `[cursor] trail` reads into `TrailPick::Default`
@@ -1439,7 +1439,7 @@ scope.
 
 **Scope of each column:**
 
-- **The record's column.** Commit `b305606`, 2026-09-13, says only "on
+- **The record's column.** Commit `fb85b76`, 2026-09-13, says only "on
   mains" and "this box".
   - **The in-app stages** (19, 85, 92) come from the table before the
     section's line "The bench takes `BAUD_CMD=shell` now". They were taken
@@ -1453,7 +1453,7 @@ scope.
   bundles through the login shell, seven rounds with the first discarded,
   an A/A copy, medians of six. The record's section for it is "Spawning the
   shell 15 ms earlier bought 8 on the prompt, under the floor, and was
-  reverted" (2026-09-18; the arm reverted by `179de7a`).
+  reverted" (2026-09-18; the arm reverted by `1eb2e5d`).
   - **It corrects the 19.** The display-scale query alone is 23.6 ms, and
     "The shell was spawned at 24.5 ms because the grid needs the cell size
     in pixels, which needs the scale".
@@ -1461,7 +1461,7 @@ scope.
     "~170 ms either way". The 24.5 ms quote above is from that section
     too.
 
-Both columns predate the Reduce Motion stage (`336d269`, 2026-09-27). On a
+Both columns predate the Reduce Motion stage (`bc7cd03`, 2026-09-27). On a
 shell without the owner's hooks, the gap is unmeasured.
 
 How the launch path runs (**R**; record, "Cold boot: 215 ms to 101, and the

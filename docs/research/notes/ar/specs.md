@@ -7,7 +7,7 @@ tinted-theming's own templates disagree with its specs, the spec wins, and the
 disagreement is recorded as the template's departure.
 
 baud's citations are `file:line` at the working tree on 2026-10-16 (master
-`33975a05`). "By reading" means the behaviour was traced through the source
+`c417553d`). "By reading" means the behaviour was traced through the source
 and not run.
 
 ## 0. Sources, and which are pinned

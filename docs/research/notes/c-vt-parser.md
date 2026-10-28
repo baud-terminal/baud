@@ -1,7 +1,7 @@
 # C — the terminal parser as specified
 
-**Status: done 2026-09-11, `f920ea3`.** The question below is answered, and
-`f920ea3` struck its one gap, grapheme clusters, which the core now has.
+**Status: done 2026-09-11, `158996a`.** The question below is answered, and
+`158996a` struck its one gap, grapheme clusters, which the core now has.
 
 *Group C of `docs/research/sources/MANIFEST.toml`. Primary source:
 `[[source: williams]]`, Paul Flo Williams' state diagram for the DEC ANSI
@@ -84,4 +84,4 @@ compiled.
 - `baud-core/tests/properties.rs`'s `the_screen_does_not_depend_on_where_the_reads_fell`:
   the property the state-as-state choice exists to make provable. This line
   named `baud-core2`'s chunk-invariance property, deleted with that core in
-  `bcefaae` (corrected 2026-10-10).
+  `2538310` (corrected 2026-10-10).

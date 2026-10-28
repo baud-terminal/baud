@@ -1,4 +1,4 @@
-// UFO trail -- MSL sketch, one member of the effect family (f0ab2ba).
+// UFO trail -- MSL sketch, one member of the effect family (f202aea).
 // Reads the existing EffectU unchanged: prefix c[4] hole origin tail dir len
 // unit age life seed reach, then k[8] = ufo::PARAMS:
 //   k[0] hover (units)   k[1] size (scale)   k[2] beam alpha   k[3] wake alpha

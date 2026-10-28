@@ -1,9 +1,9 @@
-# straddle-probe.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD),
+# straddle-probe.rs, run 2026-10-09 in a git-archive copy of baud at 4911bf0 (HEAD),
 # placed at baud-core/tests/straddle_probe.rs. Command, from the copy's root:
 #   cargo test -p baud-core --test straddle_probe -- --nocapture
-# Output below is the test's stdout, unedited. The run at e2c3b24 printed the same
+# Output below is the test's stdout, unedited. The run at 6802227 printed the same
 # lines but for the test's elapsed time (0.02s there). Re-run 2026-10-10 from the formatted
-# harness (treefmt's rustfmt, which changed layout only) in a fresh copy at 5477bf7: the same
+# harness (treefmt's rustfmt, which changed layout only) in a fresh copy at 4911bf0: the same
 # lines but for the elapsed time (0.02s).
 
 running 1 test

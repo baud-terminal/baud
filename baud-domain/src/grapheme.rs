@@ -207,7 +207,7 @@ enum IncbLookback {
 /// with the id at 0. So `new()` stepped by one ordinary character said
 /// ready by the table and `Prev` by the fields, and the cluster emitter,
 /// asking `ordinary_run_ready` of a `from_bits` machine, wrote no ready
-/// state from `167f3fa7` until `38b6f0a9`. The rule form is its own type
+/// state from `0be6329a` until `150e1dbb`. The rule form is its own type
 /// now, so a machine holds one form and cannot answer with the other;
 /// `the_two_forms_agree_in_lockstep_from_every_constructor` steps the two
 /// side by side. The runtime struct went from five bytes to one, and
@@ -351,12 +351,12 @@ impl ClusterBreak {
     /// `ClusterRules::after_ascii_run`'s, and this id is theirs.
     ///
     /// **This doc and an `#[inline(always)]` sat above `set_after_ordinary`
-    /// from `6f3fedf` (2026-08-29), which inserted that function between
+    /// from `e0612eb` (2026-08-29), which inserted that function between
     /// them and this one.** The attribute was dropped rather than re-attached:
     /// neither function had a caller outside the tests
     /// (`set_after_ordinary` was deleted on 2026-10-16;
     /// `ClusterRules::after_ascii_run` is its state), and ingest2's `__text`
-    /// is byte-identical without it against `606ea59`; a forced attribute is a
+    /// is byte-identical without it against `4b703f8`; a forced attribute is a
     /// codegen change with a number the day a caller arrives (`docs/record.md`, "The
     /// eighth stranded attribute, and re-attaching it was the wrong repair").
     pub fn ordinary_run_ready(&self) -> bool {

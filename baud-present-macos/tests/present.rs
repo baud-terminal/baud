@@ -83,7 +83,7 @@ fn land(j: &Journal, epoch: &SwapEpoch, tag: FrameTag, l: &CALayer, s: &Surface)
 /// **Written as the failing test before the fix, and green since it.** When
 /// it was written `admits` showed everything, so the superseded frame
 /// reached the layer and this test said so before anything was changed.
-/// `3c7e589` made `admits` skip a superseded frame, and the assertions below
+/// `a9c1a16` made `admits` skip a superseded frame, and the assertions below
 /// hold that: the layer keeps the frame drawn for the resize, and a
 /// regression that lets the old frame through fails here.
 #[test]

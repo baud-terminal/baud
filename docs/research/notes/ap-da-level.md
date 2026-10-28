@@ -81,7 +81,7 @@ identity is a promise about *everything* in that level".
     54,100,022 bytes, sha256 `e60d032f...`), has no text layer: `pdftotext`
     returns 348 bytes. It was hashed and not read, and it is not pinned.
 * Read for the code side: `docs/vt-coverage.md`, notes AE and AN, and baud at
-  `bf3b6762`. The counted functions were confirmed by a probe run against a
+  `3a330cd9`. The counted functions were confirmed by a probe run against a
   `git archive` of that commit (section 9).
 
 ## 3. What a `61` says
@@ -437,7 +437,7 @@ What keeps baud off Level 2 is the list in (c).
   DECSC's on 5-187; DSR's is on PDF p. 239, where 070-4 has no page header.
 
 **The probe.** It was run with `cargo test -p baud-core` against a
-`git archive` of `bf3b6762` in a scratch directory, and is not committed. Each
+`git archive` of `3a330cd9` in a scratch directory, and is not committed. Each
 case feeds `A` then the bytes, and prints the change in `Term::unsupported`,
 `unsupported_param` and `charset_unsupported`, and the reply. The controls
 came first: CUP changed nothing, DA replied `ESC [ ? 6 c`, and DSR 5 replied

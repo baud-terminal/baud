@@ -168,7 +168,7 @@ print(f"== per-DCS and per-read bounds (OSC_MAX {OSC_MAX}, READ_CHUNK {L}); AG n
 
 # How many body bytes the names get. A prefix node that consumes `+ q`, as
 # Node::DcsDollar and Act::DcsQuery consume DECRQSS's `$ q` (graph.rs 861-868
-# at 5477bf7), leaves all of OSC_MAX to the names: BODY_PREFIX. Today's path
+# at 4911bf0), leaves all of OSC_MAX to the names: BODY_PREFIX. Today's path
 # takes `+` by the catch-all into Node::Str and stores the `q` in
 # strs.pending, so 511 bytes are left: BODY_TODAY (xtgettcap-controls-output.txt
 # Q3: 511 B of hex after `q` truncate nothing, 512 truncate one). The note's
@@ -234,7 +234,7 @@ def per_read(name_hex_len, val_len, form, length=L, body=BODY_PREFIX):
     return _PER_READ[key][length]
 
 # The longest value one name can answer. Key rows: keymax-output.txt, baud's
-# encode_key at 5477bf7 measured over each domain (M). TN: the TERM pty.rs
+# encode_key at 4911bf0 measured over each domain (M). TN: the TERM pty.rs
 # exports (C). 48: KeyBytes::MAX_LEN, a buffer size, not a measurement.
 cases = [
     ("K, KeyBytes::MAX_LEN (48, a bound)", 4, 48),

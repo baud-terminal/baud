@@ -1,8 +1,8 @@
-# xtgettcap-controls.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD), placed at
+# xtgettcap-controls.rs, run 2026-10-09 in a git-archive copy of baud at 4911bf0 (HEAD), placed at
 # baud-core/tests/xtgettcap_controls.rs. Command, from the copy's root:
 #   cargo test -p baud-core --test xtgettcap_controls -- --nocapture
 # Output below is the test's stdout, unedited. Re-run 2026-10-10 from the formatted harness
-# (treefmt's rustfmt, which changed layout only) in a fresh copy at 5477bf7: the same lines but
+# (treefmt's rustfmt, which changed layout only) in a fresh copy at 4911bf0: the same lines but
 # for the elapsed time (0.03s).
 
 

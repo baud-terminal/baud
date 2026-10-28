@@ -313,7 +313,7 @@ fn every_preview_in_a_yazi_walk_is_its_own_body_alone() {
 /// FNV-1a 64 over an image's pixel words, little-endian: a digest to pin
 /// thirteen 600x804 images by. Each pixel is hashed as the word the arena
 /// held before it stored alpha -- zero for clear, `0x02RRGGBB` for a colour
-/// -- so the digests pinned at 2992a8e9 still hold every pixel, and a
+/// -- so the digests pinned at e46ee3a7 still hold every pixel, and a
 /// Sixel pixel neither clear nor opaque fails here.
 fn fnv(px: &[Pixel]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -336,7 +336,7 @@ fn fnv(px: &[Pixel]) -> u64 {
 
 /// **The recorded yazi walk draws, pixel for pixel, what the buffered
 /// decoder drew.** Each preview's size and FNV-1a digest, taken from the
-/// buffered decoder at 2992a8e9 -- the body held whole, measured, and
+/// buffered decoder at e46ee3a7 -- the body held whole, measured, and
 /// decoded into a cleared span -- fed the same way, at reads of 1 and 7.
 /// Since 2026-10-14 the body is decoded as it arrives, and the images are
 /// those. The other recorded yazi runs, 41 Sixels in all, were held to the

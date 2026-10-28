@@ -68,7 +68,7 @@ taken from a text layer only.
 
 **What the code citations rest on.**
 
-- Every behaviour of baud is read from source at `c793618`, the HEAD when this
+- Every behaviour of baud is read from source at `161bb88`, the HEAD when this
   note was written.
 - Nothing was built, run or benchmarked. Every behaviour of baud, xterm and foot
   here is traced from source, not observed.
@@ -81,7 +81,7 @@ taken from a text layer only.
 
 **Keys that are new with this note.** Fourteen keys enter `MANIFEST.toml`
 with this note. They are in the working tree's manifest beside it, and none is
-in the manifest at the committed `c793618`. So `scripts/check-sources.sh`
+in the manifest at the committed `161bb88`. So `scripts/check-sources.sh`
 passes on this file only once they are committed with it. Thirteen are cited
 below. `vt3xx-hr` is pinned, but only its cover and edition page were read,
 for its manifest entry. No page of it was read for a claim, so it is not
@@ -482,7 +482,7 @@ xterm has it, as `MAP(0x40, XK_Eacute)` ([[source: xterm-charsets]]
 
 - `docs/vt-coverage.md:251`, "14 sets, 162 substitutions";
 - `docs/research/sources/MANIFEST.toml`, the comment above
-  `[sources.xterm-charsets]`, "162 substitutions" (line 934 at `c793618`);
+  `[sources.xterm-charsets]`, "162 substitutions" (line 934 at `161bb88`);
 - `baud-core/tests/vt100/charsets.rs:533`, "14 sets, 162 substitutions";
 - `baud-domain/src/cell.rs:457`, which says
   `every_national_replacement_renders_as_its_table_says` "drives all 163

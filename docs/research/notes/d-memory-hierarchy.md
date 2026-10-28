@@ -16,7 +16,7 @@ fetching it. That is the note's main result.
 
 ## The measurement it explains
 
-`6f2499a` added a scan to `fill_row_counted` — read the row, blank only up to
+`fe7de5d` added a scan to `fill_row_counted` — read the row, blank only up to
 the last cell differing from the blank — and cost **66% of streaming
 throughput**. Four variants, interleaved, ghostty as an unchanged control
 (1105.5–1136.2 across every run):
@@ -136,7 +136,7 @@ narrower one.
 
 - **Unconfirmed.** No counter has been read. The mechanism fits four arms and a
   primary source; it has not been observed.
-- **The erase-path scan is untested.** `0e7cb84` applied the same pattern to
+- **The erase-path scan is untested.** `bcf1774` applied the same pattern to
   `fill_counted` (`EL`/`ED`). The fix reverts both functions, so that one's cost
   is inferred from the shared shape rather than measured.
 - **The older blanking anomaly is not explained by this.** The record,

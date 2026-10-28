@@ -1,5 +1,5 @@
 //! Probe for note AM (XTGETTCAP), committed in docs/research/notes/am/ and not built
-//! there. Run in a git-archive copy of baud at 5477bf7 as baud-core/tests/straddle_probe.rs:
+//! there. Run in a git-archive copy of baud at 4911bf0 as baud-core/tests/straddle_probe.rs:
 //!   cargo test -p baud-core --test straddle_probe -- --nocapture
 //!
 //! Question: does a DCS whose body arrived in read n run its action in read

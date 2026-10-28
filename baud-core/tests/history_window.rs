@@ -385,7 +385,7 @@ type ResetRow<'a> = (usize, &'a [u8], &'a [u8], Option<Erasure>, &'a str);
 /// read took the window's line back first, or when the window was live -- at
 /// every read size and every cut into two reads. The case the reveal used to
 /// read at the read's edges, where the same bytes revealed or not by where
-/// the reads fell (TODO.md, the residue of 385ee1b).
+/// the reads fell (TODO.md, the residue of 21365a9).
 #[test]
 fn a_reset_keeps_where_the_window_stood_at_its_byte() {
     let back = |s| Some(Erasure::Reset(s, Looking::Back));

@@ -55,7 +55,7 @@ source (the record, "The cat row was a code-placement lottery, and
 multibench now aligns to 128 bytes"). A table taken after the alignment is
 not comparable to these.
 
-**Taken at `935e4f1`, 2026-09-20.** Its commit message states no power
+**Taken at `e5bc3ef`, 2026-09-20.** Its commit message states no power
 state. The file's Host line at that commit read "on AC power", dated to an earlier
 table's commit, so whether it covered this sweep is not stated.
 
@@ -109,7 +109,7 @@ sweep, 1637.9 and 1600.7.
 **Taken before `multibench` aligned every function to 128 bytes**, like the
 table above.
 
-**Taken at `935e4f1`, 2026-09-20**, in the sweep of the table above; its power
+**Taken at `e5bc3ef`, 2026-09-20**, in the sweep of the table above; its power
 state is not stated.
 
 `nihiL7331/sfte` -- a 10.2k-line single-file C11 terminal, pinned at
@@ -134,7 +134,7 @@ program and is not quoted as a ratio.
 | `utf8/cava.raw` | 553.7 | **347.6** [344-355] | 364.0 | yes |
 | `ascii/git-log.raw` | 1645.4 | **17.2** [17-17] | **110.1** [104-111] | yes |
 | `ascii/cat-scroll.raw` | 1423.6 | **11.2** [11-12] | **82.9** [78-84] | yes |
-| `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry; yes since `96949c2`, see below |
+| `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry; yes since `3024b2b`, see below |
 | `utf8/less-cjk.raw` | 505.1 | 22.5 | -- | **no** -- clustering |
 | `utf8/cat-cjk.raw` | 474.1 | 20.9 | -- | **no** -- clustering |
 
@@ -181,7 +181,7 @@ removed; at the cut it has not, and 155 cells differ. That is pinned twice
 in `baud-sfte-difftest` -- as an isolated five-cell control and as the cut
 -- and it is the case a single pass structurally cannot see.
 
-**Since `96949c2` baud clears on re-entry too, and the gate moved on two
+**Since `3024b2b` baud clears on re-entry too, and the gate moved on two
 rows** of the captures of the time. xterm's `?1049 h` set arm clears whatever buffer is up, and baud
 follows it now. The harness's own replay -- `baud-sfte-difftest`'s `cut`
 example, 32 MiB in 4096-byte reads, which is multibench's -- was re-run on
@@ -202,9 +202,9 @@ reports the same screen on both.
 **Taken before `multibench` aligned every function to 128 bytes**, like the
 first table in this file.
 
-**Taken at `f5c2abf`, 2026-08-30**, the commit that first carries these rows.
+**Taken at `1774072`, 2026-08-30**, the commit that first carries these rows.
 Its baud-core, ghostty and alacritty figures, cava's among them, are superseded
-by the first table in this file, taken at `935e4f1`; the vt100, termwiz and
+by the first table in this file, taken at `e5bc3ef`; the vt100, termwiz and
 wezterm rows have not been taken since. The file's Host line at that commit read
 "on AC power", dated to an earlier table's commit, so whether it covered this
 sweep is not stated.
@@ -237,11 +237,11 @@ and makes it a good instrument as well as a good payload.
 **Taken before `multibench` aligned every function to 128 bytes**, like the
 first table in this file.
 
-**First carried at `e8035f6`, 2026-09-09**, in the README, from which it moved
-here on 2026-10-12. `cd2e440`'s message says the tables published before it
+**First carried at `9c8ee95`, 2026-09-09**, in the README, from which it moved
+here on 2026-10-12. `949a87f`'s message says the tables published before it
 were measured at `f1a67c6`, a commit that does not resolve, and whether that
 covers this table is not stated; no power state is stated. **It predates
-grapheme clustering (`71715d3`) and the scrollback ring (`0a44e3f`) in the
+grapheme clustering (`657fc91`) and the scrollback ring (`2d14bc3`) in the
 core it names, and has not been re-taken.**
 
 Same harness and statistic. The streaming payload models `cat`, logs and build
@@ -262,7 +262,7 @@ escape density matches no real program. The recordings above are the guide.
 
 ## Five terminals through a pty
 
-**Taken at `a9bb28c`, 2026-09-12, and not re-taken.** The record names no
+**Taken at `46f5e1c`, 2026-09-12, and not re-taken.** The record names no
 power state for this sweep, and this box's power log (`pmset -g log`) begins
 on 2026-10-05, so it cannot be recovered. It was not re-run for this file: it
 launches five GUI terminals, and on 2026-10-12 the box carried a 15-minute
@@ -326,8 +326,8 @@ with `transport` (read and discard, no parser) re-run the same minute. MB/s:
   difference under 0.03 s is not a result.
 * **The vim row is mostly the fixed cost**: about 45 ms a run against 2.8 MB.
 
-**Two of the record's caveats were true only at `a9bb28c`.** It says "baud has
-no scrollback and the others keep one": the ring landed the next day, `0a44e3f`
+**Two of the record's caveats were true only at `46f5e1c`.** It says "baud has
+no scrollback and the others keep one": the ring landed the next day, `2d14bc3`
 (2026-09-13), so baud's rows predate scrollback. And it says the cell path drew
 no cross-cell ligature: the cell path's ligature windows are measured since, row
 7 below. The same caveat says the cell path skipped attached marks, 55 cells a
@@ -347,7 +347,7 @@ alacritty and vt100 take 10,000 lines explicitly, and `baud-core` is handed
 10,000 lines by `multibench` since 2026-09-20 (the first table above).
 Configured alike, ghostty's scroll-heavy recordings move and the others do not:
 `git-log` 853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 → 391.1
-(`f96075e`, 2026-08-29).
+(`af45a56`, 2026-08-29).
 
 **Grapheme segmentation is not on in every core.** libghostty-vt's mode 2027
 carries no default, so it segments only when an application asks. baud always
@@ -392,8 +392,8 @@ second fastest, and asciiquarium never scrolls and is the slowest.
 
 ## Storage
 
-Written at `8c2d182`, 2026-08-29; the +0.3 MB figure first appears at
-`f5399fb`, 2026-08-26.
+Written at `7b00e4c`, 2026-08-29; the +0.3 MB figure first appears at
+`d8262f5`, 2026-08-26.
 
 ~24 MB *virtual*. Measured RSS after allocating it, initialising a 50x200 grid
 and feeding data is **+0.3 MB**: untouched pages are never faulted in.
@@ -412,7 +412,7 @@ argued, not re-measured; the sizes `fixed.rs` asserts are `baud-core`'s own.
 
 Cells written per byte ingested, from `Term::amplification`, which returns the
 bytes in and the cells written; `ingest2` prints their ratio. First carried at
-`f5ea0f6` (2026-09-10), and **re-read at `dc22822` on 2026-10-12** -- a count,
+`e9edd30` (2026-09-10), and **re-read at `ac96f39` on 2026-10-12** -- a count,
 not a rate, so the machine's load does not enter it: `ascii/cat-scroll.raw`
 wrote 16,932,361 cells for 8,969,200 bytes at 20 reps and 169,895,281 for
 89,692,000 at 200, 1.9x both times; `utf8/cat-cjk.raw` 7,549,906 for 6,547,020
@@ -506,7 +506,7 @@ in instructions, +3.0% in cycles).
 
 ## Keystroke to pixel
 
-Taken at `e8bb82d`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the app's default
+Taken at `28f2382`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the app's default
 cell path at 120x40 under the owner's config. `scripts/key-latency.py --rounds 5
 --keys 30 --gap 150 --child <cat|shell> --aa`: five rounds, the first discarded,
 the arm order rotated, an A/A copy of the same binary in the sweep; **medians
@@ -545,10 +545,10 @@ sweep. Typeahead at a 2 ms cadence: 76 of 80 keys shared a frame, one commit per
 
 ## The shader cache at launch
 
-Taken at `ceede4c`, 2026-09-18, on the source-compiled library and the Xcode
+Taken at `a90b11d`, 2026-09-18, on the source-compiled library and the Xcode
 before the one the `.metallib` section below was measured on; that section
 re-took the source arm the same afternoon as its change and says this
-section's figure came from an older Xcode. Since `4d583bb` the app ships the
+section's figure came from an older Xcode. Since `bdc99eb` the app ships the
 compiled library, so the rows below describe a launch path that no longer
 ships. Apple M5 Max, macOS 27.0, on AC. `scripts/shader-cache-bench.py 7`: the same
 binary launched with the system's Metal shader caches in place (warm) and moved
@@ -572,7 +572,7 @@ cache keys on the source and survives rebuilds. `docs/research/notes/p-shader-ca
 
 ## The Dock icon from the bundle
 
-Taken at `b93b5ad`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
+Taken at `6bb94e9`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
 content" scripts/startup-bench.py --rounds 7 --arm base=<HEAD bundle> --arm
 bundled=<bundle with the change> --aa`: two `.app` bundles, the login shell as
 the child, seven rounds with the first discarded, the arm order rotated, an A/A
@@ -591,7 +591,7 @@ of main-thread work on the first tick, which nothing a user sees waits for.
 
 ## Spawning the shell earlier (row 3, reverted)
 
-Taken at `179de7a`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
+Taken at `1eb2e5d`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
 content" scripts/startup-bench.py --rounds 7 --arm base=<HEAD bundle> --arm
 early=<the arm's bundle> --aa`, two `.app` bundles, seven rounds with the first
 discarded, the arm order rotated, an A/A copy of the base. Medians of six
@@ -613,7 +613,7 @@ the display-scale query at 23.6 ms (the first CoreGraphics call), the inset at
 
 ## Overlapping sharedApplication with the CoreGraphics connection (row 4, reverted)
 
-Taken at `6e6f977`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 7 --arm
+Taken at `a6b01a2`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 7 --arm
 base=<HEAD bundle> --arm overlap=<the arm's bundle> --aa`, to the first present,
 and again with `BAUD_CMD=shell BAUD_BENCH_STAGE="first content"`. Medians of six
 settled launches, milliseconds; the A/A column is |aa - base| on that stage.
@@ -634,7 +634,7 @@ first present; the prompt 19 ms later. Reverted.
 
 ## Dead-stripping the dylibs (row 5)
 
-Taken at `8a3e295`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 9 --arm
+Taken at `f06d047`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 9 --arm
 base=<HEAD bundle> --arm stripped=<bundle with build.rs> --aa`, to the first
 present; medians of eight settled launches, milliseconds; the A/A column is
 |aa - base| on that stage.
@@ -654,7 +654,7 @@ store's `libiconv.2.dylib` among the seven gone.
 
 ## Pacing a keystroke's frame by completion (row 6)
 
-Taken at `3a8d2aa`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
+Taken at `c5078da`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
 cell path at 120x40. `scripts/key-latency.py --rounds 5 --keys 30 --gap 150
 --child stream --arm base=<HEAD> --arm new=<row 6> --aa`: the child prints a
 line every 2 ms under the tty's echo, so a key's echo always lands inside
@@ -749,7 +749,7 @@ launch rather than removing it.
 
 ## A key's echo drawn before the pty answers (row 9)
 
-Taken at `6fb57cf`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
+Taken at `75a969f`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
 cell path at 120x40. `scripts/key-latency.py --rounds 5 --keys 30 --gap
 150 --child shell --arm base=<row 8> --arm new=<row 9> --aa`: the login
 zsh, whose prompt carries the OSC 133 marks the predictor keys on. Five
@@ -845,8 +845,8 @@ seven discarded, the spans across those runs. No window and no GPU.
 
 **The resize column is the core's work now, not the clock.** A null arm -- an
 empty timed region per step -- reads 0.00-0.01 us beside it. The table this
-replaces, taken at `952c9ca` on 2026-09-18 on the gestures since re-recorded,
-read 0.01-0.02 us a resize; the passes past a narrower edge (9d9de16) added a
+replaces, taken at `2e3da21` on 2026-09-18 on the gestures since re-recorded,
+read 0.01-0.02 us a resize; the passes past a narrower edge (8323e8a) added a
 measure at every narrowing, and those two tables differ in both the code and
 the recordings, so no ratio between them is a result.
 
@@ -864,7 +864,7 @@ Frames are per resize step and per display period, not per redraw.
 
 ## Idle CPU (row 11, measured, no change)
 
-Taken at `59e6476`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, nothing else
+Taken at `e8fe895`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, nothing else
 running.
 `scripts/idle-cpu.py --arm base=<bin> --aa --rounds 5`: the binary
 launched with a child that writes nothing, its CPU read twice from the
@@ -895,13 +895,13 @@ The one frame an idle run ever builds is the launch frame.
 No change shipped. `present` already returns on `Pending::Clean` before the
 glyph-map walk, the style resolve, the overlay walk and the draw. The style
 resolve that sentence names was the whole rendition table each frame then, a
-fixed 1,024 slots before `20fccf6`; it is a cache since `fe776c9` (below, "The
+fixed 1,024 slots before `d0fe8e0`; it is a cache since `60cce43` (below, "The
 rendition cache's frame cost"), so the frame a non-idle tick builds is not the
 one this row skipped.
 
 ## Smooth scroll idle (measured, no change)
 
-Taken at `6dd3244`, 2026-09-21. Apple M5 Max, macOS 27.0, on AC. `scripts/idle-cpu.py` on the release
+Taken at `fdda380`, 2026-09-21. Apple M5 Max, macOS 27.0, on AC. `scripts/idle-cpu.py` on the release
 `baud`, interleaving `[scroll] mode = smooth`, `= normal` and an A/A copy of
 smooth in one sweep through pid-preserving wrappers, first round discarded.
 The child writes nothing.
@@ -937,9 +937,9 @@ removes.
 ## Smooth scroll's per-frame cost (measured, under the floor)
 
 **Re-taken, the 2026-10-28 btop capture among them, at `e9af53d9`,
-2026-10-28.** The table this replaces was taken at `6dd3244` on 2026-09-21,
+2026-10-28.** The table this replaces was taken at `fdda380` on 2026-09-21,
 on the btop of the time and before the rendition table was sized to the
-screen (`20fccf6`) and its resolve became a cache (`fe776c9`), so both its
+screen (`d0fe8e0`) and its resolve became a cache (`60cce43`), so both its
 columns carried a resolve of the whole table that this one's do not; no
 ratio between the two is a result.
 Apple M5 Max, macOS 27.0, on AC. `frame_gpu`'s `slide` arm is the `async`
@@ -986,7 +986,7 @@ per-frame CPU cost is already invisible to the budget.
 
 ## The shipped `.metallib` (row 1, kept)
 
-Taken at `4d583bb`, 2026-09-19. Apple M5 Max, macOS 27.0, Xcode 27.0, on AC.
+Taken at `bdc99eb`, 2026-09-19. Apple M5 Max, macOS 27.0, Xcode 27.0, on AC.
 `scripts/shader-cache-bench.py 7`: the same binary launched with the
 system's Metal caches in place and moved aside, interleaved, the first
 launch of each arm discarded. The `before` column is the source-compiled
@@ -1032,10 +1032,10 @@ reporting `Compiled`): with only the per-GPU cache aside the wall is
 the front end's cache alone, and note P's 193 ms -- taken on the previous
 Xcode -- overstated what the front end's cache is worth.
 
-The library was 48,900 bytes at `4d583bb`, generated by
+The library was 48,900 bytes at `bdc99eb`, generated by
 `scripts/build-metallib.sh` from `baud-present-macos/src/shaders.metal` with
-`Apple metal version 32023.921`, and committed. **At `dc22822` it is 133,780
-bytes**, last rebuilt at `66170e3` (2026-10-01), carrying every shader added
+`Apple metal version 32023.921`, and committed. **At `ac96f39` it is 133,780
+bytes**, last rebuilt at `6a2eff5` (2026-10-01), carrying every shader added
 since -- the trails among them -- and the cold-launch rows above have not
 been re-taken on it. Every launch reports
 which library it used -- `library 0.1 (Library)` -- because a cold arm
@@ -1043,7 +1043,7 @@ that quietly compiled the source would measure the old program.
 
 ## The rendition cache's frame cost
 
-**Taken at `fe776c9`, 2026-09-25, on mains**, HEAD and the change built at
+**Taken at `60cce43`, 2026-09-25, on mains**, HEAD and the change built at
 one path, an A/A copy of the change in every sweep. Not re-taken since: the
 cell path has changed under it (later sections of the record measure it at
 other configurations, not this one), and this file's load reading on 2026-10-12
@@ -1079,8 +1079,8 @@ frame, every pair disjoint with the copy on the change: btop 155.5
 **What the app spends**, `scripts/idle-cpu.py` over the owner's config with a
 child moving the cursor every 200 ms, the window unfocused, five rounds of
 ten seconds, the first dropped; percent of one core, frames a second and the
-app's own `convert` from its report. The trail on by default at `fe776c9`
-was the one-cell ghost (the quad, at `6872f61` the same evening, measured
+app's own `convert` from its report. The trail on by default at `60cce43`
+was the one-cell ghost (the quad, at `c2e20be` the same evening, measured
 against it as "ghost, HEAD"):
 
 | arm | CPU | frames a second | the app's `convert` |
@@ -1098,7 +1098,7 @@ same frame reads 223; why the app's frame thread is slower is not measured.
 The focused-caret arm could not be taken: a window raised by script is
 frontmost and not focused, so nothing blinked.
 
-**Where the rest of a frame goes**, at `52e0ce8`, 2026-09-25, on mains: Time
+**Where the rest of a frame goes**, at `fed5f8d`, 2026-09-25, on mains: Time
 Profiler attached to the app on the cache's trail arm above, ten seconds,
 270 ms on a CPU over about 596 frames. The record, "A frame's CPU outside
 baud is Metal's submission, and nothing baud binds moves it".
@@ -1131,7 +1131,7 @@ are not reconciled.
 
 ## The cursor blink's cost: a battery reading, unmeasured on mains
 
-**Taken at `d6bab1b`, 2026-09-25, on battery at 30%** -- which the record
+**Taken at `7f8413d`, 2026-09-25, on battery at 30%** -- which the record
 calls "not quotable by this file's own rule", a retake on mains owed. It is
 published here labelled, and **nothing on this page gives the blink's cost
 at HEAD**. The record, "The cursor blinks, its style is configured, and the
@@ -1151,11 +1151,11 @@ window, an A/A copy of HEAD in the sweep; percent of one core:
 Blinking was disjoint from HEAD against a floor of 0.041%: 2.2 flips a second at
 about 1.1 ms of CPU a flip, at the default window size; a background window pays
 none of it. **That reading is stale twice over.** The frame it priced resolved
-the whole rendition table, which the cache removed the same day (`fe776c9`,
+the whole rendition table, which the cache removed the same day (`60cce43`,
 above). And on macOS the rate is the system caret's since 2026-09-27, AppKit's
 650/350 ms where it is unset -- two flips a second against 600/300's 2.22 (the
 record, "The cursor blinks at the system caret's rate, and the system's switch
-holds it steady"). The mains retake was attempted at `fe776c9` and could not be
+holds it steady"). The mains retake was attempted at `60cce43` and could not be
 taken, because a window raised by script is frontmost and not focused, so
 nothing blinked.
 
@@ -1180,20 +1180,20 @@ seconds, as its text says). **Each table is one sweep, and the absolutes move
 between sweeps** -- under the same jumps the fire read 6.06% in the lightning's
 sweep and 2.14% in the ufo's -- so only arms of one sweep are compared. The
 frame is the cost: about a quarter of a millisecond of Metal's submission a
-paced frame (above). **The default trail at HEAD is the plasma** since `898f9e6`
+paced frame (above). **The default trail at HEAD is the plasma** since `eb2f75e`
 (2026-10-10, "The plasma is the default trail, and the fire stays by name"), and
-its only cost reading is `e8798ae`'s, below. No trail cost has been re-taken at
+its only cost reading is `bc40570`'s, below. No trail cost has been re-taken at
 HEAD.
 
-**The first trail, at `d6bab1b`, 2026-09-25, on battery**, a child moving the
+**The first trail, at `7f8413d`, 2026-09-25, on battery**, a child moving the
 cursor between two cells every 200 ms: trail on 6.384% [6.164-6.676], off 1.238%
 [1.222-1.249], the A/A copy 6.497% [6.101-6.523] -- about 55 more frames a
 second at about 0.9 ms each. On mains the same pre-cache frame read 7.08%
-against 1.33% (`fe776c9`'s HEAD arms, above), and 3.12% against 0.97% with the
+against 1.33% (`60cce43`'s HEAD arms, above), and 3.12% against 0.97% with the
 cache. The record, "The cursor blinks, its style is configured, and the trail is
 on".
 
-**The quad, at `6872f61`, 2026-09-25, on mains**, over the owner's config with
+**The quad, at `c2e20be`, 2026-09-25, on mains**, over the owner's config with
 the blink off, HEAD's binary (the ghost) and the change's built at one path. The
 record, "The quad trail is kitty's four corners in closed form": The typing rows
 are the committed build's; the jump rows are the build before the held-key rule
@@ -1206,7 +1206,7 @@ and the looking-back snap, neither of which a 30-column move reaches.
 | a keystroke every 100 ms, a newline every 50 | 1.29% [1.25-1.48] | 5.41% [4.97-5.58] | -- | **1.50%** [1.39-1.55] | 1.49% |
 | its frames a second | 9 | 112 | -- | 9, and 14 in the window a newline falls in | -- |
 
-**The sweep, at `6700c54`, 2026-09-25, on mains at a load of about 2.5.**
+**The sweep, at `8da4787`, 2026-09-25, on mains at a load of about 2.5.**
 The record, "The sweep trail is sfte's swept box, a second shape of the same
 smear". Its CPU columns are no result -- the A/A copy reads 3.49% against
 the sweep's 5.80% with the same frames:
@@ -1218,7 +1218,7 @@ the sweep's 5.80% with the same frames:
 | a keystroke every 100 ms, a newline every 5 s | 0.98% [0.55-1.34] | 1.29% [1.24-1.69] | 1.50% [1.23-1.61] | 1.42% [1.15-1.64] |
 | its frames, ten seconds | 88-94 | 112-114 | 113-115 | 114-118 |
 
-**The fire, at `2dcb9b5`, 2026-09-25, on mains at a load of about 2.5.**
+**The fire, at `8211be4`, 2026-09-25, on mains at a load of about 2.5.**
 The record, "The fire trail is a flame in the cursor's colour, held to a
 Rust reference". Under typing a fire costs +0.68% of a core over the quad,
 69 frames more in ten seconds; under the jumps the two are no result:
@@ -1233,28 +1233,28 @@ Rust reference". Under typing a fire costs +0.68% of a core over the quad,
 **Four sweeps of 2026-09-26 whose power state the record does not state**,
 each on the fire's protocol (the plasma's over a config with the blink off):
 
-* **The plasma, `e8798ae`** ("The plasma trail is a braid that starves, and the critique
+* **The plasma, `bc40570`** ("The plasma trail is a braid that starves, and the critique
   shaped it"):
   under the jumps the quad, the fire and the plasma read +5.9%, +5.2% and
   +5.8% of a core over no trail, all inside the copy's 3.0% spread; under
   typing the copy spread 0.63% and nothing separated. No result.
-* **The lightning, `dbea478`** ("The lightning trail is one flash a pixel,
+* **The lightning, `0cef30d`** ("The lightning trail is one flash a pixel,
   over a region of its own"): under the jumps the fire 6.06% [5.96-6.27],
   the lightning 3.92% [2.23-4.93] and its copy 4.52% [4.31-4.87], the copy
   disjoint from the fire; under typing the copy spread 0.86% and nothing
   separated from no trail.
-* **The ice, `301f589`** ("The ice trail is frost laid on the path, and the
+* **The ice, `26b26b0`** ("The ice trail is frost laid on the path, and the
   bands learned to cover it"): under the jumps the fire 2.74% [2.65-6.50],
   the ice 3.64% [2.72-5.93], its copy 2.98% [2.51-5.04]; under typing the
   fire 0.80% [0.66-0.91], the ice 0.68% [0.62-0.79], its copy 0.85%
   [0.63-0.91]. Every range overlaps.
-* **The ufo, `32042ce`** ("The ufo trail is a saucer on a spring, and its
+* **The ufo, `90bb30d`** ("The ufo trail is a saucer on a spring, and its
   beam waits for it"): under the jumps the fire 2.14% [1.83-2.21], the ufo
   2.26% [1.77-2.62], its copy 1.90% [1.72-2.47]; under typing the fire 1.62%
   [0.93-2.04], the ufo 1.74% [0.96-2.08], its copy spreading 1.5%. Every
   range overlaps.
 
-**The orb on a spring, at `4478fb2`, 2026-09-26**, power not stated; its
+**The orb on a spring, at `1488b3c`, 2026-09-26**, power not stated; its
 frame counts were not kept. The record, "The orb trail is a sphere on a
 spring, and its comet is its own flight". Under typing it cost +0.50% of a
 core over no trail against the fire's +0.85%, disjoint from both:
@@ -1264,7 +1264,7 @@ core over no trail against the fire's +0.85%, disjoint from both:
 | a 30-column jump every 200 ms | 0.93% [0.90-0.94] | 6.07% [5.98-6.20] | 5.97% [5.80-6.04] | 5.99% [5.88-6.22] |
 | a keystroke every 100 ms, a newline every 5 s | 1.21% [1.20-1.23] | 2.06% [2.02-2.13] | **1.72%** [1.69-1.72] | 1.73% [1.72-1.78] |
 
-**The liquid, at `6daf3d3`, taken on mains on 2026-09-27** at a one-minute load
+**The liquid, at `818daaa`, taken on mains on 2026-09-27** at a one-minute load
 of 1.2-1.8, on the branch's tip built that day, which the record says carries
 three changes to what runs since the liquid: a refused ignition owing no frames,
 the orb's landing and the core's `ESC` rule. The record, "The liquid trail is a
@@ -1279,8 +1279,8 @@ of a core less than the fire with 129 fewer frames in ten seconds; under typing
 | a keystroke every 100 ms, a newline every 5 s | 1.22% [1.21-1.25] | 1.93% [1.88-1.96] | **1.57%** [1.56-1.58] | 1.60% [1.53-1.63] |
 | its frames, ten seconds | 89 | 182 | **135** | -- |
 
-**The orb that lands, at `e13d1b4`, in the liquid's sweep on mains on
-2026-09-27.** The binary is that sweep's branch tip, not `e13d1b4`'s tree alone.
+**The orb that lands, at `9e06507`, in the liquid's sweep on mains on
+2026-09-27.** The binary is that sweep's branch tip, not `9e06507`'s tree alone.
 The record, "The orb lands before it bursts, and a spring could not say when it
 had". Under the jumps it costs what a fire costs; under typing +0.45% over no
 trail against the fire's +0.74%, disjoint from both:
@@ -1292,8 +1292,8 @@ trail against the fire's +0.74%, disjoint from both:
 | a keystroke every 100 ms, a newline every 5 s | 1.22% [1.18-1.28] | 1.96% [1.92-2.03] | **1.66%** [1.63-1.76] | 1.68% [1.63-1.70] |
 | its frames, ten seconds | 89 | 182 | **143** | -- |
 
-**A trail riding a smooth scroll, at `cd5bc29`, 2026-09-27, on mains** at a
-one-minute load of 2-5, under the fire, ride against `a349d7e` and `stay`:
+**A trail riding a smooth scroll, at `0415566`, 2026-09-27, on mains** at a
+one-minute load of 2-5, under the fire, ride against `be25132` and `stay`:
 every pair overlaps on every mover, the A/A copy spreading 1.3-2.0% of a core
 under the scrolling movers against 0.07% idle. No result. The record, "A
 trail rides a smooth scroll, two rows at most".

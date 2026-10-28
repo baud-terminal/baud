@@ -71,7 +71,7 @@ but nothing protects the rows still on screen.
 The first design (2026-09-14) had the cell shader read the live grid under the
 core's rotation, with no copy. It was safe only because `pump` refused to feed
 the parser while a frame was in flight. That refusal was the freeze, and
-`800694c` replaced the design with the copy (D4). In September the copy cost
+`cbd2629` replaced the design with the copy (D4). In September the copy cost
 "about one microsecond" (the record) and D4 quotes 1.2 us. That figure is
 `ceiling.rs`'s memcpy rate, 62-69 GB/s (`j-rendering-evidence.md`, E4).
 
@@ -114,8 +114,8 @@ it:
   both provisionings.
 
 btop, vim, asciiquarium and cava are affected. cat-scroll and cat-cjk stay on
-the primary and are not. The defect came in with `0a44e3f5` (2026-09-13),
-which gave the alternate screen its own buffer. At `f1565cc9`, the September
+the primary and are not. The defect came in with `2d14bc39` (2026-09-13),
+which gave the alternate screen its own buffer. At `8d10abfd`, the September
 measurement, the alternate used the one lent grid, so September's live arm
 drew the right screen. **Every `frame_gpu` live-arm GPU or wall figure on
 btop, vim, asciiquarium or cava recorded since 2026-09-13 drew a blank
@@ -528,7 +528,7 @@ The judge found three gaps in today's code while checking the designs:
   * `metal.rs`'s module doc ("what makes the zero-copy grid safe"), the `lend`
     safety text, and the "keep incoming bytes queued" comment;
   * `app.rs` near lines 1229 and 2003-2015, where "`pump` does hold the
-    barrier" is false since `800694c`;
+    barrier" is false since `cbd2629`;
   * the `Reshape` doc in `journal.rs`;
   * `frame_gpu.rs`'s header;
   * the `CellMemory.copies` doc, which still cites the 30-60 us.

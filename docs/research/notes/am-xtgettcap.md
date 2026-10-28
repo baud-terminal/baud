@@ -7,7 +7,7 @@ baud's environment it sends one name, `Ms`.
 
 Evidence: the harnesses and their outputs are in
 `docs/research/notes/am/`, and line numbers in baud's code are at
-`5477bf7`. The third-party sources are cited by key, pinned under group AM.
+`4911bf0`. The third-party sources are cited by key, pinned under group AM.
 
 * `bounds.py` computes the sizes and bounds; its output is
   `bounds-output.txt`.
@@ -18,11 +18,11 @@ Evidence: the harnesses and their outputs are in
   `keymax-output.txt`.
 * `straddle-probe.rs` feeds baud a DCS split across two reads; its output is
   `straddle-output.txt`.
-* `xtgettcap-controls.rs` checks four facts about baud at `5477bf7`: the
+* `xtgettcap-controls.rs` checks four facts about baud at `4911bf0`: the
   kitty flags query, F21 through `Term::key`, how many hex bytes a `DCS + q`
   body holds today, and BEL in a `DCS + q` body. Its output is
   `xtgettcap-controls-output.txt`, and its checks are cited Q1-Q4. Q4's BEL
-  ended the body at `5477bf7`; since `83fee5d` a BEL in a DCS body is payload
+  ended the body at `4911bf0`; since `72e5ce0` a BEL in a DCS body is payload
   and only ST ends it (`a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it`).
 * `input-caps-output.txt` is a re-run of the repo's own
   `tests/conformance/input_caps.rs`.
@@ -435,7 +435,7 @@ follow.
   * They have landed: `kitty_encode` emits both (461-476). The comment was
     not re-derived. Its own case is 14 B, and the encoder's measured maximum
     is 40 B (section 7.1). So no bound in this note rests on the comment.
-    `db60529` replaced it with the measured 40 B; the line numbers here are `5477bf7`'s.
+    `bc16520` replaced it with the measured 40 B; the line numbers here are `4911bf0`'s.
   * Backspace sends `0x7f`. The comment says which byte it sends is DECBKM's
     (`?67`) choice, which baud does not implement, and that BS is Ctrl-H
     (712-720).
@@ -484,7 +484,7 @@ it encodes the key ncurses' convention names.
 **The repo already measures this by value.**
 `baud-core/tests/conformance/input_caps.rs` enumerates every byte string
 baud's key encoder produces, over every modifier and every mode, and counts
-the entry's input capabilities among them. Re-run at `5477bf7` it gives
+the entry's input capabilities among them. Re-run at `4911bf0` it gives
 **xterm-256color: 85 of 88** (M, `input-caps-output.txt`). It misses three
 (*since 2026-10-18 the pin is the `-x` capture: 137 of 140*):
 
@@ -527,7 +527,7 @@ baud never sends.
 
 ### 7.1 How long one key value can be (M)
 
-`keymax-main.rs` runs baud's real `encode_key` at `5477bf7` over four
+`keymax-main.rs` runs baud's real `encode_key` at `4911bf0` over four
 domains. Each is enumerated exhaustively, and the program's positive controls
 pass (`keymax-output.txt`).
 
@@ -1204,7 +1204,7 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
     V11.
   * The capture is pinned as a source only
     ([[source: terminfo-xterm-256color-x]]); it does not join the
-    conformance profiles. Added as an eleventh `profile!` at `dedd796`, it
+    conformance profiles. Added as an eleventh `profile!` at `ffa436f`, it
     fails on `Cs` alone, 1 of 88 output capabilities. The suite's `expand`
     writes the digit `1` for every `%d`, `%c` and `%s`
     (`baud-core/tests/conformance/terminfo.rs` 96-97), so
@@ -1214,8 +1214,8 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
     `Term::unsupported` at 0. The capture's manifest entry lists what would
     move if a later change made it join.
 * **Comments in the key encoder and the core say what is no longer so.**
-  * `db60529` rewrote all four below to say what the code does; their line
-    numbers are `5477bf7`'s.
+  * `bc16520` rewrote all four below to say what the code does; their line
+    numbers are `4911bf0`'s.
   * key.rs 275-285 derives the CSI-u maximum at 15 B and says the
     alternate-key and associated-text sub-fields "will grow it again and this
     bound is re-derived when they land". They have landed (`kitty_encode`,
@@ -1225,7 +1225,7 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
   * The module doc says "a key is at most a dozen bytes" (key.rs 10-11).
   * key.rs 86, 369 and 418, and `baud-core/src/term.rs` 471-472 and
     1841-1843, say kitty's `CSI ? u` stays refused. `write.rs` 1668-1677
-    answers it, and baud answers it at `5477bf7` (Q1).
+    answers it, and baud answers it at `4911bf0` (Q1).
   * key.rs 410-419 also says that under kitty's flags the text keys and the
     keypad send nothing, and 439-440 that "The keypad's kitty PUA numbers
     arrive with the alternate-key work, so it still sends nothing". Under

@@ -10,7 +10,7 @@ note" -- the decoder seam under baud's `no_std` contract, and the Kitty
 protocol itself** -- and records the cross-protocol owner's calls.
 
 **Status, 2026-10-10.** The Sixel half of the sequencing below is built but
-for step 5: `a7ea193` (2026-09-21) committed this note with the decoder, the
+for step 5: `492edae` (2026-09-21) committed this note with the decoder, the
 image store in caller memory, placements anchored to an absolute line, all
 three render paths, and the corpus's first two Sixel files,
 `tests/recordings/sixel/swirl.raw` and
@@ -295,7 +295,7 @@ concrete next action ~~is~~ was not the pointer-walk but **recording a Sixel
 capture**, which the golden-frame gate (`s-sixel.md` gate 2) needs anyway, and
 which then lets the pointer-walk be a measured A/B against a real workload
 rather than a faster-looking rewrite. The capture is recorded, `swirl.raw`
-beside `img2sixel-96x72.six` in `tests/recordings/sixel/` since `a7ea193`;
+beside `img2sixel-96x72.six` in `tests/recordings/sixel/` since `492edae`;
 the pointer-walk and its A/B are still to do (corrected 2026-10-10). The optimization is real and the prior art measures it;
 baud measures it on baud before believing it.
 
@@ -367,7 +367,7 @@ the research gives a discipline rather than a value.
 
 1. **Record a Sixel capture** into the corpus -- the golden-frame gate needs it
    and the decoder optimization cannot be measured without it. Concrete first
-   action, blocking both. Done in `a7ea193`, as were steps 2 to 4 (the status
+   action, blocking both. Done in `492edae`, as were steps 2 to 4 (the status
    above; corrected 2026-10-10).
 2. **Sixel storage** -- the caller-provided arena, placement table and image-
    slot table on `Storage`, refuse-and-count, per `s-sixel.md`. The arena size

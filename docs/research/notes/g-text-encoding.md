@@ -70,7 +70,7 @@ That is nine comparisons on the second byte of a multi-byte sequence, and
 **nothing at all on the ASCII path**. It is not a per-byte table lookup and it
 does not enlarge the working set.
 
-### 2.2 baud violated C10 twice — both fixed in `036a432`
+### 2.2 baud violated C10 twice — both fixed in `2931154`
 
 > **Status.** This section is kept in the past tense deliberately. Both bugs
 > were live when the survey ran, both were reproduced against the real crate,
@@ -211,7 +211,7 @@ codepoint; the standards cannot adjudicate between them. Argue SCS against
 xterm and ncurses, not against ECMA-35 — ECMA-35 does not reach it. (VTE's own
 source comment on keeping DEC Special Graphic: "This is still used by ncurses
 :-(".) This paragraph set xterm's translation against baud's "annotation",
-from when baud kept the byte and the flag; baud has translated since f297b21.
+from when baud kept the byte and the flag; baud has translated since f10c5ed.
 
 **Trap:** 10646 §12.2 NOTE 1 deprecates `ESC % / G` (with the 02/15
 intermediate) — a *different* sequence from `ESC % G`. A skim concludes `ESC % G`
@@ -483,7 +483,7 @@ whose only real consumer is terminal-shaped software.
 
 ## 5. Recommendations, ranked
 
-**1. ~~Add the second-byte range check.~~ DONE — `036a432`.**
+**1. ~~Add the second-byte range check.~~ DONE — `2931154`.**
 *Decision:* constrain the second byte per Table 3-7 — `E0` → `A0..BF`, `ED` →
 `80..9F`, `F0` → `90..BF`, `F4` → `80..8F`.
 *Reason:* baud today decodes `E0 80 AF` to `/`. That is a C10 violation and the
@@ -497,7 +497,7 @@ no extra bytes written, no structure enlarged. **Fix the test first** — a
 deterministic case asserting `E0 80 AF` does not render `/`, plus the Table 3-8
 and 3-9 vectors verbatim.
 
-**2. ~~Stop consuming the printable-ASCII successor byte.~~ DONE — `036a432`.**
+**2. ~~Stop consuming the printable-ASCII successor byte.~~ DONE — `2931154`.**
 *Decision:* give `machine.rs`'s Ground dispatch a printable-ASCII arm, or make
 the `State::Utf8` `None =>` re-feed route through the same path the scanner
 uses, so `<C2 41 42>` yields `<U+FFFD, 0041, 0042>`.

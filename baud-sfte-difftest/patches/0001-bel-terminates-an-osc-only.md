@@ -28,8 +28,8 @@ APC and a PM -- and that arm carries the same `b == '\x07'` terminator test
 first version, `0001-bel-terminates-osc-and-dcs.md`, let the BEL through in
 `VT_DCS` as well and called the whole "a one-line spec conformance fix". For
 those three strings it was the opposite: a departure from both texts, patched
-into the oracle. baud-core made the same departure until 83fee5d, so the two
-agreed in it and nothing could show it. Since 83fee5d baud ends only an OSC on
+into the oracle. baud-core made the same departure until 72e5ce0, so the two
+agreed in it and nothing could show it. Since 72e5ce0 baud ends only an OSC on
 a BEL, and four fixtures in `main.rs` tell the two conditions apart. Under the
 old one sfte ended the string at the BEL and drew the `X` after it: `BEL in a
 DCS body`, `BEL in an APC` and `BEL in a PM` each diverged in six cells and the

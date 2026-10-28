@@ -1,7 +1,7 @@
 # AD. What a cell draws for a code point no face draws
 
 **Status: open, researched 2026-10-08.** Nothing here is decided or built. The
-note reopens the rule built in e0a611d (note AB, Q23) and sets out the questions
+note reopens the rule built in 11827bf (note AB, Q23) and sets out the questions
 for Jev and then the owner.
 
 **2026-10-18, the composite subset of Case A answered.** That subset is a
@@ -18,7 +18,7 @@ composite on its base, such as q + U+0316 or a Hebrew point, stays
 dropped and counted pending Q2 and Q4.
 
 Evidence is tagged as in the other notes: measured, source (a citation to a
-manifest key, or file:line at e0a611d), inferred, or unknown. Five read-only
+manifest key, or file:line at 11827bf), inferred, or unknown. Five read-only
 research lenses ran on 2026-10-08 (standards, terminals, engines, frequency, design). Their
 scratch directories do not survive a reboot. So every primary source is in
 `docs/research/sources/` with a manifest entry, and the captures and
@@ -33,7 +33,7 @@ we doing something outside standard?" and "could be jev is missing context".
 **The question.** When no face in baud's stack draws a grapheme cluster whole,
 what should the cell draw for the code points the kept face lacks?
 
-**What baud does today (e0a611d).**
+**What baud does today (11827bf).**
 
 - A marked cell takes the first face that covers its whole cluster, after the
   shaper's normalisation. The base's face goes first, then the fallback chain
@@ -48,7 +48,7 @@ what should the cell draw for the code points the kept face lacks?
   and a consonant joined into an Indic conjunct (U+0915 is among those left out
   on the Linux stack, section 5.3). It also covers the parts of a precomposed
   base the face lacks.
-- Before e0a611d, the missing code point drew the face's `.notdef` with a
+- Before 11827bf, the missing code point drew the face's `.notdef` with a
   full-cell advance. The box drifted into the next cell and took every later
   mark with it (Q23).
 
@@ -500,7 +500,7 @@ which the owner's same-pixels rule does not allow.
   the second case the core deletes the selector.
 - **That refusal is not specific to selectors.** `attach` refuses every
   zero-width code point that has nothing to attach to: at column 0
-  (paint.rs:763-769 at e0a611d, commented "Dropping it is correct: ... there
+  (paint.rs:763-769 at 11827bf, commented "Dropping it is correct: ... there
   is no cell for it"), and on an empty cell (paint.rs:783-786). Every width-0
   code point reaches `attach` (paint.rs:669-672), so this covers combining
   marks, ZWJ, selectors and tags alike. For a mark, this is a defective
@@ -523,7 +523,7 @@ which the owner's same-pixels rule does not allow.
 
 ### 2.7 Does baud conform today?
 
-| case | baud at e0a611d | the standard's best practice | verdict |
+| case | baud at 11827bf | the standard's best practice | verdict |
 |---|---|---|---|
 | A: a mark the kept face lacks | dropped; counted internally | a visible, generic fallback (§ 5.21.6); § 5.13's Show Hidden and Simple Overlap and D52 draw the mark's own glyph, so they apply only when some face has it | departs from best practice |
 | B: a skin-tone modifier | dropped; the bare base draws | the base plus a missing-glyph indicator (UTS #51 § 2.4.1); a modifier is gc=Sk, a graphic character, so § 5.21.6 applies too | departs from § 5.21.6, and from the display UTS #51 describes (§ 2.4.1, whose "Unsupported" rows are descriptive) |
@@ -535,7 +535,7 @@ which the owner's same-pixels rule does not allow.
 | C: nothing draws the base, a lone code point | the primary face's `.notdef` | a last-resort glyph or missing-glyph box (§ 5.21.6) | matches when the primary's `.notdef` is inked; not under a configured SF Mono |
 | C: nothing draws the base, a cluster with attachments (Hebrew at HEAD, Arabic on macOS, Devanagari and kana + U+3099 on Linux; section 5.3) | the primary face's one `.notdef`; the attachments are dropped and counted only internally. On Linux Hindi that includes consonants: 848 clusters, 1,631 code points left out, U+0915 among them ([[source: ad-obs-freq-replay]]) | a visible glyph "so that at least it is clear that there are characters present—and usually, how many are present"; for U+0915 itself, "Displaying nothing would give the user the impression that the character does not occur in the text at all" (§ 5.21.6) | partly: one box is visible, but it stands for several characters, against "how many are present" |
 | default ignorable | nothing | nothing (17.0). In 18.0: a misplaced variation selector visibly (D57h, a chapter 3 "should"); misplaced tag characters and format controls visibly where misuse is a risk (§ 5.20, § 5.21.6, chapter 5 best practice) | matches 17.0; departs from 18.0 for misplaced selectors and misplaced tags, both measured drawing nothing (section 2.6) |
-| the core: past eight attached code points, refused by the store, or any zero-width code point with nothing to attach to, at column 0 or on an empty cell: marks, ZWJ, selectors, tags (paint.rs:763-786 at e0a611d) | gone from the grid, so from copy. On screen the refused code point shows as nothing: 95 of the 106 RGI sequences the core alters draw a different emoji on macOS, and on Noto 102-103 spill (section 5.2) | C7: deletion "does modify the interpretation of the text"; for a defective combining sequence, § 5.13's no-break-space base; on screen, § 5.21.6 | copy: the conformance clauses reach this, if copy purports to reproduce the text. Screen: departs from § 5.21.6 and from the displays UTS #51 describes, as row B's drop does; a mark at column 0 departs from § 5.13. Under a 10646 claim, from § 2.3 c) (section 2.2). If baud claims UTS #51 display (C2a) for these sets, C2 requires these sequences to be declared unsupported |
+| the core: past eight attached code points, refused by the store, or any zero-width code point with nothing to attach to, at column 0 or on an empty cell: marks, ZWJ, selectors, tags (paint.rs:763-786 at 11827bf) | gone from the grid, so from copy. On screen the refused code point shows as nothing: 95 of the 106 RGI sequences the core alters draw a different emoji on macOS, and on Noto 102-103 spill (section 5.2) | C7: deletion "does modify the interpretation of the text"; for a defective combining sequence, § 5.13's no-break-space base; on screen, § 5.21.6 | copy: the conformance clauses reach this, if copy purports to reproduce the text. Screen: departs from § 5.21.6 and from the displays UTS #51 describes, as row B's drop does; a mark at column 0 departs from § 5.13. Under a 10646 claim, from § 2.3 c) (section 2.2). If baud claims UTS #51 display (C2a) for these sets, C2 requires these sequences to be declared unsupported |
 
 Every row where baud shows nothing for a graphic character also departs from
 ISO/IEC 10646 § 2.3 c), under a 10646 device claim (section 2.2). The rows do
@@ -806,7 +806,7 @@ no-font variants:
 | Blink 150 (the Chromium that Electron 43 pins, under VS Code and Tabby) | read by the supplement, re-read by the refuter: [[source: chromium150-harfbuzz-shaper]], [[source: chromium150-font-cache-mac]] | the same whole-cluster rule: glyph 0 anywhere makes the whole cluster not-defined and sends it on (harfbuzz_shaper.cc:574-600). The system font is asked about one hint code point, the first that is not Common or Inherited (693-746), so for q + U+0316 it is asked about q and never about the mark | the primary's glyphs are committed, so the letter draws with the primary's `.notdef` for the mark, at that glyph's advance: a cell right on JetBrains Mono (inferred). This departs from CSS Fonts § 5.3 step 3, as Chromium does | the primary font's `.notdef`; LastResort is rejected by name (font_cache_mac.mm:111-115, 140-145) |
 | Pango 1.57.1 | measured: [[source: ad-obs-pango-marks]], [[source: ad-obs-pango-emoji]]; read: [[source: pango-itemize-1-57-1]], [[source: pango-font-h-1-57-1]] | a font per character; no cluster rule | per character | a hex box of 4 or 6 digits; later marks land on it |
 | Firefox 157 | read only: the headless run failed in the sandbox; [[source: gecko-gfxtextrun]], [[source: gecko-gfxfont]], [[source: gecko-missing-glyphs]] | keeps the previous font if that font has the character | per character | a hexbox from a 3x5 mini-font of its own, independent of any font; ignorables get zero width |
-| HarfBuzz 13.2.1 | measured with hb-shape; [[source: harfbuzz-13-2-1-buffer]], [[source: harfbuzz-13-2-1-ot-shape]] | (one font) | (one font) | glyph 0 at the font's own `.notdef` advance: 600 units in JetBrains Mono, one full cell, which is baud's drift before e0a611d. The not-found glyph can be set by the caller. |
+| HarfBuzz 13.2.1 | measured with hb-shape; [[source: harfbuzz-13-2-1-buffer]], [[source: harfbuzz-13-2-1-ot-shape]] | (one font) | (one font) | glyph 0 at the font's own `.notdef` advance: 600 units in JetBrains Mono, one full cell, which is baud's drift before 11827bf. The not-found glyph can be set by the caller. |
 | DirectWrite | documentation only; [[source: dwrite-mapcharacters]], [[source: dwrite-getglyphindices]] | unknown | "If it returns NULL, that means that no font can render the text, and mappedLength is the number of characters to skip (rendered with a missing glyph)." | glyph 0 |
 
 What the table shows:
@@ -853,7 +853,7 @@ What the table shows:
 
 ## 5. How often each case happens on the stacks baud ships
 
-**Method** (measured with baud's own code at e0a611d, exported into scratch):
+**Method** (measured with baud's own code at 11827bf, exported into scratch):
 
 - Each sequence went through a fresh `Term`, so the renderer saw the code
   points the core kept, never the code points as typed. It then went through
@@ -978,7 +978,7 @@ All 106 are RGI_Emoji_ZWJ_Sequence; the rows are section B of
   example, 1F9D1 1F3FB 200D 2764 FE0F 200D 1F48B 200D 1F9D1 1F3FC is kept as
   … 200D 1F48B 200D 1F3FC. The refused U+1F9D1 is only the eighth
   attachment, and the limit refuses only past the eighth (paint.rs:797 at
-  e0a611d), so the limit is not the cause (inferred from the code). The
+  11827bf), so the limit is not the cause (inferred from the code). The
   frequency lens attributes the refusal to a store collision
   (`.claude/research/ad-workflow-result.json`, untracked; not re-derived
   here).
@@ -1070,7 +1070,7 @@ stack that has none ([[source: ad-obs-freq-replay]]).
 **Where no face has the script, case C and case A happen together.** This
 covers Hebrew at HEAD (every letter), Arabic on macOS, and on Linux Devanagari
 and Han, kana and Hangul: the default Linux stack has no CJK face (config.rs at
-e0a611d). The base draws the primary's `.notdef`, and the rule drops the
+11827bf). The base draws the primary's `.notdef`, and the rule drops the
 attached code points. On Linux Hindi those include consonants inside conjuncts
 (U+0915-U+0939 are among the code points left out).
 
@@ -1127,8 +1127,8 @@ cluster store holds 1024 clusters and sweeps the dead ones").
   with the `<big>` tags stripped) keeps the resh of its last word without its
   segol: U+05E8 is kept, U+05B6 is refused, and `marks_dropped` is 1, at 39
   and at 80 columns. The last word fed alone keeps U+05E8 U+05B6 and refuses
-  nothing. Measured with baud's core at 5e5e934, whose sources are unchanged
-  since e0a611d, on 2026-10-08, after baud's renderer showed the missing
+  nothing. Measured with baud's core at 47185c4, whose sources are unchanged
+  since 11827bf, on 2026-10-08, after baud's renderer showed the missing
   segol the same day. So what the verse writes before that word decides the
   refusal: the store refusing on a collision or when full, as described
   above (inferred; which of the two, and which earlier cluster, was not
@@ -1205,8 +1205,8 @@ cluster store holds 1024 clusters and sweeps the dead ones").
     practice. The grid constraint rests on the core's fixed widths, § 5.21.6,
     mode 2027 and § 2.11.5.
   - **What happens to a glyph that reaches below its row depends on the draw
-    path.** baud has three, and they differ (file:line at e0a611d; the four
-    files cited are unchanged at 5e5e934):
+    path.** baud has three, and they differ (file:line at 11827bf; the four
+    files cited are unchanged at 47185c4):
     - **The CPU paint clips each row.** `paint` hands every instance of a
       row that row's pixel band (renderer.rs:1661-1692), and `Target::over`
       skips the pixel rows outside it (composite.rs:87-101). A glyph that
@@ -1367,9 +1367,9 @@ and C.
 
 **Hebrew, the case the owner reads.**
 
-- **Before 22b53b4 no face in the default stacks mapped Hebrew,** so every
+- **Before b7b7cd5 no face in the default stacks mapped Hebrew,** so every
   letter was case C.
-- **Since 22b53b4,** the embedded Regular and Bold map every point in
+- **Since b7b7cd5,** the embedded Regular and Bold map every point in
   U+05B0-U+05C7; U+05C6, the one they lack, is punctuation. No face in baud's
   stacks maps any of the 31 cantillation marks: not the embedded font, not
   the macOS default chain, not DejaVu Sans Mono. Faces outside the stacks do:

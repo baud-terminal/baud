@@ -1,5 +1,5 @@
 # Arm B: arm-B.patch applied to a git-archive copy of baud
-# at 2543f8b, then: CARGO_INCREMENTAL=0 cargo nextest run --workspace --no-fail-fast
+# at 80dcc7d, then: CARGO_INCREMENTAL=0 cargo nextest run --workspace --no-fail-fast
 # The copy unperturbed: 1951 tests run: 1951 passed, 2 skipped. The copy held
 # no test but baud's own: note AN's harness, a baud-core test file, was not in it.
 # 1951 tests run: 1944 passed (7 slow), 7 failed, 2 skipped

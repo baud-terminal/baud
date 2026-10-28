@@ -2,7 +2,7 @@
 
 The Linux app's frames, taken from a real compositor, against the same
 frames drawn by the CPU renderer on this Mac; and the Linux clipboard
-against a compositor's. Taken 2026-10-26 at `f3ff0052` plus this note's
+against a compositor's. Taken 2026-10-26 at `ef519585` plus this note's
 commits, by `scripts/linux-pixels.sh`, which any later run repeats. The
 owner's rule is that text looks the same on both systems (2026-10-01:
 "yes the rule is they must look the same").

@@ -133,7 +133,7 @@ rendition folded a word at a time with FNV-1a's constants, and its count of
 non-blank cells, both in `baud-core/tests/golden/recordings.txt` -- so it sees
 a change only where the change reaches the final screen. Each file's own length
 and FNV-1a were pinned by `replay.rs`, which went with `baud-core2` in
-`bcefaae`; nothing pins the bytes themselves now.
+`2538310`; nothing pins the bytes themselves now.
 
 ## How the 2026-10-28 captures were made
 

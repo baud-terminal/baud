@@ -162,7 +162,7 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
         // `?1049 h` while already on the alternate screen. xterm's set arm is
         // `CursorSave; ToAlternate; ClearScreen`, and `ClearScreen` runs
         // whatever buffer is up, so a second enter clears -- which sfte does
-        // and baud has done since `96949c2`. alacritty gates `swap_alt` on
+        // and baud has done since `3024b2b`. alacritty gates `swap_alt` on
         // `!ALT_SCREEN` and keeps the screen. No recording re-enters, which is
         // why this is a fixture: it was found by `multibench` replaying
         // `less-pager.raw`, which never leaves the alternate screen, so its
@@ -257,7 +257,7 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   and baud leaves it.** Both clear the screen, so every cell agrees; baud
 ///   clears without homing because xterm's `ClearScreen` does not home
 ///   (`xterm-util.c`), so after `HELLO` baud's cursor is at (0, 5) and sfte's
-///   at (0, 0). Until `96949c2` baud did not clear at all, and the five cells
+///   at (0, 0). Until `3024b2b` baud did not clear at all, and the five cells
 ///   of `HELLO` were the difference pinned here.
 /// * **`alt screen entry` -- sfte homes the cursor on a first `?1049 h`
 ///   too, and baud leaves it**, at (2, 6) after `CUP 3;7`: `[[source:
@@ -818,7 +818,7 @@ mod replay {
     /// program was in. `less-pager.raw` and `btop.raw` never leave the
     /// alternate screen, so their second passes re-enter it.
     ///
-    /// **Until `96949c2` sfte cleared on re-entry and baud did not**, and the
+    /// **Until `3024b2b` sfte cleared on re-entry and baud did not**, and the
     /// consequence showed only mid-pass: two whole passes agreed, and
     /// `multibench`'s 32 MiB total cut less-pager's last pass at byte 1,934,
     /// where 155 cells of sfte's cleared screen had not yet been redrawn.
@@ -856,7 +856,7 @@ mod replay {
         // The cut multibench's replay lands on: 1,113 whole passes and then
         // 1,934 bytes. One whole pass plus the cut reproduces it exactly, and
         // the count was stable from 1 to 1,113 passes when bisected. 155 cells
-        // until `96949c2`, when baud began clearing on re-entry as sfte does.
+        // until `3024b2b`, when baud began clearing on re-entry as sfte does.
         let cut = replayed("ascii/less-pager.raw", 1, Some(1_934));
         if cut != (0, 0) {
             bad.push(format!(

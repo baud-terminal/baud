@@ -260,7 +260,7 @@ two surviving hashes were measured with fontTools. The candidate measurement
 did not run baud-font. The session that built the review page later rendered
 some of these faces through baud (the Arabic fit below, and the 0.56 ms
 construction figure); which files it rendered is not recorded here. So what
-baud-font cannot read rests on reading its source alone, at 66170e3.
+baud-font cannot read rests on reading its source alone, at 6a2eff5.
 
 ### Scripts and symbols
 
@@ -410,8 +410,8 @@ row before it; a row in parentheses replaces that row's addition.
 
 ### What baud-font cannot read
 
-Read from baud-font's source at 66170e3, not by running it on these files.
-`baud-font/src` is unchanged between 66170e3 and a1d2b94, where the line
+Read from baud-font's source at 6a2eff5, not by running it on these files.
+`baud-font/src` is unchanged between 6a2eff5 and a1d2b94, where the line
 numbers below were read.
 
 - **Noto-COLRv1.ttf gets no colour.** `baud-font/src/colr.rs` reads COLR
@@ -462,7 +462,7 @@ Apple Color Emoji's cmap and shapes the family to one glyph from it. So that
 row showed baud's strike choice rather than what Apple's emoji look like,
 and it is not evidence about Apple's set until the fix lands.
 
-**The fix landed in 3b75a23** -- a strike is chosen per glyph among the
+**The fix landed in 34759c1** -- a strike is chosen per glyph among the
 strikes that hold it, and `flip` is drawn -- and the panel was redrawn with
 it: Apple's row is complete at 40 px, and the other three rows did not
 change. The page says the earlier panel was wrong. CLAUDE.md, "A colour

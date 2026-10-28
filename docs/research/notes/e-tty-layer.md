@@ -124,9 +124,9 @@ sentence.
   (`bsd/kern/sys_pipe.c`) and it is not fetched. The claim is measured, not
   explained.
 * **Scheduling.** "`SCHED_FIFO` -- p99 50% worse" is a prototype figure
-  (`git show f5399fb:README.md`, line 88) with no kernel source behind it: a
+  (`git show d8262f5:README.md`, line 88) with no kernel source behind it: a
   result, not a mechanism, and left as such. The RTIC entry `CLAUDE.md`
-  carried until b10c006 (`git show f5399fb:CLAUDE.md`, line 65) had no
+  carried until c1d710c (`git show d8262f5:CLAUDE.md`, line 65) had no
   measurement behind it either.
 * **`TTHIWAT` in practice.** `t_hiwat` at 9600 baud computes to
   `roundup(1216, CBSIZE)`, above the clist capacity, which is why the capacity
