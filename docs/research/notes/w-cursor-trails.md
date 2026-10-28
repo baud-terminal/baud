@@ -23,8 +23,8 @@ written without code formatting, because the tree does not hold it.
 
 ## 1. What survives, and where it is committed
 
-The research ran in three places: two research agents on 2026-09-25, one
-for the quad and sweep and one for the fire; six research agents on
+The research ran in three places: two studies on 2026-09-25, one
+for the quad and sweep and one for the fire; six studies on
 2026-09-26, one for each of ice, plasma, ufo, lightning, liquid and the orb,
 with a critique of each spec; and the build itself. Each piece is listed with
 what it is, who made it, and what it is committed as. Every recovered file is
@@ -199,7 +199,7 @@ The contract the effect research was given, from the workflow's own prompt
 8. **Cheap**, priced against the fire.
 
 The prior art behind rules 2 and 3 is kitty's quad and Neovide's VFX, read at
-source by both 2026-09-25 research agents. kitty's lightning and particle shaders, and
+source by both 2026-09-25 studies. kitty's lightning and particle shaders, and
 Neovide's VFX at a later commit, were pinned since for note AL
 ([[source: kitty-trail-lightning-851cb80]],
 [[source: kitty-trail-particles-851cb80]],
@@ -216,7 +216,7 @@ the SHA-256 the research recorded where it survives, and no copy in the tree.
 ### 5.1 ghost (`6cecea6`, 2026-09-20)
 
 - **Design source:** sfte's `SFTE_CURSOR_TRAIL` ([[source: sfte]]), built to
-  baud's blink standard rather than sfte's full wipe. No research agent:
+  baud's blink standard rather than sfte's full wipe. No study:
   this was the trail before the 2026-09-25 decisions, and the quad research
   (section 1) is what found it weak (a one-cell box, linear, 0.1 s, on every
   cell change).

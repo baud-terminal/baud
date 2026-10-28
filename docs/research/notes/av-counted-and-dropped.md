@@ -150,8 +150,8 @@ name, icon name), count the rest". The settings take "on" or "off". `OSC
 on/off setting pattern of the window operations, on by default". This
 overturns this note's "keep refused" for both; the one for `OSC 46` rested
 on a remote program naming a file to write, a risk kept behind a setting.
-`OSC 50`, the pointer-hiding mode and ReGIS are recorded by their own
-lanes.
+`OSC 50`, the pointer-hiding mode and ReGIS are recorded in their own
+notes and rows.
 
 - **`OSC 3`, built 2026-10-20.** `WM_NAME` and `_NET_WM_NAME` set the
   title, `WM_ICON_NAME` and `_NET_WM_ICON_NAME` the icon name, ICCCM's in

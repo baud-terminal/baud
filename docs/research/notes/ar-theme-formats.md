@@ -653,7 +653,7 @@ because the corpus is not in the repository.
 
 ---
 
-## 6. What bears on the herdr report (lane b56)
+## 6. What bears on the herdr report
 
 All of this is inference from code and the probe in baud.md §6. Nothing here
 was measured on herdr, which is b56's job.

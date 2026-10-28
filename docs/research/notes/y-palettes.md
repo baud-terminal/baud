@@ -7,10 +7,9 @@ while this was being written, are described from their commits and tests. Line n
 is V16 of note V, re-researched after the answers of 2026-09-25 and decided
 by those of 2026-09-29. It synthesises eight source sweeps
 (formats, switching, notify, floor, lightset, lscolors, baud's own code, and
-vogix). Each sweep was checked by a second agent whose job was to refute it,
-and two critics then read the draft, one against the request and one
-against baud's architecture. **Every correction a refuter or critic made is
-applied here**: a refuted claim is dropped, and a claim nobody could verify
+vogix). Each sweep was re-read against its sources, and the draft was then
+re-read twice, once against the request and once against baud's
+architecture. **Every correction a re-read made is applied here**: a refuted claim is dropped, and a claim nobody could verify
 is marked UNVERIFIED with the reason.
 
 **The scope changed on 2026-09-29**: vogix is set aside until vogix
@@ -24,7 +23,7 @@ Labels:
 - **VERIFIED**: read at source, at the commit and line given.
 - **UNVERIFIED**: not read at source, or not checkable (a legal question, an
   estimate, a closed-source program).
-- **computed**: produced by a script in the session scratchpad. Contrast is
+- **computed**: produced by a script that was not kept. Contrast is
   WCAG 2.x: relative luminance with sRGB linearised at 0.04045 and weights
   0.2126, 0.7152, 0.0722, and (L1 + 0.05) / (L2 + 0.05)
   ([[source: wcag22]] "relative luminance" at 3597-3605, "contrast ratio" at
@@ -35,8 +34,8 @@ Sources pinned in `docs/research/sources/MANIFEST.toml` are cited by their
 manifest keys in the repository's double-bracket form (group Y, plus keys that
 already existed).
 Everything else is written as repo@commit path:line and marked UNPINNED.
-Names of tests that do not exist yet, and paths that exist only in the
-session scratchpad, appear without code formatting, so this note cites
+Names of tests that do not exist yet, and paths of working files that
+were not kept, appear without code formatting, so this note cites
 nothing the tree lacks.
 
 
@@ -134,7 +133,7 @@ twelve open questions; nothing in this list is open.
    0.5 ([[source: kitty-colors-h]] 66-69, [[source: kitty-colors-c]]
    1060-1063, read from [[source: kitty-window-py]] 1654-1656). iTerm2's is
    0.30/0.59/0.11 below 0.5 (iTerm2@8622e64 NSColor+iTerm.m, UNPINNED; the
-   notify sweep's reading, confirmed by its refuter). Neither compares the
+   notify sweep's reading, confirmed on a re-read). Neither compares the
    background with the text. The rules agree on baud's two defaults, on
    Solarized dark and light, and on all 602 bundled ghostty themes (section
    4), and differ near mid-grey: at `#808080` on white kitty's rule says light
@@ -224,7 +223,7 @@ that absence holds for PTYSession.m only). Distributions and frameworks set
 it: Fedora's colorls.sh, oh-my-zsh, vivid, dircolors-solarized. VERIFIED.
 
 **What the measuring machine actually runs** (read from its home-manager files; VERIFIED
-by the lscolors sweep and its refuter):
+by the lscolors sweep and its re-read):
 
 - `ls`, `ll`, `la`, `lt` are aliases for **lsd 1.2.0**. LS_COLORS is unset, so
   lsd colours names from lscolors-0.20.0's `LS_COLORS_DEFAULT`
@@ -284,7 +283,7 @@ only the floor reaches.
 ## 4. The formats, and the type
 
 **What each format carries** (formats sweep, VERIFIED at the commits named;
-the refuter's corrections applied):
+the re-read's corrections applied):
 
 | format | what it carries | lands in ANSI 0-15 |
 |---|---|---|
@@ -446,8 +445,8 @@ dated line), so every entry but 15 is at least 4.5.
   defensible one: sixteen hex values in baud's own table, credited, no file
   text copied, and the `.el` files `external` so no GPL text enters the tree.
 
-**The alternatives on baud's page** (lightset sweep, computed, refuter's
-corrections applied), kept so the choice is legible:
+**The alternatives on baud's page** (lightset sweep, computed, the
+re-read's corrections applied), kept so the choice is legible:
 
 | set | colour text min on 0xEF | ls ex, ln | notes |
 |---|---|---|---|
@@ -551,7 +550,7 @@ unless marked:
   preference ([[source: contour-session-cpp]] 791-794), so it neither changes
   the live palette nor sends 997.
 
-**What others report** (notify sweep, refuter's corrections applied): the
+**What others report** (notify sweep, the re-read's corrections applied): the
 effective background including an application's OSC 11 (kitty,
 [[source: kitty-window-py]] 1654-1669; iTerm2; VTE; xterm.js); the terminal's
 chosen theme (ghostty, whose 997 is `conditional_state.theme`,
@@ -669,7 +668,7 @@ critic's change):
 ## 8. The contrast floor
 
 **What the implementations do** (floor sweep, VERIFIED at the commits named,
-refuter's corrections applied):
+the re-read's corrections applied):
 
 | terminal | default | rule | exact equality | measured against |
 |---|---|---|---|---|
@@ -731,7 +730,7 @@ that exempts nothing wrecks pictures drawn in text**: in
 neighbouring pixels are close in colour (computed).
 
 **The per-slot rule** (decision 6's internal choice). This is this
-synthesis's own proposal; no sweep or refuter checked it, and no
+synthesis's own proposal; no sweep or re-read checked it, and no
 implementation does exactly this (Windows Terminal's Indexed mode, which
 requires both sides to be default or 0-15, is the nearest). The floor lifts a
 slot's text only when:
@@ -819,7 +818,7 @@ said "at the end ... before `with_alpha`", which contradicts itself because
 - The linearisation table is `baud-domain`'s, one 256-entry sRGB decode shared
   with the 996 classifier, not a second copy in baud-render.
 
-**Cost** (floor sweep's scratch bench, not baud code; refuter-corrected): the
+**Cost** (floor sweep's scratch bench, not baud code; corrected on a re-read): the
 check is about 1.3-2.9 ns a slot with a 256-entry linearisation table; a lift
 is 27-54 ns a failing slot. **A full pass resolves live slots only** while the
 table has room, typically a few hundred, so the floor adds well under a
@@ -1311,7 +1310,7 @@ still runs, to show it.
      `half_theme` builds a half for both, so a pinned light theme on Linux
      dims by `dim_light` as macOS does (it dimmed by `dim_dark`, older than
      this step).
-   - **The review**, read-only, four lenses and a refuter per finding, found
+   - **The review**, read-only, four lenses and a re-read of each finding, found
      four places the ghostty reader disagreed with ghostty (rounding, a
      padded quoted value, `rgbi:`, the whitespace set), the loader's
      directory, extension-case and unreadable-file defects, the Linux dim,

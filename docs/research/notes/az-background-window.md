@@ -1,7 +1,7 @@
 # AZ. A window in the background
 
 What a terminal draws while another window has the keyboard: the cursor,
-and on macOS the selection. Read 2026-10-22 for lane b144; every source
+and on macOS the selection. Read 2026-10-22; every source
 below is pinned in `docs/research/sources/MANIFEST.toml`. Terminal.app is
 closed source and was not read; its behaviour is not counted either way.
 

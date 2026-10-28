@@ -1816,7 +1816,7 @@ notice is, and the URL each file was copied from.
 | [aj-observed/probe-logo-sampling.txt](docs/research/sources/aj-observed/probe-logo-sampling.txt) | bash probe-logo-sampling.sh, run in the directory of git clone --depth 1 copies at the pins in aj-obs-probe-terminals |
 | [aj-observed/probe-run.sh](docs/research/sources/aj-observed/probe-run.sh) | a shell script written for note AJ |
 | [aj-observed/probe-terminals.txt](docs/research/sources/aj-observed/probe-terminals.txt) | bash probe-run.sh probe.sh, run in the directory of git clone --depth 1 copies at the printed pins |
-| [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the sweep agent's probe script, kept as run |
+| [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the other-terminals sweep's probe script, kept as run |
 | [ak-observed/lossy-out.txt](docs/research/sources/ak-observed/lossy-out.txt) | output of ak-obs-lossy-rs |
 | [ak-observed/lossy.rs](docs/research/sources/ak-observed/lossy.rs) | test source, compiled and run locally |
 | [ak-observed/observations.txt](docs/research/sources/ak-observed/observations.txt) | shell commands, each printed before its output |
@@ -1830,11 +1830,11 @@ notice is, and the URL each file was copied from.
 | [al-observed/b68-cpu-base-census.tsv.gz](docs/research/sources/al-observed/b68-cpu-base-census.tsv.gz) | flash bench at 49aa8251, FLASH_PATH=cpu |
 | [al-observed/b68-cpu-o2-census.tsv.gz](docs/research/sources/al-observed/b68-cpu-o2-census.tsv.gz) | flash bench with O2, FLASH_PATH=cpu |
 | [al-observed/b68-o2-census.tsv.gz](docs/research/sources/al-observed/b68-o2-census.tsv.gz) | flash bench with O2, FLASH_HASH=1, sharded by size and ground |
-| [al-observed/b68_analyze.py](docs/research/sources/al-observed/b68_analyze.py) | written for lane b68 |
+| [al-observed/b68_analyze.py](docs/research/sources/al-observed/b68_analyze.py) | written for note AL's O2 census check |
 | [al-observed/b71-analysis.txt](docs/research/sources/al-observed/b71-analysis.txt) | python3 b71_summary.py b71-ghost-census.tsv.gz |
 | [al-observed/b71-ghost-census.tsv.gz](docs/research/sources/al-observed/b71-ghost-census.tsv.gz) | flash bench ghost arm, FLASH_HASH=1, base and bound, sharded by size and ground; the build column says which |
 | [al-observed/b71-other-arms-hashes.tsv.gz](docs/research/sources/al-observed/b71-other-arms-hashes.tsv.gz) | flash bench, FLASH_HASH=1 (and FLASH_TEXT=1), base and bound |
-| [al-observed/b71_summary.py](docs/research/sources/al-observed/b71_summary.py) | written for lane b71 |
+| [al-observed/b71_summary.py](docs/research/sources/al-observed/b71_summary.py) | written for note AL's ghost census |
 | [al-observed/b76-glass-census.tsv.gz](docs/research/sources/al-observed/b76-glass-census.tsv.gz) | flash bench, FLASH_GLASS=1 FLASH_HASH=1, sharded by size and ground; the desktop column says which |
 | [al-observed/b76-glass-screens.tsv.gz](docs/research/sources/al-observed/b76-glass-screens.tsv.gz) | flash_screens bench, 13,24,32 all |
 | [al-observed/b76-opaque-hashes.tsv.gz](docs/research/sources/al-observed/b76-opaque-hashes.tsv.gz) | flash bench, FLASH_HASH=1, both builds; the build column says which |

@@ -1352,7 +1352,7 @@ Pages that are not files in a repository, in full:
 
 ## 11. Script selection after phase 0: the four questions Q6 left (2026-10-13)
 
-Q6's postscript built phase 0 at 5d44960 and left four choices the texts do not settle. Round 2026-10-13f weighed all four, and round 2026-10-13g weighed Q-A and Q-C again with two research lanes' measurements. The data, harnesses and patch the decisions rest on are committed in [ab/](ab/), listed in 11.6. Every figure below is taken from those files. This section's baud citations are at a9bf3a1, not the a8114e2 of the note's header.
+Q6's postscript built phase 0 at 5d44960 and left four choices the texts do not settle. A review on 2026-10-13, 13f below, weighed all four, and a second that day, 13g, weighed Q-A and Q-C again with two further measurements. The data, harnesses and patch the decisions rest on are committed in [ab/](ab/), listed in 11.6. Every figure below is taken from those files. This section's baud citations are at a9bf3a1, not the a8114e2 of the note's header.
 
 ### 11.1 What was answered
 
@@ -1499,7 +1499,7 @@ Not built: an Appendix B arm (merged classes, outside the FAQ's rule) and HarfBu
 - ~~**`GPOS` SinglePos is not applied.** baud applies `GPOS` lookup types 4, 6 and 9 only, so DejaVu Sans Mono 2.20's `latn` `mark` lookup 7 (`XAdvance -1233`) never runs; on that face U+0328 keeps its advance whichever table is chosen.~~
 - **The four above, built, 2026-10-23**: `GPOS` types 1, 2 and 8 run; a Hebrew run whose `GPOS` selects no Script table is placed as on a face with none and composes the presentation forms; a face carrying `GSUB` and a `morx` baud runs whole shapes through `morx`. All three faces match hb-shape on every distinct cluster of both corpora. DejaVu Sans Mono 2.20's lookup 7 now runs; what it does to U+0328 there is unmeasured. Still open: Arial Hebrew Scholar, which HarfBuzz positions with `kerx` format 4, unbuilt.
 - **hb-shape depends on the file's bytes on three faces:** on `03B1 0308 0301` it leaves the acute unplaced on the original Tahoma Bold, Tahoma and Times New Roman Italic, and places it exactly as baud does (`589=0@550,390`) on fontTools round-trip copies with the script records unchanged. Tahoma and TNR Italic have a `grek` table, where A1 = A2. This is why 11.2's one hb = A2 line is confounded; its cause is unmeasured.
-- **The Q-C lane's report says "Every other face is unchanged"** after listing Courier New, Arial Hebrew and New Peninim MT; its own table moves Arial Hebrew Scholar too, 57/192 → 70/209 on Genesis and 87/477 → 100/514 on Pango. The tables above are generated from tables.md, not the report.
+- **The Q-C measurement's report says "Every other face is unchanged"** after listing Courier New, Arial Hebrew and New Peninim MT; its own table moves Arial Hebrew Scholar too, 57/192 → 70/209 on Genesis and 87/477 → 100/514 on Pango. The tables above are generated from tables.md, not the report.
 - **Phase 0's labels for Q-A's A3 and Q-D's D3** (departing) disagree with the ones they were weighed under (conforming); 11.1.
 - **~~Raanana's fallback puts a point at dy -4 under HarfBuzz and 0 under baud~~ (11.4). Built, 2026-10-15**: the fallback placer reads `recategorize_combining_class`'s Hebrew classes, and Raanana and Raanana Bold match hb-shape on every distinct cluster of both corpora, 70/209 and 190/641, from 19/96 and 42/279. Those figures shaped Raanana with the grid set, whose `-rlig` turns its default-on flag 0x2 off; at the chain defaults baud runs, it was 45/158 and 120/471 until `morx` walked right-to-left runs in logical order.
 - **Correction to 11.4's attribution of the presentation forms on Lucida Grande and Corsiva Hebrew.** They shape through `morx`, and on a `morx` face HarfBuzz replaces the Hebrew shaper with its dumber one (hb-ot-shape.cc:99-101 [[source: harfbuzz-hb-ot-shape]]), so `compose_hebrew` (hb-ot-shaper-hebrew.cc:81) does not run there. hb-shape's `--trace` shows the ligature formed by a `morx` chain subtable: 4 on Lucida Grande, 1 on Corsiva Hebrew and on New Peninim MT. **Found and built, 2026-10-15**: those subtables run in reverse layout order, which on a right-to-left run is logical order, and baud walked them backwards; it now reads the run's direction from its script, and every distinct cluster of both corpora matches hb-shape on all eight faces.
@@ -1553,7 +1553,7 @@ finding that no pinned terminfo entry and no application read sends
   mirrored base under a mark that draws. That lean
   is to build both; this step built only the bidi-control case, so both
   stay unbuilt and counted, open departures until built (ab/step2/l4.png).
-  ~~Open departures.~~ Built to L4 on 2026-10-24 (lane b197): a flipped
+  ~~Open departures.~~ Built to L4 on 2026-10-24: a flipped
   glyph, each row of texels reversed and placed mirrored in its span, on
   all three draw paths, and the mirror under a cell's marks. One of the 126
   carrying a mark the face draws apart: the base flipped and the mark not
@@ -1592,7 +1592,7 @@ scroll, images, an input method's composition and a predicted echo keep
 their stored columns on a reordered row; a bidi control at a paragraph's
 column 0 is dropped (2.5); ~~a mirrored character carrying a mark that
 draws is drawn unmirrored and counted (12.1)~~, drawn with its mirror
-under the mark since lane b197; vim-unicode, cat-cjk and less-cjk,
+under the mark since 2026-10-24; vim-unicode, cat-cjk and less-cjk,
 three of the recordings the benches replay, hold Hebrew and Arabic, so
 their implicit frames lay real right-to-left rows out.
 

@@ -1,4 +1,4 @@
-//! Lane qc-sbl harness: shape one cluster at a time and print glyphs in
+//! The Q-C (SBL order) harness: shape one cluster at a time and print glyphs in
 //! logical order, or time shaping the whole cluster list.
 //!
 //!   qc shape <face> <index> <clusters.txt>

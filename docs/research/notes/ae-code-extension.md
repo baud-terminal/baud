@@ -1,6 +1,6 @@
 # AE. Code extension: the four G slots, GL and GR, and the shifts
 
-**Status: built 2026-10-19 (lane b100), but for Q12, Q13's SCORC half,
+**Status: built 2026-10-19, but for Q12, Q13's SCORC half,
 Q15, Q17 and Q18; researched 2026-10-08.** Every question was weighed again
 with baud's DA answer (it keeps `?6c`) and the rule that a protocol is
 supported fully: GR on G2 decided and any number of SO/SI; leans taken,
@@ -15,7 +15,7 @@ below are the research as written.
   some text (for Q1 under the 8bit-level1 reading of `ESC % @`, and for Q9
   under the VT102 reading of DA, each reading itself a choice to make), or
   the option that conforms collides with a practice baud already follows.
-  Since then lane b100 decided Q1 and took leans on Q2 with Q4.1 and on Q9
+  Since then the 2026-10-19 build decided Q1 and took leans on Q2 with Q4.1 and on Q9
   (above), Q8 is decided at AE8 (§10), and Q11 leans to slots (2026-10-09), still to be
   confirmed. Q11, Q12 and Q17 stay open.
 - **Recommended:** the premise P and Q3-Q7, Q10, Q13-Q16 and Q18. A
@@ -1207,7 +1207,7 @@ Options:
 
 ### Q18. `ESC SP L/M/N`, Announce Subset of Code Extension Facilities
 
-**Built 2026-10-19 (lane b104)**: option (a) at Levels 3 and 4, with the
+**Built 2026-10-19**: option (a) at Levels 3 and 4, with the
 conformance level DECSCL selects and Level 4 at power-up (ACT_AT_3_PLUS). DA1 still answers `?6c`.
 
 **The texts.**
@@ -1899,8 +1899,8 @@ The work splits by what each piece waits on.
 | P, Q4, Q5, Q7, Q15, Q16 | **Recommended, free of departure** | Q4 and Q16 decided (§10), and Q5's GR-bytes half later; P, Q5's LS1R-LS3R half, Q7 and Q15 stayed open |
 | Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **Recommended, departing** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
 
-This is the state of 2026-10-08. What lane b100 and AE8 changed since is
-in the first bullet at the head of this note.
+This is the state of 2026-10-08. What the 2026-10-19 build and AE8 changed
+since is in the first bullet at the head of this note.
 
 **(a) Buildable now, with no decision.**
 
@@ -1996,8 +1996,8 @@ quoted and every option marked conforming or departing as this note marks it.
 | Q17 | none | open |
 | Q18 | (a) act as 070-3 §3.8.1 says | open |
 
-This is the state of 2026-10-08. What lane b100 and AE8 changed since is in
-the first bullet at the head of this note.
+This is the state of 2026-10-08. What the 2026-10-19 build and AE8 changed
+since is in the first bullet at the head of this note.
 
 **The answers on P and Q5 conflict with each other.** P-A and Q5's LS1R-LS3R
 option (ii) cannot both hold: §4's table makes (ii) required only under P-B;

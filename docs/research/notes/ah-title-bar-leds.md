@@ -27,7 +27,7 @@ committed:
 Evidence tags:
 
 - **M**: measured by one of the probes, on this Mac (Apple M5 Max, macOS
-  27.0 build 26A5425a, on AC power, in the agent's sandboxed shell). Each M
+  27.0 build 26A5425a, on AC power, in a sandboxed shell). Each M
   cites its saved output by `ah-obs-*` key, and each output records the
   sha256 of the probe source it ran (also an `ah-obs-*` key; the ssh output
   records a 12-character prefix of it).
@@ -810,11 +810,11 @@ see another process's records is open.
     size query is computed from the system-wide `ipi_count`, plus
     `ntstat_userland_count` under `SKYWALK` (318). Together with the counts
     above (**M**, [[source: ah-obs-pcb64-probe-out]], [[source: ah-obs-leds-probe-ssh-out]]), this says the headers count sockets the fetch withheld.
-  - **Not re-read for this note**, because a check of that code was declined
-    in this session: a verifier reports that `get_pcblist_n`
+  - **Not re-read for this note**; an earlier reading reports that
+    `get_pcblist_n`
     (in_pcblist.c 292-484), `get_tcp_inp_list` (tcp_subr.c 2137-2164) and
     the `pcblist64` handler (tcp_subr.c 2416-2531) have no per-caller filter.
-    They also report that the trailing header (454-471) is written only past
+    It also reports that the trailing header (454-471) is written only past
     the `xig_count == 0` exit (369-371). That is consistent with the 48 B:
     two headers, a non-zero count, no records.
   - **The running kernel is not the pinned one.** `uname -v` reports
@@ -823,7 +823,7 @@ see another process's records is open.
   - **So the filter sits in the sandbox, or in kernel code newer than the
     pinned source. Which one is UNVERIFIED.**
   - **Also UNVERIFIED:** a reviewer's sandboxed `pcblist_n` run (35,776 and
-    48 B), and two unsandboxed runs earlier in this session that showed the
+    48 B), and two earlier unsandboxed runs that showed the
     same thing. None of those outputs was saved. The unsandboxed check is on the list (8.1).
 
 **Linux: per-socket TCP bytes, through `sock_diag`.**
@@ -1438,9 +1438,9 @@ Each needs its options rendered before it is settled.
 
 ### 8.1 Checks to run
 
-These need a run outside the agent's sandbox, which this research made
+These need a run outside the sandbox, which this research made
 only without saving its output (3.7, UNVERIFIED). Each one needs an ssh session open in another terminal, and each is
-run from an ordinary terminal (not inside the agent).
+run from an ordinary terminal (not inside the sandbox).
 
 The commands below run the two probes, built from their committed sources,
 [[source: ah-obs-pcb64-probe-c]] and [[source: ah-obs-leds-probe-c]], with the

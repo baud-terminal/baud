@@ -1,14 +1,12 @@
 # Theme files in peer terminals: how each one reads them, and whether any picks the format from the content
 
 Research for autodetecting ANSI, base16 and base24 theme files (2026-10-16). This is read-only
-research. Nothing in the repo was changed. It lives in the scratchpad, so if a
-decision ends up resting on it, it has to move to `docs/research/notes/` in the
-same session (a reboot wipes /private/tmp).
+research. Nothing in the repo was changed.
 
 Provenance: **VERIFIED** means the file is pinned in
 `docs/research/sources/MANIFEST.toml`, and the key is given. **UNPINNED** means
-it was fetched today, 2026-10-16, at the commit named. Copies are under
-`.../scratchpad/theme-formats/dl/`. Line numbers were re-checked with `grep -n`.
+it was fetched today, 2026-10-16, at the commit named. The copies were
+not kept. Line numbers were re-checked with `grep -n`.
 This note does not repeat note Y's light/dark rules, licences or corpus counts:
 see `docs/research/notes/y-palettes.md:316-422`.
 

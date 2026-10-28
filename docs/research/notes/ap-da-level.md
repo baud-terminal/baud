@@ -260,10 +260,10 @@ full.
     in `docs/vt-coverage.md`).
   - DECSCL has no arm: `baud-domain/src/vt/csi.rs` dispatches `! p` and
     `$ p` and no `" p`, and the probe counts `CSI 61 " p`.
-    *2026-10-19 (lane b104):* DECSCL is built, Levels 1 to 4, Level 4 at
+    *2026-10-19:* DECSCL is built, Levels 1 to 4, Level 4 at
     power-up, DA1 unchanged; its Level 1 operation is partial (the DECSCL
     row of `docs/vt-coverage.md`).
-    *2026-10-22 (lane b153):* each level executes only the functions it
+    *2026-10-22:* each level executes only the functions it
     defines, Level 1 operation included: the 7-bit strip under ISO 8859-1,
     the Level 1 keyboard, and Level 2 to 4 functions not executed (the
     DECSCL row). Section 7's item 4 is built; DA1 still answers `?6c`.

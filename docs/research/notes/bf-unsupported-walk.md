@@ -81,7 +81,7 @@ line-limit, tabulation and area functions of 2026-10-26 and 27.
 
 Each row's reason was read against its scope. None says less than the
 governing text does, so none is reopened. A 27th, `ESC l` / `ESC m`,
-is added by this note's lane (section 5).
+is added by this note (section 5).
 
 | row | class | the reason, and why it holds |
 |---|---|---|

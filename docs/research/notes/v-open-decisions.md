@@ -3279,7 +3279,7 @@ both policies, so with the range test in its `Wide` arm private use comes
 out narrow, code 0, and `Classified::width` is unchanged. Item 5, the
 renderer's two-cell masks, is not built.
 
-**Item 5 built 2026-10-25** (lane b212): a box or block character two cells
+**Item 5 built 2026-10-25**: a box or block character two cells
 wide is drawn across both on the CPU, instance and cell paths, keyed by
 the cell's span. Its horizontals run through the second cell, its
 verticals, junctions and corners stay at the first cell's centre, its

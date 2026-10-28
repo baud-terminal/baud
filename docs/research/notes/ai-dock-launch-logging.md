@@ -754,7 +754,7 @@ written on the file system `~/Library/Logs` is on (M,
   3.4 to 34.3 us.
 - Error's slowest call was 47 to 64 us, and Default's 68 to 115 us. The file's
   was 7 to 20 us.
-- An earlier session, whose output was transcribed and not saved, showed larger
+- An earlier run, whose output was transcribed and not saved, showed larger
   maxima: up to about 1.1 ms for `os_log` and 0.32 ms for the file write
   ([[source: ai-obs-index]] §6, marked TRANSCRIBED). It is not tagged M.
 - A burst of 1000 is not baud's pattern. The refusal line comes at most once a

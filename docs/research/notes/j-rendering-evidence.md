@@ -437,7 +437,7 @@ implementation is 1,091 + 1,080 + 106 + 269 lines
 rustybuzz's ~1.3k, swash's ~1.9k, allsorts' ~1.7k. baud's subset is
 **~700-1,000 lines**, about the GSUB core's size. The three options and their
 prices are in D9; the differential oracle is the CoreText probe already
-written (`scripts/`-bound, currently in the scratchpad) plus HarfBuzz's AAT
+written (`scripts/`-bound, not yet in the tree) plus HarfBuzz's AAT
 tests off-Mac.
 
 ## E10. Colour emoji formats

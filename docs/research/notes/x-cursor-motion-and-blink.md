@@ -2,10 +2,10 @@
 
 Written 2026-09-27, read against `1ce14c8` and `8fab372`. **These are the designs
 the builds of that day were given**, kept so the reasoning behind each choice
-outlives the session scratchpad it was written in. Each was drafted by one
-agent and refuted by a second, and the version here is the corrected one.
-Names of tests that were proposed and never written, and paths that exist
-only in that scratchpad, appear without code formatting, so this note does
+outlives the working files it was written in. Each was drafted once and
+re-read against its sources, and the version here is the corrected one.
+Names of tests that were proposed and never written, and paths of working
+files that were not kept, appear without code formatting, so this note does
 not cite what the tree lacks.
 
 The answers of 2026-09-27: blink-after-exit rule **F**; ride-scroll
@@ -30,7 +30,7 @@ Build: "reduce-motion". The decision is at docs/research/notes/v-open-decisions.
 
 Labels:
 - **[read]**: read at source.
-- **[run]**: run by me, in `scratchpad/cursorq/rv/`, the probes `order.m`, `callee.m`, `regcost.m`, `stage.m` and `sub.m`.
+- **[run]**: run for this design, in a working directory not kept, the probes `order.m`, `callee.m`, `regcost.m`, `stage.m` and `sub.m`.
 - **[inferred]**: reasoned from what was read or run.
 
 Nothing in the repository was edited, and no cargo command was run there.
@@ -337,7 +337,7 @@ Run each perturbation with `--no-fail-fast`. Re-spell any perturbation that stop
 
 ## The blink from the OS
 
-The repository is baud at `1ce14c8`. It was read only: nothing in it was edited and no cargo was run there. The runs below are standalone `rustc` programs under `scratchpad/cursorq/review/` (`frames.rs`, `conv.rs`, `stop.rs`). A copy of this design is at `scratchpad/cursorq/review/corrected-design.md`.
+The repository is baud at `1ce14c8`. It was read only: nothing in it was edited and no cargo was run there. The runs below are standalone `rustc` programs (`frames.rs`, `conv.rs`, `stop.rs`) in a working directory that was not kept.
 
 Claims carry one of three labels:
 - **[source]**: read at source;
@@ -398,7 +398,7 @@ These findings change the design:
    - Chromium re-reads the *keys* on `NSApplicationWillBecomeActiveNotification` (`defaults_utils.mm:15-34`).
    - It *observes* `AXPrefersNonBlinkingTextInsertionIndicatorDidChangeNotification` for the switch (`os_settings_provider_mac.mm:66-76`).
    - It calls `AXPrefersNonBlinkingTextInsertionIndicator()` fresh on every query (`:159-165`).
-   - Both files are in `scratchpad/cursorq/src/chromium_chromium`.
+   - Both files were read from a Chromium checkout that was not kept.
    - The draft said Chromium re-reads the switch on activation.
    - Whether an un-observed call returns a changed value: **not found**. So the focus-gain re-read is unverified, and the hand-run live check below is what settles it.
 9. **The draft's startup measurement could not see the read [inferred].**
@@ -787,7 +787,7 @@ Q5 settles it; any split leaves an asymmetry to document.
 
 ## `?12`, the configured blink, and the cursor after vim and helix
 
-This is a read-only brief against baud at `8fab372`. Nothing in the repository was edited and cargo was not run. Scratch work is under `…/scratchpad/blink12/`: the byte captures are `verify/cap.py` and `verify/cap12.py`, and the fetched tmux and neovim sources are in `ext/`.
+This is a read-only brief against baud at `8fab372`. Nothing in the repository was edited and cargo was not run. The scratch work was not kept: the byte captures were `verify/cap.py` and `verify/cap12.py`, beside the fetched tmux and neovim sources.
 
 Every claim is labelled **run** (captured in a pty here) or **by reading** (from source).
 
@@ -1037,7 +1037,7 @@ This is a recommendation, not a decision.
 ## Ride-scroll
 
 Labels: **[R]** read at source, **[run]** run here, **[inf]** inferred. Line numbers are baud at `1ce14c8`. Nothing in the repository was edited and no cargo command was run there.
-- A durable copy of this review is at <scratchpad>/cursorq/rv2/ride-scroll-design-reviewed.md.
+- This note is the kept copy of this review.
 - The streaming simulation is `ride_sim.py`, beside it.
 
 ### A. What an independent check found

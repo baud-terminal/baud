@@ -305,8 +305,8 @@ the symbol face embedded, over a hybrid or the system font only.
   the index; each header says how to lift `MAX_STRIKES` for a run and restore it.
 - `scripts/strike-count-probe.swift` is the CoreText probe for strike counts;
   `scripts/sbix-probe.swift` in its `flip` mode measured the fixture's chains.
-- The readers' and skeptics' own scripts and downloads lived in the session's
-  scratchpad and are not kept; their sources are cited above by URL, commit or
+- The scripts and downloads the reading and the re-reading used are not
+  kept; their sources are cited above by URL, commit or
   package.
 
 **Two pins drifted.** `ms-opentype-cblc` and `ms-opentype-cbdt` no longer match

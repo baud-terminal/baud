@@ -1,4 +1,4 @@
-//! Scratch harness (qa-survey lane): reads `path\tindex\thex cps` lines and
+//! Scratch harness (the Q-A survey): reads `path\tindex\thex cps` lines and
 //! prints baud's shaping, clustered and script-resolved exactly as
 //! tests/shape.rs does, with the GSUB and GPOS script tags chosen.
 use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};

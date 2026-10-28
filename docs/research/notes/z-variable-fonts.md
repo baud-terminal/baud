@@ -822,7 +822,7 @@ built where the text turned out to define it):**
    the parent's phantoms by C's numbering, or (E) the glyph refused as
    malformed, the text's "must" read as a condition of validity. The text
    says what a font must do and not what a reader does with one that does
-   not, so none conforms or departs. ~~Kept: A.~~ The fonts lane added
+   not, so none conforms or departs. ~~Kept: A.~~ A re-read of the fonts added
    Microsoft's "cannot be used for the first component glyph", which read as a
    condition of validity makes E conforming; A and E tied (g3), and **E was
    picked on 2026-10-13**: a first component placed by points is refused: the glyph is refused at any depth of its tree and nothing of
@@ -865,8 +865,8 @@ and these would need writing out as offsets first.
 HarfBuzz and FreeType draw a `glyf` glyph whose xMin is not its lsb moved
 left by the difference, and Core Text does in the one case measured, `dot2`
 in fonts that set `head` bit 1 (flags 0x3); baud drew its stored coordinates, moved
-only by its left phantom's delta at a variation (step 2), and the fonts
-lane found Core Text a third engine on it (round 2026-10-12, `dot2`).
+only by its left phantom's delta at a variation (step 2), and a re-read
+of the fonts found Core Text a third engine on it (round 2026-10-12, `dot2`).
 HarfBuzz's source calls the shift "undocumented rasterizer behavior". The
 texts define it:
 
@@ -907,7 +907,7 @@ ZapfDingbats), and 546 in the embedded Symbols Nerd Font Mono (flags 0xb,
 every one at -1). FreeType ignores the bit on purpose ("independent on the value
 of bit 1 ... at least major applications like Acroread indicate that",
 `[[source: freetype-2-14-3-ttgload]]`), HarfBuzz never reads it, and Core
-Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
+Text draws `dot2` from 20 in a font with flags 0x3 (the re-read's
 `ct-*.ttf`). ~~Kept as baud drew it:~~ Decided on
 2026-10-13 (below):
 

@@ -37,7 +37,7 @@ they are pinned (see section 8).
 | tinted-shell `tinted8.mustache` | same commit, `templates/tinted8.mustache` | (in the upstream directory) |
 | tinted-shell `templates/config.yaml` | same commit | `f62e923bf9500f19e8fe52d0c3c6a053a1e3fed39210f3d9ddcb71ed08dd7784` |
 | base24 README | https://github.com/tinted-theming/base24 @ `fb96d3c`, `README.md` | `8456caaa…329e` |
-| schemes corpus | https://github.com/tinted-theming/schemes @ `3ac91137e879502c442ab89ba0f1a98077d0da9d` (default branch `spec-0.11`, the only branch) | shallow clone in the scratchpad's `schemes-clone/` |
+| schemes corpus | https://github.com/tinted-theming/schemes @ `3ac91137e879502c442ab89ba0f1a98077d0da9d` (default branch `spec-0.11`, the only branch) | a shallow clone, not kept |
 | original base16 styling v0.2 | https://github.com/chriskempson/base16/blob/39fb23df970d4d6190d000271dec260250986012/styling.md | `68d2d98c…3ac4` |
 
 ## 1. base16: the scheme file and its slots

@@ -390,7 +390,7 @@ trigger) (`:123-180`).
   - The same scheme at `floor = 3`: **194 of 289 lifted**. For example, every
     colour on SGR 46 or 47 and on bright white (SGR 107) is pushed dark.
 - **What a TUI theme would see** (inference, not measured on herdr, which is
-  lane b56's job):
+  the herdr report's job):
   - a theme that paints "black" text or "white" panels by index on a base16
     or base24 page gets those cells **recoloured** to a 4.5:1 grey or tint;
   - the same theme painted in truecolour on a truecolour page is untouched;
@@ -436,8 +436,8 @@ trigger) (`:123-180`).
 ## 8. Reproducing the probe
 
 The probe is a separate cargo package with path dependencies on
-`baud-domain` and `baud-render`. Its own `target/` is in the scratchpad, so
-nothing is written to the baud tree.
+`baud-domain` and `baud-render`. Its own `target/` is outside the
+repository, so nothing is written to the baud tree.
 
 ```
 P=docs/research/notes/ar/probe

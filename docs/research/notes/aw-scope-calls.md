@@ -331,7 +331,7 @@ The recommendation was weighed for a margin bell that rings "as typed text
 nears the right margin", xterm's trigger, with the VT520's text quoted but
 its reading not offered as a choice.
 
-**Built 2026-10-20 (lane b118).** DEC STD 070 settles the trigger: in
+**Built 2026-10-20.** DEC STD 070 settles the trigger: in
 070-6 § 6.6.5.2 (pp. 6-45 and 6-46, `[[source: dec-std-070]]`) a normal
 keystroke arms the margin bell and a character printed across RIGHT
 MARGIN - 8 on the same line rings it, so xterm's key-time test and the VT520's
@@ -433,7 +433,7 @@ second terminal personality with no DEC text.
 **Decided 2026-10-20**, with OSC 3, OSC 46 and OSC 50 (note AV) and pointer hiding all in:
 ReGIS is in, to DEC STD 070-8, with macrograph
 reports answered empty as 070-8 § 8.5.7.4.1 prefers; Tektronix stays out,
-the lean taken. Lane b122 builds it, a part at a time, `docs/vt-coverage.md`'s
+the lean taken. It is built a part at a time, `docs/vt-coverage.md`'s
 ReGIS row saying which parts.
 
 **An open departure.** ReGIS is built, and DA
