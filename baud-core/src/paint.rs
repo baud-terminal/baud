@@ -55,6 +55,14 @@ pub(crate) trait Writer {
     fn before(p: &mut Paint<'_, '_>, cp: Codepoint, need: Count);
 }
 
+/// What [`Paint::overflow`] leaves room for: the whole character, or a
+/// wide character's lead alone on the line's last column.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Fit {
+    Whole,
+    LeadAlone,
+}
+
 /// The text path's writer: under IRM the gap opens.
 pub(crate) struct Plain;
 
@@ -877,6 +885,20 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// wide character on the margin; **right of it is out of line**
     /// ([`Paint::past_margin`]). Only the not-fits branch calls it.
     ///
+    /// **It says whether the character now fits**, or only its lead: a wide
+    /// character with `DECAWM` reset on the line's last column, or on a
+    /// line one position wide. There the lead alone is written, on that
+    /// column ([`Paint::lead_alone`]), and no tail past it: past the right
+    /// margin, a double line's half or SLL's limit is a position no write
+    /// may reach ("will not advance beyond the Right Margin or last column
+    /// of the Active Line", `[[source: dec-std-070]]` p. 5-139; § 5.6.1,
+    /// p. 5-95), and at the screen's edge the grid had always dropped the
+    /// tail. No text gives a character two positions there (ECMA-48
+    /// 6.1.6's NOTE leaves the move to the implementation); Jev's lean,
+    /// LEAD_ONLY, at confidence 0.52 and 0.43. The tail went one past each
+    /// of the first three, and a double line showed it whole once `DECSWL`
+    /// made it single.
+    ///
     /// **Out of line, the wrap with it.** Inline beside the wrap in every
     /// copy of `glyph`, the test read `cat-cjk` 8.6 M instructions over
     /// 200 reps above this call, which reads level with `glyph` calling
@@ -884,17 +906,69 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// "A cursor placed right of the fence writes on").
     #[cold]
     #[inline(never)]
-    pub(crate) fn overflow(&mut self, need: Count) {
+    pub(crate) fn overflow(&mut self, need: Count) -> Fit {
         // A fence read low after the cursor left a sized line: the
         // character fits after all, and goes where the cursor is.
         self.refresh_fence();
         if self.cx.raw().index() + need.index() <= self.cold.fence.index() + 1 {
-            return;
+            return Fit::Whole;
         }
         match self.cx.raw().index() > self.cold.fence.index() + 1 {
             false => self.wrap_bounded(),
             true => self.past_margin(need),
         }
+        // A narrow character fits wherever the move left the cursor.
+        if need.index() == 1 {
+            return Fit::Whole;
+        }
+        // The last column a write from here reaches: the fence from at or
+        // inside it, the line's from right of it.
+        let last = match self.cx.raw() > self.cold.fence {
+            true => self.line_cols().index() - 1,
+            false => self.cold.fence.index(),
+        };
+        match self.cx.raw().index() + need.index() <= last + 1 {
+            true => Fit::Whole,
+            false => Fit::LeadAlone,
+        }
+    }
+
+    /// **A wide character's lead alone, on the line's last column**, where
+    /// [`Paint::overflow`] found no column for its tail: one cell, the
+    /// cursor staying on it, and `REP` repeating the character as received.
+    /// Out of line, a copy of the write in [`Paint::glyph_by`] for one
+    /// column: the column count passed into that write read `cat-cjk` and
+    /// `vim` 1.4-1.6% more instructions on recordings that never reach here.
+    #[cold]
+    #[inline(never)]
+    fn lead_alone<W: Writer>(&mut self, cp: Codepoint, w: Width, pen: Pen) {
+        W::before(self, cp, Count::ONE);
+        let style = self.style;
+        let flags = match pen {
+            Pen::Gl => self.flags,
+            Pen::Decoded => self.decoded_pen(),
+            Pen::Kept(set) => self.flags.with_received(set),
+        };
+        let lead = PackedCell::glyph(cp, style, flags);
+        self.last_cp = Some((cp, w, pen));
+        match self.cx.raw() >= self.row_written {
+            true => self
+                .view
+                .put_glyph_fresh(self.cy, self.cx.raw(), lead, None),
+            false => self.view.put_glyph(
+                self.cy,
+                self.cx.raw(),
+                lead,
+                None,
+                PackedCell::empty_with(style),
+            ),
+        }
+        self.cells = self.cells.plus(1);
+        let start = self.cx.raw();
+        let end = Col::at_index(start.index() + 1);
+        self.overwrote(start, end);
+        self.advance(Count::ONE);
+        self.row_written = self.row_written.max(end);
     }
 
     /// **A write from right of the right margin writes on to the screen's
@@ -928,6 +1002,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         if fits {
             return;
         }
+        // With `DECAWM` reset the last column, where a wide character that
+        // does not fit writes its lead alone ([`Paint::overflow`]).
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
             true => self.wrap_bounded(),
             false => self.cx = CursorCol::written(Col::at_index(end - 1)),
@@ -944,8 +1020,13 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) fn indexed(&mut self, e: PackedCell) {
         let need = e.flags.advance_of();
-        if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
-            self.overflow(Count::of(need));
+        if self.cx.raw().index() + need > self.cold.fence.index() + 1
+            && self.overflow(Count::of(need)) == Fit::LeadAlone
+        {
+            // A lead alone is the text path's, under the decoded pen.
+            if let Some(cp) = e.content.as_codepoint() {
+                return self.lead_alone::<Plain>(cp, e.flags.width_of(), Pen::Decoded);
+            }
         }
         let (style, flags) = (self.style, self.decoded_pen());
         let lead = PackedCell {
@@ -1117,8 +1198,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             return self.glyph_shifted(cp, w, pen);
         }
         let need = 1 + usize::from(w == Width::WIDE);
-        if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
-            self.overflow(Count::of(need));
+        if self.cx.raw().index() + need > self.cold.fence.index() + 1
+            && self.overflow(Count::of(need)) == Fit::LeadAlone
+        {
+            return self.lead_alone::<W>(cp, w, pen);
         }
         // After the wrap, because the gap belongs in the row the character
         // lands in rather than the one it was pushed off; and **a SAPV form

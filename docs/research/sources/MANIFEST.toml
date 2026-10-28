@@ -416,6 +416,14 @@ group  = "C"
 # Mode', the page clamped to number_of_pages before the home; 5.5 the Windowing Extension
 # (p. 5-84); DECPCCM (p. 5-87); DECRQM's report values and 'DEC Private modes that cannot be
 # set or reset from the host will report as unknown' (pp. 5-193, 5-194).
+# Re-fetched 2026-10-28 (lane b239) from a bitsavers mirror, the sha256 matching,
+# read on the text layer [text]: INSERT OR REPLACE GRAPHIC CHARACTER
+# (pp. 5-139, 5-140), "If Auto Wrap mode is off, the Active Position will not advance
+# beyond the Right Margin or last column of the Active Line. Additional graphic characters
+# received will overwrite this position"; § 5.6.1 (p. 5-95); D.6.1 (pp. D-13, D-14),
+# "attempts to enter characters beyond the right line boundary are handled by
+# overwriting the character at the last column in the line". Searched for double-width
+# characters, Kanji, two-byte and two-position characters: none takes two positions.
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -15769,6 +15777,13 @@ group  = "C"
 # in parentheses as the scan's resolution lets them be read; §2.4.6 p. 2-18 (PDF 38),
 # JIS-Katakana, "When the VT382 receives 14/0 through 15/14, the VT382 displays a
 # reverse question mark on the screen."
+# Re-fetched 2026-10-28 (lane b239), the sha256 matching, and read off the page images
+# [img]: DECAWM, 10.1.4 (pp. 10-3 and 10-4, PDF 139-140), reset "Graphic characters
+# received when the cursor is at the screen's right border replace characters already on
+# the screen"; text features (p. 1-3, PDF 17), Kanji in a 24 x 30 cell against 12 x 30
+# for ASCII; the DEC Kanji set (2.4.7, p. 2-19, PDF 39), line attributes (7.3, p. 7-3,
+# PDF 121) and editing (8.1.2-8.2.2, pp. 8-2 to 8-4) -- none says what a Kanji
+# character that does not fit the last column does.
 
 [sources.vt3xx-hr]
 key    = "vt3xx-hr"

@@ -117,7 +117,9 @@ impl Paint<'_, '_> {
                     .then(|| m.data(Col::at_index(to.saturating_sub(need))))
             });
             match (fits, pin) {
-                (false, _) => self.overflow(Count::of(need)),
+                (false, _) => {
+                    self.overflow(Count::of(need));
+                }
                 (true, Some(c)) => self.set_col(baud_domain::CursorCol::moved(c)),
                 (true, None) => self.wrap_bounded(),
             }
