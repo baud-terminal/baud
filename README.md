@@ -138,6 +138,55 @@ Its terminal core is a separate library any program can embed:
 and the gates. [docs/README.md](docs/README.md) is the index of every
 document.
 
+## Credits
+
+baud is built on other people's work. [THIRD_PARTY.md](THIRD_PARTY.md)
+lists every file with its licence and where it came from; each licence
+text sits beside the files it covers or in [LICENSES/](LICENSES/).
+
+**The fonts baud ships**
+
+- [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), by The
+  JetBrains Mono Project Authors (SIL OFL 1.1): the default face, and the
+  base of baud's own font.
+- [Cascadia Mono](https://github.com/microsoft/cascadia-code), by Microsoft
+  (SIL OFL 1.1): the Hebrew in baud's own font is drawn from it.
+- [STIX Two Math](https://github.com/stipub/stixfonts), by The STIX Fonts
+  Project Authors (SIL OFL 1.1).
+- [Symbols Nerd Font](https://github.com/ryanoasis/nerd-fonts), by Ryan L
+  McIntyre and the Nerd Fonts contributors (MIT), with the icon sets it
+  carries under their own licences.
+
+**Code and data baud carries**
+
+- [xterm](https://invisible-island.net/xterm/), by Thomas E. Dickey (X11):
+  the national replacement character sets, the XTGETTCAP names and the
+  readline click's arithmetic.
+- [libX11](https://gitlab.freedesktop.org/xorg/lib/libx11)'s Xcms, by
+  Tektronix and The Open Group, and X.Org's colour names (MIT).
+- [libxkbcommon](https://github.com/xkbcommon/libxkbcommon) (MIT): the
+  Compose reader and the keysym table.
+- [Björn Ottosson](https://bottosson.github.io/posts/oklab/)'s OKLab
+  conversions (MIT).
+- The [Unicode Character Database](https://www.unicode.org/ucd/), by Unicode,
+  Inc. (Unicode License v3): widths, grapheme clusters and the character
+  sets.
+- [ncurses](https://invisible-island.net/ncurses/)'s xterm-256color entry
+  (X11).
+- [Windows Terminal](https://github.com/microsoft/terminal), by Microsoft
+  (MIT): four text-gamma coefficients.
+- [kitty](https://github.com/kovidgoyal/kitty), by Kovid Goyal: the Unicode
+  placeholder table its graphics protocol defines.
+- [foot](https://codeberg.org/dnkl/foot), by Daniel Eklöf (MIT): the DEC
+  Special Graphics table.
+- sfte, by Patryk Pujanek (zlib): a test helper.
+- This software is based in part on the work of the Independent JPEG Group.
+
+**Pictures in this README**
+
+- Wallpapers from [elementary OS](https://elementary.io) (CC0), and Noto
+  Color Emoji and Noto Sans CJK by Google (SIL OFL 1.1).
+
 ## Licence
 
 baud is open source under Creative Commons Attribution-NonCommercial-ShareAlike
