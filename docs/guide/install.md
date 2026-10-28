@@ -51,6 +51,25 @@ This puts the `baud` binary in `~/.cargo/bin`; run `baud` to open a window.
 It is the bare binary, not the app: the app for Applications and the Dock is
 the one `scripts/bundle-macos.sh` builds above.
 
+**That build is not the one baud is measured as.** A published crate does
+not carry the repository's build settings, so Cargo builds it without
+whole-program link-time optimisation, in 16 code-generation units rather
+than one, without the function alignment the measurements rely on, and for
+an older macOS (baud still
+refuses to run below macOS 26). To build what the repository builds, pass
+the same settings through the environment:
+
+```sh
+CARGO_PROFILE_RELEASE_LTO=true \
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+RUSTFLAGS="-C llvm-args=-align-all-functions=6" \
+MACOSX_DEPLOYMENT_TARGET=26.0 \
+cargo +nightly-2026-04-11 install --locked baud
+```
+
+These are the repository's `[profile.release]` in `Cargo.toml` and its
+`.cargo/config.toml`, spelled as environment variables.
+
 ## What a program sees
 
 baud tells the programs it runs who it is the usual way: `TERM` is

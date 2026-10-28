@@ -310,7 +310,10 @@ def render_roadmap(feat, road):
     w("")
     w(road["intro"].strip())
     w("")
-    w(" · ".join(f"[{a['title']}](#{slug(a['title'])})" for a in feat["area"]))
+    # Only the areas the page has a heading for: an area with no roadmap
+    # item gets none, and a link to it would go nowhere.
+    listed = [a for a in feat["area"] if any(i["area"] == a["id"] for i in road.get("item", []))]
+    w(" · ".join(f"[{a['title']}](#{slug(a['title'])})" for a in listed))
     w("")
     order = {"in_progress": 0, "planned": 1, "done": 2}
     for a in feat["area"]:

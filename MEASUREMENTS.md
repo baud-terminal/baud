@@ -44,11 +44,12 @@ say so.
 ## Against other implementations, on real capture
 
 **Taken before `multibench` aligned every function to 128 bytes**, as is
-every `multibench` table in this file: this one, sfte's, cava's and the
-generated payloads'. Before it, baud-core's `cat-scroll` row moved by as
-much as 10% with where the linker put three functions, for no reason in the
-source; `multibench` now aligns to 128 bytes. A table taken after the
-alignment is not comparable to these.
+every `multibench` table in this file taken before 2026-10-11, when the
+alignment landed: this one, sfte's, cava's and the generated payloads'.
+Before it, baud-core's `cat-scroll` row moved by as much as 10% with where
+the linker put three functions, for no reason in the source; `multibench`
+now aligns to 128 bytes. A table taken after the alignment, as the
+2026-10-28 captures' table below was, is not comparable to these.
 
 **Taken at `e5bc3ef`, 2026-09-20.** Its commit message states no power
 state. The file's Host line at that commit read "on AC power", dated to an earlier

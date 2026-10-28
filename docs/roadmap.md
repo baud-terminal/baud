@@ -4,7 +4,7 @@ What is being built, what is planned, and what has shipped, by area. Ticked
 items have shipped, with the day they landed; items marked *In progress* are
 being built now; the rest are planned. Nothing here is a promised date.
 
-[Programs just work](#programs-just-work) · [Speed](#speed) · [Text, fonts and emoji](#text-fonts-and-emoji) · [Keyboard, mouse and clipboard](#keyboard-mouse-and-clipboard) · [Scrollback, selection and resizing](#scrollback-selection-and-resizing) · [Window, colours and bell](#window-colours-and-bell) · [The cursor](#the-cursor) · [Pictures](#pictures) · [Platforms and settings](#platforms-and-settings) · [Embedding the core](#embedding-the-core)
+[Programs just work](#programs-just-work) · [Speed](#speed) · [Text, fonts and emoji](#text-fonts-and-emoji) · [Keyboard, mouse and clipboard](#keyboard-mouse-and-clipboard) · [Scrollback, selection and resizing](#scrollback-selection-and-resizing) · [Window, colours and bell](#window-colours-and-bell) · [The cursor](#the-cursor) · [Pictures](#pictures) · [Platforms and settings](#platforms-and-settings)
 
 ## Programs just work
 

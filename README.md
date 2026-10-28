@@ -197,8 +197,9 @@ text sits beside the files it covers or in [LICENSES/](LICENSES/).
 
 ## Licence
 
-baud is open source under Creative Commons Attribution-NonCommercial-ShareAlike
-4.0 International (CC BY-NC-SA 4.0); see [LICENSE](LICENSE). The fonts and the
+baud is free to use for anything that is not commercial, under Creative
+Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA
+4.0); see [LICENSE](LICENSE). The fonts and the
 third-party files the research and tests hold are under their own licences:
 LICENSE names the files it does not cover, and
 [THIRD_PARTY.md](THIRD_PARTY.md) lists each with its licence and source.

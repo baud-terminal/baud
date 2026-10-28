@@ -349,18 +349,15 @@ Graphics table.
   replaces it with Blank; which code point Blank stores is open.
 - **A `SUB` draws no error character by default**, where DEC's VT220 to
   VT500 display one (`[[source: dec-std-070]]` p. 5-132): a choice the project made on 2026-10-23, with `[screen] substitute_mark` to draw it, and in VT52 mode it draws none either way, which no DEC text settles ([vt-coverage.md](vt-coverage.md), the SUB rows).
-- **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
-  application to the script table for the text's own script and to `DFLT`
-  where there is none; `baud-font` takes no script argument
-  ([note AB](research/notes/ab-right-to-left.md), Q6).
 - **Marks past what the cluster store holds are dropped**, and counted
   ([note AB](research/notes/ab-right-to-left.md), §7.2 and Q7).
 - **When no face draws a cluster whole, each attached code point its base's
   face lacks is dropped**, and counted, where the Unicode Standard asks for a
   placeholder ([note AD](research/notes/ad-unrenderable-in-a-cell.md)).
-- **The rendition table never frees a slot**, so a session that mints more
-  distinct renditions than it has slots recolours cells that still name an
-  evicted one.
+- **A cell can be recoloured when more renditions are live than the
+  rendition table has slots.** Slots no cell names are freed, and when every
+  slot is named one is evicted, so a cell that still names it takes another
+  rendition's colours.
 
 ---
 

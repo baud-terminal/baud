@@ -36,16 +36,19 @@ decoder included), the compositor's conversion and the keymap compiler cannot
 contain an `unsafe` block at all -- `forbid` cannot be relaxed by an `allow`
 further down.
 
-**Three more deny it at the root and name the single module that may.**
-`baud-present-macos` denies and allows in `metal.rs`; `baud-wayland` and
-`baud-present-wayland` deny and allow in their `sys.rs`. There the
-compiler holds the boundary: a second module that wanted `unsafe` would
-have to say so in the diff.
+**Three more deny it at the root and name the modules that may.**
+`baud-present-macos` denies it and allows it in five modules, each a set of
+system calls: `lights.rs`, `metal.rs`, `notify.rs`, `print.rs` and
+`settings.rs`; `baud-wayland` and `baud-present-wayland` deny it and allow
+it in their `sys.rs`. There the compiler holds the boundary: another module
+that wanted `unsafe` would have to say so in the diff.
 
 **What is left carries no such attribute, and this is where to look.**
 The `baud` package is a binary whose `app.rs` and `link.rs` forbid for themselves,
-with the platform calls in `pty.rs` and `sys.rs` -- the pty, the read-only
-mapping, `poll`, and the `unsafe extern "C"` blocks that declare them.
+with the platform calls in eleven modules: `pty.rs` and `sys.rs` -- the pty,
+the read-only mapping, `poll`, and the `unsafe extern "C"` blocks that
+declare them -- and `discover.rs`, `fallback.rs`, `fg.rs`, `host.rs`,
+`hostlog.rs`, `kitty_files.rs`, `layouts.rs`, `pages.rs` and `reload.rs`.
 `baud-isa`, `baud-isa-aarch64` and `baud-isa-x86-64` are the vector and
 cache-probe crates, where `unsafe` is the subject rather than an exception:
 `Scan`'s methods are `unsafe fn` because on x86-64 a caller can invoke AVX2 on
@@ -168,9 +171,9 @@ if private vulnerability reporting is enabled on the repo, otherwise contact
 the maintainer directly via GitHub ([@i-am-logger](https://github.com/i-am-logger)).
 
 Include the affected version or commit, a minimal reproduction, and the impact
-as you see it. There is no bug bounty — this is a solo-maintained open-source
-project — but reports are taken seriously and credited unless you ask
-otherwise.
+as you see it. There is no bug bounty — baud is free to use for anything
+that is not commercial, under CC BY-NC-SA 4.0, and one person maintains it —
+but reports are taken seriously and credited unless you ask otherwise.
 
 ## Supported Versions
 

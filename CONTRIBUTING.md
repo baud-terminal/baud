@@ -14,18 +14,19 @@ Everything below assumes you are inside that shell (or run each command as
 
 ## Before opening a PR
 
-Run the full local pipeline:
+Run the check suite CI runs:
 
 ```bash
-dev-ci
+devenv test
 ```
 
 This is not an approximation of CI — `.github/workflows/ci.yml` runs
-`devenv test`, which runs the same `tasks."test:*"` set defined in
-`devenv.nix`. A green `dev-ci` locally means a green PR check, because both
-execute the same nix-defined suite. If you want to run one piece while
-iterating, `enterShell` lists the individual scripts (`dev-fmt`, `dev-lint`,
-`dev-check`, `dev-test`).
+`devenv test` too, which runs the `tasks."test:*"` set defined in
+`devenv.nix`, and the pre-push hook runs the same command. `dev-ci` is a
+quicker subset for iterating: it leaves out the changelog, features, paths
+and publish checks and the bare `baud-font` build, so a green `dev-ci` does
+not mean a green PR check. The shell's banner lists the individual scripts
+(`dev-fmt`, `dev-lint`, `dev-check`, `dev-test`).
 
 **Committing from a git worktree.** `treefmt` finds its tree root by walking
 up from the working directory to the first `devenv.nix`, so it formats the
@@ -462,8 +463,10 @@ sfte, cell for cell) before any rate; a test that only prints cannot fail.
 
 ## Releases
 
-**baud is published to crates.io, so `cargo install baud` installs the
-terminal.** The `baud` package (in `baud-app/`) is published with the
+**Once released, baud is on crates.io, and `cargo +nightly-2026-04-11
+install --locked baud` installs the terminal** (the nightly because
+`baud-domain` uses nightly features, so a stable toolchain cannot build
+it). The `baud` package (in `baud-app/`) is published with the
 eleven crates it is built from, because crates.io takes a crate only when
 every crate it depends on is there too. `baud-bench`, `baud-difftest` and
 `baud-sfte-difftest` carry `publish = false`. `scripts/check-publish.py`

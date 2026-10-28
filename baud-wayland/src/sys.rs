@@ -1,10 +1,11 @@
 //! **The two system calls the protocol needs and `std` does not expose:**
 //! `sendmsg` and `recvmsg` with `SCM_RIGHTS`, so a file descriptor -- a
 //! `wl_shm` pool, a keymap, a dmabuf plane -- rides beside a message. This
-//! is the one module in the crate that is not `forbid(unsafe_code)`, and
-//! it is the whole of the dependency floor on Linux: the kernel's socket,
-//! declared as the four `extern` lines it is rather than a `libc` crate,
-//! the way the ISA crates declare `sysctlbyname`.
+//! is the one module in the crate that allows what the crate root denies
+//! (`deny(unsafe_code)`), and it is the whole of the dependency floor on
+//! Linux: the kernel's socket, declared as the four `extern` lines it is
+//! rather than a `libc` crate, the way the ISA crates declare
+//! `sysctlbyname`.
 //!
 //! The struct layouts are the platform's: Linux pads `msg_namelen` to the
 //! pointer that follows and sizes the lengths as `size_t`; macOS sizes them

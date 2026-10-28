@@ -28,10 +28,8 @@ programs, and pictures.
   characters drawn from each system's own fonts, and some programs' dim
   colours, can still look different. Nobody has used it with a mouse on a
   real screen, and its GPU drawing is not started. It is not ready to use.
-- **A few control sequences.** The single shifts SS2 and SS3, and the
-  locking shifts LS2, LS3 and LS1R to LS3R, are not supported. The other
-  gaps are each listed with their reason in [vt-coverage](../vt-coverage.md),
-  as a row at **partial** or **out**.
+- **A few control sequences.** The gaps are each listed with their reason
+  in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 
 ## Known departures from the standards
 

@@ -14,8 +14,10 @@ just because it is printed: code has changed since most of them.
 ## In short
 
 - **Taking in output: faster than ghostty and alacritty on every recording
-  measured.** baud's core is 1.19 to 5.80 times as fast as ghostty's on
-  nine recordings of real programs, in memory (`e5bc3ef`, 2026-09-20).
+  measured.** baud's core was 1.19 to 5.80 times as fast as ghostty's on
+  six recordings of real programs, in memory (`e5bc3ef`, 2026-09-20), and
+  1.65 to 1.70 times on three captured later (`e9af53d9`, 2026-10-28); the
+  two sweeps are not comparable with each other.
 - **Through a real terminal connection: the fastest of five terminals.**
   Replaying recordings into baud, alacritty, kitty, ghostty and wezterm,
   baud had the highest throughput on every recording, tied
@@ -64,9 +66,10 @@ What this does and does not show:
   emoji sequence or a letter and its accent, and ghostty's core does only
   when a program asks, so the Chinese, Japanese and Korean rows do not
   compare equal work.
-- It was taken before the benchmark pinned where the compiler places each
-  function, which had moved one of baud's rows by as much as 10%. No sweep
-  has been taken since.
+- The first table was taken before the benchmark pinned where the compiler
+  places each function, which had moved one of baud's rows by as much as
+  10%, and the second after it, so the two tables are not comparable: baud's
+  less row reads 1684.5 in one and 1450.0 in the other.
 
 ## Through a real terminal connection, against other terminals
 

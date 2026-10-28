@@ -8,16 +8,17 @@ It requires [Nix](https://nixos.org) and [devenv](https://devenv.sh).
 
 ```sh
 devenv test                 # the gate: what CI and the pre-push hook run
-devenv shell -- dev-ci      # the same checks as one script, less the per-feature and path tasks
+devenv shell -- dev-ci      # a quicker subset: no changelog, feature, path or publish check, no bare baud-font build
 devenv shell -- dev-test    # tests only
 ```
 
 `.github/workflows/ci.yml` runs `devenv test`, so a green gate here is the
-same task set CI runs. A red unit test does not hide the rest: the five
+same task set CI runs. A red unit test does not hide the rest: the six
 checks after it (the bare-metal build, the Linux lint, the audit, the
-feature arms and the path check) still run, and the gate still fails, so
-one run lists every independent failure. A formatting or compile error
-skips the unit tests, and the five checks still run after it. Run the
+feature arms, the path check and the publish check) still run, and the
+gate still fails, so one run lists every independent failure. A formatting
+or compile error skips the unit tests, and the six checks still run after
+it. Run the
 gate whole: a single later check run alone,
 `devenv tasks run test:features`, runs the checks before it and exits 0
 over a red unit test (the comment above `enterTest` in `devenv.nix`).

@@ -112,7 +112,7 @@ in
   '';
 
   scripts.dev-ci.exec = ''
-    echo "Running full CI pipeline locally..."
+    echo "Running a subset of the CI checks (devenv test runs them all)..."
     echo "=== fmt ==="
     treefmt --fail-on-change || { echo "FAILED: fmt"; exit 1; }
     echo "=== clippy ==="
@@ -176,7 +176,8 @@ in
       } | ${pkgs.boxes}/bin/boxes -d stone -a l -i none
       echo
       echo "Available scripts:"
-      echo "  dev-ci        - Full pipeline (fmt + clippy + check + test + bare + audit)"
+      echo "  devenv test   - The check suite CI and the pre-push hook run"
+      echo "  dev-ci        - A quicker subset (fmt, clippy, check, test, bare, linux, sources, audit)"
       echo "  dev-test      - Run tests"
       echo "  dev-fmt       - Check formatting"
       echo "  dev-lint      - Run clippy"
@@ -303,7 +304,7 @@ in
   # succeeded, and `@completed` runs it once that one has finished or been
   # skipped, whatever its exit code. fmt, clippy, check and unit are chained
   # by plain edges, so a formatting error skips clippy, check and unit, and
-  # a compile error skips unit, with no test build. The five gates after
+  # a compile error skips unit, with no test build. The six gates after
   # unit are chained by `@completed` (note V, V21 B), so they run after a
   # red or a skipped unit and one push reports every independent failure;
   # after a compile error, bare and linux can fail again on it. The run still

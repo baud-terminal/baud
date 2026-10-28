@@ -24,8 +24,12 @@ alacritty's cores ([Performance](guide/performance.md)).
 
 ## Getting it
 
-`baud-core` is not published to crates.io. Depend on it from a checkout of
-this repository, by path or by git revision.
+Once baud's first release is out, `baud-core` is on crates.io, published
+with the crates `baud` is built from; until then, depend on it from a
+checkout of this repository, by path or by git revision. Either way it
+needs the nightly toolchain baud is built with (`nightly-2026-04-11`).
+Its API follows baud's needs and may change in any release, so pin the
+version you build against.
 
 ## A first program
 
