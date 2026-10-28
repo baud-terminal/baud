@@ -5,12 +5,14 @@
 # left out of it with no error. Their last parser skips every type a user
 # would not notice, so a subject that is not a Conventional Commit of a
 # listed type would be skipped as one of those. So this reads the whole
-# history, from the root to HEAD, three ways, and fails on any commit that
-# would be lost:
+# history, from the root to HEAD, and fails on any commit that would be
+# lost:
 #
 #   1. its subject is a Conventional Commit of a listed type, `type: text`
 #      or `type(scope): text`;
-#   2. it matches one of `release-plz.toml`'s parsers, read from the file;
+#   2. `release-plz.toml`'s parsers are read from the file and the commit is
+#      run through them; while the last parser is a catch-all that skips,
+#      this leg cannot fail and only proves the file parses;
 #   3. git-cliff, under `scripts/changelog/cliff.toml`, reads it as
 #      conventional and puts it in no UNPARSED group.
 #

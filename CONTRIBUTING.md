@@ -490,8 +490,22 @@ and has not run on GitHub yet. After that each release raises the `beta.N`
 by one, and moving to `1.0.0` is done by hand.
 
 **A change only outside the crates releases nothing.** release-plz releases
-a crate when the files it packages change, and `docs/`, `scripts/`,
-`.github/` and the root files are in none of them.
+a crate when the files it packages change. The crates package the root
+LICENSE and LICENSES/ texts, assets/logo/ and the files they read from
+docs/research/sources/ (the terminfo entry, the Wayland XMLs and the keysym
+header) as links, so a change to one of those changes what a crate packages;
+the rest of `docs/`, `scripts/`, `.github/` and the root files is in no
+package.
+
+**The first release is published in steps.** crates.io limits how many new
+crates one account may publish: five at once, then one every ten minutes
+(`PublishNew` in crates.io's `rate_limiter.rs`), and release-plz 0.3.172 does
+not retry a refused upload. So the first merged Release PR publishes and tags
+the first five crates in dependency order, then fails on the sixth, and
+`baud` comes last. Re-running the Release job resumes the release, since
+release-plz skips a crate whose tag exists or whose version is already on
+crates.io: re-run it at ten-minute intervals, or ask crates.io's support to
+raise the limit before the first merge.
 
 **Each published crate carries its licence and its notices, as links.**
 `LICENSE` in each crate links to the root's, and its `LICENSES/` links to
