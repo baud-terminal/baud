@@ -2334,8 +2334,8 @@ group  = "H"
 # MIT, and this repository is CC BY-NC-SA 4.0 -- committing them would take on
 # redistribution obligations the repo's own licence does not discharge. Every
 # URL is a tag or a commit, so `external` here still names an immutable object.
-# (`foot-vt100-0` predates this reasoning and is `retrieved`; that is a licence
-# question still open, not one to widen by precedent.)
+# (`foot-vt100-0` predates this reasoning and is `retrieved`, kept with foot's
+# MIT text in LICENSES/; not a precedent to widen.)
 
 [sources.alacritty-row]
 key    = "alacritty-row"
