@@ -58,9 +58,8 @@ fn exempt(name: &str) -> Option<&'static str> {
     Some(match name {
         // HP's memory lock and unlock, `ESC l` and `ESC m`: ECMA-48 5.5's
         // Table 5 leaves `ESC 06/12` and `06/13` unallocated, "reserved for
-        // future standardization and shall not be used", so both are counted
-        // (Jev's lean, KEEP_COUNTED, for a call TODO.md marks as the
-        // owner's and still open; the `ESC l` row of vt-coverage.md).
+        // future standardization and shall not be used", so both are
+        // counted, an open question (the `ESC l` row of vt-coverage.md).
         "meml" | "memu" => "ESC l and ESC m are reserved by ECMA-48, counted",
         // `u6`/`u8` are *response templates*: the shape an application should
         // expect back from `u7`/`u9`. They are what the terminal sends, not

@@ -1,7 +1,7 @@
 //! A prompt padded to exactly the terminal's width must occupy one row.
 //!
 //! This is load-bearing for every shell and it was a suspect rather than
-//! a defect: the owner reports a resize leaving an orphaned prompt line
+//! a defect: a user reported a resize leaving an orphaned prompt line
 //! behind, and a shell redraws by counting the rows its prompt occupies,
 //! moving the cursor up by that many and erasing from there. One row too
 //! many and the erase starts below the prompt's first line, which then

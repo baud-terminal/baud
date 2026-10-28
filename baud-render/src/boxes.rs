@@ -575,24 +575,23 @@ impl Cell {
     }
 }
 
-/// **The box a mask is drawn into, and the cell its strokes are placed
-/// and weighed by**: a character's whole box -- one cell, or both cells of
-/// a character two cells wide -- with the light stroke of one cell and its
+/// **The box a mask is drawn into, and the cell its strokes are placed and
+/// weighed by**: a character's whole box -- one cell, or both cells of a
+/// character two cells wide -- with the light stroke of one cell and its
 /// verticals centred in the first. A box line East Asian Width makes wide
 /// under `ambiguous_width = "wide"` comes from the legacy sets where it is
 /// full width ([[source: uax11]] ED6, § 4.2); no text says where in its two
-/// columns its strokes sit. Its horizontals run the width of both cells,
-/// so it joins the next character; its verticals, junctions and corners
-/// stay at the first cell's centre, where a one-cell piece beside it
+/// columns its strokes sit. Its horizontals run the width of both cells, so
+/// it joins the next character; its verticals, junctions and corners stay
+/// at the first cell's centre, where a one-cell piece beside it
 /// (U+2574-257F, the dashed U+254C-254F, a DEC Special Graphics line) has
-/// its own; its strokes keep the one-cell weight. Jev leaned to this over
-/// the verticals centred in both cells, below its bar in all three
-/// askings. VTE's minifont centres them in both
-/// ([[source: vte-minifont-0-84]] 1157-1197, the box `cell_width *
-/// columns`), as a CJK face's full-width glyphs do: practice that differs.
-/// A diagonal runs corner to corner of the whole box, a dashed line keeps
-/// its dash count across it, and a block element is its named fraction of
-/// it, so U+258C fills exactly the first cell (Jev's lean, below its bar).
+/// its own; its strokes keep the one-cell weight, rather than the verticals
+/// centred in both cells. VTE's minifont centres them in both
+/// ([[source: vte-minifont-0-84]] 1157-1197, the box
+/// `cell_width * columns`), as a CJK face's full-width glyphs do: practice
+/// that differs. A diagonal runs corner to corner of the whole box, a
+/// dashed line keeps its dash count across it, and a block element is its
+/// named fraction of it, so U+258C fills exactly the first cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Area {
     w: Px,

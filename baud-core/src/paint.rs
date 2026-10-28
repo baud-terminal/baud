@@ -301,22 +301,20 @@ pub(crate) struct Paint<'a, 'b> {
     /// extent, read in `Term::feed` and passed in, was the same screen and
     /// cost `cat` 4.4% at the same instructions retired; a constant, as the
     /// zero was, reads 1-2% below the parent there with the ranges
-    /// overlapping (`docs/record.md`, "A write over half a wide character
-    /// blanks the other half, at every read size").
+    /// overlapping.
     pub(crate) row_written: Col,
     /// Whether a write of text has more to do than its cells
     /// ([`Paint::overwrote`]): set while an image is placed, which the
     /// write may free, or a watch on a selection's rows is armed, which it
     /// may reach. **One byte in place of the gate the image check had**, so
     /// a stream with neither pays the one compare a character it paid
-    /// before the watch: the watch's own compare a character in `glyph`
-    /// was about 1.0% of `cat-cjk`'s instructions and 0.9% of `vim`'s
-    /// (`docs/record.md`, "A write or an erase on a selection's rows drops
-    /// it"). Read from both in [`Paint::new`]; set again after
-    /// each place a read can place an image, a Sixel's end and each kitty
-    /// call; and read again by the hooked path, so it clears once the image
-    /// goes or the watch is reached. Too high is only slower; too low loses
-    /// an overwrite or a dropped selection, which a debug build asserts.
+    /// before the watch: the watch's own compare a character in `glyph` was
+    /// about 1.0% of `cat-cjk`'s instructions and 0.9% of `vim`'s. Read
+    /// from both in [`Paint::new`]; set again after each place a read can
+    /// place an image, a Sixel's end and each kitty call; and read again by
+    /// the hooked path, so it clears once the image goes or the watch is
+    /// reached. Too high is only slower; too low loses an overwrite or a
+    /// dropped selection, which a debug build asserts.
     hooks: WriteHooks,
     /// How many runs of each character count the loop took, and of each
     /// encoded length. **Do not read a bulk path as covering a character class
@@ -642,8 +640,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // join a continuation to the letter only if the machine knows a
         // letter is there, and under `new` GB1 broke first, so `a U+0903` put
         // the visarga in a cell of its own. `ClusterBreak::after_ascii_run`'s
-        // doc has the cases, and `docs/record.md`, "After printable ASCII the
-        // cluster machine is told a letter went past", the cost.
+        // doc has the cases.
         self.cluster = ClusterBreak::after_ascii_run();
         let k = n.index();
         // **No gap here.** `piece` is a router: it hands the run to `glyph`
@@ -851,9 +848,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **Out of line because `blit` and `run` pay for it otherwise.** Inline,
     /// the clamp and the store sat in every run's write on the path `cat`
     /// takes with autowrap set, and `cat` read 11.8% below the previous
-    /// commit at 0.7% more instructions, with more mispredicts
-    /// (`docs/record.md`, "With `DECAWM` reset the character just written is
-    /// under the cursor").
+    /// commit at 0.7% more instructions, with more mispredicts.
     ///
     /// **Right of the fence the last column is the line's**, for a write
     /// that started there: `[[source: dec-std-070]]` p. 5-139, "the Active
@@ -891,19 +886,17 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// column ([`Paint::lead_alone`]), and no tail past it: past the right
     /// margin, a double line's half or SLL's limit is a position no write
     /// may reach ("will not advance beyond the Right Margin or last column
-    /// of the Active Line", `[[source: dec-std-070]]` p. 5-139; § 5.6.1,
-    /// p. 5-95), and at the screen's edge the grid had always dropped the
-    /// tail. No text gives a character two positions there (ECMA-48
-    /// 6.1.6's NOTE leaves the move to the implementation); Jev's lean,
-    /// LEAD_ONLY, at confidence 0.52 and 0.43. The tail went one past each
-    /// of the first three, and a double line showed it whole once `DECSWL`
-    /// made it single.
+    /// of the Active Line", `[[source: dec-std-070]]` p. 5-139; § 5.6.1, p.
+    /// 5-95), and at the screen's edge the grid had always dropped the
+    /// tail. No text gives a character two positions there (ECMA-48 6.1.6's
+    /// NOTE leaves the move to the implementation); The tail went one past
+    /// each of the first three, and a double line showed it whole once
+    /// `DECSWL` made it single.
     ///
     /// **Out of line, the wrap with it.** Inline beside the wrap in every
     /// copy of `glyph`, the test read `cat-cjk` 8.6 M instructions over
     /// 200 reps above this call, which reads level with `glyph` calling
-    /// `wrap` itself, on a recording that never wraps (`docs/record.md`,
-    /// "A cursor placed right of the fence writes on").
+    /// `wrap` itself, on a recording that never wraps.
     #[cold]
     #[inline(never)]
     pub(crate) fn overflow(&mut self, need: Count) -> Fit {
@@ -1081,13 +1074,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// * **A combining mark takes the cursor's cell**, stored alone as a
     ///   cluster with [`Content::DEFECTIVE`] for its base, so a copy returns
     ///   what was written and a renderer draws it on a no-break space (TUS
-    ///   5.13). Jev, OWN_CELL_MARK_ALONE, 0.96/0.99. Copies of it by `REP`
-    ///   come back here, so each is one too.
+    ///   5.13). Copies of it by `REP` come back here, so each is one too.
     /// * **A default-ignorable one draws nothing and has no cell to take**
     ///   (TUS 5.21, for 17.0): it is dropped and counted, so it cannot change
     ///   the character before it, as `U+2764 ESC[m U+FE0F` turned the heart
-    ///   into its emoji. Jev leaned to it, 0.22/0.48; keeping the join departs
-    ///   from GB4/GB5, which no answer decided.
+    ///   into its emoji. Keeping the join would depart from GB4/GB5.
     ///
     /// Any other zero-width codepoint, a Prepend or one of class Control
     /// such as U+200B, joins the cell before the cursor as it did.
@@ -1260,8 +1251,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // **The column is read from the field at each use, not once into a
         // local.** Held in a local, it stayed in a register across the
         // store's call and the loop's allocation around it moved: 6 M
-        // instructions over 200 reps of `cat-cjk` (`docs/record.md`, "A
-        // cursor placed right of the fence writes on").
+        // instructions over 200 reps of `cat-cjk`.
         match self.cx.raw() >= self.row_written {
             true => self
                 .view
@@ -1448,9 +1438,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// without it, in the registers the rest of the function lost to it;
     /// here, before the capacity branch called it, it cost 0.12% over that
     /// arm, and the change as a whole equals the base before the watch
-    /// (287e328d) on `cat-cjk` (the record, "A selection is numbered by the
-    /// lines the surface moved"). A mark past a cluster's capacity changes
-    /// no cell and is told too, as xterm's row is written whether or not a
+    /// (287e328d) on `cat-cjk`. A mark past a cluster's capacity changes no
+    /// cell and is told too, as xterm's row is written whether or not a
     /// combining slot was free.
     #[inline(always)]
     fn marked(&mut self, r: Row) {
@@ -1503,8 +1492,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the full-store test cost the hit path a few instructions an intern
     /// in register choices and block order: `cat-cjk` +0.62%, Genesis 1:1-5
     /// +3.86% and Pango's Genesis 1 +7.63% against 0c0c30a8, where out of
-    /// line they are +0.30%, +3.11% and +6.84% (docs/record.md, "The
-    /// cluster store holds 1024 clusters and sweeps the dead ones").
+    /// line they are +0.30%, +3.11% and +6.84%.
     #[cold]
     #[inline(never)]
     fn refused(&mut self, why: Refused, base: Content, cps: &[u32]) -> ClusterId {
@@ -1518,12 +1506,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     }
 
     /// **The sweep**: every slot no cell names is freed, and `base` plus `cps`
-    /// probes again. The owner's choice of 2026-10-13, "Sweep when full":
-    /// "when all slots are used, walk the live cells once and free
-    /// unreferenced slots". It runs when a cluster finds every slot it may
-    /// take holding another and every slot of the store holds a cluster, at
-    /// most once every `SLOTS_MAX / 16` interns that wanted a slot
-    /// ([`ClusterStore::sweep_due`]).
+    /// probes again. Sweep when full: when all slots are used, walk the live
+    /// cells once and free unreferenced slots. It runs when a cluster finds
+    /// every slot it may take holding another and every slot of the store
+    /// holds a cluster, at most once every `SLOTS_MAX / 16` interns that
+    /// wanted a slot ([`ClusterStore::sweep_due`]).
     ///
     /// **Every cell that can name a slot is marked**: the live surface's
     /// whole buffer -- its screen, the primary's history and the rows held
@@ -1534,9 +1521,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     ///
     /// `#[cold]` and out of line like `attach_before`: one sweep walks a
     /// 200x50 grid's two surfaces and 2,000 lines of history, about 437,000
-    /// cells, in about 122 µs on its first build (docs/record.md, "The
-    /// cluster store holds 1024
-    /// clusters and sweeps the dead ones").
+    /// cells, in about 122 µs on its first build.
     #[cold]
     #[inline(never)]
     fn sweep_and_intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
@@ -1635,10 +1620,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `DECAWM` reset, so with autowrap set a move writes no byte for it
     /// (rule 1). Paired by round it counts 1.7-4.2 instructions a move above
     /// the parent, and a plain store 1.5-2.2; these are medians whose ranges
-    /// touch the parent's, so neither is a result; the store form read `cat` below the parent in
-    /// every round paired and this form level, a lead and not a result,
-    /// since the ranges touch (`docs/record.md`, "A zero-width character
-    /// after a control goes where it goes with autowrap set").
+    /// touch the parent's, so neither is a result; the store form read `cat`
+    /// below the parent in every round paired and this form level, a lead
+    /// and not a result, since the ranges touch.
     ///
     /// **A [`CursorCol`], so each move says whether it can land one past the
     /// right margin**: [`CursorCol::moved`] where it cannot,
@@ -1690,9 +1674,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **Ahead of `attach_before`, not in it**, behind one bit for `cp`'s
     /// block: with the step inside it, the kana-and-mark shape, whose mark
     /// never takes it, ran 37 to 74 instructions a pair more in every arm
-    /// tried, one of them because `try_intern` became a call
-    /// (docs/record.md, "A named emoji sequence is a trie step, not an
-    /// intern").
+    /// tried, one of them because `try_intern` became a call.
     #[inline(never)]
     fn attach_named(&mut self, cp: Codepoint, after: Col) {
         if after != Col::ZERO {
@@ -2215,9 +2197,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// fence back to the right margin: the fence a sized line left is too
     /// low, which only ever sends the fit test out of line early, and the
     /// cold paths it reaches read the line's own ([`Paint::refresh_fence`],
-    /// [`Paint::line_fence`]). A store here, and in the scroll's blank,
-    /// was 0.3-0.6% more instructions retired on `cat`, `btop`, `vim` and
-    /// `less` (the record, "Double-width and double-height lines").
+    /// [`Paint::line_fence`]). A store here, and in the scroll's blank, was
+    /// 0.3-0.6% more instructions retired on `cat`, `btop`, `vim` and
+    /// `less`.
     #[inline(always)]
     fn enter_row(&mut self, r: Row, how: Arrival) {
         let e = self.view.extent(r);
@@ -2479,11 +2461,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// watch on a selection's rows while it is armed and nothing has reached
     /// it ([`crate::term::Cold::test_watch`]): text, a mark joined to a
     /// cell, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the selective erases, `DECIC`,
-    /// `DECDC`, `DECALN` and a clear for a change of columns. The owner's
-    /// answer A of 2026-10-17 to B23: a selection goes when a program writes
-    /// or erases on its rows, whatever it writes, as xterm disowns one when
-    /// a write or an erase lands on a selected row (`[[source:
-    /// xterm-scroll]]`, `WriteText`, `ClearInLine`, `ClearScreen`).
+    /// `DECDC`, `DECALN` and a clear for a change of columns. Since
+    /// 2026-10-17 a selection goes when a program writes or erases on its
+    /// rows, whatever it writes, as xterm disowns one when a write or an
+    /// erase lands on a selected row (`[[source: xterm-scroll]]`,
+    /// `WriteText`, `ClearInLine`, `ClearScreen`).
     ///
     /// **One compare of the watch's state a call, and the test out of
     /// line**: `ingest2` arms no watch, so an erase pays the compare. Text

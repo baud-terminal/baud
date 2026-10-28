@@ -115,8 +115,7 @@ pub(crate) struct Iterm {
     pub(crate) badge_colour: Option<ColorWord>,
     pub(crate) scale: BackingScale,
     /// `UnicodeVersion`'s stack, its entries from the front, the first
-    /// `None` its top. `RIS` keeps it, as iTerm2's reset does (Jev, KEPT,
-    /// 1.00/1.00).
+    /// `None` its top. `RIS` keeps it, as iTerm2's reset does.
     pushed: [Option<Pushed>; UNICODE_STACK],
     pub(crate) counts: ItermCounts,
 }
@@ -160,8 +159,7 @@ impl Paint<'_, '_> {
                 self.strs.attention_requests = self.strs.attention_requests.next();
             }
             // "0: Block 1: Vertical bar 2: Underline", the blink kept, as
-            // iTerm2's `terminalSetCursorType` changes the type alone (Jev,
-            // KEEP_BLINK, 1.00/1.00).
+            // iTerm2's `terminalSetCursorType` changes the type alone.
             Osc1337::CursorShape(shape) => {
                 let blink = match self.cold.cursor_style.blinks() {
                     true => CursorBlink::Blinking,
@@ -172,9 +170,8 @@ impl Paint<'_, '_> {
             // "To erase the scrollback history": `CSI 3 J`'s erasure. iTerm2's
             // source clears the screen as well (`clearBufferSavingPrompt:`,
             // `[[source: iterm2-964a75d-screen-terminal-delegate]]`), a
-            // departure from the text Jev leaned to below 0.9 (0.50/0.48,
-            // 0.46/0.54 asked again), so the text is followed.
-            // "This shows or hides the cursor guide": the embedder draws it
+            // departure from the text, which is followed here. "This shows or
+            // hides the cursor guide": the embedder draws it
             // (`Term::cursor_guide`), over its own setting until `RIS`.
             Osc1337::CursorGuide(g) => self.cold.cursor_guide = Some(g),
             Osc1337::ClearScrollback => self.erase_saved_lines(),
@@ -219,11 +216,9 @@ impl Paint<'_, '_> {
 
     /// **`CurrentDir=dir`: the directory, as sent, on the host the last
     /// `RemoteHost` named** -- "a combination of RemoteHost and CurrentDir"
-    /// is what `OSC 7` is the synonym of (Jev, LAST_REMOTE_HOST,
-    /// 0.96/0.98). An empty one, or one cut at `OSC_MAX`, leaves no
-    /// directory and is counted with `OSC 7`'s refusals (Jev's lean,
-    /// LEAVES_NONE, 0.88/0.92): iTerm2 asks the process then, which the
-    /// core cannot see.
+    /// is what `OSC 7` is the synonym of. An empty one, or one cut at
+    /// `OSC_MAX`, leaves no directory and is counted with `OSC 7`'s
+    /// refusals: iTerm2 asks the process then, which the core cannot see.
     fn current_dir(&mut self, dir: &[u8], body: Body) {
         let len = match (self.strs.iterm.host_at, body) {
             (Host::Unreadable, _) | (_, Body::Cut) => return self.refuse_directory(),
@@ -242,9 +237,9 @@ impl Paint<'_, '_> {
     /// on**, its control characters dropped as iTerm2's
     /// `setRemoteHostFromString` drops them; none, or an empty one, is this
     /// machine. Alone it leaves the directory unknown until the next
-    /// `CurrentDir` (Jev, LAST_REMOTE_HOST). One past [`HOST_MAX`] or cut at
-    /// `OSC_MAX` is unreadable, and the directories that follow it are
-    /// refused until another names a host.
+    /// `CurrentDir`. One past [`HOST_MAX`] or cut at `OSC_MAX` is
+    /// unreadable, and the directories that follow it are refused until
+    /// another names a host.
     fn remote_host(&mut self, host: &[u8], body: Body) {
         let it = &mut self.strs.iterm;
         let mut n = 0;
@@ -266,14 +261,12 @@ impl Paint<'_, '_> {
     }
 
     /// **`ReportCellSize`: "OSC 1337 ; ReportCellSize=[height];[width];[scale]
-    /// ST"**, the cell in points -- its device pixels over the backing
-    /// scale -- and the scale, each as iTerm2 writes them (Jev, COMPACTED,
-    /// 0.98/1.00), ended as the query was: by the page's own notation "ST
-    /// means either BEL ... or ESC \\" (Jev's lean, QUERY_TERMINATOR,
-    /// 0.80/0.68). Silence while the cell or the scale is untold, counted
-    /// as an XTWINOPS report with its fact untold is (`unsupported_param`)
-    /// and under the key: a number baud does not know would be a wrong
-    /// answer.
+    /// ST"**, the cell in points -- its device pixels over the backing scale
+    /// -- and the scale, each as iTerm2 writes them, ended as the query was:
+    /// by the page's own notation "ST means either BEL ... or ESC \\". Silence
+    /// while the cell or the scale is untold, counted as an XTWINOPS report
+    /// with its fact untold is (`unsupported_param`) and under the key: a
+    /// number baud does not know would be a wrong answer.
     fn report_cell_size(&mut self, term: StringTerm) {
         let scale = self.strs.iterm.scale;
         let (w, h) = (
@@ -306,16 +299,15 @@ impl Paint<'_, '_> {
         self.push_reply(&parts);
     }
 
-    /// **`ReportVariable=base64`: answered in iTerm2's shape**, `ESC ] 1337
-    /// ; ReportVariable=base64(value)` (`[[source:
-    /// iterm2-964a75d-vt100output]]`), every name with the empty value, the
-    /// answer iTerm2 gives a variable the user has not allowed, a `user.`
-    /// variable a program set included: it is kept for the embedder alone
-    /// (`Term::user_var`), since the answer goes to whatever reads the
-    /// terminal then (Jev's lean, EMPTY_AS_DENIED, 0.84/0.62 and 0.70/0.84
-    /// asked again with the variables built). Ended as the query was
-    /// (Jev's lean, QUERY_TERMINATOR). A name that is not base64 of UTF-8
-    /// gets no reply, as iTerm2 sends none, and is counted.
+    /// **`ReportVariable=base64`: answered in iTerm2's shape**,
+    /// `ESC ] 1337 ; ReportVariable=base64(value)`
+    /// (`[[source: iterm2-964a75d-vt100output]]`), every name with the
+    /// empty value, the answer iTerm2 gives a variable the user has not
+    /// allowed, a `user.` variable a program set included: it is kept for
+    /// the embedder alone (`Term::user_var`), since the answer goes to
+    /// whatever reads the terminal then. Ended as the query was. A name
+    /// that is not base64 of UTF-8 gets no reply, as iTerm2 sends none, and
+    /// is counted.
     fn report_variable(&mut self, name: &[u8], term: StringTerm) {
         let mut out = [0u8; OSC_MAX];
         let Some(n) = decode_whole(name, &mut out).map(ByteLen::index) else {
@@ -358,12 +350,12 @@ impl Paint<'_, '_> {
     /// **`Notification`: posted as an `OSC 9` notification is, under the
     /// same rules** -- the user's setting, the window's focus, the desk's
     /// bounds -- its `title` and `message`, each decoded from base64, as
-    /// iTerm2's source posts it "rich" (`[[source:
-    /// iterm2-964a75d-ptysession]]`); a value that does not decode is none,
-    /// as there. baud's notification has no subtitle, so a `subtitle` is
-    /// dropped and counted (Jev's lean, DROPPED_COUNTED, 0.88/0.88), and so
-    /// is an `image`, which names a picture for the system to load and
-    /// which baud would have to read from wherever the program says.
+    /// iTerm2's source posts it "rich"
+    /// (`[[source: iterm2-964a75d-ptysession]]`); a value that does not
+    /// decode is none, as there. baud's notification has no subtitle, so a
+    /// `subtitle` is dropped and counted, and so is an `image`, which names
+    /// a picture for the system to load and which baud would have to read
+    /// from wherever the program says.
     fn notification(&mut self, pairs: NoticePairs<'_>) {
         let (mut title, mut body) = ([0u8; OSC_MAX], [0u8; OSC_MAX]);
         let (mut tl, mut bl) = (0, 0);
@@ -414,10 +406,9 @@ impl Paint<'_, '_> {
     /// **`UnicodeVersion`: which Unicode version's widths the next character
     /// is measured by** -- "8 or 9", 0 the default, `push` and `pop` with an
     /// optional label (`[[source: iterm2-escape-codes]]`). Nine is the
-    /// current tables; eight Unicode 8's (Jev's lean, BUILD_UNICODE8,
-    /// 0.40/0.36 and 0.76/0.82 asked again). A push keeps the version and
-    /// its label; a pop takes entries off until one has its label, or the
-    /// top one with none, and restores that one's version, as iTerm2's
+    /// current tables; eight Unicode 8's. A push keeps the version and its
+    /// label; a pop takes entries off until one has its label, or the top
+    /// one with none, and restores that one's version, as iTerm2's
     /// `popUnicodeVersion:` does -- a label no entry has empties the stack
     /// and changes nothing. Cells already written keep their widths. A
     /// number iTerm2 does not take, a push past the stack and a label past
@@ -466,29 +457,27 @@ impl Paint<'_, '_> {
 
     /// **`Capabilities`: "OSC 1337 ; Capabilities = {FeatureString} ST"**
     /// (`[[source: iterm2-feature-reporting]]`), each feature claimed only
-    /// where baud does it now, ended with `ESC \`: that page defines `ST`
-    /// as "a synonym for `ESC 0x5c`", where the escape-codes page's notation
+    /// where baud does it now, ended with `ESC \`: that page defines `ST` as
+    /// "a synonym for `ESC 0x5c`", where the escape-codes page's notation
     /// lets "ST" be BEL as well (`[[source: iterm2-escape-codes]]`) and
     /// iTerm2's source ends this report with BEL; `ESC \` is the one ending
-    /// both pages allow. Both 24-bit forms, the mouse modes with
-    /// `?1006`, DECSCUSR 1 to 6 and 0 for the configured style, title
-    /// stacks and titles, bracketed paste, focus reports, strikethrough and
-    /// overline drawn, synchronised output, hyperlinks and progress always;
+    /// both pages allow. Both 24-bit forms, the mouse modes with `?1006`,
+    /// DECSCUSR 1 to 6 and 0 for the configured style, title stacks and
+    /// titles, bracketed paste, focus reports, strikethrough and overline
+    /// drawn, synchronised output, hyperlinks and progress always;
     /// `UNICODE_BASIC`, which "Indicates if UTF-8 is accepted", and the
     /// Unicode version while UTF-8 is the input, neither under ISO 8859-1,
     /// whose 0 is "No unicode support is claimed"; DECSLRM at Level 4 alone,
-    /// where it is executed (Jev, LEVEL_GATED, 0.98/0.96); clipboard writes
-    /// while `OSC 52` writes reach a clipboard; notifications while the
-    /// embedder delivers them; Sixel while the Primary DA claims it;
-    /// ambiguous-wide and the Unicode version as they are set. `FILE`,
-    /// "the OSC 1337 File protocol for transfer/display of files such as
-    /// images or video, including those using lossy compression", while
-    /// image memory is provisioned, since PNG and JPEG pictures draw
-    /// inline; downloads stay refused (Jev's lean, CLAIM, 0.04/0.38 and
-    /// 0.28/0.20 asked again: its code `F` is `FOCUS_REPORTING`'s too, so
-    /// a reader already saw one, and programs read it as inline display).
-    /// It was not claimed while PNG alone drew (Jev, NOT_CLAIMED,
-    /// 0.96/0.88 and 0.90/0.92).
+    /// where it is executed; clipboard writes while `OSC 52` writes reach a
+    /// clipboard; notifications while the embedder delivers them; Sixel
+    /// while the Primary DA claims it; ambiguous-wide and the Unicode
+    /// version as they are set. `FILE`, "the OSC 1337 File protocol for
+    /// transfer/display of files such as images or video, including those
+    /// using lossy compression", while image memory is provisioned, since
+    /// PNG and JPEG pictures draw inline; downloads stay refused (its code
+    /// `F` is `FOCUS_REPORTING`'s too, so a reader already saw one, and
+    /// programs read it as inline display). It was not claimed while PNG
+    /// alone drew.
     fn capabilities(&mut self) {
         let clip =
             self.strs.window_asks.clipboard == Osc52Writes::On && !self.strs.clip_area.is_empty();
@@ -542,7 +531,7 @@ impl Paint<'_, '_> {
     /// prompt log Cmd-Up and Cmd-Down already walk: the cursor's line, or
     /// with `saveScrollPosition` the window's top line. On the alternate
     /// screen, which keeps no history and where a jump does nothing, it is
-    /// counted under its key (Jev, COUNTED, 0.96/0.96).
+    /// counted under its key.
     fn set_mark(&mut self, at: MarkAt) {
         if self.cold.screen != crate::term::Screen::Normal {
             return self.not_acted(ItermKey::SetMark);
@@ -560,17 +549,16 @@ impl Paint<'_, '_> {
 
     /// **`SetBadgeFormat=base64`: the badge's format**, kept for the embedder
     /// to evaluate and draw (`Term::badge_format`), as iTerm2's
-    /// `screenSetBadgeFormat` keeps it (`[[source:
-    /// iterm2-964a75d-ptysession]]`): decoded as UTF-8, and left as it was,
-    /// and counted under the key, when it is not base64 of UTF-8 ("Badge is
-    /// not properly base64 encoded"), when it calls a function ("For
-    /// security reasons, this is not allowed and the badge was not
-    /// updated"), or when its body was cut at `OSC_MAX`. An empty one
-    /// clears the badge. `RIS` clears it (Jev, RESTORES, 0.94/0.96), where
-    /// iTerm2's reset keeps it. Each
+    /// `screenSetBadgeFormat` keeps it
+    /// (`[[source: iterm2-964a75d-ptysession]]`): decoded as UTF-8, and left
+    /// as it was, and counted under the key, when it is not base64 of UTF-8
+    /// ("Badge is not properly base64 encoded"), when it calls a function
+    /// ("For security reasons, this is not allowed and the badge was not
+    /// updated"), or when its body was cut at `OSC_MAX`. An empty one clears
+    /// the badge. `RIS` clears it, where iTerm2's reset keeps it. Each
     /// expression in it but a user variable's is counted
     /// (`ItermCounts::badge_unevaluated`): the embedder draws those as
-    /// nothing (Jev's lean, LITERAL_AND_USER).
+    /// nothing.
     fn set_badge_format(&mut self, b64: &[u8], body: Body) {
         let mut out = [0u8; BADGE_MAX];
         let mut n = 0;

@@ -28,13 +28,12 @@
 //! That is xrdb's rule for one spelling of a name; `xrdb -load` keeps a
 //! repeated name at its first line (260-287), so where `*color0` and
 //! `*.color0` alternate the X server's database can hold the other value,
-//! which note AR lists open.
-//! The name is Xrm's: components bound by `.` or `*`, two separators with
-//! nothing between them one binding, loose if either is `*`
-//! (`[[source: libx11-xrm-b8d5a70]]` 1270-1295). **Only a name every client
-//! matches is read** -- one loose component, `*color0` or `*.color0` -- and
-//! a program's own entry (`URxvt*color0`) is passed over naming the program
-//! (Jev's lean, decisions.jsonl 714/715).
+//! which note AR lists open. The name is Xrm's: components bound by `.` or
+//! `*`, two separators with nothing between them one binding, loose if
+//! either is `*` (`[[source: libx11-xrm-b8d5a70]]` 1270-1295). **Only a name
+//! every client matches is read** -- one loose component, `*color0` or
+//! `*.color0` -- and a program's own entry (`URxvt*color0`) is passed over
+//! naming the program.
 //!
 //! **A colour is XParseColor's, read by the parser `OSC 4` reads with**,
 //! [`crate::XColor::parse`], so a resource file and an application's escape
@@ -55,10 +54,8 @@
 //! manual's grammar such as `rgb:1/2/3/4` -- is passed over and named, as
 //! xterm skips a colour XParseColor refuses.
 //!
-//! The owner took Jev's leans on all four choices (2026-10-17;
-//! decisions.jsonl 714/715, none at 0.9 on both asks): the subset 0.72 /
-//! 0.72, every client's names 0.14 / 0.61, includes followed 0.76 / 0.60,
-//! the high byte 0.84 / 0.86. On the corpus note AR measured -- 575
+//! Four choices are made here: the subset, every client's names, includes
+//! followed, and the high byte. On the corpus note AR measured -- 575
 //! tinted-xresources, 815 iTerm2-Color-Schemes and 113 xcolors files -- this
 //! reader gives the same scheme from each file as from clang's
 //! `cpp -P -DCOLOR` output of it, 1503 of 1503.

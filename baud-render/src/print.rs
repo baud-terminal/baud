@@ -3,13 +3,13 @@
 //! the system's print panel.
 //!
 //! What it acts on is the subset 070-7 § 7.4 sends and a controller run's
-//! text commonly carries (Jev's lean, DEC_PRINTER, 0.66/0.70 then
-//! 0.56/0.68): `CR`, `LF`, `VT`, `BS`, `HT` to every eighth column and `FF`,
-//! a new page, `LF`, `VT` and `FF` keeping the column, "the corresponding
-//! character position" (`[[source: ecma48]]` 8.3.74, 8.3.161, 8.3.51); `SGR` 0, 1, 4, 5 and 7 and their resets 22, 24, 25 and 27,
-//! bold, underline, blink and reverse (blink drawn plain, as paper cannot
-//! blink); `ESC # 3`, `4`, `5` and `6`, the line sizes. Every other control,
-//! escape sequence and control string prints nothing and is counted in
+//! text commonly carries: `CR`, `LF`, `VT`, `BS`, `HT` to every eighth
+//! column and `FF`, a new page, `LF`, `VT` and `FF` keeping the column, "the
+//! corresponding character position" (`[[source: ecma48]]` 8.3.74, 8.3.161,
+//! 8.3.51); `SGR` 0, 1, 4, 5 and 7 and their resets 22, 24, 25 and 27, bold,
+//! underline, blink and reverse (blink drawn plain, as paper cannot blink);
+//! `ESC # 3`, `4`, `5` and `6`, the line sizes. Every other control, escape
+//! sequence and control string prints nothing and is counted in
 //! [`Stripped`].
 //!
 //! **A character the head comes back over is struck over, not replaced**:
@@ -37,11 +37,10 @@
 //! larger so its size on paper is kept, and one with none left is left
 //! out; both are counted in [`Stripped`].
 //!
-//! **A double-height line pair is printed once** (Jev's lean, DOUBLE_SIZE,
-//! 0.70/0.72 then 0.76/0.78): the `ESC # 3` line at double width and height
-//! over two lines' space, and an `ESC # 4` line straight after it not again,
-//! since a screen sends the same text on both halves; a lone `ESC # 4` line
-//! is drawn as the top half is.
+//! **A double-height line pair is printed once**: the `ESC # 3` line at
+//! double width and height over two lines' space, and an `ESC # 4` line
+//! straight after it not again, since a screen sends the same text on both
+//! halves; a lone `ESC # 4` line is drawn as the top half is.
 
 use baud_domain::{
     AmbiguousWidth, Chan, Codepoint, Pixel, Sixel, SixelAspect, SixelCanvas, SixelPx, Width,
@@ -522,9 +521,9 @@ impl Head {
             _ => (ext.width, ext.height),
         };
         // **Held to what is left of the budget**: every `by`-th pixel each
-        // way, `by` the least that fits, and none when nothing is left
-        // (Jev's lean, SHRINK, 0.24/0.72 after a re-ask). The sheet shows
-        // it shrunk to fit anyway, a picture this large far more.
+        // way, `by` the least that fits, and none when nothing is left.
+        // The sheet shows it shrunk to fit anyway, a picture this large
+        // far more.
         let left = self.budget.0;
         if left == 0 && w.index() * h.index() > 0 {
             self.stripped.left_out.0 += 1;

@@ -1,7 +1,7 @@
 //! **xterm's logging, written** (`?46`, "Start logging", and `OSC 46`,
 //! "Change Log File to Pt", `[[source: ctlseqs]]`; the core keeps the mode
-//! and the name, `baud-core`'s `logging.rs`). The owner's call of
-//! 2026-10-20, on by default and `[screen] logging = "off"` refusing both.
+//! and the name, `baud-core`'s `logging.rs`). On by default, with
+//! `[screen] logging = "off"` refusing both.
 //!
 //! **The host's bytes, as xterm logs them**: each part of a read the core
 //! parsed while the mode was started, the core stopping a read at each
@@ -12,11 +12,10 @@
 //! xterm's; a relative name is read from the directory the shell started
 //! in, and with no name the log is `baud.log.<host>.<date>.<pid>` there,
 //! after xterm's `Xterm.log.<host>.<date>.<pid>`, the date and time local,
-//! as xterm's `localtime` gives them (`pty::start_dir`; Jev's leans,
-//! START_DIR and GENERATED_START_DIR). The file is appended to, created
-//! `0644` if absent, and refused unless the real user owns it and neither
-//! group nor others may write it, as xterm's `open_userfile`
-//! (`[[source: xterm-misc]]`; Jev, XTERM_CHECKS, 1.00/1.00).
+//! as xterm's `localtime` gives them (`pty::start_dir`). The file is
+//! appended to, created `0644` if absent, and refused unless the real user
+//! owns it and neither group nor others may write it, as xterm's
+//! `open_userfile` (`[[source: xterm-misc]]`).
 //!
 //! **Never on the read loop**: the open and every write are a writer
 //! thread's, fed through a queue the loop only pushes to, so a stalled disk

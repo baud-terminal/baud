@@ -226,8 +226,7 @@ fn without_image_memory_drawing_is_counted() {
 #[test]
 fn text_written_over_the_page_clears_its_cells_and_no_more() {
     // The VT330 and VT340 draw text and graphics into one bitmap, so a
-    // character replaces what was drawn in its cell (Jev's lean,
-    // 2026-10-20, CELLS).
+    // character replaces what was drawn in its cell.
     let ws = support::CORPUS;
     let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
     let mut t = Term::new(owned.storage(), &ws);

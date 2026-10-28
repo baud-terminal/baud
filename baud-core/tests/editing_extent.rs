@@ -47,7 +47,7 @@ fn cursor(then: &str) -> (usize, usize) {
 
 /// **Before any SEE, DEC's extent**: `ICH` shifts within the line and the
 /// characters pushed past its end are lost (DEC STD 070 ICH note 1), as
-/// SEE 1 does (Jev's lean, LINE).
+/// SEE 1 does.
 #[test]
 fn before_any_see_ich_shifts_within_the_line() {
     let dec = rows("\x1b[1;9H\x1b[2@");
@@ -78,7 +78,7 @@ fn see_page_shifts_across_line_ends() {
     assert_eq!(cursor("\x1b[Q\x1b[1;9H\x1b[2@"), (0, 8), "the cursor stays");
 }
 
-/// **SEE 4 is the page here** (Jev, AS_PAGE, 1.00/1.00).
+/// **SEE 4 is the page here**.
 #[test]
 fn see_four_is_the_page() {
     assert_eq!(
@@ -111,10 +111,9 @@ fn see_qualified_area_shifts_within_the_area() {
     );
 }
 
-/// **Across lines the shift keeps within DEC's margins** (Jev's lean,
-/// WITHIN_MARGINS): the region's last line ends it, the line below keeps
-/// its text; between side margins a line's right margin goes on at the
-/// next line's left margin.
+/// **Across lines the shift keeps within DEC's margins**: the region's
+/// last line ends it, the line below keeps its text; between side
+/// margins a line's right margin goes on at the next line's left margin.
 #[test]
 fn a_shift_across_lines_keeps_within_the_margins() {
     assert_eq!(
@@ -159,8 +158,8 @@ fn a_write_under_irm_shifts_along_the_extent() {
     assert_eq!(cursor("\x1b[4h\x1b[10h\x1b[Q\x1b[2;2HX"), (1, 1));
 }
 
-/// **`IL` and `DL` under SEE 1 and 2 erase the active line** (Jev,
-/// ERASE_ACTIVE, 0.98/0.98): the shifted part is that line alone.
+/// **`IL` and `DL` under SEE 1 and 2 erase the active line**: the
+/// shifted part is that line alone.
 #[test]
 fn il_and_dl_under_a_line_or_field_extent_erase_the_active_line() {
     let erased = ["abcdefghij", "..........", "uvwxyz....", ".........."];
@@ -174,8 +173,8 @@ fn il_and_dl_under_a_line_or_field_extent_erase_the_active_line() {
     );
 }
 
-/// **`IL` and `DL` under SEE 3 shift the area's lines** (Jev's lean,
-/// AREA_LINES): an area over rows 1 and 2, so row 3 keeps its place.
+/// **`IL` and `DL` under SEE 3 shift the area's lines**: an area
+/// over rows 1 and 2, so row 3 keeps its place.
 #[test]
 fn il_and_dl_under_a_qualified_area_shift_its_lines() {
     let guard = "\x1b[2;1H\x1bV\x1b[3;10H\x1bW";
@@ -214,8 +213,8 @@ fn a_wide_character_a_line_end_cuts_is_erased() {
     });
 }
 
-/// **A value past 4 is counted and keeps the extent** (Jev, COUNTED_KEEP,
-/// 0.98/0.94); the private namespace is no SEE.
+/// **A value past 4 is counted and keeps the extent**; the private
+/// namespace is no SEE.
 #[test]
 fn see_with_an_undefined_value_is_counted() {
     support::with_term(&WS, |t| {
@@ -230,8 +229,7 @@ fn see_with_an_undefined_value_is_counted() {
     );
 }
 
-/// **`RIS` returns to DEC's extent, `DECSTR` keeps it** (Jev, KEEP,
-/// 0.96/0.96).
+/// **`RIS` returns to DEC's extent, `DECSTR` keeps it**.
 #[test]
 fn ris_returns_to_decs_extent_and_decstr_keeps_it() {
     assert_eq!(rows("\x1b[Q\x1b[!p\x1b[1;9H\x1b[2@")[1], "ijklmnopqr");

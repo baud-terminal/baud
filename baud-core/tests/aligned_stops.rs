@@ -32,7 +32,7 @@ fn laid(bytes: &str) -> (String, usize) {
 }
 
 /// **TAC centres the string on the stop**, the left edge of its cell, an
-/// odd length's extra column after it (Jev's lean, ON_BOUNDARY).
+/// odd length's extra column after it.
 #[test]
 fn tac_centres_the_string_on_the_stop() {
     assert_eq!(laid("\x1b[9 b\tabc"), (".......abc..........".into(), 10));
@@ -41,7 +41,7 @@ fn tac_centres_the_string_on_the_stop() {
 
 /// **TALE ends the string at the stop**: "the (leading edge of the) last
 /// graphic character of the string is placed at the tabulation stop", so
-/// it ends in the cell before (Jev's lean, BEFORE_STOP).
+/// it ends in the cell before.
 #[test]
 fn tale_ends_the_string_at_the_stop() {
     assert_eq!(laid("\x1b[9 a\tabc"), (".....abc............".into(), 8));
@@ -53,9 +53,8 @@ fn tate_starts_the_string_at_the_stop() {
     assert_eq!(laid("\x1b[9 `\tabc"), ("........abc.........".into(), 11));
 }
 
-/// **TCC puts the first target in the stop's cell** (Jev's lean,
-/// TARGET_IN_CELL): `.` for 46; until it arrives the string starts at the
-/// stop, and with none it stays there.
+/// **TCC puts the first target in the stop's cell**: `.` for 46; until it
+/// arrives the string starts at the stop, and with none it stays there.
 #[test]
 fn tcc_puts_the_target_in_the_stops_cell() {
     assert_eq!(
@@ -88,8 +87,7 @@ fn tcc_targets_the_space_by_default_and_latin1_letters() {
     );
 }
 
-/// **SGR does not end the string; a cursor movement does** (Jev,
-/// FORMAT_EFFECTOR, 0.92/0.92).
+/// **SGR does not end the string; a cursor movement does**.
 #[test]
 fn sgr_keeps_the_string_and_a_movement_ends_it() {
     assert_eq!(
@@ -103,7 +101,7 @@ fn sgr_keeps_the_string_and_a_movement_ends_it() {
 }
 
 /// **A string that would move back past the line's start goes on as plain
-/// text** (Jev's lean, AS_TEXT).
+/// text**.
 #[test]
 fn a_string_at_the_line_start_goes_on_as_text() {
     assert_eq!(laid("\x1b[3 a\tabcd"), ("abcd................".into(), 4));
@@ -200,10 +198,10 @@ fn screen(bytes: &str) -> Vec<String> {
     })
 }
 
-/// **A format effector that scrolls ends the string** (Jev,
-/// FORMAT_EFFECTOR): `LF`, `VT`, `FF` and `IND` at the bottom margin and
-/// `RI` at the top leave the cursor on the row and column the string left
-/// it, on the line that scrolled in, and what follows is plain text.
+/// **A format effector that scrolls ends the string**: `LF`, `VT`, `FF`
+/// and `IND` at the bottom margin and `RI` at the top leave the cursor on
+/// the row and column the string left it, on the line that scrolled in,
+/// and what follows is plain text.
 #[test]
 fn a_format_effector_that_scrolls_ends_the_string() {
     for fe in ["\n", "\x0b", "\x0c", "\x1bD"] {
@@ -240,14 +238,13 @@ fn a_carriage_return_to_the_strings_column_ends_it() {
     assert_eq!(s[3], "........c...........");
 }
 
-/// **An erase or edit of the string's line ends it** (Jev, FORMAT_EFFECTOR,
-/// 0.92/0.92: "and an erase or edit of the line"; which ones, Jev's lean,
-/// LINE_REACHED, 0.83/0.94): each of these leaves the cursor where the
-/// string left it, column 8, and reaches row 0, so the `c` after it is
-/// plain text there, where laid out it would end the string at column 7:
-/// among them `ICH` and `DCH` from row 1 under SEE 0, whose shift crosses
-/// into row 0, and `IL` and `DL`, which put the cursor on SLH's home at
-/// the string's column, and `ICH` and `DCH` under HEM's PRECEDING.
+/// **An erase or edit of the string's line ends it** ("and an erase or edit
+/// of the line"): each of these leaves the cursor where the string left it,
+/// column 8, and reaches row 0, so the `c` after it is plain text there,
+/// where laid out it would end the string at column 7: among them `ICH` and
+/// `DCH` from row 1 under SEE 0, whose shift crosses into row 0, and `IL`
+/// and `DL`, which put the cursor on SLH's home at the string's column, and
+/// `ICH` and `DCH` under HEM's PRECEDING.
 #[test]
 fn an_erase_or_edit_of_the_strings_line_ends_it() {
     let mut wrong = Vec::new();
@@ -331,20 +328,19 @@ fn an_erase_of_another_line_or_an_attribute_change_keeps_it() {
 }
 
 /// **A cursor movement ends the string as it executes, wherever it leaves
-/// the cursor** (Jev, FORMAT_EFFECTOR, 0.92/0.92: "Any format effector
-/// ... or other cursor movement"): each of these leaves the cursor on row
-/// 0, column 8, where the string left it, so the `c` after it is plain
-/// text there; laid out, it would move the string back to column 5. Most
-/// move nothing, or go and come back by the same function: `CUU` at the
-/// top, `CUP`, `HVP`, `CHA`, `HPA` and `VPA` to the cursor's own cell, the
-/// format effectors that set or clear a stop (`HTS`, `VTS`, `TBC`, `TSR`)
-/// and the page ones (PPA, PPR, PPB), `DECRC`, `CSI u` and `?1048` after a
-/// save there, VT52's up, direct address and erases, DECSASD, and a screen
-/// switch and back (Jev's lean, SWITCH_ENDS); the rest go and come back
-/// by a pair. On the last row, `CUD`, `VPR` and `CVT` move nothing; at
-/// the last column `CUF` and `HPR` move nothing, and DECFI moves the
-/// line's columns under a cursor that stays. **SGR and DECSC keep it**,
-/// the controls.
+/// the cursor** ("Any format effector ... or other cursor movement"): each
+/// of these leaves the cursor on row 0, column 8, where the string left
+/// it, so the `c` after it is plain text there; laid out, it would move
+/// the string back to column 5. Most move nothing, or go and come back by
+/// the same function: `CUU` at the top, `CUP`, `HVP`, `CHA`, `HPA` and
+/// `VPA` to the cursor's own cell, the format effectors that set or clear
+/// a stop (`HTS`, `VTS`, `TBC`, `TSR`) and the page ones (PPA, PPR, PPB),
+/// `DECRC`, `CSI u` and `?1048` after a save there, VT52's up, direct
+/// address and erases, DECSASD, and a screen switch and back; the rest go
+/// and come back by a pair. On the last row, `CUD`, `VPR` and `CVT` move
+/// nothing; at the last column `CUF` and `HPR` move nothing, and DECFI
+/// moves the line's columns under a cursor that stays. **SGR and DECSC
+/// keep it**, the controls.
 #[test]
 fn a_cursor_movement_ends_the_string_wherever_it_leaves_the_cursor() {
     let mut wrong = Vec::new();
@@ -426,9 +422,9 @@ fn a_cursor_movement_ends_the_string_wherever_it_leaves_the_cursor() {
     }
 }
 
-/// **A screen switch ends the string** (Jev's lean, SWITCH_ENDS): a
-/// character written on the alternate screen where the string left the
-/// cursor is plain text there, and the primary's string stays as it was.
+/// **A screen switch ends the string**: a character written on the
+/// alternate screen where the string left the cursor is plain text
+/// there, and the primary's string stays as it was.
 #[test]
 fn a_screen_switch_ends_the_string() {
     for sw in ["\x1b[?47h", "\x1b[?1047h"] {

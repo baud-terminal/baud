@@ -349,10 +349,9 @@ pub enum Osc1337<'a> {
     /// `RequestAttention=fireworks`: "fireworks explode at the cursor's
     /// location", a drawn effect not built, counted.
     Fireworks,
-    /// `CursorShape=N`, "where [N]=0, 1, or 2": the shape, its blink kept
-    /// (Jev, KEEP_BLINK, 1.00/1.00). A value that is not a number is 0, as
-    /// iTerm2 reads it with `intValue` ("Bogusly, non-numbers are treated
-    /// as 0"; Jev, BLOCK, 0.92/0.98).
+    /// `CursorShape=N`, "where [N]=0, 1, or 2": the shape, its blink kept.
+    /// A value that is not a number is 0, as iTerm2 reads it with
+    /// `intValue` ("Bogusly, non-numbers are treated as 0").
     CursorShape(CursorShape),
     /// `HighlightCursorLine=[boolean]`: "This shows or hides the cursor
     /// guide". The value is read as iTerm2 reads it, `value.length ?
@@ -809,20 +808,17 @@ pub enum MarkAt {
     /// The cursor's line: no argument, or any but `saveScrollPosition`.
     CursorLine,
     /// `saveScrollPosition`: the line at the window's top, so a jump, which
-    /// puts a mark at the window's top, shows the region as it was (Jev,
-    /// WINDOW_TOP, 0.90/0.94).
+    /// puts a mark at the window's top, shows the region as it was.
     WindowTop,
 }
 
 /// **What a `Copy=` asks, from the value before its `:`**, as iTerm2's
 /// `executeXtermSetKvp` reads it (`[[source: iterm2-964a75d-vt100terminal]]`):
-/// the first `;`-part's `intValue` is the mode, an empty value mode 1.
-/// Mode 1 is the page's whole copy, "OSC 1337 ; Copy=:[base64] ST"; 2, 3
-/// and 4 are the segmented copy iTerm2's `it2copy` sends inside tmux -- `2;
-/// uid` to begin, `3;uid:base64` a piece, `4` to end -- which the pages do
-/// not name and which is built because a program sends it (Jev's lean,
-/// BUILD_SEGMENTS, 0.80/0.78 asked again, under the owner's "we need to
-/// support such protocols fully, always!").
+/// the first `;`-part's `intValue` is the mode, an empty value mode 1. Mode 1
+/// is the page's whole copy, "OSC 1337 ; Copy=:[base64] ST"; 2, 3 and 4 are
+/// the segmented copy iTerm2's `it2copy` sends inside tmux -- `2; uid` to
+/// begin, `3;uid:base64` a piece, `4` to end -- which the pages do not name
+/// and which is built because a program sends it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CopyHeader<'a> {
     Whole,
@@ -1039,10 +1035,9 @@ impl ColorTarget {
 /// sRGB color space), rgb (the device-specific color space), p3"; sRGB with
 /// none, as iTerm2's source takes it, and with a space none of the three,
 /// which the page says a space "should be one of" and iTerm2's source reads
-/// in its default space (Jev's lean, DEFAULT_SPACE, 0.62/0.78 and 0.06/0.48
-/// asked again). `rgb` is macOS's Generic RGB, what iTerm2's source makes
-/// of it (`[NSColorSpace genericRGBColorSpace]`), converted as a theme
-/// file's `Calibrated` is (Jev's lean, CALIBRATED, 0.97/0.89).
+/// in its default space. `rgb` is macOS's Generic RGB, what iTerm2's source
+/// makes of it (`[NSColorSpace genericRGBColorSpace]`), converted as a
+/// theme file's `Calibrated` is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ColorValue<'a> {
     /// Three or six hex digits, in a space.
@@ -1053,7 +1048,7 @@ pub enum ColorValue<'a> {
     Named(&'a [u8]),
     /// `i:N`, iTerm2's source's binding of a colour to palette entry N,
     /// which tracks the entry from then on; baud has no binding, and counts
-    /// it (Jev's lean, COUNTED, 0.90/0.78 and 0.56/0.62 asked again).
+    /// it.
     Binding(&'a [u8]),
     /// Neither three nor six hex digits.
     Malformed,
@@ -1070,7 +1065,7 @@ pub enum ColorSetting<'a> {
 }
 
 /// `SetColors`' value: "key=value" pairs, split on `,` and each applied in
-/// turn, as iTerm2's source splits them (Jev, COMMA_PAIRS, 0.98/1.00).
+/// turn, as iTerm2's source splits them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ColorSettings<'a>(&'a [u8]);
 
@@ -1313,8 +1308,7 @@ impl BackingScale {
 /// A number in hundredths as iTerm2 writes a point size: `%0.2f`, and then
 /// `stringByCompactingFloatingPointString` -- trailing zeros trimmed, one
 /// kept after the point (`[[source: iterm2-964a75d-nsstringiterm]]`), so
-/// 1750 is `17.5`, 800 is `8.0` and 233 is `2.33` (Jev, COMPACTED,
-/// 0.98/1.00).
+/// 1750 is `17.5`, 800 is `8.0` and 233 is `2.33`.
 pub fn compact_hundredths(h: u32, out: &mut [u8; 16]) -> &[u8] {
     let mut digits = [0u8; 10];
     let mut n = h / 100;

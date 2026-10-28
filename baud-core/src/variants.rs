@@ -7,19 +7,19 @@
 //! rendition and the renderer draws them by it ([`baud_domain::Variants`]).
 //! Value 12, "vowels are presented after the preceding character", is
 //! refused and counted ([`Term::variants_refused`]): a vowel is stored on
-//! its letter's cell and the grid has no column for it to follow in (Jev's
-//! lean, REFUSED_COUNTED, 0.59/0.61). A value 8.3.108 does not define is
-//! counted in `unsupported_param`.
+//! its letter's cell and the grid has no column for it to follow in. A
+//! value 8.3.108 does not define is counted in `unsupported_param`.
 //!
 //! **A form for "the following graphic character"** (5 to 8) is in the
 //! rendition until a character takes it: a letter that takes a form keeps
 //! it for its write, and the next character takes it out before its own
-//! ([`Paint::form_ends`]); a character that takes none spends it unstored,
-//! since no form draws it otherwise ([`baud_domain::forced_form`]). 21
-//! holds forms "for the following graphic characters until cancelled"; 22
-//! cancels 21, and a form in force then is the next character's alone. `DECSTR` and `RIS` return the
-//! variants to the default presentation (Jev's lean, RESET, 0.32/0.22, as
-//! they return SCP's path); `SGR 0` leaves them, being no `SGR`.
+//! ([`Paint::form_ends`]); a character that takes none spends it
+//! unstored, since no form draws it otherwise
+//! ([`baud_domain::forced_form`]). 21 holds forms "for the following
+//! graphic characters until cancelled"; 22 cancels 21, and a form in
+//! force then is the next character's alone. `DECSTR` and `RIS` return
+//! the variants to the default presentation (as they return SCP's path);
+//! `SGR 0` leaves them, being no `SGR`.
 //!
 //! **What it costs a program that never sends it: nothing on the text
 //! path.** While a form waits ([`ModeBit::FormPending`]) or the character

@@ -43,7 +43,7 @@ impl ParamIdx {
     /// counting both would grow `Term::params` by a parameter no reply sends.
     /// Measured, the change with the array grown read `less-pager` 1.2% below
     /// the parent, ranges apart; with it held, the change overlaps the parent
-    /// on five recordings (the record, "SGR 6 blinks at its own rate").
+    /// on five recordings.
     ///
     /// **Nor are four of the five underline styles**, which replace each
     /// other too ([`Attrs::UNDERLINES`]): a reply holds one, at most the two
@@ -676,14 +676,13 @@ impl EraseExtent {
 
 /// A CSI sequence, resolved.
 ///
-/// **What SCP's and SPD's `Ps2` does with the cursor**
-/// (`[[source: ecma48]]` 8.3.111, 8.3.130). 0 is "implementation-dependent",
-/// and here the direction takes effect at once with the cursor where it is,
-/// as terminal-wg's draft has it ("no cursor movement is involved"). 1
-/// updates the presentation from the data, which a display-only model
-/// already does, and moves "the active data position ... to the first
-/// character position": of the active line for SCP, of the first line for
-/// SPD (Jev, 0.94/0.97).
+/// **What SCP's and SPD's `Ps2` does with the cursor** (`[[source: ecma48]]`
+/// 8.3.111, 8.3.130). 0 is "implementation-dependent", and here the
+/// direction takes effect at once with the cursor where it is, as
+/// terminal-wg's draft has it ("no cursor movement is involved"). 1 updates
+/// the presentation from the data, which a display-only model already does,
+/// and moves "the active data position ... to the first character position":
+/// of the active line for SCP, of the first line for SPD.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PathCursor {
     Stays,
@@ -770,8 +769,7 @@ pub enum Csi {
     EraseEach(EraseList),
     /// EA, `CSI Ps O`, erase in the active qualified area
     /// (`[[source: ecma48]]` 8.3.37). The first parameter only: ECMA-48
-    /// gives it `(Ps)` and no DEC text has it (decided by Jev, FIRST_ONLY,
-    /// 0.90/0.90); the caller counts the rest.
+    /// gives it `(Ps)` and no DEC text has it; the caller counts the rest.
     EraseInArea(EraseExtent),
     /// EF, `CSI Ps N`, erase in the active field (8.3.40), as EA reads its
     /// parameter.
@@ -839,7 +837,7 @@ pub enum Csi {
     /// every eight columns starting with column 9 ... Any tab stop setting
     /// before this command is executed is cleared automatically." Only the
     /// one form the texts give; `CSI ? W` and any other value are
-    /// [`Csi::Unsupported`] (Jev's lean, FIVE_ONLY, 0.74/0.90).
+    /// [`Csi::Unsupported`].
     TabsEveryEight,
     /// CNL, `CSI E`. Down `n` lines, to column 1.
     CursorNextLine(Count),
@@ -899,10 +897,9 @@ pub enum Csi {
     /// SCP, `CSI Ps1 ; Ps2 SP k` (`[[source: ecma48]]` 8.3.111): the
     /// character path "for the active line ... and subsequent lines".
     /// `Ps1` 1 or 2, and nothing else: SCP has "No parameter default
-    /// values" and defines no 0 (Jev's lean, REFUSE, 0.90/0.84). `Ps2` 0,
-    /// omitted (Jev, AS_ZERO, 0.90/0.90) or 1; 2 updates the data
-    /// from the presentation, which a display-only model never does. Any
-    /// other is [`Csi::Unsupported`].
+    /// values" and defines no 0. `Ps2` 0, omitted or 1; 2 updates the
+    /// data from the presentation, which a display-only model never does.
+    /// Any other is [`Csi::Unsupported`].
     SelectCharacterPath {
         path: CharacterPath,
         cursor: PathCursor,
@@ -1032,8 +1029,7 @@ pub enum Csi {
     /// attribute" (`[[source: ctlseqs]]`), answered with
     /// [`Report::Graphics`]. Only the three-parameter form ctlseqs gives is
     /// this, "xterm accepts a three-parameter control sequence"; any other
-    /// count is counted and unanswered, decided by Jev 2026-10-15
-    /// (THREE_ONLY, 0.96/0.96).
+    /// count is counted and unanswered.
     Graphics(GraphicsRequest),
     /// One of the VT420 rectangle operations, DECCRA to DECRQCRA
     /// ([`AreaOp`]). **Its parameters are read where it is performed**
@@ -1355,7 +1351,7 @@ impl Csi {
         // XTQFMTKEYS, `CSI > Pp g`: xterm 411's parse table
         // (`[[source: xterm-vtprstbl-c]]`, `dec2_table`) and not the
         // `CSI ? Pp g` `[[source: ctlseqs]]` line 884 documents, which xterm
-        // ignores (Jev's lean, 0.48 and 0.34, taken).
+        // ignores.
         if marker == Marker::Gt && f.raw() == b'g' {
             return Csi::Query(QueryOp::FormatKeys);
         }
@@ -1557,11 +1553,10 @@ impl Csi {
             },
             // **`CSI Ps ^` is SIMD, not SD**, and falls to `Unsupported`: the
             // pinned `[[source: ecma48]]` gives `CSI Ps 05/14` to SELECT
-            // IMPLICIT MOVEMENT DIRECTION and SD `05/04`. ctlseqs keeps it
-            // as SD: "This was a publication error in the original ECMA-48
-            // 5th edition (1991) corrected in 2003". baud has no
-            // implicit-movement directions to select (Jev's lean,
-            // SIMD_COUNTED, 0.80/0.84).
+            // IMPLICIT MOVEMENT DIRECTION and SD `05/04`. ctlseqs keeps it as
+            // SD: "This was a publication error in the original ECMA-48 5th
+            // edition (1991) corrected in 2003". baud has no
+            // implicit-movement directions to select.
             b'E' => Csi::CursorNextLine(p.count(ParamIdx::FIRST)),
             b'F' => Csi::CursorPrevLine(p.count(ParamIdx::FIRST)),
             b'G' => Csi::ColumnAbsolute(p.one_based(ParamIdx::FIRST)),
@@ -1797,8 +1792,8 @@ impl PositionOp {
 
 /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, the line
 /// tabulation stops' included. `[[source: vt510-tbc]]` and xterm keep 0 and
-/// 3 ("There are only two values for Ps"); ECMA-48's whole set was decided
-/// by Jev 2026-10-19 (BUILD_ECMA, 0.98/0.94).
+/// 3 ("There are only two values for Ps"); ECMA-48's whole set is built
+/// (since 2026-10-19).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabClear {
     /// 0: "the character tabulation stop at the active presentation
@@ -2132,14 +2127,13 @@ pub enum KeyChange {
 /// texts do not give.
 ///
 /// The ignore mask is `CSI > 4 ; Pv : mask m`, a sub-parameter of `Pv`, as
-/// xterm's `CASE_SET_MOD_FKEYS` parses it (Jev's lean, CODE_FORM,
-/// 0.69/0.88 then 0.80/0.89). **Open departure:** ctlseqs' own example,
-/// `CSI > 4 : 1 m`, puts it on `Pp`, which xterm's parser does not read
-/// there, and is refused and counted here. The mask is the parameter's
-/// bits, Shift 1, Alt 2, Control 4, Meta 8, as ctlseqs' "a mask of
-/// modifier bits to factor out of the parameter encoding" reads; xterm
-/// applies ignore_now to the X event state (Shift 1, Lock 2, Control 4,
-/// Mod1 8), so the two agree on Shift and Control only.
+/// xterm's `CASE_SET_MOD_FKEYS` parses it. **Open departure:** ctlseqs'
+/// own example, `CSI > 4 : 1 m`, puts it on `Pp`, which xterm's parser
+/// does not read there, and is refused and counted here. The mask is the
+/// parameter's bits, Shift 1, Alt 2, Control 4, Meta 8, as ctlseqs' "a
+/// mask of modifier bits to factor out of the parameter encoding" reads;
+/// xterm applies ignore_now to the X event state (Shift 1, Lock 2, Control
+/// 4, Mod1 8), so the two agree on Shift and Control only.
 pub fn key_change(p: &Params<'_>, op: KeyControl) -> Option<KeyChange> {
     let final_byte = op.final_byte().raw();
     let (first, second, third) = (ParamIdx::FIRST, ParamIdx::SECOND, ParamIdx::at(2));

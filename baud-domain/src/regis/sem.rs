@@ -1262,12 +1262,11 @@ impl Sem {
     /// "Only the data is offset, not the coordinate system"
     /// (`[[source: vt3xx-screen-control]]`). The page moves by the origin's
     /// pixel less the address's, rounded as drawing rounds. A relative or
-    /// omitted part is measured from the origin, not the drawing position
-    /// (Jev's lean, FROM_ORIGIN, 0.86 and 0.88 on a second ask): the
-    /// VT340's "The image moves relative to the screen origin", and
-    /// § 8.8.1.4.8's multiplier setting "the granularity of the display
-    /// motion". The drawing position stays; the line before no longer
-    /// joins the next, its end having moved.
+    /// omitted part is measured from the origin, not the drawing position:
+    /// the VT340's "The image moves relative to the screen origin", and §
+    /// 8.8.1.4.8's multiplier setting "the granularity of the display
+    /// motion". The drawing position stays; the line before no longer joins
+    /// the next, its end having moved.
     fn scroll_to(&mut self, to: Pt, out: &mut dyn RegisOut) {
         let (o, t) = (self.device(self.origin()), self.device(to));
         let (dx, dy) = (o.x.saturating_sub(t.x), o.y.saturating_sub(t.y));
@@ -1279,15 +1278,14 @@ impl Sem {
         out.scroll(RegisShift { dx, dy }, self.bg);
     }
 
-    /// A corner of `S(R[][])`, resolved as it comes: "positional
-    /// specifiers, and may use relative addressing", each from the corner
-    /// before it -- "multiple specifiers have cumulative action" (§ 8.4.5.1)
-    /// -- and the first from the drawing position, which `S(R)` does not
-    /// move: "S(R[ ][+200,+200]) sets the clip rectangle to an extent 200
-    /// square, starting at the current drawing position" (§ 8.8.1.4.6 d).
-    /// "If more than two are present, only the last two are used": the
-    /// frame keeps the last two, as absolute positions. Jev's lean,
-    /// CUMULATIVE, 0.52 and 0.48 on a second ask.
+    /// A corner of `S(R[][])`, resolved as it comes: "positional specifiers,
+    /// and may use relative addressing", each from the corner before it --
+    /// "multiple specifiers have cumulative action" (§ 8.4.5.1) -- and the
+    /// first from the drawing position, which `S(R)` does not move: "S(R[
+    /// ][+200,+200]) sets the clip rectangle to an extent 200 square,
+    /// starting at the current drawing position" (§ 8.8.1.4.6 d). "If more
+    /// than two are present, only the last two are used": the frame keeps
+    /// the last two, as absolute positions.
     fn clip_corner(&mut self, e: Extent) {
         let f = &mut self.frames[1];
         let from = match f.next {
@@ -1768,14 +1766,13 @@ impl Sem {
     /// only on the output map settings and the image that the characters are
     /// drawn over. Other ReGIS-settable states have no effect": the text
     /// foreground, index 7, drawn over the page, in the VT300's 80 columns
-    /// of ten device pixels. Jev's lean, 2026-10-20, BUILD (0.38 and 0.28).
+    /// of ten device pixels.
     ///
     /// **Magnified, the line stays on the screen's bottom line**, its
     /// characters the size they are unmagnified -- "Other ReGIS-settable
     /// states have no effect" -- drawn over the page shown and not into
     /// the plane, as the cursors are ([`Sem::display_glyphs`]); the line
-    /// feed's erase clears the plane's pixels shown on the line. Jev's
-    /// lean, OVERLAY, 0.88 and 0.76 on a second ask.
+    /// feed's erase clears the plane's pixels shown on the line.
     pub(crate) fn display_char(&mut self, b: u8, out: &mut dyn RegisOut) {
         if b == 0x0a {
             return self.display_erase(out);
@@ -1989,14 +1986,13 @@ impl Sem {
         self.load_value = 0;
     }
 
-    /// `L[h,w]`: "A bracketed coordinate specifier defines the storage
-    /// size, in bits per character ... The selected alphabet is cleared when
-    /// its storage size is specified" (§ 8.7.5.1); "missing values are
+    /// `L[h,w]`: "A bracketed coordinate specifier defines the storage size,
+    /// in bits per character ... The selected alphabet is cleared when its
+    /// storage size is specified" (§ 8.7.5.1); "missing values are
     /// interpreted as 0" (§ 8.4.5.2), and a size with a zero side is none.
     /// **Height first**, as § 8.8.5.1's error list writes it, "In the syntax
     /// L[h,w], the height "h" exceeded the implementation limit", the one
-    /// place the text gives the order: decided by Jev 2026-10-20
-    /// (HEIGHT_FIRST, 0.90 and 0.90).
+    /// place the text gives the order.
     fn load_size(&mut self, e: Extent) {
         let v = |p: Part| p.value().map_or(0, |v| v.trunc());
         let (h, w) = (v(e.x), v(e.y));
@@ -2375,8 +2371,7 @@ impl Sem {
             // **`S(D)`, data movement** (§ 8.8.1.4.3): "For devices
             // supporting both data movement models, the D option switches
             // between them". baud has the VT340's one, the scrolling model
-            // (Jev's lean, SCROLLING_ONLY, 0.70 and 0.54 on a second ask;
-            // "Neither model is required"): `S(D1)` names it, in force
+            // ("Neither model is required"): `S(D1)` names it, in force
             // already, and `S(D0)`, the windowing model, is not acted on
             // and is counted, as an omitted value is.
             (1, b'D') => {
@@ -2452,14 +2447,14 @@ impl Sem {
     /// drawing position. The positions are positional, "relate to the
     /// imposed coordinate space, and may be expressed in terms of the
     /// current position" (§ 8.4.5.2 item 6), the second relative to the
-    /// first as "multiple specifiers have cumulative action" (§ 8.4.5.1;
-    /// Jev, CUMULATIVE, 0.97/0.97); "Numeric arguments to the H option are
-    /// NOT interpreted as pixel vector specifiers". The texts disagree, and
-    /// two readings are departures: the VT330/VT340 manual's, relative
-    /// values "relative to the cursor position, not to any other position
-    /// specified" (`[[source: vt3xx-gp-002]]` p. 29), and § 8.8.1.4.4's,
-    /// "S(H[][]) is a non-positional use of bracketed extents ... always
-    /// interpreted absolutely".
+    /// first as "multiple specifiers have cumulative action" (§ 8.4.5.1);
+    /// "Numeric arguments to the H option are NOT interpreted as pixel
+    /// vector specifiers". The texts disagree, and two readings are
+    /// departures: the VT330/VT340 manual's, relative values "relative to
+    /// the cursor position, not to any other position specified"
+    /// (`[[source: vt3xx-gp-002]]` p. 29), and § 8.8.1.4.4's, "S(H[][]) is
+    /// a non-positional use of bracketed extents ... always interpreted
+    /// absolutely".
     fn hard_copy(&mut self, f: &Frame, out: &mut dyn RegisOut) {
         let area = match f.next {
             0 => RegisHardCopy::Screen,
@@ -3004,7 +2999,7 @@ impl Sem {
             // A macrograph's contents: "Devices are therefore allowed the
             // freedom to restrict macrograph reports. The preferred fallback
             // is the empty report, that is, just the terminating CR
-            // character" (§ 8.5.7.4.1), the owner's choice, 2026-10-20.
+            // character" (§ 8.5.7.4.1).
             (b'M', _) => {}
             // "The format of the error report is "n,m"" (§ 8.8.5.1); the
             // VT300's `"<N>,<M>"`.
@@ -3024,9 +3019,8 @@ impl Sem {
                 put(b"\"", &mut buf, &mut n);
             }
             // "The format of the report is (A'<name>')" (§ 8.7.4.1), the
-            // parentheses sent: Jev's lean, 2026-10-20 (PAREN_FORM, 0.34 and
-            // 0.16), the VT330/VT340 manual printing `A'<name>'` and xterm
-            // sending `A<n>'<name>'`.
+            // parentheses sent, as the VT330/VT340 manual has it, printing
+            // `A'<name>'` and xterm sending `A<n>'<name>'`.
             (b'L', _) => {
                 let (name, len) = match self.load {
                     1..=3 => {
@@ -3159,12 +3153,11 @@ impl Sem {
 
     /// **A flood's seed** (§ 8.8.6.1): "If more than one specifier is
     /// given, each is executed in turn", a relative part measured from the
-    /// seed before it and the first from the drawing position, as
-    /// "multiple specifiers have cumulative action" (§ 8.4.5.1; Jev's lean,
-    /// CUMULATIVE, 0.42 and 0.46 on a second ask); "The current position
-    /// does not change as the result of any flood operations". The pen is
-    /// a fill's, the texture the last shading snapshot, "even if shading
-    /// has been subsequently disabled by W(S0)" (§ 8.8.6.4).
+    /// seed before it and the first from the drawing position, as "multiple
+    /// specifiers have cumulative action" (§ 8.4.5.1); "The current
+    /// position does not change as the result of any flood operations". The
+    /// pen is a fill's, the texture the last shading snapshot, "even if
+    /// shading has been subsequently disabled by W(S0)" (§ 8.8.6.4).
     fn flood_seed(&mut self, at: Pt, out: &mut dyn RegisOut) {
         self.seed = Some(at);
         self.end_stroke(out);

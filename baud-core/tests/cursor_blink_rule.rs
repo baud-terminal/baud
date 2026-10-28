@@ -1,5 +1,5 @@
 //! **`?12` and the configured blink: foot's OR, and the style saved across
-//! `?1049`** -- the owner's rule F, 2026-09-27.
+//! `?1049`** -- since 2026-09-27.
 //!
 //! baud folded `?12` into the one cursor style, so `?12l` turned the blink
 //! off for good. vim sends `?12h ?12l` at start and helix ends its session on
@@ -129,7 +129,7 @@ fn a_program_that_sets_a_steady_cursor_and_leaves_hands_back_the_shells() {
 /// alternate screen for its whole session and sends the outer `Se` -- `2 q`
 /// here -- when a pane returns to the default style. Nothing leaves that
 /// screen, so the steady block stays. A terminfo entry whose `Se` is `0 q`
-/// is what would move this (the owner's call, still open).
+/// is what would move this (an open question).
 #[test]
 fn a_steady_block_on_a_screen_that_stays_up_is_steady() {
     each_read_size(

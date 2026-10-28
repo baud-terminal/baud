@@ -1,11 +1,11 @@
 //! What an `OSC 52` write the core published does to the clipboard: the
 //! policy, pure, so its tests run on every platform (note V, V11).
 //!
-//! **On by default, with `[clipboard] osc52 = "off"` to turn it off**: the
-//! owner's V11, 2026-09-25, as kitty and sfte do. No focus gate: one is to be
-//! tested over a real slow ssh link before it is adopted, because a yank that
-//! arrives a round trip after the user switched away would be refused and
-//! the old clipboard pasted.
+//! **On by default, with `[clipboard] osc52 = "off"` to turn it off**, as
+//! kitty and sfte do (note V, V11). No focus gate: one is to be tested over a
+//! real slow ssh link before it is adopted, because a yank that arrives a
+//! round trip after the user switched away would be refused and the old
+//! clipboard pasted.
 //!
 //! **macOS has one pasteboard**, so a write that names the clipboard (`c`),
 //! the primary (`p`) or xterm's select (`s`, which an empty `Pc` means) lands
@@ -19,15 +19,15 @@
 //! write lands on each it names (`boards`): `c` the clipboard, `p` the
 //! primary, and `s` -- which an empty `Pc` means -- xterm's SELECT, the
 //! primary while `?1041` is reset and the clipboard while it is set
-//! (`[[source: ctlseqs]]`; Jev, XTERM, 0.96/0.94, over foot's, alacritty's
-//! and kitty's reading of an empty `Pc` as the clipboard). The rest of the
-//! policy is the same on both.
+//! (`[[source: ctlseqs]]`, rather than foot's, alacritty's and kitty's
+//! reading of an empty `Pc` as the clipboard). The rest of the policy is
+//! the same on both.
 //!
 //! **Every accepted write is counted** in the five-second report, and every
 //! refusal warns once a reason: an accepted write is the risk -- anything
-//! printed to the terminal can replace the clipboard -- and its count is an `info` line,
-//! which the default `warn` level does not show; whether an accepted write
-//! warns is for Jev.
+//! printed to the terminal can replace the clipboard -- and its count is an
+//! `info` line, which the default `warn` level does not show; whether an
+//! accepted write should warn is open.
 
 use crate::config::Osc52;
 use baud_core::{ClipboardContent, ClipboardWrite, ClipboardWrites, Selection, Term};
@@ -89,10 +89,10 @@ pub fn select_board(term: &Term<'_>) -> Board {
 }
 
 /// **Whether a finished selection goes to the macOS pasteboard**: always
-/// under `[clipboard] copy_on_select = "on"`, the owner's V13, and under
+/// under `[clipboard] copy_on_select = "on"` (note V, V13), and under
 /// `"off"` only while a program has set `?1041`, xterm's selectToClipboard
-/// putting SELECT on CLIPBOARD (Jev's lean, MODE_WINS, 0.42/0.36: the
-/// program's mode is honoured, the key stops only the copy it adds).
+/// putting SELECT on CLIPBOARD (the program's mode is honoured; the key
+/// stops only the copy it adds).
 #[cfg(any(target_os = "macos", test))]
 pub fn selected_to_pasteboard(term: &Term<'_>, c: crate::config::CopyOnSelect) -> bool {
     c == crate::config::CopyOnSelect::On || term.resource(baud_core::Resource::SelectToClipboard)
@@ -265,8 +265,8 @@ impl Clips {
 
     /// **A copy sent while the window lacked the keyboard**, counted, and
     /// said the first time: neither selection protocol asks for the
-    /// keyboard, but GNOME's compositor refuses a client without it (Jev's
-    /// lean, LAND, 0.64/0.32: sent with the last serial, not held).
+    /// keyboard, but GNOME's compositor refuses a client without it (sent
+    /// with the last serial, not held).
     #[cfg(any(target_os = "linux", test))]
     pub fn sent_unfocused(&mut self) -> Option<String> {
         self.unfocused.bump();
@@ -533,7 +533,7 @@ mod tests {
     /// **On Wayland each selection named is its own**: `c` the clipboard,
     /// `p` the primary, and `s` -- an empty `Pc` too, ctlseqs' `s 0` --
     /// SELECT, the primary while `?1041` is reset and the clipboard while
-    /// it is set, as xterm's selectToClipboard (Jev, XTERM, 0.96/0.94).
+    /// it is set, as xterm's selectToClipboard.
     #[test]
     fn on_wayland_each_selection_named_is_its_own() {
         use Boards::{Both, Clipboard as C, Primary as P};

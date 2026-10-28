@@ -1,11 +1,11 @@
 //! Replay a real shell's resize traffic through the core and say, step by
 //! step, what each resize did to the prompt.
 //!
-//! The owner reports that a resize leaves another copy of their prompt
-//! behind. Captured from their own `zsh`, one resize looks like
-//! `\r` `CUU n` `ED 0` and then the prompt redrawn -- so the shell relies
-//! on `CUU n` landing on the first line of the prompt it last drew. If it
-//! does not, the erase misses the old prompt and the redraw adds a second.
+//! A user reported that a resize leaves another copy of their prompt
+//! behind. Captured from that `zsh`, one resize looks like `\r` `CUU n`
+//! `ED 0` and then the prompt redrawn -- so the shell relies on `CUU n`
+//! landing on the first line of the prompt it last drew. If it does not,
+//! the erase misses the old prompt and the redraw adds a second.
 //!
 //! The shell's contract is one number: the rows from its prompt's first
 //! line to the cursor (note M). So around every bare `resize` this prints

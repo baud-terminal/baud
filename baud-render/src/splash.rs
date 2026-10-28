@@ -6,15 +6,11 @@
 //! rectangle on the glass; the half is the theme's by the rule `CSI ? 996
 //! n` answers with ([`crate::Theme::polarity`]).
 //!
-//! **Its plasma is the lockup's amber** (Jev, AMBER, 0.90 and 0.92, renders
-//! attached, with both owner statements quoted): the owner's "the logo
-//! should be the one with the color" for the splash; the 2026-09-25 "we use
-//! the cursor color" was said of the fire trail's flame, and the cursor
-//! trails keep the cursor's colour. It goes where it stands rather than
-//! flying its block to the shell's cursor (Jev, P1, 0.98 and 0.98 against
-//! P2, renders attached), and at kitty's pace, as every trail's (Jev,
-//! KITTY, 0.98 and 0.98, against a slower collapse). It is drawn as the
-//! lockup's own pixels, not as cells (Jev, L2, 0.96 and 0.94 against L1).
+//! **Its plasma is the lockup's amber**: the logo carries the colour on the
+//! splash, and the cursor trails keep the cursor's colour. It goes where it
+//! stands rather than flying its block to the shell's cursor, and at
+//! kitty's pace, as every trail's, rather than a slower collapse. It is
+//! drawn as the lockup's own pixels, not as cells.
 //!
 //! **It vanishes in the plasma trail's own model**, [`crate::plasma`]: the
 //! lockup's block is a cursor, and the box from the wordmark's left to the
@@ -105,8 +101,8 @@ pub const EMITTER: Rect = Rect {
 };
 
 /// **The lockup's width as a share of the window's**, and the most of the
-/// window's height it may take: 0.30 (Jev, W30, 0.91 and 0.92 against
-/// 0.20 and 0.45, renders attached). No text gives a size.
+/// window's height it may take: 0.30, rather than 0.20 or 0.45. No text
+/// gives a size.
 pub const FRACTION: (f32, f32) = (0.30, 0.40);
 
 /// The ignition's seed: one look, every launch.

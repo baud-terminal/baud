@@ -44,8 +44,7 @@
 //! script's registered tags, the newer layout model's first where the
 //! registry gives two (`dev2` before `deva`, `mym2` before `mymr`). Only
 //! Myanmar's order is the registry's ("should use 'mym2' instead"); it
-//! lists the Indic pairs in no order, so theirs is an open question
-//! (docs/record.md, "OpenType script selection, phase 0").
+//! lists the Indic pairs in no order, so theirs is an open question.
 //! [`crate::layout`] then looks those up and falls back to `DFLT`.
 
 use crate::layout::ScriptTag;

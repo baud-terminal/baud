@@ -10,10 +10,10 @@
 //! if they had a no-break space as a base character" (TUS 5.13,
 //! `[[source: unicode18-ch5]]`). It takes the cursor's cell, stored alone
 //! with `Content::DEFECTIVE` for its base, so a copy returns what the
-//! program wrote (note AB, Q24 item 1; Jev, OWN_CELL_MARK_ALONE, 0.96/0.99).
-//! A default-ignorable one draws nothing and has no cell to take: dropped
-//! and counted (Jev's lean, 0.22/0.48, over keeping a join GB4/GB5 forbid).
-//! Until 2026-10-23 each went to the cell before the cursor.
+//! program wrote (note AB, Q24 item 1). A default-ignorable one draws
+//! nothing and has no cell to take: dropped and counted, rather than
+//! keeping a join GB4/GB5 forbid. Until 2026-10-23 each went to the cell
+//! before the cursor.
 
 use baud_core::*;
 

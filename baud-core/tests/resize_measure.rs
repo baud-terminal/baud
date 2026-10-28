@@ -336,9 +336,8 @@ fn target(t: &Term<'_>, op: &Op) -> Option<WinSize> {
 /// resize measures: `ESC [ 5 X`, a resize to 2 by 1, `CR` `LF` and twelve
 /// wide characters leave the oldest line "Ended" when `CR` and `LF` are two
 /// reads and "Continues" when they are one, on the commit before the
-/// measure's (the record,
-/// "The resize measure reads only what the flags leave open"). The
-/// recordings above are fed at byte read sizes, one included.
+/// measure's. The recordings above are fed at byte read sizes, one
+/// included.
 fn run(prog: &[Op], depth: usize, group: Option<usize>) -> Result<Vec<u64>, String> {
     let mut owned = Owned::with_history(&MAX, &CacheGeometry::UNKNOWN, Depth::of(depth));
     let start = WinSize {
@@ -572,16 +571,14 @@ fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_mark() {
     );
 }
 
-/// **A row held and emptied is read again at a resize of the height
-/// alone, and at one to the same size.** Narrowed at a prompt, the long
-/// line is held; erased while narrow by an `ECH` that reaches the edge,
-/// which runs on to the mark, its row still says held -- the safe
-/// direction between resizes -- and the reach lies past the edge. (An `EL`
-/// clears the flag itself since it began to clear what the line held past
-/// the edge: the record, "An erase taken while narrow clears what the line
-/// held past the edge".) The measure must read it again and find it
-/// clear, as the full read does: every row clear, and the reach back at
-/// the live width.
+/// **A row held and emptied is read again at a resize of the height alone,
+/// and at one to the same size.** Narrowed at a prompt, the long line is
+/// held; erased while narrow by an `ECH` that reaches the edge, which runs
+/// on to the mark, its row still says held -- the safe direction between
+/// resizes -- and the reach lies past the edge. (An `EL` clears the flag
+/// itself since it began to clear what the line held past the edge.) The
+/// measure must read it again and find it clear, as the full read does:
+/// every row clear, and the reach back at the live width.
 #[test]
 fn a_held_row_emptied_is_read_again_at_a_resize_of_the_height_or_the_same_size() {
     for (cols, rows) in [(20u16, 10u16), (20, 9), (20, 11)] {
@@ -657,9 +654,9 @@ fn the_rows_a_re_cut_blanked_are_read_whole() {
 /// 20, re-cut to 4 and to 13 in the shell's output, then a prompt, a growth
 /// to 17 at it, `ICH` moving two letters past the wrapped row's old mark, a
 /// prompt's redraw over them, and a narrowing to 2. Before a wrapped row's
-/// mark rose with a growth (the record, "A wrapped row's mark rises with a
-/// growth at a prompt") the redraw left the letters past a mark of zero, and
-/// the one-cell read put the reach at 13 where the full read finds 16.
+/// mark rose with a growth at a prompt, the redraw left the letters past a
+/// mark of zero, and the one-cell read put the reach at 13 where the full
+/// read finds 16.
 #[test]
 fn the_shrunk_program_measures_as_the_full_read() {
     let mut owned = Owned::with_history(&MAX, &CacheGeometry::UNKNOWN, Depth::of(13));

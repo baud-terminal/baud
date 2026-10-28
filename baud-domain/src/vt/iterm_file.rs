@@ -357,8 +357,7 @@ impl ItermFile {
 
 /// **The size of the broken-image placeholder along an axis given as
 /// `auto`**: iTerm2's `broken_image` picture, 35 by 36 pixels, drawn as any
-/// picture is, one pixel a device pixel (Jev's lean, ICON_SIZE, 0.54/0.52
-/// and 0.80/0.72 asked again).
+/// picture is, one pixel a device pixel.
 pub const BROKEN_W: u32 = 35;
 pub const BROKEN_H: u32 = 36;
 
@@ -482,9 +481,8 @@ fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pict
 /// **The GIF in the scratch's first `at` bytes**, its frames decoded onto
 /// the canvas in the scratch after it and each stored whole in one image
 /// whose room for them all is reserved first, so an animation the image
-/// memory cannot hold whole is refused whole (Jev, REFUSE_WHOLE,
-/// 0.98/0.96); an animation set playing as many times as its loop count
-/// says.
+/// memory cannot hold whole is refused whole; an animation set playing as
+/// many times as its loop count says.
 fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
     let (data, rest) = scratch.split_at_mut(at);
     let gif = Gif::parse(data).ok()?;
@@ -559,12 +557,9 @@ fn picture_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<P
 }
 
 /// **The broken-image placeholder into `px`**, the shown part of a
-/// `g.draw_w` by `g.draw_h` box: a one-pixel frame round the box and its
-/// two diagonals in `ink`, clear inside (Jev's lean, FRAME_CROSS,
-/// 0.36/0.50, then split asked again, FRAME_CROSS 0.04 in one order and
-/// SMALL_ICON 0.20 in the other, so the higher mean across the asks). iTerm2
-/// draws its own `broken_image` picture there, which baud's licence cannot
-/// take.
+/// `g.draw_w` by `g.draw_h` box: a one-pixel frame round the box and its two
+/// diagonals in `ink`, clear inside. iTerm2 draws its own `broken_image`
+/// picture there, which baud's licence cannot take.
 pub fn draw_placeholder(px: &mut [Pixel], g: &FileGeometry, ink: Pixel) {
     let (w, h, fw) = (g.shown_w as usize, g.draw_h as usize, g.draw_w as usize);
     px.fill(Pixel::CLEAR);
@@ -621,11 +616,9 @@ pub fn draw_placeholder(px: &mut [Pixel], g: &FileGeometry, ink: Pixel) {
 /// * at least one cell each way;
 /// * wider than the columns right of the cursor: the width set to the whole
 ///   screen and the height scaled by those columns over the width, as
-///   iTerm2's source does (Jev, ITERM_FULL_WIDTH, 0.92/0.90), the pixels
-///   then the cells;
+///   iTerm2's source does, the pixels then the cells;
 /// * taller than 255 rows, iTerm2's own limit: 255, the width multiplied by
-///   the rows over 255, as its source does (Jev, ITERM_CAP_LITERAL,
-///   0.98/0.98);
+///   the rows over 255, as its source does;
 /// * the picture drawn from the top-left of its cells, at the size asked,
 ///   fitted into it with its aspect kept, or stretched to it.
 ///

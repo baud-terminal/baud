@@ -18,9 +18,8 @@
 //! older one, up the history, wrapping from the oldest to the newest; Find
 //! Previous goes the other way. A terminal's text grows at the bottom and
 //! the reader arrives there, as Ghostty's search and foot's Ctrl+R run
-//! (`[[source: ghostty-search-screen-521cf2c]]`, `[[source:
-//! foot-search-cb27717]]`): Jev's lean (the record, "Search in the
-//! scrollback").
+//! (`[[source: ghostty-search-screen-521cf2c]]`,
+//! `[[source: foot-search-cb27717]]`).
 
 use baud_core::{
     Found, HistoryErasures, HistoryWipes, Needle, NeedleRefused, Resets, ScreenEpoch, SearchLines,

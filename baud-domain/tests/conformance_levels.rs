@@ -135,8 +135,8 @@ fn every_row_is_its_fields_lowest_level() {
             }
             LevelSource::Manual(t) => {
                 assert!(!f.contains_key(r.mnemonic), "{} has a field", r.mnemonic);
-                // The VT510's and VT520's at Level 4 (Jev, LEVEL_4); the
-                // others as the VT420's Table 4-1 names them or not.
+                // The VT510's and VT520's at Level 4; the others as the
+                // VT420's Table 4-1 names them or not.
                 let want = match (t, r.mnemonic) {
                     (DecTerminal::Vt510 | DecTerminal::Vt520, _) => ConformanceLevel::Four,
                     (_, "DSR (keyboard)") => ConformanceLevel::Two,
@@ -381,7 +381,7 @@ fn the_parsed_forms_name_their_rows() {
 }
 
 /// **An extension acts at every level**: xterm's and ECMA-48's own
-/// controls name no function, so no level refuses them (Jev, EVERY_LEVEL).
+/// controls name no function, so no level refuses them.
 #[test]
 fn a_control_no_dec_level_defines_acts_at_every_level() {
     use Marker::{Private as Q, Standard as S};

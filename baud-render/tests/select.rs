@@ -219,10 +219,9 @@ fn a_block_edge_through_a_wide_character_keeps_it_whole_or_leaves_it_out() {
 /// **`?96` DECRLCM copies each line from its right edge**: "if \"ABCD\" is
 /// to be copied right-to-left ... the string is saved in the paste buffer
 /// as \"DCBA.\"" (`[[source: vt510-decrlcm]]`). A copy over two lines reads
-/// each in the order it is drawn from the right, the lines kept in order
-/// (Jev's leans, DRAWN_FROM_RIGHT and EACH_LINE); the trailing blanks a
-/// copy drops stay dropped, and a wide character and a letter with its
-/// mark stay whole. Reset, the copy is as written.
+/// each in the order it is drawn from the right, the lines kept in order;
+/// the trailing blanks a copy drops stay dropped, and a wide character and
+/// a letter with its mark stay whole. Reset, the copy is as written.
 #[test]
 fn decrlcm_copies_each_line_from_its_right_edge() {
     let mut owned = Owned::new(&WS);

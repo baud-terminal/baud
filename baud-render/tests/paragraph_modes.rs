@@ -55,8 +55,8 @@ fn screen(bytes: &str) -> Vec<String> {
 /// English line stays left to right, its first strong letter L, and a line
 /// with no strong letter runs right to left (terminal-wg: "including of
 /// course the fallback direction of implicit paragraphs with
-/// autodetection"; Jev's lean, SET_FALLBACK). Off, the path is the level
-/// outright, and an unset Hebrew line runs left to right.
+/// autodetection"). Off, the path is the level outright, and an unset
+/// Hebrew line runs left to right.
 #[test]
 fn a_path_is_the_fallback_while_autodetection_is_on() {
     let s = screen("\x1b[2 kabc!\r\n123\r\n\x1b[?2501labc!\r\n\x1b[1 k");
@@ -97,8 +97,7 @@ fn box_mirroring_closes_a_box_drawn_right_to_left() {
 /// **A table row's rules are drawn as written under `?2500`**: baud keeps
 /// them where they were written, at the left-to-right level, so none is
 /// drawn right to left and none is mirrored -- L4's resolved R, which HL6
-/// widens to more characters but not to characters drawn left to right
-/// (Jev's lean, RESOLVED_RTL).
+/// widens to more characters but not to characters drawn left to right.
 #[test]
 fn box_mirroring_leaves_a_table_row_as_written() {
     let row = "\u{250C}\u{2500}\u{252C}\u{2500}\u{2510}\r\n\u{2502}\u{5D0}\u{5D1}\u{2502}";

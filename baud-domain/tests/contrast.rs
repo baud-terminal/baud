@@ -2,7 +2,7 @@
 //! code, for every colour and coverage** -- the bound the table's size was
 //! chosen for. And the curve is not the identity for light text: `k` is zero
 //! there, but the gamma term still bends it, so a renderer that skipped the
-//! curve for light text would draw something the owner did not approve.
+//! curve for light text would draw something other than what was chosen.
 
 use baud_domain::contrast::{CURVES, CurveRow, ROWS, exact_for};
 

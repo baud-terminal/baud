@@ -161,9 +161,9 @@ fn decrqm_reads_1047_and_1048() {
 }
 
 /// **XTSAVE of `?1048` saves the cursor and XTRESTORE restores it**, as
-/// xterm's `savemodes` and `restoremodes` do (Jev, XTERM_ACTIONS,
-/// 0.91/0.94); `?1047` keeps which buffer is shown and a restore goes
-/// through DECSET's path, as `?1049`'s does.
+/// xterm's `savemodes` and `restoremodes` do; `?1047` keeps which
+/// buffer is shown and a restore goes through DECSET's path, as
+/// `?1049`'s does.
 #[test]
 fn xtsave_and_xtrestore_of_1047_and_1048() {
     each_read_size(b"\x1b[3;3H\x1b[?1048s\x1b[1;1H\x1b[?1048r", |t| {

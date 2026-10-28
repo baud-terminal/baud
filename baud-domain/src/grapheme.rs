@@ -211,8 +211,7 @@ enum IncbLookback {
 /// now, so a machine holds one form and cannot answer with the other;
 /// `the_two_forms_agree_in_lockstep_from_every_constructor` steps the two
 /// side by side. The runtime struct went from five bytes to one, and
-/// what that did to ingest2 is in `docs/record.md`, "The cluster
-/// machine's two forms are two types".
+/// ingest2 was measured on it.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 pub struct ClusterBreak {
     /// The whole machine, as one state id into `CLUSTER_NEXT`.
@@ -313,20 +312,18 @@ impl ClusterBreak {
     /// hold after `prev = Other`, but after `prev = None` GB1 breaks first, and
     /// only a `Width::ZERO` codepoint reaches `Paint::attach` whatever the
     /// break decision. So after printable ASCII a SpacingMark took a cell of
-    /// its own (GB9a: `a U+0903` put the visarga beside the `a`), and so did
-    /// an Extend that has a width (GB9: `a U+09BE`, a vowel sign of category
-    /// `Mc`, and `a U+1F3FF`, an emoji modifier two columns wide), where the
-    /// rules make each one cluster. After `é`, class `Other` too but written
-    /// through the machine, each attached. Four lines of `[[source: gbtest]]`
-    /// failed through the terminal for this reason -- 691 (`÷ 0020 × 0903 ÷`),
-    /// 763 (`÷ 0061 × 0903 ÷ 0062 ÷`), 766 (`÷ 0061 × 1F3FF ÷ 1F476 ÷`) and
-    /// 767 -- and with a letter written before them, so did the file's 32
-    /// control-free lines that begin with `U+0903`.
+    /// its own (GB9a: `a U+0903` put the visarga beside the `a`), and so did an
+    /// Extend that has a width (GB9: `a U+09BE`, a vowel sign of category `Mc`,
+    /// and `a U+1F3FF`, an emoji modifier two columns wide), where the rules
+    /// make each one cluster. After `é`, class `Other` too but written through
+    /// the machine, each attached. Four lines of `[[source: gbtest]]` failed
+    /// through the terminal for this reason -- 691 (`÷ 0020 × 0903 ÷`), 763
+    /// (`÷ 0061 × 0903 ÷ 0062 ÷`), 766 (`÷ 0061 × 1F3FF ÷ 1F476 ÷`) and 767 --
+    /// and with a letter written before them, so did the file's 32 control-free
+    /// lines that begin with `U+0903`.
     /// `every_line_of_the_suite_clusters_through_the_terminal` holds them all,
     /// and `a_continuation_with_a_width_joins_the_ascii_letter_before_it` the
-    /// `U+09BE` case the file does not have. What the truthful state costs on
-    /// this core is in `docs/record.md`, "After printable ASCII the cluster
-    /// machine is told a letter went past".
+    /// `U+09BE` case the file does not have.
     pub fn after_ascii_run() -> ClusterBreak {
         ClusterBreak {
             // `prev = Other` with no lookback live is exactly the one
@@ -350,15 +347,13 @@ impl ClusterBreak {
     /// state afterwards is the state before. The fields are
     /// `ClusterRules::after_ascii_run`'s, and this id is theirs.
     ///
-    /// **This doc and an `#[inline(always)]` sat above `set_after_ordinary`
-    /// from `e0612eb` (2026-08-29), which inserted that function between
-    /// them and this one.** The attribute was dropped rather than re-attached:
-    /// neither function had a caller outside the tests
-    /// (`set_after_ordinary` was deleted on 2026-10-16;
-    /// `ClusterRules::after_ascii_run` is its state), and ingest2's `__text`
-    /// is byte-identical without it against `4b703f8`; a forced attribute is a
-    /// codegen change with a number the day a caller arrives (`docs/record.md`, "The
-    /// eighth stranded attribute, and re-attaching it was the wrong repair").
+    /// **This doc and an `#[inline(always)]` sat above `set_after_ordinary` from
+    /// `e0612eb` (2026-08-29), which inserted that function between them and this
+    /// one.** The attribute was dropped rather than re-attached: neither function
+    /// had a caller outside the tests (`set_after_ordinary` was deleted on
+    /// 2026-10-16; `ClusterRules::after_ascii_run` is its state), and ingest2's
+    /// `__text` is byte-identical without it against `4b703f8`; a forced attribute
+    /// is a codegen change with a number the day a caller arrives.
     pub fn ordinary_run_ready(&self) -> bool {
         // Exactly one of the 94 reachable states satisfies this, so under the
         // table it is a compare rather than four field tests.

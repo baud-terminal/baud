@@ -26,7 +26,7 @@ const CHARSETS_H: &str = include_str!(concat!(
 ///
 /// * **Greek, -2.** `XXX(0x79, UNDEF)` and `XXX(0x7a, UNDEF)`, which xterm
 ///   marks "unused" and draws as U+2426. What an undefined position draws is
-///   note AF's Q-UNDEF, the owner's, so neither line is emitted until it is
+///   note AF's Q-UNDEF, open, so neither line is emitted until it is
 ///   answered.
 /// * **Turkish, +1.** 2/1, which `[[source: dec-pplv2-pm]]` Figure A-26 draws
 ///   as a dotless small i, U+0131, and xterm's macro leaves as `!` although

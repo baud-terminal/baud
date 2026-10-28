@@ -107,9 +107,8 @@ fn a_lam_joined_to_an_alef_is_a_pair() {
 }
 
 /// A lam and an alef an erased cell parts are still a pair (L1: the
-/// erased cell is transparent), drawn over the three cells (Jev
-/// LIGATED_CENTRED): each holds the cells the pair spans, with BDSM set
-/// and reset alike.
+/// erased cell is transparent), drawn over the three cells: each holds
+/// the cells the pair spans, with BDSM set and reset alike.
 #[test]
 fn a_pair_an_erased_cell_parts_is_still_a_pair() {
     assert_eq!(
@@ -138,10 +137,9 @@ fn a_pair_an_erased_cell_parts_is_still_a_pair() {
     );
 }
 
-/// A lam and an alef a soft wrap parts are a pair (Jev ACROSS_WRAP), the
-/// ligature drawn in the lam's cell (Jev's lean LIGATED_LAM_ROW): "abcdefghij",
-/// a beh and a lam fill the twelve columns and the alef wraps. Each part
-/// holds the other letter's cell.
+/// A lam and an alef a soft wrap parts are a pair, the ligature drawn in the
+/// lam's cell: "abcdefghij", a beh and a lam fill the twelve columns and the
+/// alef wraps. Each part holds the other letter's cell.
 #[test]
 fn a_pair_a_soft_wrap_parts_is_drawn_in_the_lams_row() {
     let text = format!("abcdefghij{BEH}{LAM}{ALEF} ok");
@@ -184,17 +182,17 @@ fn marks_and_joiners_act_as_the_rules_say() {
     );
 }
 
-/// An erased cell between two letters is transparent (Jev TRANSPARENT):
-/// the behs either side join across it.
+/// An erased cell between two letters is transparent: the behs either
+/// side join across it.
 #[test]
 fn an_erased_cell_between_letters_is_transparent() {
     assert_eq!(forms(&format!("{BEH}\x1b[C{BEH}"), true, 0), ".........f.i");
 }
 
-/// A soft wrap inside a word does not part it (Jev ACROSS_WRAP): the row
-/// is twelve columns, so "abcdefghi" and three behs fill it and the next
-/// three wrap; each run is drawn at its row's end or start, and the letters
-/// either side of the wrap stay medial.
+/// A soft wrap inside a word does not part it: the row is twelve columns,
+/// so "abcdefghi" and three behs fill it and the next three wrap; each run
+/// is drawn at its row's end or start, and the letters either side of the
+/// wrap stay medial.
 #[test]
 fn a_soft_wrap_inside_a_word_keeps_it_whole() {
     let text = format!("abcdefghi{BEH}{BEH}{BEH}{BEH}{BEH}{BEH} ok");
@@ -278,13 +276,13 @@ const BETH: &str = "\u{0712}";
 const DALATH: &str = "\u{0715}";
 const HE: &str = "\u{0717}";
 
-/// **Syriac alaph takes its three forms of its own** (`[[source:
-/// unicode-ch9]]` 9.3, S1-S3), each paragraph running right to left
-/// against the right edge: after a beth that joins it and at the end of
-/// its word, final (Afj); after he, which does not join it, fin2 (Afn);
-/// after dalath, fin3 (Afx); inside a word, joined, med2, the beth after
-/// it standing alone; and alone after a space, Xn, as at the start of a
-/// line (Jev ISOLATED_AFTER_SPACE).
+/// **Syriac alaph takes its three forms of its own**
+/// (`[[source: unicode-ch9]]` 9.3, S1-S3), each paragraph running right
+/// to left against the right edge: after a beth that joins it and at the
+/// end of its word, final (Afj); after he, which does not join it, fin2
+/// (Afn); after dalath, fin3 (Afx); inside a word, joined, med2, the
+/// beth after it standing alone; and alone after a space, Xn, as at the
+/// start of a line.
 #[test]
 fn syriac_alaph_takes_its_own_forms() {
     assert_eq!(forms(&format!("{BETH}{ALAPH}"), true, 0), "..........fi");
@@ -356,8 +354,7 @@ fn a_joined_cell_keeps_its_word_around_it() {
 
 /// **Across an erased cell and a soft wrap**: an erased cell between two
 /// letters, transparent to joining, is left out of the word; and a word a
-/// soft wrap splits keeps the letters on the other row, as its forms do
-/// (Jev ACROSS_WRAP).
+/// soft wrap splits keeps the letters on the other row, as its forms do.
 #[test]
 fn a_word_reaches_across_an_erased_cell_and_a_soft_wrap() {
     assert_eq!(

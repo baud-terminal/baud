@@ -20,26 +20,24 @@
 //! **Version 2 where the compositor has it**, and every request it adds
 //! only then, since a version-1 object has no such opcodes. The content
 //! hint `preedit_shown`, because the preedit is drawn in place -- mutter
-//! lets a version-2 client draw it only then (`[[source:
-//! mutter-35f64c3d-text-input]]`) -- and its `preedit_hint`s drawn as
-//! GTK's theme draws them (`baud_render`'s `Composition`; Jev, 1.00/1.00),
-//! which the text asks of a client that sets it. The one action,
-//! `submit`, is offered and typed as the Return key, as the macOS app
-//! types AppKit's `insertNewline:` (Jev's lean, 0.30/0.32). An on-screen
-//! keyboard is asked for with `show_input_panel` when the primary button
-//! presses on the window while text input is on, as GTK asks when a
-//! focused entry is clicked (`[[source: gtk-3b438f05-imcontextwayland]]`),
-//! and `hide_input_panel` is never sent, as GTK never sends it (Jev's
-//! lean, 0.89/0.77).
+//! lets a version-2 client draw it only then
+//! (`[[source: mutter-35f64c3d-text-input]]`) -- and its `preedit_hint`s
+//! drawn as GTK's theme draws them (`baud_render`'s `Composition`), which
+//! the text asks of a client that sets it. The one action, `submit`, is
+//! offered and typed as the Return key, as the macOS app types AppKit's
+//! `insertNewline:`. An on-screen keyboard is asked for with
+//! `show_input_panel` when the primary button presses on the window while
+//! text input is on, as GTK asks when a focused entry is clicked
+//! (`[[source: gtk-3b438f05-imcontextwayland]]`), and `hide_input_panel`
+//! is never sent, as GTK never sends it.
 //!
-//! Read and not acted on, decided by Jev at 0.9 both times: `language`
-//! (0.92/0.96), which nothing in a terminal reads, as GTK's handler is
-//! empty; and `delete_surrounding_text` (0.98/0.98), which deletes from
-//! the surrounding text a terminal does not send -- "If the client is
-//! unaware of the text around the cursor, it should not issue this
-//! request" -- as VTE (`[[source: vte-0-80-vte-cc]]`), foot (`[[source:
-//! foot-2705e36-ime]]`) and kitty (`[[source:
-//! kitty-aef2bc23-wl-text-input]]`) do not.
+//! Read and not acted on: `language`, which nothing in a terminal
+//! reads, as GTK's handler is empty; and `delete_surrounding_text`,
+//! which deletes from the surrounding text a terminal does not send --
+//! "If the client is unaware of the text around the cursor, it should
+//! not issue this request" -- as VTE (`[[source: vte-0-80-vte-cc]]`),
+//! foot (`[[source: foot-2705e36-ime]]`) and kitty
+//! (`[[source: kitty-aef2bc23-wl-text-input]]`) do not.
 //!
 //! The preedit's `cursor_begin` and `cursor_end` go with its text
 //! ([`PreeditCursor`]), double-buffered as it is, for the app to draw the

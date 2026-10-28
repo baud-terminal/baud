@@ -30,8 +30,7 @@ pub use portable::*;
 /// than rediscovering the measurement.
 ///
 /// A trait offering a scan says the parser scans for that thing. Two methods
-/// here said it and it was not true -- see CLAUDE.md, "Two scans the trait
-/// offered and nothing took".
+/// here said it and it was not true, and were removed.
 ///
 /// # Safety
 /// An implementation may require a target feature. The caller establishes it
@@ -63,7 +62,7 @@ pub trait Scan {
     /// run scan at **7% of cat-cjk** -- "the largest single item in the loop ...
     /// `stride_three` takes two of them" -- while `run` above is the printable
     /// scan, which the payloads that use it are store-bound on. Wiring `run` in
-    /// and measuring a null is what found that; see `CLAUDE.md`.
+    /// and measuring a null is what found that.
     ///
     /// Five because a sixteen-byte block holds five three-byte characters and
     /// one byte over, so the cap is the register rather than a policy.

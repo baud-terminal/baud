@@ -67,8 +67,7 @@ impl Paint<'_, '_> {
     /// may have come or gone since it last said, and answer through
     /// [`crate::Term::set_printer`] before the rest of the read is parsed.
     /// A real port's status is its printer's at the moment it is asked
-    /// (070-7 § 7.3.2), and a list read off the read loop is not (Jev's
-    /// lean, HOLD, 0.92/0.89).
+    /// (070-7 § 7.3.2), and a list read off the read loop is not.
     fn hold_printer_status(&mut self, node: &mut crate::graph::Node) {
         self.strs.print.asked = PrinterAsked::Owed;
         self.hold_read(node);
@@ -119,9 +118,9 @@ impl Paint<'_, '_> {
     /// `for (value = 0; value < nparam; ++value)` gives, every resource
     /// with its value, as `report_mod_fkeys` and `report_fmt_fkeys` write
     /// it. A `Pp` naming none is answered as xterm answers it, with its
-    /// `DEFAULT` written unsigned, 65535 (Jev's lean, XTERM_65535), and
-    /// counted; a disabled one, -1, the same 65535, as `report_mod_fkeys`
-    /// writes it; an omitted one gets nothing and is counted.
+    /// `DEFAULT` written unsigned, 65535, and counted; a disabled one,
+    /// -1, the same 65535, as `report_mod_fkeys` writes it; an omitted
+    /// one gets nothing and is counted.
     fn key_options(&mut self, which: KeyOption, csi: &crate::write::Csi) {
         let mut any = false;
         csi.for_each_param(|pp| {
@@ -193,12 +192,11 @@ impl Paint<'_, '_> {
             false => col,
         };
         // **And the column from the left margin under DECOM**:
-        // `active_position.column - left_margin + 1` (`[[source:
-        // dec-std-070]]` CPR, p. 5-54, and DECXCPR, p. 5-56), so a `CUP` and
-        // the report agree. The subtraction cannot saturate: under DECOM
-        // every move lands inside the margins (`Paint::confine` and
-        // `Paint::confine_col`), and the record, "DECOM's origin is the left
-        // margin too", lists every place the column is set.
+        // `active_position.column - left_margin + 1`
+        // (`[[source: dec-std-070]]` CPR, p. 5-54, and DECXCPR, p. 5-56), so
+        // a `CUP` and the report agree. The subtraction cannot saturate:
+        // under DECOM every move lands inside the margins (`Paint::confine`
+        // and `Paint::confine_col`).
         let col = Col::at_index(col.index().saturating_sub(self.origin_col().index()));
         (row.one_based(), col.one_based())
     }

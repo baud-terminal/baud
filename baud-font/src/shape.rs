@@ -134,7 +134,7 @@ impl Substitution {
     /// subtable the defaults select -- a rearrangement or an insertion,
     /// which forty-two of the seventy-four such faces on macOS 27 carry --
     /// the face stays on `GSUB`, which baud runs whole, rather than shaping
-    /// through part of `morx`. Jev decided it, 0.91 and 0.94.
+    /// through part of `morx`.
     pub fn of(face: &Face<'_>) -> Substitution {
         match (face.gsub(), face.morx()) {
             (None, Some(_)) => Substitution::Morx,
@@ -266,18 +266,18 @@ impl CombiningClass {
     /// 64e2b53), which permutes Hebrew's fixed-position classes 10-26 so
     /// shin and sin dot, dagesh, rafe and holam come before the vowels
     /// below, the group order of the SBL Hebrew manual's Table 1
-    /// (`[[source: sbl-hebrew-manual-1-5]]`). Every other class is its
-    /// own key. A permutation of classes is canonically equivalent, so
-    /// what the text means is unchanged (`[[source: unicode-ch3]]` D109 and
-    /// P5, and the Unicode FAQ: "any permutation of the non-zero CCC values
-    /// can be used", `[[source: unicode-faq-normalization]]`); what it
-    /// changes is the order a font's `ccmp` meets the points in: Courier
-    /// New's forms the shin-dot ligature from shin + shin dot, and not
-    /// with a qamats between them (note AB, 11.4). P5 of the same chapter:
-    /// "Rendering systems should be prepared to deal with common typed-in
-    /// sequences and with canonically reordered sequences". The owner's
-    /// pick, 2026-10-13, for Hebrew only: HarfBuzz's Arabic, Syriac and
-    /// Brahmic modifications are not taken.
+    /// (`[[source: sbl-hebrew-manual-1-5]]`). Every other class is its own
+    /// key. A permutation of classes is canonically equivalent, so what the
+    /// text means is unchanged (`[[source: unicode-ch3]]` D109 and P5, and
+    /// the Unicode FAQ: "any permutation of the non-zero CCC values can be
+    /// used", `[[source: unicode-faq-normalization]]`); what it changes is
+    /// the order a font's `ccmp` meets the points in: Courier New's forms
+    /// the shin-dot ligature from shin + shin dot, and not with a qamats
+    /// between them (note AB, 11.4). P5 of the same chapter: "Rendering
+    /// systems should be prepared to deal with common typed-in sequences
+    /// and with canonically reordered sequences". For Hebrew only (since
+    /// 2026-10-13): HarfBuzz's Arabic, Syriac and Brahmic modifications are
+    /// not taken.
     fn sort_key(self) -> CombiningClass {
         match self.0 {
             k @ 10..=26 => HEBREW_SORT_KEY[usize::from(k - 10)],
@@ -285,19 +285,17 @@ impl CombiningClass {
         }
     }
 
-    /// The class the fallback places a mark by on a face with no `GPOS`:
-    /// HarfBuzz's `recategorize_combining_class`
-    /// (`[[source: harfbuzz-hb-ot-shape-fallback]]`, hb-ot-shape-fallback.cc:85-115
-    /// at 64e2b53), which gives each of Hebrew's fixed-position classes
-    /// 10-26 the side of its base it sits on. Unicode's classes 10-26 name
-    /// an order, not a side, so read as they are every point fell to a
-    /// centred default with no vertical move. HarfBuzz recategorises only a
-    /// nonspacing mark (line 180); all nineteen characters of classes 10-26
-    /// are Hebrew nonspacing marks (`[[source: unicode-data]]`), so the class
-    /// alone selects exactly HarfBuzz's set. The owner's pick, 2026-10-15,
-    /// for Hebrew only, as [`CombiningClass::sort_key`] is: HarfBuzz's
-    /// Arabic, Syriac, Thai, Lao and Tibetan recategorisations are not
-    /// taken.
+    /// The class the fallback places a mark by on a face with no `GPOS`: HarfBuzz's
+    /// `recategorize_combining_class` (`[[source: harfbuzz-hb-ot-shape-fallback]]`,
+    /// hb-ot-shape-fallback.cc:85-115 at 64e2b53), which gives each of Hebrew's
+    /// fixed-position classes 10-26 the side of its base it sits on. Unicode's
+    /// classes 10-26 name an order, not a side, so read as they are every point
+    /// fell to a centred default with no vertical move. HarfBuzz recategorises only
+    /// a nonspacing mark (line 180); all nineteen characters of classes 10-26 are
+    /// Hebrew nonspacing marks (`[[source: unicode-data]]`), so the class alone
+    /// selects exactly HarfBuzz's set. For Hebrew only (since 2026-10-15), as
+    /// [`CombiningClass::sort_key`] is: HarfBuzz's Arabic, Syriac, Thai, Lao and
+    /// Tibetan recategorisations are not taken.
     fn placement(self) -> CombiningClass {
         match self.0 {
             k @ 10..=26 => HEBREW_PLACEMENT[usize::from(k - 10)],
@@ -881,16 +879,15 @@ pub enum MarkPlacement {
 
 impl MarkPlacement {
     /// How text in `script` is placed on `face`. HarfBuzz falls back to
-    /// geometric mark placement when the face has no `GPOS`; a face with
-    /// one that names no mark lookup leaves its marks at the pen, and so
-    /// does baud. But a Hebrew run whose `GPOS` selects no Script table at
-    /// all -- neither `hebr`, nor `DFLT`, nor `latn` after it (note AB
-    /// 11.1, Q-A and Q-B) -- has no positioning from it, and is placed as on
-    /// a face with none: HarfBuzz's Hebrew shaper takes `GPOS` only from
-    /// `hebr` (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and
-    /// Arial Unicode MS, whose `GPOS` carries six other scripts, drew its
-    /// points a cell or two right. Jev decided it, 0.97 and 1.00; other
-    /// scripts keep `GPOS`, as HarfBuzz keeps it.
+    /// geometric mark placement when the face has no `GPOS`; a face with one
+    /// that names no mark lookup leaves its marks at the pen, and so does
+    /// baud. But a Hebrew run whose `GPOS` selects no Script table at all --
+    /// neither `hebr`, nor `DFLT`, nor `latn` after it (note AB 11.1, Q-A
+    /// and Q-B) -- has no positioning from it, and is placed as on a face
+    /// with none: HarfBuzz's Hebrew shaper takes `GPOS` only from `hebr`
+    /// (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and Arial
+    /// Unicode MS, whose `GPOS` carries six other scripts, drew its points a
+    /// cell or two right; other scripts keep `GPOS`, as HarfBuzz keeps it.
     pub fn of(face: &Face<'_>, script: Script) -> MarkPlacement {
         match face.gpos() {
             Some(g) if script.code() != *b"Hebr" || g.chosen(script).is_some() => {

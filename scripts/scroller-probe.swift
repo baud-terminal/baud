@@ -35,7 +35,7 @@
 //   - A phased trackpad gesture built in-process reveals the knob once and
 //     never again: its positive control fails, so it is no measurement.
 //   - Hover: neither the scroll view nor its scroller exposes a tracking area
-//     to send `mouseEntered` to, and a real move would take the owner's
+//     to send `mouseEntered` to, and a real move would take the user's
 //     cursor. The legacy scroller -- what an overlay one widens into -- is
 //     read in its place, and the note labels it as that proxy.
 //   - Each case runs on a fresh scroll view: a view that has been flashed,
@@ -445,7 +445,7 @@ DispatchQueue.global().async {
 
     // Hover cannot be driven in-process -- the scroll view exposes no
     // tracking area to send `mouseEntered` to, and posting a real move would
-    // take the owner's cursor -- so the legacy scroller, which is what an
+    // take the user's cursor -- so the legacy scroller, which is what an
     // overlay scroller widens into, is read instead: a track the width of
     // the scroller and a knob inside it, always drawn.
     let areas = scroll.trackingAreas.count + (scroll.verticalScroller?.trackingAreas.count ?? 0)

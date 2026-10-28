@@ -39,8 +39,8 @@ const UNICODE_DATA: &str = include_str!(concat!(
 /// **Norwegian/Danish, Table 2-12, is extracted and not asserted.** Its finals
 /// `E` and `6` name the DEC repertoire here (Ä Ü ä ü), and the VT420 and
 /// EK-PPLV2-PM chart an ISO one under `` ` ``; which repertoire each final
-/// names is note AF's Q-ND-backtick, the owner's (§2.6). Asserting Table 2-12
-/// against what `E` reaches would build in two of its three options.
+/// names is note AF's Q-ND-backtick, open (§2.6). Asserting Table 2-12 against
+/// what `E` reaches would build in two of its three options.
 const VT220: [(&str, &str, Charset); 10] = [
     ("British", "T2-5", Charset::Uk),
     ("Dutch", "T2-6", Charset::National(Nrcs::Dutch)),
@@ -330,8 +330,7 @@ fn unicode_name(v: u32) -> Option<&'static str> {
 }
 
 /// DEC's error character is stored as U+2426 SYMBOL FOR SUBSTITUTE FORM TWO
-/// (note AE's AE8.1, decided by Jev at 1.00 twice, the second asking with the
-/// options reordered). DEC names no codepoint: 070-3 §3.4.3 has the character
+/// (note AE's AE8.1). DEC names no codepoint: 070-3 §3.4.3 has the character
 /// "usually imaged as a REVERSE QUESTION MARK", and U+2426 is ISO 2047's
 /// picture of SUB, the control DEC ties it to, with a reversed question mark
 /// for its reference glyph (`[[source: unicode18-chart-2400]]`, note AF

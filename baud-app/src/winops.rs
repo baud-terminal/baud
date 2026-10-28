@@ -4,15 +4,15 @@
 //! the macOS window's frame for each request, and the xdg-shell request,
 //! or why there is none.
 //!
-//! **The owner's call of 2026-10-19, "4 it is"**: the operations are built,
-//! on by default, and `[window] operations = "off"` turns them off in the
-//! core. **macOS** does each with AppKit: the frame a move, a resize or a
-//! maximise gives the window, measured as XTWINOPS's reports measure it
-//! (`window_facts` in `app.rs`), so `CSI 3 ; x ; y t` sends the window to
-//! where `CSI 13 t` reports it and `CSI 8 ; r ; c t` gives the grid `r` by
-//! `c`. **Linux** does what xdg-shell can: minimise, maximise and restore,
-//! full screen, and a size a floating window chooses; the rest has no
-//! request there and is counted with its reason.
+//! The operations are built, on by default, and
+//! `[window] operations = "off"` turns them off in the core. **macOS** does
+//! each with AppKit: the frame a move, a resize or a maximise gives the
+//! window, measured as XTWINOPS's reports measure it (`window_facts` in
+//! `app.rs`), so `CSI 3 ; x ; y t` sends the window to where `CSI 13 t`
+//! reports it and `CSI 8 ; r ; c t` gives the grid `r` by `c`. **Linux**
+//! does what xdg-shell can: minimise, maximise and restore, full screen,
+//! and a size a floating window chooses; the rest has no request there and
+//! is counted with its reason.
 
 // Each driver reads its own half.
 #![cfg_attr(not(test), allow(dead_code))]
@@ -386,9 +386,9 @@ fn content_height(grid: Grid, w: &MacWindow) -> f64 {
 pub enum StatusChange {
     /// The window grows or shrinks by the row and the grid keeps its rows,
     /// as 070-14 allows, "On a windowed display, the size of the terminal
-    /// window may change to include the status line" (`[[source:
-    /// dec-std-070]]` p. 14-5), and as xterm's `resize_status_line` does
-    /// (`[[source: xterm-reset]]`'s file; Jev, GROW_WINDOW, 0.98 and 1.00).
+    /// window may change to include the status line"
+    /// (`[[source: dec-std-070]]` p. 14-5), and as xterm's
+    /// `resize_status_line` does (`[[source: xterm-reset]]`'s file).
     Resize,
     /// The window keeps its size and the grid gives up its last row to
     /// the line, or takes it back: where the window cannot change size,

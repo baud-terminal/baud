@@ -393,8 +393,7 @@ pub enum RegisPhase {
 
 /// **How a page's blinking pixels are shown now**: their own colours, or,
 /// in the hidden phase, the background index's, opaque -- "alternation ...
-/// between foreground and background intensities" (070-8 § 8.8.3.1;
-/// decided by Jev, BACKGROUND, 0.90 and 0.92 on a second ask).
+/// between foreground and background intensities" (070-8 § 8.8.3.1).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegisBlinkShow {
     Shown,
@@ -418,20 +417,16 @@ pub enum RegisBound {
     /// `F(B(F0))`: "bounded by image areas represented by the background":
     /// the flood spreads over the pixels in the seed's state, foreground or
     /// background, as § 8.8.6.4 has the third way, "any change between the
-    /// foreground and the background state" (Jev's lean, SAME_STATE, 0.74
-    /// and 0.38 on a second ask).
+    /// foreground and the background state".
     Background,
     /// `F(B(F1))`, the default: "any foreground setting different from the
     /// seed value": the flood spreads over pixels holding the seed's index,
     /// § 8.8.6.4's second way, "any change in attribute with respect to the
-    /// seed location attribute value" (Jev's lean, SEED_ONLY, 0.56 and then
-    /// SEED_OR_BACKGROUND at 0.08 in the other order, SEED_ONLY the more
-    /// probable averaged over the two, 0.62 against 0.38). **An open
-    /// departure, on the owner's veto list**: § 8.8.6.3.1.1 bounds `F1`
-    /// "by any foreground value different from the seed value, or any
-    /// foreground if the seed location has the background attribute",
-    /// which leaves the background open from a foreground seed; this
-    /// follows § 8.8.6.4 against that sentence.
+    /// seed location attribute value". **An open departure**: § 8.8.6.3.1.1
+    /// bounds `F1` "by any foreground value different from the seed value,
+    /// or any foreground if the seed location has the background
+    /// attribute", which leaves the background open from a foreground seed;
+    /// this follows § 8.8.6.4 against that sentence.
     Seed,
     /// `F(B(I<n>))`: "bounded by parts of the image with the attribute so
     /// specified".
@@ -454,12 +449,11 @@ pub enum PatternBit {
 /// explicitly loaded take effect", the rest writing as the writing mode
 /// does, and "Any writing mode command overrides all detailed settings".
 ///
-/// **The bit is the pattern's own, before `W(N1)` inverts it** (Jev's lean,
-/// RAW, 0.20 and 0.36 on a second ask): the loaded entries "override the
-/// last specified write mode control option (R, C, V, N, or E)", the five
-/// modes of § 8.7.2.4.1, `N` among them. **The plane mask still limits the
-/// write** (decided by Jev, MASK_APPLIES, 0.96 and 0.92): `W(F)` enables
-/// "all plane write and erase operations".
+/// **The bit is the pattern's own, before `W(N1)` inverts it**: the loaded
+/// entries "override the last specified write mode control option (R, C, V,
+/// N, or E)", the five modes of § 8.7.2.4.1, `N` among them. **The plane
+/// mask still limits the write**: `W(F)` enables "all plane write and erase
+/// operations".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RegisMicro {
     one: [Option<RegisIndex>; REGIS_COLORS],
@@ -518,10 +512,9 @@ pub struct RegisPen {
 /// **How many shown pixels a pixel of the page's plane is**, each way:
 /// `S(S<n>)` (070-8 § 8.8.1.4.7), "Taking the model of pixel replication,
 /// the subargument <n> is treated as a multiplicative scale factor for each
-/// pixel in the display", from the screen's upper-left (Jev's lean,
-/// UPPER_LEFT, 0.88 and 0.86 on a second ask). The plane, the bitmap, is
-/// not changed: "The S(S) option causes the display medium (the bit map,
-/// for example) to become bigger than the display surface".
+/// pixel in the display", from the screen's upper-left. The plane, the
+/// bitmap, is not changed: "The S(S) option causes the display medium (the
+/// bit map, for example) to become bigger than the display surface".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RegisZoom {
     pub x: u8,
@@ -561,18 +554,17 @@ pub struct RegisShift {
 }
 
 /// The largest scale factor, the implementation limit `S(S)` maps a larger
-/// one to: sixteen (Jev's lean, LIMIT_16, 0.72 and 0.80 on a second ask),
-/// the multiplier 070-8 makes devices provide elsewhere (§ 8.5.3.4.2).
+/// one to: sixteen, the multiplier 070-8 makes devices provide elsewhere
+/// (§ 8.5.3.4.2).
 pub const REGIS_SCALE: u8 = 16;
 
-/// **The widest line, in page pixels**: the width field's largest.
-/// § 8.8.3.2 names no limit -- "W(L2) sets a width twice the nominal
-/// width, W(L3) three times, and so on" -- and none is set short of the
-/// page (decided by Jev, UNBOUNDED, 0.96 and 0.96): a pen wider than twice
-/// a page's diagonal covers all of it from any pixel of it, so on a page
-/// up to 23,170 pixels a side a line through the page draws the same
-/// pixels as with any wider pen. The pen costs a step its rows on the
-/// page, and a line at most one whole pen held to the page
+/// **The widest line, in page pixels**: the width field's largest. §
+/// 8.8.3.2 names no limit -- "W(L2) sets a width twice the nominal width,
+/// W(L3) three times, and so on" -- and none is set short of the page: a
+/// pen wider than twice a page's diagonal covers all of it from any pixel
+/// of it, so on a page up to 23,170 pixels a side a line through the page
+/// draws the same pixels as with any wider pen. The pen costs a step its
+/// rows on the page, and a line at most one whole pen held to the page
 /// ([`RegisCanvas::wide_line`]).
 pub const REGIS_LINE_WIDTH: u16 = u16::MAX;
 
@@ -1341,7 +1333,7 @@ impl Regis {
     /// Move the input cursor `dx`, `dy` device pixels, wrapping at the
     /// screen's edge: an arrow key's step, "one pixel", Shift's "10 pixels"
     /// (`[[source: vt3xx-report]]`), a pixel of the VT300's device that the
-    /// page is fitted from (Jev, DEVICE_PIXEL, 0.92 and 0.96).
+    /// page is fitted from.
     pub fn input_step(&mut self, dx: i32, dy: i32) {
         self.sem.input.step(dx, dy);
     }
@@ -1379,9 +1371,7 @@ impl Regis {
     /// embedder holds while it waited: ended as [`Regis::input_end`] ends
     /// it, counted; the caller sends 8.8.5.3's empty report, "Only the
     /// terminating CR is sent ... indicating that NO INPUT was to be
-    /// returned". Jev's lean: EMPTY_REPORT at 0.38, POSITION_REPORT at
-    /// 0.22 in the other order, EMPTY_REPORT having the higher probability
-    /// averaged over the two orders, 0.495 against 0.37.
+    /// returned".
     pub fn input_abandon(&mut self) {
         self.input_end();
         self.sem.counts.inputs_abandoned += 1;
@@ -1670,8 +1660,7 @@ impl Regis {
     /// arrives as its bytes**, and is the code it is in the 8-bit in-use
     /// table -- U+0020 to U+007E in GL, U+00A0 to U+00FF in GR, § 8.4.3.2's
     /// "2/0 through 7/15, and 10/0 through 15/15" -- or the error character
-    /// for any other (Jev's lean, 2026-10-20, DECODE_TO_TABLE, 0.79 and
-    /// 0.74); under ISO 8859-1 each byte is its code.
+    /// for any other; under ISO 8859-1 each byte is its code.
     fn quoted(&mut self, c: u8, out: &mut dyn RegisOut) {
         if self.enc != InputEncoding::Utf8 || c < 0x80 {
             if self.utf8.1 != 0 {

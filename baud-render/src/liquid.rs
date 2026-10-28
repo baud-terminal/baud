@@ -10,8 +10,8 @@
 //! **It reads nothing underneath.** The spec's design (b) bends the text
 //! under the gel -- a second render pass a frame over the whole target, and
 //! still unable to bend the wallpaper and blur that the window server
-//! composites behind baud's translucent window. That is the owner's call, and
-//! this is (a).
+//! composites behind baud's translucent window. That is not built, and this
+//! is (a).
 //!
 //! **Everything that moves is a function of the ignition's clock**, as the
 //! spec requires for a retarget: the spine's back is taken from the order

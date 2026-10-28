@@ -15,12 +15,11 @@
 //! stop". Both erase guarded positions only under ERM set.
 //!
 //! baud's qualified areas are SPA and EPA's guarded areas. The active area is
-//! the run, in the character path, of positions sharing the active
-//! position's guard: a guarded area, or the unguarded positions between two
-//! or between one and the page's edge (Jev's lean, RUN). A field stays in its
-//! line: the line's start and end bound the positions before its first stop
-//! and after its last (Jev's lean, LINE_BOUNDED). Each reads its first
-//! parameter and counts the rest (decided by Jev, FIRST_ONLY, 0.90/0.90).
+//! the run, in the character path, of positions sharing the active position's
+//! guard: a guarded area, or the unguarded positions between two or between
+//! one and the page's edge. A field stays in its line: the line's start and
+//! end bound the positions before its first stop and after its last. Each
+//! reads its first parameter and counts the rest.
 
 use crate::support;
 use baud_core::*;

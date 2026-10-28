@@ -652,21 +652,20 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
 /// **The same script, in the alternate screen.**
 ///
 /// This file had no alternate-screen scroll test at all, which is precisely the
-/// gap that hid the original full-screen bug: `docs/record.md` ("Full-screen
-/// scroll: the grid is rotated, not copied") records that every test here
-/// "sets a region with DECSTBM first, which takes the copying path,
-/// so the most common scroll there is had no content test at all". The
-/// alternate screen is the same hole one screen over -- and it is where every
-/// full-screen application lives, so it is the screen a pager, an editor or a
-/// TUI actually scrolls on.
+/// gap that hid the original full-screen bug: it was recorded that every test
+/// here "sets a region with DECSTBM first, which takes the copying path, so the
+/// most common scroll there is had no content test at all". The alternate
+/// screen is the same hole one screen over -- and it is where every full-screen
+/// application lives, so it is the screen a pager, an editor or a TUI actually
+/// scrolls on.
 ///
 /// Written *before* the alternate screen gets a rotation fast path, and green
 /// on the copying path, so that a green result afterwards is evidence about the
 /// rotation rather than about the test.
 ///
 /// core2 ran this in `OpMode::Computed`, not `Runs`, whose viewport reported
-/// representation rather than rendered content (`git show c1d710c^:CLAUDE.md`,
-/// "Tests", lines 698-705). baud-core has one mode (see the top of this file).
+/// representation rather than rendered content. baud-core has one mode (see
+/// the top of this file).
 #[test]
 fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
     const ROWS: usize = 50;
@@ -780,8 +779,8 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
 /// `head` did not move during an alternate-screen session, so a region scroll
 /// there wrote over the primary's bookkeeping. No public accessor showed that
 /// state: in core2's Runs mode a viewport showed representation, so every
-/// case came back empty (`git show c1d710c^:CLAUDE.md`, lines 698-705). The
-/// test checked the rendered content then, as it does now.
+/// case came back empty. The test checked the rendered content then, as it
+/// does now.
 #[test]
 fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {
     const ROWS: usize = 50;
@@ -1072,7 +1071,7 @@ fn overwriting_half_a_wide_character_clears_the_other_half() {
 /// **SPH and SPL are counted and move nothing** (`[[source: ecma48]]`
 /// 8.3.131, 8.3.133): FF is `LF` here (the `0x0C` row), so a page home
 /// would be read by nothing, and the bottom of the lines a line feed
-/// scrolls is DECSTBM's (Jev's lean, REFUSE_COUNT, 0.79/0.85 asked again).
+/// scrolls is DECSTBM's.
 #[test]
 fn sph_and_spl_are_counted_and_move_nothing() {
     let ws = support::CORPUS;
@@ -1093,10 +1092,8 @@ fn sph_and_spl_are_counted_and_move_nothing() {
 /// the cursor" and xterm moves its top margin to the cursor's line
 /// (`[[source: xterm-reset]]` 4759-4770), but `[[source: ecma48]]` 5.5,
 /// Table 5, leaves `ESC 06/12` and `ESC 06/13` unallocated, "reserved for
-/// future standardization and shall not be used" (Jev's lean,
-/// KEEP_COUNTED, 0.90/0.90 in both orders on the re-ask, for a call
-/// TODO.md marks as the owner's and still open). A line feed at the
-/// bottom still scrolls line 1 away.
+/// future standardization and shall not be used", an open question. A
+/// line feed at the bottom still scrolls line 1 away.
 #[test]
 fn hp_memory_lock_and_unlock_are_counted_and_move_no_margin() {
     let ws = support::CORPUS;

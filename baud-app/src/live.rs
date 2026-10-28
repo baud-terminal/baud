@@ -401,8 +401,8 @@ impl Notice {
     }
 
     /// The rows the notice takes from the window: one while it says
-    /// anything (Jev's lean after a re-ask, ROWS, 0.35 and 0.51: the grid
-    /// gives a row to it, as alacritty's message bar takes rows).
+    /// anything (the grid gives a row to it, as alacritty's message bar
+    /// takes rows).
     pub fn rows(&self) -> baud_domain::Rows {
         match self.0 {
             Some(_) => baud_domain::Rows::of_index(1),
@@ -414,9 +414,9 @@ impl Notice {
 /// **The size a reload leaves the window at**: the new configured size,
 /// unless the user zoomed away from the old one (`at` is not `base`), whose
 /// zoom stays -- alacritty's "Do not update font size if it has been
-/// changed at runtime" (`[[source: alacritty-0-15-1-window-context]]`;
-/// Jev, KEEP_ZOOM, 0.94 and 0.94). Actual Size returns to `configured`
-/// either way, which the driver keeps as its base.
+/// changed at runtime" (`[[source: alacritty-0-15-1-window-context]]`).
+/// Actual Size returns to `configured` either way, which the driver keeps
+/// as its base.
 pub fn size_after(at: f32, base: f32, configured: f32) -> f32 {
     match at == base {
         true => configured,

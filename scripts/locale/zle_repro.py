@@ -6,7 +6,7 @@ termios; CPython's os.forkpty passes NULL for name and termp).
 The child environment imitates what launchd hands a Dock-launched app
 (measured with `launchctl print gui/501/<service>`), plus the four variables
 baud sets (baud-app/src/pty.rs OURS). zsh runs with -f (no rc files, so the
-owner's dotfiles are neither read nor written) and -i (interactive, so ZLE
+user's dotfiles are neither read nor written) and -i (interactive, so ZLE
 runs). Nothing is written to any history file: -f leaves HISTFILE unset.
 """
 import os, pty, select, sys, time

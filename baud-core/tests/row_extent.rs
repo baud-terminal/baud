@@ -15,9 +15,9 @@
 //!
 //! This file exists as its own gate because the mark is maintained in eleven
 //! places -- every mutator on `View`, both line moves, and `Term::viewport`'s
-//! un-rotation -- and `CLAUDE.md` records the failure "one representation" precisely: "an
-//! invariant to maintain at every write site, where a site that forgets leaves
-//! stale text on screen rather than merely being slow".
+//! un-rotation -- and a mark kept at many sites is an invariant to maintain at
+//! every write site, where a site that forgets leaves stale text on screen
+//! rather than merely being slow.
 
 #[path = "support/mod.rs"]
 mod support;

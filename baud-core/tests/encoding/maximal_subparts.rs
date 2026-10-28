@@ -7,11 +7,10 @@
 //! the W3C Encoding Standard adopted: "The maximal subpart at that offset is
 //! replaced by a single U+FFFD", where a maximal subpart (D93b) is "the
 //! initial subsequence of a well-formed code unit sequence, or ... a
-//! subsequence of length one". Jev's CANCEL_AND_PRINT (decisions.jsonl lines
-//! 451-452) says "one U+FFFD per maximal subpart", and that is the practice
-//! built here. Rust's `from_utf8_lossy` implements the same practice, so it
-//! is the oracle, and the first test holds it to the standard's own tables
-//! before anything is judged against it.
+//! subsequence of length one". One U+FFFD per maximal subpart is the
+//! practice built here. Rust's `from_utf8_lossy` implements the same
+//! practice, so it is the oracle, and the first test holds it to the
+//! standard's own tables before anything is judged against it.
 //!
 //! baud wrote one U+FFFD for a lead and every continuation after it, however
 //! many maximal subparts they held: `E0 80` wrote one where the practice

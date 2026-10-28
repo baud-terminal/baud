@@ -1,14 +1,13 @@
 //! The cursor's blink: when it shows, when it hides, what it does while it
 //! is hidden, and which frames that owes.
 //!
-//! **The timing is even, 333 ms shown and 333 hidden**, the owner's pick of
-//! 2026-10-15 ("333 ms each phase"): 1.5 blinks a second, symmetric, where
-//! AppKit's unset caret is 650/350. `[cursor] blink_interval_ms` sets each
-//! phase and wins over everything; without it the system's
-//! `NSTextInsertionPointBlinkPeriodOn` and `...Off` are followed where the
-//! user set them, each read on its own as AppKit reads it, and 333 where
-//! not ([`rate`]). Linux reads no desktop setting, so it is the config's
-//! interval or 333.
+//! **The timing is even, 333 ms shown and 333 hidden**: 1.5 blinks a
+//! second, symmetric, where AppKit's unset caret is 650/350.
+//! `[cursor] blink_interval_ms` sets each phase and wins over everything;
+//! without it the system's `NSTextInsertionPointBlinkPeriodOn` and `...Off`
+//! are followed where the user set them, each read on its own as AppKit
+//! reads it, and 333 where not ([`rate`]). Linux reads no desktop setting,
+//! so it is the config's interval or 333.
 //!
 //! **The hidden phase is the animation's** (`[cursor] blink_animation`, the
 //! same day's picks): the plasma glow by default, a fade, the fire, the
@@ -66,7 +65,7 @@ pub const FLOOR: Duration = Duration::from_nanos(16_666_667);
 /// AppKit hides the caret for good.
 pub const CEILING: Duration = Duration::from_secs(60);
 
-/// Each phase where nothing sets it: 333 ms, the owner's pick.
+/// Each phase where nothing sets it: 333 ms.
 pub const EVEN: Duration = Duration::from_millis(333);
 
 /// The share of the hidden phase each of the fade's two ramps takes: the
@@ -172,8 +171,8 @@ impl Cycle {
     }
 }
 
-/// **The rate, by the owner's precedence**: the config's interval if it
-/// sets one, whatever the system says; else the system's two keys, each
+/// **The rate, in this precedence**: the config's interval if it sets
+/// one, whatever the system says; else the system's two keys, each
 /// where the user set it; else 333 ms a phase. `on_ms` and `off_ms` are
 /// `NSUserDefaults`' answers, 0 for a key that is not set.
 #[cfg(any(target_os = "macos", test))]
@@ -297,8 +296,8 @@ pub enum Gate {
 
 impl Gate {
     /// The switch steadies the drawn caret unless the config says `true`:
-    /// the owner's "honoured unless the config says otherwise", and `false`
-    /// does not say otherwise.
+    /// the system's setting is honoured unless the config says otherwise,
+    /// and `false` does not say otherwise.
     pub fn of(choice: BlinkChoice, switch: NonBlinking) -> Gate {
         match (switch, choice) {
             (NonBlinking::On, BlinkChoice::Auto | BlinkChoice::Off) => Gate::Steady,

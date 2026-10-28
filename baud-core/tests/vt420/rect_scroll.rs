@@ -36,7 +36,7 @@
 //! settles it (the DEC terminals that defined margins had no wide cells), and
 //! it is the rule baud's own range operations already keep ("we can't just
 //! split a wide char", `View::snap`), as xterm's `scrollInMargins`
-//! (`[[source: xterm-scroll]]`) and ghostty do. Listed for Jev in the record.
+//! (`[[source: xterm-scroll]]`) and ghostty do.
 //!
 //! The screen is 20 by 8, each row filled with a letter of its own by `CUP`,
 //! the V10 oracle's fixture: a row that moved shows another letter, and a
@@ -556,7 +556,7 @@ fn a_rectangle_scroll_counts_the_cells_it_writes() {
 /// **An image anchored inside the rectangle moves with its text, and one
 /// anchored beside it on the same rows stays with its own.** By the anchor's
 /// column as by its row -- no text says what an image does here, and ghostty
-/// moves only one wholly inside; listed for Jev in the record.
+/// moves only one wholly inside; an open question.
 #[test]
 fn an_image_moves_only_when_its_anchor_is_inside_the_rectangle() {
     use baud_domain::ImageBudget;

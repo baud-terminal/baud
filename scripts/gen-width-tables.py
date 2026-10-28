@@ -238,7 +238,7 @@ def emit_trie(index, packed, nblocks, prefix="WIDTH", unicode8=False):
             "/// Two indexed loads replace up to three binary searches over 677 ranges.",
             "/// The searched form was 9.4% of the CJK path and a ceiling arm returning",
             "/// a constant measured +32 to +34%; a scattered probe per branch is also",
-            "/// the worse shape for a cache, which is what rule #2 in `CLAUDE.md` is",
+            "/// the worse shape for a cache, which is what rule #2 in `CONTRIBUTING.md` is",
             "/// about. Han sits in 82 contiguous entries here.",
         ]
     )

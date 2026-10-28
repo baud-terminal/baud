@@ -204,9 +204,8 @@ fn rep_repeats_the_last_character_of_every_writer() {
 /// **After a cluster REP repeats its first character**, each copy a cell
 /// of its own: a bare `e` after `e U+0301`, the woman after a ZWJ family,
 /// the first regional indicator after a flag, and a narrow U+2620 after
-/// U+2620 U+FE0F widened it (Jev's lean, BASE, 0.98 and 0.97, then 0.88
-/// and 0.76 asked with renders, 2026-10-19; xterm repeats the last
-/// codepoint, and nothing when it takes no column).
+/// U+2620 U+FE0F widened it (xterm repeats the last codepoint, and
+/// nothing when it takes no column).
 #[test]
 fn rep_after_a_cluster_repeats_its_first_character() {
     let cases: [(&str, &str, &str); 4] = [

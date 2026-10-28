@@ -43,9 +43,7 @@ pub enum Charset {
     /// Translated through `[[source: foot-vt100-0]]`'s 31 entries, `0x60..0x7E`,
     /// and the cell keeps `CellFlags::GRAPHICS`. DEC's set is 32 entries and
     /// begins at `0x5F`, "Blank" (`[[source: vt100-ug-ch3]]` Table 3-9), which
-    /// baud leaves as `_`: an open departure, the codepoint being the owner's
-    /// call. See docs/record.md, "DEC Special Graphics begins at 0x5F, and what
-    /// it stores there is the owner's call".
+    /// baud leaves as `_`: an open departure, the codepoint still to be chosen.
     DecGraphics,
     /// A national replacement set, named. See [`Nrcs`].
     National(Nrcs),
@@ -166,11 +164,11 @@ impl Nrcs {
 /// the code cannot be read back from: what DECRQCRA reads to count the code
 /// received ([`CellFlags::received`]).
 ///
-/// **Only the sets that replace a code with another character are named.**
-/// A set that draws its byte (ASCII, DEC Technical and the other untranslated
+/// **Only the sets that replace a code with another character are named.** A
+/// set that draws its byte (ASCII, DEC Technical and the other untranslated
 /// DEC sets, a national set's unreplaced positions) leaves the code in the
 /// cell, and the UK set's `#` is drawn `£` and counted 0xA3, its codepoint's
-/// low byte, as xterm counts it (Jev's lean of 2026-10-19).
+/// low byte, as xterm counts it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Received {
     /// DEC Special Graphics, `0`.

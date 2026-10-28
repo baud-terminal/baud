@@ -12,12 +12,12 @@
 //! give it ([`baud_domain::LineBidi::paragraph`]) over its text, the rows a
 //! soft wrap joins and the history's lines above them, a cell's attached
 //! characters included; and on a table row, a row holding a Box Drawing
-//! character, the cell between two rules the cursor is in, each a
-//! paragraph of its own (UAX #9 section 3; Jev, CELL, 0.98/0.98). A
-//! cursor on a rule is in the cell before it, as P1 keeps a paragraph
-//! separator with the paragraph it ends, and one past a table row's text
-//! is in no cell: the renderer draws those cells left to right where they
-//! are, and so the keys there are as pressed.
+//! character, the cell between two rules the cursor is in, each a paragraph
+//! of its own (UAX #9 section 3). A cursor on a rule is in the cell before
+//! it, as P1 keeps a paragraph separator with the paragraph it ends, and
+//! one past a table row's text is in no cell: the renderer draws those
+//! cells left to right where they are, and so the keys there are as
+//! pressed.
 //!
 //! **The press decides**: the draft swaps "conditionally to the cursor
 //! being inside an RTL paragraph at the time the key is pressed"
@@ -86,9 +86,8 @@ impl Term<'_> {
     /// drawn**: its paragraph's direction as [`Term::paragraph_direction`]
     /// reads it, and left to right on a table row, which keeps its columns
     /// whatever its cells hold. What a picture anchored on the row is
-    /// placed by: mirrored, unflipped, where the row runs right to left
-    /// (Jev MIRROR_BY_ANCHOR_ROW, 0.97/0.98). Left to right for a row
-    /// outside the window.
+    /// placed by: mirrored, unflipped, where the row runs right to left.
+    /// Left to right for a row outside the window.
     pub fn line_direction(&self, back: Rows, r: Row) -> BidiDirection {
         self.direction(back, r, Scope::Line)
     }

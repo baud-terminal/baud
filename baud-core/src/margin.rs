@@ -5,31 +5,30 @@
 //! bell's rings in [`Term::margin_bells`](crate::Term#structfield.margin_bells);
 //! the embedder makes the sound, as it does for `BEL`.
 //!
-//! **The margin bell is DEC STD 070's** (070-6 § 6.6.5.2, pp. 6-45 and
-//! 6-46, `[[source: dec-std-070]]`; Jev, STD070, 0.94 and 0.95). "The
-//! Margin Bell is set to RING ENABLED" when it is on and "A 'normal
-//! keystroke' is typed" -- one whose first character is not `ESC`, `CSI` or
-//! `DCS` ([`Term::key`](crate::Term::key)). It "is rung" when "Any character
-//! is printed to the screen which causes the cursor to move from a column
+//! **The margin bell is DEC STD 070's** (070-6 § 6.6.5.2, pp. 6-45 and 6-46,
+//! `[[source: dec-std-070]]`). "The Margin Bell is set to RING ENABLED" when
+//! it is on and "A 'normal keystroke' is typed" -- one whose first character
+//! is not `ESC`, `CSI` or `DCS` ([`Term::key`](crate::Term::key)). It "is
+//! rung" when "Any character is printed to the screen which causes the
+//! cursor to move from a column
 //! <= (RIGHT MARGIN - 8) to any column on the same line > (RIGHT MARGIN -
-//! 8)", eight columns as the VT100 and VT102 guides give them (Jev,
-//! DEC_EIGHT, 0.97 and 0.97). It is set to RING DISABLED when it is turned
-//! off, "The Margin Bell has been rung", or "The cursor moves to a new
-//! line"; horizontal positioning neither rings it nor arms it.
+//! 8)", eight columns as the VT100 and VT102 guides give them. It is set
+//! to RING DISABLED when it is turned off, "The Margin Bell has been
+//! rung", or "The cursor moves to a new line"; horizontal positioning
+//! neither rings it nor arms it.
 //!
 //! **"A new line" is tested at the write, against the line the keystroke
 //! armed on** ([`Line`]): the screen's epoch, the ring's rotation (which
 //! every whole-screen scroll moves, on either screen) and the cursor's row.
-//! A different line disarms it unrung (Jev, AT_RING, 0.94 and 0.94). **A
-//! scroll that moves the armed line's text disarms it, and one that does
-//! not keeps it armed**: rows moved in place -- a region scrolled by copy,
-//! `IL`, `DL` -- disarm it when the armed row is among them
-//! ([`BellState::rows_moved`]), and a region at the top, which rotates the
-//! ring and puts the rows under it back, re-reads the rotation of a line
-//! armed under it (`Paint::margin_bell_under`). **A cursor that leaves the
-//! line and comes back before anything is printed stays armed**, where STD
-//! 070 disarms it: an open departure, since telling it needs a test on
-//! every row change.
+//! A different line disarms it unrung. **A scroll that moves the armed
+//! line's text disarms it, and one that does not keeps it armed**: rows
+//! moved in place -- a region scrolled by copy, `IL`, `DL` -- disarm it
+//! when the armed row is among them ([`BellState::rows_moved`]), and a
+//! region at the top, which rotates the ring and puts the rows under it
+//! back, re-reads the rotation of a line armed under it
+//! (`Paint::margin_bell_under`). **A cursor that leaves the line and comes
+//! back before anything is printed stays armed**, where STD 070 disarms it:
+//! an open departure, since telling it needs a test on every row change.
 //!
 //! The test runs behind the write path's one hook compare
 //! (`Paint::overwrote`), on while a bell is armed, so a terminal with no
@@ -76,8 +75,7 @@ pub(crate) struct Line {
 }
 
 /// Whether the margin bell can ring: `?44` on and its volume not off,
-/// xterm's two switches (Jev's lean, TWO_SWITCHES, 0.37/0.27 then
-/// 0.27/0.14).
+/// xterm's two switches.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Margin {
     Off,

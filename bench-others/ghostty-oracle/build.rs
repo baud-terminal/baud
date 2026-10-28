@@ -13,7 +13,7 @@
 //!
 //! The library carries no commit -- its version string reads `0.1.0-dev`,
 //! which `main` checks at start-up -- so the tie to d9840f3 is the
-//! checkout it was built in, not the binary (the record, "V10's oracle").
+//! checkout it was built in, not the binary.
 
 fn main() {
     println!("cargo:rerun-if-env-changed=GHOSTTY_LIB_DIR");

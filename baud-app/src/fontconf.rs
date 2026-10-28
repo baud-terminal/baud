@@ -1,9 +1,8 @@
-//! **fontconfig's font directories, read from its own configuration**, with
-//! no libfontconfig: on Linux the configuration is what says which fonts are
-//! installed, and where one is found its directories are the scan's list
-//! (Jev's lean, C_CONF_ONLY, 0.12/0.46 then 0.80/0.84). Read from fontconfig
-//! 2.15.0's source, which the user documentation (`[[source: fontconfig-user]]`)
-//! describes more narrowly in places:
+//! **fontconfig's font directories, read from its own configuration**, with no
+//! libfontconfig: on Linux the configuration is what says which fonts are
+//! installed, and where one is found its directories are the scan's list. Read
+//! from fontconfig 2.15.0's source, which the user documentation
+//! (`[[source: fontconfig-user]]`) describes more narrowly in places:
 //!
 //! * **The file.** `FONTCONFIG_FILE`, else `fonts.conf`; a name that is not
 //!   absolute is looked for along `FONTCONFIG_PATH` and then the configuration
@@ -55,9 +54,8 @@
 //!   directories" is not what the code does. A pattern tests each face as
 //!   `FcListPatternMatchAny` does (`[[source: fontconfig-fclist-2-15-0]]`),
 //!   over [`FaceView`]: the objects baud reads from a face, family, full
-//!   name, PostScript name, file, index, outline, scalable, colour,
-//!   variable and font format, each as FreeType and fontconfig set it (Jev's
-//!   lean, READ_OBJECTS, 0.86/0.94, re-asked 0.85/0.92).
+//!   name, PostScript name, file, index, outline, scalable, colour, variable
+//!   and font format, each as FreeType and fontconfig set it.
 //!
 //! **Departures in the patterns, open.** A pattern that names any other
 //! object -- `lang`, `charset`, `style`, `weight` and the rest a face has --

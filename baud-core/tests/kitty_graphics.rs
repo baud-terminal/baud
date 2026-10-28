@@ -819,9 +819,8 @@ fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_made() {
 }
 
 /// **A reply is `ESC _ G ... ESC \\` whatever S8C1T says**: the shape the
-/// text gives ("`<ESC>_Gi=31;OK<ESC>\\`"). Following S8C1T is an open owner
-/// question (Jev, FOLLOW_S8C1T 0.92 and 0.88, under the bar). The DA after
-/// it is the control: S8C1T took.
+/// text gives ("`<ESC>_Gi=31;OK<ESC>\\`"). Following S8C1T is an open
+/// question. The DA after it is the control: S8C1T took.
 #[test]
 fn replies_keep_the_seven_bit_shape_under_s8c1t() {
     with(64, |t| {
@@ -1443,10 +1442,8 @@ fn a_reverse_scroll_moves_a_picture_on_the_top_row_one_row_down() {
 /// its row**: the primary keeps the row under the window, and a line
 /// feed at the bottom brings it back as the bottom row, blank, the
 /// picture drawn over it as kitty draws it (`INDEX_DOWN` drops nothing
-/// and `INDEX_UP` moves it back; Jev's lean, KEEP, under the bar; on the
-/// re-ask one order chose keeping only a picture whose rows reach the
-/// screen, tied with KEEP; docs/vt-coverage.md has the figures). The
-/// alternate screen keeps no row below the window, so there the
+/// and `INDEX_UP` moves it back; docs/vt-coverage.md has the figures).
+/// The alternate screen keeps no row below the window, so there the
 /// picture goes as its row leaves the screen, counted.
 #[test]
 fn a_picture_pushed_below_the_screen_comes_back_with_its_row() {
@@ -1671,8 +1668,7 @@ fn a_top_anchored_region_leaves_the_images_it_does_not_scroll() {
 /// everything after the `G` up to its `ESC \` is printable ASCII, so one
 /// read hands it over in one call. Fed a byte at a time it was one call a
 /// byte, 21,875 here, about 4 ns each: a 1920x1080 `f=32` took 46-47 ms,
-/// all of it feeding (`docs/record.md`, "A kitty payload is fed a run at a
-/// time").
+/// all of it feeding.
 #[test]
 fn a_body_reaches_the_stream_in_one_call_a_run() {
     let data = bytes(64 * 64 * 4, 31);

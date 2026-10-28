@@ -174,9 +174,7 @@ pub enum HighlightEnd {
     /// xterm's `EndExtend` (`[[source: xterm-button]]`) tests something else
     /// -- the region's start is the program's start *and* its end is the
     /// mouse's cell, after sorting the two -- and sends nothing at all for a
-    /// region of one cell. Which reading the text means is an open question
-    /// for Jev (the record, "`?1001` highlight tracking is built to the
-    /// text").
+    /// region of one cell. Which reading the text means is an open question.
     Same(WireCell),
     /// "otherwise: `CSI T CxCyCxCyCxCy`. The parameters are startx, starty,
     /// endx, endy, mousex, and mousey" -- "mousex and mousey give the
@@ -306,7 +304,7 @@ impl Handshake {
     ///
     /// **When no row satisfies both** -- `lastrow` at or above `firstrow` --
     /// the text gives the end nowhere to be, and `firstrow` holds it: a
-    /// provisional choice, among the questions the record leaves for Jev.
+    /// provisional choice, among the open questions.
     pub fn answered(self, r: HighlightRegion, cols: Cols, rows: Rows) -> Handshake {
         let Handshake::Awaiting { pointer } = self else {
             return self;
@@ -529,8 +527,8 @@ impl PointerMode {
     /// "Valid values for the parameter": refused and counted, as
     /// XTSHIFTESCAPE's unlisted values are, where xterm's
     /// `CASE_HIDE_POINTER` stores any value and acts on one past 3 as on
-    /// 3 (Jev, IGNORE, 0.96/0.92 after research: its neighbours
-    /// `CASE_XTERM_SHIFT_ESCAPE` and `CASE_DECSCUSR` range-check).
+    /// 3 (its neighbours `CASE_XTERM_SHIFT_ESCAPE` and `CASE_DECSCUSR`
+    /// range-check).
     pub fn from_param(p: Option<Param>) -> Option<PointerMode> {
         match p.map_or(1, |v| v.value()) {
             0 => Some(PointerMode::Never),
@@ -777,8 +775,8 @@ pub enum MouseTracking {
     /// Ps ; Ps ' z control sequence" (`[[source: ctlseqs]]`), exclusive
     /// with the five above. A DECSET of any of them replaces it and a
     /// DECRST of any turns it off, as for the others; DECELR 0 turns off
-    /// whichever is in force, as xterm's `CASE_DECELR` stores `MOUSE_OFF`
-    /// (Jev, ALL_OFF, 0.92 and 0.92). Its reports are `Term::locator`'s, so
-    /// `Term::mouse_report` sends nothing under it.
+    /// whichever is in force, as xterm's `CASE_DECELR` stores `MOUSE_OFF`.
+    /// Its reports are `Term::locator`'s, so `Term::mouse_report` sends
+    /// nothing under it.
     Locator,
 }

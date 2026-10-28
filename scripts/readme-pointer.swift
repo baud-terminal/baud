@@ -7,7 +7,7 @@
 // scripts/click-post.swift: before every event it requires that the
 // frontmost ordinary window belongs to the **pid** it was given, not just to
 // a process named baud, and that the point lies inside that window. The
-// owner's own baud is also named baud, and a gesture that passed a name
+// user's own baud is also named baud, and a gesture that passed a name
 // check would land in it.
 //
 // usage: readme-pointer <pid> wheel X Y LINES     positive shows earlier lines

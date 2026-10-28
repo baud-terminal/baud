@@ -607,7 +607,7 @@ pub enum ImageOwner {
     /// An iTerm2 inline picture ([`ImageStore::set_iterm`]): drawn as a
     /// Sixel is, one pixel a device pixel, and written over by text a cell
     /// at a time, as iTerm2's image characters are, the rest of the picture
-    /// staying (Jev's lean, PER_CELL). It goes with its last placement.
+    /// staying. It goes with its last placement.
     Iterm,
 }
 
@@ -688,8 +688,8 @@ pub enum KittyFit {
     /// `r` alone: as tall as the rows less `Y`, the width from the aspect.
     Rows,
     /// Both: "the image is letterboxed/pillarboxed to prevent distortion",
-    /// fitted into the box with its aspect kept and centred in it (Jev,
-    /// CENTRED, 0.94 and 0.97; the text does not say where in the box).
+    /// fitted into the box with its aspect kept and centred in it (the
+    /// text does not say where in the box).
     Box,
 }
 
@@ -724,18 +724,15 @@ pub struct ImageDraw {
 }
 
 impl ImageDraw {
-    /// **The source pixel shown at drawn pixel `d`** of a span `dest` long
-    /// mapping `src` source pixels from `off`: the one under the drawn
-    /// pixel's centre, `off + floor((d + 1/2) src / dest)`, nearest
-    /// neighbour. The text names no filter; Jev picked NEAREST on all four
-    /// asks (0.88 and 0.52, then with kitty's `GL_LINEAR`, `[[source:
-    /// kitty-shaders-c]]`, and ghostty's `filter::linear`, `[[source:
-    /// ghostty-shaders-metal]]`, given, 0.98 and 0.72), under the bar on one of each
-    /// pair, so it is the interim choice and an open question
-    /// (`docs/record.md`, "kitty placements draw what they store"). At one
-    /// drawn pixel a source pixel it is `off + d`, so an unscaled image is
-    /// copied. Integer arithmetic, so the CPU and the GPU, which reads a
-    /// table of these, cannot round apart.
+    /// **The source pixel shown at drawn pixel `d`** of a span `dest` long mapping
+    /// `src` source pixels from `off`: the one under the drawn pixel's centre,
+    /// `off + floor((d + 1/2) src / dest)`, nearest neighbour. The text names no
+    /// filter, so nearest neighbour is the interim choice and an open question,
+    /// against kitty's `GL_LINEAR` (`[[source: kitty-shaders-c]]`) and ghostty's
+    /// `filter::linear` (`[[source: ghostty-shaders-metal]]`). At one drawn pixel a
+    /// source pixel it is `off + d`, so an unscaled image is copied. Integer
+    /// arithmetic, so the CPU and the GPU, which reads a table of these, cannot
+    /// round apart.
     pub fn nearest(d: u32, dest: u32, off: u32, src: u32) -> u32 {
         let q = match dest {
             0 => 0,
@@ -1241,8 +1238,7 @@ impl ImageBudget {
 /// 1 x 1 query a medium (`[[source: kitty-icat-detect]]`); 64 x 64 holds
 /// that and a dummy the size of an icon, at a sixty-fourth of the app's
 /// smallest arena. A larger query decodes in the arena if a gap holds it,
-/// deleting nothing, and is answered ENOSPC if none does (Jev,
-/// QUERY_SMALL_SCRATCH, 0.98 and 0.97).
+/// deleting nothing, and is answered ENOSPC if none does.
 pub const KITTY_PROBE: usize = 64 * 64;
 
 /// Which limit refused an image, with the size that hit it -- what
@@ -2493,10 +2489,9 @@ impl<'b> ImageStore<'b> {
 
     /// **The placement of `image` on `screen` a relative placement names as
     /// its parent**, with its serial: the one with placement id `pid`, or
-    /// with none the oldest live one (Jev, OLDEST, 1.00 and 0.98; kitty
-    /// takes the first of its map, `[[source: kitty-graphics-c]]`
-    /// `handle_put_command`, and the text names no rule). `None` when it
-    /// has none there.
+    /// with none the oldest live one (kitty takes the first of its map,
+    /// `[[source: kitty-graphics-c]]` `handle_put_command`, and the text
+    /// names no rule). `None` when it has none there.
     pub fn kitty_parent_slot(
         &mut self,
         image: ImageId,
@@ -3454,31 +3449,30 @@ impl<'b> ImageStore<'b> {
     /// drawn on that row, a tall one's lower rows one row down with their
     /// text, where kitty draws it; a line feed bringing back the row a
     /// reverse scroll pushed under the window brings its picture back, as
-    /// kitty's `INDEX_UP` does (Jev's lean, KEEP, under the bar; on the
-    /// re-ask one order chose keeping only a picture whose rows reach the
-    /// screen, tied with KEEP; docs/vt-coverage.md has the figures).
+    /// kitty's `INDEX_UP` does (docs/vt-coverage.md has the figures).
     ///
     /// **A kitty placement goes when its last row leaves**, not its anchor:
-    /// images "must be scrolled along with text" (`[[source:
-    /// kitty-graphics]]`, "Interaction with other terminal actions"), and
-    /// the rows below a gone anchor are over text the history still holds.
-    /// It is kitty's `start_row + effective_num_rows <= limit`
+    /// images "must be scrolled along with text"
+    /// (`[[source: kitty-graphics]]`, "Interaction with other terminal
+    /// actions"), and the rows below a gone anchor are over text the
+    /// history still holds. It is kitty's
+    /// `start_row + effective_num_rows <= limit`
     /// (`[[source: kitty-graphics-c]]` `scroll_filter_func`, the limit the
-    /// history's far end or the alternate screen's top, `[[source:
-    /// kitty-screen-c]]` `INDEX_GRAPHICS`), the rows a margin scroll cut
-    /// not counted, as [`ImageStore::scroll_band`] keeps one until its last
-    /// shown row leaves the band. Its anchor stays where it was, uncut, as
-    /// kitty's does: no view reaches above `lo`. Jev decided it at 1.00
-    /// both ways (2026-10-18). **A Sixel or an embedder's image goes with
-    /// its last row too**, the `ceil(h / cell_h)` rows it is drawn over
+    /// history's far end or the alternate screen's top,
+    /// `[[source: kitty-screen-c]]` `INDEX_GRAPHICS`), the rows a margin
+    /// scroll cut not counted, as [`ImageStore::scroll_band`] keeps one
+    /// until its last shown row leaves the band. Its anchor stays where it
+    /// was, uncut, as kitty's does: no view reaches above `lo`. **A Sixel
+    /// or an embedder's image goes with its last row too**, the
+    /// `ceil(h / cell_h)` rows it is drawn over
     /// ([`ImageStore::rows_over`]): the Sixel texts describe no history,
     /// but they describe the screen's top -- "The top line of the sixel
-    /// image may scroll off the screen" (`[[source: vt3xx-sixel]]`,
-    /// "Sixel Scrolling Enabled"), the rest still shown -- and xterm
-    /// moves a graphic up with each scroll and drops none (`[[source:
-    /// xterm-graphics-c]]` 1787-1808). The history's far end takes the
-    /// same rule, as kitty's does; foot drops a Sixel with its start row
-    /// (`[[source: foot-1280-sixel-c]]` 417-441), where its ring
+    /// image may scroll off the screen" (`[[source: vt3xx-sixel]]`, "Sixel
+    /// Scrolling Enabled"), the rest still shown -- and xterm moves a
+    /// graphic up with each scroll and drops none
+    /// (`[[source: xterm-graphics-c]]` 1787-1808). The history's far end
+    /// takes the same rule, as kitty's does; foot drops a Sixel with its
+    /// start row (`[[source: foot-1280-sixel-c]]` 417-441), where its ring
     /// overwrites the row, which baud's retains.
     pub fn expire(
         &mut self,
@@ -3615,15 +3609,15 @@ impl<'b> ImageStore<'b> {
     /// inside moves by its anchor, as in a band; one across a side margin
     /// whose anchor row the band moves is split, the part inside the
     /// margins copied into an image of its own that moves and the rest
-    /// staying, its pixels inside cleared (Jev's lean, SPLIT, 0.71 and
-    /// 0.71). The part moves its whole height by its anchor, as a whole
-    /// image in a band does. Where the arena cannot hold the part, refused
-    /// and counted as [`ImageStore::store`] refuses, the image's own pixels
-    /// inside the margins move within it instead, and only its rows inside
-    /// the band: pixels a move takes past the image's top, moving up, or
-    /// past the band's bottom or the image's, whichever comes first,
-    /// moving down, are lost. The two paths move different rows. A kitty
-    /// placement keeps the text's rule (`ImageStore::scroll_band`).
+    /// staying, its pixels inside cleared. The part moves its whole height
+    /// by its anchor, as a whole image in a band does. Where the arena
+    /// cannot hold the part, refused and counted as [`ImageStore::store`]
+    /// refuses, the image's own pixels inside the margins move within it
+    /// instead, and only its rows inside the band: pixels a move takes past
+    /// the image's top, moving up, or past the band's bottom or the
+    /// image's, whichever comes first, moving down, are lost. The two paths
+    /// move different rows. A kitty placement keeps the text's rule
+    /// (`ImageStore::scroll_band`).
     #[allow(clippy::too_many_arguments)]
     pub fn scroll_rect(
         &mut self,
@@ -3967,19 +3961,18 @@ impl<'b> ImageStore<'b> {
         freed
     }
 
-    /// **Clear the graphic pixels a text erase covers**: an erase, a shift
-    /// of characters or a fill at absolute `line`, columns `[col0, col1)`,
-    /// over `cell_w` by `cell_h` pixel cells. The VT330 and VT340 keep text
-    /// and graphics in one bitmap, so a character position the terminal
-    /// erases shows no graphic pixel afterwards; DEC STD 070's B.8.11 leaves
-    /// the interaction to the device (Jev, the erase forks of 2026-10-21).
-    /// A ReGIS page and a Sixel or an embedder's image are cleared in those
-    /// cells, to [`Pixel::CLEAR`]; a Sixel every pixel of which is then clear
-    /// is freed, as text written over it frees it, so a previewer that
-    /// erases its preview frees the image. A kitty image is not touched:
-    /// "The other commands to erase text must have no effect on graphics"
-    /// (`[[source: kitty-graphics]]`). Returns how many placements were
-    /// freed.
+    /// **Clear the graphic pixels a text erase covers**: an erase, a shift of
+    /// characters or a fill at absolute `line`, columns `[col0, col1)`, over
+    /// `cell_w` by `cell_h` pixel cells. The VT330 and VT340 keep text and
+    /// graphics in one bitmap, so a character position the terminal erases
+    /// shows no graphic pixel afterwards; DEC STD 070's B.8.11 leaves the
+    /// interaction to the device. A ReGIS page and a Sixel or an embedder's
+    /// image are cleared in those cells, to [`Pixel::CLEAR`]; a Sixel every
+    /// pixel of which is then clear is freed, as text written over it frees
+    /// it, so a previewer that erases its preview frees the image. A kitty
+    /// image is not touched: "The other commands to erase text must have no
+    /// effect on graphics" (`[[source: kitty-graphics]]`). Returns how many
+    /// placements were freed.
     pub fn erase(
         &mut self,
         screen: ImageScreen,
@@ -4035,11 +4028,11 @@ impl<'b> ImageStore<'b> {
     /// lines `[lo, hi)` of `screen` shifted `n` rows `way` -- IL, DL and a
     /// scroll inside a region -- so the page's rows on those lines go with
     /// them and the rows brought in blank are cleared, as the VT340 moves
-    /// its bitmap with the text (vt340test, `[[source:
-    /// vt340test-faketextcolor]]`: "Colorized text scrolls down properly
-    /// with the screen. Tested with Esc M (reverse index) and with Esc [ M
-    /// (delete line)"; Jev, MOVE, 1.00 and 1.00). The page stays anchored
-    /// where it is: its rows outside the band do not move.
+    /// its bitmap with the text (vt340test,
+    /// `[[source: vt340test-faketextcolor]]`: "Colorized text scrolls down
+    /// properly with the screen. Tested with Esc M (reverse index) and
+    /// with Esc [ M (delete line)"). The page stays anchored where it is:
+    /// its rows outside the band do not move.
     fn shift_pages(
         &mut self,
         screen: ImageScreen,

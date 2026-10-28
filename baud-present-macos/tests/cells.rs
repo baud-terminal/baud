@@ -44,9 +44,9 @@ use baud_render::{
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
 /// and a scene that never reaches a far column cannot show a path that
-/// stops short of one -- which is what the owner reported asciiquarium
-/// doing, with its waterline ending two thirds across a window whose
-/// cells the core had filled to the last column.
+/// stops short of one -- which is what asciiquarium was reported doing,
+/// with its waterline ending two thirds across a window whose cells the
+/// core had filled to the last column.
 const WS: WinSize = WinSize {
     ws_col: 120,
     ws_row: 10,
@@ -66,20 +66,19 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 }
 
 /// A screen with every rule the cell path implements on it, and none it
-/// does not: no ligature pair, no combining mark. The second box row is
-/// the procedural range -- heavy, double, arc, diagonal, dashed, block,
-/// shade and braille, and a red heavy corner -- which both arms must take
-/// from baud's own masks rather than the face. The first box row ends in
-/// what a text-drawn image is made of -- block elements, a space and a
-/// box-drawing stroke on a set background, and a reversed block -- which
-/// the theme's `AppBg::Opaque` keeps opaque, as it does the fourth row's
-/// `blue bg` and `reverse` spans. That row ends on palette entries 0, 7, 8
-/// and 15, and the scene holds SGR, `38;5`, `48;5` and truecolour cells, so
-/// the reverse-video scene draws every cell's exchange (DEC STD 070
-/// § 5.6.3.2; the owner, 2026-10-13) through both arms and not only the
-/// defaults. Both read it from one resolved table, so this compares their
-/// drawing of it; the exchange's own rule is gated in
-/// `baud-render/tests/reverse_video.rs`.
+/// does not: no ligature pair, no combining mark. The second box row is the
+/// procedural range -- heavy, double, arc, diagonal, dashed, block, shade
+/// and braille, and a red heavy corner -- which both arms must take from
+/// baud's own masks rather than the face. The first box row ends in what a
+/// text-drawn image is made of -- block elements, a space and a box-drawing
+/// stroke on a set background, and a reversed block -- which the theme's
+/// `AppBg::Opaque` keeps opaque, as it does the fourth row's `blue bg` and
+/// `reverse` spans. That row ends on palette entries 0, 7, 8 and 15, and
+/// the scene holds SGR, `38;5`, `48;5` and truecolour cells, so the
+/// reverse-video scene draws every cell's exchange (DEC STD 070 § 5.6.3.2)
+/// through both arms and not only the defaults. Both read it from one
+/// resolved table, so this compares their drawing of it; the exchange's own
+/// rule is gated in `baud-render/tests/reverse_video.rs`.
 fn scene(t: &mut Term<'_>) {
     feed(
         t,
@@ -3502,8 +3501,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // base a second time, and this full-slide-vs-one-line-up gate then
     // differs at the base's antialiased edges where the reference masks it.
     // Masking the leaving row needs a `cols*(rows+1)` mask with every index
-    // shifted *and* a shader change -- see CLAUDE.md "Rank 2 and 3 are closed
-    // on the shader". That is why rank 1 stops at the on-screen rows.
+    // shifted *and* a shader change. That is why rank 1 stops at the
+    // on-screen rows.
     feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
     for i in 0..14u32 {
         feed(
@@ -4096,7 +4095,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "the centred glyphs reached the pixels"
         );
     }
-    // **A variation selector picks the face (owner, 2026-09-30).** JetBrains
+    // **A variation selector picks the face.** JetBrains
     // Mono carries (c) and (tm) as text and the emoji subset carries them in
     // colour: a bare one is the text glyph, `U+FE0F` asks for colour and
     // `U+FE0E` for text. The cell arm draws a bare one from its map and a
@@ -4885,10 +4884,8 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     // at its size: a full-row slide with a double-width line just above
     // the window is the screen one line up, where that line is row 0 and
     // drawn by its records -- on the cell arm, and on the instance and CPU
-    // arms, which draw no slide (Jev's lean 2026-10-19, HOLD_ORACLE, taken
-    // after a re-ask at confidence 0.80 and 0.88), so the three paths
-    // agree on the leaving row's pixels; and
-    // mid-slide the two cell layouts agree.
+    // arms, which draw no slide, so the three paths agree on the leaving
+    // row's pixels; and mid-slide the two cell layouts agree.
     {
         let rows = usize::from(WS.ws_row);
         let mut s = format!("{base}\x1b#6Wide \x1b[52mo\x1b[0m \x1b[4mleaving\x1b[0m 0123");
@@ -5672,18 +5669,16 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// **A Sixel's background fill, on all three paths**: `P2` 0 sets the
 /// positions its data leaves at zero to the background, over the raster
 /// extent `Ph` by `Pv` (`[[source: vt3xx-sixel]]`), 40 by 40 over data 20
-/// by 24 here, in the default
-/// background unreversed, opaque, over the text under it -- the instance
-/// arm, the cell arm and the CPU arm alike, and under `?5` the same colour
-/// while a blank cell shows the reversed screen (Jev, UNREVERSED, 0.98 and
-/// 0.94), and after `OSC 11` the colour it names, the next frame (Jev,
-/// DEFAULT_BG_EACH_FRAME, 0.97 and 0.94), with one snapshot of the image
-/// kept. The control is the same Sixel with `P2` 1, whose zero positions
-/// show the text. On the see-through window the fill is not drawn, as
-/// before it was built, the owner's question: the two Sixels draw alike
-/// there. And an embedder's image whose every word is the fill word, with
-/// no fill asked for, draws those words as they are: black at an alpha of
-/// one over the frame.
+/// by 24 here, in the default background unreversed, opaque, over the text
+/// under it -- the instance arm, the cell arm and the CPU arm alike, and
+/// under `?5` the same colour while a blank cell shows the reversed
+/// screen, and after `OSC 11` the colour it names, the next frame, with
+/// one snapshot of the image kept. The control is the same Sixel with `P2`
+/// 1, whose zero positions show the text. On the see-through window the
+/// fill is not drawn, as before it was built, an open question: the two
+/// Sixels draw alike there. And an embedder's image whose every word is
+/// the fill word, with no fill asked for, draws those words as they are:
+/// black at an alpha of one over the frame.
 fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let base = arms.renderer.theme().clone();
     let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
@@ -5782,11 +5777,11 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     feed(t, b"\x1b]111\x1b\\");
     sixel_scroll_fill(arms, t, fw);
-    // **The see-through window, as `[glass] sixel_backgrounds` says** (the
-    // owner's call of 2026-10-22): opaque, the default, as on an opaque
-    // window; dim, the background at the window's dim over the text, which
-    // shows through it; clear, in its place, the erased cell's pixel. All
-    // three arms agree on each, and the data stays red.
+    // **The see-through window, as `[glass] sixel_backgrounds` says**:
+    // opaque, the default, as on an opaque window; dim, the background at
+    // the window's dim over the text, which shows through it; clear, in
+    // its place, the erased cell's pixel. All three arms agree on each,
+    // and the data stays red.
     let dim = Chan::from_u8(56);
     let mut seen = Vec::new();
     for mode in [SixelBg::Opaque, SixelBg::Dimmed, SixelBg::Cleared] {
@@ -5872,7 +5867,7 @@ fn sixel_fill_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     assert_ne!(seen[1], seen[2], "glass: dim is not clear");
     // Under `?5` the fill at the window's dim keeps the colour the opaque
-    // fill keeps, the background unreversed (Jev, UNREVERSED, 0.98/0.96).
+    // fill keeps, the background unreversed.
     for mode in [SixelBg::Dimmed, SixelBg::Cleared] {
         arms.renderer.set_theme(Theme {
             bg_alpha: dim,
@@ -6352,12 +6347,12 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase)
     feed(t, b"\x1b[?25l\x1b[0 q");
 
     // **A selected line's background is the floored text, as a selected
-    // letter's is** (the owner's call of 2026-10-17, decisions 702/703): a
-    // swap hands the background `fg` and the line rule leaves it alone.
-    // Row 8 holds `x` and `U+2502` in herdr's divider colour, which says
-    // where each glyph inks; row 9 holds them again, selected. All three
-    // arms draw it; on the pixels neither glyph inks, the selected line's
-    // equal the selected letter's, and move with the floor.
+    // letter's is**: a swap hands the background `fg` and the line rule
+    // leaves it alone. Row 8 holds `x` and `U+2502` in herdr's divider
+    // colour, which says where each glyph inks; row 9 holds them again,
+    // selected. All three arms draw it; on the pixels neither glyph inks,
+    // the selected line's equal the selected letter's, and move with the
+    // floor.
     feed(
         t,
         format!("\x1b[9;41H\x1b[38;2;{lr};{lg};{lb}mx\u{2502}\x1b[10;41Hx\u{2502}\x1b[0m")
@@ -7714,10 +7709,10 @@ fn kitty_history_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// default-backed space -- under an image `c=4,r=1`: at -1073741825 the red
 /// cells are the frame without the image and the default ones show it under
 /// their ink; at -1073741824 exactly, which is not below, the image shows
-/// in all four under the ink. Then the forks Jev decided, NON_DEFAULT: a
-/// block cursor on the third cell and the selection on the fourth draw over
-/// the image. Every expected pixel is the frame without the image or the
-/// texel the text puts there, never another arm's.
+/// in all four under the ink. Then the two forks: a block cursor on the
+/// third cell and the selection on the fourth draw over the image. Every
+/// expected pixel is the frame without the image or the texel the text puts
+/// there, never another arm's.
 fn kitty_below_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let m = arms.renderer.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
@@ -7814,7 +7809,7 @@ fn kitty_clear(x: u32, y: u32) -> u32 {
     kitty_texel(x, y) & 0x00FF_FFFF
 }
 
-/// **The owner's two picks for an image below `INT32_MIN/2`, on all three
+/// **The two choices for an image below `INT32_MIN/2`, on all three
 /// paths** (2026-10-16). "Compare the colour": a cell is default when the
 /// colour its background is drawn in is the default background's, so an
 /// explicit 24-bit colour or an `OSC 4` entry of the default's value shows
@@ -8284,10 +8279,10 @@ fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     // **On sized lines**: a 4x2 grid whose first row is on a double-width
     // line and whose second is on the top half of a double-height pair,
     // the pair's bottom half writing that row again, drawn as characters
-    // there (`[[source: dec-std-070]]` § 5.6.1; Jev 2026-10-19, AS_TEXT),
-    // alike on every arm and unlike the same grid on single-width lines;
-    // and a Sixel begun on a double-width line, at the cursor's displayed
-    // place (UNSCALED_AT_CURSOR).
+    // there (`[[source: dec-std-070]]` § 5.6.1), alike on every arm and
+    // unlike the same grid on single-width lines; and a Sixel begun on a
+    // double-width line, at the cursor's displayed place
+    // (UNSCALED_AT_CURSOR).
     let sized = |set: [&str; 3]| {
         let mut g =
             format!("\x1b[3;1H{}\x1b[4;1H{}\x1b[5;1H{}", set[0], set[1], set[2]).into_bytes();
@@ -8337,9 +8332,9 @@ fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     // rendition and the Sixel on it (`[[source: dec-std-070]]` pp. 5-146 to
     // 5-149), so every arm draws what the same line and Sixel put straight
     // on the row they reach draws; DECIC and DECDC shift the text under a
-    // Sixel that stays (Jev 2026-10-19, IMAGES_STAY), so every arm draws
-    // the shifted text with the Sixel put where it was. A kitty placement
-    // on a sized line under the four is held by the core tests alone
+    // Sixel that stays, so every arm draws the shifted text with the Sixel
+    // put where it was. A kitty placement on a sized line under the four is
+    // held by the core tests alone
     // (`il_and_dl_carry_an_image_on_a_sized_line_with_its_line`,
     // `decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is`).
     let put = |row: usize, text: &str| {
@@ -10864,22 +10859,22 @@ fn a_double_width_right_to_left_line_is_drawn_within_its_half() {
 
 /// **An input method's composition on a right-to-left row draws as the
 /// same text written there**, on every arm: the row is laid out with the
-/// composition's text in its cells (Jev AS_WRITTEN, 0.98 in both orders),
-/// so its cells are drawn where UAX #9 puts them and the row's other cells
-/// move as a write would move them -- `cd` composed after `ab` in a Hebrew
-/// paragraph is drawn `abcd`, the `ab` moved left to make room, where
-/// drawing it from the cursor's cell rightward covered the `a` -- and the
-/// cells it covers are hidden where the order draws them: composed over
-/// the `xy` of `abxy`, no `x` shows. The reference is `composition.rs`'s:
-/// the same text written underlined at the cursor, the cursor on the cell
-/// after it in logical order, which the paragraph draws left of `abcd`.
-/// On a double-width line, laid out over its half, the same: drawn at its
-/// stored columns, the composition sat where the text it would be written
-/// as is not. Each composed as `cd` and as `c(`, whose `(` resolves right
-/// to left there and is drawn `)`: on a double-width line the cell arm
-/// hid the cells at the composition's stored columns, not where the order
-/// draws them, so it drew that `)` a second time, and composed over `xy`
-/// it drew those letters under the composition.
+/// composition's text in its cells, so its cells are drawn where UAX #9
+/// puts them and the row's other cells move as a write would move them --
+/// `cd` composed after `ab` in a Hebrew paragraph is drawn `abcd`, the
+/// `ab` moved left to make room, where drawing it from the cursor's cell
+/// rightward covered the `a` -- and the cells it covers are hidden where
+/// the order draws them: composed over the `xy` of `abxy`, no `x` shows.
+/// The reference is `composition.rs`'s: the same text written underlined
+/// at the cursor, the cursor on the cell after it in logical order, which
+/// the paragraph draws left of `abcd`. On a double-width line, laid out
+/// over its half, the same: drawn at its stored columns, the composition
+/// sat where the text it would be written as is not. Each composed as `cd`
+/// and as `c(`, whose `(` resolves right to left there and is drawn `)`:
+/// on a double-width line the cell arm hid the cells at the composition's
+/// stored columns, not where the order draws them, so it drew that `)` a
+/// second time, and composed over `xy` it drew those letters under the
+/// composition.
 #[test]
 fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     let (built, noto) = rtl_faces();
@@ -11174,15 +11169,14 @@ fn a_composition_over_varied_text_draws_as_written_on_every_arm() {
     }
 }
 
-/// **A predicted echo on a right-to-left row draws as its echo will**:
-/// the row is laid out with the predicted character in its cell (Jev
-/// AS_WRITTEN, 1.00 in both orders), so `c` typed after `ab` in a Hebrew
-/// paragraph is drawn right of the `b`, the `ab` moved left, and the
-/// cursor on the cell after it in logical order, which the paragraph draws
-/// left of `abc` -- the frame the shell's echo then draws, pixel for
-/// pixel, on the cell path, which draws the predictions. At the cursor's drawn cell
-/// it read `cab`. The `ab` is red and so is the echo, as Mosh guesses it:
-/// the rendition of the logical cell to its left.
+/// **A predicted echo on a right-to-left row draws as its echo will**: the row is
+/// laid out with the predicted character in its cell, so `c` typed after `ab` in a
+/// Hebrew paragraph is drawn right of the `b`, the `ab` moved left, and the cursor
+/// on the cell after it in logical order, which the paragraph draws left of `abc`
+/// -- the frame the shell's echo then draws, pixel for pixel, on the cell path,
+/// which draws the predictions. At the cursor's drawn cell it read `cab`. The `ab`
+/// is red and so is the echo, as Mosh guesses it: the rendition of the logical cell
+/// to its left.
 #[test]
 fn a_predicted_echo_on_a_right_to_left_row_draws_as_its_echo() {
     let (built, noto) = rtl_faces();
@@ -11309,13 +11303,13 @@ fn a_predicted_bracket_on_a_right_to_left_row_draws_mirrored_as_its_echo() {
 
 /// **A paragraph whose first strong letter is Hebrew runs right to left
 /// against the right edge, alike on every arm**: UAX #9 P2-P3 give the
-/// owner's sentence level 1, so its closing period is drawn at the left
-/// end of its text and the text ends at the window's right edge, where
-/// the erased cells past it go before it (`[[source:
-/// terminal-wg-bidi-erased-cells]]`). The expected frame is the same
-/// characters written already in visual order, at the right edge, with
-/// BDSM reset; a line whose first strong letter is Latin, the control,
-/// stays at the left edge on both.
+/// reported sentence level 1, so its closing period is drawn at the
+/// left end of its text and the text ends at the window's right edge,
+/// where the erased cells past it go before it
+/// (`[[source: terminal-wg-bidi-erased-cells]]`). The expected frame is
+/// the same characters written already in visual order, at the right
+/// edge, with BDSM reset; a line whose first strong letter is Latin,
+/// the control, stays at the left edge on both.
 #[test]
 fn a_right_to_left_paragraph_is_drawn_against_the_right_edge_on_every_arm() {
     let read =
@@ -11394,13 +11388,12 @@ fn a_right_to_left_paragraph_is_drawn_against_the_right_edge_on_every_arm() {
 }
 
 /// **A table row keeps its columns, and each cell its own direction, alike
-/// on every arm**: the owner's table (2026-10-24, "the table should be like
-/// B but דנהshould b be rtl"), its rows drawn with box-drawing rules. Each
-/// cell is a paragraph of its own (UAX #9 section 3's table cells, HL4), so
-/// the Hebrew name and the Hebrew owner read right to left against their
-/// cells' right sides and every rule stays under the one above. The
-/// expected frame is the rows written already in that order with BDSM
-/// reset.
+/// on every arm**: the reported table (2026-10-24), its rows drawn with
+/// box-drawing rules. Each cell is a paragraph of its own (UAX #9 section
+/// 3's table cells, HL4), so the Hebrew name and the Hebrew owner read
+/// right to left against their cells' right sides and every rule stays
+/// under the one above. The expected frame is the rows written already in
+/// that order with BDSM reset.
 #[test]
 fn a_table_row_keeps_its_columns_on_every_arm() {
     let read =
@@ -11500,12 +11493,10 @@ fn a_right_to_left_paragraph_drawn_by_rows_is_the_whole_frame() {
 /// the cell's right edge where the character under it resolves right to
 /// left (`[[source: terminal-wg-bidi-cursor]]`'s "at the very least ... the
 /// right side"), wherever the order draws that cell. On an ordinary row,
-/// and on a full row in the pending-wrap state, where the cursor's cell
-/// is the row's last logical column: drawn, the owner's answer of
-/// 2026-10-24 ("drawn and based on how the cursor is , line, block or
-/// udnerline"), where terminal-wg prefers hiding it. A full row of Latin
-/// letters is the control, its cursor on its last visual column with the
-/// bar on the left edge.
+/// and on a full row in the pending-wrap state, where the cursor's cell is
+/// the row's last logical column: drawn, where terminal-wg prefers hiding
+/// it. A full row of Latin letters is the control, its cursor on its last
+/// visual column with the bar on the left edge.
 #[test]
 fn the_cursor_on_a_right_to_left_row_is_drawn_in_its_shape_on_every_arm() {
     let read =
@@ -11642,13 +11633,13 @@ fn the_cursor_on_a_right_to_left_row_is_drawn_in_its_shape_on_every_arm() {
 /// must draw exactly that on the instance arm, the cell arm and the CPU
 /// arm. A row whose first strong letter is Arabic runs right to left
 /// against the right edge (UAX #9 P2-P3), so each word written from column
-/// 3 is drawn ending two cells from the right edge, and the expected
-/// frame writes it there. The words hold a dual-joining run, a right-joining letter that
-/// breaks it, a letter carrying a fatha, which the cell arm draws by a
-/// record, and a beh made initial by a ZWJ after it. With BDSM reset a word
-/// already written in its visual order is joined as it is displayed (Jev's
-/// lean DISPLAY_ORDER_JOINING) and draws the same. A lam-alef pair draws
-/// the ligature centred over its two cells, alike on every arm.
+/// 3 is drawn ending two cells from the right edge, and the expected frame
+/// writes it there. The words hold a dual-joining run, a right-joining
+/// letter that breaks it, a letter carrying a fatha, which the cell arm
+/// draws by a record, and a beh made initial by a ZWJ after it. With BDSM
+/// reset a word already written in its visual order is joined as it is
+/// displayed and draws the same. A lam-alef pair draws the ligature
+/// centred over its two cells, alike on every arm.
 #[test]
 fn arabic_letters_draw_joined_on_every_arm() {
     let read =
@@ -11851,14 +11842,13 @@ fn arabic_letters_draw_joined_on_every_arm() {
         }
     }
     // **A pair an erased cell or a soft wrap parts** forms the ligature too
-    // (L1: the erased cell is transparent; Jev ACROSS_WRAP). With an erased
-    // cell between them, "la" draws U+FEFB centred over the three cells,
-    // where a one-cell character draws it in the middle one (Jev
-    // LIGATED_CENTRED); with the lam at the margin and its alef wrapped,
-    // U+FEFB in the lam's cell and nothing in the alef's (Jev's lean
-    // LIGATED_LAM_ROW). The pair with a gap is drawn against the right
-    // edge, its middle cell column 116; the wrapped one's row starts with
-    // Latin and is drawn from the left.
+    // (L1: the erased cell is transparent). With an erased cell between
+    // them, "la" draws U+FEFB centred over the three cells, where a
+    // one-cell character draws it in the middle one; with the lam at the
+    // margin and its alef wrapped, U+FEFB in the lam's cell and nothing in
+    // the alef's. The pair with a gap is drawn against the right edge, its
+    // middle cell column 116; the wrapped one's row starts with Latin and
+    // is drawn from the left.
     {
         arms!(fresh() => arms, t);
         let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
@@ -11951,10 +11941,10 @@ fn arabic_letters_draw_joined_on_every_arm() {
     }
     // **After a word wraps on, the three arms agree**: the last beh of a
     // row ends a word until a beh written on the next row, the row the word
-    // wraps to, makes it medial (Jev ACROSS_WRAP), and each arm drawn after
-    // the second write must be what a fresh renderer draws of the same
-    // screen. This block stays green with the renderer's repaint of a row
-    // whose forms moved taken out, so it does not hold that repaint;
+    // wraps to, makes it medial, and each arm drawn after the second write
+    // must be what a fresh renderer draws of the same screen. This block
+    // stays green with the renderer's repaint of a row whose forms moved
+    // taken out, so it does not hold that repaint;
     // `a_moved_joining_form_repaints_its_row` does.
     {
         let row1 = format!("{}{}", "x".repeat(117), "\u{0628}\u{0628}\u{0628}");
@@ -12208,17 +12198,17 @@ fn alaph_cell(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, word: &str) -> Vec<u32>
     crop_cell(arms, &frame, (1, 4))
 }
 
-/// **Where SAPV meets a letter's word, on every arm** (`[[source:
-/// ecma48]]` 8.3.108): on Noto Sans Syriac an alaph's `rlig` picks a wider
-/// final after a beth than after a yudh, and an erased cell between the
-/// two letters, which joining passes through and the word leaves out,
-/// keeps each letter's ink out of the other's cell. Under 17 a beth and an
-/// alaph both italic are drawn upright and sheared left, and the alaph
-/// reads its beth as it does when only the alaph is italic: the beth, a
-/// slanted cell, is drawn by its upright face, the alaph's, though the
-/// stack's italic face draws Syriac too. Under 8 an alaph inside a word,
-/// med2 by joining, is drawn final, reading the beth before it as a final
-/// alaph does (Jev's lean WORD, 0.90/0.86).
+/// **Where SAPV meets a letter's word, on every arm**
+/// (`[[source: ecma48]]` 8.3.108): on Noto Sans Syriac an alaph's `rlig`
+/// picks a wider final after a beth than after a yudh, and an erased cell
+/// between the two letters, which joining passes through and the word
+/// leaves out, keeps each letter's ink out of the other's cell. Under 17 a
+/// beth and an alaph both italic are drawn upright and sheared left, and
+/// the alaph reads its beth as it does when only the alaph is italic: the
+/// beth, a slanted cell, is drawn by its upright face, the alaph's, though
+/// the stack's italic face draws Syriac too. Under 8 an alaph inside a
+/// word, med2 by joining, is drawn final, reading the beth before it as a
+/// final alaph does.
 #[test]
 fn sapv_meets_a_letters_word_on_every_arm() {
     use baud_render::{FaceRole, FaceStyle};
@@ -12806,10 +12796,10 @@ fn a_reversed_string_draws_alike_on_every_arm() {
 }
 
 /// **A row DECRLM wrote draws alike on every arm**: with BDSM set it is
-/// drawn as its cells hold (`[[source: vt510-decrlm]]`; Jev, AS_STORED),
-/// the same pixels on the cell, copied and CPU arms as the same cells drawn
-/// with BDSM reset; the control, the same cells written in order with BDSM
-/// set, is reordered by UAX #9.
+/// drawn as its cells hold (`[[source: vt510-decrlm]]`), the same pixels on
+/// the cell, copied and CPU arms as the same cells drawn with BDSM reset;
+/// the control, the same cells written in order with BDSM set, is reordered
+/// by UAX #9.
 #[test]
 fn a_leftward_row_draws_alike_on_every_arm() {
     let read =
@@ -13109,26 +13099,25 @@ fn presentation_variants_draw_alike_on_every_arm() {
     assert_ne!(differing(&implicit, &plain), 0, "17 slants with BDSM set");
 }
 
-/// **A composition of Arabic is drawn joined, as the same text written
-/// is, on every arm** (`[[source: unicode-ch9]]` 9.2.2: "a display process
+/// **A composition of Arabic is drawn joined, as the same text written is,
+/// on every arm** (`[[source: unicode-ch9]]` 9.2.2: "a display process
 /// must select an appropriate glyph to depict each Arabic letter according
 /// to its immediate joining context"): the row is laid out with the
-/// composition written in it (Jev AS_WRITTEN), so its letters take the
-/// forms that text written takes, joined with one another and with the
-/// letters written either side of it, which take theirs from it; a lam
-/// and an alef draw their ligature, composed together or one beside the
-/// other written. Each on Courier New, whose forms
-/// `arabic_letters_draw_joined_on_every_arm` holds to the presentation
-/// forms, with BDSM set and reset, on a line drawn in order and in
-/// reverse, single and double width, beside a block cursor and a bar, on
-/// a renderer that has drawn no joining letter and on one that has --
-/// with BDSM reset the layout then keeps the last frame's joins and finds
-/// them again around the composition. Beside a letter underlined in
-/// another colour too, whose line the cell arm draws after the records
-/// inside their rows and before the rest, as the instance arm draws a
-/// row's lines after its glyphs: the composition's glyphs are among the
-/// first. And in a rendition SAPV 8 gives the cell it starts on, held by
-/// 21, each letter in its final form, as written in it
+/// composition written in it, so its letters take the forms that text
+/// written takes, joined with one another and with the letters written
+/// either side of it, which take theirs from it; a lam and an alef draw
+/// their ligature, composed together or one beside the other written. Each
+/// on Courier New, whose forms `arabic_letters_draw_joined_on_every_arm`
+/// holds to the presentation forms, with BDSM set and reset, on a line
+/// drawn in order and in reverse, single and double width, beside a block
+/// cursor and a bar, on a renderer that has drawn no joining letter and on
+/// one that has -- with BDSM reset the layout then keeps the last frame's
+/// joins and finds them again around the composition. Beside a letter
+/// underlined in another colour too, whose line the cell arm draws after
+/// the records inside their rows and before the rest, as the instance arm
+/// draws a row's lines after its glyphs: the composition's glyphs are
+/// among the first. And in a rendition SAPV 8 gives the cell it starts on,
+/// held by 21, each letter in its final form, as written in it
 /// (`[[source: ecma48]]` 8.3.108). The reference is the text written
 /// underlined at the cursor, the cursor after it, and every arm equal to
 /// it.
@@ -13364,12 +13353,12 @@ fn composed_as_written(
 }
 
 /// **Arabic DECRLM wrote joins as written, and takes the forms SAPV asks,
-/// alike on every arm** (`[[source: ecma48]]` 8.3.108; `[[source:
-/// vt510-decrlm]]`): with BDSM set the row is drawn as its cells hold
-/// (Jev, AS_STORED) and its letters are read from the right, the order the
-/// program sent them, so it draws as the same cells with BDSM reset, on the
-/// cell, copied and CPU arms; the control, the word written with no form
-/// asked, draws otherwise. On Courier New, whose forms
+/// alike on every arm** (`[[source: ecma48]]` 8.3.108;
+/// `[[source: vt510-decrlm]]`): with BDSM set the row is drawn as its cells
+/// hold and its letters are read from the right, the order the program sent
+/// them, so it draws as the same cells with BDSM reset, on the cell, copied
+/// and CPU arms; the control, the word written with no form asked, draws
+/// otherwise. On Courier New, whose forms
 /// `arabic_letters_draw_joined_on_every_arm` holds.
 #[test]
 fn arabic_decrlm_wrote_draws_joined_with_its_forms_on_every_arm() {

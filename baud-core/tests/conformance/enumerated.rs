@@ -397,7 +397,7 @@ fn the_handler_check_can_actually_fail() {
 
 /// **The standing refusals, each pinned to what it actually refuses.**
 ///
-/// `CLAUDE.md` called six of these load-bearing. Four were closed once the
+/// Six of these were once called load-bearing. Four were closed once the
 /// stated reason was read against its *scope* rather than as a settled fact —
 /// the DEC glyph table, X10 mouse reports, counting the `OSC 52` request, and
 /// `?1001` highlight tracking. In three the reason survived and the scope

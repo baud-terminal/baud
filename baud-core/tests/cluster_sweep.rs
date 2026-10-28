@@ -7,8 +7,7 @@
 //! `cluster_bounds.rs` holds what a reader sees, and fails on the store this
 //! replaced. These read the store itself, through the API it gained, so they
 //! cannot compile against it; each is red under a perturbation of the
-//! mechanism it names instead (docs/record.md, "The cluster store holds 1024
-//! clusters and sweeps the dead ones").
+//! mechanism it names instead.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -99,8 +98,7 @@ fn same_start(n: usize) -> (usize, Vec<(u32, u32)>) {
 /// Pinned exactly, because the first family is short of uniform and that is
 /// a finding rather than a tolerance: the slot is bits 32-41 of the
 /// finalized product (`>> 32`, then `% 1024`), where the top ten bits start
-/// it in 51 (docs/record.md, "The cluster store holds 1024 clusters and
-/// sweeps the dead ones", an open question).
+/// it in 51 (an open question).
 #[test]
 fn two_families_of_clusters_spread_across_the_slots() {
     let points: Vec<u32> = (0x0591..=0x05C7)
@@ -131,7 +129,7 @@ fn two_families_of_clusters_spread_across_the_slots() {
 /// sweep can answer. Four probes refused the fifth.
 #[test]
 fn eight_clusters_that_start_at_one_slot_land_and_a_ninth_is_refused() {
-    // Eight, the owner's count, spelled out: a test that read the store's
+    // Eight, the chosen count, spelled out: a test that read the store's
     // own constant would follow it anywhere.
     let (s, keys) = same_start(9);
     let mut slots = vec![ClusterSlot::EMPTY; NCLUSTER];
@@ -222,9 +220,9 @@ fn the_fill_count_follows_fills_sweeps_and_resets() {
 }
 
 /// **No sweep is due while any slot is empty**, however many interns have
-/// wanted a slot: the owner's "when all slots are used". Once the last slot
-/// fills, the first refusal sweeps; then a store whose every slot a live
-/// cell names, which a sweep leaves full, sweeps at most once every 64
+/// wanted a slot: a sweep waits until all slots are used. Once the last
+/// slot fills, the first refusal sweeps; then a store whose every slot a
+/// live cell names, which a sweep leaves full, sweeps at most once every 64
 /// interns that wanted a slot (`SLOTS_MAX / 16`), not on every mark.
 #[test]
 fn a_sweep_is_due_only_when_every_slot_is_filled_and_then_once_every_sixty_four_interns() {

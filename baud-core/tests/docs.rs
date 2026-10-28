@@ -159,11 +159,11 @@ fn every_relative_link_resolves() {
 
 /// **`cargo run` runs baud, because `baud` is the workspace's one binary.**
 ///
-/// The owner, 2026-09-14: "the only bin should be and default one is baud,
-/// rest is part of tests". `docs/contributing/build.md` and
-/// `docs/guide/install.md` tell a reader `cargo run --release`
-/// starts the terminal, and that holds only while no other member grows a
-/// binary target, `baud-app` keeps `default-run = "baud"`, and the root keeps
+/// The only binary, and the default one, is `baud`; the rest is part of the
+/// tests. `docs/contributing/build.md` and `docs/guide/install.md` tell a
+/// reader `cargo run --release` starts the terminal, and that holds only
+/// while no other member grows a binary target, `baud-app` keeps
+/// `default-run = "baud"`, and the root keeps
 /// `default-members = ["baud-app"]` -- without which a bare `cargo run`
 /// unifies features across every member and builds a different `baud` from
 /// the bundle's. The two differentials were binaries until 2026-10-12 and are
@@ -456,14 +456,14 @@ fn every_test_named_in_the_docs_exists() {
             "a historical name. The test held a Sixel body past its scratch to a \
              body refusal with its length, and was withdrawn on 2026-10-14, when a \
              Sixel began decoding as its body arrived and no scratch was left to \
-             run past. The record cites it where it describes the refusals by cause",
+             run past. It was cited where the refusals by cause were described",
         ),
         (
             "an_abandoned_body_leaves_nothing_and_the_next_sixel_draws_as_alone",
             "a historical name, replaced on 2026-10-19 by \
              `a_body_cut_off_is_placed_from_what_it_received` when a Sixel cut \
              off by CAN, ESC or a C1 began to be placed from what it received; \
-             the record cites the old name where the streaming decode built it",
+             the old name was cited where the streaming decode was built",
         ),
         (
             "an_abandoned_sixel_gives_its_claim_back",
@@ -476,14 +476,14 @@ fn every_test_named_in_the_docs_exists() {
             "a historical name, replaced on 2026-10-19 by \
              `a_gr_byte_in_a_decrqss_body_is_its_seven_bit_byte_under_latin1` and \
              `a_gr_prefix_under_utf8_is_what_it_was` when a GR byte in a DECRQSS \
-             body began to be read as its 7-bit byte; the record cites the old \
-             name where it describes the GR prefix build",
+             body began to be read as its 7-bit byte; the old \
+             name was cited where the GR prefix build was described",
         ),
         (
             "a_bel_inside_a_sixel_is_payload_and_draws_nothing",
             "a historical name, replaced on 2026-10-19 by \
              `a_bel_inside_a_sixel_rings_and_draws_nothing` when a BEL inside a Sixel began \
-             to ring; the record and note AN cite the old name where the BEL \
+             to ring; note AN cites the old name where the BEL \
              was first put to the Sixel",
         ),
         (
@@ -496,47 +496,47 @@ fn every_test_named_in_the_docs_exists() {
         (
             "a_body_too_large_for_the_scratch_is_refused_whole",
             "a historical name, withdrawn on 2026-10-14 with the body scratch it ran \
-             a Sixel past: a Sixel decodes as it arrives since. The record names it \
-             among the tests that went with the body refusal",
+             a Sixel past: a Sixel decodes as it arrives since. It was \
+             named among the tests that went with the body refusal",
         ),
         (
             "a_body_overflow_and_an_arena_overflow_are_told_apart",
             "a historical name, withdrawn on 2026-10-14 with the body refusal it told \
-             apart from the arena's: a Sixel decodes as it arrives since. The record \
-             cites it where it describes the refusals by cause",
+             apart from the arena's: a Sixel decodes as it arrives since. It was \
+             cited where the refusals by cause were described",
         ),
         (
             "a_body_of_exactly_the_default_scratch_stores",
-            "a historical name. The test pinned the 3 MiB body scratch of the owner's \
+            "a historical name. The test pinned the 3 MiB body scratch of the \
              interim and was withdrawn on 2026-10-14, the day it landed, when a Sixel \
              began decoding as it arrived; `a_body_of_any_length_stores_at_the_default_budget` \
-             replaced it. The record and note S cite it where they describe the interim",
+             replaced it. Note S cites it where it describes the interim",
         ),
         (
             "a_body_past_the_default_scratch_is_said_with_its_length",
             "a historical name, withdrawn with `a_body_of_exactly_the_default_scratch_stores` \
-             and replaced by the same test: no body is refused since. The record and \
-             note S cite it where they describe the interim",
+             and replaced by the same test: no body is refused since. Note S \
+             cites it where it describes the interim",
         ),
         (
             "the_palette_swaps_black_and_white_and_nothing_else",
             "a historical name. The test pinned xterm's palette swap under \
-             `?5` and was withdrawn on 2026-10-14, when the per-cell exchange the \
-             owner chose on 2026-10-13 was built; `every_cell_exchanges_its_colours_explicit_ones_included` \
-             replaced it. The record and note Y cite it where they describe \
+             `?5` and was withdrawn on 2026-10-14, when the per-cell exchange \
+             chosen on 2026-10-13 was built; `every_cell_exchanges_its_colours_explicit_ones_included` \
+             replaced it. Note Y cites it where it describes \
              what it pinned then",
         ),
         (
             "an_indexed_underline_colour_swaps_with_the_table",
             "a historical name, withdrawn with xterm's palette swap on \
              2026-10-14; `an_underline_follows_the_text_and_an_sgr_58_colour_stays` \
-             replaced it. The record cites it where it describes the swap",
+             replaced it. It was cited where the swap was described",
         ),
         (
             "a_palette_override_travels_with_its_entry",
             "a historical name, withdrawn with xterm's palette swap on \
              2026-10-14; `a_palette_override_is_drawn_where_its_entry_is_named` \
-             replaced it. The record and note V cite it where they describe \
+             replaced it. Note V cites it where it describes \
              the swap",
         ),
         (
@@ -546,8 +546,8 @@ fn every_test_named_in_the_docs_exists() {
         (
             "term_cursor_blink_update",
             "foot's C function that arms its cursor blink timer only while the \
-             window has focus, quoted in `baud-app/src/caret.rs` and in \
-             the record's cursor section as the rule baud's blink follows",
+             window has focus, quoted in `baud-app/src/caret.rs` \
+             as the rule baud's blink follows",
         ),
         (
             "n_tty_receive_buf_common",
@@ -711,101 +711,101 @@ fn every_test_named_in_the_docs_exists() {
             "a historical name, replaced on 2026-10-17 by \
              `a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen` \
              when the watch began numbering by its count of lines and no longer \
-             reached a selection by the distance alone; the record cites it where \
-             it describes the latch",
+             reached a selection by the distance alone; it was cited where \
+             the latch was described",
         ),
         (
             "a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_primary",
             "a historical name, replaced on 2026-10-17 by \
              `a_surface_moved_past_half_its_ring_is_counted_on_the_primary`, for \
-             the reason its alternate-screen twin was; the record cites it where \
-             it describes the latch",
+             the reason its alternate-screen twin was; it was cited where \
+             the latch was described",
         ),
         (
             "selective_erase_matches_plain_erase_when_nothing_is_protected",
             "a historical name, replaced on 2026-10-19 by \
              `selective_erase_writes_spaces_where_plain_erase_empties` when \
-             DECSED and DECSEL began writing spaces, as DEC STD 070 says; the \
-             record cites it where it describes the marked cell's extent",
+             DECSED and DECSEL began writing spaces, as DEC STD 070 says; it \
+             was cited where the marked cell's extent was described",
         ),
         (
             "a_copying_scroll_down_reaches_the_regions_rows_and_only_those",
             "a historical name, renamed on 2026-10-20 to `a_copying_scroll_down_carries_the_regions_rows_and_only_those` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_copying_scroll_up_reaches_the_regions_rows_and_only_those",
             "a historical name, renamed on 2026-10-20 to `a_copying_scroll_up_carries_the_regions_rows_and_only_those` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "il_reaches_the_rows_from_the_cursor_down",
             "a historical name, renamed on 2026-10-20 to `il_carries_the_rows_from_the_cursor_down` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "dl_reaches_the_rows_from_the_cursor_to_the_regions_bottom",
             "a historical name, renamed on 2026-10-20 to `dl_carries_the_rows_from_the_cursor_to_the_regions_bottom` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_top_regions_scroll_reaches_the_rows_under_it",
             "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_the_rows_under_it` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_top_regions_scroll_reaches_the_rows_under_it_on_the_alternate_screen",
             "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_the_rows_under_it_on_the_alternate_screen` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_region_retire_drops_a_selection_only_on_the_rows_under_it",
             "a historical name, renamed on 2026-10-20 to `a_region_retire_keeps_a_selection_on_the_rows_under_it` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_region_rotation_on_the_alternate_screen_drops_a_selection_under_it",
             "a historical name, renamed on 2026-10-20 to `a_region_rotation_on_the_alternate_screen_keeps_a_selection_under_it` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_region_set_after_the_copy_still_drops_a_selection_it_moved",
             "a historical name, renamed on 2026-10-20 to `a_region_set_after_the_copy_still_carries_a_selection_it_moved` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_region_set_and_set_back_within_one_read_is_dropped_as_in_separate_reads",
             "a historical name, renamed on 2026-10-20 to `a_region_set_and_set_back_within_one_read_is_judged_as_in_separate_reads` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "a_top_regions_scroll_drops_a_selection_under_it_at_every_read_size",
             "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_a_selection_under_it_at_every_read_size` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "rows_moved_in_place_drop_a_selection_on_them_and_only_there",
             "a historical name, renamed on 2026-10-20 to `rows_moved_in_place_carry_a_selection_with_their_text` when a \
-             scroll began to carry a selection with its text (Jev's decisions \
-             of that day); the record cites the old name where it pinned the drop",
+             scroll began to carry a selection with its text that day; \
+             the old name was cited where it pinned the drop",
         ),
         (
             "pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content",
             "a historical name, replaced on 2026-10-20 by \
              `a_cut_row_of_foreground_only_blanks_is_not_content` when a growth \
-             began to ask a cut row for a written character (note V, V9); the \
-             record and note V cite the old name where they pin the mark's rule",
+             began to ask a cut row for a written character (note V, V9); note \
+             V cites the old name where it pins the mark's rule",
         ),
         (
             "pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut",
@@ -822,33 +822,33 @@ fn every_test_named_in_the_docs_exists() {
             "the_cpu_path_draws_an_effect_as_its_emitter",
             "a historical name, replaced on 2026-10-23 by \
              `the_cpu_path_draws_every_effect_by_its_light` when the CPU path \
-             began to draw every effect; the record and note X cite it where \
+             began to draw every effect; note X cites it where \
              the CPU path drew an effect as its quad",
         ),
         (
             "an_effect_on_the_cpu_path_runs_as_the_quad",
             "a historical name, deleted on 2026-10-23 with the CPU path's quad \
-             for an effect; the record cites it where the driver ran one so",
+             for an effect; it was cited where the driver ran one so",
         ),
         (
             "a_bel_before_a_dcs_body_is_ignored",
             "a historical name, renamed on 2026-10-23 to \
              `a_bel_before_a_dcs_body_rings_and_the_introducer_goes_on` when a \
-             C0 in a DCS introducer began to be executed; the record cites the \
-             old name where it pinned the BEL",
+             C0 in a DCS introducer began to be executed; the old \
+             name was cited where it pinned the BEL",
         ),
         (
             "a_mark_finds_its_base_after_the_cursor_has_been_away",
             "a historical name, renamed on 2026-10-23 to \
              `a_mark_after_the_cursor_has_been_away_takes_its_own_cell` when a \
              mark after a control began to take its own cell (UAX #29 GB4/GB5); \
-             the record cites the old name where it describes finding the base",
+             the old name was cited where finding the base was described",
         ),
         (
             "alternate_scroll_survives_both_resets",
             "a historical name, renamed on 2026-10-24 to \
              `a_full_reset_sets_alternate_scroll_and_a_soft_one_keeps_it` when \
-             `RIS` began to set `?1007` again; the record cites the old name \
+             `RIS` began to set `?1007` again; the old name was cited \
              where it pinned `?1007` kept by both resets",
         ),
     ];

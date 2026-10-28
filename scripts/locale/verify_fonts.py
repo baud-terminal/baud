@@ -11,7 +11,7 @@ POINTS = range(0x05B0, 0x05C8)    # 24
 REPO = str(Path(__file__).resolve().parents[2])
 LIB = "/nix/store/pfzjm3l816ma7v047d7nxq1q8p3hqp5r-liberation-fonts-2.1.5/share/fonts/truetype/LiberationMono-Regular.ttf"
 FACES = [
-    ("FiraCode NFM (owner primary)", "/Library/Fonts/Nix Fonts/xpks2i31dv5v2cpyp13ccwrfyhnzczyn-nerd-fonts-fira-code-3.5.0+6.2/share/fonts/truetype/NerdFonts/FiraCode/FiraCodeNerdFontMono-Regular.ttf", None, 0x41),
+    ("FiraCode NFM (primary)", "/Library/Fonts/Nix Fonts/xpks2i31dv5v2cpyp13ccwrfyhnzczyn-nerd-fonts-fira-code-3.5.0+6.2/share/fonts/truetype/NerdFonts/FiraCode/FiraCodeNerdFontMono-Regular.ttf", None, 0x41),
     ("Hiragino Sans GB @0", "/System/Library/Fonts/Hiragino Sans GB.ttc", 0, 0x4E00),
     ("Apple SD Gothic Neo @0", "/System/Library/Fonts/AppleSDGothicNeo.ttc", 0, 0xAC00),
     ("Apple Color Emoji @0", "/System/Library/Fonts/Apple Color Emoji.ttc", 0, 0x1F600),

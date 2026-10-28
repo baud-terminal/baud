@@ -179,9 +179,9 @@ fn a_taller_screen_reaches_into_the_history_and_that_is_the_anchor() {
     // **This pinned the opposite once**, and the reversal is the design
     // rather than a regression. Refusing to reach into the history on a
     // growth stopped a drag revealing prompts the shell had scrolled
-    // away -- and it left the rows a shrink retired behind, which is the
-    // owner's `ls` deleted. The anchor is the bottom: the window sits at
-    // the end of the content, so a taller one shows more of it above,
+    // away -- and it left the rows a shrink retired behind, which is a
+    // reported `ls` deleted. The anchor is the bottom: the window sits
+    // at the end of the content, so a taller one shows more of it above,
     // and what a shrink pushed up comes back down.
     support::with_room(60, |t| {
         support::feed(t, b"\x1b]133;C\x07");
@@ -589,11 +589,11 @@ fn a_redraw_of_a_block_taller_than_the_screen_takes_its_rows_back_from_the_histo
 
 #[test]
 fn an_enter_at_the_prompt_leaves_the_old_prompt_where_it_was() {
-    // The owner, 2026-09-18: "when pressed enter prompt disappear for a
-    // few lines". Enter on an empty line is `B` (input), the newline,
-    // `D` (done) and a new `P` -- no `C`, because nothing ran. That `P`
-    // is a *fresh* prompt, not a redraw of the one above it, and nothing
-    // may be erased: both prompts stay, in place.
+    // A user's report, 2026-09-18: "when pressed enter prompt disappear
+    // for a few lines". Enter on an empty line is `B` (input), the
+    // newline, `D` (done) and a new `P` -- no `C`, because nothing ran.
+    // That `P` is a *fresh* prompt, not a redraw of the one above it,
+    // and nothing may be erased: both prompts stay, in place.
     support::with_term(
         &WinSize {
             ws_col: 40,

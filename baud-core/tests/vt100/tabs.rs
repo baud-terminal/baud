@@ -182,9 +182,9 @@ fn htj_shifts_the_field_to_end_before_the_next_stop() {
     );
 }
 
-/// **The field's contents are its written positions, wherever the cursor
-/// is in it** (Jev's lean, WRITTEN_EXTENT): with the cursor moved back over
-/// `cd`, all of `abcd` is justified.
+/// **The field's contents are its written positions, wherever the cursor is
+/// in it**: with the cursor moved back over `cd`, all of `abcd` is
+/// justified.
 #[test]
 fn htj_shifts_the_whole_written_field_with_the_cursor_inside_it() {
     assert_eq!(
@@ -217,12 +217,11 @@ fn htj_with_no_following_stop_ends_the_field_at_the_line_end() {
     );
 }
 
-/// **Under DECLRMM the field is still the line's** (Jev's lean,
-/// LINE_BOUNDED, 0.76/0.64 then 0.48/0.62 on a second ask): margins 1 to
-/// 12 and stops at 9 and 17, `ab` written at 10 moves to 15 and 16, past
-/// the right margin, and the cursor stops at the margin, as `HT` does;
-/// with the cursor beyond the margin, the field and `HT` both reach the
-/// next stop.
+/// **Under DECLRMM the field is still the line's**: margins 1 to 12 and
+/// stops at 9 and 17, `ab` written at 10 moves to 15 and 16, past the
+/// right margin, and the cursor stops at the margin, as `HT` does; with
+/// the cursor beyond the margin, the field and `HT` both reach the next
+/// stop.
 #[test]
 fn under_declrmm_htjs_field_is_the_lines() {
     assert_eq!(

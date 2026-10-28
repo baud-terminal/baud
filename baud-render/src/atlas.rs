@@ -71,12 +71,11 @@ use std::collections::HashMap;
 /// **A bound, because the walk's own bounds admit 3.5 GiB.** A walk
 /// visits at most 2,049 glyphs (`glyf`'s edge bound), each simple one at
 /// most 65,536 points, so one composite of 2,048 copies of a full simple
-/// glyph -- a 210 KB font, measured (the record, "A glyph past the
-/// scratch budget shows a placeholder, and the budget stays") -- needs
-/// 134,219,784 points: 3.76 GB of scratch, held for the atlas's life. A
-/// glyph past the bound is not a blank: the stack passes it over for the
-/// next face that carries its character (`Stack`'s `drawing`), else the
-/// atlas draws the face's `.notdef` in its place (`Atlas::slot`).
+/// glyph -- a 210 KB font, measured -- needs 134,219,784 points: 3.76 GB
+/// of scratch, held for the atlas's life. A glyph past the bound is not
+/// a blank: the stack passes it over for the next face that carries its
+/// character (`Stack`'s `drawing`), else the atlas draws the face's
+/// `.notdef` in its place (`Atlas::slot`).
 pub const VAR_POINTS_MAX: u32 = 200_000;
 
 /// `id`'s outline at the face's coordinates into `sink`. A glyph that
@@ -196,9 +195,7 @@ struct GlyphIx(u16);
 /// that is not single-width two cells wide, and for either half of a
 /// double-height line two cells tall as well (`[[source: dec-std-070]]` §
 /// 5.6.1). Rasterised from the outline at that size, not scaled from the
-/// single mask: Jev's call of 2026-10-19 at 0.98 in both orders, over
-/// repeating pixels and linear filtering (the record, "Double-width and
-/// double-height lines").
+/// single mask, rather than repeating pixels or filtering linearly.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Stretch {
     One,
@@ -928,15 +925,13 @@ impl Atlas {
             // when it came from `cmap` -- but for a `COLR` glyph whose layer
             // cannot draw and whose own outline, which the stack judges by its
             // `glyf` header alone (all of a face without `glyf` as having one),
-            // draws nothing: that stays on its face (the record, "A glyph past
-            // the scratch budget shows a placeholder, and the budget stays",
-            // Open (2)). A `COLR` glyph whose layer cannot draw draws its own
-            // outline when that has ink, as a glyph with no `COLR` record does,
-            // and reaches here only when it has none or is refused too.
-            // Recorded when the `.notdef`'s own answer is, so it is counted
-            // once then; a `.notdef` that does not fit even after growing is
-            // not recorded, so neither is this glyph, which every later ask
-            // draws and counts again.
+            // draws nothing: that stays on its face, an open question. A `COLR`
+            // glyph whose layer cannot draw draws its own outline when that has
+            // ink, as a glyph with no `COLR` record does, and reaches here only
+            // when it has none or is refused too. Recorded when the `.notdef`'s
+            // own answer is, so it is counted once then; a `.notdef` that does
+            // not fit even after growing is not recorded, so neither is this
+            // glyph, which every later ask draws and counts again.
             let notdef = self.slot_at(face, ix, GlyphId::NOTDEF, scale, phase, stretch);
             let own = GlyphKey {
                 face: ix,

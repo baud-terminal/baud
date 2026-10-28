@@ -6,7 +6,7 @@
 //! setting does is decided here once, so it does the same on both.
 
 /// Where the motion preference comes from: the system, or `BAUD_MOTION`,
-/// read once at launch, for a check that must not change the owner's
+/// read once at launch, for a check that must not change the user's
 /// settings -- an instrument like `BAUD_SCROLLER`, not a configuration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum MotionSource {
@@ -55,17 +55,15 @@ pub(crate) enum AutoPlay {
 
 /// **Whether a kitty animation plays, from `[images] animation`, the
 /// motion preference and Animated Images**: held, the frames stay where
-/// they are and a program's own frame changes still show (Jev's lean,
-/// HOLD_CURRENT, 0.85 and 0.88 after research, under the bar; the kitty
+/// they are and a program's own frame changes still show (the kitty
 /// text is silent).
 ///
 /// * `"os"`, the default, holds under reduced motion -- "reducing
-///   automatic and repetitive animations" under Reduce Motion (`[[source:
-///   apple-hig-accessibility]]`), as text blink and the cursor's blink
-///   stop under it -- and while Animated Images is off, as the HIG asks:
-///   "Pause animations in animated images in your app when people turn off
-///   the Animated Images setting". The owner's call of 2026-10-23, A,
-///   follows both.
+///   automatic and repetitive animations" under Reduce Motion
+///   (`[[source: apple-hig-accessibility]]`), as text blink and the
+///   cursor's blink stop under it -- and while Animated Images is off, as
+///   the HIG asks: "Pause animations in animated images in your app when
+///   people turn off the Animated Images setting". baud follows both.
 /// * `"on"` plays whatever the system says, and `"off"` holds always.
 pub(crate) fn image_motion(
     setting: crate::config::ImageAnimation,
@@ -106,18 +104,17 @@ impl Contrast {
     }
 }
 
-/// **Increase Contrast's floor**: a trigger of at least 3.0 and a target
-/// of at least 4.5, the owner's note Y decision 9 (Jev's lean, 0.88/0.87,
-/// decisions 718/719), the HIG's "higher contrast color scheme when the
-/// system setting Increase Contrast is turned on"
+/// **Increase Contrast's floor**: a trigger of at least 3.0 and a target of
+/// at least 4.5 (note Y, decision 9), the HIG's "higher contrast color
+/// scheme when the system setting Increase Contrast is turned on"
 /// ([[source: apple-hig-accessibility]]). It overrides `floor = "off"` while
-/// the setting is on, as Reduce Transparency overrides the dim -- decided
-/// by analogy in note Y, which the owner can reverse. A reader's stricter
-/// floor is kept: "at least" is this reading of "stricter". The brief's
-/// "target 4.5" and `max(configured, 4.5)` agree for every config whose
-/// floor is at or below 4.5, because the config's `floor()` already parses
-/// every target to at least 4.5; they differ only for a floor above 4.5,
-/// such as `floor = 7`, which a literal 4.5 would loosen.
+/// the setting is on, as Reduce Transparency overrides the dim -- decided by
+/// analogy in note Y. A reader's stricter floor is kept: "at least" is this
+/// reading of "stricter". The brief's "target 4.5" and
+/// `max(configured, 4.5)` agree for every config whose floor is at or below
+/// 4.5, because the config's `floor()` already parses every target to at
+/// least 4.5; they differ only for a floor above 4.5, such as `floor = 7`,
+/// which a literal 4.5 would loosen.
 fn stricter(floor: baud_render::Floor) -> baud_render::Floor {
     let (trigger, target) = match floor {
         baud_render::Floor::Off => (0.0, 0.0),

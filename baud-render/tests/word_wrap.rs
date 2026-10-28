@@ -1,10 +1,8 @@
-//! **A finished paragraph drawn at its words** (`[screen] wrap_words`,
-//! on by default): no word is split across two lines, and in a paragraph
-//! that mixes directions a run of the other direction the wrap would split
-//! is given lines of its own in its own direction (the owner, 2026-10-27,
-//! on `docs/research/notes/bd/owner-runs`: "this is what i like", "when we
-//! do wrapping, we do not break words , the word drop for the next line",
-//! "and warp should be default on").
+//! **A finished paragraph drawn at its words** (`[screen] wrap_words`, on
+//! by default): no word is split across two lines, and in a paragraph that
+//! mixes directions a run of the other direction the wrap would split is
+//! given lines of its own in its own direction
+//! (`docs/research/notes/bd/owner-runs`).
 //!
 //! Every expectation is the window as drawn: each display row's cells in
 //! visual order, `.` for an erased cell. A right-to-left line is written
@@ -87,11 +85,11 @@ const W44: WinSize = WinSize {
     ws_col: 44,
 };
 
-/// The owner's paragraph: Hebrew, an English run the terminal's wrap cut
-/// as "mid|dle", Hebrew.
-const OWNER: &str = "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} with English words in the middle, \u{5E9}\u{5DE}\u{5DE}\u{5E9}\u{5D9}\u{5DB}\u{5D4} \u{5DC}\u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D4}\u{5D1}\u{5D0}\u{5D4}.";
+/// The reported paragraph: Hebrew, an English run the terminal's wrap
+/// cut as "mid|dle", Hebrew.
+const REPORTED: &str = "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} with English words in the middle, \u{5E9}\u{5DE}\u{5DE}\u{5E9}\u{5D9}\u{5DB}\u{5D4} \u{5DC}\u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D4}\u{5D1}\u{5D0}\u{5D4}.";
 
-fn owner_parts() -> (&'static str, &'static str, &'static str) {
+fn reported_parts() -> (&'static str, &'static str, &'static str) {
     (
         "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} ",
         "with English words in the middle, ",
@@ -99,15 +97,15 @@ fn owner_parts() -> (&'static str, &'static str, &'static str) {
     )
 }
 
-/// **The owner's case**: the English run the wrap split gets a line of its
-/// own, flush left and left to right with its comma at its end; the
+/// **The reported case**: the English run the wrap split gets a line of
+/// its own, flush left and left to right with its comma at its end; the
 /// Hebrew before it and after it each on lines of their own against the
 /// right edge; the prompt below keeps its row, the line above is pushed
 /// into the history.
 #[test]
 fn the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction() {
-    let (he1, en, he2) = owner_parts();
-    let bytes = format!("{}{OWNER}\r\n{PROMPT}", history(8));
+    let (he1, en, he2) = reported_parts();
+    let bytes = format!("{}{REPORTED}\r\n{PROMPT}", history(8));
     let got = drawn(&W44, &bytes);
     assert_eq!(
         got,
@@ -127,7 +125,7 @@ fn the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction() {
 /// second, and no display is made.
 #[test]
 fn with_the_setting_off_every_row_is_drawn_as_the_terminal_cut_it() {
-    let bytes = format!("{}{OWNER}\r\n{PROMPT}", history(8));
+    let bytes = format!("{}{REPORTED}\r\n{PROMPT}", history(8));
     let (off, o) = drawn_as(&W44, &bytes, Rows::ZERO, WordWrap::Off);
     assert!(o.orders().display().is_none(), "no display with it off");
     let mut owned = Owned::new(&W44);
@@ -298,7 +296,7 @@ fn a_url_the_wrap_would_split_gets_its_line_and_a_number_stays() {
 fn the_paragraph_at_the_prompt_is_drawn_as_stored() {
     let (_, o) = drawn_as(
         &W44,
-        &format!("{}{PROMPT}{OWNER}", history(8)),
+        &format!("{}{PROMPT}{REPORTED}", history(8)),
         Rows::ZERO,
         WordWrap::On,
     );
@@ -312,13 +310,13 @@ fn the_paragraph_at_the_prompt_is_drawn_as_stored() {
 /// it is re-broken; scrolled back, a paragraph in the history is.
 #[test]
 fn without_prompt_marks_only_the_history_is_re_broken() {
-    let on_screen = format!("{}{OWNER}\r\nafter\r\n", history(8));
+    let on_screen = format!("{}{REPORTED}\r\nafter\r\n", history(8));
     let (_, live) = drawn_as(&W44, &on_screen, Rows::ZERO, WordWrap::On);
     assert!(
         live.orders().display().is_none(),
         "the live screen as stored"
     );
-    let scrolled = format!("{}{OWNER}\r\n{}", history(2), history(6));
+    let scrolled = format!("{}{REPORTED}\r\n{}", history(2), history(6));
     let (_, back) = drawn_as(&W44, &scrolled, Rows::of_index(3), WordWrap::On);
     assert!(back.orders().display().is_some(), "the history re-broken");
 }
@@ -326,7 +324,10 @@ fn without_prompt_marks_only_the_history_is_re_broken() {
 /// **The alternate screen is a program's**: never re-broken.
 #[test]
 fn the_alternate_screen_is_drawn_as_stored() {
-    let bytes = format!("{}{OWNER}\r\n{PROMPT}\x1b[?1049h{OWNER}\r\n", history(8));
+    let bytes = format!(
+        "{}{REPORTED}\r\n{PROMPT}\x1b[?1049h{REPORTED}\r\n",
+        history(8)
+    );
     let (_, o) = drawn_as(&W44, &bytes, Rows::ZERO, WordWrap::On);
     assert!(o.orders().display().is_none());
 }
@@ -339,7 +340,7 @@ fn at_the_top_of_the_history_a_paragraph_keeps_its_cut_rather_than_lose_a_line()
         ws_row: 4,
         ws_col: 44,
     };
-    let bytes = format!("{OWNER}\r\n{PROMPT}");
+    let bytes = format!("{REPORTED}\r\n{PROMPT}");
     let (got, o) = drawn_as(&ws, &bytes, Rows::ZERO, WordWrap::On);
     assert!(o.orders().display().is_none(), "{got:#?}");
 }
@@ -350,7 +351,7 @@ fn at_the_top_of_the_history_a_paragraph_keeps_its_cut_rather_than_lose_a_line()
 /// order; each stored cell maps to the display cell that draws it.
 #[test]
 fn a_selection_on_a_re_broken_line_copies_the_stored_text() {
-    let bytes = format!("{}{OWNER}\r\n{PROMPT}", history(8));
+    let bytes = format!("{}{REPORTED}\r\n{PROMPT}", history(8));
     let mut owned = Owned::new(&W44);
     let mut t = Term::new(owned.storage(), &W44);
     feed(&mut t, &bytes);
@@ -381,7 +382,7 @@ fn a_selection_on_a_re_broken_line_copies_the_stored_text() {
 /// English line.
 #[test]
 fn a_match_across_the_stored_cut_is_one_run_on_its_display_line() {
-    let bytes = format!("{}{OWNER}\r\n{PROMPT}", history(8));
+    let bytes = format!("{}{REPORTED}\r\n{PROMPT}", history(8));
     let mut owned = Owned::new(&W44);
     let mut t = Term::new(owned.storage(), &W44);
     feed(&mut t, &bytes);
@@ -404,11 +405,10 @@ fn a_match_across_the_stored_cut_is_one_run_on_its_display_line() {
 
 /// **BDSM reset leaves every row as stored**: a program that lays out its
 /// own right-to-left text draws the presentation lines it addresses
-/// (`[[source: ecma48]]` 7.2.1, EXPLICIT; Jev NONE, 0.98/0.98 on asking
-/// again with that text).
+/// (`[[source: ecma48]]` 7.2.1, EXPLICIT).
 #[test]
 fn with_bdsm_reset_nothing_is_re_broken() {
-    let bytes = format!("\x1b[8l{}{OWNER}\r\n{PROMPT}", history(8));
+    let bytes = format!("\x1b[8l{}{REPORTED}\r\n{PROMPT}", history(8));
     let (_, o) = drawn_as(&W44, &bytes, Rows::ZERO, WordWrap::On);
     assert!(o.orders().display().is_none());
 }
@@ -461,12 +461,13 @@ fn an_exit_status_mark_moves_with_its_prompt() {
     r.set_status_marks(StatusMarks::On);
     let mut owned = Owned::new(&W44);
     let mut t = Term::new(owned.storage(), &W44);
-    // The first prompt on row 2, its command's output the owner's
-    // paragraph on rows 3 and 4, the open prompt on row 5.
+    // The first prompt on row 2, its command's output the
+    // reported paragraph on rows 3 and 4, the open prompt on
+    // row 5.
     feed(
         &mut t,
         &format!(
-            "{}\x1b]133;A\x07$ \x1b]133;B\x07cat\x1b]133;C\x07\r\n{OWNER}\r\n\x1b]133;D;0\x07{PROMPT}",
+            "{}\x1b]133;A\x07$ \x1b]133;B\x07cat\x1b]133;C\x07\r\n{REPORTED}\r\n\x1b]133;D;0\x07{PROMPT}",
             history(6)
         ),
     );

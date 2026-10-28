@@ -15,10 +15,10 @@
 //! * **Permission, asked when it is needed.** "you must obtain permission
 //!   to use them", and "The first time your app makes this authorization
 //!   request, the system prompts the person"; "Make the request in a
-//!   context that helps people understand why" (`[[source:
-//!   apple-asking-permission-notifications]]`). It is asked at the first
-//!   notification a program sends (Jev, explicit, 0.94 and 0.98), never at
-//!   launch, and what is posted before the answer waits for it.
+//!   context that helps people understand why"
+//!   (`[[source: apple-asking-permission-notifications]]`). It is asked at
+//!   the first notification a program sends, never at launch, and what is
+//!   posted before the answer waits for it.
 //! * **The delegate is set first**, as the class's page asks ("Always
 //!   assign an object to the delegate property before performing any
 //!   tasks"), so a notification shown while baud is active is presented

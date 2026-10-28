@@ -23,7 +23,7 @@ fn decrqss(t: &mut Term<'_>, pt: &[u8]) -> Vec<u8> {
 
 /// **XTTITLEPOS answers the pushes not yet popped and the stack's depth**,
 /// `CSI Pn ; Pm # S`, and the count goes past ten once a push has
-/// overwritten the oldest slot, as xterm's `used` does (Jev, RAW).
+/// overwritten the oldest slot, as xterm's `used` does.
 #[test]
 fn xttitlepos_reports_the_pushes_and_the_depth() {
     support::with_term(&WS, |t| {
@@ -177,8 +177,8 @@ fn the_code_before_a_kept_title_is_read_seven_bit() {
 }
 
 /// **Under UTF-8 a title is UTF-8 whatever mode 2 says**, as xterm's
-/// `utf8Title` resource follows the encoding (Jev, RESOURCE_FOLLOWS); the
-/// mode's bit is still recorded and reported.
+/// `utf8Title` resource follows the encoding; the mode's bit is still
+/// recorded and reported.
 #[test]
 fn under_utf8_mode_2_changes_no_title() {
     support::with_term(&WS, |t| {

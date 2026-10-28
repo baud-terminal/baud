@@ -333,9 +333,9 @@ fn an_empty_position_is_not_affected() {
     assert_eq!(cells(b"\x1b[41m\x1b[2K\x1b[0m\x1b[?2J", 0, 4), erased_red);
 }
 
-/// A wide character the span's edge cuts goes whole, both halves a space
-/// in its rendition: Jev's lean, WHOLE_SPACE, 2026-10-19. DECSEL 0 from the
-/// tail and DECSEL 1 to the head.
+/// A wide character the span's edge cuts goes whole, both halves a space in
+/// its rendition, since 2026-10-19. DECSEL 0 from the tail and DECSEL 1 to
+/// the head.
 #[test]
 fn a_wide_character_the_edge_cuts_becomes_two_spaces() {
     let want = written(b"\x1b[35m  \x1b[0mz", 3);
@@ -375,9 +375,9 @@ fn a_protected_wide_character_the_edge_cuts_stays() {
     );
 }
 
-/// The guard SPA and EPA set stays (decided 2026-10-16, 0.94/0.90) and so
-/// does an `OSC 8` link (Jev's lean, KEEP, 2026-10-19); the line-drawing
-/// set's flag and a cluster's marks go with the character.
+/// The guard SPA and EPA set stays (since 2026-10-16) and so does an
+/// `OSC 8` link; the line-drawing set's flag and a cluster's marks go
+/// with the character.
 #[test]
 fn the_space_keeps_the_guard_and_the_link_and_drops_the_rest() {
     let g = cells(b"\x1bVab\x1bW\x1b[1;1H\x1b[?2K", 0, 2);

@@ -99,8 +99,7 @@ fn every_recording_paints_to_its_pinned_frame() {
         let got = canvas.digest();
         // Positive controls: something was drawn, and not everywhere the
         // same colour -- except the one recording that leaves the
-        // alternate screen last, whose restored primary is blank, as
-        // CLAUDE.md records of it.
+        // alternate screen last, whose restored primary is blank.
         if BLANK_AT_EXIT.contains(&name) {
             assert_eq!(frame.instances.value(), 0, "{name}");
         } else {

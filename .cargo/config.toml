@@ -1,7 +1,7 @@
-# **The binary's floor is the bundle's: macOS 26.** The owner, 2026-10-13,
-# picked "macOS 26 and later": `packaging/macos/Info.plist` names 26.0, and
-# this makes the Mach-O's own minimum (`LC_BUILD_VERSION minos`) say the
-# same. `scripts/build-metallib.sh` passes the same release to the Metal
+# **The binary's floor is the bundle's: macOS 26.** baud runs on macOS 26
+# and later: `packaging/macos/Info.plist` names 26.0, and this makes the
+# Mach-O's own minimum (`LC_BUILD_VERSION minos`) say the same.
+# `scripts/build-metallib.sh` passes the same release to the Metal
 # compiler, and `baud-app/tests/macos_floor.rs` holds all three equal.
 #
 # `force`, because the devenv shell already exports

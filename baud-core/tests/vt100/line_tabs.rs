@@ -4,17 +4,15 @@
 //!
 //! `[[source: ecma48]]` 8.3.162: "VTS causes a line tabulation stop to be set
 //! at the active line"; CVT "causes the active presentation position to be
-//! moved to the corresponding character position of the line corresponding
-//! to the n-th following line tabulation stop"; 8.3.161, VT moves it "to the
+//! moved to the corresponding character position of the line corresponding to
+//! the n-th following line tabulation stop"; 8.3.161, VT moves it "to the
 //! corresponding character position on the line at which the following line
 //! tabulation stop is set". TBC (8.3.154) and CTC clear and set both kinds.
-//! DEC's terminals and xterm keep TBC to 0 and 3; Jev decided ECMA-48's
-//! stops whole on 2026-10-19 (BUILD_ECMA 0.98/0.94), VT reaching them
-//! (NEXT_LINE_STOP 0.94/0.92, LF where none follows), and CVT going to the
-//! bottom margin, or the last line, when none follows (BOTTOM 0.96/0.90).
-//! baud's character stops are the same in every line, TSM MULTIPLE, so TBC 2
-//! and CTC 4 clear every character stop and DECRQM answers mode 18
-//! permanently reset (PERMANENTLY_RESET 0.98/0.98).
+//! DEC's terminals and xterm keep TBC to 0 and 3; ECMA-48's stops are built
+//! whole since 2026-10-19, VT reaching them (LF where none follows), and CVT
+//! going to the bottom margin, or the last line, when none follows. baud's
+//! character stops are the same in every line, TSM MULTIPLE, so TBC 2 and CTC
+//! 4 clear every character stop and DECRQM answers mode 18 permanently reset.
 
 use crate::support;
 use baud_core::*;
@@ -227,7 +225,7 @@ fn tsr_where_no_stop_is_set_clears_nothing() {
 }
 
 /// `Pn` has no default value (8.3.156), so an omitted or zero one names no
-/// position: counted, and nothing cleared (Jev, COUNTED, 0.98/0.96).
+/// position: counted, and nothing cleared.
 #[test]
 fn tsr_with_no_position_is_counted() {
     assert_eq!(counted(b"\x1b[ d"), (0, 1));
@@ -294,8 +292,7 @@ fn decst8c_sets_a_stop_every_eight_columns() {
     assert_eq!(counted(b"\x1b[?5W"), (0, 0));
 }
 
-/// VT510 and ctlseqs give one form, `CSI ? 5 W` (Jev's lean, FIVE_ONLY,
-/// 0.74/0.90).
+/// VT510 and ctlseqs give one form, `CSI ? 5 W`.
 #[test]
 fn decst8c_takes_only_five() {
     assert_eq!(at(b"\x1b[3g\x1b[?W\x1b[1;1H\t"), (0, 199));

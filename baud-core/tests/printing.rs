@@ -1,7 +1,7 @@
 //! Printing: Media Copy, autoprint, printer controller mode, DECPFF and
 //! DECPEX (`[[source: dec-std-070]]` 070-7; `[[source: vt420-rm]]` chapter
-//! 11), the owner's call of 2026-10-20, in through the print panel. The core
-//! writes 070-7's print stream into jobs and the embedder prints them.
+//! 11), in through the print panel. The core writes 070-7's print stream
+//! into jobs and the embedder prints them.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -262,8 +262,7 @@ fn an_autoprint_run_that_printed_nothing_is_no_job() {
 }
 
 /// **A print in the middle of an autoprint run ends its job there**, the
-/// print is a job of its own and the run goes on into another (Jev's lean
-/// OWN_JOB).
+/// print is a job of its own and the run goes on into another.
 #[test]
 fn a_print_inside_an_autoprint_run_ends_its_job_and_starts_another() {
     let mut s = owned();
@@ -537,9 +536,8 @@ const GUARDED: &[u8] = b"ab\x1bVcd\x1b[D\x1bW\x1b[Cef";
 /// unguarded areas in an eligible area are transmitted or transferred"
 /// (`[[source: ecma48]]` 7.2.7), excluded "from transfer to an auxiliary
 /// input/output device" (6.5.2.2), which MC initiates (6.6); as a space,
-/// as an invisible character prints, so `ef` keeps its columns (Jev's
-/// lean, AS_SPACES). `CSI 1 h`, ALL, prints them; `CSI 1 l` excludes
-/// them again.
+/// as an invisible character prints, so `ef` keeps its columns.
+/// `CSI 1 h`, ALL, prints them; `CSI 1 l` excludes them again.
 #[test]
 fn under_gatm_guard_a_print_leaves_out_the_guarded_contents() {
     let mut s = owned();
@@ -564,10 +562,10 @@ fn under_gatm_guard_a_print_leaves_out_the_guarded_contents() {
     assert_eq!(t.unsupported_param, 0, "GATM is no longer counted");
 }
 
-/// **Every print of screen contents is a transfer GATM governs** (Jev,
-/// EVERY_SCREEN_PRINT, 0.90/0.98): print screen, all pages, print line and
-/// autoprint, as well as print page. A guarded position at a line's end is
-/// left off as a trailing space is (070-7 § 7.4.3).
+/// **Every print of screen contents is a transfer GATM governs**: print
+/// screen, all pages, print line and autoprint, as well as print page. A
+/// guarded position at a line's end is left off as a trailing space is
+/// (070-7 § 7.4.3).
 #[test]
 fn every_screen_print_leaves_out_the_guarded_contents() {
     let mut s = owned();
@@ -587,8 +585,8 @@ fn every_screen_print_leaves_out_the_guarded_contents() {
 }
 
 /// **An area only partly inside a print is left out where it is inside**
-/// (Jev's lean, EXCLUDE_PART; 7.3.1 g leaves it to the implementation):
-/// guarded from row 0's `e` through row 1's `c`, print line on row 1.
+/// (7.3.1 g leaves it to the implementation): guarded from row 0's `e`
+/// through row 1's `c`, print line on row 1.
 #[test]
 fn a_guarded_area_partly_inside_a_print_is_left_out_there() {
     let mut s = owned();
@@ -601,7 +599,7 @@ fn a_guarded_area_partly_inside_a_print_is_left_out_there() {
 }
 
 /// **DECRQM answers GATM**, reset at power-on; `RIS` resets it and `DECSTR`
-/// keeps it, as ERM (Jev's lean, KEEP, 0.90/0.88).
+/// keeps it, as ERM.
 #[test]
 fn decrqm_answers_gatm_and_ris_resets_it_and_decstr_keeps_it() {
     let mut s = owned();

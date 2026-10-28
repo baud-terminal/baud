@@ -351,8 +351,7 @@ fn cha_and_hpa_under_origin_mode_stay_inside_the_margins() {
 /// column 1 and are clamped into the margins** -- ECMA-48's letter; xterm
 /// counts from the left margin (`[[source: xterm-cursor-c]]` `CursorSet`),
 /// which would put `CHA 3` on column 7 and `CHA 8` on the right margin. No
-/// text settles which, listed for Jev (the record, "DECOM's origin is the
-/// left margin too").
+/// text settles which, an open question.
 #[test]
 fn cha_and_hpa_under_origin_mode_count_from_the_screen_option_a_prime() {
     assert_eq!(
@@ -475,8 +474,8 @@ fn a_right_margin_column_restored_under_a_narrower_margin_is_clamped() {
 /// origin is line 1, column 1 of the screen; `DECALN` resets the mode too
 /// (pp. D-19 and D-20, `tests/vt420/decaln.rs`), and since 2026-10-14 the
 /// side margins, so it lands there as well, where it went to the left margin
-/// before. `?1049 h` homed until the owner's decision of 2026-10-13; it
-/// leaves the cursor, the next test.
+/// before. `?1049 h` homed until 2026-10-13; it leaves the cursor, the next
+/// test.
 #[test]
 fn the_homes_under_origin_mode_go_to_the_origin() {
     let s = after("\x1b#8");
@@ -496,8 +495,8 @@ fn the_homes_under_origin_mode_go_to_the_origin() {
 /// **`?1049 h` under DECOM leaves the cursor where it was**, inside the
 /// margins, and `CPR` answers the same origin-relative 2;3 before and after:
 /// `[[source: ctlseqs]]`'s `1049` saves, switches and clears and names no
-/// move, and xterm's `ClearScreen` does not home (`xterm-util.c`). Before the
-/// owner's decision of 2026-10-13 this homed to the origin, 1;1.
+/// move, and xterm's `ClearScreen` does not home (`xterm-util.c`). Before
+/// 2026-10-13 this homed to the origin, 1;1.
 #[test]
 fn entering_the_alternate_screen_under_origin_mode_leaves_the_cursor() {
     assert_eq!(

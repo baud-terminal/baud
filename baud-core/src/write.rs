@@ -213,8 +213,7 @@ impl Csi {
     /// its 7-bit byte (`[[source: williams]]` 462), and `Act::Inter`, the one
     /// path a GR intermediate takes, stores the 7-bit byte, since `fast_esc`
     /// and `fast_csi` collect only `20-2F`. A mask here and in the other two
-    /// readers ran in `csi_final` on every non-SGR `CSI` (the record, "A GR
-    /// byte in an escape or control sequence").
+    /// readers ran in `csi_final` on every non-SGR `CSI`.
     pub(crate) fn intermediate(&self) -> Option<StreamByte> {
         self.inter
     }
@@ -445,28 +444,26 @@ pub(crate) fn act(
         // a control leaves. The fold below performs the `LF` of a `CR LF`
         // without reaching the `Index` arm, and leaves the cursor at column 0
         // too. It ends the row it leaves as `Paint::line_feed` does: without
-        // that, a row that wrapped kept its wrap when the pair fell in one
-        // read and lost it when they fell in two, and a re-cut joined it to
-        // the next line or not by where the reads broke. The clear is
-        // `set_ended`, cold and out of line, and it is called only on a row
-        // whose wrap bit is set: on any other row it would store the word it
-        // read. The call made on every pair was 18 instructions a pair, 3.1%
-        // of cat-scroll's instructions retired; the inline test is 13, and
-        // took 0.8% of them back (the record, "A `CR LF` calls `set_ended`
-        // only on a row that wrapped").
+        // that, a row that wrapped kept its wrap when the pair fell in one read
+        // and lost it when they fell in two, and a re-cut joined it to the next
+        // line or not by where the reads broke. The clear is `set_ended`, cold
+        // and out of line, and it is called only on a row whose wrap bit is
+        // set: on any other row it would store the word it read. The call made
+        // on every pair was 18 instructions a pair, 3.1% of cat-scroll's
+        // instructions retired; the inline test is 13, and took 0.8% of them
+        // back.
         //
         // **Under `DECLRMM` the line starts where `CR`'s rule puts it**, out
         // of line (`Paint::return_fenced`), so the loop carries one test of
         // one bit of the mode word (`Paint::carriage_return` says why one bit
         // covers DECOM too): read in place, the margin's load and the
         // cluster's store read `cat` 9.5% below the parent (the DECOM test
-        // this one replaced), and out of line 4.7%, with the
-        // tab clamp still inlined. With both out of line `cat` still reads
-        // 1.4-3.6% below the parent by the median in eight idle sweeps (the
-        // record's four full sweeps and four ceiling sweeps), wholly below in
-        // two of them, and an arm without this test reads 5.1-7.3% below
-        // this one in the four ceiling sweeps: the loop's layout, not the test
-        // (the record, "DECOM's origin is the left margin too").
+        // this one replaced), and out of line 4.7%, with the tab clamp still
+        // inlined. With both out of line `cat` still reads 1.4-3.6% below the
+        // parent by the median in eight idle sweeps (four full sweeps and four
+        // ceiling sweeps), wholly below in two of them, and an arm without
+        // this test reads 5.1-7.3% below this one in the four ceiling sweeps:
+        // the loop's layout, not the test.
         Act::Return => {
             p.carriage_return();
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
@@ -517,13 +514,12 @@ pub(crate) fn act(
         // (`Paint::back_space_outside`): from a column inside them one left
         // is inside them too, never one past the right margin, so it is no
         // placed cursor; right of the right margin, one left can be, and a
-        // placed cursor or the sentinel there is past it. Tested against
-        // both margins, a placed cursor's value past every column goes out
-        // of line with them. The `?69` bit in the arm instead read `cat-cjk`,
-        // which has no `BS`, 1 M instructions over 200 reps above this: the
-        // loop's layout, which `HT`'s arm moved too (`docs/record.md`, "A
-        // cursor placed right of the fence writes on").
-        // Under DECRLM it moves right (`crate::leftward`).
+        // placed cursor or the sentinel there is past it. Tested against both
+        // margins, a placed cursor's value past every column goes out of line
+        // with them. The `?69` bit in the arm instead read `cat-cjk`, which
+        // has no `BS`, 1 M instructions over 200 reps above this: the loop's
+        // layout, which `HT`'s arm moved too. Under DECRLM it moves right
+        // (`crate::leftward`).
         Act::Backspace if p.cold.modes.is_set(ModeBit::CursorRightToLeft) => {
             p.back_space_leftward();
             ReadLen::ONE
@@ -792,12 +788,11 @@ pub(crate) fn act(
         // read it as stored. A mask in each of those readers instead ran in
         // `csi_final` on every non-SGR `CSI`, and a mask in each of four arms
         // read `cat` about 6% lower on the medians, ranges overlapping in both
-        // sessions, which is no result (the record, "A GR byte in an escape
-        // or control sequence"). `EscFinal` masks the byte the C1 map passes
-        // through, and `CsiFinal`, whose final is typed before the call, keeps
-        // one mask. `StrStart`'s `StrKind::of` names the GR spelling of `]`
-        // beside the C1 one, and `Digit`'s table gives a GR digit's lead its
-        // GL digit's row.
+        // sessions, which is no result. `EscFinal` masks the byte the C1 map
+        // passes through, and `CsiFinal`, whose final is typed before the
+        // call, keeps one mask. `StrStart`'s `StrKind::of` names the GR
+        // spelling of `]` beside the C1 one, and `Digit`'s table gives a GR
+        // digit's lead its GL digit's row.
         Act::Marker => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             if let Some(m) = Marker::from_private(b) {
@@ -1254,7 +1249,7 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
     // `Act::Char4` is 37.8% of `cat-cjk.raw`'s iterations and 50% of its runs
     // by encoded length, so this looked like the obvious gap -- and
     // `baud-core/tests/bulk_paths.rs` proves it was one: the vector scan was
-    // stride-three-only while `CLAUDE.md` recorded the fix as "generalising
+    // stride-three-only while the fix was recorded as "generalising
     // `run_of_three` to `run_of` over any stride". Only the *scalar* loop below
     // was generalised.
     //
@@ -1729,17 +1724,15 @@ fn put_run(
 /// A U+FFFD for bytes that could not be decoded, counted and then written
 /// as the character U+FFFD: `Act::Bad`'s, `Act::Resync`'s and `chars`'.
 ///
-/// **The same character to the cluster rules as a literal `EF BF BD`**, the
-/// owner's decision of 2026-10-13 (SAME_AS_LITERAL; the record, "A U+FFFD for
-/// ill-formed bytes clusters as a literal one"). `[[source: unicode-ch3]]`
-/// 3.9.5 substitutes "one or more U+FFFD replacement characters" and
-/// `[[source: uax29]]` segments the characters that result, so the machine
-/// is asked about it as about any character: GB9b joins it to a Prepend
-/// before it, and GB9a joins a SpacingMark after it. It was written without
-/// asking and then the machine was told class Other, so after a Prepend
-/// `a U+0600 80 Z` took three cells where `a U+0600 EF BF BD Z` takes two
-/// (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`). Its width
-/// is the literal's too, East Asian Width A, two columns under
+/// **The same character to the cluster rules as a literal `EF BF BD`**.
+/// `[[source: unicode-ch3]]` 3.9.5 substitutes "one or more U+FFFD replacement
+/// characters" and `[[source: uax29]]` segments the characters that result, so
+/// the machine is asked about it as about any character: GB9b joins it to a
+/// Prepend before it, and GB9a joins a SpacingMark after it. It was written
+/// without asking and then the machine was told class Other, so after a
+/// Prepend `a U+0600 80 Z` took three cells where `a U+0600 EF BF BD Z` takes
+/// two (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`). Its
+/// width is the literal's too, East Asian Width A, two columns under
 /// `AmbiguousWidth::Wide`.
 ///
 /// **Counted here, before the machine decides**, so a U+FFFD that attaches
@@ -2104,8 +2097,7 @@ impl Paint<'_, '_> {
     /// `S7C1T` and `S8C1T`: which controls the replies use. `S8C1T` "if
     /// (conformance_level != LEVEL_1)" (`[[source: dec-std-070]]` 070-3 p.
     /// 3-72): Level 1 is seven-bit only, so there it is counted and changes
-    /// nothing, as xterm ignores it below its level 2 (Jev's lean, IGNORED,
-    /// 0.88/0.94).
+    /// nothing, as xterm ignores it below its level 2.
     pub(crate) fn select_c1(&mut self, c: C1Transmit) {
         match (c, self.cold.level) {
             (C1Transmit::EightBit, ConformanceLevel::One) => self.unsupported_total += 1,
@@ -2178,18 +2170,17 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
     // sub-parameters.** `[[source: dec-std-070]]` 3.5.3.1: "The bit
     // combination 3/10 is reserved for future standardization. If 3/10 is
     // received within a parameter string, the entire sequence up to and
-    // including the final character shall be ignored"; `[[source:
-    // williams]]` sends `3A` to `csi ignore`. `[[source: ecma48]]` 5.4.2 b
-    // allows `03/10` only inside one parameter, never between two, and
-    // gives an integer parameter no fractional part. SGR's groups (ISO
-    // 8613-6, `38:2::r:g:b`, `4:3`) are read above, and XTMODKEYS takes one
-    // (`CSI > 4 ; Pv : mask m`, `[[source: ctlseqs]]`'s modifier mask, read as
-    // modifyOtherKeys' by `key_change`), as xterm keeps those two and rejects
-    // the rest. Every other sequence read a parameter after `:` as if `;` had
-    // come, so `CSI 1:5 H` was CUP 1;5. Jev leaned to keeping that at
-    // 0.38/0.40, below the bar for a departure, so the text is built
-    // (2026-10-19). One test of the parser's own mask; the rest runs only once
-    // a `:` arrived.
+    // including the final character shall be ignored"; `[[source: williams]]`
+    // sends `3A` to `csi ignore`. `[[source: ecma48]]` 5.4.2 b allows `03/10`
+    // only inside one parameter, never between two, and gives an integer
+    // parameter no fractional part. SGR's groups (ISO 8613-6, `38:2::r:g:b`,
+    // `4:3`) are read above, and XTMODKEYS takes one (`CSI > 4 ; Pv : mask m`,
+    // `[[source: ctlseqs]]`'s modifier mask, read as modifyOtherKeys' by
+    // `key_change`), as xterm keeps those two and rejects the rest. Every
+    // other sequence read a parameter after `:` as if `;` had come, so
+    // `CSI 1:5 H` was CUP 1;5. Keeping that would depart from the text, which
+    // is built (2026-10-19). One test of the parser's own mask; the rest runs
+    // only once a `:` arrived.
     if csi.has_subs() && !csi.takes_subs(f) {
         p.unsupported_total += 1;
         return;
@@ -2271,8 +2262,8 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // `CursorNextLine` and `CursorPrevLine` are `CursorDown` or
         // `CursorUp` and then `CarriageReturn` (`[[source: xterm-cursor-c]]`
         // 527-549), so they stop at the top and bottom margins where those
-        // do. No DEC text has a `CNL`: the record lists the reading.
-        // SLH's line home is not theirs (`crate::bounds`).
+        // do. No DEC text has a `CNL`, so this is xterm's reading. SLH's
+        // line home is not theirs (`crate::bounds`).
         DomCsi::CursorNextLine(c) => {
             p.set_row(p.down_in_margins(c));
             p.line_start();
@@ -2281,9 +2272,8 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
             p.set_row(p.up_in_margins(c));
             p.line_start();
         }
-        // **Absolute, and clamped into the margins under DECOM**: option
-        // (a') of the record's "DECOM's origin is the left margin too", which
-        // no text settles against xterm's (b), counted from the left margin.
+        // **Absolute, and clamped into the margins under DECOM**, counted
+        // from the left margin, a reading no text settles against xterm's.
         DomCsi::ColumnAbsolute(c) | DomCsi::CharacterPositionAbsolute(c) => {
             p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols)))))
         }
@@ -2298,8 +2288,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // 68-90) and ghostty's pass the right margin too. Under DECOM it is
         // confined as every move is. From a wrap waiting at the right margin
         // or the line limit it counts from where the wrap waits, as `HPB`
-        // does (Jev's lean, FROM_MARGIN, 0.56/0.86; Jev, FROM_LIMIT,
-        // 0.92/0.96).
+        // does.
         DomCsi::ColumnRelative(c) => p.set_col(p.on_line(
             p.place(p.confine_col(p.cx.reported(p.report_fence(), p.cols).forward(c, p.cols))),
         )),
@@ -2593,9 +2582,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // is answered.** Set, push and pop maintain the active screen's stack,
         // and `CSI ? u` replies with the current flags -- which is the
         // protocol's support claim, made only now that `Term::key` honours all
-        // five enhancements for every key it can represent. See
-        // `docs/record.md`, "kitty's protocol is all-or-nothing, and its own
-        // detection mechanism says so".
+        // five enhancements for every key it can represent.
         DomCsi::KittySet { flags, mode } => p.cold.kitty.set(flags, mode),
         DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
         DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
@@ -2779,14 +2766,14 @@ fn esc_final(
                 }
             }
             // **`ESC SP L`, `M` and `N` announce an ISO 4873 level, and at
-            // Level 3 and above they designate and invoke** (`[[source:
-            // dec-std-070]]` 070-3 §3.8.1, pp. 3-68 to 3-70): L and M put
-            // ASCII in G0 and ISO Latin-1 Supplemental in G1 and invoke G0
-            // into GL and G1 into GR, N puts ASCII in G0 and invokes it into
-            // GL. Its algorithm acts "if (conformance_level > 2)"; below
-            // that they are counted (Jev's lean, ACT_AT_3_PLUS, 0.91/0.88).
-            // xterm sets an ANSI level and designates nothing, a departure
-            // from the text not followed.
+            // Level 3 and above they designate and invoke**
+            // (`[[source: dec-std-070]]` 070-3 §3.8.1, pp. 3-68 to 3-70): L
+            // and M put ASCII in G0 and ISO Latin-1 Supplemental in G1 and
+            // invoke G0 into GL and G1 into GR, N puts ASCII in G0 and
+            // invokes it into GL. Its algorithm acts "if
+            // (conformance_level > 2)"; below that they are counted. xterm sets an ANSI level
+            // and designates nothing, a departure from the text not
+            // followed.
             b' ' if matches!(b.raw_byte(), b'L' | b'M' | b'N') => {
                 match Function::Announce.introduced().admits(p.cold.level) {
                     true => p.announce(b),
@@ -2905,13 +2892,13 @@ fn esc_final(
         // **DECID answers what DA answers at Levels 1 and 2**, by the same
         // function, so the Sixel claim and `S8C1T` reach it:
         // `[[source: dec-std-070]]` 070-4, "identical to a primary DA
-        // control with an omitted parameter". **At Levels 3 and 4 it is not
-        // recognised and is counted**: note b, "DECID is not recognized at
-        // Level 3 or above", and the algorithm answers only at Level 1 or
-        // Level 2, "Ignored above Level 2" (Jev, NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). xterm answers at
-        // every level, a departure from the text not followed.
-        // The one escape that answers, so the one that may hold the read
-        // for its answer to go out (`Paint::hold_for_replies`).
+        // control with an omitted parameter". **At Levels 3 and 4 it is
+        // not recognised and is counted**: note b, "DECID is not
+        // recognized at Level 3 or above", and the algorithm answers only
+        // at Level 1 or Level 2, "Ignored above Level 2". xterm answers at
+        // every level, a departure from the text not followed. The one
+        // escape that answers, so the one that may hold the read for its
+        // answer to go out (`Paint::hold_for_replies`).
         Esc::Identify => {
             primary_device_attributes(p);
             p.hold_for_replies(node);
@@ -2941,8 +2928,7 @@ fn esc_final(
         }
         // **Into GR, the slot alone** (8.3.2): GR is read where a GR byte is
         // written, so nothing is resolved here. Under UTF-8, where no byte is
-        // GR's (AE5, decided), the slot is state DECCIR reports (Jev's lean
-        // STATE_ONLY).
+        // GR's (AE5, decided), the slot is state DECCIR reports.
         Esc::LockingShift1Right => p.cold.gr = GSlot::G1,
         Esc::LockingShift2Right => p.cold.gr = GSlot::G2,
         Esc::LockingShift3Right => p.cold.gr = GSlot::G3,
@@ -3142,15 +3128,15 @@ fn fast_csi(
     // **Accumulate in a register; store when the parameter ends.**
     //
     // The walk was a read-modify-write of `Option<Param>` per digit: a 4-byte
-    // load, a match on the `Option`, the multiply-add, a 4-byte store -- and
-    // the btop capture of 2026-08-27 sent sequences of eleven bytes, about
-    // nine of them digits (the capture of 2026-10-28: 11.2 bytes, 6.1 digits).
-    // Priced by stubbing it on that capture, the walk read 32% of btop -- an
-    // upper bound, and the stub also removes the truecolor `SGR` chain; two
-    // instruments bracket it at **19.5-33.5%**, see `CLAUDE.md`. A parameter only
-    // has to reach the array when it *ends*, at a separator or at the final
-    // byte, so the digits fold in a register and the array is touched once a
-    // parameter instead of once a digit. `baud-core2` always did this.
+    // load, a match on the `Option`, the multiply-add, a 4-byte store -- and the
+    // btop capture of 2026-08-27 sent sequences of eleven bytes, about nine of
+    // them digits (the capture of 2026-10-28: 11.2 bytes, 6.1 digits). Priced by
+    // stubbing it on that capture, the walk read 32% of btop -- an upper bound,
+    // and the stub also removes the truecolor `SGR` chain; two instruments
+    // bracket it at **19.5-33.5%**. A parameter only has to reach the array when
+    // it *ends*, at a separator or at the final byte, so the digits fold in a
+    // register and the array is touched once a parameter instead of once a digit.
+    // `baud-core2` always did this.
     //
     // **One loop, and splitting it into phases lost.** The marker can only be
     // at position zero and `seen_inter` only ever goes from false to true, so
@@ -3444,9 +3430,9 @@ fn fast_esc(
 
 /// Answer a plain `SGR` from the byte table, or say it is not there.
 ///
-/// Behind `sgr-table`, **off**: see the note in `CLAUDE.md`. It is correct and
-/// it hits, and it is worth about 1.3% on `btop.raw` against an A/A floor of
-/// 4.8% -- kept compiled so the next person re-measures rather than rebuilds.
+/// Behind `sgr-table`, **off**. It is correct and it hits, and it is worth
+/// about 1.3% on `btop.raw` against an A/A floor of 4.8% -- kept compiled so
+/// the next person re-measures rather than rebuilds.
 ///
 /// **Out of line on purpose.** The saving is a parameter walk over eleven to
 /// seventeen bytes plus `SgrAttr::parse` and the fold; a call costs a few

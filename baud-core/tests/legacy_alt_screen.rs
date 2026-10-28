@@ -134,7 +134,7 @@ fn _47_neither_saves_nor_restores_the_cursor() {
 /// A cursor `?1049 h` saved outlives a `?47 l` exit, as xterm's saved cursor
 /// does, so a `?1049 l` issued from the alternate screen afterwards still
 /// restores it. (One issued from the primary does nothing here, where xterm
-/// restores; see CLAUDE.md.)
+/// restores.)
 #[test]
 fn a_47_exit_leaves_what_1049_saved() {
     each_read_size(

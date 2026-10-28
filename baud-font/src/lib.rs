@@ -1,7 +1,7 @@
 //! The font stack baud owns: parse, shape, rasterise.
 //!
-//! **Why this crate exists and what it refuses.** The owner's constraint is
-//! *no engine dependencies*: HarfBuzz, FreeType, rustybuzz and swash are
+//! **Why this crate exists and what it refuses.** The constraint is *no
+//! engine dependencies*: HarfBuzz, FreeType, rustybuzz and swash are
 //! reference literature, not dependencies, and this crate reads font files
 //! itself. `docs/research/notes/j-rendering.md` is the decisions register
 //! (D1 names the crate, D6-D11 decide what it parses and how it rasterises,
@@ -31,9 +31,9 @@
 //! **Phase 1c: bitmap strikes and layered colour.** `sbix`, `CBLC`/`CBDT`
 //! and `COLR` v0 with `CPAL`. The PNG decoder those strikes need is
 //! `baud_domain::png`, written in the workspace rather than pulled in
-//! because a decoder is a dependency in every sense the owner's constraint
-//! names, and moved to `baud-domain` so the core decodes kitty pictures
-//! through the same code (note V, V19 step 2); it is re-exported here.
+//! because a decoder is a dependency in every sense that constraint names,
+//! and moved to `baud-domain` so the core decodes kitty pictures through
+//! the same code (note V, V19 step 2); it is re-exported here.
 //!
 //! **Phase 2: the rasteriser.** Signed-area accumulation into a caller's
 //! `f32` scratch, then a prefix sum into an 8-bit coverage mask -- the

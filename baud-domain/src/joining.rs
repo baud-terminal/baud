@@ -318,10 +318,8 @@ pub fn join(types: &[JoiningType], forms: &mut [Option<JoiningForm>]) {
 /// non-joining character before it -- a space, a ZWNJ -- is left Xn: S2's
 /// "character to its right" is a letter of the word, as HarfBuzz and
 /// CoreText read it and as the OpenType Syriac model's "at the end of
-/// Syriac words ... the preceding base character" reads (Jev
-/// ISOLATED_AFTER_SPACE, 0.98/0.98 after research; 0.94/0.88 before),
-/// so a one-letter word draws alike after a space and at the start of a
-/// line.
+/// Syriac words ... the preceding base character" reads, so a one-letter
+/// word draws alike after a space and at the start of a line.
 pub fn alaphs(cps: &[u32], types: &[JoiningType], forms: &mut [Option<JoiningForm>]) {
     let n = cps.len().min(types.len()).min(forms.len());
     // The nearest preceding character that is not T, as the walk passes.

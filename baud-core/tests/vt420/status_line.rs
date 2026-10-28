@@ -8,9 +8,8 @@
 //! main display keeps its rows; the line is beside it
 //! (`Term::status_rows`). What the host-writable line keeps of its own is
 //! 070-14's list, §14.2.2: the active position, the rendition, origin
-//! mode, the character sets and shifts, the pending wrap and the
-//! `DECSC` slot (Jev, SEPARATE, 0.98 and 1.00; MODE_SHARED_FLAG_SEPARATE,
-//! 0.94 and 0.96).
+//! mode, the character sets and shifts, the pending wrap and the `DECSC`
+//! slot (MODE_SHARED_FLAG_SEPARATE, 0.94 and 0.96).
 
 use crate::support;
 use baud_core::*;
@@ -287,10 +286,9 @@ fn the_line_keeps_its_own_rendition_charsets_and_saved_cursor() {
     });
 }
 
-/// **Autowrap is one mode and two pending wraps** (Jev,
-/// MODE_SHARED_FLAG_SEPARATE): DECAWM set on the main display wraps on
-/// the line, and a wrap pending at the main display's last column waits
-/// there while the line is written.
+/// **Autowrap is one mode and two pending wraps**: DECAWM set on the
+/// main display wraps on the line, and a wrap pending at the main
+/// display's last column waits there while the line is written.
 #[test]
 fn autowrap_is_shared_and_the_pending_wrap_is_each_displays() {
     support::with_term(&WS, |t| {
@@ -441,9 +439,9 @@ fn printer_field(t: &Term<'_>) -> String {
 /// the VT420's words (`[[source: vt420-uu-ch4]]`, Table 4-2, field 3):
 /// None with no printer since power-up, Ready while the embedder has one,
 /// Not Ready once it is lost, and Auto Print or Controller while a run is
-/// on, whatever the port's state (Jev's lean, RUN_FIRST). The modem field
-/// is blank, "unless you have a modem connected", and a pty has none.
-/// `Term::set_printer` redraws it between reads.
+/// on, whatever the port's state. The modem field is blank, "unless you
+/// have a modem connected", and a pty has none. `Term::set_printer`
+/// redraws it between reads.
 #[test]
 fn the_indicator_shows_the_printer_and_the_print_mode() {
     let mut owned = Owned::new(&WIDE).with_printer(PrintBudget::of_bytes(4096));

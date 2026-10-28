@@ -1,8 +1,6 @@
 #![deny(dead_code)]
 //! **`SUB` draws the error character when the embedder turns the mark on**,
-//! and nothing otherwise, the owner's call of 2026-10-23 ("i would say keep
-//! A as default and add config option and maybe also which char to show?
-//! and default is the reverse question mark").
+//! and nothing otherwise.
 //!
 //! Where and how the mark is written is DEC's: `[[source: dec-std-070]]` p.
 //! 5-132, SUB "is processed by placing a reversed question mark in the
@@ -18,8 +16,7 @@
 //! "Immediately cancels an escape sequence, control sequence, or device
 //! control string in progress, and displays a reverse question mark as an
 //! error character" (`[[source: vt510-chapter4]]`). A Sixel's body keeps
-//! 070-9 §9.1's blank sixel, and VT52 mode draws nothing (Jev's lean,
-//! ANSI_MODE_ONLY, 0.76 and 0.84, which a re-ask split).
+//! 070-9 §9.1's blank sixel, and VT52 mode draws nothing.
 
 use baud_core::*;
 use baud_domain::{ErrorCharacter, SubstituteMark, UnfitMark};
@@ -228,9 +225,9 @@ fn a_sixel_body_keeps_its_blank_sixel_and_its_escape_takes_the_mark() {
 }
 
 /// **`CAN` draws nothing, and VT52 mode draws nothing for `SUB`**:
-/// VT220's CAN, "No error character is displayed"; and Jev's lean,
-/// ANSI_MODE_ONLY, for VT52, in its ground and inside `ESC Y`. Every read
-/// size. Perturbation: draw it in VT52 ground -- the second case fails.
+/// VT220's CAN, "No error character is displayed"; and for VT52, in its
+/// ground and inside `ESC Y`. Every read size. Perturbation: draw it in
+/// VT52 ground -- the second case fails.
 #[test]
 fn can_and_vt52_mode_draw_no_mark() {
     each_size(ON, b"a\x1b[1\x18b", |t, size| {

@@ -61,7 +61,7 @@ pub enum Kind {
     /// X resources: `*.color0: ...`.
     Xresources,
     /// tinted8, whose `scheme:` holds `system: "tinted8"`. Detected and
-    /// refused (Jev, O6, decisions.jsonl 664/665).
+    /// refused.
     Tinted8,
     /// Gogh's and iTerm2-Color-Schemes' YAML, `color_01` to `color_16`.
     ColorNN,
@@ -126,8 +126,8 @@ pub enum Unknown<'a> {
     /// tinted's nested `scheme.system` naming a system other than
     /// tinted8.
     TintedSystem(Mark<'a>),
-    /// tinted's slot names in `key = value` syntax (Jev, O10, refused: tinted
-    /// is YAML, `[[source: tinted-builder]]` 30, 43).
+    /// tinted's slot names in `key = value` syntax (note AR, O10, refused:
+    /// tinted is YAML, `[[source: tinted-builder]]` 30, 43).
     TintedSlotsInEquals(Mark<'a>),
     /// Lines of one grammar with no colour key any format reads.
     Lines(Grammar, Mark<'a>),
@@ -747,7 +747,7 @@ fn equals(text: &[u8]) -> Verdict<'_> {
     match (seen.get(GHOSTTY).or(shared), tinted, first) {
         (Some(m), _, _) => Verdict::Is(Kind::Ghostty, m),
         (None, Some(m), _) => Verdict::Unknown(Unknown::TintedSlotsInEquals(m)),
-        // Keys and no colour: a ghostty file that sets none (Jev, O12).
+        // Keys and no colour: a ghostty file that sets none.
         (None, None, Some(m)) => Verdict::Is(Kind::Ghostty, m),
         (None, None, None) => Verdict::Empty,
     }

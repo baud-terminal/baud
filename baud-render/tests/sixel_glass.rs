@@ -1,9 +1,8 @@
 //! A Sixel's background fill on the see-through window, on the CPU path:
-//! `[glass] sixel_backgrounds`, the owner's call of 2026-10-22. The pixel
-//! oracle holds the three paths to each other on a full frame; these hold
-//! the CPU path's incremental frames to a full repaint, where a fill
-//! blended over what is under it would be blended twice if its rows were
-//! not repainted under each blit.
+//! `[glass] sixel_backgrounds`. The pixel oracle holds the three paths to
+//! each other on a full frame; these hold the CPU path's incremental
+//! frames to a full repaint, where a fill blended over what is under it
+//! would be blended twice if its rows were not repainted under each blit.
 
 mod support;
 

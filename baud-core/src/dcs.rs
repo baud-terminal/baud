@@ -186,7 +186,7 @@ impl Paint<'_, '_> {
     /// practice, changes no answer outside its tcap keyboard (`?1050`),
     /// which baud does not have, and never `TN`'s, which answers the
     /// `termName` resource under every keyboard (`[[source: xterm-misc]]`
-    /// 5225-5226). Jev leaned to counting it, COUNT_REFUSE, 0.53/0.41.
+    /// 5225-5226). The refusal is counted.
     #[cold]
     #[inline(never)]
     pub(crate) fn tcap_end(&mut self, body: TcapBody) {
@@ -302,13 +302,9 @@ impl Paint<'_, '_> {
         // It is "Levels: 2x (TSI), 3-4" (`[[source: dec-std-070]]` p.
         // 5-196), and the VT420 ignores DECRQSS and DECRPSS in Level 1
         // (`[[source: vt420-rm]]` Table 4-1). Every string alike, `" p` with
-        // them, which answered invalid there (Jev, INVALID, 0.90/0.94, asked
-        // against `61"p`, silence not offered); asked with the VT420's table
-        // Jev split, INVALID at confidence 0.16 then SILENT at 0.25
-        // (probabilities 0.44 and 0.50), and the field's reading is taken,
-        // the rule that a departure from DEC STD 070 needs 0.9 in both
-        // orders. xterm answers the strings at its level 1, a departure
-        // not followed.
+        // them, which answered invalid there until both texts were read, and
+        // is silent now. xterm answers the strings at its level 1, a
+        // departure not followed.
         if !Function::Decrqss.introduced().admits(self.cold.level) {
             self.unsupported_total += 1;
             return;
@@ -400,26 +396,26 @@ impl Paint<'_, '_> {
                 s.push(b"s");
             }
             // **DECSCPP answers the page the grid is**: STD 070's DECRQSS
-            // lists "Set Columns Per Page DECSCPP $ |" (`[[source:
-            // dec-std-070]]`, p. 5-196), and an answer is a control the
-            // application sends back. By DECSCPP's own rule, so a grid of
-            // 100 is 132, "the next higher supported number"; and the
-            // grid's, not the width last asked for, which an embedder that
-            // did not resize never gave the page. xterm answers from
-            // `IN132COLUMNS`, the last asked (`[[source: xterm-misc]]`):
-            // the record's open question.
+            // lists "Set Columns Per Page DECSCPP $ |"
+            // (`[[source: dec-std-070]]`, p. 5-196), and an answer is a
+            // control the application sends back. By DECSCPP's own rule,
+            // so a grid of 100 is 132, "the next higher supported number";
+            // and the grid's, not the width last asked for, which an
+            // embedder that did not resize never gave the page. xterm
+            // answers from `IN132COLUMNS`, the last asked
+            // (`[[source: xterm-misc]]`): an open question.
             StatusTarget::ColumnsPerPage => s.push(match PageWidth::page_of(self.cols) {
                 PageWidth::Eighty => b"1$r80$|",
                 PageWidth::OneThirtyTwo => b"1$r132$|",
             }),
             // **DECSLPP answers the lines the screen is, and 24 below 24**:
             // STD 070's DECSLPP algorithm makes any `Pn` up to 24 a page of
-            // 24 (p. 5-76), so a shorter screen's page sent back is
-            // `24 t`; and `CSI Ps t` below 24 is an XTWINOPS (`[[source:
-            // ctlseqs]]`), so the screen's own count there would be a
-            // wrong-shaped answer (Jev, FLOOR, 0.96/0.94). xterm floors at
-            // 24 too, from its last row's index, one short (`[[source:
-            // xterm-misc]]`); the count here is the screen's.
+            // 24 (p. 5-76), so a shorter screen's page sent back is `24 t`;
+            // and `CSI Ps t` below 24 is an XTWINOPS
+            // (`[[source: ctlseqs]]`), so the screen's own count there
+            // would be a wrong-shaped answer. xterm floors at 24 too, from
+            // its last row's index, one short (`[[source: xterm-misc]]`);
+            // the count here is the screen's.
             StatusTarget::LinesPerPage => {
                 let last = Row::from_index(self.rows.index().saturating_sub(1)).one_based();
                 s.push(b"1$r");
@@ -454,11 +450,10 @@ impl Paint<'_, '_> {
             // them**: "replacing the Pt with the corresponding CSI string"
             // (`[[source: ctlseqs]]`), so `> Pp ; Pv m` and `> Pp ; Pv f`,
             // every resource. A disabled one is `-1` and modifyOtherKeys'
-            // mask `: mask`, as xterm's `do_dcs` writes them (`[[source:
-            // xterm-misc]]`; Jev's lean, XTERM_MINUS_ONE, 0.55/0.82 then
-            // 0.23/0.27). xterm spells the format answer `>%d;%dm`, an
-            // XTMODKEYS, which would set the other resource: a departure not
-            // followed.
+            // mask `: mask`, as xterm's `do_dcs` writes them
+            // (`[[source: xterm-misc]]`). xterm spells the format answer
+            // `>%d;%dm`, an XTMODKEYS, which would set the other resource: a
+            // departure not followed.
             StatusTarget::KeyModify(r) => {
                 let v = self.cold.keys.modify(r);
                 s.push(b"1$r>");
@@ -477,12 +472,11 @@ impl Paint<'_, '_> {
             }
             // **XTSMTITLE, answered as the control that sets the modes in
             // force**: "replacing the Pt with the corresponding CSI string"
-            // (`[[source: ctlseqs]]`), `> 0 ; 2 t`, and `> t` with none
-            // set, which sent back is XTSMTITLE's default, none set. xterm's
+            // (`[[source: ctlseqs]]`), `> 0 ; 2 t`, and `> t` with none set,
+            // which sent back is XTSMTITLE's default, none set. xterm's
             // `do_dcs` writes one 0 or 1 a mode (`[[source: xterm-misc]]`),
-            // which sent back sets the wrong modes: a departure not followed
-            // (Jev's lean, SETLIST, 0.70/0.76). A `> Ps t` naming one mode
-            // gets the same answer.
+            // which sent back sets the wrong modes: a departure not
+            // followed. A `> Ps t` naming one mode gets the same answer.
             StatusTarget::TitleModes => {
                 s.push(b"1$r>");
                 for (i, m) in self.strs.title_modes.set().enumerate() {
@@ -643,8 +637,7 @@ impl Status {
     /// `2` ECMA-48 5.4.2 reads as a parameter of its own. neovim reads
     /// truecolor from this answer and from no other spelling of ours
     /// (`[[source: neovim-core-defaults-lua]]` 1040-1076). An index is
-    /// `5:n` below 16 too, a single spelling for every entry (Jev's lean
-    /// COLON_5, below the bar).
+    /// `5:n` below 16 too, a single spelling for every entry.
     fn colour(&mut self, c: ColorWord, base: WireByte) {
         if let Some((r, g, b)) = c.as_rgb() {
             self.dec(base);

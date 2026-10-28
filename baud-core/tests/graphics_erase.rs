@@ -4,9 +4,7 @@
 //! in one bitmap, so a character position the terminal erases, or redraws
 //! with a shifted character, shows no graphic pixel afterwards, and lines
 //! a band moves take their pixels with them (vt340test,
-//! `[[source: vt340test-faketextcolor]]`). Jev decided the erases at 0.94
-//! and 0.91 (PIXELS) and the lines at 1.00 and 1.00 (MOVE); the shifts
-//! (CLEAR) and the selective erases (ERASED_POSITIONS) are its leans.
+//! `[[source: vt340test-faketextcolor]]`).
 //!
 //! Cells are 10 by 20 pixels throughout.
 
@@ -101,8 +99,8 @@ fn each_erase_clears_the_sixel_in_its_positions() {
 /// **A character shifted into a position clears it**: ICH, DCH and IRM's
 /// gap clear the line from the cursor to the right margin, as the VT340
 /// was seen to ("Colors are removed from the line when text is shifted
-/// left by Esc [ P"; Jev's lean, CLEAR). DECIC and DECDC leave the image
-/// where it is (`decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is`).
+/// left by Esc [ P"). DECIC and DECDC leave the image where it is
+/// (`decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is`).
 #[test]
 fn a_shift_of_characters_clears_the_sixel_from_the_cursor() {
     let cases: &[(&[u8], [&str; 2], &str)] = &[
@@ -119,11 +117,10 @@ fn a_shift_of_characters_clears_the_sixel_from_the_cursor() {
 /// **A selective erase clears the positions it erases and no others**: an
 /// occupied unprotected position, which becomes a space. DECSCA protects a
 /// character, and the position it keeps keeps what is drawn over it; "Unoccupied
-/// character positions are not affected" (DECSERA, `[[source:
-/// dec-std-070]]` p. 5-172), and keep it too (Jev's lean, ERASED_POSITIONS).
-/// The text is written before the Sixel, since text written over a Sixel
-/// frees it: a protected `A`, then `BC`, on the first row, `xy` on the
-/// second.
+/// character positions are not affected" (DECSERA, `[[source: dec-std-070]]` p.
+/// 5-172), and keep it too. The text is written before the Sixel, since text
+/// written over a Sixel frees it: a protected `A`, then `BC`, on the first row,
+/// `xy` on the second.
 #[test]
 fn a_selective_erase_clears_only_the_positions_it_erases() {
     let text: &[u8] = b"\x1b[1\"qA\x1b[0\"qBC\x1b[2;1Hxy\x1b[H";
@@ -244,7 +241,7 @@ fn a_selective_erase_spares_the_page_over_a_protected_position() {
 /// **Lines a band moves take the page's pixels with them**: DL and IL
 /// shift the rows from the cursor's line to the region's bottom, and a
 /// scroll inside a region its rows, the rows brought in blank cleared and
-/// the rest of the page where it was (Jev, MOVE, 1.00 and 1.00).
+/// the rest of the page where it was.
 #[test]
 fn the_lines_a_band_moves_take_the_page_with_them() {
     let row = |px: &[u32], w: usize, y: usize| px[y * w..(y + 1) * w].to_vec();
@@ -337,8 +334,8 @@ fn the_lines_a_band_moves_take_the_page_with_them() {
 /// **IRM's gap clears the page from the cursor to the margin**: a
 /// character written under insert mode shifts the line's tail right, so
 /// every position from the cursor on is a shifted character's or blank,
-/// and loses what was drawn over it (Jev's lean, CLEAR). Under replace
-/// mode, the control, only the position written loses it.
+/// and loses what was drawn over it. Under replace mode, the control,
+/// only the position written loses it.
 #[test]
 fn irm_s_gap_clears_the_page_from_the_cursor() {
     term_run(FILL, |t| {

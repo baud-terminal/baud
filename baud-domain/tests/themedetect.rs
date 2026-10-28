@@ -158,9 +158,9 @@ fn mixed_files_name_both_lines() {
     ));
 }
 
-/// tinted's slots in `key = value` syntax are refused (Jev, O10); foot's
-/// keys outside a section are `[main]`'s (`[[source: foot-2705e36-foot-ini-5]]`
-/// 9-11); foot's old `[colors]` is named as removed.
+/// tinted's slots in `key = value` syntax are refused; foot's keys outside a
+/// section are `[main]`'s (`[[source: foot-2705e36-foot-ini-5]]` 9-11); foot's
+/// old `[colors]` is named as removed.
 #[test]
 fn shapes_no_format_reads_are_named() {
     assert!(matches!(

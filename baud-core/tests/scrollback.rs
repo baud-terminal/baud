@@ -2512,15 +2512,15 @@ fn growing_past_the_history_shows_blank_rows() {
     });
 }
 
-/// **A cut row comes back when it holds a written character** (note V, V9,
-/// the owner's B): a space counts and colour alone does not. The height
-/// rule reveals the cut rows "as far as the last one that holds anything"
-/// and pulls history after -- the owner's "pull down to the bottom, and
-/// blank-fill only when nothing is left to pull" -- and until 2026-10-20 it
-/// asked a cut row whether it held anything by reading its mark, which says
-/// where a row stops being uniform: a run of blanks erased in a foreground
-/// colour counted, and a row erased whole in a background did not. It now
-/// asks the test the prompt's retreat asks (`View::ring_row_holds`).
+/// **A cut row comes back when it holds a written character** (note V, V9):
+/// a space counts and colour alone does not. The height rule reveals the
+/// cut rows "as far as the last one that holds anything" and pulls history
+/// after -- "pull down to the bottom, and blank-fill only when nothing is
+/// left to pull" -- and until 2026-10-20 it asked a cut row whether it held
+/// anything by reading its mark, which says where a row stops being
+/// uniform: a run of blanks erased in a foreground colour counted, and a
+/// row erased whole in a background did not. It now asks the test the
+/// prompt's retreat asks (`View::ring_row_holds`).
 ///
 /// Sixty numbered lines on the corpus screen (eleven in the history), the
 /// rows below row 25 reshaped by `cut`, the cursor on row 20, a shrink to 25
@@ -2628,19 +2628,17 @@ fn a_cut_row_in_a_colour_alone_is_not_content() {
     });
 }
 
-/// **A band past the old edge is not content after a width growth**,
-/// the owner's live drag at steps 641 to 654, in miniature. At a prompt the
+/// **A band past the old edge is not content after a width growth**, a
+/// recorded live drag at steps 641 to 654, in miniature. At a prompt the
 /// shell erases to the line's end in a foreground-only rendition while the
 /// screen is 36 wide, then erases the row from column 0 at 22 columns. That
 /// erase is the line being cleared, so it clears the band past the edge
-/// too (the record, "An erase taken while narrow clears what the line held
-/// past the edge"); before, it left the band there under a mark of zero,
-/// and a width growth to 27 raised the mark over it, so the height growth
-/// after it revealed a row holding no character where without the width
-/// growth it pulled a history line. Now the row holds nothing either way
-/// and both pull the line, which is the outcome V9's recommendation, the
-/// owner's answer, gives this case: a written character counts and colour
-/// alone does not (note V).
+/// too; before, it left the band there under a mark of zero, and a width
+/// growth to 27 raised the mark over it, so the height growth after it
+/// revealed a row holding no character where without the width growth it
+/// pulled a history line. Now the row holds nothing either way and both
+/// pull the line, which is the outcome V9's recommendation gives this case:
+/// a written character counts and colour alone does not (note V).
 #[test]
 fn a_band_past_the_old_edge_is_not_content_after_a_width_growth() {
     fn band(widen: bool) -> (usize, String, String) {

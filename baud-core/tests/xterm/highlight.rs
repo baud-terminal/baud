@@ -23,9 +23,8 @@
 //! parameter": 9, 1000, **1001**, 1002 and 1003. So `?1001` is a tracking
 //! level, as `?1000` is, and not a flag beside one.
 //!
-//! What xterm does that the text does not say, and baud does not do, is
-//! recorded in the record ("`?1001` highlight tracking is built to the
-//! text") with the questions it leaves for Jev.
+//! What xterm does that the text does not say, and baud does not do,
+//! leaves questions open.
 
 use crate::support;
 use baud_core::*;
@@ -271,10 +270,10 @@ fn a_tracked_release_reports_the_region_in_the_long_form() {
     });
 }
 
-/// **The short form when the start and end are the same location**: `CSI t
-/// CxCy`, one position. The plain reading of "if the start and end
-/// coordinates are the same locations"; xterm's own test differs, and the
-/// difference is Jev's question (the record).
+/// **The short form when the start and end are the same location**:
+/// `CSI t CxCy`, one position. The plain reading of "if the start and end
+/// coordinates are the same locations"; xterm's own test differs, an open
+/// question.
 #[test]
 fn a_release_where_it_started_reports_the_short_form() {
     with(ON, |t| {

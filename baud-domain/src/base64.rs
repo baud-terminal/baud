@@ -163,9 +163,8 @@ impl Base64 {
     /// `View::put_ascii_run`, the two functions `cat`'s ingest calls, and
     /// `ingest2` read `cat` 8% slower with none of the clipboard code run;
     /// base's code with this one function added, called once off the ingest
-    /// path, read the same 8%. Inlined, the five recordings overlap base
-    /// (`docs/record.md`, "OSC 52 writes reach the pasteboard", which also
-    /// records the `multibench` cost this does not remove). Its one caller in
+    /// path, read the same 8%. Inlined, the five recordings overlap base; a
+    /// `multibench` cost remains that this does not remove. Its one caller in
     /// the core is a cold function, which is where the code belongs.
     #[inline(always)]
     pub fn push(&mut self, b: u8) -> Base64Step {
@@ -214,12 +213,11 @@ impl Base64 {
     /// A read's worth of the encoded data, decoded into `out` from its start.
     ///
     /// **Any length, because a chunk is not a quantum.** kitty's text asks a
-    /// client for chunks that are multiples of four but the last, and Jev
-    /// decided (2026-10-15, note V's V19) that baud takes chunks of any
-    /// length; a `read(2)` boundary falls anywhere regardless. So a quantum
-    /// may start in one feed and end in the next, held in the same carry
-    /// [`Self::push`] keeps, and the octets are the same wherever the reads
-    /// were cut.
+    /// client for chunks that are multiples of four but the last, and baud
+    /// takes chunks of any length (note V, V19); a `read(2)` boundary falls
+    /// anywhere regardless. So a quantum may start in one feed and end in
+    /// the next, held in the same carry [`Self::push`] keeps, and the octets
+    /// are the same wherever the reads were cut.
     ///
     /// Stops early, `read` short of `input`, only when the next character
     /// would complete a quantum whose octets do not fit in `out`: the caller

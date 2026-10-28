@@ -866,8 +866,7 @@ fn latin1_input_is_encoded_as_latin1() {
 /// send, which are baud's navigation keys; a digit is `SS3 p`-`SS3 y` and
 /// `.` `SS3 n`, xterm's `kypd_apl` (`[[source: xterm-input-c]]` 1390-1396),
 /// as iTerm2, foot (`[[source: foot-keymap-h-1-21]]`) and ghostty
-/// (`[[source: ghostty-d9840f3-function-keys]]`) send them (Jev, VT220_SS3,
-/// 0.94/0.94).
+/// (`[[source: ghostty-d9840f3-function-keys]]`) send them.
 ///
 /// `SP` and `TAB` are the specification's names for two bytes; every other
 /// cell is literal.
@@ -1035,12 +1034,13 @@ fn the_keypad_digits_send_the_vt220_rows_where_the_tables_part() {
 /// **A modified keypad key under DECKPAM is its `SS3` row with the
 /// modifier as a parameter**, `SS3 <modifier> <final>`, as xterm sends it
 /// (`MODIFIER_PARM`, `[[source: xterm-input-c]]` 1390-1396) and foot
-/// (`[[source: foot-keymap-h-1-21]]`), ghostty (`[[source:
-/// ghostty-d9840f3-function-keys]]`) and iTerm2 do: Control-keypad-2 is
-/// `ESC O 5 r`, and was `CSI 1 ; 5 B`, the cursor key's form. ctlseqs gives the keypad no
-/// modifier form and Jev split on it; built by the standing rule. NumLock
-/// is no modifier here, and under `?1035` still sends the digit; VT52 takes
-/// no parameter, as xterm's `allowModifierParm` needs `vtXX_level != 0`.
+/// (`[[source: foot-keymap-h-1-21]]`), ghostty
+/// (`[[source: ghostty-d9840f3-function-keys]]`) and iTerm2 do:
+/// Control-keypad-2 is `ESC O 5 r`, and was `CSI 1 ; 5 B`, the cursor
+/// key's form. ctlseqs gives the keypad no modifier form; built as the
+/// other terminals have it. NumLock is no modifier here, and under
+/// `?1035` still sends the digit; VT52 takes no parameter, as xterm's
+/// `allowModifierParm` needs `vtXX_level != 0`.
 #[test]
 fn a_modified_keypad_key_under_deckpam_carries_its_modifier() {
     let deckpam: &[u8] = b"\x1b=";

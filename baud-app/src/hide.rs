@@ -22,9 +22,7 @@
 //! mouse, or clicks one of its buttons" (`[[source: xterm-man]]`,
 //! `pointerMode`). xterm's own `xevents` departs from that text: it passes
 //! `ButtonPress` and `ButtonRelease` by, so a click without motion leaves
-//! xterm's pointer hidden. The text is followed; Jev, asked twice in both
-//! orders, gave no decision for the departure (PRESS_SHOWS at 0.26 and
-//! 0.50, then PRESS_KEEPS at 0.24 and PRESS_SHOWS at 0.10).
+//! xterm's pointer hidden. The text is followed.
 //!
 //! **A key that sends bytes**, not every key: "hide the pointer cursor as
 //! the user types" (`[[source: ctlseqs]]`). xterm hides at the end of every

@@ -17,9 +17,8 @@
 //!
 //! Every expected pixel is computed here from the text's rules, never by
 //! the renderer's own geometry: the box, the aspect rounded to the nearest
-//! pixel, centred in the box when both counts are given (Jev, CENTRED,
-//! decisions.jsonl lines 626-627), and each drawn pixel the source texel
-//! under its centre (nearest).
+//! pixel, centred in the box when both counts are given, and each drawn
+//! pixel the source texel under its centre (nearest).
 
 mod support;
 
@@ -614,11 +613,10 @@ fn below_half_int32_min_the_order_is_still_z_then_the_lower_id() {
     assert_eq!(on_top((1, EDGE), (2, DEEP)), texel(0, 0), "the edge over");
 }
 
-/// The reading of two forks the text does not settle, Jev's NON_DEFAULT
-/// (1.00 and 1.00): a block cursor's cell and a selected cell draw a
-/// background that is not the default one, so a deep image goes under them,
-/// as kitty's `compute_background` makes them "special"
-/// (`[[source: kitty-background-slang]]`).
+/// The reading of two forks the text does not settle: a block cursor's cell
+/// and a selected cell draw a background that is not the default one, so a
+/// deep image goes under them, as kitty's `compute_background` makes them
+/// "special" (`[[source: kitty-background-slang]]`).
 #[test]
 fn a_deep_image_goes_under_the_block_cursor_and_the_selection() {
     // The cursor on the default-backed block, the third cell; the
@@ -756,9 +754,8 @@ fn deep_hidden(text: &str) -> (usize, usize) {
 /// colors": a cell is default when the colour its background is drawn in is
 /// the default background, so `SGR 7` on default colours and every cell
 /// under `?5` are not, as kitty compares the drawn colour
-/// (`[[source: kitty-background-slang]]`; Jev's DRAWN_COLOUR, 1.00 and
-/// 0.98); and a default-word cell is drawn in the default's colour
-/// whatever `OSC 11` makes it, so it stays default.
+/// (`[[source: kitty-background-slang]]`); and a default-word cell is drawn
+/// in the default's colour whatever `OSC 11` makes it, so it stays default.
 #[test]
 fn the_default_background_is_the_drawn_one_and_survives_osc_11() {
     let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[7m    \x1b[0m");
@@ -856,9 +853,9 @@ fn transmit_alpha(t: &mut Term, id: u32, alpha: u8) {
 const DEFAULT: [Deep; 4] = [Deep::Texel; 4];
 const RED_SET: [Deep; 4] = [Deep::Plain, Deep::Plain, Deep::Texel, Deep::Texel];
 
-/// **The owner's pick, "Compare the colour" (2026-10-16)**: a cell is
-/// default when the colour its background is drawn in equals the default
-/// background's colour, as kitty's `cell_has_default_bg` compares it
+/// **Compare the colour**: a cell is default when the colour its
+/// background is drawn in equals the default background's colour, as
+/// kitty's `cell_has_default_bg` compares it
 /// (`[[source: kitty-background-slang]]`), and not when it carries the
 /// default colour word. So an explicit colour, 24-bit or a palette entry,
 /// whose value is the default's shows a deep image; and under one exchange
@@ -976,15 +973,15 @@ fn osc_11_moves_a_deep_image_under_explicit_cells_on_incremental_frames() {
     );
 }
 
-/// **The owner's pick, "Picture shows dimmed" (2026-10-16)**: on the
-/// translucent window a coloured cell's background is composited over a
-/// deep image at its own alpha, as it is over the desktop where there is
-/// no image, as kitty blends the non-default backgrounds over the images
-/// below them (`[[source: kitty-cell-slang]]`). So the image shows tinted
-/// through the coloured cells, fully through the default ones; where the
-/// image is clear the coloured cell is the frame without the image, not
-/// its background twice; and an opaque coloured cell -- `[glass]
-/// app_backgrounds = "opaque"` -- is its background, as before.
+/// **The picture shows dimmed**: on the translucent window a coloured
+/// cell's background is composited over a deep image at its own alpha, as
+/// it is over the desktop where there is no image, as kitty blends the
+/// non-default backgrounds over the images below them
+/// (`[[source: kitty-cell-slang]]`). So the image shows tinted through
+/// the coloured cells, fully through the default ones; where the image is
+/// clear the coloured cell is the frame without the image, not its
+/// background twice; and an opaque coloured cell --
+/// `[glass] app_backgrounds = "opaque"` -- is its background, as before.
 #[test]
 fn on_the_glass_a_coloured_cell_is_blended_over_a_deep_image() {
     let dimmed = Theme {

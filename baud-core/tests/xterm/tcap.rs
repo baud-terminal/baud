@@ -69,7 +69,7 @@ fn xtgettcap_answers_a_key_as_it_would_be_sent_now() {
 
 /// **`kcbt` is what Shift-Tab sends**: `CSI Z`, and at `modifyOtherKeys`
 /// level 2 `CSI 27 ; 2 ; 9 ~`, as ctlseqs' description of the level gives
-/// it (Jev, LIVE, 0.98/0.94).
+/// it.
 #[test]
 fn xtgettcap_back_tab_follows_modify_other_keys() {
     support::with_corpus(|t| {
@@ -161,8 +161,8 @@ fn neovims_truecolor_query_is_refused_at_tc() {
     });
 }
 
-/// **One response, ending at the first name refused** (Jev, R1,
-/// 0.90/0.92): what came before it is answered, and nothing after it.
+/// **One response, ending at the first name refused**: what
+/// came before it is answered, and nothing after it.
 #[test]
 fn xtgettcap_answers_a_list_in_one_response_up_to_a_refused_name() {
     support::with_corpus(|t| {

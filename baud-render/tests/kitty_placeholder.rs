@@ -343,7 +343,7 @@ fn the_third_diacritic_is_the_ids_top_byte() {
 
 /// **A placeholder with nothing to show draws its background**: the
 /// character and its diacritics are never drawn (kitty's blank font,
-/// `[[source: kitty-fonts-c]]`; Jev's interim BLANK), with no virtual
+/// `[[source: kitty-fonts-c]]`; the interim blank), with no virtual
 /// placement, no image, or the default foreground's id 0.
 #[test]
 fn a_placeholder_with_nothing_to_show_draws_its_background() {
@@ -626,13 +626,12 @@ fn the_leaving_row_places_the_strip_it_placed_on_screen() {
 }
 
 /// **On a line that is not single-width a placeholder is drawn as the
-/// character it is** (`[[source: dec-std-070]]` § 5.6.1; Jev 2026-10-19,
-/// AS_TEXT): its part of the image fills the box its character takes, twice
-/// as wide on a double-width line, and twice as wide and tall on a
-/// double-height pair, each row its half. The image is two cells by one at
-/// the cell's own size, so the single-width strip is the image texel for
-/// texel, and each sized strip is it with every texel drawn twice across
-/// (and twice down on the pair).
+/// character it is** (`[[source: dec-std-070]]` § 5.6.1): its part of the
+/// image fills the box its character takes, twice as wide on a double-width
+/// line, and twice as wide and tall on a double-height pair, each row its
+/// half. The image is two cells by one at the cell's own size, so the
+/// single-width strip is the image texel for texel, and each sized strip is
+/// it with every texel drawn twice across (and twice down on the pair).
 #[test]
 fn a_placeholder_on_a_sized_line_is_drawn_as_its_character() {
     let (cw, ch) = draw(|_| {}).cell;

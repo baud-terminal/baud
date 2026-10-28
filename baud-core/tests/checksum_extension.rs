@@ -78,8 +78,8 @@ fn bit_2_counts_an_unwritten_cell_as_a_space() {
 /// **Bit 3, "omit checksum for cells not explicitly initialized"**, as
 /// ctlseqs says: with bit 2 the unwritten cells are left out again and a
 /// written space still counts. xterm's code reads bit 3 the other way,
-/// "do not skip uninitialized cells" (Jev's lean, TEXT). Alone it changes
-/// nothing, since the default already omits them.
+/// "do not skip uninitialized cells". Alone it changes nothing, since the
+/// default already omits them.
 #[test]
 fn bit_3_omits_unwritten_cells_even_under_bit_2() {
     assert_eq!(sum("\x1b[12#yA ", 3), neg(0x41 + 0x20));
@@ -89,8 +89,7 @@ fn bit_3_omits_unwritten_cells_even_under_bit_2() {
 /// **Bit 4, "do not mask cell value to 8 bits"**: a wide character counts
 /// its code point, where the default counts 0x1B, and a line-drawing cell
 /// its Unicode value, where the default counts the byte received. U+FFFD
-/// counts as itself, where xterm's `is_UCS_SPECIAL` skips it (Jev's lean,
-/// COUNT).
+/// counts as itself, where xterm's `is_UCS_SPECIAL` skips it.
 #[test]
 fn bit_4_counts_whole_code_points() {
     assert_eq!(sum("中", 2), neg(0x1b));
@@ -115,7 +114,7 @@ fn bit_4_weights_wrap_at_sixteen_bits() {
 }
 
 /// **Combining marks count under bit 2 and not under bit 4**, as xterm's
-/// code adds them (Jev, CODE, 0.94/0.98); the default leaves them out.
+/// code adds them; the default leaves them out.
 #[test]
 fn marks_count_under_bit_2_and_not_bit_4() {
     let e = "e\u{301}";
@@ -125,7 +124,7 @@ fn marks_count_under_bit_2_and_not_bit_4() {
 }
 
 /// **A bare `Ps` is 0, and bits above 4 are ignored**, as xterm's code
-/// reads only bits 0 to 4 (Jev's lean, IGNORE_HIGH).
+/// reads only bits 0 to 4.
 #[test]
 fn a_bare_ps_is_0_and_high_bits_are_ignored() {
     assert_eq!(sum("\x1b[1#y\x1b[#yA", 1), neg(0x41));
@@ -142,8 +141,8 @@ fn both_resets_restore_the_default() {
     assert_eq!(sum("\x1b[1#y\x1b[!pA", 1), neg(0x41));
 }
 
-/// **Below Level 4 it is ignored and counted**, xterm's `vtXX_level >= 4`
-/// (Jev's lean, GATE), and so is the request: DECRQCRA is "Level: 4"
+/// **Below Level 4 it is ignored and counted**, xterm's
+/// `vtXX_level >= 4`, and so is the request: DECRQCRA is "Level: 4"
 /// (`[[source: dec-std-070]]` p. 5-179), so at Level 3 it gets no answer.
 #[test]
 fn below_level_4_it_is_ignored_and_counted() {
@@ -158,8 +157,8 @@ fn below_level_4_it_is_ignored_and_counted() {
 }
 
 /// **With the checksum off it is still honoured**, as xterm gates
-/// `SetChecksum` apart from `GetChecksum` (Jev's lean, ALWAYS): no reply
-/// then, and the sum it chose once the checksum is on.
+/// `SetChecksum` apart from `GetChecksum`: no reply then, and the sum it
+/// chose once the checksum is on.
 #[test]
 fn with_the_checksum_off_it_is_honoured_and_nothing_is_answered() {
     let (s, dropped) = sum_with("\x1b[1#yA", 1, |t| {

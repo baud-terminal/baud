@@ -29,7 +29,7 @@ use std::time::Duration;
 /// milliseconds between multi-click select events. The default is 250
 /// milliseconds" (`[[source: xterm-man]]`). For a driver whose system says
 /// no interval of its own -- AppKit counts its clicks itself, the Linux
-/// driver reads no desktop setting. Jev, XTERM_250, 1.00 and 0.98.
+/// driver reads no desktop setting.
 pub(crate) const MULTI_CLICK: Duration = Duration::from_millis(250);
 
 /// How many clicks a press makes: one, two for a word, three for a line.
@@ -551,7 +551,7 @@ impl Seat {
         // gesture**, before the child's tracking, as Cmd is on macOS, so a
         // child never sees a release without its press (`link::gesture`;
         // gnome-terminal's chord, `[[source: gnome-terminal-screen]]`
-        // 2010-2022; Jev's lean, CTRL, 0.52/0.78, over kitty's Ctrl+Shift).
+        // 2010-2022; rather than kitty's Ctrl+Shift).
         if let Some(owed) = self.link(term, e, kind, button, mods, g) {
             return owed;
         }
@@ -717,9 +717,9 @@ impl Seat {
         }
     }
 
-    /// The wheel: whole lines of `delta`, one line a detent -- Jev's lean,
-    /// ONE, 0.14 and 0.27, the protocol's logical step taken as a line, as
-    /// AppKit's line is on macOS -- routed as the macOS app routes them.
+    /// The wheel: whole lines of `delta`, one line a detent -- the
+    /// protocol's logical step taken as a line, as AppKit's line is on
+    /// macOS -- routed as the macOS app routes them.
     fn wheel(
         &mut self,
         term: &mut Term<'_>,

@@ -4,21 +4,20 @@
 //! **The string being written is in the rendition being built**
 //! ([`baud_domain::StyleWord::string`]), so every character written takes
 //! it, and a string's entry in [`Strings`] names the string around it: the
-//! rendition's identifier is the whole stack of open strings, an end
-//! puts back its enclosing one, and the status line, whose rendition is
-//! parked apart, keeps strings of its own. `SGR 0` leaves the string, as
-//! it leaves SAPV's variants, being no `SGR`; `DECSC` and `DECRC`,
+//! rendition's identifier is the whole stack of open strings, an end puts
+//! back its enclosing one, and the status line, whose rendition is parked
+//! apart, keeps strings of its own. `SGR 0` leaves the string, as it
+//! leaves SAPV's variants, being no `SGR`; `DECSC` and `DECRC`,
 //! `XTPUSHSGR` and `XTPOPSGR` keep the string open now; `DECSTR` and `RIS`
-//! end every string (Jev's lean, CLOSE, 0.26/0.46 then 0.82/0.86), the
-//! characters written keeping theirs.
+//! end every string, the characters written keeping theirs.
 //!
 //! **An end ends only a string of its kind**: SDS 0 a directed string and
-//! SRS 0 a reversed one (Jev's lean, MATCH_KIND); a mismatched end, and an
-//! end with no string open, end nothing and are counted
-//! ([`Term::strings_refused`]). A string past [`STRING_DEPTH`] deep, or
-//! one the table has no room for once its unnamed strings are freed, is
-//! refused and counted, its characters written in the string around it,
-//! and its end, matched to it, ends nothing more.
+//! SRS 0 a reversed one; a mismatched end, and an end with no string open,
+//! end nothing and are counted ([`Term::strings_refused`]). A string past
+//! [`STRING_DEPTH`] deep, or one the table has no room for once its
+//! unnamed strings are freed, is refused and counted, its characters
+//! written in the string around it, and its end, matched to it, ends
+//! nothing more.
 //!
 //! **What it costs a program that never sends one: nothing on the text
 //! path.** The string rides in the rendition, which the write path does

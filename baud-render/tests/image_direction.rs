@@ -1,13 +1,13 @@
 //! **A picture after a Hebrew caption sits after it**: on a row drawn right
 //! to left a picture's box is placed mirrored, `cols - (col + w)` from the
 //! left, by the direction of the row it is anchored on, and its pixels are
-//! not flipped (Jev MIRROR_BY_ANCHOR_ROW, 0.97/0.98) -- terminal-wg's
-//! "images must not be flipped by default in RTL mode ... In paragraphs of
-//! RTL direction, the overall layout should be the mirrored version of the
-//! LTR one by default" (`[[source: terminal-wg-bidi-misc]]`), the anchor
-//! being where the picture is in the text, UAX #9 3.2's object
-//! (`[[source: uax9-bidi]]`). kitty's placeholders are characters, so a
-//! strip is placed over its run's cells where the order draws them.
+//! not flipped -- terminal-wg's "images must not be flipped by default in
+//! RTL mode ... In paragraphs of RTL direction, the overall layout should
+//! be the mirrored version of the LTR one by default"
+//! (`[[source: terminal-wg-bidi-misc]]`), the anchor being where the
+//! picture is in the text, UAX #9 3.2's object (`[[source: uax9-bidi]]`).
+//! kitty's placeholders are characters, so a strip is placed over its run's
+//! cells where the order draws them.
 
 mod support;
 

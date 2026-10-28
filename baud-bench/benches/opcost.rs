@@ -1,12 +1,12 @@
 //! **What one character shape costs, rebuilt for `baud-core`.**
 //!
-//! `CLAUDE.md` carries a table of per-shape figures -- a wide CJK character at
-//! 1.3 ns, a ZWJ family at 52.2, a kana-plus-mark pair at 20.6 -- and says of
-//! them: "**the binary is gone**, deleted with `baud-core2`, whose `Storage` and
-//! `OpMode` it drove ... They are kept because the *ordering* is what they were
-//! ever good for ... A replacement would be a `baud-core` harness that times one
-//! shape in a loop, and it should be written before any of those numbers is
-//! quoted as current."
+//! The contributor notes once carried a table of per-shape figures -- a wide CJK
+//! character at 1.3 ns, a ZWJ family at 52.2, a kana-plus-mark pair at 20.6 --
+//! and says of them: "**the binary is gone**, deleted with `baud-core2`, whose
+//! `Storage` and `OpMode` it drove ... They are kept because the *ordering* is
+//! what they were ever good for ... A replacement would be a `baud-core` harness
+//! that times one shape in a loop, and it should be written before any of those
+//! numbers is quoted as current."
 //!
 //! This is that harness. The old figures are `baud-core2`'s and are not
 //! comparable to these; what carries across is the question -- **which shapes

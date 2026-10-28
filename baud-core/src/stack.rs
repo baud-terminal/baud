@@ -55,9 +55,9 @@ impl Paint<'_, '_> {
     /// to the current entry and the entry moves up one, refused at ten; 1
     /// to 10 stores it into that palette "without pushing", the entry left
     /// where it is, as the title stack's direct slots are. xterm makes it
-    /// the current entry; Jev's lean for that, XTERM, was 0.58/0.50, below
-    /// the 0.9 a departure needs, so the text is built. One past 10, or a
-    /// push of a full stack, changes nothing and is counted.
+    /// the current entry, a departure from the text, which is built here.
+    /// One past 10, or a push of a full stack, changes nothing and is
+    /// counted.
     fn push_colors(&mut self, slot: Slot) {
         let used = self.strs.colors.used.0;
         let (at, next) = match slot {

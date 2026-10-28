@@ -73,8 +73,7 @@ fn each_value_sets_when_a_key_hides_the_pointer() {
 
 /// **A value past 3 is refused and counted, and changes nothing.** ctlseqs
 /// lists 0-3 as the "Valid values for the parameter"; xterm's
-/// `CASE_HIDE_POINTER` stores any value, where its neighbours range-check
-/// (Jev, IGNORE, 0.96/0.92).
+/// `CASE_HIDE_POINTER` stores any value, where its neighbours range-check.
 #[test]
 fn a_value_past_three_is_refused_and_counted() {
     support::with_corpus(|t| {

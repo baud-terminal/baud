@@ -2,37 +2,34 @@
 //! styles -- JetBrains Mono, with baud's own Hebrew in every style --
 //! Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized to one cell
 //! -- behind them, and STIX Two Math last, for the symbols no other default
-//! face has (the owner's call, 2026-10-02). So a machine with no font
-//! configured still draws JetBrains Mono, its ligatures, real bold and
-//! italic, Hebrew, and the icons. The owner's choice, 2026-09-29: the plain
-//! styles plus the icon face rather than four patched Nerd Font files, which
-//! carry the same ~10,600 icons again in every style.
+//! face has. So a machine with no font configured still draws JetBrains
+//! Mono, its ligatures, real bold and italic, Hebrew, and the icons. The
+//! plain styles plus the icon face, rather than four patched Nerd Font
+//! files, which carry the same ~10,600 icons again in every style.
 //!
 //! The Regular and Bold are `fonts/built/Regular.ttf` and `Bold.ttf`:
 //! JetBrains Mono v2.304's Regular and Bold with the Hebrew added -- the
 //! letters drawn from Cascadia Mono's Hebrew, the points redrawn on JetBrains
 //! Mono's dot, and the rest of the block and the new sheqel sign baud's own
-//! -- and every stock glyph, advance, mapping and GSUB
-//! byte kept (`the_built_font_keeps_jetbrains_mono`), save one script
-//! record: GSUB and GPOS each name DFLT's Script under `hebr` too, and
-//! nameID 7 carries Cascadia's trademark notice after JetBrains Mono's
+//! -- and every stock glyph, advance, mapping and GSUB byte kept
+//! (`the_built_font_keeps_jetbrains_mono`), save one script record: GSUB and
+//! GPOS each name DFLT's Script under `hebr` too, and nameID 7 carries
+//! Cascadia's trademark notice after JetBrains Mono's
 //! (`the_built_font_carries_hebr_and_both_trademark_notices`).
 //! `scripts/build-fonts.sh` builds them from `fonts/jetbrains-mono/` and
 //! `fonts/glyphs/languages/hebrew/` and refuses any bytes but these;
 //! `fonts/built/MANIFEST` pins how, and `fonts/built/FONTLOG.txt` says what
-//! changed, what was picked for the meantime and what is still the owner's.
-//! The Italic and Bold Italic are `fonts/built/Italic.ttf` and
-//! `BoldItalic.ttf`: JetBrains Mono v2.304's Italic and Bold Italic with the
-//! same code points added, the upright Hebrew leaning right 9 degrees
-//! with the Latin (the owner's call, 2026-10-24) and its rounds corrected as
-//! JetBrains Mono's own italic corrects them, in the built family's name, so
-//! the four are one family that a `fonts` name finds (Jev, N_SHARE,
-//! 0.92/0.96). Nerd Fonts v3.5.1's
-//! `SymbolsNerdFontMono-Regular.ttf` and STIX Two v2.13b171's
-//! `STIXTwoMath-Regular.otf` are unmodified. Each source directory's `SOURCE`
-//! records where its files came from, and the licences sit beside them and
-//! ship in the macOS app bundle (`scripts/bundle-macos.sh`); nothing packages
-//! them for Linux yet.
+//! changed, what was picked for the meantime and what is still open. The
+//! Italic and Bold Italic are `fonts/built/Italic.ttf` and `BoldItalic.ttf`:
+//! JetBrains Mono v2.304's Italic and Bold Italic with the same code points
+//! added, the upright Hebrew leaning right 9 degrees with the Latin and its
+//! rounds corrected as JetBrains Mono's own italic corrects them, in the
+//! built family's name, so the four are one family that a `fonts` name finds.
+//! Nerd Fonts v3.5.1's `SymbolsNerdFontMono-Regular.ttf` and STIX Two
+//! v2.13b171's `STIXTwoMath-Regular.otf` are unmodified. Each source
+//! directory's `SOURCE` records where its files came from, and the licences
+//! sit beside them and ship in the macOS app bundle
+//! (`scripts/bundle-macos.sh`); nothing packages them for Linux yet.
 
 /// A face compiled into the binary: its bytes, and a name for the log.
 #[derive(Clone, Copy)]
@@ -268,13 +265,13 @@ mod tests {
         .unwrap()
     }
 
-    /// **Every style maps the Hebrew it ships** -- the owner's boxes, read
-    /// at the font. Regular, Bold, Italic and Bold Italic each map all 135
-    /// code points, and nothing else in the Hebrew block but the 88 of them
-    /// there, which are all it assigns; the stock files they were
-    /// built from map none, the control that the Hebrew is the build's. So
-    /// italic Hebrew is drawn from the italic faces, not upright from the
-    /// chain.
+    /// **Every style maps the Hebrew it ships** -- the boxes Hebrew once
+    /// drew as, read at the font. Regular, Bold, Italic and Bold Italic
+    /// each map all 135 code points, and nothing else in the Hebrew block
+    /// but the 88 of them there, which are all it assigns; the stock files
+    /// they were built from map none, the control that the Hebrew is the
+    /// build's. So italic Hebrew is drawn from the italic faces, not
+    /// upright from the chain.
     #[test]
     fn every_style_maps_the_hebrew_it_ships() {
         let hebrew: Vec<Codepoint> = shipped()
@@ -348,13 +345,13 @@ mod tests {
         sxy / syy
     }
 
-    /// **Italic Hebrew leans right, with the Latin** -- the owner's call of
-    /// 2026-10-24 ("learn right R"). Every Hebrew letter of the Italic and
-    /// Bold Italic leans right of its upright by 9 degrees, JetBrains Mono
-    /// Italic's angle: its outline's slope, x on y, exceeds the Regular's or
-    /// the Bold's by 0.158, within 0.03. The control: JetBrains Mono's own
-    /// Latin in the same files leans by the same angle the same way (`l`,
-    /// `H`), so a Hebrew leaning left, or upright, fails beside it.
+    /// **Italic Hebrew leans right, with the Latin**. Every Hebrew letter of
+    /// the Italic and Bold Italic leans right of its upright by 9 degrees,
+    /// JetBrains Mono Italic's angle: its outline's slope, x on y, exceeds
+    /// the Regular's or the Bold's by 0.158, within 0.03. The control:
+    /// JetBrains Mono's own Latin in the same files leans by the same angle
+    /// the same way (`l`, `H`), so a Hebrew leaning left, or upright, fails
+    /// beside it.
     #[test]
     fn italic_hebrew_leans_right_with_the_latin() {
         let tan9 = 9.0_f64.to_radians().tan();
@@ -856,7 +853,7 @@ mod tests {
         }
     }
 
-    /// What the owner chose JetBrains Mono for: `=>` joined under the
+    /// What JetBrains Mono was chosen for: `=>` joined under the
     /// features baud shapes a grid with, in every style.
     #[test]
     fn every_style_forms_the_ligatures() {

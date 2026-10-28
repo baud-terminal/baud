@@ -83,12 +83,11 @@ def drain(fd: int, seconds: float) -> bytes:
 # **A burst is the shape the app produces and a per-size drain cannot.**
 # AppKit delivers several `setFrameSize:` callbacks between two display-link
 # ticks; each is a `TIOCSWINSZ` with nothing fed, and the shell's redraws
-# for all of them land together afterwards -- the first computed for a
-# width the screen has already left. `COLS x ROWS COLS x ROWS ...` on one
-# line is that: every size set back to back, then one drain, recorded as
-# zero-byte steps and one step with the bytes. `enter` writes a carriage
-# return and drains, so a fixture can carry what the owner does between
-# resizes.
+# for all of them land together afterwards -- the first computed for a width
+# the screen has already left. `COLS x ROWS COLS x ROWS ...` on one line is
+# that: every size set back to back, then one drain, recorded as zero-byte
+# steps and one step with the bytes. `enter` writes a carriage return and
+# drains, so a fixture can carry what a user does between resizes.
 Line = tuple[str, list[tuple[int, int]]]
 
 

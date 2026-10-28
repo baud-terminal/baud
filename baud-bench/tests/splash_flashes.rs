@@ -9,10 +9,10 @@
 //! trail census uses, `#CD0000` and `#1A0000`, so the verdict's area is
 //! zero. This window is small, 64 by 20 cells at 1x, for the debug suite;
 //! the model is not scale-free (an ion's radius and a filament's width
-//! have pixel floors), and the record gives the same count taken at 200 by
-//! 50 cells at 2x, at 60 and 120 frames a second. The control: the
-//! same logo shown and taken down every 125 ms, four times a second, does
-//! count more than three flashes at a pixel, so the census sees the logo.
+//! have pixel floors), and the same count was taken at 200 by 50 cells at
+//! 2x, at 60 and 120 frames a second. The control: the same logo shown and
+//! taken down every 125 ms, four times a second, does count more than
+//! three flashes at a pixel, so the census sees the logo.
 
 use baud_bench::flash::{Census, Flashes, Rate, Scale};
 use baud_core::{Owned, Term};

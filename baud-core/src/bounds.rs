@@ -1,6 +1,6 @@
 //! **SLH and SLL, `CSI Pn SP U` and `CSI Pn SP V`** (`[[source: ecma48]]`
 //! 8.3.122, 8.3.123): a line home and a line limit of their own, apart from
-//! DEC's margins (Jev, OWN_POSITIONS, 0.96/0.98).
+//! DEC's margins.
 //!
 //! The line home is "the position to which the active presentation position
 //! will be moved by subsequent occurrences of CARRIAGE RETURN (CR), DELETE
@@ -24,16 +24,14 @@
 //! both are set the inner bound holds: the home past the left margin, the
 //! limit short of the right. `CNL` and `CPL` go to "the first character
 //! position" (8.3.12, 8.3.13), DEC's line start, and `ICH` leaves the
-//! cursor (the `CSI @` row). Under DECRLM `CR` keeps DECRLM's right margin
-//! (Jev's lean, DECRLM_MARGIN, 0.74/0.88 then 0.46/0.42).
+//! cursor (the `CSI @` row). Under DECRLM `CR` keeps DECRLM's right
+//! margin.
 //!
-//! **A position past the line is its last column** (Jev split: CLAMPED
-//! 0.04/0.06 asked again, after IGNORED_COUNTED 0.10/0.18), and an omitted
-//! or zero `Pn`, which has no default, is counted and changes nothing. A
-//! resize keeps both, each acting as the line's last column while the line
-//! is narrower (Jev, KEPT_CLAMPED, 1.00/1.00). `RIS` forgets them; `DECSTR`
-//! keeps them, as no DEC or xterm soft reset names them (Jev, KEEP,
-//! 0.96/0.96).
+//! **A position past the line is its last column**, and an omitted or zero
+//! `Pn`, which has no default, is counted and changes nothing. A resize
+//! keeps both, each acting as the line's last column while the line is
+//! narrower. `RIS` forgets them; `DECSTR` keeps them, as no DEC or xterm
+//! soft reset names them.
 //!
 //! **What it costs while nothing sets them: nothing on the text path.**
 //! The writes the limit and the home change go a character at a time, the
@@ -107,17 +105,17 @@ impl Paint<'_, '_> {
         report_fence(self.line_fence(), self.cold, self.cols)
     }
 
-    /// **The column a forward move counts from**: the cursor's, or the
-    /// line limit where a wrap waits there, the active position a report
-    /// names (Jev, FROM_LIMIT, 0.92/0.96): 8.3.123 bounds only implicit
-    /// movement, DEC's Last Column Flag leaves "the Active Position" on
-    /// the last column (`[[source: dec-std-070]]` D.6.1) and its CUF and
-    /// HT algorithms add to that column, and xterm's `CursorForward` and
-    /// `TabNext` count from the cursor column, which stays there while the wrap
-    /// waits (`[[source: xterm-cursor-c]]` 211-241, `[[source:
-    /// xterm-tabs-c]]` 109-124). So `CUF`, `HT`, `CHT`, `CBT`, `HTS`,
-    /// `TBC 0` and HTJ count from the limit. `CUB` counts the wait as its
-    /// first step, as at a right margin, and `HPB` from the reported column.
+    /// **The column a forward move counts from**: the cursor's, or the line
+    /// limit where a wrap waits there, the active position a report names:
+    /// 8.3.123 bounds only implicit movement, DEC's Last Column Flag leaves
+    /// "the Active Position" on the last column (`[[source: dec-std-070]]`
+    /// D.6.1) and its CUF and HT algorithms add to that column, and xterm's
+    /// `CursorForward` and `TabNext` count from the cursor column, which stays
+    /// there while the wrap waits (`[[source: xterm-cursor-c]]` 211-241,
+    /// `[[source: xterm-tabs-c]]` 109-124). So `CUF`, `HT`, `CHT`, `CBT`,
+    /// `HTS`, `TBC 0` and HTJ count from the limit. `CUB` counts the wait as
+    /// its first step, as at a right margin, and `HPB` from the reported
+    /// column.
     pub(crate) fn moved_from(&self) -> Col {
         match self.cold.pinned == Pinned::AtLimit {
             true => self.cx.reported(self.report_fence(), self.cols),
@@ -248,9 +246,8 @@ impl Paint<'_, '_> {
         // waited on**, the cursor one back from the sentinel, as DECSWL,
         // DECDWL and DECDHL end one when a line's end changes (D.6.1;
         // `Paint::line_rendition`): an SLL elsewhere, or BDSM or DCSM
-        // making the limit bound nothing (Jev's lean, END_ON_POSITION, by
-        // mean probability 0.44 against END_AFTER's 0.30 and KEEP_WAIT's
-        // 0.27 on a second ask). An SLL naming the same position keeps it.
+        // making the limit bound nothing. An SLL naming the same position
+        // keeps it.
         if self.cold.pinned == Pinned::AtLimit {
             let waited = self.cx.raw().before();
             if self.cold.fence != waited {

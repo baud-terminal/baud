@@ -17,10 +17,8 @@
 //!
 //! **It is one entry short.** DEC replaces "ASCII codes 137 through 176"
 //! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; foot's table and baud's start
-//! at `0x60`. Which codepoint Blank stores is the owner's call, open in
-//! `docs/record.md`, "DEC Special Graphics begins at 0x5F, and what it stores
-//! there is the owner's call", so nothing here asserts what `0x5F` becomes, and
-//! nothing asserts that it stays `_` either.
+//! at `0x60`. Which codepoint Blank stores is an open question, so nothing here
+//! asserts what `0x5F` becomes, and nothing asserts that it stays `_` either.
 
 use crate::support;
 use baud_core::*;
@@ -490,16 +488,15 @@ fn single_byte_finals_survive_the_two_intermediate_path() {
 /// **The line-drawing table covers `0x60..0x7E`, and the set is one wider.**
 ///
 /// This said the set "differs from ASCII only in `0x60..0x7E`, so 31 entries is
-/// the complete mapping rather than a useful subset", and it asserted that `_`
-/// is untouched. `[[source: vt100-ug-ch3]]` replaces "ASCII codes 137 through
-/// 176" (octal), `0x5F..0x7E`, the first of them "Blank", and so do
-/// `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]`
-/// Table 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. `_` is out of
-/// the "outside" list below because asserting it there pinned a departure from
-/// every DEC text read as correct. What `0x5F` stores is the owner's call, open in
-/// `docs/record.md`, "DEC Special Graphics begins at 0x5F, and what it stores
-/// there is the owner's call"; the red test for it, on the bulk run, the
-/// per-byte path and VT52 `ESC F`, waits for that answer.
+/// the complete mapping rather than a useful subset", and it asserted that `_` is
+/// untouched. `[[source: vt100-ug-ch3]]` replaces "ASCII codes 137 through 176"
+/// (octal), `0x5F..0x7E`, the first of them "Blank", and so do
+/// `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]` Table
+/// 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. `_` is out of the
+/// "outside" list below because asserting it there pinned a departure from every
+/// DEC text read as correct. What `0x5F` stores is an open question; the red test
+/// for it, on the bulk run, the per-byte path and VT52 `ESC F`, waits for that
+/// answer.
 #[test]
 fn the_line_drawing_table_covers_the_whole_set() {
     for byte in 0x60u8..=0x7e {

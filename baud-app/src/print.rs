@@ -1,6 +1,5 @@
 //! A program's print jobs, from the core to the print panel: the policy,
-//! pure, so its tests run on every platform (the owner's call of 2026-10-20,
-//! "printing in through the macOS print panel"; note AW, section 1).
+//! pure, so its tests run on every platform (note AW, section 1).
 //!
 //! **The core is told there is a printer only where one can be offered**:
 //! on macOS with `[screen] printing` on and a printer listed, where DSR
@@ -15,18 +14,17 @@
 //! ([`Watch`]): on macOS a DSR `?15` stops the read (`PrinterHold::On`),
 //! the list is read on a thread of its own, and the answer goes from what
 //! it found before the rest of the read is parsed (`reads::paced`), as a
-//! port answers from its printer's state when asked (070-7 § 7.3.2; Jev's
-//! lean, HOLD, 0.92/0.89). It is read again at a focus gain, and while
-//! the indicator line shows the printer as often as 070-14's 80 ms for an
-//! indicator needs ([`indicator_every`]). Nothing reads it otherwise: each
-//! read launches the print system's daemon if it is not running.
+//! port answers from its printer's state when asked (070-7 § 7.3.2). It is
+//! read again at a focus gain, and while the indicator line shows the
+//! printer as often as 070-14's 80 ms for an indicator needs
+//! ([`indicator_every`]). Nothing reads it otherwise: each read launches
+//! the print system's daemon if it is not running.
 //!
 //! **At most one panel at a time; jobs that finish while one is up wait as
-//! one** (Jev's lean, MERGE, 0.02/0.06 then 0.48/0.30): each joins the
-//! waiting job on a new page, so however many finish while a panel is up,
-//! one panel follows it, and nothing is lost below [`WAITING_MAX`]; past
-//! it a job is dropped and counted. A program that goes on printing gets a
-//! panel each time the one before closes.
+//! one**: each joins the waiting job on a new page, so however many finish
+//! while a panel is up, one panel follows it, and nothing is lost below
+//! [`WAITING_MAX`]; past it a job is dropped and counted. A program that
+//! goes on printing gets a panel each time the one before closes.
 
 use crate::config::Printing;
 #[cfg(any(target_os = "macos", test))]
@@ -51,9 +49,8 @@ pub const BUDGET: PrintBudget = PrintBudget::of_bytes(2 << 20);
 
 #[cfg(any(target_os = "macos", test))]
 /// The most a waiting job holds: one full area, which a release build lays
-/// out in 63 ms off the main thread (534 ms at 16 MiB), the figures
-/// docs/record.md gives; the text views AppKit then builds on the main
-/// thread are unmeasured.
+/// out in 63 ms off the main thread (534 ms at 16 MiB); the text views
+/// AppKit then builds on the main thread are unmeasured.
 pub const WAITING_MAX: usize = 2 << 20;
 
 #[cfg(any(target_os = "macos", test))]
@@ -104,7 +101,7 @@ const INDICATOR_BOUND: std::time::Duration = std::time::Duration::from_millis(80
 
 #[cfg(any(target_os = "macos", test))]
 /// A `printerNames` with the print daemon running: 0.30-0.83 ms wall
-/// measured (docs/record.md), so a millisecond.
+/// measured, so a millisecond.
 const READ_WARM: std::time::Duration = std::time::Duration::from_millis(1);
 
 #[cfg(any(target_os = "macos", test))]

@@ -24,7 +24,7 @@ fn paths(t: &Term<'_>, back: Rows) -> Vec<CharacterPath> {
 
 /// **DECRQSS does not answer SCP**: no DEC or xterm text lists it among
 /// the controls DECRQSS reports, so it is answered as any other unknown
-/// request is, `DCS 0 $ r ST` (Jev's lean, INVALID, 0.58/0.32).
+/// request is, `DCS 0 $ r ST`.
 #[test]
 fn decrqss_answers_scp_as_invalid() {
     support::with_term(&WS, |t| {

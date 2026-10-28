@@ -767,7 +767,7 @@ impl SpecialColor {
 /// (ITALIC). Pc = 5 <- resource colorAttrMode (Override ANSI)"
 /// (`[[source: ctlseqs]]`). xterm's handler stops at 4 and ignores 5
 /// ("unknown colorXXMode", `[[source: xterm-misc]]` 4197-4248); ctlseqs is
-/// followed (Jev's lean, 0.66 and 0.74 after research).
+/// followed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ColorMode {
     Bold,
@@ -828,32 +828,31 @@ impl ColorModes {
     /// **The rendition a cell draws with under these modes**, the one
     /// spelling of the rule, applied where a rendition is resolved for
     /// drawing, so turning a mode on or off recolours what is on the screen
-    /// (Jev's lean, 0.88 and 0.90, over xterm's baking at `SGR` time: the
-    /// manual's "should be displayed in color", and xterm's own `extract_fg`
-    /// maps at draw time a cell whose colours are both default,
-    /// `[[source: xterm-scroll]]` util.c 5680-5690).
+    /// (rather than xterm's baking at `SGR` time: the manual's "should be
+    /// displayed in color", and xterm's own `extract_fg` maps at draw time a
+    /// cell whose colours are both default, `[[source: xterm-scroll]]`
+    /// util.c 5680-5690).
     ///
-    /// A cell whose foreground is default, or any cell under
-    /// colorAttrMode, takes the first special colour whose mode is on and
-    /// whose attribute it carries, blink before bold before underline
-    /// before italic, as xterm's `MapToColorMode` orders them
-    /// (`[[source: xterm-xterm-h]]`), and **the attribute is no longer
-    /// drawn**: "displayed in color or as bold characters", the colour
-    /// replacing it as xterm's `veryBoldColors` default of 0 has it (Jev,
-    /// 1.00 both orders). A reversed cell whose background is default, or
+    /// A cell whose foreground is default, or any cell under colorAttrMode,
+    /// takes the first special colour whose mode is on and whose attribute
+    /// it carries, blink before bold before underline before italic, as
+    /// xterm's `MapToColorMode` orders them (`[[source: xterm-xterm-h]]`),
+    /// and **the attribute is no longer drawn**: "displayed in color or as
+    /// bold characters", the colour replacing it as xterm's `veryBoldColors`
+    /// default of 0 has it. A reversed cell whose background is default, or
     /// any under colorAttrMode, takes colorRV as its background and is not
     /// exchanged, so its text keeps its colour on a colorRV page, as xterm
-    /// draws it: `setExtendedBG` gives it colorRV (`[[source:
-    /// xterm-reset]]`'s file 1140-1150) and `ReverseOrHilite`, false for a
-    /// reversed cell outside the selection while colorRVMode is on
-    /// (`[[source: xterm-ptyx-h]]` 1603-1607), keeps `updatedXtermGC` from
-    /// the exchange. A reversed cell with a background of its own keeps
+    /// draws it: `setExtendedBG` gives it colorRV
+    /// (`[[source: xterm-reset]]`'s file 1140-1150) and `ReverseOrHilite`,
+    /// false for a reversed cell outside the selection while colorRVMode is
+    /// on (`[[source: xterm-ptyx-h]]` 1603-1607), keeps `updatedXtermGC`
+    /// from the exchange. A reversed cell with a background of its own keeps
     /// its exchange outside colorAttrMode, as the manual's "displayed only
     /// when no ANSI colors have been set" reads (`[[source: xterm-man]]`,
     /// colorAttrMode), where xterm's `ReverseOrHilite` drops it on every
     /// reversed cell (`[[source: xterm-ptyx-h]]` 1603-1607). `special` gives
-    /// each colour's word, which the renderer gives as the text
-    /// foreground's colour where none is set (Jev's lean, 0.32 and 0.28).
+    /// each colour's word, which the renderer gives as the text foreground's
+    /// colour where none is set.
     pub fn apply(self, style: StyleWord, special: impl Fn(SpecialColor) -> ColorWord) -> StyleWord {
         if self == ColorModes::NONE {
             return style;
@@ -1015,15 +1014,15 @@ impl DynamicColor {
 /// to draw and the core reads to set, query and reset.
 ///
 /// **Every cell draws with its foreground and background exchanged**, an
-/// explicit `SGR` colour included: DEC STD 070 defines the mode as
-/// reversing "the definitions of the foreground and background colors"
+/// explicit `SGR` colour included: DEC STD 070 defines the mode as reversing
+/// "the definitions of the foreground and background colors"
 /// (`[[source: dec-std-070]]` § 5.6, page 5-94, PDF 349), and its Color Text
 /// Extension says it "will affect which attribute bits from display memory
 /// are used to render the text foreground and background color. It does not
-/// affect the current rendition" (§ 5.6.3.2, page 5-107, PDF 362). The
-/// owner decided this reading on 2026-10-13 over xterm's `ReverseVideo`,
-/// which swaps the defaults and palette entries 0/7 and 8/15 and leaves
-/// every other colour where it was (util.c 3269-3307, the file
+/// affect the current rendition" (§ 5.6.3.2, page 5-107, PDF 362). This
+/// reading is taken (since 2026-10-13) over xterm's `ReverseVideo`, which
+/// swaps the defaults and palette entries 0/7 and 8/15 and leaves every
+/// other colour where it was (util.c 3269-3307, the file
 /// `[[source: xterm-scroll]]` pins). A cell's own `SGR 7` exchanges again
 /// ([`Video::drawn`]), and no palette entry moves, so an `OSC 4 ; i` or
 /// `OSC 104 ; i` names the entry drawn wherever `i` is named.

@@ -85,8 +85,8 @@ fn set_erases_to_the_screen_background() {
 /// VT525's text background is "the current text background color". Bold,
 /// underline, reverse, strike and a foreground go: the erased cells name
 /// the rendition `ESC [ 41 m` alone gives. Reverse is an attribute too, so
-/// the background is the colour word, not the swapped one (Jev's lean,
-/// UNSWAPPED). The default rendition interns nothing.
+/// the background is the colour word, not the swapped one. The default
+/// rendition interns nothing.
 #[test]
 fn reset_keeps_the_background_alone() {
     for (name, bytes, y) in ERASES {

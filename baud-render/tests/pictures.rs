@@ -265,19 +265,17 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
     assert!(set_bg_seen > 20_000, "{set_bg_seen} set backgrounds");
 }
 
-/// **Under `?5` btop and cava draw pictures, and nothing else in the
-/// corpus does.** The same thirteen streams as the normal-screen guard
-/// above, fed a read at a time with the finder asked under
-/// [`Video::Reverse`] after every read. Every cell is exchanged under `?5`,
-/// so a cell's drawn background is its stored foreground, and the
-/// background the finder reads is the drawn one (the record, "`?5`
-/// exchanges every cell's colours", open question 3, where the owner is
-/// asked whether it should be). btop's and cava's coloured text then makes
-/// a block of sixteen colours or more: btop at 109 of its 113 reads, 7200
-/// cells at most, and cava at 152 of 156, 4257 cells at most. cava erases
-/// under a foreground, and an erase keeps only the background (the record,
-/// "An erase clears every attribute but the background"), so its erased
-/// cells carry no foreground and draw the default page under `?5`.
+/// **Under `?5` btop and cava draw pictures, and nothing else in the corpus
+/// does.** The same thirteen streams as the normal-screen guard above, fed
+/// a read at a time with the finder asked under [`Video::Reverse`] after
+/// every read. Every cell is exchanged under `?5`, so a cell's drawn
+/// background is its stored foreground, and the background the finder reads
+/// is the drawn one (whether it should be is an open question). btop's and
+/// cava's coloured text then makes a block of sixteen colours or more: btop
+/// at 109 of its 113 reads, 7200 cells at most, and cava at 152 of 156,
+/// 4257 cells at most. cava erases under a foreground, and an erase keeps
+/// only the background, so its erased cells carry no foreground and draw
+/// the default page under `?5`.
 ///
 /// Positive control: chafa's capture, fed after each stream, is 1139 of
 /// its 1148 cells under `?5`. The nine it loses are its own `SGR 7` cells

@@ -17,13 +17,12 @@
 //! as it carries an image, and a placement whose text leaves the screen is
 //! gone. The rule is `placed.rs`'s.
 //!
-//! The corpus test is the gate the owner set: no recording in
-//! `tests/recordings/` gains a trail. Its teeth are the twenty hides in the
-//! nine recordings it replays -- vim's seventeen, and one each in btop,
-//! `pipes.raw` and cava -- none of them straight after a move (yazi-walk's
-//! 28 are not among them); the five recordings with no hide at all
-//! cannot fail it under any rule decided at a hide, and are its control on
-//! the count.
+//! The corpus test is the gate: no recording in `tests/recordings/` gains a
+//! trail. Its teeth are the twenty hides in the nine recordings it replays
+//! -- vim's seventeen, and one each in btop, `pipes.raw` and cava -- none
+//! of them straight after a move (yazi-walk's 28 are not among them); the
+//! five recordings with no hide at all cannot fail it under any rule
+//! decided at a hide, and are its control on the count.
 //!
 //! The tests that feed through `each_read_size` do so at read sizes 1, 3, 7
 //! and whole, and those through `every_read_size` at every size from one
@@ -462,11 +461,11 @@ fn recording(name: &str) -> Vec<u8> {
     .expect(name)
 }
 
-/// **The owner's gate: no recording gains a trail.** Every recording, and
-/// the mixed stream that leaves one program's state to the next, moves a
-/// trail's target through exactly the long moves it did before, at read size
-/// 1 and at a whole read -- which are not bounds of each other: a cursor
-/// shown, moved and hidden inside one read is seen differently by each.
+/// **The gate: no recording gains a trail.** Every recording, and the mixed
+/// stream that leaves one program's state to the next, moves a trail's
+/// target through exactly the long moves it did before, at read size 1 and
+/// at a whole read -- which are not bounds of each other: a cursor shown,
+/// moved and hidden inside one read is seen differently by each.
 ///
 /// **No recording places a cursor**, and the count is pinned beside the
 /// trails so a change shows -- the teeth are the corpus's twenty hides, none

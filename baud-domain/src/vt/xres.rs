@@ -9,25 +9,25 @@
 //! resources for the VT100 widget are supported", and "XTerm evaluates
 //! resources at startup time".
 //!
-//! **The answer is xterm's `do_dcs`, byte for byte** (`[[source:
-//! xterm-misc]]`'s file, misc.c 5251-5306; Jev, XL_XTERM, 0.98/0.98): the
-//! first name decides the `1` or `0`; each name is echoed as it was sent,
-//! a known one followed by `=` and its value in upper-case hexadecimal
+//! **The answer is xterm's `do_dcs`, byte for byte**
+//! (`[[source: xterm-misc]]`'s file, misc.c 5251-5306): the first name
+//! decides the `1` or `0`; each name is echoed as it was sent, a known one
+//! followed by `=` and its value in upper-case hexadecimal
 //! (`x_encode_hex`); the list ends after the first unknown name, which is
 //! echoed with the `;` after it if one was sent; an empty name or an odd
 //! count of hex digits ends it before that name (`x_decode_hex`,
 //! `[[source: xterm-xstrings-c]]`), and the reply is sent only once a first
 //! name was read.
 //!
-//! **Which names answer is [`XResource::of`]** (Jev, X_STARTUP,
-//! 0.98/0.88 then 0.98/0.97): the seven `allow*` resources, from the facts
-//! `OSC 60` reports; each resource that names the initial value of a mode
-//! or setting baud has, at baud's power-on value; and the five the
-//! embedder gives the core at start, the cursor's blink and shape, the
-//! pointer mode and the ambiguous width. Every other name is unknown, as xterm answers a
-//! name it has no resource for -- `termName` among them, an application
-//! resource and not the widget's. xterm's widget resources and their types
-//! are its `xterm_resources` table and `vt100ResourceToString`
+//! **Which names answer is [`XResource::of`]**: the seven `allow*`
+//! resources, from the facts `OSC 60` reports; each resource that names
+//! the initial value of a mode or setting baud has, at baud's power-on
+//! value; and the five the embedder gives the core at start, the cursor's
+//! blink and shape, the pointer mode and the ambiguous width. Every other
+//! name is unknown, as xterm answers a name it has no resource for --
+//! `termName` among them, an application resource and not the widget's.
+//! xterm's widget resources and their types are its `xterm_resources`
+//! table and `vt100ResourceToString`
 //! (`[[source: xterm-charproc-c-bccd466]]`, charproc.c 404-830 and
 //! 10381-10425).
 

@@ -102,14 +102,14 @@ fn a_wide_character_in_a_reversed_string_stays_whole() {
     assert_eq!(s[0], "ac\u{65e5}~bd..................");
 }
 
-/// **With BDSM set each string is an isolate of its direction** (Jev's
-/// lean, ISOLATE): two adjacent right-to-left strings of Hebrew on an
-/// English line are drawn apart, each reversed in its place; Latin
-/// letters and digits in a right-to-left string keep their order, UAX #9
-/// W7 making the digits L, while Hebrew and digits are ordered right to
-/// left with the number kept left to right; and a reversed string of
-/// Latin letters at the top of a line with no path set, right to left by
-/// the path's left to right (Jev's lean, PATH), keeps its letters' order.
+/// **With BDSM set each string is an isolate of its direction**: two
+/// adjacent right-to-left strings of Hebrew on an English line are drawn
+/// apart, each reversed in its place; Latin letters and digits in a
+/// right-to-left string keep their order, UAX #9 W7 making the digits L,
+/// while Hebrew and digits are ordered right to left with the number
+/// kept left to right; and a reversed string of Latin letters at the top
+/// of a line with no path set, right to left by the path's left to
+/// right, keeps its letters' order.
 #[test]
 fn with_bdsm_set_each_string_is_an_isolate() {
     let s = screen(
@@ -130,10 +130,10 @@ fn without_strings_the_hebrew_is_one_run() {
     assert_eq!(s[0], "go \u{5D3}\u{5D2}\u{5D1}\u{5D0} now.............");
 }
 
-/// **A row DECRLM wrote is drawn as its cells hold** (Jev, AS_STORED,
-/// 0.97/0.97): "shalom abc" sent right to left from the last column reads
-/// on the screen as the VT510 shows it, though the mode is on; the control,
-/// the same cells written left to right, is reordered by UAX #9.
+/// **A row DECRLM wrote is drawn as its cells hold**: "shalom abc" sent
+/// right to left from the last column reads on the screen as the VT510
+/// shows it, though the mode is on; the control, the same cells written
+/// left to right, is reordered by UAX #9.
 #[test]
 fn a_row_decrlm_wrote_is_drawn_as_its_cells_hold() {
     let s = screen("\x1b[?34h\x1b[1;24H\u{5E9}\u{5DC}\u{5D5}\u{5DD} abc");
@@ -142,10 +142,10 @@ fn a_row_decrlm_wrote_is_drawn_as_its_cells_hold() {
     assert_eq!(s[0], "................cba \u{5E9}\u{5DC}\u{5D5}\u{5DD}");
 }
 
-/// **A row DECRLM wrote, erased whole, is drawn by UAX #9 again** (Jev,
-/// AS_STORED: as its cells hold "until it is erased whole"): after `ED 2`
-/// and after `EL 2`, Hebrew written in order on a row DECRLM once wrote is
-/// drawn as on a row it never wrote.
+/// **A row DECRLM wrote, erased whole, is drawn by UAX #9 again** (as its
+/// cells hold "until it is erased whole"): after `ED 2` and after `EL 2`,
+/// Hebrew written in order on a row DECRLM once wrote is drawn as on a row
+/// it never wrote.
 #[test]
 fn a_row_decrlm_wrote_erased_whole_is_drawn_by_uax9_again() {
     let line = "\u{5D0}\u{5D1} ab";

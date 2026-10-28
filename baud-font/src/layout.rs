@@ -467,8 +467,8 @@ pub struct Gdef<'a> {
     /// Version 1.3's item variation store, which a device table indexes:
     /// `None` when the table is older, the offset 0, or the store
     /// malformed -- every delta is then 0, the per-subtable rule this
-    /// reader keeps for every part of `GDEF` (note Z step 4; Jev B, 0.84).
-    /// HarfBuzz refuses the whole table on a malformed store
+    /// reader keeps for every part of `GDEF` (note Z step 4). HarfBuzz
+    /// refuses the whole table on a malformed store
     /// (`[[source: harfbuzz-12-3-0-gdef]]`).
     store: Option<crate::ivs::Store<'a>>,
 }
@@ -1073,8 +1073,8 @@ mod tests {
 
     /// A malformed store is no store and the rest of the table stands --
     /// the per-subtable rule this reader keeps, where HarfBuzz refuses the
-    /// whole GDEF (Jev B, 0.84) -- and so does a 1.3 header too short to
-    /// hold the offset.
+    /// whole GDEF -- and so does a 1.3 header too short to hold the
+    /// offset.
     #[test]
     fn a_malformed_store_leaves_the_classes() {
         let mut t = gdef(V1_3, 26u32.to_be_bytes());

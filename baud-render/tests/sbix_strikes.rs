@@ -15,15 +15,14 @@
 //! kind up to the shared bound of ten records, offsets and a ramp with no
 //! symmetry; and the one gap, a glyph whose every image is unreadable.
 //!
-//! **The rule, and where it came from.** Among the strikes that hold the
-//! glyph and whose PNG decodes, the smallest at or above the size in whole
-//! pixels (rounded half up), else the largest. The specifications require
-//! the per-glyph part; CoreText was measured taking this order on Apple
-//! Color Emoji for the square it draws, which below 24 px on the system font
-//! is larger than the size and is not followed. Jev chose it at 1.00 against
-//! keeping the old nearest-with-a-penalty score, and at 0.98 asked again
-//! with that enlargement in its context. Before it, the atlas chose one strike for
-//! the size and drew nothing where that strike was empty.
+//! **The rule, and where it came from.** Among the strikes that hold the glyph and
+//! whose PNG decodes, the smallest at or above the size in whole pixels (rounded
+//! half up), else the largest. The specifications require the per-glyph part;
+//! CoreText was measured taking this order on Apple Color Emoji for the square it
+//! draws, which below 24 px on the system font is larger than the size and is not
+//! followed. It replaces the old nearest-with-a-penalty score. Before it, the
+//! atlas chose one strike for the size and drew nothing where that strike was
+//! empty.
 
 use baud_domain::GlyphId;
 use baud_font::{Face, Phase, Scale};

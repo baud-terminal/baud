@@ -108,9 +108,8 @@ fn main() {
     }
 
     // **Real capture, when asked for.** The two payloads above are synthetic,
-    // and `docs/record.md` ("Replay real capture instead of `payload::tui`")
-    // records that real capture ran at 131-159 MB/s where `baud-bench`'s
-    // synthetic `payload::tui` reached 229-240, on `baud-core2` through a PTY
+    // and real capture ran at 131-159 MB/s where `baud-bench`'s synthetic
+    // `payload::tui` reached 229-240, on `baud-core2` through a PTY
     // (d471493). Comparisons against other implementations were made on the
     // synthetic pair above until this switch, which made those ratios a
     // statement about synthetic input.

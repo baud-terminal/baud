@@ -435,7 +435,7 @@ fn assert_same_outcome(at: &str, got: &Term<'_>, want: &Term<'_>) {
 ///
 /// A cancelled string is not dispatched here, as with `CAN`, `SUB` and a bare
 /// `ESC`, so the title stays unset. Whether a cancel should keep what the
-/// string had done is open with the owner (`docs/record.md`).
+/// string had done is open.
 #[test]
 fn a_c1_inside_an_osc_acts_under_latin1_and_is_not_stored() {
     // NEL: `X`, then the string, then `cd` at the start of the next line.
@@ -749,15 +749,13 @@ fn a_c1_in_any_escape_or_control_sequence_acts_as_its_seven_bit_form_under_latin
 /// so the anywhere rule's C1 half cannot apply and none of the thirty-two
 /// executes. Each is held, at every split, to its equivalent program: after
 /// `ESC`, bare or past an intermediate, it cancels the escape and is the
-/// ground's, a stray continuation and so one U+FFFD (Jev's
-/// CANCEL_AND_PRINT, decisions.jsonl lines 451-452; it ended the escape and
+/// ground's, a stray continuation and so one U+FFFD (it ended the escape and
 /// was dropped until 2026-10-11); inside a `CSI`, in its parameters or
-/// straight after the introducer, the same, and what follows is text (the
-/// owner's decision of 2026-10-13; until then it was dropped there and the
-/// sequence carried on, or went to `csi ignore`, which swallowed it to the
-/// final). The control,
-/// last so that an unfixed tree runs every UTF-8 case before it, is the
-/// first case under Latin-1, where the same bytes run a NEL.
+/// straight after the introducer, the same, and what follows is text (until
+/// then it was dropped there and the sequence carried on, or went to
+/// `csi ignore`, which swallowed it to the final). The control, last so that
+/// an unfixed tree runs every UTF-8 case before it, is the first case under
+/// Latin-1, where the same bytes run a NEL.
 #[test]
 fn under_utf8_a_c1_byte_in_a_sequence_is_what_it_was() {
     for c in 0x80u8..=0x9f {
@@ -996,15 +994,13 @@ fn a_gr_byte_in_an_osc_body_is_its_seven_bit_byte_under_latin1() {
 /// guard beside the tests above. `A0-FF` are lead and continuation bytes
 /// there: after `ESC`, bare or past an intermediate, and after an `ESC`
 /// inside a string, it cancels the escape (and the string) and is the
-/// ground's, here followed by `X` and so one U+FFFD (Jev's CANCEL_AND_PRINT,
-/// decisions.jsonl lines 451-452; until 2026-10-11 it ended the escape and
-/// was dropped); in every `CSI` state, its parameters, straight after the
-/// introducer or an intermediate, and `csi ignore`, the same, and what
-/// follows is text (the owner's decision of 2026-10-13; until then it was
-/// dropped there and the sequence went on or waited in `csi ignore` for a
-/// final). Each
-/// is held at every split to its equivalent program. The control, last, is
-/// the first case under Latin-1, where `ESC B7` is a DECSC.
+/// ground's, here followed by `X` and so one U+FFFD (until 2026-10-11 it
+/// ended the escape and was dropped); in every `CSI` state, its parameters,
+/// straight after the introducer or an intermediate, and `csi ignore`, the
+/// same, and what follows is text (until then it was dropped there and the
+/// sequence went on or waited in `csi ignore` for a final). Each is held at
+/// every split to its equivalent program. The control, last, is the first
+/// case under Latin-1, where `ESC B7` is a DECSC.
 #[test]
 fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
     for v in 0xa0u8..=0xff {
@@ -1085,13 +1081,13 @@ fn after_reset(program: &[u8], size: usize) -> (InputEncoding, Option<u32>, (Row
 /// operational" (`[[source: ecma48]]`), and baud is made operational in
 /// UTF-8. After `ESC % @` and `ESC c`, `D7 99` is `י`, U+05D9, one cell,
 /// where, staying in ISO 8859-1, `D7` was read through G2's DEC
-/// Supplemental in GR as U+0152 and the C1 byte `99` was dropped (the
-/// record's base reading) -- at every read size, so the byte after the
-/// reset in the same read is decoded by the table the reset selected. The
-/// second program starts at Level 1, where ISO 8859-1 strips the eighth
-/// bit, so the reset also ends the strip and holds the rest of the read.
-/// xterm's `ReallyReset` leaves the encoding as it was (`[[source:
-/// xterm-reset]]`'s file), a practice not followed.
+/// Supplemental in GR as U+0152 and the C1 byte `99` was dropped (the base
+/// reading) -- at every read size, so the byte after the reset in the same
+/// read is decoded by the table the reset selected. The second program
+/// starts at Level 1, where ISO 8859-1 strips the eighth bit, so the reset
+/// also ends the strip and holds the rest of the read. xterm's
+/// `ReallyReset` leaves the encoding as it was
+/// (`[[source: xterm-reset]]`'s file), a practice not followed.
 #[test]
 fn a_full_reset_returns_the_input_to_utf8() {
     let want = |size: usize| {

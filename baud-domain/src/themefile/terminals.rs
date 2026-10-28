@@ -379,10 +379,9 @@ fn after<'a>(v: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
 /// ignored (1); its comment cut (2); then a name of kitty's table, or a
 /// form (3): `#` and 3 digits, each doubled as CSS Color 4 doubles them
 /// (4); `#` and 6, 9 or 12, each third's first two characters, X11's high
-/// bits (5); `rgb:` (6); `oklch(` or `lab(` (7), drawn by
-/// [`super::oklab`] as the owner's call on O14 has it. `rgbi:` and
-/// anything else is refused (8), and its line is skipped, as kitty skips
-/// it.
+/// bits (5); `rgb:` (6); `oklch(` or `lab(` (7), drawn by [`super::oklab`]
+/// as note AR's O14 has it. `rgbi:` and anything else is refused (8), and
+/// its line is skipped, as kitty skips it.
 fn kitty_colour(raw: &[u8]) -> Result<KittyValue, SchemeErrorKind> {
     let v = trim_with(raw, C_SPACE);
     if v.eq_ignore_ascii_case(b"none") {
@@ -439,25 +438,24 @@ fn kitty_colour(raw: &[u8]) -> Result<KittyValue, SchemeErrorKind> {
 /// `ignored`, and so does a value kitty itself refuses, as kitty skips that
 /// line.
 ///
-/// **kitty's special values are kept as the file says them**, from its
-/// last line for each key (kitty.conf's text, the same lines), and resolved
-/// where they are drawn, against the colours over them then: a config's
-/// and a program's. `none` is a value of cursor, the selection's two and
+/// **kitty's special values are kept as the file says them**, from its last
+/// line for each key (kitty.conf's text, the same lines), and resolved
+/// where they are drawn, against the colours over them then: a config's and
+/// a program's. `none` is a value of cursor, the selection's two and
 /// color16 to color255, which leaves one unset, and is refused by every
-/// other key, as kitty's to_color refuses it (`[[source:
-/// kitty-conf-utils-1e1486e]]` 54-62). cursor none is "a 'reverse video'
-/// effect", baud's swap, under which cursor_text_color "is ignored"
-/// ([`CursorText::UnderACursorColour`]); cursor_text_color background,
-/// "the background color of the cell underneath", is the cell's page
-/// ([`CellPaint::Page`], `[[source: kitty-options-utils-1e1486e]]`
+/// other key, as kitty's to_color refuses it
+/// (`[[source: kitty-conf-utils-1e1486e]]` 54-62). cursor none is "a
+/// 'reverse video' effect", baud's swap, under which cursor_text_color "is
+/// ignored" ([`CursorText::UnderACursorColour`]); cursor_text_color
+/// background, "the background color of the cell underneath", is the cell's
+/// page ([`CellPaint::Page`], `[[source: kitty-options-utils-1e1486e]]`
 /// 637-640); selection_background none is the cell's text as the page,
-/// kitty's renderer's reading too (`[[source:
-/// kitty-1e1486e-background-slang]]` 302); selection_foreground none is
-/// "the foreground color to be used unchanged"
-/// ([`SelectionText::Unchanged`]): the cell's text over a selection page
-/// of its own, and reverse video's text where the page in force is none,
-/// as kitty's renderer has it (`[[source: kitty-1e1486e-shaders-c]]`
-/// 873-885). Decided by Jev, M_FINAL, 1.00 both orders.
+/// kitty's renderer's reading too
+/// (`[[source: kitty-1e1486e-background-slang]]` 302); selection_foreground
+/// none is "the foreground color to be used unchanged"
+/// ([`SelectionText::Unchanged`]): the cell's text over a selection page of
+/// its own, and reverse video's text where the page in force is none, as
+/// kitty's renderer has it (`[[source: kitty-1e1486e-shaders-c]]` 873-885).
 pub fn kitty(
     text: &[u8],
     mut ignored: impl FnMut(Line, &[u8], Skipped),
@@ -727,10 +725,9 @@ pub fn foot(
 /// A list of sixteen colours, `#rrggbb` a line, ANSI 0 to 15 in order, as
 /// pywal's `colors` file holds them: `{color0}` to `{color15}`, one a line
 /// (`[[source: pywal-colors-template-236aa48]]`), each written `#%02x%02x%02x`
-/// (`[[source: pywal-util-236aa48]]` 22-23, 173-175); the owner's answer to
-/// note AR's O9, 2026-10-17.
-/// No page or text is named, so both stay baud's own (Jev, O11). The
-/// detector has already found the sixteen lines and nothing else.
+/// (`[[source: pywal-util-236aa48]]` 22-23, 173-175); note AR's O9. No page or
+/// text is named, so both stay baud's own. The detector has already found the
+/// sixteen lines and nothing else.
 pub fn plain_list(text: &[u8]) -> Result<Scheme, SchemeError> {
     let mut s = Scheme::empty(Format::PlainList);
     let mut n = 0usize;

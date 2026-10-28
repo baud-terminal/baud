@@ -495,8 +495,8 @@ fn a_value_is_read_by_kittys_text() {
     });
 }
 
-/// **Under `?5` the default colours are the colours shown**, as `OSC
-/// 10`/`11` are by the owner's V17, so the two never disagree: a set acts
+/// **Under `?5` the default colours are the colours shown**, as
+/// `OSC 10`/`11` are (note V, V17), so the two never disagree: a set acts
 /// on the colour shown in its role, and a reset gives that role back.
 #[test]
 fn under_reverse_video_the_colours_shown_answer() {

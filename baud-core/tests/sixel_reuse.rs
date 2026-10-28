@@ -340,7 +340,7 @@ fn fnv(px: &[Pixel]) -> u64 {
 /// decoded into a cleared span -- fed the same way, at reads of 1 and 7.
 /// Since 2026-10-14 the body is decoded as it arrives, and the images are
 /// those. The other recorded yazi runs, 41 Sixels in all, were held to the
-/// same in the record's entry ("A Sixel is decoded as its body arrives").
+/// same (note S).
 #[test]
 fn every_preview_in_a_yazi_walk_is_the_buffered_decoders_image() {
     const WANT: [(u16, u16, u64); 13] = [

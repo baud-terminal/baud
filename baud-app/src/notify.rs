@@ -10,11 +10,11 @@
 //!   without them.
 //! * **When**: kitty's `o` says ("always is the default and always honors
 //!   the request"); `OSC 9` and `OSC 777`, whose texts say nothing, show
-//!   while the window is not focused (Jev, 0.98 and 0.97). [`plan`].
-//! * **How often**: a bucket of four, refilled one a second ([`Bucket`];
-//!   Jev's lean, 0.86 and 0.91), so a loop printing notifications posts
-//!   four and then one a second, the rest dropped, counted and logged
-//!   once a burst ([`Delivery::rate_line`]).
+//!   while the window is not focused. [`plan`].
+//! * **How often**: a bucket of four, refilled one a second
+//!   ([`Bucket`]), so a loop printing notifications posts four and then
+//!   one a second, the rest dropped, counted and logged once a burst
+//!   ([`Delivery::rate_line`]).
 //! * **What text**: lossy UTF-8 with every control taken out ([`text`]):
 //!   kitty's "Escape code safe UTF-8" binds the sender, and a desktop
 //!   notification has no use for a control either way.
@@ -347,11 +347,11 @@ pub enum Caps {
 /// the platform delivers. On Linux a click on a notification that asked
 /// `focus` activates the window with the token the server's
 /// `ActivationToken` gives (`bus.rs`), where it sends one -- "Clients
-/// should not assume the server will generate this signal" (`[[source:
-/// freedesktop-notification-spec]]`) -- and the compositor decides what
-/// that does (`[[source: xdg-activation-v1]]`). Neither can be known when
-/// a program asks, so only `report` is claimed (Jev's lean, 0.88 and
-/// 0.76, then 0.49 and 0.31), and it and the buttons only where the server lists actions.
+/// should not assume the server will generate this signal"
+/// (`[[source: freedesktop-notification-spec]]`) -- and the compositor
+/// decides what that does (`[[source: xdg-activation-v1]]`). Neither can
+/// be known when a program asks, so only `report` is claimed, and it and
+/// the buttons only where the server lists actions.
 pub fn support(setting: Setting, platform: Platform) -> Option<NoticeSupport> {
     if setting == Setting::Off {
         return None;
@@ -606,8 +606,8 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// **The image Linux sends as `image-data`**: a PNG of at most 1024
     /// pixels a side, decoded ([`rgba`]). Any other image a program sent
     /// -- JPEG and GIF, which kitty's text also names and which wait for a
-    /// decoder (Jev, 0.95 and 0.97), a larger PNG, or one that does not
-    /// decode -- is not shown, and counted.
+    /// decoder, a larger PNG, or one that does not decode -- is not shown,
+    /// and counted.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn image_data(&mut self, p: &Posted) -> Option<(baud_domain::png::Size, Vec<u8>)> {
         let b = p.icon.as_deref()?;

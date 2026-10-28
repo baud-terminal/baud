@@ -165,11 +165,10 @@ impl<'a> RegisCanvas<'a> {
             },
         };
         let v = (had & !mask) | (value & mask);
-        // **Foreground data takes the blink attribute** (decided by Jev,
-        // FOREGROUND_WRITES, 1.00 and 1.00): a one of the pattern, cell or
-        // texture under V, R and C, every pixel under E with N1, and a
-        // microcoded one; a background write clears it, as any write
-        // without blink does.
+        // **Foreground data takes the blink attribute**: a one of the
+        // pattern, cell or texture under V, R and C, every pixel under E
+        // with N1, and a microcoded one; a background write clears it, as
+        // any write without blink does.
         let foreground = match (micro, pen.mode) {
             (Some(_), _) => bit == PatternBit::One,
             (None, WriteMode::Erase) => pen.negate == Negate::On,
@@ -292,12 +291,11 @@ impl<'a> RegisCanvas<'a> {
         *phase = start.wrapping_add((k1 - k0 + 1) as u32);
     }
 
-    /// **A wide line** (§ 8.8.3.2): the round pen `pen.width` pixels
-    /// across at each step of the one-pixel line, as the pattern has that
-    /// step, each pixel written once in the stroke ([`MARK`]); shading from
-    /// the steps themselves. Jev's lean, ROUND, 0.25 and 0.19 on a second
-    /// ask: "the width or weight of lines and curves" the same in every
-    /// direction.
+    /// **A wide line** (§ 8.8.3.2): the round pen `pen.width` pixels across
+    /// at each step of the one-pixel line, as the pattern has that step,
+    /// each pixel written once in the stroke ([`MARK`]); shading from the
+    /// steps themselves: "the width or weight of lines and curves" the same
+    /// in every direction.
     ///
     /// **A step writes only what the pen last written did not cover.** A
     /// pixel is written at the first step that covers it and writes --
@@ -498,9 +496,8 @@ impl<'a> RegisCanvas<'a> {
     /// as polygon fill takes it, in the writing mode and foreground in
     /// force. "The flooded area does not include the boundary", and "A
     /// boundary need only be connected by diagonally adjacent pixels to
-    /// define closure for Floods", so the flood never steps diagonally.
-    /// The clip limits what is written, not where the flood spreads (Jev's
-    /// lean, WRITES_ONLY, 0.62 and 0.74 on a second ask).
+    /// define closure for Floods", so the flood never steps diagonally. The
+    /// clip limits what is written, not where the flood spreads.
     ///
     /// **A pixel the flood has reached carries [`MARK`] until it ends**, so
     /// each is written once whatever the writing makes of its index, and a
@@ -697,12 +694,11 @@ impl<'a> RegisCanvas<'a> {
         });
     }
 
-    /// **The page's pixels moved `by`**, every plane -- the
-    /// foreground mask "does not affect ... those planes which can be moved
-    /// by screen scrolling (S[])" (§ 8.7.2.4.2.1) -- and what the move
-    /// reveals written in `bg`: data "moved off and erased from the display
-    /// medium" (§ 8.8.1.1), erasing being writing the background (Jev's
-    /// lean, BACKGROUND, 0.48 and 0.64 on a second ask). Neither the clip
+    /// **The page's pixels moved `by`**, every plane -- the foreground mask
+    /// "does not affect ... those planes which can be moved by screen
+    /// scrolling (S[])" (§ 8.7.2.4.2.1) -- and what the move reveals
+    /// written in `bg`: data "moved off and erased from the display medium"
+    /// (§ 8.8.1.1), erasing being writing the background. Neither the clip
     /// nor a mask holds it back; the whole page is marked drawn, so the
     /// caller repaints it and recounts what is lit.
     pub fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {

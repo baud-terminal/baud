@@ -17,18 +17,17 @@
 //! **What the algorithm is given.** A paragraph is the rows joined by soft
 //! wraps; a cell gives its character and the codepoints attached to it, in
 //! logical order, so the bidi controls the core stores on a cell act as
-//! UAX #9 defines them (terminal-wg's "level 2"; Jev LEVEL_2, 1.00/1.00).
-//! A cell moves whole, its marks with it, which is what L3 asks of a
-//! renderer that draws a mark after its base. A wide character's tail is
-//! not given; it follows its lead, to the lead's right. An erased cell
-//! between characters is a boundary neutral, removed by X9 and drawn with
-//! the character before it (Jev's lean, AS_BN, 0.85/0.89); erased cells
-//! past a row's last character are left out and laid out at the line's
-//! end in the paragraph direction (`[[source:
-//! terminal-wg-bidi-erased-cells]]`). A paragraph longer than [`CONTEXT`]
-//! codepoints is resolved over the rows drawn and as many whole rows of
-//! context before and after them as fit, UAX #9 HL5's "piece of text that
-//! is extracted from a longer sequence" (Jev CONTEXT_WINDOW, 0.98/0.98).
+//! UAX #9 defines them (terminal-wg's "level 2"). A cell moves whole, its
+//! marks with it, which is what L3 asks of a renderer that draws a mark
+//! after its base. A wide character's tail is not given; it follows its
+//! lead, to the lead's right. An erased cell between characters is a
+//! boundary neutral, removed by X9 and drawn with the character before it;
+//! erased cells past a row's last character are left out and laid out at
+//! the line's end in the paragraph direction
+//! (`[[source: terminal-wg-bidi-erased-cells]]`). A paragraph longer than
+//! [`CONTEXT`] codepoints is resolved over the rows drawn and as many
+//! whole rows of context before and after them as fit, UAX #9 HL5's "piece
+//! of text that is extracted from a longer sequence".
 //!
 //! **A line's paragraph properties** (SCP, SPD, `?2501`, `?2500`;
 //! `baud_core`'s line rules keep them on every row of a paragraph): with
@@ -39,13 +38,12 @@
 //! counterpart (`baud_domain::box_counterpart`).
 //!
 //! **A table row keeps its columns.** A paragraph holding a box-drawing
-//! character ([`baud_domain::is_table_rule`]) is a table row: each rule is given to
-//! the algorithm as a paragraph separator, so each cell between two rules
-//! is a paragraph of its own at its own P2-P3 level (UAX #9 section 3's
-//! table cells, HL4), each cell is ordered as a line inside its own
-//! columns, every rule stays where it was written, and the row is laid
-//! out left to right (Jev's lean, BOX 0.71/0.91, CELL_PARAGRAPH
-//! 0.52/0.22; `docs/bidi.md`).
+//! character ([`baud_domain::is_table_rule`]) is a table row: each rule
+//! is given to the algorithm as a paragraph separator, so each cell
+//! between two rules is a paragraph of its own at its own P2-P3 level
+//! (UAX #9 section 3's table cells, HL4), each cell is ordered as a
+//! line inside its own columns, every rule stays where it was written,
+//! and the row is laid out left to right (`docs/bidi.md`).
 //!
 //! **What it costs a row with no right-to-left character: one test of
 //! each cell's content word.** A paragraph runs the algorithm only when a
@@ -78,26 +76,24 @@
 //! **Joining (`[[source: unicode-ch9]]` 9.2.2 and 9.2.3).** Each letter of
 //! a cursive script is drawn in the form rules R1-R7 give it among its
 //! neighbours, and a lam joined to an alef forms the obligatory lam-alef
-//! ligature, centred over the two cells the pair holds (Jev CENTRED,
-//! 0.96/0.97) -- over the cells from one to the other where erased cells
-//! part them (Jev LIGATED_CENTRED, 0.91/0.93), and in the lam's cell where
-//! a soft wrap does, the alef's cell drawing nothing (Jev's lean
-//! LIGATED_LAM_ROW, 0.84/0.80). The forms are found here, once a layout, over the logical
-//! text, and every draw path reads them per visual cell
-//! ([`Orders::joined`]): with BDSM set, over the paragraph across its soft
-//! wraps, which CSS Text 3 asks of a word an unforced break splits ("as if
-//! the word were still whole", `[[source: w3c-css-text-3]]`; Jev
-//! ACROSS_WRAP, 0.96/0.90), and within each level run (UAX #9 3.5); an
-//! erased cell between letters is transparent, the boundary neutral it is
-//! given (Jev TRANSPARENT, 0.96/0.96). With BDSM reset each row is joined
-//! in the order it is displayed, the order 9.2.2 states the rules in (Jev's
-//! lean DISPLAY_ORDER_JOINING, 0.66/0.58): a program that wrote Arabic in
-//! visual order is drawn joined, and presentation forms, joining type U,
-//! are drawn as sent. A Mongolian or Phags-pa letter is read left to right
-//! there, the way those scripts run on a horizontal line
+//! ligature, centred over the two cells the pair holds -- over the cells
+//! from one to the other where erased cells part them, and in the lam's
+//! cell where a soft wrap does, the alef's cell drawing nothing. The forms
+//! are found here, once a layout, over the logical text, and every draw
+//! path reads them per visual cell ([`Orders::joined`]): with BDSM set,
+//! over the paragraph across its soft wraps, which CSS Text 3 asks of a
+//! word an unforced break splits ("as if the word were still whole",
+//! `[[source: w3c-css-text-3]]`), and within each level run (UAX #9 3.5);
+//! an erased cell between letters is transparent, the boundary neutral it
+//! is given. With BDSM reset each row is joined in the order it is
+//! displayed, the order 9.2.2 states the rules in: a program that wrote
+//! Arabic in visual order is drawn joined, and presentation forms, joining
+//! type U, are drawn as sent. A Mongolian or Phags-pa letter is read left
+//! to right there, the way those scripts run on a horizontal line
 //! (`[[source: unicode-ch13]]` 13.5, `[[source: unicode-ch14]]` 14.4), and
-//! joins no letter of the other reading. A letter given no form is drawn non-joining (R7),
-//! which is every Arabic letter on a row this finds nothing to join.
+//! joins no letter of the other reading. A letter given no form is drawn
+//! non-joining (R7), which is every Arabic letter on a row this finds
+//! nothing to join.
 //!
 //! **What joining costs a row with no joining letter.** With BDSM set a
 //! row is compared with its last copy once a frame and tested only when it
@@ -228,14 +224,13 @@ pub enum PairPart {
     /// The lam, its alef on the same row, the cells from one to the other,
     /// both counted -- two for adjacent cells, more where erased cells,
     /// which are transparent, lie between them -- and which end the lam is
-    /// at. The ligature is centred over them (Jev CENTRED, 0.96/0.97, and
-    /// LIGATED_CENTRED for a pair erased cells part, 0.91/0.93).
+    /// at. The ligature is centred over them, a pair erased cells part
+    /// included.
     Lam(Cols, PairEnd),
     /// The alef of such a pair.
     Alef(Cols, PairEnd),
     /// The lam of a pair a soft wrap parts, with its alef's cell: the
-    /// ligature is drawn in the lam's cell (Jev's lean LIGATED_LAM_ROW,
-    /// 0.84/0.80).
+    /// ligature is drawn in the lam's cell.
     LamWrapped(PackedCell),
     /// The alef of such a pair, with its lam's cell: its letter is drawn
     /// in the lam's ligature, and its own cell draws no glyph.
@@ -548,8 +543,8 @@ impl Orders {
     /// a cell at a right-to-left level written under SAPV 17, "when the
     /// string direction is right-to-left, the italicized characters are
     /// slanted to the left" (`[[source: ecma48]]` 8.3.108). The cell is
-    /// drawn as its upright glyph sheared left (Jev's lean, LEFT_SHEAR,
-    /// 0.82/0.80); none on a row in its own order, which is left to right.
+    /// drawn as its upright glyph sheared left; none on a row in its own
+    /// order, which is left to right.
     pub fn slants(&self, r: Row) -> &[Col] {
         self.row(r).map_or(&[], |o| o.slants.as_slice())
     }
@@ -805,13 +800,12 @@ struct Chars(usize);
 
 /// **Cells a layout reads in place of the core's**: an input method's
 /// composition and a predicted echo, each drawn as the same text written
-/// there would be drawn (Jev AS_WRITTEN, 0.98 in both orders for the
-/// composition, 1.00 in both for the echo). The row they are on is laid out
-/// with their characters in the cells they cover, so it is drawn in the
-/// order a write would give it: a Latin letter typed after Latin text in a
-/// right-to-left paragraph lands right of that text, which moves left to
-/// make room, as the echo will draw it. Empty on nearly every frame, and
-/// then a layout reads the core's cells alone.
+/// there would be drawn. The row they are on is laid out with their
+/// characters in the cells they cover, so it is drawn in the order a write
+/// would give it: a Latin letter typed after Latin text in a right-to-left
+/// paragraph lands right of that text, which moves left to make room, as
+/// the echo will draw it. Empty on nearly every frame, and then a layout
+/// reads the core's cells alone.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Written {
     rows: Vec<(Row, Vec<PackedCell>)>,
@@ -1352,15 +1346,15 @@ impl Reorder {
         }
     }
 
-    /// **The status line, laid out as a line of its own** (Jev
-    /// OWN_PARAGRAPH, 0.94/0.97): one row, so one paragraph, under the
-    /// terminal's BDSM and the line properties SCP and `?2501` gave it
-    /// while DECSASD selected it ([`Term::status_view`]) -- ECMA-48's
-    /// IMPLICIT, "All bi-directional aspects of data are handled by the
-    /// device itself" (`[[source: ecma48]]` 7.2.1), on the one line the
-    /// main display's rows do not hold. Its order is the maps' row after
-    /// the window's, where every draw path reads the status line's row.
-    /// Nothing while no status line is shown.
+    /// **The status line, laid out as a line of its own**: one row, so
+    /// one paragraph, under the terminal's BDSM and the line properties
+    /// SCP and `?2501` gave it while DECSASD selected it
+    /// ([`Term::status_view`]) -- ECMA-48's IMPLICIT, "All
+    /// bi-directional aspects of data are handled by the device itself"
+    /// (`[[source: ecma48]]` 7.2.1), on the one line the main display's
+    /// rows do not hold. Its order is the maps' row after the window's,
+    /// where every draw path reads the status line's row. Nothing while
+    /// no status line is shown.
     fn lay_out_status(&mut self, term: &Term<'_>, joins: Joins) {
         let Some(line) = term.status_view() else {
             return;
@@ -1795,10 +1789,10 @@ impl Reorder {
         let row_of = |r: Row| written.row(r).unwrap_or_else(|| vp.row(r));
         let nrows = vp.rows().index();
         // **A paragraph a row of which DECRLM wrote is drawn as its cells
-        // hold** (`baud_domain::RowWritten`; Jev, AS_STORED, 0.97/0.97): its
-        // cells hold the order a VT510 shows, which UAX #9 would reverse.
-        // Its rows join as shown, read from the right, as with BDSM reset:
-        // the order DECRLM wrote them in.
+        // hold** (`baud_domain::RowWritten`): its cells hold the order a
+        // VT510 shows, which UAX #9 would reverse. Its rows join as shown,
+        // read from the right, as with BDSM reset: the order DECRLM wrote
+        // them in.
         if (first.index()..=last.index())
             .any(|y| vp.bidi(Row::from_index(y)).written() == RowWritten::RightToLeft)
         {
@@ -1912,15 +1906,15 @@ impl Reorder {
         // below after the last.
         let cap = Chars(CONTEXT);
         // **The level its properties give it** ([`LineBidi::paragraph`]):
-        // at power-on, with no path set and autodetection on, the level
-        // UAX #9 P2-P3 finds -- 1 when its first strong letter, isolates
-        // skipped, is R or AL, else 0 -- the owner's answer of 2026-10-24
-        // ("all match C besides these 2"); a right-to-left paragraph's
-        // erased cells past its text are laid out before it, so its rows
-        // sit against the right edge. The letter is looked for only in the
-        // text the layout reads, the paragraph's drawn rows and the context
-        // around them ([`CONTEXT`]); a paragraph resolved in more than one
-        // piece keeps the first piece's level for the rest (HL1).
+        // at power-on, with no path set and autodetection on, the level UAX
+        // #9 P2-P3 finds -- 1 when its first strong letter, isolates
+        // skipped, is R or AL, else 0 (since 2026-10-24); a right-to-left
+        // paragraph's erased cells past its text are laid out before it, so
+        // its rows sit against the right edge. The letter is looked for
+        // only in the text the layout reads, the paragraph's drawn rows and
+        // the context around them ([`CONTEXT`]); a paragraph resolved in
+        // more than one piece keeps the first piece's level for the rest
+        // (HL1).
         let mut dir = path.paragraph();
         let mut start = 0;
         while start < drawn.len() {
@@ -1994,12 +1988,11 @@ impl Reorder {
         self.rule.clear();
         let mut ranges: Vec<(core::ops::Range<usize>, Col)> = Vec::with_capacity(rows.len());
         // **SDS's and SRS's strings, each an isolate of its direction**
-        // (UAX #9 HL3; Jev's lean, ISOLATE, 0.77/0.82 on a third asking
-        // with a corrected render): where a cell's chain of strings differs from the
-        // last cell's, a PDI for each string left and an LRI or RLI for each
-        // entered, a reversed string's the direction opposite to the one
-        // around it, the line's path at the top (Jev's lean, PATH). An
-        // isolate still open at the paragraph's end ends there (BD9).
+        // (UAX #9 HL3): where a cell's chain of strings differs from
+        // the last cell's, a PDI for each string left and an LRI or RLI
+        // for each entered, a reversed string's the direction opposite
+        // to the one around it, the line's path at the top. An isolate
+        // still open at the paragraph's end ends there (BD9).
         let strings = term.strings_seen();
         // Each row's cells read for their strings only where it holds one:
         // a window row by its kept answer, a row of context read.
@@ -2128,11 +2121,10 @@ impl Reorder {
         // **A table row**: a paragraph holding a column rule keeps its
         // columns. Each cell is a paragraph of its own, at the level its
         // own first strong letter gives it (UAX #9 section 3: "the text in
-        // two different cells of a table will be in different
-        // paragraphs"), each is ordered inside its own columns, and the
-        // row runs left to right, every rule where it was written. A path
-        // SCP or SPD set is each cell's level, HL1 on each cell's paragraph
-        // (Jev's lean, CELLS_AT_SCP, 0.57/0.71).
+        // two different cells of a table will be in different paragraphs"),
+        // each is ordered inside its own columns, and the row runs left to
+        // right, every rule where it was written. A path SCP or SPD set is
+        // each cell's level, HL1 on each cell's paragraph.
         let table = self.rule.contains(&Rule::Yes);
         let dir = match table {
             true => path.paragraph(),
@@ -2789,9 +2781,9 @@ fn mirror(
     // its counterpart** (`[[source: terminal-wg-bidi-misc]]`, "mirror the
     // U+2500 .. U+257F glyphs in RTL"; UAX #9 HL6), under its marks as a
     // mirrored character is. Only one drawn right to left: L4's resolved R,
-    // with HL6 widening which characters (Jev's lean, RESOLVED_RTL,
-    // 0.60/0.74 then 0.88/0.92), so a table row's rules, kept where they
-    // were written at the left-to-right level, are drawn as written.
+    // with HL6 widening which characters, so a table row's rules, kept
+    // where they were written at the left-to-right level, are drawn as
+    // written.
     let counterpart = match boxes {
         BoxMirror::On => box_counterpart(c).filter(|m| *m != c),
         BoxMirror::Off => None,
@@ -2859,9 +2851,6 @@ fn asked_form(term: &Term<'_>, cell: PackedCell) -> Option<JoiningForm> {
 /// vertical axis"), `[[source: ecma48]]` 8.3.108; TR/53's worked example 1
 /// pairs SAPV 3 with EXPLICIT. With BDSM set, L4 governs: "mirroring must
 /// be done according to rule L4" (`[[source: uax9-bidi]]` section 7).
-/// Jev's lean, UNMIRROR_EXPLICIT_ONLY, in three of four answers (0.10 and
-/// 0.14 in the first round, 0.23 in the re-ask's order A; the re-ask's
-/// order B leaned to unmirroring in both states, at 0.16).
 fn unmirrored(term: &Term<'_>, cell: PackedCell) -> bool {
     if !term.variants_seen() {
         return false;
@@ -2995,10 +2984,10 @@ impl Reorder {
 
     /// **The characters a variant draws as another**: a decimal digit as
     /// its Arabic-Indic counterpart (value 2, unless 18), and a FULL STOP
-    /// between two digits as a COMMA (value 10; Jev BETWEEN_DIGITS,
-    /// 0.98/0.96, "where the bit combination 02/14 is intended to represent
-    /// a decimal mark in a decimal number"), drawn as a mirrored character
-    /// is, in the row's maps: every path reads the drawn cell.
+    /// between two digits as a COMMA (value 10, "where the bit combination
+    /// 02/14 is intended to represent a decimal mark in a decimal number"),
+    /// drawn as a mirrored character is, in the row's maps: every path
+    /// reads the drawn cell.
     fn vary_swaps(&mut self, term: &Term<'_>, vp: &Viewport<'_>, r: Row, written: &dyn Over) {
         let cells = written.row(r).unwrap_or_else(|| vp.row(r));
         let mut found: Vec<(Col, Content)> = Vec::new();

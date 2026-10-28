@@ -41,12 +41,12 @@ in
     # audit_all.sh shells out to impl_audit.py; the gate must not depend on
     # whatever python happens to be on the host.
     pkgs.python3
-    # `test:unit` runs the tests through nextest (the owner's call,
-    # 2026-10-07): `cargo test` runs the ~120 test binaries one after
-    # another, so a binary with one long test left the other cores idle until
-    # it finished. nextest runs every test of every binary across all cores,
-    # each in its own process. It does not run doctests, so `test:unit` runs
-    # those after it with `cargo test --doc`.
+    # `test:unit` runs the tests through nextest (since 2026-10-07):
+    # `cargo test` runs the ~120 test binaries one after another, so a binary
+    # with one long test left the other cores idle until it finished. nextest
+    # runs every test of every binary across all cores, each in its own
+    # process. It does not run doctests, so `test:unit` runs those after it
+    # with `cargo test --doc`.
     pkgs.cargo-nextest
     # `test:changelog` reads the history through git-cliff
     # (`scripts/check-changelog.sh`).
@@ -325,24 +325,22 @@ in
 
     # --release is for speed now, not correctness. The throughput floors this
     # comment once cited (baud-core/tests/perf_floor.rs) left with baud-core2
-    # (108f7ef), and the last wall-clock bound became a bench on 2026-09-22
-    # (docs/record.md, "A timing bound in `cargo test` measured the load, and it
-    # is a bench now"), so nothing in the suite fails on the profile. A debug run
-    # takes minutes where release takes seconds (docs/record.md, "The tests run
-    # on every core, the owner's call of 2026-10-07"). docs/contributing/build.md
-    # runs the same tests in release.
+    # (108f7ef), and the last wall-clock bound became a bench on 2026-09-22, so
+    # nothing in the suite fails on the profile. A debug run takes minutes where
+    # release takes seconds. docs/contributing/build.md runs the same tests in
+    # release.
     "test:unit" = {
-      # `--no-fail-fast`, the owner's call 2026-09-22: cargo stops at the
-      # first failing test binary, and a wall-clock flake once stopped this
-      # run at 81 of 119 -- which read as one red test rather than a partial
-      # run. One red binary must not hide the rest. nextest takes the same
-      # flag, and the doctests run whether or not it passed. The task exits
-      # non-zero if either half failed; `test:bare` and the gates after it
-      # run anyway, through their `@completed` edges.
+      # `--no-fail-fast`, since 2026-09-22: cargo stops at the first failing
+      # test binary, and a wall-clock flake once stopped this run at 81 of
+      # 119 -- which read as one red test rather than a partial run. One red
+      # binary must not hide the rest. nextest takes the same flag, and the
+      # doctests run whether or not it passed. The task exits non-zero if
+      # either half failed; `test:bare` and the gates after it run anyway,
+      # through their `@completed` edges.
       #
-      # nextest rather than `cargo test`, the owner's call 2026-10-07; why is
-      # at `pkgs.cargo-nextest` above. It builds the same test binaries,
-      # with the same profile and flags, through `cargo test --no-run`.
+      # nextest rather than `cargo test`, since 2026-10-07; why is at
+      # `pkgs.cargo-nextest` above. It builds the same test binaries, with
+      # the same profile and flags, through `cargo test --no-run`.
       exec = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet --no-fail-fast ${scope}; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ]";
       after = [ "test:check" ];
     };
@@ -388,24 +386,22 @@ in
       after = [ "test:audit@completed" ];
     };
 
-    # baud-core's suite under its arms, in five builds: the arms that
-    # replace a default path, in three builds that cannot hide one another
+    # baud-core's suite under its arms, in five builds: the arms that replace
+    # a default path, in three builds that cannot hide one another
     # (`probe-double-final-scan` rides with the `two-pass-csi` it implies);
     # `diag`, which adds counters and the tests that read them, alone; and
     # the additive probes in one build. Off aarch64, `route-stride` is a
-    # sixth. A compiled arm can still be wrong: 08bc0f9 fixed
-    # `two-pass-csi`, under which a test already in the suite was red on
-    # c6a5494 while no gate ran the suite under it. Every baud-core feature
-    # is in one of the script's classes -- run, run by host, or excluded
-    # with the test it turns red -- so a new arm cannot go unclassified.
-    # `cell-table` is excluded as wrong, not by construction: its read
-    # writes a cell for a character the computing path attaches, such as
-    # a mark or ZWJ, and
+    # sixth. A compiled arm can still be wrong: 08bc0f9 fixed `two-pass-csi`,
+    # under which a test already in the suite was red on c6a5494 while no
+    # gate ran the suite under it. Every baud-core feature is in one of the
+    # script's classes -- run, run by host, or excluded with the test it
+    # turns red -- so a new arm cannot go unclassified. `cell-table` is
+    # excluded as wrong, not by construction: its read writes a cell for a
+    # character the computing path attaches, such as a mark or ZWJ, and
     # `the_table_read_writes_what_the_computing_path_writes` is red under it.
     # Run by hand (`devenv tasks run test:feature-suites`) and not in
     # `enterTest`: in `devenv test` it would run on every push and in CI's
-    # Lint/UT job, whose timeout is sized without it. Where it runs is the
-    # owner's call (record, "baud-core's suite runs under its arms").
+    # Lint/UT job, whose timeout is sized without it.
     "test:feature-suites" = {
       exec = "bash ./scripts/test-features.sh";
       after = [ "test:features" ];

@@ -17,7 +17,7 @@
 //! `tests/resize/drag.sizes`; `tests/resize/README.md` says how each
 //! fixture was made.
 //!
-//! The invariant they check is the owner's:
+//! The invariant they check:
 //!
 //! > A resize never changes the top line. Only feeding bytes may.
 //!
@@ -393,15 +393,15 @@ fn zoom_and_short_each_carry_two_redraws_in_one_step() {
 
 #[test]
 fn a_resize_holds_the_bottom_line() {
-    // **The anchor is the bottom**, which is the owner's call after a
-    // shrink-then-grow was found deleting their `ls`: holding the *top*
-    // still means rows come off the bottom, the cursor lands on a row it
-    // was not on, and the shell's next redraw overwrites output that no
-    // growth can restore. Holding the bottom means rows come off the top
-    // into the history, which is where content that no longer fits
-    // belongs -- the owner's own refinement, "what the first line is
-    // changes when the content starts to push up and exceed the visible
-    // side at the current window size".
+    // **The anchor is the bottom**, chosen after a shrink-then-grow was
+    // found deleting an `ls`: holding the *top* still means rows come
+    // off the bottom, the cursor lands on a row it was not on, and the
+    // shell's next redraw overwrites output that no growth can restore.
+    // Holding the bottom means rows come off the top into the history,
+    // which is where content that no longer fits belongs -- the
+    // refinement, "what the first line is changes when the content
+    // starts to push up and exceed the visible side at the current
+    // window size".
     //
     // So the line that must not move is the last one. Checked around the
     // `resize` call alone -- nothing fed between the two reads -- so
@@ -448,7 +448,7 @@ fn a_resize_holds_the_bottom_line() {
 
 #[test]
 fn a_gesture_leaves_one_prompt_on_screen() {
-    // After **every** step, not only the last: the owner sees the
+    // After **every** step, not only the last: a user sees the
     // duplicate mid-drag, so a test that only looks at the end would
     // miss the moment it appears.
     //
@@ -516,12 +516,12 @@ fn a_gesture_leaves_one_prompt_on_screen() {
 
 #[test]
 fn output_written_before_a_gesture_survives_it() {
-    // The owner: "did ls, then made window smaller then bigger and the
-    // ls disappear". The fixture's own startup is the output -- a
-    // shell's banner, written before the first resize -- so this asks
-    // whether a real gesture loses real output: at every step back at
-    // the starting height, the first line is either on the screen or
-    // retained in the history, and never gone.
+    // A user's report: "did ls, then made window smaller then bigger
+    // and the ls disappear". The fixture's own startup is the output
+    // -- a shell's banner, written before the first resize -- so this
+    // asks whether a real gesture loses real output: at every step
+    // back at the starting height, the first line is either on the
+    // screen or retained in the history, and never gone.
     //
     // The first version asserted the history was *non-empty* after the
     // gesture, which is true of a screen that started full and false of
@@ -670,15 +670,15 @@ fn the_prompt_to_cursor_distance_holds_across_every_resize() {
 
 #[test]
 fn a_fresh_terminal_keeps_its_first_line_wherever_the_window_is_tall_enough() {
-    // The owner's invariant, stated as they stated it: the size of the
-    // window does not change what the first line at the top is; what
-    // changes it is content pushing up into the history when it exceeds
-    // the visible size. A fresh terminal has a banner line and a prompt,
-    // and nothing else ever pushes -- so at every step where the window
-    // is at least as tall as it started, the first line is the one it
-    // started with, on the row it started on. The recording of
-    // 2026-09-18 02:18 shows the prompt at the bottom of a same-sized
-    // window with blank rows above it after one resize.
+    // The invariant, as it was reported: the size of the window does not
+    // change what the first line at the top is; what changes it is
+    // content pushing up into the history when it exceeds the visible
+    // size. A fresh terminal has a banner line and a prompt, and nothing
+    // else ever pushes -- so at every step where the window is at least
+    // as tall as it started, the first line is the one it started with,
+    // on the row it started on. The recording of 2026-09-18 02:18 shows
+    // the prompt at the bottom of a same-sized window with blank rows
+    // above it after one resize.
     for name in FRESH {
         let f = load(name);
         controls(&f);

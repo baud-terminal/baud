@@ -76,9 +76,9 @@ fn adjacent_strings_are_apart() {
     });
 }
 
-/// **An end ends only a string of its kind** (Jev's lean, MATCH_KIND): SRS
-/// 0 inside a directed string ends nothing and is counted, as is an end
-/// with nothing open; SDS's `Ps` 3 and SRS's 2 are unsupported.
+/// **An end ends only a string of its kind**: SRS 0 inside a directed
+/// string ends nothing and is counted, as is an end with nothing open;
+/// SDS's `Ps` 3 and SRS's 2 are unsupported.
 #[test]
 fn a_mismatched_or_stray_end_ends_nothing_and_is_counted() {
     support::with_term(&WS, |t| {
@@ -96,8 +96,7 @@ fn a_mismatched_or_stray_end_ends_nothing_and_is_counted() {
 }
 
 /// **`SGR 0` leaves the string, `DECSC` and `DECRC` keep the one open**,
-/// and `DECSTR` ends it (Jev's lean, CLOSE), the characters written
-/// keeping theirs.
+/// and `DECSTR` ends it, the characters written keeping theirs.
 #[test]
 fn sgr_0_and_decrc_keep_the_string_and_decstr_ends_it() {
     support::with_term(&WS, |t| {

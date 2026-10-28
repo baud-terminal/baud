@@ -3,8 +3,7 @@
 //! `[[source: dec-std-070]]` p. 5-24), and in the one bitmap of the VT330
 //! and VT340 the pixels over them would move with them. The ReGIS page's
 //! pixels in the rectangle move and the rest stay; a Sixel across a side
-//! margin is split, the part inside moving and the rest staying (Jev's
-//! lean, SPLIT, 0.71 and 0.71).
+//! margin is split, the part inside moving and the rest staying.
 //!
 //! Cells are 10 by 20 pixels throughout. The margins are columns 5 to 15
 //! (cells 4 to 14) and lines 1 to 10.

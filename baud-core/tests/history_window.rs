@@ -1,9 +1,8 @@
-//! **The terminal keeps the window over the history** (note V, V2: the
-//! owner's "as recommended" of 2026-09-25, which picked B -- the core keeps
-//! the window over the history, as a line number or live). Before it,
-//! baud-app kept the window as a count of lines up from the live screen and
-//! moved it after every read by the read's net movement, which is not
-//! composable: a window a scroll down brought to the live screen stays
+//! **The terminal keeps the window over the history** (note V, V2, option B:
+//! the core keeps the window over the history, as a line number or live).
+//! Before it, baud-app kept the window as a count of lines up from the live
+//! screen and moved it after every read by the read's net movement, which is
+//! not composable: a window a scroll down brought to the live screen stays
 //! there, so `SD 5` and five lines landed live when the two were reads of
 //! their own and five lines up when one read held both. The core holds an
 //! absolute line, which output retiring lines never moves, and sends it live
@@ -385,7 +384,7 @@ type ResetRow<'a> = (usize, &'a [u8], &'a [u8], Option<Erasure>, &'a str);
 /// read took the window's line back first, or when the window was live -- at
 /// every read size and every cut into two reads. The case the reveal used to
 /// read at the read's edges, where the same bytes revealed or not by where
-/// the reads fell (TODO.md, the residue of 21365a9).
+/// the reads fell.
 #[test]
 fn a_reset_keeps_where_the_window_stood_at_its_byte() {
     let back = |s| Some(Erasure::Reset(s, Looking::Back));

@@ -45,8 +45,7 @@ use std::time::Duration;
 
 /// **How long after the last event the files are read**: 10 ms, pushed
 /// back by each event, so one save's rename, create and write are one
-/// reading. alacritty's `DEBOUNCE_DELAY` is 10 ms, WezTerm sleeps 200 ms;
-/// Jev's lean after a re-ask, MS_10, 0.72 and 0.73.
+/// reading. alacritty's `DEBOUNCE_DELAY` is 10 ms, WezTerm sleeps 200 ms.
 pub const SETTLE: Duration = Duration::from_millis(10);
 
 /// How a watched file is compared: a config or theme file by its bytes, a
@@ -64,21 +63,20 @@ pub struct Watched {
     pub kind: Kind,
 }
 
-/// **The files to watch**: each place the config is looked up, each path
-/// a theme name is tried at, and each font named by path, each once, in
-/// this order. A symbolic link is watched as itself, read through: the
-/// kernel's watch on its path is a watch on the file it names (an
-/// `O_EVTONLY` open follows it, and inotify does unless asked not to:
-/// `IN_DONT_FOLLOW`, "Don't dereference pathname if it is a symbolic
-/// link", `[[source: linux-man-inotify-7]]` 310-313), so an edit through
-/// it is heard in place, and a rename over its target as that file's
-/// delete: `NOTE_DELETE` on macOS, `IN_DELETE_SELF` on Linux, measured.
-/// The target's directory is not watched: a home-manager link resolves to
-/// a file directly in `/nix/store`, whose every write would be a settle
-/// and a reading, and a switch replaces the link in its own directory, as
+/// **The files to watch**: each place the config is looked up, each path a
+/// theme name is tried at, and each font named by path, each once, in this
+/// order. A symbolic link is watched as itself, read through: the kernel's
+/// watch on its path is a watch on the file it names (an `O_EVTONLY` open
+/// follows it, and inotify does unless asked not to: `IN_DONT_FOLLOW`,
+/// "Don't dereference pathname if it is a symbolic link",
+/// `[[source: linux-man-inotify-7]]` 310-313), so an edit through it is
+/// heard in place, and a rename over its target as that file's delete:
+/// `NOTE_DELETE` on macOS, `IN_DELETE_SELF` on Linux, measured. The
+/// target's directory is not watched: a home-manager link resolves to a
+/// file directly in `/nix/store`, whose every write would be a settle and
+/// a reading, and a switch replaces the link in its own directory, as
 /// WezTerm watches a config's path and its directory and never its
-/// target's (`[[source: wezterm-20240203-config-lib]]`; Jev's lean after a
-/// re-ask, B_WEZTERM_SHAPE).
+/// target's (`[[source: wezterm-20240203-config-lib]]`).
 pub fn files(lookup: &[PathBuf], themes: &[PathBuf], faces: &[PathBuf]) -> Vec<Watched> {
     let mut out: Vec<Watched> = Vec::new();
     let tagged = lookup
@@ -1125,9 +1123,8 @@ mod tests {
 
     /// An editor that truncates and then writes: written before the settle
     /// ends, only the written bytes are read; the settle passing between
-    /// the two, the empty file is read -- an empty config is the defaults,
-    /// Jev's lean EMPTY_IS_DEFAULTS, 0.80 and 0.80 -- and the write after
-    /// it is a second change.
+    /// the two, the empty file is read -- an empty config is the defaults
+    /// -- and the write after it is a second change.
     #[test]
     fn a_truncate_then_write_reads_once_inside_the_settle() {
         let d = Dir::new("truncate");

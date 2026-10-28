@@ -3,10 +3,10 @@
 //! **`ESC [` is not a CSI introducer here.** That is the whole reason this is
 //! seven nodes instead of a `terminal_mode` branch inside the `Escape` arm: in
 //! VT52 every byte parses differently, so the protocol belongs in the parser
-//! state and not in a flag the hot loop has to read. `CLAUDE.md` records the
-//! general form -- "a protocol is more nodes, not a runtime flag" -- from when
-//! `ESC` itself and the UTF-8 continuations were made nodes, and both removed
-//! a per-byte branch and were free.
+//! state and not in a flag the hot loop has to read. The general form -- "a
+//! protocol is more nodes, not a runtime flag" -- dates from when `ESC` itself
+//! and the UTF-8 continuations were made nodes, and both removed a per-byte
+//! branch and were free.
 //!
 //! `[[source: ctlseqs]]` gives the command set; `baud_domain::Vt52` is the
 //! parse, so what lives here is what each command does.

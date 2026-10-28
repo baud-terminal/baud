@@ -435,9 +435,8 @@ fn the_macro_parameter_sets_the_aspect_where_both_dec_texts_make_it_whole() {
     // 130:100, 8 112:100, 9 100:100 (PDF p. 918). Where both are whole they
     // agree. **Where 070-9's is not whole it is preserved**, a band six times
     // the ratio tall rounded once, 27, 15, 9, 8 and 7 rows, where the VT300
-    // rounds each row to 5, 3, 2, 1 and 1 (Jev, PRESERVE, 2026-10-23); all
-    // five were 6, drawn 1:1. **A `P1` past 9 is omitted**, 12 (070-3
-    // §3.5.1.3; Jev, AS_DEFAULT); it was 6.
+    // rounds each row to 5, 3, 2, 1 and 1; all five were 6, drawn 1:1. **A
+    // `P1` past 9 is omitted**, 12 (070-3 §3.5.1.3); it was 6.
     let cases = [
         (None, 12),
         (Some(0), 12),
@@ -465,9 +464,9 @@ fn a_raster_ratio_before_the_data_overrides_the_macro() {
     // attributes set by the macro parameter"; `[[source: dec-std-070]]` 070-9
     // §8.1.2: it "must precede any Sixel, or any sixel positioning command
     // ... or the command will be ignored", and omitted or zero `Pan`, `Pad`
-    // "default to '1' (one)" (PDF p. 921). `"3;2` is 1.5:1, a band of 9
-    // rows; `"1;2`, below one, is 1:1 (070-9 §12's smallest imageable unit;
-    // Jev, CLAMP_ONE); both were 6 until 2026-10-23.
+    // "default to '1' (one)" (PDF p. 921). `"3;2` is 1.5:1, a band of 9 rows;
+    // `"1;2`, below one, is 1:1 (070-9 §12's smallest imageable unit); both
+    // were 6 until 2026-10-23.
     let two = SixelAspect::from_macro(None);
     let cases: [(&[u8], u16); 11] = [
         (b"\"1;1#0;2;100;0;0~", 6),

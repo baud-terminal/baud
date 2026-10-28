@@ -76,7 +76,7 @@ fn the_warning_bell_powers_on_high_and_the_margin_bell_off() {
 }
 
 /// **0 and none are DEC's**: DECSWBV high, DECSMBV off -- the reverse of
-/// ctlseqs' and xterm's reading of 0 (Jev, DEC, 1.00 and 1.00).
+/// ctlseqs' and xterm's reading of 0.
 #[test]
 fn decswbv_reads_every_value_as_the_dec_manuals_give_it() {
     use BellVolume::*;
@@ -282,8 +282,8 @@ fn armed_at_is_used() {
     });
 }
 
-/// **Both switches**: `?44` and a volume not off (Jev's lean,
-/// TWO_SWITCHES); either alone rings nothing.
+/// **Both switches**: `?44` and a volume not off; either
+/// alone rings nothing.
 #[test]
 fn the_margin_bell_needs_44_and_a_volume() {
     use Step::*;

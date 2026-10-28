@@ -575,10 +575,9 @@ fn a_private_sixel_neither_feeds_nor_clears_the_shared_set() {
 /// registers, which a set can only confirm; the text area in pixels, and a
 /// `0 ; 0` maximum as `[[source: ctlseqs]]` asks of a terminal with no
 /// maximum dimensions; ReGIS's page, the text area in pixels or the
-/// VT300's 800 by 480, and a `0 ; 0` maximum, answered whatever DA claims
-/// (Jev: ALWAYS, decided; ZERO, the lean); an error in `Pi` for anything
-/// unknown, an error in `Pa` for an unknown action, a failure for a
-/// geometry set or reset.
+/// VT300's 800 by 480, and a `0 ; 0` maximum, answered whatever DA claims;
+/// an error in `Pi` for anything unknown, an error in `Pa` for an unknown
+/// action, a failure for a geometry set or reset.
 #[test]
 fn xtsmgraphics_answers_the_registers_and_the_geometry() {
     let asks: [(&[u8], &[u8]); 15] = [
@@ -631,9 +630,9 @@ fn xtsmgraphics_answers_the_registers_and_the_geometry() {
     });
 }
 
-/// **Only the three-parameter form is answered** (Jev, THREE_ONLY): two or
-/// four parameters are counted and get no reply, and none scrolls the
-/// screen as `CSI Ps S` would.
+/// **Only the three-parameter form is answered**: two or four parameters
+/// are counted and get no reply, and none scrolls the screen as `CSI Ps S`
+/// would.
 #[test]
 fn xtsmgraphics_of_another_arity_is_counted_and_unanswered() {
     for ask in [b"\x1b[?1;1S".as_slice(), b"\x1b[?2;3;100;100S"] {

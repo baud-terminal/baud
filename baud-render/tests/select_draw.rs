@@ -89,15 +89,15 @@ fn a_blocks_edge_never_cuts_a_wide_character_in_two() {
 }
 
 /// **A selected box-drawing line's background is the floored text, as a
-/// selected letter's is** (the owner's call of 2026-10-17, decisions
-/// 702/703). A swap hands the background the solid text, `Resolved::fg`,
-/// which the floor lifted; the line rule draws a line's glyph as asked and
-/// leaves that alone. herdr's divider `#15161b` reads 1.05:1 on the
-/// default dark page, so a selection drawn in it as asked would cut a dark
-/// gap through the band. Row 0 holds `x` and `U+2502` unselected, which
-/// says where each glyph inks; row 1 holds them again, selected. On the
-/// pixels neither glyph inks, the selected line's equal the selected
-/// letter's with the floor on, and differ from its own with the floor off.
+/// selected letter's is**. A swap hands the background the solid text,
+/// `Resolved::fg`, which the floor lifted; the line rule draws a line's
+/// glyph as asked and leaves that alone. herdr's divider `#15161b` reads
+/// 1.05:1 on the default dark page, so a selection drawn in it as asked
+/// would cut a dark gap through the band. Row 0 holds `x` and `U+2502`
+/// unselected, which says where each glyph inks; row 1 holds them again,
+/// selected. On the pixels neither glyph inks, the selected line's equal
+/// the selected letter's with the floor on, and differ from its own with
+/// the floor off.
 #[test]
 fn a_selected_line_takes_the_floored_background_a_letter_does() {
     let mono = font("JetBrainsMono-Regular.ttf");

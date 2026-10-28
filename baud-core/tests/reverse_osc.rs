@@ -12,12 +12,12 @@
 //! sent.
 //!
 //! baud stores the unreversed slots and exchanges every cell where it draws
-//! (DEC STD 070 § 5.6.3.2; the owner's decision of 2026-10-13), so a default
-//! cell shows the stored background as text and the stored foreground as
-//! its page, and the same answer is a mapping at the slot the core reads or
-//! writes: under `?5`, `OSC 10` names the stored background and `OSC 11` the
-//! stored foreground. `OSC 4` is not mapped: under the exchange no palette
-//! entry moves, so the entry a program names is the entry drawn.
+//! (DEC STD 070 § 5.6.3.2), so a default cell shows the stored background as
+//! text and the stored foreground as its page, and the same answer is a
+//! mapping at the slot the core reads or writes: under `?5`, `OSC 10` names
+//! the stored background and `OSC 11` the stored foreground. `OSC 4` is not
+//! mapped: under the exchange no palette entry moves, so the entry a program
+//! names is the entry drawn.
 
 mod support;
 
@@ -169,7 +169,7 @@ fn osc_12_is_not_mapped() {
 }
 
 /// One step of a program that flips `?5` among `OSC 10`/`11` sets and
-/// queries. `OSC 4` is left out: its mapping waits on Jev's `DECSCNM`
+/// queries. `OSC 4` is left out: its mapping waits on the `DECSCNM`
 /// decision.
 #[derive(Clone, Debug)]
 enum Op {
@@ -265,12 +265,12 @@ proptest::proptest! {
 
 /// **The selection's colours are named as sent under `?5` too**: `OSC 17`
 /// sets, asks for and resets the highlight background and `OSC 19` the
-/// foreground, as ctlseqs names them (Jev's lean, 0.84 and 0.72 under the
-/// bar). The exchange is DEC's, which has no selection colour, and the
-/// selection is drawn after it; xterm's handlers trade the two under its
-/// own `reverseVideo` (misc.c `oppositeColor`), which leaves them where
-/// they are. Unset, a query answers the selection as drawn: a default cell
-/// exchanged and then reversed shows the text shown as its page.
+/// foreground, as ctlseqs names them. The exchange is DEC's, which has no
+/// selection colour, and the selection is drawn after it; xterm's handlers
+/// trade the two under its own `reverseVideo` (misc.c `oppositeColor`),
+/// which leaves them where they are. Unset, a query answers the selection
+/// as drawn: a default cell exchanged and then reversed shows the text
+/// shown as its page.
 #[test]
 fn osc_17_and_19_under_reverse_name_the_colour_sent() {
     each_read_size(

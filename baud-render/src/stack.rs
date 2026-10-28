@@ -190,12 +190,12 @@ pub enum Presentation {
     Colour,
 }
 
-/// How a character with no selector is drawn: the owner's `font` or
-/// `system` (2026-09-30). Under `Font`, the default, it is the font's text
-/// glyph whatever its default presentation -- `⚡` is JetBrains Mono's bolt --
-/// and only `U+FE0F` asks for colour. Under `System` a character whose
-/// default presentation is emoji (`Emoji_Presentation=Yes`, `⚡` but not `❤`)
-/// is colour too, as macOS's own text draws it.
+/// How a character with no selector is drawn: `font` or `system`. Under
+/// `Font`, the default, it is the font's text glyph whatever its default
+/// presentation -- `⚡` is JetBrains Mono's bolt -- and only `U+FE0F` asks for
+/// colour. Under `System` a character whose default presentation is emoji
+/// (`Emoji_Presentation=Yes`, `⚡` but not `❤`) is colour too, as macOS's own
+/// text draws it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum EmojiDefault {
     #[default]
@@ -537,10 +537,9 @@ impl<'f, 'a> Stack<'f, 'a> {
 
     /// The style whose face a cell of `style` is drawn from: its own, when
     /// the stack has one, else regular -- the fallback chain -- and nothing
-    /// is synthesised (Jev, 0.67, then R_REGULAR 0.98/0.98). Which face a
-    /// style has is the caller's: baud-app gives a configured family's
-    /// styles by CSS Fonts' style search, which can give Bold Italic the
-    /// Bold face of a family with no italic.
+    /// is synthesised. Which face a style has is the caller's: baud-app
+    /// gives a configured family's styles by CSS Fonts' style search, which
+    /// can give Bold Italic the Bold face of a family with no italic.
     pub fn effective(&self, style: FaceStyle) -> FaceStyle {
         if self.styled.get(style).is_some() {
             style
@@ -567,7 +566,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// primary for what it has no face for, so an unconfigured selection
     /// draws as `SGR 10` does. Fraktur is first and the alternative behind
     /// it when both are set: 20 names a look the text defines, 11-19 a
-    /// slot it leaves undefined (Jev, FRAKTUR_FIRST, 0.94 and 0.96).
+    /// slot it leaves undefined.
     pub fn font_of(&self, id: FontId, attrs: Attrs) -> FontSlot {
         let alt = FontSlot::alternative(id);
         let alt = match alt != FontSlot::PRIMARY && self.has_font(alt) {
@@ -633,15 +632,15 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// **How far `face`'s italic leans**, for a cell SAPV 17 slants left,
-    /// drawn as its upright glyph sheared by it (Jev's lean, LEFT_SHEAR,
-    /// "sheared left by the italic face's angle"): the italic face's own
-    /// `post.italicAngle`, counter-clockwise degrees from the vertical and
-    /// negative for a face that leans right (`[[source: ms-opentype-post]]`),
-    /// as far to the left; CSS's 14 degrees for an `oblique` given no angle
-    /// where it gives none (`[[source: css-fonts-4-wd-2026-10-16]]`), as
-    /// `baud_font::Described::slope` reads it. `None` for a face not
-    /// italic, and for an italic the stack has no face for: that is drawn
-    /// upright from the regular face and nothing is synthesised for it
+    /// drawn as its upright glyph sheared by it (sheared left by the italic
+    /// face's angle): the italic face's own `post.italicAngle`,
+    /// counter-clockwise degrees from the vertical and negative for a face
+    /// that leans right (`[[source: ms-opentype-post]]`), as far to the left;
+    /// CSS's 14 degrees for an `oblique` given no angle where it gives none
+    /// (`[[source: css-fonts-4-wd-2026-10-16]]`), as
+    /// `baud_font::Described::slope` reads it. `None` for a face not italic,
+    /// and for an italic the stack has no face for: that is drawn upright
+    /// from the regular face and nothing is synthesised for it
     /// ([`Stack::effective`]), so it leans neither way.
     pub fn lean(&self, face: TextFace) -> Option<Lean> {
         if face.style.upright() == face.style {
@@ -701,8 +700,8 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// take ([`Stack::select_cluster`]), since the two are canonical
     /// equivalents (`[[source: unicode18-ch3]]` C6), and in the chain's
     /// own order -- so Ǻ is the embedded face's Å and acute, in bold
-    /// where the bold face has them, rather than Menlo's Ǻ two faces down
-    /// (Jev, F1_COVERAGE 0.96 and 0.98).
+    /// where the bold face has them, rather than Menlo's Ǻ two faces
+    /// down.
     fn carries(&self, ix: FaceIx, c: Codepoint) -> Draws {
         let f = self.face(ix);
         match f.glyph(c) {
@@ -933,10 +932,10 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// fallback chain in order, that has the base and every mark that is not
     /// default-ignorable after the shaper's own normalisation
     /// ([`Normalised::covered`]); `first` when none has, which then draws the
-    /// marks it has and drops the rest (`Renderer::shape`). Jev A_DROP, 0.99:
-    /// before this a mark the base's face lacked drew as a `.notdef` that
-    /// JetBrains Mono advances a full cell, so every mark after it landed
-    /// over the box in the next cell.
+    /// marks it has and drops the rest (`Renderer::shape`). Before this a
+    /// mark the base's face lacked drew as a `.notdef` that JetBrains Mono
+    /// advances a full cell, so every mark after it landed over the box in
+    /// the next cell.
     ///
     /// **A styled face is not in the chain**, here as everywhere: a bold
     /// cluster whose bold face lacks a mark is looked for in the regular
@@ -1065,8 +1064,7 @@ mod tests {
 
     /// A style with no face of its own draws from the fallback chain -- the
     /// regular faces -- and never from another style's face: Bold Italic with
-    /// only a Bold face present is drawn regular, not bold (Jev, 0.67, asked
-    /// with baud's principles; kitty's rule).
+    /// only a Bold face present is drawn regular, not bold (kitty's rule).
     #[test]
     fn a_missing_style_falls_back_without_faking() {
         let r = font("jetbrains-mono/JetBrainsMono-Regular.ttf");

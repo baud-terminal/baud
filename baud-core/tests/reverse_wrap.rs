@@ -88,10 +88,10 @@ fn reverse_wrap_crosses_the_top_margin_into_a_wrapped_line() {
 }
 
 /// **Below the region, a reverse wrap that fails goes up a line**, xterm's
-/// `if (row < bottom) ++row; /* reverse-wrap failed */` taken as written
-/// (Jev's lean, XTERM_UP, 0.86/0.80 then 0.76/0.78): from row 7 under a
-/// region ending at row 5 the line above is row 6, not before the bottom
-/// margin, so the cursor is left on it. Inside the region it stays.
+/// `if (row < bottom) ++row; /* reverse-wrap failed */` taken as written:
+/// from row 7 under a region ending at row 5 the line above is row 6, not
+/// before the bottom margin, so the cursor is left on it. Inside the
+/// region it stays.
 #[test]
 fn a_failed_reverse_wrap_below_the_region_goes_up_a_line() {
     assert_eq!(cursor("\x1b[?45h\x1b[2;6r\x1b[8;1H\x08"), (6, 0));

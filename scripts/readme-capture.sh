@@ -20,7 +20,7 @@
 #               Japanese, Nerd Font icons and ligatures, in straight columns,
 #               drawn from open faces only: baud's embedded Regular and icon
 #               face, Noto Color Emoji and Noto Sans CJK SC (OFL-1.1 all),
-#               so no Apple glyph is published (the owner, 2026-10-17)
+#               so no Apple glyph is published
 #   hero.gif    scripts/readme-demo-hero.sh: btop, a git log scrolling,
 #               a photo through kitten icat, the cursor trail
 #   images.gif  scripts/readme-demo-images.sh: a photo, then a smaller one
@@ -71,8 +71,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 baud=${BAUD:-$root/target/release/baud}
 dest=$root/assets/readme
 only=${ONLY:-"text hero images tools trail social"}
-# The social card's tagline, which must equal the README's: the owner's
-# pick of 2026-10-17. Each bar starts a new line on the card.
+# The social card's tagline, which must equal the README's. Each bar
+# starts a new line on the card.
 TAGLINE=${TAGLINE:-"The terminal with character:|its own font,|its own cursor effects,|and the speed to keep up."}
 NIXPKGS=github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a
 # The revision of this repository whose log the clips show.

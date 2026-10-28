@@ -8,29 +8,26 @@
 //! viewpoint is the computer's, and baud is the computer, so RD is a read
 //! of the master and SD a write to it (note AH, 2.3).
 //!
-//! **The look** (Jev, 2026-10-24, decisions 1473-1476, each with renders):
-//! Hayes's letters to the left of each light (MODEM_LEFT, a lean at
-//! 0.89/0.88, after the settled "modem letters over icons" of 2026-10-09),
-//! RD green and SD amber, AppKit's own `systemGreenColor` and
-//! `systemOrangeColor` resolved under the window's appearance (a lean at
-//! 0.91/0.88: the HIG's "Prefer system-defined colors", and colour repeats
-//! what the letters and the place already say -- "Avoid relying solely on
-//! color", `[[source: apple-hig-color]]`). A dark light is its own colour
-//! mixed most of the way into the strip's grey, so the pair reads as two
-//! lights when nothing moves. A change is one step, as an LED's is
-//! (INSTANT, 0.98/0.98).
+//! **The look**: Hayes's letters to the left of each light, modem letters
+//! rather than icons, RD green and SD amber, AppKit's own
+//! `systemGreenColor` and `systemOrangeColor` resolved under the window's
+//! appearance (the HIG's "Prefer system-defined colors", and colour
+//! repeats what the letters and the place already say -- "Avoid relying
+//! solely on color", `[[source: apple-hig-color]]`). A dark light is its
+//! own colour mixed most of the way into the strip's grey, so the pair
+//! reads as two lights when nothing moves. A change is one step, as an
+//! LED's is.
 //!
 //! **The clock** ([`Activity`]): a light is lit for [`HOLD`] after the last
-//! byte, and once it changes it does not change again for [`DWELL`]; a
-//! byte that lands while a dark light dwells lights it when the dwell
-//! ends, so no byte goes unshown (HOLD_DWELL_200, Jev 0.96/0.97). A
-//! light's changes are at least 200 ms apart, so any closed second holds
-//! at most six of them, three flashes: WCAG 2.2's "no more than three
-//! general flashes and / or no more than three red flashes within any
-//! one-second period" (`[[source: wcag22]]`). The count holds per light:
-//! two out of phase can make six flashes between them, so the pair meets
-//! 2.3.1 by the area clause the lights' size meets. iTerm2's activity
-//! indicator holds two seconds after the last read
+//! byte, and once it changes it does not change again for [`DWELL`]; a byte
+//! that lands while a dark light dwells lights it when the dwell ends, so
+//! no byte goes unshown. A light's changes are at least 200 ms apart, so
+//! any closed second holds at most six of them, three flashes: WCAG 2.2's
+//! "no more than three general flashes and / or no more than three red
+//! flashes within any one-second period" (`[[source: wcag22]]`). The count
+//! holds per light: two out of phase can make six flashes between them, so
+//! the pair meets 2.3.1 by the area clause the lights' size meets. iTerm2's
+//! activity indicator holds two seconds after the last read
 //! (`[[source: iterm2-964a75d-ptysession-isprocessing]]`), the Linux tty
 //! trigger flashes 50 ms per 100 ms poll (`[[source: linux-ledtrig-tty]]`);
 //! 200 ms keeps a modem's flicker under the threshold.
@@ -38,11 +35,9 @@
 //! **Dim Flashing Lights** draws a lit light at the most of its colour over
 //! the dark light that makes neither a general nor a red flash over any
 //! grey of the backdrop the strip shows -- the standard material's range,
-//! or black to white over the glass ([`dim_cap`], [`Glow::Dimmed`]; Jev
-//! 1.00/1.00),
-//! so no change of a light is a flash by WCAG's definition. Reduce Motion
-//! changes nothing (a lean at 0.92/0.89): a light moves only for a byte
-//! and steps with no animation.
+//! or black to white over the glass ([`dim_cap`], [`Glow::Dimmed`]), so no
+//! change of a light is a flash by WCAG's definition. Reduce Motion changes
+//! nothing: a light moves only for a byte and steps with no animation.
 
 use crate::atlas::outline;
 use crate::color::Argb;
@@ -54,8 +49,7 @@ use baud_font::{Canvas, Extent, Face, Point, Px, Rasterizer, Scale, VarPoint};
 use core::time::Duration;
 
 /// **Whether the activity lights are drawn**: `[window] activity_lights`,
-/// on unless the config says off (the owner: "again option in config to
-/// turn it off").
+/// on unless the config says off.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ActivityLights {
     #[default]

@@ -174,7 +174,7 @@ fn a_change_the_embedder_refuses_is_counted() {
 }
 
 /// **With changes off, every change is refused and the query is still
-/// answered**: the owner's option D, "a setting turns changes off".
+/// answered**: a setting turns changes off.
 #[test]
 fn with_changes_off_a_change_is_refused_and_the_query_answered() {
     with_font(FontSize::Configured, |t| {

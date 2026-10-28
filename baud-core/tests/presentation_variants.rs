@@ -206,9 +206,8 @@ fn value_12_is_refused_and_an_undefined_value_counted() {
     });
 }
 
-/// **`DECSTR` and `RIS` return the default presentation** (Jev's lean,
-/// RESET), held forms let go; `DECSC` and `DECRC` carry the variants
-/// with the rendition.
+/// **`DECSTR` and `RIS` return the default presentation**, held forms
+/// let go; `DECSC` and `DECRC` carry the variants with the rendition.
 #[test]
 fn the_resets_return_the_default_and_decrc_restores_the_variants() {
     for reset in ["\x1b[!p", "\x1bc"] {

@@ -3,18 +3,17 @@
 //! `OSC 1337` subcommand of the same class, `RequestAttention`
 //! (`docs/research/notes/ax-program-notifications.md`).
 //!
-//! * **`OSC 9 ; text`** is iTerm2's "Post a notification" (`[[source:
-//!   iterm2-escape-codes]]`). **`OSC 9 ; n ; ...`** is ConEmu's family
-//!   (`[[source: conemu-ansi-escape-codes]]`), which shares the number: a
-//!   body in one of ConEmu's forms is ConEmu's, `9;4` progress built and the
-//!   rest refused ([`ConEmuOp`]), and any other body is iTerm2's text (Jev's
-//!   lean, 0.83 and 0.91). Bare `9;4` clears the bar, iTerm2's "abbreviated
-//!   form".
+//! * **`OSC 9 ; text`** is iTerm2's "Post a notification"
+//!   (`[[source: iterm2-escape-codes]]`). **`OSC 9 ; n ; ...`** is ConEmu's
+//!   family (`[[source: conemu-ansi-escape-codes]]`), which shares the
+//!   number: a body in one of ConEmu's forms is ConEmu's, `9;4` progress
+//!   built and the rest refused ([`ConEmuOp`]), and any other body is
+//!   iTerm2's text. Bare `9;4` clears the bar, iTerm2's "abbreviated form".
 //! * **`OSC 777 ; notify ; title ; body`** is the form Terminology and VTE's
 //!   patch defined (`[[source: vte-notify-patch]]`); rxvt-unicode itself
-//!   defines `OSC 777` only as a call into a perl extension (`[[source:
-//!   urxvt-pm]]`). The body is everything after the title's `;`, and a title
-//!   alone is a notification (Jev's lean, 0.85 and 0.67).
+//!   defines `OSC 777` only as a call into a perl extension
+//!   (`[[source: urxvt-pm]]`). The body is everything after the title's `;`,
+//!   and a title alone is a notification.
 //! * **`OSC 99 ; metadata ; payload`** is kitty's protocol (`[[source:
 //!   kitty-desktop-notifications]]`), chunked, with ids, a query, actions and
 //!   close events: [`NoticeMeta`] reads a chunk's keys and [`NoticeDesk`]
@@ -70,8 +69,7 @@ pub enum Osc9<'a> {
     /// ConEmu's `9 ; 4 ; st ; pr`, or iTerm2's bare `9 ; 4`.
     Progress(ProgressReport),
     /// `9 ; 4` with a state no text defines, or a progress that is not a
-    /// number: dropped and counted, as Windows Terminal drops it (Jev, 0.98
-    /// and 0.96).
+    /// number: dropped and counted, as Windows Terminal drops it.
     ProgressMalformed,
     /// One of ConEmu's other forms, refused and counted.
     ConEmu(ConEmuOp),
@@ -438,14 +436,13 @@ pub enum PayloadEncoding {
 /// a-zA-Z0-9-_/\+.,(){}[]*&^%$#@!`~". A part with no `=`, a key of more
 /// than one letter or a value outside the set makes the metadata
 /// [`NoticeMeta::Malformed`], and the command is ignored, as kitty's own
-/// parser ignores one ("Malformed metadata section", `[[source:
-/// kitty-notifications-py]]`). **The set takes `=` and `?` as well**,
-/// each a value the text itself writes: its `f`, `n`, `s` and `t` values
-/// are base64, which pads with `=`, and kitty's own client sends them
-/// padded (`[[source: kitten-notify-go]]`) -- Jev's lean, 0.30 and 0.48,
-/// over holding to the set exactly and over no check -- and its query is
-/// `p=?`. The set as written would refuse kitty's own tool and the text's
-/// own query. "a key
+/// parser ignores one ("Malformed metadata section",
+/// `[[source: kitty-notifications-py]]`). **The set takes `=` and `?` as
+/// well**, each a value the text itself writes: its `f`, `n`, `s` and `t`
+/// values are base64, which pads with `=`, and kitty's own client sends
+/// them padded (`[[source: kitten-notify-go]]`) -- rather than holding to
+/// the set exactly, or no check -- and its query is `p=?`. The set as
+/// written would refuse kitty's own tool and the text's own query. "a key
 /// in the metadata it does not understand ... *must* be ignored", and so
 /// is a known key's value this does not understand, the text's "best
 /// guess".
@@ -1526,7 +1523,7 @@ impl NoticeDesk {
         area[tat..tat + t].copy_from_slice(&title[..t]);
         area[bat..bat + b].copy_from_slice(&body[..b]);
         // Neither text says when to show them, so they show while the
-        // window is not focused (Jev, 0.98 and 0.97).
+        // window is not focused.
         let settings = Settings {
             occasion: Occasion::Unfocused,
             ..Settings::DEFAULT

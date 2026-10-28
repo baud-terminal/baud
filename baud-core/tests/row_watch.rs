@@ -7,7 +7,7 @@
 //! `DL` and a region scroll that copies, kept under a top region's scroll,
 //! trimmed where a scroll takes them out of its region, pushes them under
 //! the screen or off the alternate screen's top, as xterm does with
-//! `keepSelection` at its default (the Jev decisions of 2026-10-20) -- and
+//! `keepSelection` at its default (since 2026-10-20) -- and
 //! [`Term::watched_rows_changed`] whether a move left none of them, a move
 //! under side margins, `IL` or `DL` reached one, a write or an erase
 //! landed on one, or a line taken back erased one. It used to ask whether
@@ -100,12 +100,12 @@ fn down(k: usize) -> TextMoved {
 }
 
 /// **A region scroll that copies carries the region's rows and no others**
-/// (xterm's `adjustHiliteOnFwdScroll`, Jev's MOVE of 2026-10-20). A line
-/// feed at the bottom of a middle region, 4;6 (rows 3 to 5): a selection
-/// on its bottom row goes up a row with its text, one on its top row
-/// leaves the region and is reached, one across the region keeps the part
-/// inside it, carried and trimmed at the region's top, and one above it
-/// or under it stays.
+/// (xterm's `adjustHiliteOnFwdScroll`, since 2026-10-20). A line feed at
+/// the bottom of a middle region, 4;6 (rows 3 to 5): a selection on its
+/// bottom row goes up a row with its text, one on its top row leaves the
+/// region and is reached, one across the region keeps the part inside it,
+/// carried and trimmed at the region's top, and one above it or under it
+/// stays.
 #[test]
 fn a_copying_scroll_up_carries_the_regions_rows_and_only_those() {
     let prog = b"\x1b[4;6r\x1b[6;1H\n";
@@ -150,8 +150,7 @@ fn a_copying_scroll_down_carries_the_regions_rows_and_only_those() {
 /// with no region, from the cursor to the screen's. xterm's `InsertLine`
 /// disowns a selection holding the cursor's row, where blank rows open
 /// inside it, so that one is reached, and so is one on the last row, pushed
-/// out; the rows above the cursor keep their text (Jev's XTERM, 0.91 and
-/// 0.94).
+/// out; the rows above the cursor keep their text.
 #[test]
 fn il_carries_the_rows_from_the_cursor_down() {
     let prog = b"\x1b[6;1H\x1b[L";
@@ -196,11 +195,11 @@ fn dl_carries_the_rows_from_the_cursor_to_the_regions_bottom() {
 /// **A scroll of a region anchored at the top leaves the rows under it
 /// where they are.** The scroll advances the ring and the rows under the
 /// region stay, so a selection there is carried down against the count and
-/// stays on its own text (Jev's STAY, 0.96 and 0.94); one across the
-/// region's bottom keeps the region's part, which the ring moves; one on
-/// the region's rows moves with the ring. A line feed at the bottom of 1;5
-/// (rows 0 to 4) on the primary. It is not a move in place: the count of
-/// those holds, and the region-scroll count moves.
+/// stays on its own text; one across the region's bottom keeps the
+/// region's part, which the ring moves; one on the region's rows moves
+/// with the ring. A line feed at the bottom of 1;5 (rows 0 to 4) on the
+/// primary. It is not a move in place: the count of those holds, and the
+/// region-scroll count moves.
 #[test]
 fn a_top_regions_scroll_keeps_the_rows_under_it() {
     let prog = b"\x1b[1;5r\x1b[5;1H\n";
@@ -426,9 +425,9 @@ fn a_line_given_up_below_and_brought_back_blank_reaches_the_last_row() {
 
 /// **A scroll down trims what it pushes under the screen**, on either
 /// screen, as xterm's `adjustHiliteOnBakScroll` truncates a selection at
-/// the bottom margin (Jev's TRIM, 0.98 and 0.94): `SD 2` carries rows 5 to
-/// 9 down to 7 to 11 and the two pushed under go; rows 8 and 9 go whole and
-/// the selection with them; `RI` at the top keeps row 8 on row 9.
+/// the bottom margin: `SD 2` carries rows 5 to 9 down to 7 to 11 and the
+/// two pushed under go; rows 8 and 9 go whole and the selection with them;
+/// `RI` at the top keeps row 8 on row 9.
 #[test]
 fn a_scroll_down_trims_what_it_pushes_under_the_screen() {
     for alt in [false, true] {
@@ -658,18 +657,17 @@ fn feeds(n: usize) -> Vec<u8> {
 /// taken back, so more lines than that in one arm are misread by
 /// [`Term::moved_since`] -- one ring and a line reads as one line. The watch
 /// counts each line instead, and [`Term::watched_moved`] says how far the
-/// surface went, so the selection is numbered by that and not reached by
-/// the distance alone: half the ring retired, a line more, and the ring and
-/// a line, each on the alternate screen, whose lines `top` does not count,
-/// and taken back by `SD` a line under half the ring and half of it. The
+/// surface went, so the selection is numbered by that and not reached by the
+/// distance alone: half the ring retired, a line more, and the ring and a
+/// line, each on the alternate screen, whose lines `top` does not count, and
+/// taken back by `SD` a line under half the ring and half of it. The
 /// selection is on rows no line taken back blanks or pushes under the
 /// window. Until 2026-10-17 a read past half the ring reached the watch
 /// whatever it moved, which dropped a selection on text that was still its
 /// own: `ESC [ 6 S ESC [ 5 T` kept row 8's text on row 7. The ring and a
-/// line take the selection's row off the alternate screen's top, which
-/// trims it at that scroll and leaves nothing (Jev's TRIM_AT_SCROLL of
-/// 2026-10-20): reached, and the count stops, as it does once a watch is
-/// reached.
+/// line take the selection's row off the alternate screen's top, which trims
+/// it at that scroll and leaves nothing: reached, and the count stops, as it
+/// does once a watch is reached.
 #[test]
 fn a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen() {
     let n = with_term(|t| {
@@ -1046,11 +1044,11 @@ fn a_column_change_reaches_every_row() {
 }
 
 /// **`?1040`, xterm's keepSelection, is set at power-on** -- "The default
-/// is \"true\"" (`[[source: xterm-man]]`; Jev, SET_AT_POWER_ON, 0.95 and
-/// 0.98) -- and `DECRQM` answers it as it stands: `1` set, `2` reset.
-/// `DECSET` and `DECRST` of it are not counted as unsupported. A write on
-/// the selection's rows reaches the watch either way: what the mode keeps
-/// is the embedder's saved text, not the selection's place.
+/// is \"true\"" (`[[source: xterm-man]]`) -- and `DECRQM` answers it as
+/// it stands: `1` set, `2` reset. `DECSET` and `DECRST` of it are not
+/// counted as unsupported. A write on the selection's rows reaches the
+/// watch either way: what the mode keeps is the embedder's saved text,
+/// not the selection's place.
 #[test]
 fn keep_selection_is_set_at_power_on_and_answers_decrqm() {
     with_term(|t| {

@@ -4,35 +4,32 @@
 //!
 //! **baud keeps one store, the data component**, and the presentation is
 //! what is drawn from it. With BDSM reset a line is drawn in cell order,
-//! reversed on a right-to-left path, and inside it each SDS or SRS string
-//! in its own direction ([`baud_domain::order_strings`]): presentation
-//! position `n` along the line's path holds data position `n` except on a
-//! line holding a string. **There, under PRESENTATION**, the functions
-//! 7.2.3 lists that baud implements take the cursor's presentation
-//! position and act on the cells drawn at the positions they reach (Jev's
-//! lean, BUILD, 0.22/0.22 then 0.86/0.86): `CR` goes to the cell drawn at
-//! the line's home, `LF`, `NEL` and `RI` keep the presentation position on
-//! the line they reach, `DCH` deletes the cells drawn at the positions it
-//! covers and `ECH`, `EL` and `ED` erase them, `ICH` opens its blanks at the
-//! presentation position, joining the string there (TR/53 note A.1 ii),
-//! and `CPR` reports the presentation column. `DL` and `IL` act on lines,
-//! the same in both. With BDSM set DCSM "has no effect" (7.3.4 c).
+//! reversed on a right-to-left path, and inside it each SDS or SRS string in
+//! its own direction ([`baud_domain::order_strings`]): presentation position
+//! `n` along the line's path holds data position `n` except on a line
+//! holding a string. **There, under PRESENTATION**, the functions 7.2.3
+//! lists that baud implements take the cursor's presentation position and
+//! act on the cells drawn at the positions they reach: `CR` goes to the cell
+//! drawn at the line's home, `LF`, `NEL` and `RI` keep the presentation
+//! position on the line they reach, `DCH` deletes the cells drawn at the
+//! positions it covers and `ECH`, `EL` and `ED` erase them, `ICH` opens its
+//! blanks at the presentation position, joining the string there (TR/53 note
+//! A.1 ii), and `CPR` reports the presentation column. `DL` and `IL` act on
+//! lines, the same in both. With BDSM set DCSM "has no effect" (7.3.4 c).
 //!
 //! **The cursor functions move "the active presentation position"**
 //! (8.3.7-8.3.23, 8.3.60, 8.3.161) **in both DCSM states**: their
 //! definitions have no DCSM paragraph, 7.2.3's NOTE does not list them and
 //! Annex F F.7, informative, calls them "independent of the setting of"
-//! DCSM (Jev's lean, ALWAYS_EXPLICIT, 0.76/0.84, where keeping them by
-//! cell under DATA needed 0.9). With BDSM reset `CUP`, `CHA`, `CUF`,
-//! `CUB`, `CUU`, `CUD`, `CNL`, `CPL`, `HT`, `CHT`, `CBT`, `CVT` and `VT`
-//! move from the cursor's presentation position and leave it on the cell
-//! drawn where they end ([`Paint::presented`]), and `HTS`, `CTC` and `TBC`
-//! take the stop's column there. TR/53's worked example 2 reaches data
-//! columns with `CUP` and `CHA` on its DATA lines; `HVP` and `HPA`, which
-//! move the active data position, by cell in both states, reach them here.
-//! `CUF` is "rightwards in the presentation component" and `CUB`
-//! "leftwards", so on a right-to-left line they run back and on along its
-//! path (Jev's lean, PHYSICAL, 0.88/0.96).
+//! DCSM. With BDSM reset `CUP`, `CHA`, `CUF`, `CUB`, `CUU`, `CUD`, `CNL`,
+//! `CPL`, `HT`, `CHT`, `CBT`, `CVT` and `VT` move from the cursor's
+//! presentation position and leave it on the cell drawn where they end
+//! ([`Paint::presented`]), and `HTS`, `CTC` and `TBC` take the stop's
+//! column there. TR/53's worked example 2 reaches data columns with `CUP`
+//! and `CHA` on its DATA lines; `HVP` and `HPA`, which move the active
+//! data position, by cell in both states, reach them here. `CUF` is
+//! "rightwards in the presentation component" and `CUB` "leftwards", so on
+//! a right-to-left line they run back and on along its path.
 //!
 //! **What it costs while nothing selects it: one bit.** The three
 //! conditions are one bit of the mode word ([`ModeBit::PresentationEdits`]),
@@ -429,13 +426,13 @@ impl Paint<'_, '_> {
     /// [`Paint::presented`].
     ///
     /// **Reached by [`ModeBit::CursorRouted`]**, which an open aligned
-    /// string sets too: the string ends at the move (Jev, FORMAT_EFFECTOR,
-    /// 0.92/0.92, "or other cursor movement"), wherever the move leaves the
-    /// cursor, and with [`ModeBit::CursorPresented`] reset the move is the
-    /// plain arm's ([`Paint::cursor_plain`]). The string's own bit, tested
-    /// before the dispatch's match, read 0.15-0.55% more instructions on
-    /// `less`, `asciiquarium`, `btop` and `vim`; this bit replaces the one
-    /// the arm tested.
+    /// string sets too: the string ends at the move ("or other cursor
+    /// movement"), wherever the move leaves the cursor, and with
+    /// [`ModeBit::CursorPresented`] reset the move is the plain arm's
+    /// ([`Paint::cursor_plain`]). The string's own bit, tested before the
+    /// dispatch's match, read 0.15-0.55% more instructions on `less`,
+    /// `asciiquarium`, `btop` and `vim`; this bit replaces the one the arm
+    /// tested.
     #[cold]
     #[inline(never)]
     pub(crate) fn cursor_presented(&mut self, op: Csi) {

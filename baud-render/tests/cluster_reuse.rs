@@ -7,8 +7,7 @@
 //! its word while its glyphs change, and a frame that compared words drew
 //! the old cluster. The store's epoch (`Term::cluster_epoch`) moves when a
 //! slot may have changed hands, and a moved epoch repaints every row, as an
-//! evicted rendition does (docs/record.md, "The cluster store holds 1024
-//! clusters and sweeps the dead ones").
+//! evicted rendition does.
 //!
 //! Each test builds the collision on purpose: the slot a cluster lands in is
 //! read from an empty `ClusterStore` of the terminal's size, which is the

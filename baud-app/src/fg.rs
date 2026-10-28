@@ -14,10 +14,9 @@
 //!   dropped -- what `ps` shows and what the user typed. macOS's
 //!   `proc_name` is cheaper and answered `coreutils` for nix's `sleep`, a
 //!   symlink to a multi-call binary (note AK 2.3, measured), where Linux's
-//!   `comm` says `sleep`; argv[0] is the same on both (Jev's lean, N-ARGV,
-//!   0.58/0.69 on a second ask, decisions 1215-1216). When argv[0]
-//!   cannot be read -- a root process under
-//!   `sudo` -- the executable's file name stands in.
+//!   `comm` says `sleep`; argv[0] is the same on both. When argv[0] cannot
+//!   be read -- a root process under `sudo` -- the executable's file name
+//!   stands in.
 //! * **Its directory**: macOS's `PROC_PIDVNODEPATHINFO`, Linux's
 //!   `/proc/pid/cwd` (`[[source: linux-man-proc-pid-cwd]]`), each refused
 //!   for a process the user cannot trace.

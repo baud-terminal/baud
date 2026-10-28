@@ -53,14 +53,12 @@ impl Paint<'_, '_> {
     /// XTCHECKSUM, `CSI Ps # y`: how the next DECRQCRA sums.
     ///
     /// **Honoured whatever the checksum setting**, as xterm gates
-    /// `SetChecksum` apart from `GetChecksum` and a default xterm allows
-    /// the first and refuses the second (`[[source: xterm-man]]`,
-    /// `disallowedWindowOps`; Jev's lean, ALWAYS, 0.34/0.44 after a second
-    /// ask): with the setting off it changes no reply. **Ignored and counted
-    /// below Level 4**, as xterm's `vtXX_level >= 4` (`CASE_XTERM_CHECKSUM`,
-    /// `[[source: xterm-reset]]`'s file; Jev's lean, GATE, 0.10/0.04 after a
-    /// second ask, UNGATED 0.24/0.34 on the first); DECRQCRA, Level 4's,
-    /// is not executed below it either (`baud_domain::LEVELS`).
+    /// `SetChecksum` apart from `GetChecksum` and a default xterm allows the
+    /// first and refuses the second (`[[source: xterm-man]]`,
+    /// `disallowedWindowOps`): with the setting off it changes no reply.
+    /// **Ignored and counted below Level 4**, as xterm's `vtXX_level >= 4`
+    /// (`CASE_XTERM_CHECKSUM`, `[[source: xterm-reset]]`'s file); DECRQCRA,
+    /// Level 4's, is not executed below it either (`baud_domain::LEVELS`).
     fn select_checksum(&mut self, ext: ChecksumExtension) {
         match self.cold.level {
             ConformanceLevel::Four => self.cold.checksum_ext = ext,
@@ -108,13 +106,12 @@ impl Paint<'_, '_> {
 
     /// The half of a wide character outside `[left, right]` on row `r`,
     /// where an edge cuts one: **the character goes whole**, the outside
-    /// half a written space in its own rendition and protection (Jev
-    /// 2026-10-18, ORPHAN_SPACE, the lean taken at 0.38 and 0.20 after a
-    /// second ask; xterm's `Clear1Cell` on both halves, `[[source:
-    /// xterm-screen]]`). It keeps the position occupied, as the character
-    /// had it, and of the character's flags DECSCA's protection alone: the
-    /// ECMA-48 guard and an `OSC 8` link go (Jev's lean, PROTECTION_ONLY,
-    /// 2026-10-19), where xterm's `Clear1Cell` keeps every attribute.
+    /// half a written space in its own rendition and protection (xterm's
+    /// `Clear1Cell` on both halves, `[[source: xterm-screen]]`). It keeps
+    /// the position occupied, as the character had it, and of the
+    /// character's flags DECSCA's protection alone: the ECMA-48 guard and
+    /// an `OSC 8` link go, where xterm's `Clear1Cell` keeps every
+    /// attribute.
     fn cut_wide_edges(&mut self, r: Row, left: Col, right: Col, spare: Spare) {
         let keep = |c: PackedCell| spare == Spare::Protected && c.is_protected();
         if left.index() > 0 {
@@ -171,7 +168,7 @@ impl Paint<'_, '_> {
     /// occupied cell becomes U+0020 and an unoccupied one stays empty, both
     /// in the default rendition with no protection -- not the current
     /// rendition baud's ED and EL erase in, and not xterm's, which keeps the
-    /// current SGR (decided by Jev 2026-10-18, DEFAULT, 0.98 and 0.98).
+    /// current SGR.
     fn erase_area(&mut self, a: Area) {
         let Some(rect) = self.page_rect(a) else {
             return;
@@ -208,7 +205,7 @@ impl Paint<'_, '_> {
     /// becomes U+0020 in the rendition it had, and a protected or unoccupied
     /// one is left as it is. The protection is DECSCA's alone. The space is
     /// DECSED's ([`PackedCell::selectively_erased`]), so an ECMA-48 guard
-    /// and an `OSC 8` link stay (Jev, AGREE, 1.00/0.98, 2026-10-19).
+    /// and an `OSC 8` link stay.
     fn selective_erase_area(&mut self, a: Area) {
         let Some(rect) = self.page_rect(a) else {
             return;
@@ -306,8 +303,7 @@ impl Paint<'_, '_> {
     /// as "only information which will appear in valid character positions
     /// in the page will be copied", and a source position past its line's
     /// end is copied as unoccupied, which is what a DEC terminal's copy
-    /// gives, its cells there always empty (decided by Jev 2026-10-19,
-    /// UNOCCUPIED, 1.00 and 1.00 on a re-ask; xterm copies what the row
+    /// gives, its cells there always empty (xterm copies what the row
     /// stores).
     fn copy_area(&mut self, from: Area, to_top: OneBased, to_left: OneBased) {
         let Some(src) = self.page_rect(from) else {
@@ -389,12 +385,12 @@ impl Paint<'_, '_> {
     /// the command, and ending with the second", wrapping at the page's
     /// edges, and "unoccupied positions are not affected"; under `RECTANGLE`
     /// every position in the rectangle, and "these character positions are
-    /// changed to blanks and are affected" (`[[source: dec-std-070]]`
-    /// p. 5-177). **Only the cells inside change**, a wide character cut at
-    /// an edge included (Jev 2026-10-18, INSIDE_ONLY, 0.98 and 0.98).
+    /// changed to blanks and are affected" (`[[source: dec-std-070]]` p.
+    /// 5-177). **Only the cells inside change**, a wide character cut at an
+    /// edge included.
     ///
     /// **A selection on the rows stays**, as xterm's `ScrnMarkRectangle`
-    /// leaves it: the owner's B23 drops one for text written or erased, and
+    /// leaves it: a selection is dropped for text written or erased, and
     /// these change neither.
     ///
     /// **A cell's rendition is interned again, never edited in place**: other
@@ -529,7 +525,7 @@ impl Paint<'_, '_> {
     /// attribute alike. The rectangle is read as DECRQCRA's is, from the
     /// origin and clamped to the page, each line to its own end; one that
     /// holds no cell answers `CSI 0 m`, as xterm's answers with no cell
-    /// read (Jev, ANSWER_ZERO, 0.96/0.98).
+    /// read.
     fn report_area_rendition(&mut self, a: Area) {
         let mut common: Option<StyleWord> = None;
         if let Some(rect) = self.page_rect(a) {

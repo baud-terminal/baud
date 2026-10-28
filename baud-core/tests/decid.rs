@@ -8,10 +8,10 @@
 //! zero (0)", note b: "DECID is not recognized at Level 3 or above", and
 //! its algorithm calls `device_attributes_1()` only when the level is 1 or
 //! 2. baud powers up at Level 4, so there `ESC Z` answers nothing and is
-//! counted; DECSCL 61 or 62 brings the answer back (Jev,
-//! NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). `[[source: ctlseqs]]`: "Return
-//! Terminal ID (DECID is 0x9a). Obsolete form of CSI c (DA)." Note c sends
-//! VT52 mode elsewhere: there `ESC Z` is VT52's own identify, `ESC / Z`.
+//! counted; DECSCL 61 or 62 brings the answer back. `[[source: ctlseqs]]`:
+//! "Return Terminal ID (DECID is 0x9a). Obsolete form of CSI c (DA)." Note
+//! c sends VT52 mode elsewhere: there `ESC Z` is VT52's own identify,
+//! `ESC / Z`.
 //!
 //! Every case runs at every read size and at every two-read split, so the
 //! `ESC` and the `Z` meet in `fast_esc` and in the graph's escape node.

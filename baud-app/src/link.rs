@@ -21,17 +21,15 @@
 //!   and no further, and only when the click asks -- [`under`] runs it on
 //!   an unarmed Cmd press (Ctrl on Linux) and on the release of a press it
 //!   armed, never on a drag, a move or a frame. Where the RFC is silent,
-//!   practice decided, through Jev on 2026-10-18 at below 0.9 and so on the
-//!   lean: trailing
-//!   `.,;:!?'*` and an unmatched closing bracket are prose, not the URI; an
-//!   opening `(` or `[` just before the scheme ends it at the closer that
-//!   matches nothing inside; a letter outside ASCII running on from it
-//!   refuses it, because the text names a page `admit` cannot open as
-//!   shown. A URI that may have been cut -- past `LINK_MAX`, a `%` without
-//!   two hex digits, a bracket outside an IP-literal host, or a `<` or
-//!   `"` opened before it and never closed before a hard line break
-//!   (Appendix C's own example) -- is refused whole, never opened
-//!   shortened.
+//!   practice decides: trailing `.,;:!?'*` and an unmatched closing bracket
+//!   are prose, not the URI; an opening `(` or `[` just before the scheme
+//!   ends it at the closer that matches nothing inside; a letter outside
+//!   ASCII running on from it refuses it, because the text names a page
+//!   `admit` cannot open as shown. A URI that may have been cut -- past
+//!   `LINK_MAX`, a `%` without two hex digits, a bracket outside an
+//!   IP-literal host, or a `<` or `"` opened before it and never closed
+//!   before a hard line break (Appendix C's own example) -- is refused
+//!   whole, never opened shortened.
 //! * [`gesture`] decides what a mouse event over a link means: Cmd-click
 //!   (Ctrl-click on Linux, where the Linux driver opens with `xdg-open` and
 //!   reveals through the file manager, `opener.rs` and `bus.rs`),
@@ -845,8 +843,7 @@ pub fn gesture(
 /// the bytes and nothing shown can pass for an address that opens: no
 /// control can move or end the line, no bidi control can reorder it
 /// (`[[source: uax9-tr9-52]]`), and no letter can be a look-alike of
-/// another script's (`[[source: utr36-15]]` 2.5, 2.3). Jev's lean,
-/// E_BYTES, 0.76 and 0.74.
+/// another script's (`[[source: utr36-15]]` 2.5, 2.3).
 pub fn escaped(uri: &[u8]) -> String {
     let mut out = String::with_capacity(uri.len());
     for &b in uri {
@@ -877,10 +874,10 @@ const ELLIPSIS: char = '\u{2026}';
 
 /// **An escaped address shortened to `room` columns**, keeping what a spoof
 /// cannot push off the row: the scheme, then the host -- whole if it fits,
-/// else its end, where the registrable domain is, after an ellipsis --
-/// then the end of the rest after an ellipsis. A host that starts like
-/// another site's (`accounts.example.com.aaaa....evil.test`) shows the part
-/// that names where it goes. Jev's lean, T_KEEP_HOST_END, 0.95 and 0.89.
+/// else its end, where the registrable domain is, after an ellipsis -- then
+/// the end of the rest after an ellipsis. A host that starts like another
+/// site's (`accounts.example.com.aaaa....evil.test`) shows the part that
+/// names where it goes.
 pub fn shortened(address: &str, room: Cols) -> String {
     let room = room.index();
     let chars: Vec<char> = address.chars().collect();
@@ -940,9 +937,8 @@ pub fn shortened(address: &str, room: Cols) -> String {
 
 /// **What the preview's bar says for a link**: its escaped address, after
 /// what refuses it in words when a click would open nothing, so the user
-/// knows before clicking (Jev's lean, R_REASON, 0.62 and 0.89), shortened
-/// to `room` columns. A reason too long for the room is cut to "Won't
-/// open".
+/// knows before clicking, shortened to `room` columns. A reason too long
+/// for the room is cut to "Won't open".
 pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
     let room = room.index();
     let (uri, verdict) = match link {
@@ -991,9 +987,9 @@ pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
 /// cell naming its slot -- one URI and one `id` -- connected or not: cells
 /// sharing a nonempty `id` "are always underlined together on mouseover",
 /// and for cells without one the terminal "does some heuristics"
-/// (`[[source: osc8-spec]]`, "Hover underlining and the id parameter");
-/// Jev's lean, U_SLOT, 0.82 and 0.94. A URI read from the text is its
-/// cells from its first to its last, across the rows a soft wrap joined.
+/// (`[[source: osc8-spec]]`, "Hover underlining and the id parameter"). A
+/// URI read from the text is its cells from its first to its last, across
+/// the rows a soft wrap joined.
 pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
@@ -1057,7 +1053,7 @@ pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
 /// Ghostty's banner (`[[source: ghostty-urlhoverbanner]]`); at the bottom
 /// row's right end while the link has cells under it on the left, as both
 /// move away from the pointer; on the top row only when the link is under
-/// both. Jev's lean, P_BOTTOM_SIDE, 0.41 and 0.35.
+/// both.
 pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, Col) {
     let (width, cols, rows) = (width.index(), cols.index(), rows.index());
     let last = Row::from_index(rows.saturating_sub(1));
@@ -1077,7 +1073,7 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
 /// **What the preview draws for `link` under `spot`**: its cells
 /// underlined and the bar with its address, a space either side, in the
 /// selection's colours, cell-aligned text a program could copy, which
-/// shows only while the chord is held (Jev, K_SELECTION, 0.96 and 0.99).
+/// shows only while the chord is held.
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());

@@ -119,9 +119,9 @@ fn a_line_the_cursor_moves_to_keeps_its_direction() {
 }
 
 /// **Ps1 0 or omitted is refused and counted**: ECMA-48 gives SCP "No
-/// parameter default values" and defines only 1 and 2 (Jev's lean,
-/// REFUSE). The direction in force stays; DECSTR returns it to the
-/// default, as DEC's DECSTR returns DECRLM to left to right.
+/// parameter default values" and defines only 1 and 2. The direction
+/// in force stays; DECSTR returns it to the default, as DEC's DECSTR
+/// returns DECRLM to left to right.
 #[test]
 fn ps1_zero_is_refused_and_decstr_returns_to_first_strong() {
     let mut owned = Owned::new(&WS);
@@ -163,7 +163,7 @@ fn ps2_two_is_refused_and_counted() {
 }
 
 /// **Ps2 1 moves the cursor to the line's first character position**, as
-/// 8.3.111 states (Jev, 0.94/0.97); Ps2 0 and an omitted Ps2 leave it.
+/// 8.3.111 states; Ps2 0 and an omitted Ps2 leave it.
 #[test]
 fn ps2_one_moves_the_cursor_to_the_line_start() {
     let mut owned = Owned::new(&WS);
@@ -247,8 +247,8 @@ fn ris_returns_every_line_to_first_strong() {
 
 /// **ED spreads the direction over the lines it erases**, terminal-wg's
 /// draft rule ("It is crucial that this sequence spreads the current BiDi
-/// modes into the entire cleared area"; Jev's lean, DRAFT_RULES): after
-/// `ED 2` a line the cursor is moved to is right to left.
+/// modes into the entire cleared area"): after `ED 2` a line the cursor
+/// is moved to is right to left.
 #[test]
 fn ed_spreads_the_direction_over_the_erased_lines() {
     let s = screen(&WS, &format!("{FIXED}\x1b[2 k\x1b[2J\x1b[3;1Habc!"));
@@ -280,9 +280,8 @@ fn a_line_sd_or_il_brings_in_under_a_wrapped_row_is_its_own_paragraph() {
 }
 
 /// **SPD 3 turns every line of the screen at once** (8.3.130, "in the
-/// presentation component ... takes effect immediately"; Jev's lean,
-/// WHOLE_SCREEN), and SPD 0 sets every line left to right, a Hebrew one
-/// included.
+/// presentation component ... takes effect immediately"), and SPD 0
+/// sets every line left to right, a Hebrew one included.
 #[test]
 fn spd_turns_every_line_of_the_screen() {
     let s = screen(&WS, &format!("{FIXED}abc!\r\n{HEBREW}\x1b[3 S"));
@@ -298,9 +297,9 @@ fn spd_turns_every_line_of_the_screen() {
     assert_eq!(t.unsupported, before + 2, "vertical, and Ps2 2");
 }
 
-/// **A table row keeps its columns, and each cell takes the direction**
-/// (Jev's lean, CELLS_AT_SCP): each cell is a paragraph of its own (UAX #9
-/// section 3), so HL1 sets each cell's level.
+/// **A table row keeps its columns, and each cell takes the direction**:
+/// each cell is a paragraph of its own (UAX #9 section 3), so HL1 sets
+/// each cell's level.
 #[test]
 fn a_table_row_under_scp_keeps_its_columns_and_turns_each_cell() {
     let s = screen(&WS, &format!("{FIXED}\x1b[2 k\u{2502}ab!\u{2502}"));

@@ -128,7 +128,7 @@ fn four_and_twenty_one_restore_xterms_underline_bits() {
     });
 }
 
-/// **5 restores both blink rates**, one aspect, as the owner chose.
+/// **5 restores both blink rates**, one aspect.
 #[test]
 fn five_restores_the_blink_rate() {
     support::with_term(&WS, |t| {

@@ -826,8 +826,7 @@ impl Inflate {
         // `put_narrow_run` differently, their source unchanged, and `ingest2`
         // retired 740.6 M instructions on `cat` against the base's 734.9 M.
         // Written as loops and array stores, its `__TEXT,__text` is the
-        // base's byte for byte (the record, "The decoders move to
-        // baud-domain, and inflate resumes across reads").
+        // base's byte for byte.
         let dst = out
             .get_mut(self.len..self.len + n)
             .ok_or(ZlibError::Overrun)?;

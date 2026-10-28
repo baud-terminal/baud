@@ -1,9 +1,9 @@
 //! **Every colour of the built-in sixteen reads at 4.5:1 on its own page**,
 //! but the one that is the page's own extreme: black on the dark page and
-//! white on the light one. The owner's answer of 2026-10-18 to note Y's
-//! decisions 3 and 8 took five corrections to get there, each the colour's
-//! OKLCH lightness moved and its hue kept: on the dark page xterm's ansi 1,
-//! 4, 5 and 12, and on the light page Modus Operandi's ansi 7.
+//! white on the light one. Note Y's decisions 3 and 8 took five corrections
+//! to get there (2026-10-18), each the colour's OKLCH lightness moved and
+//! its hue kept: on the dark page xterm's ansi 1, 4, 5 and 12, and on the
+//! light page Modus Operandi's ansi 7.
 //!
 //! WCAG 2.2 SC 1.4.3 asks 4.5:1 of text (`[[source: wcag22]]`). The ratio is
 //! read twice: by the formula here, and by the floor itself, which at a
@@ -34,7 +34,7 @@ fn hex(c: Argb) -> u32 {
     (u32::from(c.r().get()) << 16) | (u32::from(c.g().get()) << 8) | u32::from(c.b().get())
 }
 
-/// The owner's five, as the decisions page put them.
+/// The five corrections.
 const DARK: [(u8, u32); 4] = [(1, 0xe93327), (4, 0x3771ff), (5, 0xd61bd5), (12, 0x6469fe)];
 const LIGHT: [(u8, u32); 1] = [(7, 0x6c6c6c)];
 

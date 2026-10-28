@@ -6,10 +6,9 @@
 //! appear to move to the left ... The active presentation position is not
 //! affected by this control function." 8.3.135 is the mirror. Bounded by the
 //! four margins, `[[source: dec-std-070]]` § 5.4.3: "All scrolling, both
-//! vertical and horizontal, is limited to this area". Decided by Jev
-//! 2026-10-19: no gate on where the cursor stands (NO_GATE, 0.96/0.96), and
-//! the columns brought in take the fill SU and SD give a line (SCROLL_FILL,
-//! 0.96/0.96).
+//! vertical and horizontal, is limited to this area". No gate on where the
+//! cursor stands, and the columns brought in take the fill SU and SD give a
+//! line.
 
 use crate::support;
 use baud_core::*;
@@ -126,18 +125,18 @@ fn the_columns_brought_in_take_the_scroll_fill() {
     });
 }
 
-/// **On a double-width line the text moves to the right margin**, as
-/// DEC's own horizontal shifts move it: DECFI and DECBI shift "one column
+/// **On a double-width line the text moves to the right margin**, as DEC's
+/// own horizontal shifts move it: DECFI and DECBI shift "one column
 /// regardless of their line attributes", and the scroll_left and
 /// scroll_right routines they call run every row of the region to the
 /// right margin (`[[source: dec-std-070]]` pp. 5-37, 5-39, 5-212 and
-/// 5-213). ECMA-48 has no double-width line. Decided by Jev, RIGHT_MARGIN,
-/// 0.94/0.96 on a second ask (0.82/0.78 on the first); xterm's SL and SR
-/// shift each row to its right margin too (`xtermColScroll`). What a shift
-/// brings in at the half is what lay past it, blank here, since DECDWL
-/// left the line's second half empty; what SR pushes past the half is
-/// kept, and the line made single-width again shows it (p. 5-96, DECSWL
-/// "does not cause data contained in the Active Line to be lost").
+/// 5-213). ECMA-48 has no double-width line. Each row shifts to the right
+/// margin; xterm's SL and SR shift each row to its right margin too
+/// (`xtermColScroll`). What a shift brings in at the half is what lay past
+/// it, blank here, since DECDWL left the line's second half empty; what SR
+/// pushes past the half is kept, and the line made single-width again
+/// shows it (p. 5-96, DECSWL "does not cause data contained in the Active
+/// Line to be lost").
 #[test]
 fn a_double_width_line_shifts_to_the_right_margin() {
     let bytes = format!("{}\x1b[2;1H\x1b#6\x1b[2 @", fill());
@@ -158,8 +157,7 @@ fn a_double_width_line_shifts_to_the_right_margin() {
 /// `CSI Ps ^` is SIMD in the pinned ECMA-48 (`CSI Ps 05/14`), not SD: the
 /// caret form of SD is the 1991 printing's error, which the corrected text
 /// gives to SIMD. baud has no implicit-movement directions, so it is
-/// counted and the screen does not move (Jev's lean, SIMD_COUNTED,
-/// 0.80/0.84).
+/// counted and the screen does not move.
 #[test]
 fn csi_caret_is_simd_and_counted_not_a_scroll() {
     let bytes = format!("{}\x1b[2^", fill());

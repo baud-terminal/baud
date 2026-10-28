@@ -104,11 +104,11 @@ impl Attrs {
 
     /// **Slow and rapid blink are one aspect and exactly one is in force**,
     /// so `5` and `6` each replace the family and the later one wins, and
-    /// `25`, "steady (not blinking)", clears both. `[[source: ecma48]]`
-    /// § 8.3.117 gives the three as values of one rendition aspect, by rate,
+    /// `25`, "steady (not blinking)", clears both. `[[source: ecma48]]` §
+    /// 8.3.117 gives the three as values of one rendition aspect, by rate,
     /// and leaves combinations to the implementation ("The usable
     /// combinations of parameter values are determined by the
-    /// implementation"); the owner chose the exclusive reading on 2026-10-13.
+    /// implementation"); the exclusive reading is taken (since 2026-10-13).
     /// The shape [`Attrs::UNDERLINES`] has.
     pub const BLINKS: Attrs = Attrs(Attrs::BLINK.0 | Attrs::RAPID_BLINK.0);
 

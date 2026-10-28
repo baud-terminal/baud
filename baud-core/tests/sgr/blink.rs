@@ -3,9 +3,9 @@
 //! `[[source: ecma48]]` § 8.3.117: "5 slowly blinking (less then 150 per
 //! minute)", "6 rapidly blinking (150 per minute or more)", "25 steady (not
 //! blinking)", and "The usable combinations of parameter values are
-//! determined by the implementation". The owner decided on 2026-10-13 that 6
-//! is a state of its own, that 5 and 6 exclude each other with the later one
-//! winning, and that 25 clears both. Until then 6 set 5's bit.
+//! determined by the implementation". Since 2026-10-13, 6 is a state of its
+//! own, that 5 and 6 exclude each other with the later one winning, and that
+//! 25 clears both. Until then 6 set 5's bit.
 //!
 //! Observed through cells and through `DECRQSS`, not through `Attrs`, so each
 //! test here compiles against the commit before 6 had a bit and is red there.

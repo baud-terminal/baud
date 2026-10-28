@@ -306,9 +306,9 @@ fn decsera_spares_protected_and_unoccupied_cells_and_keeps_renditions() {
     });
 }
 
-/// DECSERA's space is DECSED's: an ECMA-48 guard on the cell stays (Jev,
-/// AGREE, 1.00 and 0.98, 2026-10-19) and so does an `OSC 8` link (Jev's
-/// lean, KEEP); the line-drawing flag goes with the character.
+/// DECSERA's space is DECSED's: an ECMA-48 guard on the cell stays and
+/// so does an `OSC 8` link; the line-drawing flag goes with the
+/// character.
 #[test]
 fn decsera_keeps_the_guard_and_the_link() {
     after("\x1bVab\x1bW\x1b[1;1;1;2${", |t| {
@@ -573,11 +573,11 @@ fn after_with<R>(c: ChecksumReport, bytes: &str, f: impl FnOnce(&mut Term<'_>) -
 }
 
 /// **Answered by default, and unanswered and counted with the checksum
-/// off** (the owner's call of 2026-10-19, option 3). xterm with
-/// `GetChecksum` disallowed sends nothing at all (`CASE_DECRQCRA`,
-/// `[[source: xterm-reset]]`'s file), so the refusal is silence, never a
-/// wrong-shaped report; every form is refused, the page, a rectangle and
-/// inverted corners alike, and none of them is counted unsupported.
+/// off**. xterm with `GetChecksum` disallowed sends nothing at all
+/// (`CASE_DECRQCRA`, `[[source: xterm-reset]]`'s file), so the refusal
+/// is silence, never a wrong-shaped report; every form is refused, the
+/// page, a rectangle and inverted corners alike, and none of them is
+/// counted unsupported.
 #[test]
 fn decrqcra_goes_unanswered_and_counted_with_the_checksum_off() {
     let asks = "\x1b[7;1;1;1;1;1*y\x1b[2;0*y\x1b[1;1;3;1;1;1*y";
@@ -765,8 +765,8 @@ fn decrqcra_counts_a_utf8_character_as_itself_under_a_national_set() {
 /// **REP's copy keeps the set its character was received under** when GL's
 /// set changes before it: ECMA-48 8.3.103 repeats "the preceding character
 /// in the data stream, if it is a graphic character", and says no more of
-/// what a copy is after a designation. The copy is the character as drawn
-/// (Jev's lean, AS_SHOWN), and counts the code the original was received as.
+/// what a copy is after a designation. The copy is the character as drawn,
+/// and counts the code the original was received as.
 #[test]
 fn rep_after_a_set_change_copies_the_character_and_its_code() {
     let cases: [(&str, &str, u32, u32); 4] = [
@@ -794,12 +794,12 @@ fn rep_after_a_set_change_copies_the_character_and_its_code() {
 }
 
 /// **Every set that replaces a code counts the code received**, the rule
-/// the national sets follow (Jev, CODE_RECEIVED, 2026-10-19): DEC
-/// Supplemental's `@` drawn `À` counts 0x40 and its `W` drawn `Œ` 0x57,
-/// JIS-Katakana's `1` drawn U+FF71 0x31, JIS-Roman's `\` drawn `¥` 0x5C. A
-/// reserved position holds DEC's error character, U+2426, and counts it as
-/// itself, 0x1B. A set that draws its byte counts the byte: DEC Technical's
-/// `a`, and Greek's 7/9 and 7/10, which it leaves unreplaced.
+/// the national sets follow: DEC Supplemental's `@` drawn `À` counts 0x40
+/// and its `W` drawn `Œ` 0x57, JIS-Katakana's `1` drawn U+FF71 0x31,
+/// JIS-Roman's `\` drawn `¥` 0x5C. A reserved position holds DEC's error
+/// character, U+2426, and counts it as itself, 0x1B. A set that draws its
+/// byte counts the byte: DEC Technical's `a`, and Greek's 7/9 and 7/10,
+/// which it leaves unreplaced.
 #[test]
 fn decrqcra_counts_the_code_received_under_every_set() {
     let cases: [(&str, &str, u32); 9] = [
@@ -854,8 +854,7 @@ fn decrqcra_counts_a_utf8_character_as_itself_under_line_drawing() {
 
 /// **A cell's combining marks are left out of the sum**: its base counts
 /// and its continuations do not, as in xterm's default sum, where marks
-/// reach only the total its `csNOTRIM` extension reports (Jev, LEFT_OUT,
-/// 1.00 and 0.97, 2026-10-19).
+/// reach only the total its `csNOTRIM` extension reports.
 #[test]
 fn decrqcra_leaves_combining_marks_out() {
     after("e\u{301}\u{323}\x1b[1;1;1;1;1;1*y", |t| {
@@ -916,8 +915,8 @@ fn decrqcra_counts_what_decsed_spaced_with_its_rendition() {
 // ---- wide characters at an edge ----------------------------------------
 
 /// **A wide character an edge cuts goes whole**: the half outside becomes a
-/// written space in its own rendition (Jev 2026-10-18, ORPHAN_SPACE), for
-/// DECERA, DECSERA, DECFRA and the destination of DECCRA alike.
+/// written space in its own rendition, for DECERA, DECSERA, DECFRA and the
+/// destination of DECCRA alike.
 #[test]
 fn an_edit_that_cuts_a_wide_character_spaces_its_other_half() {
     // U+4E2D at columns 1-2 and 3-4, bold.
@@ -944,8 +943,8 @@ fn an_edit_that_cuts_a_wide_character_spaces_its_other_half() {
     });
 }
 
-/// **DECCARA changes only the cells inside**, a cut character's included
-/// (Jev 2026-10-18, INSIDE_ONLY): the positions are the unit.
+/// **DECCARA changes only the cells inside**, a cut character's
+/// included: the positions are the unit.
 #[test]
 fn deccara_on_a_cut_wide_character_changes_only_the_cell_inside() {
     after("\u{4e2d}\x1b[2*x\x1b[1;2;1;2;1$r", |t| {
@@ -957,9 +956,8 @@ fn deccara_on_a_cut_wide_character_changes_only_the_cell_inside() {
 
 /// **The half a cut leaves keeps DECSCA's protection and nothing else of
 /// the character's flags**: its ECMA-48 guard and its `OSC 8` link go
-/// (Jev's lean, PROTECTION_ONLY, 0.67/0.70 and 0.83/0.77 on a re-ask, log
-/// 874-877; STD 070 has no character two columns wide). xterm's
-/// `Clear1Cell` changes the character alone and keeps every attribute.
+/// (STD 070 has no character two columns wide). xterm's `Clear1Cell`
+/// changes the character alone and keeps every attribute.
 #[test]
 fn the_half_a_cut_leaves_keeps_its_protection_alone() {
     let bytes =
@@ -1028,10 +1026,10 @@ fn rectangle_operations_act_on_the_alternate_screen() {
 /// **DECFRA and DECCRA free an image they write over, as text written over
 /// one frees it; DECERA clears its pixels in the positions it erases,
 /// which here are all of them, so it is freed too**, since 2026-10-21
-/// (Jev, PIXELS; `tests/graphics_erase.rs`). DECSERA leaves an unoccupied
-/// position, the image's here, "Unoccupied character positions are not
-/// affected". xterm clears the graphics under all four
-/// (`ScrnFillRectangle`, `ScrnWipeRectangle`).
+/// (`tests/graphics_erase.rs`). DECSERA leaves an unoccupied position, the
+/// image's here, "Unoccupied character positions are not affected". xterm
+/// clears the graphics under all four (`ScrnFillRectangle`,
+/// `ScrnWipeRectangle`).
 #[test]
 fn a_fill_a_copy_or_decera_over_an_image_frees_it() {
     const TINY: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
@@ -1062,9 +1060,8 @@ fn a_fill_a_copy_or_decera_over_an_image_frees_it() {
 }
 
 /// **A fill, a copy or an erase on a selection's rows reaches the watch on
-/// them, and a change of attributes does not**: the owner's B23 drops a
-/// selection for text written or erased, and xterm's `ScrnMarkRectangle`
-/// keeps one.
+/// them, and a change of attributes does not**: a selection is dropped for
+/// text written or erased, and xterm's `ScrnMarkRectangle` keeps one.
 #[test]
 fn rectangle_writes_reach_a_selection_and_attribute_changes_do_not() {
     for (op, want) in [

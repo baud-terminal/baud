@@ -657,7 +657,7 @@ fn wheel_releases_are_not_reported() {
 /// "Additional buttons are encoded like the wheel mice, by adding 64 (for
 /// buttons 6 and 7)" (`[[source: ctlseqs]]`), 66 and 67 in every
 /// encoding, X10's byte 32 more; their releases go unreported as the
-/// wheel's do (Jev's lean, PRESS_ONLY), and `?9` reports neither.
+/// wheel's do, and `?9` reports neither.
 #[test]
 fn buttons_6_and_7_are_encoded_like_the_wheel() {
     let left = ev(MouseButton::WheelLeft, MouseKind::Press, 4, 2);
@@ -983,10 +983,9 @@ fn the_mouse_modes_land_the_same_at_every_read_split() {
 
 /// **herdr's start, as captured (2026-10-09), ends in SGR any-event, and
 /// none of it is counted.** It resets all eight modes, `?1006` down to `?9`,
-/// and then sets three tracking levels, `?1015` and `?1006`
-/// (`.claude/research/scroll/scratch/modes.txt`). Each reset of an encoding
-/// not in force is a no-op under xterm's rule; the last `?1006 h` replaces
-/// `?1015`.
+/// and then sets three tracking levels, `?1015` and `?1006`. Each reset of
+/// an encoding not in force is a no-op under xterm's rule; the last
+/// `?1006 h` replaces `?1015`.
 #[test]
 fn herdrs_start_ends_in_sgr_any_event_and_nothing_is_counted() {
     let herdr: &[u8] = b"\x1b[?1006l\x1b[?1016l\x1b[?1015l\x1b[?1005l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?9l\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h";
@@ -1293,9 +1292,9 @@ fn a_mode_change_or_a_reset_forgets_the_cell() {
 /// mouse response format as the 1006 control, but report position in pixels
 /// rather than character cells". **xterm reports a move per pixel here**:
 /// under `SET_PIXEL_POSITION_MOUSE` its row and column hold pixels, and its
-/// same-cell test compares those (`EditorButton`, `[[source:
-/// xterm-button]]`). That is practice beyond the text, recorded as baud's
-/// departure from xterm and left to the owner.
+/// same-cell test compares those (`EditorButton`,
+/// `[[source: xterm-button]]`). That is practice beyond the text, recorded
+/// as baud's departure from xterm, an open question.
 #[test]
 fn sgr_pixels_motion_is_gated_by_the_cell_as_the_text_says() {
     let none = MouseButton::None;

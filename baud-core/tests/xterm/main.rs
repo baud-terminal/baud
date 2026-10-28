@@ -38,9 +38,9 @@ mod xres;
 ///
 /// **Fifth instance of that porting bug**, after `erase.rs`, `irm.rs`,
 /// `sgr/rep_align.rs` and `vt420/side_margins.rs` -- and the first where it
-/// cost a *diagnosis* rather than a red test: the pin, and the paragraph in
-/// `CLAUDE.md` explaining that the wrap path was at fault, were both written
-/// from it. A number read off the wrong cell is a finding about the harness.
+/// cost a *diagnosis* rather than a red test: the pin, and the paragraph
+/// explaining that the wrap path was at fault, were both written from it. A
+/// number read off the wrong cell is a finding about the harness.
 #[test]
 fn the_known_xterm_gaps() {
     support::ignores_are("xterm", &["hyperlinks.rs"], &[]);

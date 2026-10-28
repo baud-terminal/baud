@@ -1,6 +1,6 @@
-//! **One floor, macOS 26, set in three places.** The owner, 2026-10-13,
-//! picked "macOS 26 and later". The release is written where each layer
-//! reads it, and nothing ties the places together but this file:
+//! **One floor, macOS 26, set in three places.** baud runs on macOS 26
+//! and later. The release is written where each layer reads it, and
+//! nothing ties the places together but this file:
 //!
 //! * the bundle's `LSMinimumSystemVersion` (`packaging/macos/Info.plist`),
 //!   which Launch Services checks before the app runs;
@@ -17,7 +17,7 @@
 
 use std::path::PathBuf;
 
-/// The owner's release, as `LSMinimumSystemVersion` spells it.
+/// The release, as `LSMinimumSystemVersion` spells it.
 const FLOOR: &str = "26.0";
 
 fn workspace() -> PathBuf {

@@ -124,23 +124,22 @@ pub enum Node {
     /// the machine a control went past and hands the byte back to `Ground`.
     ///
     /// **A node, not a store in every control's arm.** `step` writes the node
-    /// on every byte already, so which node a control leaves costs nothing
-    /// per control; what it costs is one more trip round the loop where a
-    /// control is followed by a character that is not printable ASCII, 16% of
-    /// `vim`'s iterations, a `CUP` before each run of its two-byte text. A
-    /// store of the machine's state in each control's arm, seventeen sites,
-    /// measured `cat` 2.9% and `vim` 1.9% below the parent on the medians and
-    /// this `cat` 1.5% above and `vim` 1.4% below, `vim`'s range clear of the
-    /// parent's and `cat`'s overlapping (a second set read `vim` 1.9% below,
-    /// its range clear, and `cat` between 2.9% below and 0.8% above, ranges
-    /// overlapping, as `main`, unchanged, moved 64 bytes); doing the
-    /// character's write in `EndCluster`'s own step, inlined or out of line,
-    /// cost `cat` more (`docs/record.md`, "A control ends the grapheme
-    /// cluster before it"). Printable ASCII leaves for
-    /// `Ground` without the reset, because `Paint::piece` tells the machine
-    /// what a run of it leaves; `CR` leads to `Ground` too, because the cursor
-    /// is at column 0, where `Paint::restart_cluster` starts the machine again,
-    /// and sending it here measured `cat` and `vim` lower.
+    /// on every byte already, so which node a control leaves costs nothing per
+    /// control; what it costs is one more trip round the loop where a control
+    /// is followed by a character that is not printable ASCII, 16% of `vim`'s
+    /// iterations, a `CUP` before each run of its two-byte text. A store of the
+    /// machine's state in each control's arm, seventeen sites, measured `cat`
+    /// 2.9% and `vim` 1.9% below the parent on the medians and this `cat` 1.5%
+    /// above and `vim` 1.4% below, `vim`'s range clear of the parent's and
+    /// `cat`'s overlapping (a second set read `vim` 1.9% below, its range
+    /// clear, and `cat` between 2.9% below and 0.8% above, ranges overlapping,
+    /// as `main`, unchanged, moved 64 bytes); doing the character's write in
+    /// `EndCluster`'s own step, inlined or out of line, cost `cat` more.
+    /// Printable ASCII leaves for `Ground` without the reset, because
+    /// `Paint::piece` tells the machine what a run of it leaves; `CR` leads to
+    /// `Ground` too, because the cursor is at column 0, where
+    /// `Paint::restart_cluster` starts the machine again, and sending it here
+    /// measured `cat` and `vim` lower.
     AfterControl,
     /// The same in VT52, whose commands and C0 controls end a cluster too.
     Vt52AfterControl,
@@ -189,16 +188,15 @@ pub enum Node {
     /// where a stop tested after each dispatch costs the dispatch. Last in
     /// the enum, so no other node's index moves.
     Held,
-    /// **A single shift pending**: after `ESC N`, `ESC O`, or `8E`/`8F`
-    /// under ISO 8859-1, the next graphic character is drawn from G2 or G3
+    /// **A single shift pending**: after `ESC N`, `ESC O`, or `8E`/`8F` under
+    /// ISO 8859-1, the next graphic character is drawn from G2 or G3
     /// (`Cold::single`). `[[source: dec-std-070]]` p. 3-81: the character,
     /// "which must be in the range 2/0 through 7/15 or 10/0 through 15/15, [is]
     /// rendered according to the current contents of the G3 set. If the next
-    /// character in the received data stream is not a graphic character in
-    /// this range, the single shift function is ignored and the received
-    /// character is processed as if the single shift had not been received",
-    /// SO and SI excepted, which act and keep it (Jev's lean STD070_CANCEL,
-    /// and ANY_NUMBER of SO and SI, decided).
+    /// character in the received data stream is not a graphic character in this
+    /// range, the single shift function is ignored and the received character
+    /// is processed as if the single shift had not been received", SO and SI
+    /// excepted, which act and keep it.
     ///
     /// **A node, so the text path tests nothing**: the shift lives in the
     /// parser's position, as VT52 and the UTF-8 continuations do, and a
@@ -376,18 +374,17 @@ pub enum Act {
     /// and `Consume` in the `DCS` prefix and in an `SOS`, `PM` or `APC`. The
     /// node is what tells them apart.
     ///
-    /// **A `SUB` writes the error character when the embedder turns the
-    /// mark on** (`Term::set_substitute_mark`), and nothing otherwise, in the
-    /// ground and as the `anywhere` edge that cancels a sequence or a
-    /// control string other than a Sixel's body: `[[source: dec-std-070]]`
-    /// p. 5-132, "placing a reversed question mark in the display at the
-    /// Active Position", and note 2, the sequence "aborted and the
-    /// Substitute control function to be executed instead". VT52 mode keeps
-    /// `Consume` (Jev's lean, ANSI_MODE_ONLY, 0.76 and 0.84, which a re-ask
-    /// split). **One action and not two**:
-    /// a 48th, its own arm in the dispatch, retired 0.7% more instructions on
-    /// `btop` and `cat`, which hold no `SUB`, and sharing this one, whose
-    /// step was already as rare, retired none more.
+    /// **A `SUB` writes the error character when the embedder turns the mark
+    /// on** (`Term::set_substitute_mark`), and nothing otherwise, in the
+    /// ground and as the `anywhere` edge that cancels a sequence or a control
+    /// string other than a Sixel's body: `[[source: dec-std-070]]` p. 5-132,
+    /// "placing a reversed question mark in the display at the Active
+    /// Position", and note 2, the sequence "aborted and the Substitute
+    /// control function to be executed instead". VT52 mode keeps `Consume`.
+    /// **One action and not two**: a 48th, its own arm in the dispatch,
+    /// retired 0.7% more instructions on `btop` and `cat`, which hold no
+    /// `SUB`, and sharing this one, whose step was already as rare, retired
+    /// none more.
     Signal,
     /// A control went past since the machine was last told anything: tell it
     /// so, and dispatch the byte again from the ground, consuming nothing.
@@ -897,11 +894,11 @@ static LATIN1_FORMS: Nodes<Bytes<Edge>> = forms(build(InputEncoding::Latin1));
 /// `UnicodeVersion=8` the UTF-8 graph whose character acts measure by
 /// Unicode 8's widths (`[[source: iterm2-escape-codes]]`). **Chosen when
 /// the encoding or the version changes, never by a step**, so the default
-/// text path asks no version: the record, "Unicode 8's widths cost the
-/// default nothing". While a SAPV form waits for the next character, or
-/// the last one took it, the encoding's graph whose text goes one
-/// character at a time through the out-of-line step ([`forms`]), so the
-/// text path asks nothing about SAPV either.
+/// text path asks no version, and Unicode 8's widths cost it nothing.
+/// While a SAPV form waits for the next character, or the last one took
+/// it, the encoding's graph whose text goes one character at a time
+/// through the out-of-line step ([`forms`]), so the text path asks
+/// nothing about SAPV either.
 pub(crate) type Graph = Nodes<Bytes<Edge>>;
 
 /// Whether the text is read one character at a time for a SAPV form:
@@ -1076,9 +1073,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // processed "as if a 3/15 code (blank Sixel) was received" and the image
     // goes on, and `CAN` exits Sixel mode, the sixels it received placed, as
     // williams' "Cancelling a control string does not undo these effects"
-    // (501-503) has them. Jev decided BLANK_SIXEL (0.92/0.94) and leaned to
-    // KEEP for `CAN` (0.72/0.68), 2026-10-19. After its `ESC`, either places
-    // the image and cancels the escape sequence from `Escape`.
+    // (501-503) has them. After its `ESC`, either places the image and
+    // cancels the escape sequence from `Escape`.
     if matches!(node, Node::SixelStr) {
         if b.is(StreamByte::SUB) {
             return edge(Act::StrPut, Node::SixelStr);
@@ -1140,9 +1136,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // old string's bytes, where williams' `osc string` begins anew on entry;
     // the text is followed. A cancelled string is not dispatched here, by any
     // of the four, but a Sixel, whose body places what it received
-    // (`Node::SixelStr`); whether the others should keep what they have
-    // done, as williams' `unhook` and `osc_end` suggest, is open
-    // (`docs/record.md`).
+    // (`Node::SixelStr`); whether the others should keep what they have done,
+    // as williams' `unhook` and `osc_end` suggest, is open.
     //
     // Under UTF-8 `latin1_c1` answers `None` for every byte, so these nodes'
     // rows there are what they were: `80-9F` are continuation bytes of the
@@ -1162,7 +1157,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // A C1 in a Sixel's body places what it received and is then read again
     // from the ground after a control, where it runs: 070-9 §9.3, "exit DCS
     // mode processing, exit Sixel mode, and the C1 control code is processed
-    // outside of the Sixel mode" (Jev, KEEP, 0.94/0.94).
+    // outside of the Sixel mode".
     if matches!(node, Node::SixelStr) && latin1_c1(enc, b).is_some() {
         return match b.raw_byte() {
             0x9c => edge(Act::StrEnd, Node::AfterControl),
@@ -1329,14 +1324,14 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // codes are treated identically to GL codes 20-7F"; and
         // `[[source: ecma48]]` §9 gives `10/00` to `15/14` in a control
         // string "the same meanings" as `02/00` to `07/14`. xterm agrees in
-        // practice, keeping `AsciiOf` of each string byte (`[[source:
-        // xterm-reset]]`'s file, 3454-3456) and finding the `$ q` there.
-        // Both rows sent every GR byte to the body, so `ESC P A4 F1 m ST`
-        // was an ignored string and not a DECRQSS. `FF`, which §9 stops
-        // short of and williams reads as `7F`, is ignored where `7F` is, and
-        // `A0` leads to the body as `20` does. Under UTF-8 `gr_as_gl` maps
-        // nothing: the bytes are a character's, and these rows are what they
-        // were. The body keeps a GR byte as it is, the owner's call
+        // practice, keeping `AsciiOf` of each string byte
+        // (`[[source: xterm-reset]]`'s file, 3454-3456) and finding the
+        // `$ q` there. Both rows sent every GR byte to the body, so
+        // `ESC P A4 F1 m ST` was an ignored string and not a DECRQSS. `FF`,
+        // which §9 stops short of and williams reads as `7F`, is ignored
+        // where `7F` is, and `A0` leads to the body as `20` does. Under
+        // UTF-8 `gr_as_gl` maps nothing: the bytes are a character's, and
+        // these rows are what they were. The body keeps a GR byte as it is
         // (`dcs_passthrough`, `docs/vt-coverage.md`).
         //
         // **The rows delegate rather than respell the ranges**, as
@@ -1398,9 +1393,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // received within a parameter string, the entire sequence ...
                 // shall be ignored": it goes to the body unread, discarded at
                 // `ST` and counted, as a marker after a parameter does. It
-                // separated as `;` did until 2026-10-19; Jev leaned to keeping
-                // that at 0.85/0.71 once a CSI ignored a colon, below the bar
-                // for a departure.
+                // separated as `;` did until 2026-10-19; keeping that once a
+                // CSI ignored a colon would be a departure.
                 0x30..=0x39 => edge(Act::Digit, Node::Dcs),
                 0x3b => edge(Act::Sep, Node::Dcs),
                 0x1b => edge(Act::Consume, Node::StrEsc),
@@ -1412,10 +1406,10 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // continues where it left off" (PDF p. 144), and "DCS
                 // introducer sequences are parsed according to the rules for
                 // control sequences" (p. 145). `[[source: williams]]` ignores
-                // them (565), describing the VT500, and xterm too, practice.
-                // Jev leaned to executing, 0.74/0.70 (2026-10-23), below the
-                // bar, taken as the lean: it is the standard's reading. They
-                // were ignored until then, so `DCS 1 LF $ q m` moved nothing.
+                // them (565), describing the VT500, and xterm too, practice;
+                // they are executed, the standard's reading. They were
+                // ignored until 2026-10-23, so `DCS 1 LF $ q m` moved
+                // nothing.
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f => edge(c0(b), Node::Dcs),
                 0x7f => edge(Act::Consume, Node::Dcs),
                 // **An intermediate, a private marker or a `:` leads to
@@ -1479,7 +1473,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         // As `StrEsc`, but a byte that is not `\` places the Sixel first
-        // (`Node::SixelEsc`; Jev, KEEP, 0.94/0.94).
+        // (`Node::SixelEsc`).
         Node::SixelEsc => {
             return match enc.gr_as_gl(b).raw_byte() {
                 0x5c => edge(Act::StrEnd, Node::AfterControl),
@@ -1689,17 +1683,16 @@ const fn escape(b: StreamByte) -> Edge {
         // U+FFFD. It was `Consume`, which dropped the lead with the sequence,
         // so each continuation of a well-formed U+0903 in `a ESC E0 A4 83`
         // wrote a U+FFFD. Read as one UTF-8 conversion over the whole stream,
-        // `[[source: unicode-ch3]]` 3.9.5 rules that out: a converter "must
-        // not consume the successor bytes as part of the ill-formed
-        // subsequence whenever those successor bytes themselves constitute
-        // part of a well-formed UTF-8 code unit subsequence". Read with the
-        // bytes inside a sequence belonging to the sequence and not to the
-        // text, it says nothing of them. That
-        // the character is then written, and not dropped with the sequence, is
-        // Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
-        // the owner can veto): no text read says what a character after `ESC`
-        // does. `StrEsc` hands its byte here with `Again`, so after the `ESC`
-        // inside a string the same byte cancels the string and is the ground's.
+        // `[[source: unicode-ch3]]` 3.9.5 rules that out: a converter "must not
+        // consume the successor bytes as part of the ill-formed subsequence
+        // whenever those successor bytes themselves constitute part of a
+        // well-formed UTF-8 code unit subsequence". Read with the bytes inside
+        // a sequence belonging to the sequence and not to the text, it says
+        // nothing of them. That the character is then written, and not dropped
+        // with the sequence, is a choice, CANCEL_AND_PRINT: no text read says
+        // what a character after `ESC` does. `StrEsc` hands its byte here with
+        // `Again`, so after the `ESC` inside a string the same byte cancels the
+        // string and is the ground's.
         _ => edge(Act::Again, Node::AfterControl),
     }
 }
@@ -1709,10 +1702,10 @@ const fn escape(b: StreamByte) -> Edge {
 ///
 /// `20-7F` are 070's range, and under ISO 8859-1 `A0-FF` too, stripped to
 /// seven bits by the act (`[[source: dec-std-070]]` p. 3-81 and 070-5 p.
-/// 5-140, `code = parv[0] & 0x7F`; `[[source: ecma48]]` §9; Jev's lean
-/// STRIP_BIT8). SO and SI act and the shift stays pending. Every other
-/// byte -- a C0, `ESC`, `CAN`, `SUB`, a C1, a UTF-8 lead -- cancels it and is
-/// dispatched again from the ground after a control.
+/// 5-140, `code = parv[0] & 0x7F`; `[[source: ecma48]]` §9). SO and SI act
+/// and the shift stays pending. Every other byte -- a C0, `ESC`, `CAN`,
+/// `SUB`, a C1, a UTF-8 lead -- cancels it and is dispatched again from the
+/// ground after a control.
 const fn single_shift(enc: InputEncoding, b: StreamByte) -> Edge {
     match (enc, b.raw_byte()) {
         (_, 0x0e) => edge(Act::ShiftOut, Node::SingleShift),
@@ -1742,8 +1735,8 @@ const fn esc_inter(b: StreamByte) -> Edge {
         // Ignored, and the sequence goes on (293): `ESC ( DEL 0` designates.
         0x7f => edge(Act::Consume, Node::EscInter),
         // Under UTF-8, `80-FF`: cancelled, and the byte is the ground's after
-        // a control, as in `escape` (Jev's CANCEL_AND_PRINT). It was
-        // `Consume`, so `a ESC ( E0 A4 83` wrote two U+FFFD.
+        // a control, as in `escape`. It was `Consume`, so `a ESC ( E0 A4 83`
+        // wrote two U+FFFD.
         _ => edge(Act::Again, Node::AfterControl),
     }
 }
@@ -1767,10 +1760,10 @@ const fn csi_entry(b: StreamByte) -> Edge {
         0x7f => edge(Act::Consume, Node::CsiEntry),
         // **Under UTF-8 a byte `80-FF` cancels the sequence and is the
         // ground's after a control**, in this row and the three after it, as
-        // after `ESC` (`escape`): the owner's decision of 2026-10-13, "cancel
-        // and print it". Only those bytes reach here, as in `escape`: under
-        // ISO 8859-1 `one()` takes `80-9F` as C1 controls and `gr_as_gl`
-        // reads `A0-FF` as `20-7F`. Each row dropped the byte: this one and
+        // after `ESC` (`escape`): the sequence is cancelled and the byte
+        // printed. Only those bytes reach here, as in `escape`: under ISO
+        // 8859-1 `one()` takes `80-9F` as C1 controls and `gr_as_gl` reads
+        // `A0-FF` as `20-7F`. Each row dropped the byte: this one and
         // `csi_inter` sent the sequence to `csi_ignore`, `csi_param` stayed
         // and `csi_ignore` stayed, so the continuations of a character whose
         // lead was dropped each wrote U+FFFD, or were taken as the sequence
@@ -1960,11 +1953,11 @@ pub(crate) const fn after_control_of(node: Node) -> Node {
 /// A UTF-8 lead and an ISO 8859-1 graphic take `Act::EndCluster` back to the
 /// ground, which tells the machine a control went past and dispatches the
 /// byte again from there, so the character is decoded and written by the
-/// ground's own edge and the machine breaks before it (GB4, GB5). A byte
-/// that is no character, `Act::Bad`, does the same: the replacement it
-/// writes, `U+FFFD`, goes through the machine as a literal one does (the
-/// owner's SAME_AS_LITERAL, 2026-10-13), so the machine must know a control
-/// went past, or after `a U+0600 BEL` the U+FFFD joins the Prepend
+/// ground's own edge and the machine breaks before it (GB4, GB5). A byte that
+/// is no character, `Act::Bad`, does the same: the replacement it writes,
+/// `U+FFFD`, goes through the machine as a literal one does, so the machine
+/// must know a control went past, or after `a U+0600 BEL` the U+FFFD joins
+/// the Prepend
 /// (`a_control_ends_the_cluster_before_a_replacement_for_ill_formed_bytes`).
 /// Printable ASCII takes the ground's edge as it is: `Paint::piece` tells the
 /// machine what a run of it leaves, which does not depend on what came
@@ -1989,12 +1982,12 @@ const fn vt52(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         //
         // **Under UTF-8 a byte `80-FF` cancels the escape and is the
         // ground's after a control**, as after the ANSI `ESC` (`escape`):
-        // the owner's decision of 2026-10-13 that VT52 follow the `ESC`
-        // decision. It went to `Vt52::parse`, which names no such byte, so
-        // the lead of `a ESC E0 A4 83 b` was dropped with the escape and its
-        // two continuations each wrote U+FFFD. Under ISO 8859-1 the row is
-        // what it was: what a C1 or GR byte does after a VT52 `ESC` is note
-        // AE's D3, which waits on the DEC text for the mode.
+        // VT52 follows the `ESC` rule. It went to `Vt52::parse`, which names
+        // no such byte, so the lead of `a ESC E0 A4 83 b` was dropped with
+        // the escape and its two continuations each wrote U+FFFD. Under ISO
+        // 8859-1 the row is what it was: what a C1 or GR byte does after a
+        // VT52 `ESC` is note AE's D3, which waits on the DEC text for the
+        // mode.
         Node::Vt52Escape => match (enc, b.raw_byte()) {
             (_, 0x1b) => edge(Act::Consume, Node::Vt52Escape),
             (_, b'Y') => edge(Act::Consume, Node::Vt52Row),
@@ -2086,11 +2079,11 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
         // `baud-core2` set it to `title`.
         //
-        // **In a DCS body they are put, williams' row whole, and each
-        // handler decides** (`dcs passthrough`, 388; "C0 controls are also
-        // passed to the handler", 726). Of DEC's practice williams says a C0
-        // with "no meaning for the device function" is "silently ignored"
-        // by it (818-822), which is `[[source: dec-std-070]]` 3.5.4.4's
+        // **In a DCS body they are put, williams' row whole, and each handler
+        // decides** (`dcs passthrough`, 388; "C0 controls are also passed to
+        // the handler", 726). Of DEC's practice williams says a C0 with "no
+        // meaning for the device function" is "silently ignored" by it
+        // (818-822), which is `[[source: dec-std-070]]` 3.5.4.4's
         // recommendation "that all other control codes not used within a
         // command string be ignored by hardware", and 3.5.5 leaves a control
         // string's handling "at a higher level than the parser". So DECRQSS
@@ -2098,9 +2091,9 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // acts on `BEL` and `ENQ` as 070-9 §9.1 says and ignores the rest,
         // and any other DCS is stored and discarded whole (`Paint::str_put`).
         // `[[source: ecma48]]` leaves error recovery to the implementation
-        // (Annex D, item 10). Decided by Jev, B_PUT_ALL, 0.99/0.99
-        // (2026-10-19). The graph ignored the 22 and put `BEL` alone, so
-        // `DCS $ q m BEL ST` answered invalid and a Sixel `BEL` rang nothing.
+        // (Annex D, item 10). Until 2026-10-19 the graph ignored the 22 and
+        // put `BEL` alone, so `DCS $ q m BEL ST` answered invalid and a Sixel
+        // `BEL` rang nothing.
         //
         // **`SO` and `SI` shift, and the string reads as if they were not
         // there**, in every string: `[[source: ecma48]]` §9, "SO and SI have
@@ -2109,10 +2102,9 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // may, indeed, affect the meanings of bit combinations following in
         // the data stream" (PDF p. 89), and `[[source: dec-std-070]]` 3.5.1.4
         // the same (PDF p. 126). So neither reaches a handler, and GL is G1
-        // or G0 for the text after the terminator, as in the ground. Jev
-        // leaned to it, 0.86/0.88 (2026-10-23), below the bar, taken as the
-        // lean; `[[source: williams]]` puts them in a DCS and ignores them
-        // elsewhere, and xterm ignores them, practice. Until then every
+        // or G0 for the text after the terminator, as in the ground.
+        // `[[source: williams]]` puts them in a DCS and ignores them
+        // elsewhere, and xterm ignores them, practice. Until 2026-10-23 every
         // string dropped them and the shift was lost.
         0x0e | 0x0f => edge(c0(b), node),
         0x00..=0x06 | 0x10..=0x17 | 0x19 | 0x1c..=0x1f => match node {
@@ -2186,12 +2178,11 @@ pub(crate) fn split(act: Act, node: Node) -> Edge {
     // ANSI nodes here would leave the protocol at a read boundary, so the same
     // bytes would render differently depending on where the reads fell.
     //
-    // **Which second bytes may follow is the lead's, and the `Begin` arm
-    // asks it** (`waits_after`), since `E0`, `ED`, `F0` and `F4` admit fewer
-    // than `80..BF`. Not here: this runs in the loop, and a `split` that read
-    // the lead kept it live on every step, which cost the loop 1.2-2.2% more
-    // instructions on payloads that never split a character (the record, "One
-    // U+FFFD per maximal subpart").
+    // **Which second bytes may follow is the lead's, and the `Begin` arm asks
+    // it** (`waits_after`), since `E0`, `ED`, `F0` and `F4` admit fewer than
+    // `80..BF`. Not here: this runs in the loop, and a `split` that read the
+    // lead kept it live on every step, which cost the loop 1.2-2.2% more
+    // instructions on payloads that never split a character.
     match (ground_of(node), act) {
         (Node::Vt52Ground, Act::Char2) => edge(Act::Begin2, Node::Vt52Utf8One),
         (Node::Vt52Ground, Act::Char3) => edge(Act::Begin3, Node::Vt52Utf8Two),
@@ -2682,103 +2673,98 @@ mod classes {
         // can look at before you pay it.
         //
         // **Pinned, because these numbers size a table.** Each is the count
-        // of distinct behaviours a k-byte word can have across every node and
-        // both encodings -- the alphabet a stride-k transition table is
+        // of distinct behaviours a k-byte word can have across every node
+        // and both encodings -- the alphabet a stride-k transition table is
         // indexed by, once the characters that label the same transitions
-        // everywhere are grouped.
-        // **The Sixel hook moved strides 2, 3 and 4, not stride 1.** Routing a
-        // `DCS` bare-`q` to `Act::SixelStart` and collecting the numeric
-        // parameters `30-3F` in `Node::Dcs` (rather than dumping the first one
-        // to the body) tells apart the `q` final and the param bytes there.
-        // It nets zero new stride-1 classes, but the param bytes `30-3B` now
-        // differ from the markers `3C-3F` and the intermediates `20-2F` at that
-        // node, so 958 -> 967 at stride 2, 24,113 -> 24,566 at stride 3 and
-        // 566,827 -> 581,143 at stride 4 -- a distinction invisible in one byte
-        // compounding in two, three and four. That is the cost of recognising
-        // Sixel stated as arithmetic, the same shape every action this file
-        // adds pays.
+        // everywhere are grouped. **The Sixel hook moved strides 2, 3 and
+        // 4, not stride 1.** Routing a `DCS` bare-`q` to `Act::SixelStart`
+        // and collecting the numeric parameters `30-3F` in `Node::Dcs`
+        // (rather than dumping the first one to the body) tells apart the
+        // `q` final and the param bytes there. It nets zero new stride-1
+        // classes, but the param bytes `30-3B` now differ from the markers
+        // `3C-3F` and the intermediates `20-2F` at that node, so 958 -> 967
+        // at stride 2, 24,113 -> 24,566 at stride 3 and 566,827 -> 581,143
+        // at stride 4 -- a distinction invisible in one byte compounding in
+        // two, three and four. That is the cost of recognising Sixel stated
+        // as arithmetic, the same shape every action this file adds pays.
         // **Table 3-7's narrowed second bytes moved all four.** A character
         // split after `E0`, `ED`, `F0` or `F4` waits in a node of its own
-        // that `80-8F`, `90-9F` and `A0-BF` leave differently, so under UTF-8
-        // those three ranges part. Under ISO 8859-1 `A0-BF` had parted from
-        // the C1 bytes already, but `80-8F` and the C1 finals `91-97 99 9A`
-        // were, by reading the rows, one class -- each a C1 read as `ESC` and
-        // a final, the same edge -- and are two now: 48 -> 49, and 1,841 -> 1,878, 54,641 ->
-        // 55,701 and 1,450,888 -> 1,478,109 at strides 2, 3 and 4.
-        // **A byte that is no character after a control now goes through
-        // `EndCluster`, as a character's lead does** (the owner's
-        // SAME_AS_LITERAL, 2026-10-13): 154 edges, the 77 such bytes in
-        // `AfterControl` and `Vt52AfterControl` under UTF-8. Strides 1 and 2
-        // do not move; 55,701 -> 55,354 and 1,478,109 -> 1,453,919 at strides 3
-        // and 4; the fall was not decomposed.
-        // **A byte `80-FF` inside a `CSI` and after a VT52 `ESC` is the
-        // ground's after a control, under UTF-8** (the owner's decision of
-        // 2026-10-13): 640 edges, `80-FF` in the four `CSI` nodes and
-        // `Vt52Escape`. Stride 1 does not move; 1,878 -> 1,816, 55,354 ->
-        // 50,852 and 1,453,919 -> 1,263,705 at strides 2, 3 and 4; the fall
-        // was not decomposed.
-        // **Code extension moved all four** (2026-10-19): a node for a
-        // pending single shift, entered on `N` and `O` from `Escape` (and so
-        // on `8E` and `8F` under ISO 8859-1), whose row takes `20-7F` and,
-        // under ISO 8859-1, `A0-FF` as `Act::Shifted`; `Act::Del` for `7F` in
-        // the ANSI grounds; and `t` after `DCS $` for DECRSPS. 49 -> 54,
-        // 1,816 -> 2,151, 50,852 -> 62,208 and 1,263,705 -> 1,589,720 at
-        // strides 1 to 4, +25.8% at stride 4; which bytes parted at stride 1
-        // was not decomposed.
-        // **VT parts from LF and FF**: it reaches a line tabulation stop
+        // that `80-8F`, `90-9F` and `A0-BF` leave differently, so under
+        // UTF-8 those three ranges part. Under ISO 8859-1 `A0-BF` had
+        // parted from the C1 bytes already, but `80-8F` and the C1 finals
+        // `91-97 99 9A` were, by reading the rows, one class -- each a C1
+        // read as `ESC` and a final, the same edge -- and are two now: 48
+        // -> 49, and 1,841 -> 1,878, 54,641 -> 55,701 and 1,450,888 ->
+        // 1,478,109 at strides 2, 3 and 4. **A byte that is no character
+        // after a control now goes through `EndCluster`, as a character's
+        // lead does** (since 2026-10-13): 154 edges, the 77 such bytes in
+        // `AfterControl` and `Vt52AfterControl` under UTF-8. Strides 1 and
+        // 2 do not move; 55,701 -> 55,354 and 1,478,109 -> 1,453,919 at
+        // strides 3 and 4; the fall was not decomposed. **A byte `80-FF`
+        // inside a `CSI` and after a VT52 `ESC` is the ground's after a
+        // control, under UTF-8**: 640 edges, `80-FF` in the four `CSI`
+        // nodes and `Vt52Escape`. Stride 1 does not move; 1,878 -> 1,816,
+        // 55,354 -> 50,852 and 1,453,919 -> 1,263,705 at strides 2, 3 and
+        // 4; the fall was not decomposed. **Code extension moved all four**
+        // (2026-10-19): a node for a pending single shift, entered on `N`
+        // and `O` from `Escape` (and so on `8E` and `8F` under ISO 8859-1),
+        // whose row takes `20-7F` and, under ISO 8859-1, `A0-FF` as
+        // `Act::Shifted`; `Act::Del` for `7F` in the ANSI grounds; and `t`
+        // after `DCS $` for DECRSPS. 49 -> 54, 1,816 -> 2,151, 50,852 ->
+        // 62,208 and 1,263,705 -> 1,589,720 at strides 1 to 4, +25.8% at
+        // stride 4; which bytes parted at stride 1 was not decomposed. **VT
+        // parts from LF and FF**: it reaches a line tabulation stop
         // (`Act::LineTab`), so `0B` is a class of its own: 49 -> 50, and
         // 1,816 -> 1,911, 50,852 -> 55,856 and 1,263,705 -> 1,452,629 at
         // strides 2, 3 and 4, each lane on the base without the other.
-        // **Both together**: 55, 2,256, 68,083 and 1,818,823.
-        // **`3A` in a DCS prefix ignores the string** (2026-10-19): `3A`
-        // and, under ISO 8859-1, `BA` in `Dcs` lead to the ignored body,
-        // where both were `Sep`. Stride 1 does not move; 2,256 -> 2,248,
-        // 68,083 -> 67,636 and 1,818,823 -> 1,801,914 at strides 2 to 4.
-        // **Every C0 of a DCS body is put** (Jev's B_PUT_ALL, 2026-10-19): 44
-        // edges, `00-06`, `0E-17`, `19` and `1C-1F` in `DcsStr` under each
-        // encoding, from `Consume` to `StrPut`. Strides 1 and 2 do not move;
-        // 67,636 -> 67,669 and 1,801,914 -> 1,805,035 at strides 3 and 4.
-        // **A Sixel's body is a node of its own, and its `ESC` another**
-        // (2026-10-19): `SUB` there is a blank sixel, and `CAN`, a C1 and a
-        // byte after its `ESC` that is not `\` place the image first
-        // (`Act::SixelCut`). 55 -> 56, 2,248 -> 2,342, 67,669 -> 71,712 and
-        // 1,805,035 -> 1,945,172 at strides 1 to 4, +7.8% at stride 4.
-        // **ReGIS's `p` after a `DCS`** (2026-10-20): `70` and, under ISO
-        // 8859-1, `F0` in `Dcs` lead to the body as `DcsQuery`, where both
-        // led there as `Consume`. 56 -> 58, 2,342 -> 2,454, 71,712 -> 75,689
-        // and 1,945,172 -> 2,066,297 at strides 1 to 4, +6.2% at stride 4.
-        // **DECLKD's `w` after `DCS $`** (2026-10-21): `77` and, under ISO
-        // 8859-1, `F7` in `DcsDollar` lead to the body as `DcsQuery`, where
-        // both led there as `Consume`. 58 -> 59, 2,454 -> 2,505, 75,689 ->
-        // 77,196 and 2,066,297 -> 2,106,468 at strides 1 to 4, +1.9% at
-        // stride 4; which bytes parted was not decomposed.
-        // **XTGETTCAP's `+` after a `DCS`** (2026-10-21): `2B` and, under
-        // ISO 8859-1, `AB` in `Dcs` lead to the body as `DcsQuery`, where
-        // both led there as `Consume`. 59 -> 61, 2,505 -> 2,621, 77,196 ->
-        // 81,385 and 2,106,468 -> 2,232,041 at strides 1 to 4, +6.0% at
-        // stride 4.
+        // **Both together**: 55, 2,256, 68,083 and 1,818,823. **`3A` in a
+        // DCS prefix ignores the string** (2026-10-19): `3A` and, under ISO
+        // 8859-1, `BA` in `Dcs` lead to the ignored body, where both were
+        // `Sep`. Stride 1 does not move; 2,256 -> 2,248, 68,083 -> 67,636
+        // and 1,818,823 -> 1,801,914 at strides 2 to 4. **Every C0 of a DCS
+        // body is put**: 44 edges, `00-06`, `0E-17`, `19` and `1C-1F` in
+        // `DcsStr` under each encoding, from `Consume` to `StrPut`. Strides
+        // 1 and 2 do not move; 67,636 -> 67,669 and 1,801,914 -> 1,805,035
+        // at strides 3 and 4. **A Sixel's body is a node of its own, and
+        // its `ESC` another** (2026-10-19): `SUB` there is a blank sixel,
+        // and `CAN`, a C1 and a byte after its `ESC` that is not `\` place
+        // the image first (`Act::SixelCut`). 55 -> 56, 2,248 -> 2,342,
+        // 67,669 -> 71,712 and 1,805,035 -> 1,945,172 at strides 1 to 4,
+        // +7.8% at stride 4. **ReGIS's `p` after a `DCS`** (2026-10-20):
+        // `70` and, under ISO 8859-1, `F0` in `Dcs` lead to the body as
+        // `DcsQuery`, where both led there as `Consume`. 56 -> 58, 2,342 ->
+        // 2,454, 71,712 -> 75,689 and 1,945,172 -> 2,066,297 at strides 1
+        // to 4, +6.2% at stride 4. **DECLKD's `w` after `DCS $`**
+        // (2026-10-21): `77` and, under ISO 8859-1, `F7` in `DcsDollar`
+        // lead to the body as `DcsQuery`, where both led there as
+        // `Consume`. 58 -> 59, 2,454 -> 2,505, 75,689 -> 77,196 and
+        // 2,066,297 -> 2,106,468 at strides 1 to 4, +1.9% at stride 4;
+        // which bytes parted was not decomposed. **XTGETTCAP's `+` after a
+        // `DCS`** (2026-10-21): `2B` and, under ISO 8859-1, `AB` in `Dcs`
+        // lead to the body as `DcsQuery`, where both led there as
+        // `Consume`. 59 -> 61, 2,505 -> 2,621, 77,196 -> 81,385 and
+        // 2,106,468 -> 2,232,041 at strides 1 to 4, +6.0% at stride 4.
         // **DECRSTS's `p` after `DCS $`, and the `$` kept as an
         // intermediate** (2026-10-22): `70` and, under ISO 8859-1, `F0` in
         // `DcsDollar` lead to the body as `DcsQuery`, where both led there
         // as `Consume`, and `24` and `A4` in `Dcs` take `Inter` where they
         // took `Consume`. Stride 1 does not move; 2,621 -> 2,634, 81,385 ->
         // 82,006 and 2,232,041 -> 2,257,008 at strides 2 to 4, +1.1% at
-        // stride 4.
-        // **A C0 in a DCS introducer is executed, and `SO` and `SI` shift in
-        // every string** (2026-10-23): `00-17`, `19` and `1C-1F` in `Dcs`
-        // and `DcsDollar` take the ground's action where they took
-        // `Consume`, `20-3F` other than the parameters, `$` and `+` lead
-        // to the new `DcsIntro` where they led to the body, and `0E`/`0F`
-        // in the five string bodies take `ShiftOut`/`ShiftIn`. Stride 1 does
-        // not move; 2,634 -> 2,639, 82,006 -> 82,870 and 2,257,008 ->
-        // 2,307,363 at strides 2 to 4, +2.2% at stride 4.
+        // stride 4. **A C0 in a DCS introducer is executed, and `SO` and
+        // `SI` shift in every string** (2026-10-23): `00-17`, `19` and
+        // `1C-1F` in `Dcs` and `DcsDollar` take the ground's action where
+        // they took `Consume`, `20-3F` other than the parameters, `$` and
+        // `+` lead to the new `DcsIntro` where they led to the body, and
+        // `0E`/`0F` in the five string bodies take `ShiftOut`/`ShiftIn`.
+        // Stride 1 does not move; 2,634 -> 2,639, 82,006 -> 82,870 and
+        // 2,257,008 -> 2,307,363 at strides 2 to 4, +2.2% at stride 4.
         // **`SUB` performs `Act::Signal` in ANSI mode** (2026-10-23): in
         // the ground and in every cancel edge but VT52's and a Sixel body's
-        // it takes `BEL`'s action where it took `Consume`. Stride 1
-        // does not move, `SUB` being a class of its own already; 2,639 ->
-        // 2,641, 82,870 -> 83,141 and 2,307,363 -> 2,324,725 at strides 2
-        // to 4, +0.8% at stride 4.
-        // The ingest loop's table is one byte wide and does not grow.
+        // it takes `BEL`'s action where it took `Consume`. Stride 1 does
+        // not move, `SUB` being a class of its own already; 2,639 -> 2,641,
+        // 82,870 -> 83,141 and 2,307,363 -> 2,324,725 at strides 2 to 4,
+        // +0.8% at stride 4. The ingest loop's table is one byte wide and
+        // does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 2_641, "stride 2");
         assert_eq!(three.len(), 83_141, "stride 3");
@@ -3295,11 +3281,11 @@ mod classes {
     /// and ignores `7F` (388); `[[source: ecma48]]` 8.3.27 lets DCS's command
     /// string hold `00/08` to `00/13`, and F.8.1 lets a `DEL` be removed
     /// without changing its content. The DCS body took the `osc string` row
-    /// until 2026-10-10, ignoring the format effectors and putting the
-    /// `DEL`, and until 2026-10-19 it ignored `00-06`, `0E-17`, `19` and
-    /// `1C-1F` and put `BEL` alone (Jev, B_PUT_ALL). In the prefix, past an
-    /// intermediate or a marker too, a C0 is executed and `DEL` ignored
-    /// (STD 070 3.5.5), where williams ignores both (354-368).
+    /// until 2026-10-10, ignoring the format effectors and putting the `DEL`,
+    /// and until 2026-10-19 it ignored `00-06`, `0E-17`, `19` and `1C-1F` and
+    /// put `BEL` alone. In the prefix, past an intermediate or a marker too,
+    /// a C0 is executed and `DEL` ignored (STD 070 3.5.5), where williams
+    /// ignores both (354-368).
     #[test]
     fn a_dcs_body_puts_the_format_effectors_and_ignores_del() {
         // `SO` and `SI` shift in every string (`string`), so they are
@@ -3731,17 +3717,16 @@ mod classes {
     /// and under ISO 8859-1 none of them takes that edge.** Exhaustive over
     /// both nodes, `80-FF` and both encodings, against the shipped table.
     ///
-    /// Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
-    /// the owner can veto). Both rows ended the sequence with `Consume`,
-    /// dropping a lead byte, so the continuations of a well-formed character
-    /// wrote U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out when the
-    /// stream is read as one UTF-8 conversion. The
-    /// edge it hands to is `AfterControl`'s, `EndCluster`, as after any
-    /// control (`[[source: uax29]]` GB4), and then the ground's: a character
-    /// is written through `Char2-4` and a byte that is no character through
-    /// `Bad`; and the chain consumes the byte, so it cannot come back to the
-    /// escape. `StrEsc` keeps its own
-    /// edge and reaches this one through `Escape`.
+    /// CANCEL_AND_PRINT: the sequence is cancelled and the byte printed. Both
+    /// rows ended the sequence with `Consume`, dropping a lead byte, so the
+    /// continuations of a well-formed character wrote U+FFFD, which
+    /// `[[source: unicode-ch3]]` 3.9.5 rules out when the stream is read as
+    /// one UTF-8 conversion. The edge it hands to is `AfterControl`'s,
+    /// `EndCluster`, as after any control (`[[source: uax29]]` GB4), and then
+    /// the ground's: a character is written through `Char2-4` and a byte that
+    /// is no character through `Bad`; and the chain consumes the byte, so it
+    /// cannot come back to the escape. `StrEsc` keeps its own edge and
+    /// reaches this one through `Escape`.
     #[test]
     fn under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control() {
         let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
@@ -3797,10 +3782,10 @@ mod classes {
     /// edge.** Exhaustive over the five nodes, `80-FF` and both encodings,
     /// against the shipped table; `DEL` keeps its row in each `CSI` state.
     ///
-    /// The owner's decision of 2026-10-13, "cancel and print it": the `CSI`
-    /// rows as `Escape`, and `Vt52Escape` following the `ESC` decision. Each
-    /// dropped the byte (`csi_entry` and `csi_inter` into `csi_ignore`,
-    /// `csi_param` and `csi_ignore` staying, `Vt52Escape` to `Vt52::parse`).
+    /// Cancel and print it: the `CSI` rows as `Escape`, and `Vt52Escape`
+    /// following the `ESC` decision. Each dropped the byte (`csi_entry` and
+    /// `csi_inter` into `csi_ignore`, `csi_param` and `csi_ignore` staying,
+    /// `Vt52Escape` to `Vt52::parse`).
     #[test]
     fn under_utf8_a_byte_80_ff_inside_a_csi_or_after_a_vt52_esc_is_the_grounds_after_a_control() {
         let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
@@ -3926,7 +3911,7 @@ mod classes {
     ///
     /// So the assumption is checked rather than commented. This is the cheap
     /// half of the plan's "`split` as a table" step; the table itself is
-    /// dropped, and the reason is in `CLAUDE.md`.
+    /// dropped.
     #[test]
     fn only_the_character_acts_are_wider_than_one_byte() {
         let mut wide = Vec::new();

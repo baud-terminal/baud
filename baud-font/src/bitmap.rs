@@ -33,8 +33,7 @@
 //! no known font contains: FreeType toggles per flip, so a flip of a flip
 //! draws upright, while CoreText, Apple's own renderer of its own format,
 //! draws any chain holding a flip mirrored exactly once. baud follows
-//! CoreText (Jev 0.91, confidence 0.81, under the bar, so the owner's to
-//! overturn).
+//! CoreText.
 //!
 //! **A `CBLC` size is read only when its records are sorted.** `CBLC`'s
 //! formats are "downward compatible extensions of the EBDT and EBLC tables"
@@ -45,13 +44,13 @@
 //! of the table still draws ([`StrikeState`]). Overlap is a "should not", so
 //! an overlapping size is read and a glyph answers from the first record that
 //! holds it, as FreeType, ttf-parser and HarfBuzz do: by binary search when no
-//! record starts inside another or when each record also ends no earlier
-//! than the one before, and by walking the records only on a size where one
-//! nests inside another ([`Records`]). A glyph at or past the face's
-//! `numGlyphs` has no bitmap, as in `sbix`. Format 4's pairs are searched
-//! among the real ones; the extra pair only marks where the last image ends.
-//! The owner's calls of 2026-10-02 (sorted records) and 2026-10-03 (format 4,
-//! and the first record on an overlap); note J has the research.
+//! record starts inside another or when each record also ends no earlier than
+//! the one before, and by walking the records only on a size where one nests
+//! inside another ([`Records`]). A glyph at or past the face's `numGlyphs` has
+//! no bitmap, as in `sbix`. Format 4's pairs are searched among the real ones;
+//! the extra pair only marks where the last image ends. Sorted records, format
+//! 4, and the first record on an overlap date from 2026-10-02 and 2026-10-03;
+//! note J has the research.
 //!
 //! **Strikes are enumerated, not chosen.** Which strike a renderer wants for
 //! a cell size is a policy the compositor owns; this module answers what the
@@ -184,9 +183,8 @@ const DUPE_DEPTH: u8 = 10;
 /// count is the font's to state: a 4.2 MB `sbix` of 1,048,576 offsets that
 /// fit it made each face-table block fill take about 0.65 s. The colour
 /// faces measured carry one (Noto Color Emoji) and nine (Apple Color Emoji),
-/// and no colour font on the development Mac carries more. 255 is Jev's pick
-/// (0.38 at confidence 0.08, against 64 at 0.35 and no bound at 0.27): a
-/// recommendation, not settled.
+/// and no colour font on the development Mac carries more. 255 is a
+/// recommendation over 64 and over no bound, not settled.
 const MAX_STRIKES: u32 = 255;
 
 /// `sbix`: a version, flags, and `numStrikes` offsets to strikes.

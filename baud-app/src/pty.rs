@@ -445,7 +445,7 @@ fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CSt
 /// locale asked of `locale` only when the parent names none. A Dock launch
 /// inherits launchd's environment, which has no locale, and zsh in the C
 /// locale reads each byte of a UTF-8 character as a character of its own:
-/// the owner's Hebrew came out as `U+FFFD` and `<0099>`
+/// typed Hebrew came out as `U+FFFD` and `<0099>`
 /// (`docs/research/notes/aa-shell-locale.md`). On macOS the answer is
 /// CoreFoundation's, and a launch from a terminal, which passes its `LANG`
 /// on, never pays for it.
@@ -713,15 +713,13 @@ fn tell(master: crate::sys::Fd, told: &mut crate::sys::Winsize, ws: crate::sys::
 /// Called in the child, on descriptor 0, before the exec, so the shell's
 /// first look at its terminal already has the flag: Terminal.app 2.15's
 /// route (`[[source: macos-terminal-2-15-binary]]`), and foot's on the
-/// subsidiary before it dups it to 0, and the one the owner chose on
-/// 2026-10-13. The route only:
-/// Terminal.app writes a whole `c_iflag` of its own, with `IUTF8` only
-/// when a `CharacterEncoding` value is 4, `NSUTF8StringEncoding`, where
-/// this changes one bit (the record, "Backspace erases a whole UTF-8
-/// character: IUTF8 in the child"). A failed call
-/// leaves the kernel's default and the shell still starts: the parent is
-/// not told (an open question in the record). After the spawn the parent
-/// keeps the bit with the input encoding ([`LineDiscipline`]).
+/// subsidiary before it dups it to 0. The route only: Terminal.app
+/// writes a whole `c_iflag` of its own, with `IUTF8` only when a
+/// `CharacterEncoding` value is 4, `NSUTF8StringEncoding`, where this
+/// changes one bit (note AA). A failed call leaves the kernel's default
+/// and the shell still starts: the parent is not told (an open
+/// question). After the spawn the parent keeps the bit with the input
+/// encoding ([`LineDiscipline`]).
 ///
 /// The attributes set are the ones `tcgetattr` read, with one bit changed,
 /// and a failed read sets nothing: `tcsetattr`'s effect "is undefined if
@@ -775,10 +773,10 @@ const LAUNCHD: u32 = 1;
 impl Parent {
     /// **This process's parent, read once, in the parent, at the spawn**:
     /// launchd when `getppid()` is 1 -- Ghostty's `getppid()` test on macOS
-    /// (`[[source: ghostty-d9840f3-desktop]]`), the owner's call of
-    /// 2026-10-13. An app `open` starts has parent 1, and one run from a
-    /// shell has that shell (`[[source: ai-obs-fdprobe-run]]`, and again
-    /// for this change, `[[source: aa-obs-cwdprobe-run]]`).
+    /// (`[[source: ghostty-d9840f3-desktop]]`). An app `open` starts has
+    /// parent 1, and one run from a shell has that shell
+    /// (`[[source: ai-obs-fdprobe-run]]`, and again for this change,
+    /// `[[source: aa-obs-cwdprobe-run]]`).
     ///
     /// One misreading is known and kept, as Ghostty keeps it: an exiting
     /// process's children are given to "an implementation-defined system
@@ -837,8 +835,7 @@ fn start_in(started_by: Parent, parent_env: &[(OsString, OsString)]) -> StartIn 
 /// **The directory the shell starts in**, [`start_in`]'s answer for this
 /// process: `HOME` on a Dock or Finder launch, else baud's own working
 /// directory. A program's log with no name, or a relative one, goes here
-/// (`hostlog.rs`), from the shell's point of view at its start (Jev's
-/// leans, GENERATED_START_DIR 0.85/0.72 and START_DIR 0.86/0.58).
+/// (`hostlog.rs`), from the shell's point of view at its start.
 pub fn start_dir() -> std::path::PathBuf {
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
     match start_in(Parent::of_this_process(), &env) {
@@ -1198,10 +1195,10 @@ impl Pty {
             // child process only executes async-signal-safe operations until
             // such time as one of the exec functions is successful"
             // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists all
-            // five (`[[source: posix-xsh-chap02]]`).
-            // The rule was `execve` and `_exit` alone until 2026-10-13, when
-            // the owner widened it for the two attribute calls, and then for
-            // `chdir` by choosing that the child change directory.
+            // five (`[[source: posix-xsh-chap02]]`). The rule was `execve`
+            // and `_exit` alone until 2026-10-13, when it was widened for
+            // the two attribute calls, and then for `chdir`, once the child
+            // was to change directory.
             unsafe {
                 utf8_erase(CHILD_TERMINAL);
                 // A failed change leaves the directory as it was (`[[source:
@@ -2867,15 +2864,14 @@ mod tests {
         d.canonicalize().expect("it resolves")
     }
 
-    /// **A shell spawned under launchd starts in the home directory**, and
-    /// one spawned under any other parent starts where baud was started:
-    /// the owner's call of 2026-10-13, Ghostty's `getppid()` test. The
-    /// whole spawn, [`Pty::fork`], runs in [`spawn_helper`] twice, from the
-    /// same directory with the same `HOME`: once as this test's child, and once
-    /// as an orphan, whose parent is then launchd for real -- which is
-    /// what a Dock or Finder launch's parent is (`[[source:
-    /// ai-obs-fdprobe-run]]`, ppid 1 under `open`). The two directories
-    /// differ, so either answer can be told from the other.
+    /// **A shell spawned under launchd starts in the home directory**, and one
+    /// spawned under any other parent starts where baud was started: Ghostty's
+    /// `getppid()` test. The whole spawn, [`Pty::fork`], runs in
+    /// [`spawn_helper`] twice, from the same directory with the same `HOME`:
+    /// once as this test's child, and once as an orphan, whose parent is then
+    /// launchd for real -- which is what a Dock or Finder launch's parent is
+    /// (`[[source: ai-obs-fdprobe-run]]`, ppid 1 under `open`). The two
+    /// directories differ, so either answer can be told from the other.
     ///
     /// `HOME` is a symbolic link to the directory, as `/var` is on macOS,
     /// so the shell's `PWD` -- which a POSIX shell keeps from its
@@ -3285,14 +3281,14 @@ mod tests {
         haystack.windows(needle.len()).any(|w| w == needle)
     }
 
-    /// **zsh echoes a typed Hebrew letter whole** -- the owner's symptom at
+    /// **zsh echoes a typed Hebrew letter whole** -- the reported symptom at
     /// its source. zsh runs on the pty with no rc file; once its line editor
     /// is reading (it turns bracketed paste on, `CSI ? 2004 h`, as it starts
     /// each line -- zsh takes no prompt from the environment, so the prompt
     /// cannot be the marker), the letter's two bytes are typed, then Return
     /// (zsh answers that no such command exists) and `exit`. With a locale
     /// the echo carries `d7 99` and no `<0099>`; without one (the control)
-    /// zsh prints `<0099>`, as it did on the owner's screen.
+    /// zsh prints `<0099>`, as it did on the screen it was reported from.
     #[cfg(target_os = "macos")]
     #[test]
     fn zsh_echoes_a_hebrew_letter_whole() {

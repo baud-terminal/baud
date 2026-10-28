@@ -209,8 +209,8 @@ pub enum Fit {
     Clipped,
 }
 
-/// The nearest 8-bit value of a channel in [0, 1] (Jev, decisions.jsonl
-/// 684/685: round, not truncate).
+/// The nearest 8-bit value of a channel in [0, 1] (rounded, not
+/// truncated).
 fn byte(v: f64) -> u8 {
     let v = v.clamp(0.0, 1.0) * 255.0 + 0.5;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

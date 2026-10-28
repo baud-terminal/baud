@@ -24,43 +24,40 @@
 //! rasteriser choose and recommends the unscaled offset, which Microsoft's,
 //! Apple's (by that text), HarfBuzz's and FreeType's defaults take; Apple's
 //! own reference (`[[source: apple-ttrm-glyf]]`) scales it by its `m` and
-//! `n`; Jev decided for the unscaled one on 2026-10-12 (0.98 both times),
-//! for both flags set too, which the text calls invalid and gives the
-//! default.
-//! A component whose arguments name points -- ARGS_ARE_XY_VALUES clear --
-//! is aligned after its matrix: the parent's point, numbered across the
-//! components before it and then the parent's own left and right
-//! phantoms, onto the child's, its horizontal phantoms included. That
-//! needs the parent's points, which a stream into a sink has given away,
-//! so a glyph whose tree matches points is drawn only through scratch, by
-//! the walk a varied glyph takes ([`Glyf::outline`] refuses it with the
-//! need). Every phantom of either glyph may be named, the vertical two at
-//! the top origin and the advance height point `vmtx` places
-//! ([`push_phantoms`]). A parent point past the parent's four phantoms,
-//! which the text leaves open, stays at offset 0, as every matched
+//! `n`; baud takes the unscaled one, for both flags set too, which the text
+//! calls invalid and gives the default. A component whose arguments name
+//! points -- ARGS_ARE_XY_VALUES clear -- is aligned after its matrix: the
+//! parent's point, numbered across the components before it and then the
+//! parent's own left and right phantoms, onto the child's, its horizontal
+//! phantoms included. That needs the parent's points, which a stream into a
+//! sink has given away, so a glyph whose tree matches points is drawn only
+//! through scratch, by the walk a varied glyph takes ([`Glyf::outline`]
+//! refuses it with the need). Every phantom of either glyph may be named,
+//! the vertical two at the top origin and the advance height point `vmtx`
+//! places ([`push_phantoms`]). A parent point past the parent's four
+//! phantoms, which the text leaves open, stays at offset 0, as every matched
 //! component was before. A first component placed by points -- which "cannot
 //! be used for the first component glyph" (`[[source: ms-opentype-glyf]]`)
-//! -- refuses the whole glyph ([`Streamed::Refused`]); both are the owner's
-//! decisions of 2026-10-13. A composite's own phantoms take the deltas
+//! -- refuses the whole glyph ([`Streamed::Refused`]); both since
+//! 2026-10-13. A composite's own phantoms take the deltas
 //! `[[source: ms-opentype-gvar]]` gives them -- X on the left and advance
 //! ones, Y on the two vertical ones -- which a matched component sees once
 //! the composite is its parent or its child. `ROUND_XY_TO_GRID` is a
 //! grid-fitting rule, and nothing here fits to a grid.
 //!
-//! **A glyph is drawn from its left side bearing point**, the first
-//! phantom point: "pp1 = xMin - lsb" (`[[source: ms-opentype-hmtx]]`), and
-//! that point is the origin -- "The origin point is the original pen
-//! position. Imagine that the pen moves the left-side bearing distance,
-//! draws the glyph" (`[[source: apple-ttrm-ch2]]`). So the whole outline is
-//! moved left by where that point ends: its start, a USE_MY_METRICS
-//! component's where the composite takes one, plus its `gvar` delta. With
-//! `head` flags bit 1 set, "Left sidebearing point at x=0", the text puts
-//! it at 0 for every glyph and requires each glyph's xMin to be its lsb
+//! **A glyph is drawn from its left side bearing point**, the first phantom
+//! point: "pp1 = xMin - lsb" (`[[source: ms-opentype-hmtx]]`), and that
+//! point is the origin -- "The origin point is the original pen position.
+//! Imagine that the pen moves the left-side bearing distance, draws the
+//! glyph" (`[[source: apple-ttrm-ch2]]`). So the whole outline is moved
+//! left by where that point ends: its start, a USE_MY_METRICS component's
+//! where the composite takes one, plus its `gvar` delta. With `head` flags
+//! bit 1 set, "Left sidebearing point at x=0", the text puts it at 0 for
+//! every glyph and requires each glyph's xMin to be its lsb
 //! (`[[source: ms-opentype-head]]`); a font that sets the bit and breaks
 //! the requirement is drawn from `xMin - lsb` all the same, by `hmtx`'s
-//! formula, as HarfBuzz and FreeType draw it whatever the bit: the owner
-//! picked "xMin - lsb (Recommended)" on 2026-10-13 (note Z, step 8,
-//! question 6). So the bit is not read.
+//! formula, as HarfBuzz and FreeType draw it whatever the bit (note Z, step
+//! 8, question 6). So the bit is not read.
 
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::gvar::{Gvar, Referenced, Track};
@@ -175,9 +172,8 @@ pub enum Streamed {
     /// incorporated into the parent, so cannot be used for the first
     /// component glyph" (`[[source: ms-opentype-glyf]]`); "This flag
     /// [ARGS_ARE_XY_VALUES] must always be set for the first component of a
-    /// composite glyph". Read as a condition of validity, the owner's
-    /// decision of 2026-10-13: nothing of the glyph is drawn, at any depth
-    /// of its tree, as FreeType refuses it.
+    /// composite glyph". Read as a condition of validity: nothing of the
+    /// glyph is drawn, at any depth of its tree, as FreeType refuses it.
     Refused,
 }
 
@@ -518,8 +514,7 @@ impl Component {
     /// SCALED_COMPONENT_OFFSET (bit 11) without UNSCALED_COMPONENT_OFFSET
     /// (bit 12): the offset is in the component's coordinates and goes
     /// through its matrix. Neither bit, or both, which the text calls
-    /// invalid, is the default, the unscaled offset (Jev's decision of
-    /// 2026-10-12).
+    /// invalid, is the default, the unscaled offset.
     pub(crate) fn scaled_offset(self) -> bool {
         self.0 & 0x1800 == 0x0800
     }
@@ -893,14 +888,14 @@ struct Start {
 /// (recorded in the 'vmtx' table) and the top (i.e. maximum y) of the
 /// glyph's bounding box" -- and bottom an advance height below it, since
 /// "The advance height of a glyph starts from the y coordinate of the
-/// glyph's vertical origin and advances downwards" (`[[source:
-/// ms-opentype-vmtx]]`). "The x coordinate of a glyph's vertical origin is
-/// not specified", and both vertical points take HarfBuzz's and FreeType's
-/// x of 0, and HarfBuzz's tsb of 0 and advance height of `unitsPerEm` in a
-/// face without `vmtx`, which the text leaves open (the owner's decision of
-/// 2026-10-13). None is drawn and none is a contour end; a matched
-/// component may align on any of the four, and only the left one's delta
-/// moves the outline.
+/// glyph's vertical origin and advances downwards"
+/// (`[[source: ms-opentype-vmtx]]`). "The x coordinate of a glyph's
+/// vertical origin is not specified", and both vertical points take
+/// HarfBuzz's and FreeType's x of 0, and HarfBuzz's tsb of 0 and advance
+/// height of `unitsPerEm` in a face without `vmtx`, which the text leaves
+/// open. None is drawn and none is a contour end; a matched component may
+/// align on any of the four, and only the left one's delta moves the
+/// outline.
 fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, start: Start) -> Option<()> {
     let Start {
         left: x,
@@ -1534,14 +1529,14 @@ impl<'a> Glyf<'a> {
     /// The translation that lays the child's point `from` -- its outline
     /// points numbered from 0, then its four phantoms -- on the parent's
     /// point `on`: the points incorporated from the components before it,
-    /// numbered from 0, then the parent's own four phantoms, `own`
-    /// ("Phantom points from the parent or the child may be referenced";
-    /// "Phantom point numbers follow after the last point number of the last
+    /// numbered from 0, then the parent's own four phantoms, `own` ("Phantom
+    /// points from the parent or the child may be referenced"; "Phantom
+    /// point numbers follow after the last point number of the last
     /// contour", `[[source: ms-opentype-glyf]]`). `None` where the text
     /// leaves the alignment open and the component stays where its matrix
-    /// put it: a parent point past the parent's phantoms (the owner kept
-    /// it so on 2026-10-13), and a child point past the child's, as built
-    /// and undecided.
+    /// put it: a parent point past the parent's phantoms (kept so on
+    /// 2026-10-13), and a child point past the child's, as built and
+    /// undecided.
     fn alignment(
         parent: &[VarPoint],
         own: &[VarPoint; 4],

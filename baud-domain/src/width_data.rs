@@ -35,7 +35,7 @@
 /// Two indexed loads replace up to three binary searches over 677 ranges.
 /// The searched form was 9.4% of the CJK path and a ceiling arm returning
 /// a constant measured +32 to +34%; a scattered probe per branch is also
-/// the worse shape for a cache, which is what rule #2 in `CLAUDE.md` is
+/// the worse shape for a cache, which is what rule #2 in `CONTRIBUTING.md` is
 /// about. Han sits in 82 contiguous entries here.
 pub static WIDTH_INDEX: &[u8; 4352] = b"\
     \x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x12\x12\x12\x14\x15\x16\x17\x18\x19\x1a\x12\x12\

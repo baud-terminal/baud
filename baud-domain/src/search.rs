@@ -3,14 +3,13 @@
 //!
 //! The comparison is `[[source: unicode17-ch3]]` D145, "A string X is a
 //! canonical caseless match for a string Y if and only if:
-//! NFD(toCasefold(NFD(X))) = NFD(toCasefold(NFD(Y)))", where R4's
-//! toCasefold maps each character to its full case folding, status C and F
-//! of `[[source: unicode-casefolding]]` -- not the simple folding, which the
+//! NFD(toCasefold(NFD(X))) = NFD(toCasefold(NFD(Y)))", where R4's toCasefold
+//! maps each character to its full case folding, status C and F of
+//! `[[source: unicode-casefolding]]` -- not the simple folding, which the
 //! text keeps for "compatibility with legacy definitions of
 //! case-insensitivity". So `STRASSE` finds `Straße`, a typed `e` + U+0301
 //! finds a precomposed `é`, and the reverse: the platform's own caseless
-//! find answers the same on this Mac (the record, "Search in the
-//! scrollback").
+//! find answers the same on this Mac.
 //!
 //! **A match is whole clusters.** `[[source: uts10]]` § 11 calls it "Whole
 //! Characters Only": "Users may not want a search for \"abc\" to match in
@@ -160,9 +159,8 @@ impl<const N: usize> SearchKey<N> {
             }
         }
         // D145's outer NFD. Over every code point with every mark, before
-        // or after it, the folding left the marks in order already (the
-        // record, "Search in the scrollback"); it is the definition, and a
-        // later Unicode is free to need it.
+        // or after it, the folding left the marks in order already; it is
+        // the definition, and a later Unicode is free to need it.
         out.reorder();
         Ok(out)
     }

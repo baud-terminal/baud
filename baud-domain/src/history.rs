@@ -119,13 +119,12 @@ impl<'a> Scrollback<'a> {
     /// a blank other than the default, and how it ended. `None` past what
     /// is retained.
     ///
-    /// **The mark is where the row stops being uniform, not where its
-    /// text ends.** A row erased in blue has a mark of zero and forty blue
+    /// **The mark is where the row stops being uniform, not where its text
+    /// ends.** A row erased in blue has a mark of zero and forty blue
     /// cells, and `abc` erased on in blue a mark of three; read to the mark
     /// alone, the first was no cells and the second `abc`, where the window
-    /// scrolled back to them draws the blue (the record, "A retained line
-    /// reads as the window draws it"). Past the default blank there is
-    /// nothing a caller could not supply, so a plain line still reads to
+    /// scrolled back to them draws the blue. Past the default blank there
+    /// is nothing a caller could not supply, so a plain line still reads to
     /// its mark. One cell read a line, on the read side.
     pub fn line(&self, back: Back) -> Option<(&'a [PackedCell], Wrap)> {
         if back.0 >= self.len.index() {

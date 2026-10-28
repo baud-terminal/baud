@@ -1369,13 +1369,12 @@ type RatioCase = (&'static str, &'static [u8], (u16, u16), &'static [u16]);
 /// a `P1` 2 image, 4.5:1 by `[[source: dec-std-070]]` 070-9 §7.1 (PDF p.
 /// 918), is 27 rows a band, its sixel rows 5, 4, 5, 4, 5 and 4 tall, and two
 /// bands 54. §12: "The pixel aspect ratio should be preserved if possible",
-/// the actual grid "the average grid size over not more than 30 pixels"
-/// (PDF pp. 928-929); Jev, PRESERVE, 0.97/0.98. A ratio below one is 1:1,
-/// §12's smallest imageable unit (Jev, CLAMP_ONE, 0.91/0.97), and a `P1`
-/// past 9 is omitted, 2:1 (070-3 §3.5.1.3; Jev, AS_DEFAULT, 1.00/1.00).
-/// Each was 1:1 until 2026-10-23. Every read size, so a band begun in one
-/// read and painted in the next lays its rows where the whole does; the
-/// rows painted are read off the image, not only its height.
+/// the actual grid "the average grid size over not more than 30 pixels" (PDF
+/// pp. 928-929). A ratio below one is 1:1, §12's smallest imageable unit,
+/// and a `P1` past 9 is omitted, 2:1 (070-3 §3.5.1.3). Each was 1:1 until
+/// 2026-10-23. Every read size, so a band begun in one read and painted in
+/// the next lays its rows where the whole does; the rows painted are read
+/// off the image, not only its height.
 #[test]
 fn a_ratio_that_is_not_whole_is_preserved() {
     // `t` is 0b110101: sixel rows 0, 2, 4 and 5 set.
@@ -1533,10 +1532,10 @@ fn same_as(name: &str, got: &[u8], want: &[u8]) {
 /// (blank Sixel) was received - this is to limit the affect of some
 /// communication line errors" (PDF p. 926), and ECMA-48 8.3.148's SUB "in
 /// the place of a character that has been found to be invalid or in
-/// error". Decided by Jev, BLANK_SIXEL, 0.92/0.94 (2026-10-19), over STD
-/// 070 3.5.4.4's and williams' end of the string, which every other string
-/// keeps (`a_sub_still_cancels_a_decrqss`). Until then the string ended at
-/// the `SUB` and the rest of the body was drawn as text.
+/// error". Chosen on 2026-10-19 over STD 070 3.5.4.4's and williams' end
+/// of the string, which every other string keeps
+/// (`a_sub_still_cancels_a_decrqss`). Until then the string ended at the
+/// `SUB` and the rest of the body was drawn as text.
 #[test]
 fn a_sub_inside_a_sixel_is_a_blank_sixel() {
     let with: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~\x1a~~\x1b\\Z";
@@ -1552,16 +1551,15 @@ fn a_sub_inside_a_sixel_is_a_blank_sixel() {
 
 /// **A Sixel cut off by `CAN`, an `ESC` that is not `ST`, or a C1 is placed
 /// from what it received**, and then the byte does what it does outside a
-/// string: each program leaves what the same body ended by `ST` and
-/// followed by that byte's effect leaves. williams: "Cancelling a control
-/// string does not undo these effects" (501-503), and its `unhook` lets the
-/// handler "finish neatly" (728-729); 070-9 prints "each Sixel in received
-/// order" (§5), and of `ESC` and a C1 says "exit Sixel mode, begin
-/// processing escape sequence" and "the C1 control code is processed
-/// outside of the Sixel mode" (§9.1, §9.3). Jev, KEEP, 0.94/0.94 for `ESC`
-/// and a C1; the lean KEEP, 0.72/0.68, for `CAN`, where ECMA-48 8.3.6's
-/// "the data preceding it ... shall be ignored" fixes no scope (2026-10-19).
-/// Until then none of them placed anything.
+/// string: each program leaves what the same body ended by `ST` and followed
+/// by that byte's effect leaves. williams: "Cancelling a control string does
+/// not undo these effects" (501-503), and its `unhook` lets the handler
+/// "finish neatly" (728-729); 070-9 prints "each Sixel in received order"
+/// (§5), and of `ESC` and a C1 says "exit Sixel mode, begin processing
+/// escape sequence" and "the C1 control code is processed outside of the
+/// Sixel mode" (§9.1, §9.3). Each keeps what it placed, `CAN` too, where
+/// ECMA-48 8.3.6's "the data preceding it ... shall be ignored" fixes no
+/// scope (2026-10-19). Until then none of them placed anything.
 #[test]
 fn a_sixel_cut_off_is_placed_from_what_it_received() {
     let body: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~-~~";

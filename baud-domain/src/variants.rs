@@ -6,8 +6,8 @@
 //! when a character is written ride in its [`crate::StyleWord`], as `SGR`'s
 //! attributes do, so text written before a change keeps its own -- "the
 //! presentation of subsequent text" -- and the cell, eight bytes, does not
-//! grow: the word's two spare bytes hold them (Jev's lean, PER_CHARACTER,
-//! 0.82/0.96). `SGR 0` leaves them, being no `SGR`.
+//! grow: the word's two spare bytes hold them. `SGR 0` leaves them, being
+//! no `SGR`.
 //!
 //! **Zero is the default presentation**, "implementation-defined" for
 //! value 0: digits as stored, paired characters and mathematical operators
@@ -30,11 +30,10 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 pub struct Variants(pub(crate) u16);
 
 /// How the decimal digits are drawn: values 1 and 20 (as stored; 20's
-/// "device dependent" symbols are baud's stored ones, Jev's lean
-/// AS_STORED, 0.86/0.82) and 2, "the graphic symbols used in the Arabic
-/// script, i.e. the Hindi symbols", U+0660-U+0669 (`[[source:
-/// unicode-ch9]]` 9.2: the digits of the Arabic world are "widely known
-/// there as \"Hindi numbers\"").
+/// "device dependent" symbols are baud's stored ones) and 2, "the
+/// graphic symbols used in the Arabic script, i.e. the Hindi symbols",
+/// U+0660-U+0669 (`[[source: unicode-ch9]]` 9.2: the digits of the
+/// Arabic world are "widely known there as \"Hindi numbers\"").
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Digits {
     Stored,
@@ -115,11 +114,11 @@ pub enum Sapv {
     Vowels(Vowels),
     /// 12: vowels after the character before them, refused: a vowel is
     /// stored on its letter's cell and the grid has no column for it to
-    /// follow in (Jev's lean, REFUSED_COUNTED, 0.59/0.61).
+    /// follow in.
     VowelsAfter,
     Shaping(Shaping),
     /// 17: italics slanted toward the string direction, left where it
-    /// runs right to left (Jev's lean, LEFT_SHEAR, 0.82/0.80).
+    /// runs right to left.
     Slant,
     /// 21: forms held for the following characters until cancelled.
     FormsHeld,
@@ -334,7 +333,7 @@ impl Variants {
 /// letter asked for its initial form, which joins on the left it cannot,
 /// is drawn isolated, and asked for its medial form drawn final; a
 /// left-joining one the mirror of that. A character that takes no form is
-/// drawn as stored (`None`). Jev's lean, NEAREST, 0.22/0.40.
+/// drawn as stored (`None`).
 pub fn forced_form(f: Form, t: JoiningType) -> Option<JoiningForm> {
     use JoiningForm as J;
     Some(match (t, f) {
@@ -355,9 +354,9 @@ pub fn forced_form(f: Form, t: JoiningType) -> Option<JoiningForm> {
 /// (`[[source: unicode-ch9]]` 9.2, "harakat (short vowel marks), tanwin
 /// (postnasalized or long vowel marks)"), and the Hebrew points it classes
 /// as vowels, U+05B0-U+05BB and U+05C7 (9.1, "dagesh, shin dot and sin
-/// dot, vowels, and other pronunciation marks") -- Jev's lean,
-/// ARABIC_AND_HEBREW_VOWELS, 0.40/0.23. Shadda and sukun are not vowels,
-/// nor dagesh and the shin and sin dots.
+/// dot, vowels, and other pronunciation marks") -- the Arabic and the
+/// Hebrew vowels. Shadda and sukun are not vowels, nor dagesh and the shin
+/// and sin dots.
 pub fn is_vowel(c: char) -> bool {
     matches!(c, '\u{064B}'..='\u{0650}' | '\u{05B0}'..='\u{05BB}' | '\u{05C7}')
 }

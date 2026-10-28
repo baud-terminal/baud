@@ -14,8 +14,7 @@
 //! * 8.3.67 IL and 8.3.32 DL: "Any occurrences of the start or end of ... a
 //!   qualified area ... in the shifted part, are also shifted."
 //!
-//! The forks the texts leave open were put to Jev (docs/record.md, "SPA, EPA
-//! and ERM are built"); each test below that pins one names it.
+//! Each test below that pins a fork the texts leave open names it.
 
 mod support;
 
@@ -62,7 +61,7 @@ fn no_guard(g: &[Vec<PackedCell>]) -> bool {
 
 /// **Every position from SPA's through the one before EPA**, written or not:
 /// the cursor after `abc` is the last position, though nothing was written
-/// there (decided, Jev 0.96/0.90, log 652/653).
+/// there.
 #[test]
 fn spa_and_epa_guard_from_spa_through_the_position_before_epa() {
     let g = run(b"\x1b[1;3H\x1bVabc\x1bW");
@@ -91,10 +90,10 @@ fn the_area_runs_across_rows_in_the_character_path() {
     assert_eq!(guards(&g, 4), "....................");
 }
 
-/// **EPA before SPA's position guards the positions between them**: Jev's
-/// lean, 0.08/0.60 and 0.30/0.58 (log 832-835), from 6.5.2's "The order of
-/// the character positions in a line of a qualified area can be the same as,
-/// or opposite to, the character path of this line".
+/// **EPA before SPA's position guards the positions between them**, from
+/// 6.5.2's "The order of the character positions in a line of a qualified
+/// area can be the same as, or opposite to, the character path of this
+/// line".
 #[test]
 fn epa_before_spa_guards_the_positions_between_them() {
     let g = run(b"\x1b[3;6H\x1bV\x1b[2;18H\x1bW");
@@ -113,8 +112,7 @@ fn epa_with_no_spa_guards_nothing() {
     assert!(no_guard(&g[1..]));
 }
 
-/// **A second SPA starts the area again**: Jev's lean, 0.72/0.78 and
-/// 0.62/0.76.
+/// **A second SPA starts the area again**.
 #[test]
 fn a_second_spa_starts_the_area_again() {
     let g = run(b"\x1b[1;2H\x1bVab\x1bVcd\x1bW");
@@ -149,9 +147,7 @@ fn ed_el_and_ech_spare_a_guarded_position_under_erm_reset() {
 
 /// **Under ERM set, ALL, they erase a guarded position, and it stays
 /// guarded**: 4.2.38, to erase is "To remove the contents from character
-/// positions and leaving the resulting gap open". Jev's lean: the first ask
-/// split, 0.04 for losing the guard and 0.34 for keeping it, and the second
-/// kept it, 0.50/0.32.
+/// positions and leaving the resulting gap open".
 #[test]
 fn under_erm_set_they_erase_a_guarded_position_and_it_stays_guarded() {
     let g = run(b"0123456789\x1b[1;3H\x1bV\x1b[1;5H\x1bW\x1b[6h\x1b[2K");
@@ -164,12 +160,8 @@ fn under_erm_set_they_erase_a_guarded_position_and_it_stays_guarded() {
     assert_eq!(text(&g, 0), "                    ");
 }
 
-/// **A host write into a guarded position replaces the guard**: Jev's lean
-/// in the two asks that put the question alone, each in both orders:
-/// confidence 0.70/0.78 (log 652/653, 2026-10-16) and 0.46/0.54 (log
-/// 832/833, 2026-10-18). The joint question of log 650/651 leaned the other
-/// way, toward the position staying guarded (positions_kept, probability
-/// 0.59/0.60, confidence 0.38/0.40).
+/// **A host write into a guarded position replaces the guard**, rather than
+/// the position staying guarded.
 #[test]
 fn a_later_write_replaces_the_guard() {
     let g = run(b"0123456789\x1b[1;3H\x1bV\x1b[1;5H\x1bW\x1b[1;4HZ\x1b[2K");
@@ -178,9 +170,9 @@ fn a_later_write_replaces_the_guard() {
 }
 
 /// **DECSED and DECSEL erase a guarded, erasable character and leave its
-/// guard**: only DECSCA decides them (Jev 0.94/0.90, decided), and DEC STD
-/// 070 DECSED: "The character rendition and attributes associated with each
-/// position do not change". A guarded character DECSCA protected stays.
+/// guard**: only DECSCA decides them, and DEC STD 070 DECSED: "The
+/// character rendition and attributes associated with each position do not
+/// change". A guarded character DECSCA protected stays.
 #[test]
 fn decsed_and_decsel_erase_a_guarded_erasable_character_and_keep_the_guard() {
     let setup = b"01\x1b[1\"q23\x1b[0\"q456789\x1b[1;2H\x1bV\x1b[1;5H\x1bW";
@@ -192,8 +184,7 @@ fn decsed_and_decsel_erase_a_guarded_erasable_character_and_keep_the_guard() {
 }
 
 /// **An erase between SPA and EPA erases**: the area's end is established
-/// by EPA, so nothing is guarded before it. Jev's lean, 0.98/0.54 and
-/// 0.94/0.66.
+/// by EPA, so nothing is guarded before it.
 #[test]
 fn an_erase_between_spa_and_epa_erases() {
     let g = run(b"\x1b[1;3H\x1bVabc\x1b[2K\x1bW");
@@ -203,9 +194,7 @@ fn an_erase_between_spa_and_epa_erases() {
 
 /// **The start of an open area moves with its line**: IL and DL shift "the
 /// start ... of a qualified area" (8.3.67, 8.3.32), and a scroll moves it with
-/// the data. Jev split: probabilities 0.51/0.53 for staying in the first
-/// ask and 0.60/0.55 for moving in the second, every confidence 0.20 or
-/// less; the lean of the four, and IL's and DL's text.
+/// the data, as IL's and DL's text has it.
 #[test]
 fn the_start_of_an_open_area_moves_with_its_line() {
     // IL above the start moves it down two rows.
@@ -242,8 +231,7 @@ fn a_start_scrolled_off_is_the_top_and_one_deleted_is_forgotten() {
 }
 
 /// **DECSTR forgets an open SPA**, as xterm's soft reset clears the flag SPA
-/// set; it leaves ERM and what is guarded. Jev's lean, 0.68/0.48 and
-/// 0.66/0.84.
+/// set; it leaves ERM and what is guarded.
 #[test]
 fn decstr_forgets_an_open_spa_and_keeps_the_rest() {
     let g = run(b"\x1b[1;3H\x1bV\x1b[!p\x1b[1;5H\x1bW");
@@ -254,8 +242,7 @@ fn decstr_forgets_an_open_spa_and_keeps_the_rest() {
 }
 
 /// **DECSC and DECRC neither save nor restore an open SPA**: VT510's list
-/// does not name it. Jev's lean: the first ask split, 0.40 for saving and
-/// 0.58 for not, and the second did not, 0.66/0.76.
+/// does not name it.
 #[test]
 fn decsc_and_decrc_do_not_carry_an_open_spa() {
     let g = run(b"\x1b[1;3H\x1bV\x1b7\x1b[1;5H\x1bW\x1b8\x1b[3;5H\x1bW");
@@ -263,8 +250,7 @@ fn decsc_and_decrc_do_not_carry_an_open_spa() {
     assert!(no_guard(&g[1..]));
 }
 
-/// **A screen switch keeps the start as its screen position**: Jev's lean,
-/// 0.54/0.58 and 0.50/0.58.
+/// **A screen switch keeps the start as its screen position**.
 #[test]
 fn a_screen_switch_keeps_the_start_as_its_position() {
     let g = run(b"\x1b[3;3H\x1bV\x1b[?1049h\x1b[3;5H\x1bW");
@@ -391,10 +377,9 @@ fn a_resize_forgets_an_open_spa() {
 /// blank is: ECMA-48 defines no reflow and guards character positions
 /// (6.5.2.2), and the re-cut keeps every one of them -- a row of 20 guarded
 /// empty positions narrowed to 12 columns is a line of two rows, 12 and 8
-/// guarded, and widened back it is one row of 20 again. Jev's lean,
-/// AS_CONTENT, 0.89 and 0.92 on a second ask, against trimming them from
-/// the line's end (which loses the guard on the positions past the narrow
-/// width for good, or on all of them).
+/// guarded, and widened back it is one row of 20 again. This is chosen over
+/// trimming them from the line's end (which loses the guard on the
+/// positions past the narrow width for good, or on all of them).
 #[test]
 fn a_guarded_empty_row_keeps_every_guard_through_a_reflow() {
     let mut s = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, Depth::of(20));
@@ -425,10 +410,10 @@ fn a_guarded_empty_row_keeps_every_guard_through_a_reflow() {
 
 /// **SSA and ESA select nothing and are counted** (`[[source: ecma48]]`
 /// 8.3.138, 8.3.47): a selected area is "eligible to be transmitted ... or
-/// transferred to an auxiliary input/output device", which only a
-/// transfer under SATM reads, and baud sends no screen contents and builds
-/// no SATM (Jev, REFUSE_COUNT, 1.00/1.00). `ESC F`, `ESC G`, and `86` and
-/// `87` under ISO 8859-1: no cell changes, the cursor stays, each counted.
+/// transferred to an auxiliary input/output device", which only a transfer
+/// under SATM reads, and baud sends no screen contents and builds no SATM.
+/// `ESC F`, `ESC G`, and `86` and `87` under ISO 8859-1: no cell changes,
+/// the cursor stays, each counted.
 #[test]
 fn ssa_and_esa_select_nothing_and_are_counted() {
     for (bytes, n) in [

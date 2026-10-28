@@ -1,12 +1,12 @@
 //! A draw that commits nothing gives its frame back.
 //!
-//! The owner reported that Cmd-plus and Cmd-minus "stopped working
-//! suddenly". The presenter minted a frame's tag -- and so counted it as
-//! flying -- before the GPU looked at whether a frame was still in flight;
-//! a draw that answered `Busy`, or made no resource, dropped the
-//! completion that would have landed it. From then on every reshape
-//! answered `Wait`, and a zoom, the one caller of `reshape`, deferred
-//! itself for the life of the window while frames went on drawing.
+//! A user reported that Cmd-plus and Cmd-minus "stopped working suddenly".
+//! The presenter minted a frame's tag -- and so counted it as flying --
+//! before the GPU looked at whether a frame was still in flight; a draw
+//! that answered `Busy`, or made no resource, dropped the completion that
+//! would have landed it. From then on every reshape answered `Wait`, and a
+//! zoom, the one caller of `reshape`, deferred itself for the life of the
+//! window while frames went on drawing.
 //!
 //! **Deterministic, as the rest of this crate's present tests are:** the
 //! `Busy` the live app hit depends on GPU timing, so the test takes the

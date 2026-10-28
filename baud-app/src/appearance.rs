@@ -5,9 +5,9 @@
 //! value 0, which the portal says an unknown value means too, and what GNOME
 //! reports when its dark style is off (`[[source: kitty-themes-rst]]`) --
 //! draws the light half, libadwaita's rule for an application's default
-//! scheme (`[[source: libadwaita-style-manager]]`, `get_is_dark`; Jev's
-//! lean, LIGHT, 0.88/0.86). With no portal heard, `auto` draws dark, as on
-//! macOS before the system has said anything.
+//! scheme (`[[source: libadwaita-style-manager]]`, `get_is_dark`). With no
+//! portal heard, `auto` draws dark, as on macOS before the system has said
+//! anything.
 
 use crate::access::{Contrast, MotionSource};
 use crate::bus::{Origin, Scheme};

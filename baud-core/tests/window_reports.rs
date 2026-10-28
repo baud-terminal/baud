@@ -224,7 +224,7 @@ fn the_eleventh_push_overwrites_the_oldest() {
 }
 
 /// **`RIS` and `DECSTR` keep the stack**, as both keep the title itself
-/// and as xterm's resets do (Jev, RIS_KEEPS, 0.94/0.98).
+/// and as xterm's resets do.
 #[test]
 fn the_resets_keep_the_title_stack() {
     support::with_term(&WS, |t| {

@@ -1245,8 +1245,8 @@ fn osc_17_and_19_set_the_selection_colours_and_117_and_119_reset_them() {
 /// **A query answers in `OSC 10`'s shape, with the query's terminator**:
 /// the colour set, and with none set the colour a selection is drawn in --
 /// reverse video, so the text shown for `17` and the page shown for `19`,
-/// as a default xterm answers (Jev, 0.90 in both orders) -- and nothing on
-/// a core never told its colours.
+/// as a default xterm answers -- and nothing on a core never told its
+/// colours.
 #[test]
 fn a_highlight_query_answers_the_colour_the_selection_is_drawn_in() {
     let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));

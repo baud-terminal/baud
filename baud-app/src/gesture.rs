@@ -36,7 +36,7 @@ pub(crate) enum Pressed {
     Right,
     /// The first button past the three -- macOS's `buttonNumber` 3, the
     /// Wayland seat's `BTN_SIDE` -- which DEC's locator reports as its
-    /// fourth (Jev, FIRST_EXTRA, 0.98 and 0.98).
+    /// fourth.
     Fourth,
     Other,
 }
@@ -130,9 +130,9 @@ pub(crate) enum Shift {
 /// `shiftEscape` false; at 1 it takes only a button the selection binds
 /// without Shift -- xterm's `shift_buttons` (`[[source: xterm-button-c]]`),
 /// which for baud's bindings is the left button, the one a press selects
-/// with -- and every other press goes to the child with its Shift bit
-/// (Jev's lean, SELECTION_BUTTONS, 0.80/0.88 then 0.78/0.78). A move with
-/// no button held is button 1's, as xterm's `MotionButton` reads one.
+/// with -- and every other press goes to the child with its Shift bit. A
+/// move with no button held is button 1's, as xterm's `MotionButton` reads
+/// one.
 pub(crate) fn shift_overrides(
     held: Shift,
     escape: ShiftEscape,
@@ -399,19 +399,18 @@ pub(crate) fn select(
 }
 
 /// **A click the driver has passed as clean** -- the left button, no
-/// modifier, the window on the live screen -- at the cell `at` and the
-/// pixel `px`, whose cell is `cell_w` pixels wide. **A prompt that asked
-/// with `OSC 133` takes it first** (`Term::prompt_click`): its `cl=` or
-/// kitty's `click_events=` is the shell saying what it handles, and `?2001`
-/// is reached only where no prompt asked (Jev, SPEC_LINE, 0.80/0.89, the
-/// lean taken). Then **`?2001`: a click on the cursor's line moves the
-/// shell's point there**, with as many cursor keys as `readline::point_move`
-/// counts, sent as the wheel's are -- the terminal's, not keystrokes, so KAM
-/// does not lock them and SRM does not draw them. xterm's `isClick1_clean`
-/// refuses a Shift click and a tracked one, and its rows are the screen's;
-/// a click is a press and a release with no drag between, and xterm also
-/// bounds its time by `multiClickTime`, which this does not. Every byte to
-/// `sink`; the driver flushes.
+/// modifier, the window on the live screen -- at the cell `at` and the pixel
+/// `px`, whose cell is `cell_w` pixels wide. **A prompt that asked with
+/// `OSC 133` takes it first** (`Term::prompt_click`): its `cl=` or kitty's
+/// `click_events=` is the shell saying what it handles, and `?2001` is
+/// reached only where no prompt asked. Then **`?2001`: a click on the
+/// cursor's line moves the shell's point there**, with as many cursor keys
+/// as `readline::point_move` counts, sent as the wheel's are -- the
+/// terminal's, not keystrokes, so KAM does not lock them and SRM does not
+/// draw them. xterm's `isClick1_clean` refuses a Shift click and a tracked
+/// one, and its rows are the screen's; a click is a press and a release with
+/// no drag between, and xterm also bounds its time by `multiClickTime`,
+/// which this does not. Every byte to `sink`; the driver flushes.
 pub(crate) fn clicked(
     term: &mut Term<'_>,
     (row, col, px): (Row, Col, PointerPx),

@@ -133,7 +133,7 @@ new-double-put = ["baud-core/probe-double-put"]
 
 # The benches are `[[bench]]` targets with `harness = false`, so `cargo bench`
 # runs each one's own `main` and `baud` stays the only `[[bin]]` in the
-# workspace -- the owner's call.
+# workspace.
 #
 # **Not criterion, deliberately.** This repo's protocol is interleaved arms,
 # the first round discarded, an A/A control *in the same sweep*, and ranges

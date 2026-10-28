@@ -77,7 +77,7 @@ enum Why {
 /// before it is answered from the last one: `printerNames` took 0.3-0.8
 /// ms a call off a process's first, 3.5-8.6 ms on its first with the
 /// print system's daemon running, and 40-78 ms, inside this wait, when
-/// that call had to start the daemon (docs/record.md).
+/// that call had to start the daemon.
 pub const PRINTER_WAIT: Duration = Duration::from_millis(100);
 
 /// How many delays [`HELD_MAX`] ended early.

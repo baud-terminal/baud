@@ -91,8 +91,7 @@ impl OtherKeys {
 pub enum KeyResource {
     /// `modifyKeyboard`, 0: which categories the legacy and vt220 keyboards
     /// may modify. baud's keyboard is xterm's default one, which never reads
-    /// it, so it is stored and reported and changes no key, as in xterm
-    /// (Jev's lean, STORE_AND_REPORT, 0.64/0.72 on the second ask).
+    /// it, so it is stored and reported and changes no key, as in xterm.
     Keyboard,
     /// `modifyCursorKeys`, 1: the arrows, Home and End, and at 4 the
     /// editing keys too.
@@ -171,11 +170,10 @@ impl KeyResource {
         }
     }
 
-    /// `Pv` as this resource's value, or `None` for one no text documents
-    /// (Jev's lean, REFUSE_COUNT, 0.82/0.90 then 0.88/0.86): `modifyKeyboard`'s
-    /// four bits, 0 to 15; `modifyOtherKeys` 0 to 3; the others 0 to 4
-    /// (`[[source: xterm-man]]`). -1 is reached only by `CSI > Pp n`, "which
-    /// cannot be set with the other sequence".
+    /// `Pv` as this resource's value, or `None` for one no text documents:
+    /// `modifyKeyboard`'s four bits, 0 to 15; `modifyOtherKeys` 0 to 3; the
+    /// others 0 to 4 (`[[source: xterm-man]]`). -1 is reached only by
+    /// `CSI > Pp n`, "which cannot be set with the other sequence".
     pub fn value(self, pv: u16) -> Option<ModifyValue> {
         let top = match self {
             KeyResource::Keyboard => 15,
@@ -214,8 +212,7 @@ impl ModifyValue {
 pub enum KeySet {
     /// `CSI > m`: "If no parameters are given, all resources are reset to
     /// their initial values" -- all seven, as the text says, where xterm's
-    /// loop takes 1 to 5 (Jev's lean, ALL_SEVEN, 0.76/0.76 then
-    /// 0.68/0.76).
+    /// loop takes 1 to 5.
     ResetAll,
     /// `CSI > Pp m`: "If the second parameter is omitted, the resource is
     /// reset to its initial value."
@@ -320,16 +317,15 @@ impl OtherKeysFormat {
 /// **Masked to the five defined bits on the way in.** The specification's
 /// table defines five bits (html 1536-1556) and gives no rule for any other,
 /// so the mask is baud's choice: a bit kept and never acted on is a mode
-/// recorded and not acted on, which CLAUDE.md refuses, and `CSI ? u`, which
-/// writes the stored bits as they are, would report it back. A stored
+/// recorded and not acted on, which `CONTRIBUTING.md` refuses, and `CSI ? u`,
+/// which writes the stored bits as they are, would report it back. A stored
 /// `KittyFlags` is therefore valid by construction and the encoder never has
 /// to guard against a sixth bit. The protocol is all-or-nothing because its
 /// support detection is whether the terminal answers `CSI ? u` at all: "If an
-/// answer for the device attributes is received without getting back an
-/// answer for the progressive enhancement the terminal does not support this
+/// answer for the device attributes is received without getting back an answer
+/// for the progressive enhancement the terminal does not support this
 /// protocol." The core answers it with these flags, `CSI ? flags u`, since the
-/// encoder honours all five (`docs/record.md`, "kitty's protocol is
-/// all-or-nothing, and its own detection mechanism says so").
+/// encoder honours all five.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct KittyFlags(u8);
 
@@ -496,11 +492,10 @@ pub enum DeleteKey {
 /// override the application mode").
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum NumLockKeypad {
-    /// Set, the default, as the resource's is (Jev's lean, SET,
-    /// 0.66/0.58): a keypad key with NumLock on sends its numeric column
-    /// under DECKPAM too. The embedder reports NumLock on a keypad key
-    /// whenever it is on, as the Wayland driver does; macOS reports none,
-    /// its keypad having no NumLock key.
+    /// Set, the default, as the resource's is: a keypad key with NumLock
+    /// on sends its numeric column under DECKPAM too. The embedder
+    /// reports NumLock on a keypad key whenever it is on, as the Wayland
+    /// driver does; macOS reports none, its keypad having no NumLock key.
     #[default]
     Overrides,
     /// Reset: NumLock does not change what the keypad sends.
@@ -566,9 +561,9 @@ impl KeyState {
     }
 
     /// The backarrow key's byte: DECBKM's, **and Control inverts it**, xterm's
-    /// `IsBackarrowToggle` ("Pressing the control key toggles this
-    /// behavior") and the legacy table of `[[source: kitty-keyboard]]`, whose
-    /// Control-Backspace is `0x8` (Jev's lean, XTERM_TOGGLE, 0.62/0.70).
+    /// `IsBackarrowToggle` ("Pressing the control key toggles this behavior")
+    /// and the legacy table of `[[source: kitty-keyboard]]`, whose
+    /// Control-Backspace is `0x8`.
     fn backarrow_byte(self, mods: Modifiers) -> u8 {
         match (self.backarrow == BackarrowKey::Backspace) != mods.has(Modifiers::CTRL) {
             true => 0x08,
@@ -759,8 +754,7 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // 070-6 §6.2.4 a, p. 6-19): "Keys which would normally produce an 8-bit
     // code with the 8th bit set shall be inoperative". Under ISO 8859-1,
     // where a byte is a character of that code; under UTF-8 a key sends its
-    // UTF-8 at every level (Jev's lean, LATIN1_ONLY, 0.83/0.77 then
-    // 0.72/0.73), as received UTF-8 is decoded at every level.
+    // UTF-8 at every level, as received UTF-8 is decoded at every level.
     let eight = s.level == ConformanceLevel::One
         && s.encoding == InputEncoding::Latin1
         && o.as_bytes().iter().any(|b| *b >= 0x80);
@@ -1099,9 +1093,8 @@ fn ansi(
 /// neither implement additional keys nor make operative keys that are not
 /// part of Level 1 Operation". So Insert, Delete, Page Up, Page Down, Home
 /// and End send nothing, and F5, which a VT100 lacks and an LK201 keeps
-/// local (Jev's lean, EDITING_HOME_END_F5, 0.79/0.79 then 0.28/0.56);
-/// "inoperative means that the key shall not transmit anything". F1 to F4
-/// stay PF1 to PF4, and the arrows and the keypad their VT100 forms.
+/// local; "inoperative means that the key shall not transmit anything". F1
+/// to F4 stay PF1 to PF4, and the arrows and the keypad their VT100 forms.
 ///
 /// **F11, F12 and F13 send nothing with Shift or Control held**, §6.11
 /// (p. 6-70): "In Level 1 operation G11, G12 and G13 transmit nothing and
@@ -1109,8 +1102,8 @@ fn ansi(
 ///
 /// A function key that modifyFunctionKeys -1 remaps under Shift or
 /// Control is left to [`remapped_function_key`], which rules the key it
-/// becomes: Shift-F11 is F21, past F20, and Shift-F1 is F11, unmodified
-/// (Jev's lean, REMAPPED_KEY, 0.83/0.94 on a second ask).
+/// becomes: Shift-F11 is F21, past F20, and Shift-F1 is F11,
+/// unmodified.
 fn level_one_key(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> Option<bool> {
     if s.level != ConformanceLevel::One {
         return None;
@@ -1157,26 +1150,20 @@ fn remaps(mods: Modifiers, s: KeyState) -> bool {
 /// PF4, which are F1 to F4 here, among them -- is "not effected in any way
 /// by the depression of the Control, Shift or Lock keys" (§6.9, p. 6-63;
 /// §6.13.1 Note 2, "The CTRL key is ignored when used with the numeric
-/// keypad keys"), so it sends its VT100 code (Jev, DEC_UNMODIFIED,
-/// 0.97/0.95 for the keypad and 0.91/0.91 for PF1 to PF4); a cursor key
-/// takes no Shift, "Shift has no effect on the codes transmitted by the
-/// Numeric Keypad keys and the Cursor Keys" (§6.13.2; Jev,
-/// DEC_UNMODIFIED, 0.97/0.91), and is "dead when used with the CTRL key"
-/// (§6.13.1 Note 1; Jev's lean, INOPERATIVE, 0.82/0.86 on a second ask).
-/// Alt and Meta, which no DEC keyboard has, are dropped from these keys
-/// too, §6.2.1 b's "Shall neither implement additional keys nor make
-/// operative keys that are not part of Level 1 Operation" (Jev's lean,
-/// DEC_UNMODIFIED, 0.31/0.30 on a second ask, where the first leaned to
-/// xterm's parameter at 0.33/0.41). A keypad navigation key that
-/// duplicates an arrow sends a cursor key's code in both keypad modes,
-/// §6.8.1's, never one of §6.9.1's keypad codes, so it is that arrow and
-/// Control makes it dead too (Jev's lean, INOPERATIVE, 0.40/0.30 on a
-/// corrected re-ask, where the first leaned to its unmodified code at
-/// 0.02/0.44). Any other keypad key that duplicates another key is that
-/// key once its modifiers are gone. xterm sends its
-/// parameter at DECSCL 61, its `allowModifierParm` dropping it in VT52
-/// mode alone (`[[source: xterm-input-c]]`). A key modifyFunctionKeys -1
-/// remaps keeps its modifiers for the remap.
+/// keypad keys"), so it sends its VT100 code; a cursor key takes no Shift,
+/// "Shift has no effect on the codes transmitted by the Numeric Keypad
+/// keys and the Cursor Keys" (§6.13.2), and is "dead when used with the
+/// CTRL key" (§6.13.1 Note 1). Alt and Meta, which no DEC keyboard has,
+/// are dropped from these keys too, §6.2.1 b's "Shall neither implement
+/// additional keys nor make operative keys that are not part of Level 1
+/// Operation". A keypad navigation key that duplicates an arrow sends a
+/// cursor key's code in both keypad modes, §6.8.1's, never one of §6.9.1's
+/// keypad codes, so it is that arrow and Control makes it dead too. Any
+/// other keypad key that duplicates another key is that key once its
+/// modifiers are gone. xterm sends its parameter at DECSCL 61, its
+/// `allowModifierParm` dropping it in VT52 mode alone
+/// (`[[source: xterm-input-c]]`). A key modifyFunctionKeys -1 remaps keeps
+/// its modifiers for the remap.
 fn level_one_mods(code: KeyCode, mods: Modifiers, s: KeyState) -> Option<Modifiers> {
     if s.level != ConformanceLevel::One {
         return Some(mods);
@@ -1399,19 +1386,18 @@ fn vt52_keypad(
 
 /// The keypad, `[[source: ctlseqs]]` lines 2498 and 2628.
 ///
-/// **A key's application row is the VT220 table's, and a navigation key's
-/// the PC table's.** ctlseqs gives both -- line 2498 for a Sun/PC keypad and
-/// line 2628 for the VT102/VT220 keypad -- and they disagree on the digits
-/// and `.`, the count derived by
+/// **A key's application row is the VT220 table's, and a navigation key's the
+/// PC table's.** ctlseqs gives both -- line 2498 for a Sun/PC keypad and line
+/// 2628 for the VT102/VT220 keypad -- and they disagree on the digits and `.`,
+/// the count derived by
 /// `the_keypad_digits_send_the_vt220_rows_where_the_tables_part` rather than
-/// written here. xterm's own code on its PC keyboard reconciles them: a
-/// digit keysym sends `SS3 p`-`SS3 y` (`kypd_apl`, `[[source: xterm-input-c]]`
-/// 1390-1396) and a NumLock-off keysym becomes the cursor or editing key
-/// whose form line 2498 lists (1185-1189). iTerm2, foot (`[[source:
-/// foot-keymap-h-1-21]]`) and ghostty (`[[source:
-/// ghostty-d9840f3-function-keys]]`) send the digits the same way (Jev,
-/// VT220_SS3, 0.94/0.94); until 2026-10-20 a digit sent line 2498's column,
-/// `5` being `CSI E`.
+/// written here. xterm's own code on its PC keyboard reconciles them: a digit
+/// keysym sends `SS3 p`-`SS3 y` (`kypd_apl`, `[[source: xterm-input-c]]`
+/// 1390-1396) and a NumLock-off keysym becomes the cursor or editing key whose
+/// form line 2498 lists (1185-1189). iTerm2, foot
+/// (`[[source: foot-keymap-h-1-21]]`) and ghostty
+/// (`[[source: ghostty-d9840f3-function-keys]]`) send the digits the same way;
+/// until 2026-10-20 a digit sent line 2498's column, `5` being `CSI E`.
 ///
 /// The two columns are chosen by DECKPAM/DECKPNM. The numeric column is the
 /// literal character in every row but `Enter` and the `PF` keys.
@@ -1533,19 +1519,17 @@ fn keypad_navigation(o: &mut KeyBytes, row: KeypadKey, mods: Modifiers, s: KeySt
 
 /// The application column of `[[source: ctlseqs]]` line 2628 for a keypad
 /// key, `PF1`-`PF4` aside: `SS3 <byte>` on every row, the digits and `.`
-/// included ([`KeypadKey::application_byte`]; Jev, VT220_SS3, 0.94/0.94).
+/// included ([`KeypadKey::application_byte`]).
 ///
 /// **A modifier is the parameter between them**, `SS3 5 r` for
 /// Control-keypad-2: xterm's `MODIFIER_PARM` on a keypad key, which
-/// `allowModifierParm` allows on its default keyboard (`[[source:
-/// xterm-input-c]]` 1390-1396), as foot (`[[source: foot-keymap-h-1-21]]`,
-/// `DEFAULT_MODS_FOR_KP`), ghostty (`[[source:
-/// ghostty-d9840f3-function-keys]]`, `kpKeys`) and iTerm2 (`[[source:
-/// iterm2-7ce037e-vt100output]]`) send it. ctlseqs gives the keypad no
-/// modifier form and Jev split (NO_MODIFIER 0.10/0.06, then NO_MODIFIER
-/// 0.20 against XTERM_PARAM 0.12); built by the standing rule, the owner's
-/// "full VT420-class terminal. we need to support such protocols fully,
-/// always!" (2026-09-25). NumLock is not a modifier here ([`Modifiers::wire`]).
+/// `allowModifierParm` allows on its default keyboard
+/// (`[[source: xterm-input-c]]` 1390-1396), as foot
+/// (`[[source: foot-keymap-h-1-21]]`, `DEFAULT_MODS_FOR_KP`), ghostty
+/// (`[[source: ghostty-d9840f3-function-keys]]`, `kpKeys`) and iTerm2
+/// (`[[source: iterm2-7ce037e-vt100output]]`) send it. ctlseqs gives the
+/// keypad no modifier form; built, as the protocol is built whole. NumLock
+/// is not a modifier here ([`Modifiers::wire`]).
 fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
     match k.application_byte() {
         Some(b) => {
@@ -1749,15 +1733,13 @@ fn function_key(
 /// Function key `n` as modifyFunctionKeys -1 makes it, unmodified: F1-F20
 /// as their tables give them, and past F20 the number xterm's
 /// `decfuncvalue` gives, `42 + n - 21`, "made up and do not correspond to
-/// any real terminal" (`[[source: xterm-input-c]]`; decided by Jev,
-/// XTERM_42_REMAP_ONLY, 0.97/0.94 on the second ask). F31-F40 are
+/// any real terminal" (`[[source: xterm-input-c]]`). F31-F40 are
 /// Control-Shift-F1 to F10.
 ///
 /// **At Level 1 the key it becomes takes Level 1's rule**: Shift-F1 is F11
-/// and sends ESC, Shift-F4 is F14 and sends nothing (`[[source:
-/// dec-std-070]]` 070-6 §6.2.4), and a key past F20 sends nothing, §6.2.1
-/// b's "Shall neither implement additional keys" (Jev, INOPERATIVE,
-/// 0.94/0.94).
+/// and sends ESC, Shift-F4 is F14 and sends nothing
+/// (`[[source: dec-std-070]]` 070-6 §6.2.4), and a key past F20 sends
+/// nothing, §6.2.1 b's "Shall neither implement additional keys".
 fn remapped_function_key(o: &mut KeyBytes, n: u8, s: KeyState) -> bool {
     match FnKey::new(n) {
         Some(f) => match level_one_key(o, KeyCode::Function(f), Modifiers::NONE, s) {

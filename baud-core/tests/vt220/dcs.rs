@@ -298,10 +298,10 @@ fn a_bare_esc_cancels_the_dcs() {
 /// `[[source: williams]]` puts a BEL in `dcs passthrough` (line 388). So the
 /// request is still open after the BEL and answers nothing, and the ST that
 /// closes it answers for `r`: DECRQSS drops every C0 before it keeps its
-/// `Pt` (`[[source: dec-std-070]]` 3.5.4.4; Jev, B_PUT_ALL, 2026-10-19),
-/// where it kept the BEL and answered invalid. `r BEL X` would answer for
-/// `rX` were the BEL a terminator's.
-/// `tests/control_strings.rs` holds the rest at every read size.
+/// `Pt` (`[[source: dec-std-070]]` 3.5.4.4), where it kept the BEL and
+/// answered invalid. `r BEL X` would answer for `rX` were the BEL a
+/// terminator's. `tests/control_strings.rs` holds the rest at every read
+/// size.
 #[test]
 fn a_bel_does_not_terminate_a_dcs() {
     assert_eq!(replies(b"\x1bP$qr\x07"), b"", "the request is still open");
@@ -416,10 +416,9 @@ fn a_marker_after_a_dcs_parameter_is_ignored() {
 /// to the parameter string of a control sequence", whose 3.5.3.1 ignores
 /// the whole sequence at a 3/10. Under ISO 8859-1 `BA` is the same byte.
 /// Until 2026-10-19 it separated parameters as `;` does, so `DCS 1 : $ q m`
-/// answered; Jev leaned to keeping that, 0.85/0.71, below the bar for a
-/// departure. The control, `DCS 1 ; $ q m`, answers.
-/// Every read size: the colon is the graph's whether or not the digit
-/// before it arrived in the same read.
+/// answered; keeping that would be a departure. The control,
+/// `DCS 1 ; $ q m`, answers. Every read size: the colon is the graph's
+/// whether or not the digit before it arrived in the same read.
 #[test]
 fn a_colon_in_a_dcs_prefix_ignores_the_string() {
     let chunked = |b: &[u8], size: usize| {

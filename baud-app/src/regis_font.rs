@@ -13,9 +13,8 @@
 //! cell each way, as ReGIS stretches a character to the width and height it
 //! names (§ 8.7.3.4.7: "Multiply each pixel from the stored character image
 //! width by hint, and each pixel from the stored character height by vint";
-//! decided by Jev, STRETCH, 0.98 and 0.98, against the face's proportions
-//! kept); a pixel half covered or more is set, ReGIS writing a character's
-//! ones and zeros.
+//! rather than keeping the face's proportions); a pixel half covered or more
+//! is set, ReGIS writing a character's ones and zeros.
 
 use baud_domain::{Codepoint, ImagePx};
 use baud_font::{Bounds, Canvas, Face, Fit, Phase, Rasterizer, Scale};

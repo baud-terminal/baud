@@ -4,26 +4,26 @@
 //! left-to-right, top-to-bottom order. Wherever possible, run-length
 //! encoding is used".
 //!
-//! **Level 2 always** (070-7 § 7.8.2.4; Jev's lean, LEVEL_2, 0.78/0.94):
-//! baud's printer reads raster attributes, the grid size and SSU, and the
-//! level exists "to match the capabilities of the printer being used", so
-//! each pixel is sent once at 1:1, where Level 1 would OR vertical pairs.
-//! The dump is SSU `ESC [ 2 SP I` ("SSU should be sent once before each
-//! sixel dump"), `ESC P 0 ; Ps2 ; Pn3 q`, raster attributes `" 1 ; 1 ;
-//! Pn6 ; Pn7`, the colour specifiers in colour, the bands and `ESC \`; no
-//! `CR` first, the host having started it. Pn6 and Pn7, "number of pixels
-//! in image horizontally" and "vertically", count the offset's blank
-//! pixels as well as the picture's, so a printer reading the extent takes
-//! the offset as part of the image; the offset is held to 17 inches of the
-//! dump's pixels each way.
+//! **Level 2 always** (070-7 § 7.8.2.4): baud's printer reads raster
+//! attributes, the grid size and SSU, and the level exists "to match the
+//! capabilities of the printer being used", so each pixel is sent once at
+//! 1:1, where Level 1 would OR vertical pairs. The dump is SSU
+//! `ESC [ 2 SP I` ("SSU should be sent once before each sixel dump"),
+//! `ESC P 0 ; Ps2 ; Pn3 q`, raster attributes `" 1 ; 1 ; Pn6 ; Pn7`, the
+//! colour specifiers in colour, the bands and `ESC \`; no `CR` first, the
+//! host having started it. Pn6 and Pn7, "number of pixels in image
+//! horizontally" and "vertically", count the offset's blank pixels as well
+//! as the picture's, so a printer reading the extent takes the offset as
+//! part of the image; the offset is held to 17 inches of the dump's pixels
+//! each way.
 //!
 //! **Which register a pixel takes**: in monochrome every pixel with a bit
 //! set in any plane is ink and no register is named, "a logical OR of all
 //! pixels which are selected for any color"; in colour register 0 is the
 //! background, sent only when it is printed, and every other colour a
 //! register of its own while 255 suffice, past which every colour takes the
-//! nearest of a fixed 6 by 7 by 6 cube (Jev's lean, EXACT_ELSE_CUBE,
-//! 0.24/0.66), 070-9 § 8.1.3's registers being 0 to 255.
+//! nearest of a fixed 6 by 7 by 6 cube, 070-9 § 8.1.3's registers being 0
+//! to 255.
 //!
 //! The caller supplies the picture ([`DumpCanvas`]) and the room the bands
 //! are built in; nothing is allocated.
@@ -220,8 +220,7 @@ const SHEET_DECIPOINTS: usize = 17 * 720;
 /// gives the offset no range, its relationship to the coordinate space
 /// "implementation- and retransmission protocol- dependent", and past the
 /// largest sheet it would put the picture off the paper while its blank
-/// pixels cost a page's work each (Jev's lean, CLAMP_SHEET, 0.25/0.35
-/// after a re-ask).
+/// pixels cost a page's work each.
 fn offset(spec: &DumpSpec) -> (usize, usize) {
     let most = SHEET_DECIPOINTS / grid(spec);
     (

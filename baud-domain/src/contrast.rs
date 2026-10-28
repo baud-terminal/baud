@@ -1,5 +1,4 @@
-//! **Text contrast: DirectWrite's grayscale curve, compiled** (owner,
-//! 2026-10-01).
+//! **Text contrast: DirectWrite's grayscale curve, compiled.**
 //!
 //! A glyph is rasterised once, as exact coverage, and the coverage `A` is
 //! bent by a curve that depends on the text colour alone before it is

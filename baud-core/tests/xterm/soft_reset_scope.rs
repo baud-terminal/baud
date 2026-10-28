@@ -352,8 +352,8 @@ fn the_alt_screen_restore_clamps_like_decrc() {
     assert!(c.index() <= 1, "and so is the column");
 }
 
-/// **`Term::row` past the last row is `None`**, the owner's decision of
-/// 2026-10-13 between an `Option` and a panic.
+/// **`Term::row` past the last row is `None`**, an `Option` rather than
+/// a panic.
 ///
 /// The grid is a ring of rows, the screen a window into it, and
 /// `Viewport::row` does not bound its index by the screen: a row index past
@@ -474,11 +474,12 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
 /// `viewport`'s `rotate_left` panics outright on a rotation larger than the
 /// slice.
 ///
-/// `resize` un-rotates both over the old height, and this is the test that
-/// says so. Without the alternate arm it would be exactly the gap the primary's
-/// version was written to close, one screen over -- and `CLAUDE.md` records
-/// `Term::resize` as an entry point that had **no caller anywhere** until a
-/// test reached it, at which point it yielded three bugs including this panic.
+/// `resize` un-rotates both over the old height, and this is the test that says
+/// so. Without the alternate arm it would be exactly the gap the primary's
+/// version was written to close, one screen over -- and `CONTRIBUTING.md`
+/// records `Term::resize` as an entry point that had **no caller anywhere**
+/// until a test reached it, at which point it yielded three bugs including this
+/// panic.
 #[test]
 fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
     let ws = support::CORPUS;
@@ -749,8 +750,8 @@ fn decstr_leaves_the_cursor_where_it_is() {
 /// **And a pending wrap at the screen's edge survives it**: STD 070's
 /// algorithm does not touch the Last Column Flag either, and xterm's soft
 /// branch leaves `do_wrap`. Whether a pending wrap survives `DECSTR` is
-/// the owner's to decide (note V, "PendingAt"); this is the option the text
-/// leans to. `CPR` reports the last column, and `X` wraps to the next row.
+/// open (note V, "PendingAt"); this is the option the text leans to. `CPR`
+/// reports the last column, and `X` wraps to the next row.
 #[test]
 fn decstr_keeps_a_pending_wrap_at_the_screen_edge() {
     let mut bytes = b"\x1b[2;1H".to_vec();
@@ -777,7 +778,7 @@ fn decstr_under_origin_mode_leaves_the_cursor_at_every_split() {
 /// margins then read as a column of its own: the wrap is lost and `X` lands
 /// one right of the margin. The sentinel cannot tell this from a cursor
 /// `CUP` put past the fence, where leaving it is right; `?69 l` does the
-/// same. Open, with the options in the record (note V's "PendingAt").
+/// same. Open, with the options in note V's "PendingAt".
 #[test]
 fn decstr_leaves_a_column_past_a_narrower_right_margin() {
     assert_eq!(

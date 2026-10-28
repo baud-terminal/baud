@@ -18,25 +18,24 @@
 //! future top-level key. A config that put a top-level key under some
 //! header stops being read -- neither committed config does.
 //!
-//! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
-//! config.toml`, then `~/.config/baud/config.toml`, and in the working
-//! directory only as far as a relative `$BAUD_CONFIG` names a file under
-//! it; a relative font or theme path in it names a file beside it
-//! ([`config_paths`]). When none is found or a field is absent,
+//! The file is looked up at `$BAUD_CONFIG`, then
+//! `$XDG_CONFIG_HOME/baud/ config.toml`, then `~/.config/baud/config.toml`,
+//! and in the working directory only as far as a relative `$BAUD_CONFIG`
+//! names a file under it; a relative font or theme path in it names a file
+//! beside it ([`config_paths`]). When none is found or a field is absent,
 //! the defaults are the stack that starts with baud's embedded font --
 //! JetBrains Mono, with baud's Hebrew in its Regular and Bold -- and its
-//! Nerd Fonts icon face, with the embedded
-//! Bold, Italic and Bold Italic as the styled faces -- so the app runs with
-//! no config at all. A configured `fonts` replaces that stack and keeps the
-//! embedded Regular, the icon face and then STIX Two Math behind it, for the
-//! Hebrew, icons and symbols the named faces lack (the owner's order:
-//! configured, then baud's embedded font, then the system's faces, added
-//! behind every stack the first time a frame meets a character none of
-//! these draws (`fallback.rs`); and the owner's
-//! call of 2026-10-03, as every terminal that bundles faces keeps them behind
-//! a configured font), unless `font_fallback = false`. A configured stack's
-//! styled faces are the Bold, Italic and Bold Italic of the family of the
-//! first of its fonts that is found, picked by CSS Fonts' style search ([`Config::resolve`]), and a
+//! Nerd Fonts icon face, with the embedded Bold, Italic and Bold Italic as
+//! the styled faces -- so the app runs with no config at all. A configured
+//! `fonts` replaces that stack and keeps the embedded Regular, the icon
+//! face and then STIX Two Math behind it, for the Hebrew, icons and symbols
+//! the named faces lack (configured, then baud's embedded font, then the
+//! system's faces, added behind every stack the first time a frame meets a
+//! character none of these draws (`fallback.rs`), as every terminal that
+//! bundles faces keeps them behind a configured font), unless
+//! `font_fallback = false`. A configured stack's styled faces are the Bold,
+//! Italic and Bold Italic of the family of the first of its fonts that is
+//! found, picked by CSS Fonts' style search ([`Config::resolve`]), and a
 //! style the family has no nearer face for is drawn from its regular face,
 //! never synthesised.
 //!
@@ -93,11 +92,10 @@ pub enum StackFrom {
 }
 
 /// `[images] animation`: whether a kitty animation plays. **`Os` by
-/// default**, the owner's call of 2026-10-23 ("i would say A but also a
-/// config and default is OS or On"): it holds while Reduce Motion is on or
-/// Animated Images is off, and on Linux while the desktop's
-/// `reduced-motion` is on (`access::image_motion`). `On` plays whatever
-/// the system says, and `Off` holds every animation at the frame it shows.
+/// default**: it holds while Reduce Motion is on or Animated Images is
+/// off, and on Linux while the desktop's `reduced-motion` is on
+/// (`access::image_motion`). `On` plays whatever the system says, and
+/// `Off` holds every animation at the frame it shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ImageAnimation {
     Os,
@@ -107,10 +105,8 @@ pub enum ImageAnimation {
 
 /// `[screen] substitute_mark` and `substitute_character`: whether a `SUB`
 /// draws the error character where it arrives, and which character. **Off
-/// by default**, with DEC's U+2426, the owner's call of 2026-10-23 ("i
-/// would say keep A as default and add config option and maybe also which
-/// char to show? and default is the reverse question mark"). Two keys and
-/// one value, because the keys may come in either order.
+/// by default**, with DEC's U+2426. Two keys and one value, because the
+/// keys may come in either order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Substitute {
     pub mark: SubstituteShown,
@@ -212,8 +208,7 @@ pub enum FontFallback {
 /// `config_reload`: whether a change to the config file, or to a theme or
 /// font file it names, is applied to the running window. **On by
 /// default**, as alacritty's `live_config_reload` and WezTerm's
-/// `automatically_reload_config` are (Jev's lean after a re-ask, ON, 0.88
-/// and 0.90); the name is Jev's lean, `config_reload`, 0.18 and 0.37.
+/// `automatically_reload_config` are; under the name `config_reload`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ConfigReload {
     On,
@@ -274,29 +269,28 @@ pub struct Config {
     pub cursor: CursorColours,
     /// `[cursor] trail`: which trail a cursor move leaves -- see
     /// [`CursorTrail`] -- or the default, which is not the same thing:
-    /// [`TrailPick`]. **On by default**, the owner's call on 2026-09-25,
-    /// where sfte ships its own `SFTE_CURSOR_TRAIL` off: an idle terminal
-    /// pays nothing for it, because only a cursor that moved spawns one.
-    /// The default is the plasma, the owner's call of 2026-09-29.
-    /// `false` turns it off, and the default goes off under Reduce Motion
-    /// where a named trail does not.
+    /// [`TrailPick`]. **On by default**, where sfte ships its own
+    /// `SFTE_CURSOR_TRAIL` off: an idle terminal pays nothing for it,
+    /// because only a cursor that moved spawns one. The default is the
+    /// plasma. `false` turns it off, and the default goes off under
+    /// Reduce Motion where a named trail does not.
     pub cursor_trail: TrailPick,
     /// `[cursor] shape` and `[cursor] blink`: the cursor the terminal powers
     /// on with, and the one an application's reset (`DECSCUSR 0` or `7`,
-    /// `DECSTR`, `RIS`) returns to. A blinking block by default, the owner's
-    /// call on 2026-09-25 and `DECSCUSR`'s own default. Two keys and two
-    /// fields, because the keys may come in either order.
+    /// `DECSTR`, `RIS`) returns to. A blinking block by default,
+    /// `DECSCUSR`'s own default. Two keys and two fields, because the keys
+    /// may come in either order.
     pub cursor_shape: CursorShape,
     /// `[cursor] blink`: `"auto"` by default, which blinks as the system
     /// blinks its caret -- at its rate, and steady under its non-blinking
     /// switch -- and `true` or `false`; see [`BlinkChoice`].
     pub cursor_blink: BlinkChoice,
     /// `[cursor] stop_blinking_after`: seconds without input after which a
-    /// blinking cursor stops, shown; never by default, the owner's call.
+    /// blinking cursor stops, shown; never by default.
     pub cursor_stop: StopAfter,
     /// `[cursor] blink_animation`: what a blinking cursor does in its
-    /// hidden phase -- the plasma glow by default, the owner's pick of
-    /// 2026-10-15; see [`BlinkAnimation`].
+    /// hidden phase -- the plasma glow by default; see
+    /// [`BlinkAnimation`].
     pub blink_animation: BlinkAnimation,
     /// `[cursor] blink_interval_ms`: the length of each phase, shown and
     /// hidden alike, if the config sets one; see [`BlinkInterval`].
@@ -310,7 +304,7 @@ pub struct Config {
     /// window has the keyboard -- in its shape, as when focused, by default
     /// (`"off"`), or with `"on"` as a hollow box round its cell whatever
     /// its shape, as kitty, ghostty, foot, alacritty and WezTerm draw it
-    /// (the owner's call of 2026-10-22, note AZ).
+    /// (note AZ).
     pub unfocused_cursor: baud_render::CursorLook,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
@@ -318,8 +312,7 @@ pub struct Config {
     /// `[screen] exit_status`: whether each command's exit status, which a
     /// shell's prompt marks report (`OSC 133 ; D`), is shown as a mark in a
     /// strip one cell wide beside the text, the grid giving it a column;
-    /// `"off"` by default (Jev's lean, `baud_render::status`), `"on"` shows
-    /// it.
+    /// `"off"` by default (`baud_render::status`), `"on"` shows it.
     pub exit_status: baud_render::StatusMarks,
     /// `[screen] badge`: whether a program's badge -- iTerm2's large label
     /// in the top right behind the text (`OSC 1337 ; SetBadgeFormat`) -- is
@@ -329,37 +322,34 @@ pub struct Config {
     /// `[screen] wrap_words`: whether a finished paragraph is drawn at its
     /// words -- a word that does not fit drops whole to the next line, and
     /// a run of the other direction the wrap would split gets lines of its
-    /// own -- `"on"` by default (the owner, 2026-10-27: "and warp should be
-    /// default on"), or `"off"`, which draws every row as the terminal cut
-    /// it at the last column ([`baud_render::WordWrap`]).
+    /// own -- `"on"` by default, or `"off"`, which draws every row as the
+    /// terminal cut it at the last column ([`baud_render::WordWrap`]).
     pub wrap_words: baud_render::WordWrap,
     /// `[screen] checksum`: whether a program's request for a checksum of
-    /// the screen (DECRQCRA) is answered, `"on"` by default (the
-    /// owner's call of 2026-10-19, option 3), or `"off"`, which leaves every
-    /// request unanswered. A checksum of one cell at a time reads the screen
-    /// back, other programs' output included.
+    /// the screen (DECRQCRA) is answered, `"on"` by default, or `"off"`,
+    /// which leaves every request unanswered. A checksum of one cell at a
+    /// time reads the screen back, other programs' output included.
     pub checksum: baud_domain::ChecksumReport,
     /// `[screen] substitute_mark` and `substitute_character`: whether a
     /// `SUB` draws the error character, off by default, and which
     /// ([`Substitute`]).
     pub substitute: Substitute,
     /// `[screen] prompt_at_bottom`: whether a shell's new prompt is drawn
-    /// on the window's last row, `"off"` by default (Jev, OFF, 0.94/0.92),
-    /// or `"on"` ([`baud_domain::PromptAtBottom`]).
+    /// on the window's last row, `"off"` by default, or `"on"`
+    /// ([`baud_domain::PromptAtBottom`]).
     pub prompt_at_bottom: baud_domain::PromptAtBottom,
     /// `[screen] logging`: whether a program may log what it sends to a
-    /// file it names (xterm's `?46` and `OSC 46`), `"on"` by default (the
-    /// owner's call of 2026-10-20), or `"off"`, which refuses both. A
-    /// program on the other end of the line, a remote one included, can
-    /// otherwise append its output to any file the user owns that no one
-    /// else may write.
+    /// file it names (xterm's `?46` and `OSC 46`), `"on"` by default, or
+    /// `"off"`, which refuses both. A program on the other end of the
+    /// line, a remote one included, can otherwise append its output to
+    /// any file the user owns that no one else may write.
     pub logging: baud_domain::Logging,
     /// `[screen] printing`: whether a program's print request opens the
     /// print panel (MC, autoprint and printer controller mode), `"on"` by
-    /// default (Jev's lean, SETTING, 0.70/0.82 then 0.82/0.88), or `"off"`,
-    /// under which the core is told there is no printer: DSR `?15` answers
-    /// "no printer" and every print request is ignored and counted. Nothing
-    /// prints without the user pressing Print in the panel either way.
+    /// default, or `"off"`, under which the core is told there is no
+    /// printer: DSR `?15` answers "no printer" and every print request is
+    /// ignored and counted. Nothing prints without the user pressing Print
+    /// in the panel either way.
     pub printing: Printing,
     /// `[screen] notifications`: whether a program can post a desktop
     /// notification (`OSC 9`, `OSC 777 ; notify`, kitty's `OSC 99`),
@@ -377,36 +367,30 @@ pub struct Config {
     pub graphics_print: baud_domain::GraphicsPrint,
     /// `[window] operations`: whether a program's window operations
     /// (XTWINOPS 1-10 and DECSLPP: move, resize, minimise, raise, lower,
-    /// maximise, full screen) are performed, `"on"` by default (the owner's
-    /// call of 2026-10-19, option 4), or `"off"`, which refuses every one.
-    /// A program on the other end of the line, a remote one included, can
-    /// otherwise move or hide the window.
+    /// maximise, full screen) are performed, `"on"` by default, or `"off"`,
+    /// which refuses every one. A program on the other end of the line, a
+    /// remote one included, can otherwise move or hide the window.
     pub window_ops: baud_domain::WindowOps,
     /// `[window] activity_lights`: whether two modem-style lights at the
     /// right of the title strip show bytes coming in (RD) and going out
-    /// (SD), `"on"` by default (the owner: "again option in config to turn
-    /// it off"), or `"off"`. macOS only: the Linux window has no title bar
-    /// (`baud_render::lights`).
+    /// (SD), `"on"` by default, or `"off"`. macOS only: the Linux window
+    /// has no title bar (`baud_render::lights`).
     pub activity_lights: baud_render::ActivityLights,
     /// `[launch] splash`: whether a launch shows baud's colour logo in the
     /// middle of the window until the shell draws something, gone in the
-    /// plasma -- `"on"` by default (Jev, 0.98 and 0.98; note AJ) -- or
-    /// `"off"`. On follows Reduce Motion, which fades it instead
-    /// (`splash.rs`).
+    /// plasma -- `"on"` by default (note AJ) -- or `"off"`. On follows
+    /// Reduce Motion, which fades it instead (`splash.rs`).
     pub launch_splash: LaunchSplash,
-    /// `[pointer] hide_while_typing`: whether a key hides the pointer
-    /// unless a program tracks the mouse, `"on"` by default -- xterm's
-    /// `pointerMode` default, 1 -- or `"off"`, which never hides it, xterm's
-    /// 0 (the owner's on/off settings; Jev, ON_OFF, 0.96/0.91). What the
-    /// terminal powers on in and `RIS` returns to; a program may still
-    /// choose any mode with XTSMPOINTER.
+    /// `[pointer] hide_while_typing`: whether a key hides the pointer unless
+    /// a program tracks the mouse, `"on"` by default -- xterm's
+    /// `pointerMode` default, 1 -- or `"off"`, which never hides it,
+    /// xterm's 0. What the terminal powers on in and `RIS` returns to; a program may
+    /// still choose any mode with XTSMPOINTER.
     pub pointer_mode: baud_domain::PointerMode,
     /// `[font] changes`: whether a program's `OSC 50` may change the font
     /// -- a face baud has loaded, by family, full or PostScript name, or a
-    /// step of the size -- `"on"` by
-    /// default, or `"off"`, which refuses every change; a program can ask
-    /// which font is in use either way (the owner's call of 2026-10-20,
-    /// option D).
+    /// step of the size -- `"on"` by default, or `"off"`, which refuses
+    /// every change; a program can ask which font is in use either way.
     pub font_changes: baud_domain::FontChanges,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
@@ -440,27 +424,27 @@ pub struct Config {
     /// always, or never ([`ImageAnimation`]).
     pub image_animation: ImageAnimation,
     /// `vs16_width`: whether a `U+FE0F` makes a text-default emoji two cells,
-    /// `"two"` by default (owner, 2026-10-01), or one for a session whose
-    /// programs measure with a legacy `wcwidth`. `DECRQM ?2027` reports it.
+    /// `"two"` by default, the width tmux 3.6+, fish and helix assume, or
+    /// one for a session whose programs measure with a legacy `wcwidth`.
+    /// `DECRQM ?2027` reports it.
     pub vs16_width: baud_domain::Vs16Width,
     /// `[text] ambiguous_width`: whether an East Asian Ambiguous character
     /// takes one column, `"narrow"`, the default, or two, `"wide"` (note V,
-    /// V14, the owner's call of 2026-09-25). `[[source: uax11]]` § 5: narrow
-    /// when the context cannot be established, and a terminal cannot see
-    /// the program's width function. Private Use Area characters, the icons,
-    /// stay one column under either (the owner, 2026-10-15). `DECRQM ?1021`
-    /// reports it.
+    /// V14). `[[source: uax11]]` § 5: narrow when the context cannot be
+    /// established, and a terminal cannot see the program's width function.
+    /// Private Use Area characters, the icons, stay one column under either.
+    /// `DECRQM ?1021` reports it.
     pub ambiguous_width: baud_domain::AmbiguousWidth,
     /// `emoji`: how a character with no variation selector is drawn --
     /// `"font"`, the default, from a text face whatever its default
     /// presentation; `"system"`, an emoji-presentation character in colour
     /// as macOS draws it. A `U+FE0F` asks for colour and a `U+FE0E` for text
-    /// under either (owner, 2026-09-30).
+    /// under either.
     pub emoji: baud_render::EmojiDefault,
     /// `bell`: what a `BEL` does in a focused window -- the system's alert
-    /// sound by default, the visual bell, or nothing (the owner, 2026-10-13;
-    /// [`BellStyle`]). `?1042` and `?1043` act on an unfocused window
-    /// whatever this says (`bell.rs`, `ring`).
+    /// sound by default, the visual bell, or nothing ([`BellStyle`]).
+    /// `?1042` and `?1043` act on an unfocused window whatever this says
+    /// (`bell.rs`, `ring`).
     pub bell: BellStyle,
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
@@ -470,8 +454,8 @@ pub struct Config {
 }
 
 /// `[clipboard] osc52`: whether a program may write the clipboard with
-/// `OSC 52`. **`Write` by default**, the owner's V11 (2026-09-25), as kitty
-/// and sfte do; reads stay refused whatever this says.
+/// `OSC 52`. **`Write` by default** (note V, V11), as kitty and sfte do;
+/// reads stay refused whatever this says.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Osc52 {
     Write,
@@ -479,12 +463,11 @@ pub enum Osc52 {
 }
 
 /// `[clipboard] copy_on_select`: whether finishing a selection copies it,
-/// note V's V13. **`On` by default**, the owner's decision (2026-09-25):
-/// on macOS a finished selection goes to the pasteboard; `Off` copies one
-/// only while a program has set `?1041`. On Linux a finished selection
-/// sets the primary either way, as Linux terminals do, and the clipboard
-/// under `?1041` (Jev, PRIMARY_STAYS, 0.90/0.92, and MODE_WINS, the lean,
-/// 0.42/0.36), so the key changes nothing there.
+/// note V's V13. **`On` by default**: on macOS a finished selection goes
+/// to the pasteboard; `Off` copies one only while a program has set
+/// `?1041`. On Linux a finished selection sets the primary either way, as
+/// Linux terminals do, and the clipboard under `?1041`, so the key
+/// changes nothing there.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CopyOnSelect {
     On,
@@ -522,18 +505,16 @@ impl Clipboard {
 /// the example's calibration.** The HIG puts a standard material behind
 /// app backgrounds and Liquid Glass on controls
 /// ([[source: apple-hig-materials]]), and a terminal's body is its
-/// content; the dims
-/// are Jev's decided 0.70 and 0.60, which keep default text at or above
-/// 4.5:1, the HIG's minimum ([[source: apple-hig-dark-mode]]), over flat
-/// white and flat black with the material darkening nothing;
+/// content; the dims are 0.70 and 0.60, which keep default text at or
+/// above 4.5:1, the HIG's minimum ([[source: apple-hig-dark-mode]]), over
+/// flat white and flat black with the material darkening nothing;
 /// `the_default_dims_keep_text_readable_over_white_and_black` computes
-/// that, and is a floor under them, not their derivation.
-/// The tints, the hue, the saturation and the shadow are the example's,
-/// which its header records as "tuned against the system widget over one
-/// wallpaper rather than derived from a measurement" -- a starting point a
-/// reader adjusts, which is why every value here is a key; the tints, hue
-/// and saturation darken the glass only, since the standard material has
-/// no tint.
+/// that, and is a floor under them, not their derivation. The tints, the
+/// hue, the saturation and the shadow are the example's, which its header
+/// records as "tuned against the system widget over one wallpaper rather
+/// than derived from a measurement" -- a starting point a reader adjusts,
+/// which is why every value here is a key; the tints, hue and saturation
+/// darken the glass only, since the standard material has no tint.
 ///
 /// **Four of the eight are pairs, because the example's are.** The
 /// material darkening and the body dim both change with the system's
@@ -551,8 +532,7 @@ pub struct Glass {
     /// significant amount of text"; `Clear` the example's, which it keeps
     /// for components "that appear over visually rich backgrounds". One
     /// key with a third value rather than a sibling, so a config naming a
-    /// glass keeps it: Jev's lean, 0.83/0.73 and after research 0.79/0.77
-    /// (`decisions.jsonl` 796-799).
+    /// glass keeps it.
     pub style: Material,
     /// `dim_dark`: the body dim under a dark appearance, 0 to 1. The
     /// palette's background is painted at this.
@@ -577,14 +557,14 @@ pub struct Glass {
     /// `shadow`: whether the window casts one.
     pub shadow: Shadow,
     /// `app_backgrounds`: `"dim"`, the default, draws every background an
-    /// application sets under the same dim as the default one -- the
-    /// owner's 2026-09-20 rule, so btop's panels are glass; `"opaque"`
-    /// draws them all as the application chose them and leaves only the
-    /// default background glass, so btop's panels are solid too. A
-    /// file manager's text-drawn photo preview no longer needs `"opaque"`:
-    /// under `"dim"`, `pictures` below finds it and draws it solid. It
-    /// replaced `images`, a block-elements-only rule that covered as
-    /// little as 19% of a preview's cells; see `baud_render::AppBg`.
+    /// application sets under the same dim as the default one -- so btop's
+    /// panels are glass; `"opaque"` draws them all as the application
+    /// chose them and leaves only the default background glass, so btop's
+    /// panels are solid too. A file manager's text-drawn photo preview no
+    /// longer needs `"opaque"`: under `"dim"`, `pictures` below finds it
+    /// and draws it solid. It replaced `images`, a block-elements-only
+    /// rule that covered as little as 19% of a preview's cells; see
+    /// `baud_render::AppBg`.
     pub app_backgrounds: baud_render::AppBg,
     /// `pictures`: `"opaque"`, the default, draws the backgrounds of a
     /// picture drawn in text -- a connected block of set backgrounds
@@ -595,11 +575,10 @@ pub struct Glass {
     /// `baud_render::PictureBg` for the measurement behind the threshold.
     pub pictures: baud_render::PictureBg,
     /// `[glass] sixel_backgrounds`: how a Sixel image's solid background
-    /// (its `P2` of 0 or 2) draws on the see-through window. `"opaque"`
-    /// by default, as on an opaque window, the owner's call of 2026-10-22;
-    /// `"dim"` at the window's dim over what is under it; `"clear"` in its
-    /// place, at the window's dim, as erased cells look. See
-    /// `baud_render::SixelBg`.
+    /// (its `P2` of 0 or 2) draws on the see-through window. `"opaque"` by
+    /// default, as on an opaque window; `"dim"` at the window's dim over
+    /// what is under it; `"clear"` in its place, at the window's dim, as
+    /// erased cells look. See `baud_render::SixelBg`.
     pub sixel_backgrounds: baud_render::SixelBg,
 }
 
@@ -614,7 +593,7 @@ pub enum Material {
     /// `.underWindowBackground`, behind-window blending, its state
     /// following the window's: Apple's standard material for app
     /// backgrounds ([[source: apple-hig-materials]]; note AT). The default
-    /// since the owner took that recommendation, 2026-10-18.
+    /// since 2026-10-18.
     #[default]
     Standard,
     /// Clear Liquid Glass.
@@ -668,8 +647,7 @@ pub enum ThemeChoice {
 }
 
 /// Which trail a cursor move leaves, from `[cursor] trail`: a plasma over
-/// kitty's quad -- the default, the owner's call of 2026-09-29, replacing
-/// the fire of 2026-09-25 -- a fire
+/// kitty's quad -- the default, replacing the fire of 2026-09-25 -- a fire
 /// rising off the quad and the rest of the effect family, kitty's quad,
 /// whose four corners chase the cursor's, sfte's sweep, a box swept from a
 /// tail chasing the cursor and fading out toward it, baud's first trail, a
@@ -716,13 +694,13 @@ impl CursorTrail {
 
 /// What `[cursor] trail` said: nothing -- the default -- or a trail by name.
 ///
-/// **The two are told apart because Reduce Motion reads them apart**, the
-/// owner's call on 2026-09-25: "Reduce Motion means no trail, unless the
-/// config names one." So a config with no `trail`, `trail = true` -- the word
-/// for the default since the key was a switch -- and a value that names no
-/// trail are all `Default`, and follow the system; any trail by name, `off`
-/// included, is `Named` and is what the reader asked for whatever the system
-/// says. A typo must not override an accessibility setting.
+/// **The two are told apart because Reduce Motion reads them apart**: "Reduce
+/// Motion means no trail, unless the config names one." So a config with no
+/// `trail`, `trail = true` -- the word for the default since the key was a
+/// switch -- and a value that names no trail are all `Default`, and follow
+/// the system; any trail by name, `off` included, is `Named` and is what the
+/// reader asked for whatever the system says. A typo must not override an
+/// accessibility setting.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TrailPick {
     #[default]
@@ -730,10 +708,9 @@ pub enum TrailPick {
     Named(CursorTrail),
 }
 
-/// `[launch] splash`: the launch splash shown, or not (the owner's on/off
-/// settings: "i would say on or off, not answer, keep it simple"). The
-/// section is Jev's lean, LAUNCH (0.28 and 0.48, under the 0.9 bar after a
-/// re-ask, against `[screen]` and `[window]`).
+/// `[launch] splash`: the launch splash shown, or not, `"on"` or `"off"`
+/// as every switch here is. The key has a `[launch]` section of its own,
+/// rather than a place in `[screen]` or `[window]`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LaunchSplash {
     On,
@@ -764,12 +741,12 @@ impl TrailPick {
 
 /// `[cursor] blink`: whether the cursor blinks, or whether the system says.
 ///
-/// **`Auto` is the default, and it is the system's caret**, the owner's call
-/// of 2026-09-25: the rate macOS gives its own insertion point, and steady
-/// under its non-blinking-caret switch. `On` blinks whatever the switch says,
-/// and says so once in the log; `Off` powers the cursor on steady. What an
-/// application sets with `DECSCUSR` is what the terminal answers either way;
-/// the switch changes only what is drawn.
+/// **`Auto` is the default, and it is the system's caret**: the rate macOS
+/// gives its own insertion point, and steady under its non-blinking-caret
+/// switch. `On` blinks whatever the switch says, and says so once in the log;
+/// `Off` powers the cursor on steady. What an application sets with
+/// `DECSCUSR` is what the terminal answers either way; the switch changes
+/// only what is drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BlinkChoice {
     Auto,
@@ -789,16 +766,15 @@ impl BlinkChoice {
 }
 
 /// `[cursor] blink_animation`: what a blinking cursor does in its hidden
-/// phase, the owner's picks of 2026-10-15. **`Plasma` by default**: the
-/// plasma trail's glow on the cursor's cell, pulsing out and back across the
-/// hidden phase. `Fade` fades the cursor out over the first 30% of the
-/// hidden phase and in over the last 30%, eased; `Fire` burns the cursor
-/// down into embers and relights it, the fire trail's look on its cell;
-/// `Ufo` lifts it away on a saucer's beam and sets it back down, the ufo
-/// trail's; `None` is a hard switch.
-/// Each runs inside the hidden phase and scales with it, so any
-/// `blink_interval_ms` works with any of them. Reduce Motion always means
-/// `None` ([`BlinkAnimation::effective`]).
+/// phase. **`Plasma` by default**: the plasma trail's glow on the cursor's
+/// cell, pulsing out and back across the hidden phase. `Fade` fades the
+/// cursor out over the first 30% of the hidden phase and in over the last
+/// 30%, eased; `Fire` burns the cursor down into embers and relights it, the
+/// fire trail's look on its cell; `Ufo` lifts it away on a saucer's beam and
+/// sets it back down, the ufo trail's; `None` is a hard switch. Each runs
+/// inside the hidden phase and scales with it, so any `blink_interval_ms`
+/// works with any of them. Reduce Motion always means `None`
+/// ([`BlinkAnimation::effective`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum BlinkAnimation {
     #[default]
@@ -811,8 +787,7 @@ pub enum BlinkAnimation {
 
 impl BlinkAnimation {
     /// The animation drawn: the configured one, and none under Reduce
-    /// Motion whatever the config says -- the owner's "Reduce Motion always
-    /// means none".
+    /// Motion whatever the config says.
     #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub fn effective(self, motion: SystemMotion) -> BlinkAnimation {
         match motion {
@@ -841,13 +816,12 @@ pub enum StopAfter {
     After(std::time::Duration),
 }
 
-/// `bell`: what a `BEL` does, the owner's call of 2026-10-13
-/// ("System sound + Dock bounce"). **`Sound` by default**: `NSBeep`, the system's alert
-/// sound, while the window is focused. `Flash` shows the visual bell `?5`'s
-/// pair shows -- the other video for the entry's `flash` length -- and not
-/// under Reduce Motion; `Nothing` neither. What an unfocused window does is
-/// `?1042`'s and `?1043`'s, set by the application, and this does not
-/// silence them (`bell.rs`, `ring`).
+/// `bell`: what a `BEL` does. **`Sound` by default**: `NSBeep`, the
+/// system's alert sound, while the window is focused. `Flash` shows the
+/// visual bell `?5`'s pair shows -- the other video for the entry's `flash`
+/// length -- and not under Reduce Motion; `Nothing` neither. What an
+/// unfocused window does is `?1042`'s and `?1043`'s, set by the
+/// application, and this does not silence them (`bell.rs`, `ring`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum BellStyle {
     #[default]
@@ -867,11 +841,10 @@ pub enum ScreenTransition {
 }
 
 /// Whether a trail in flight rides a smooth scroll with the text, or stays
-/// where the screen had it. `Ride` by default, the owner's call of
-/// 2026-09-25: a trail rides for at most two rows and then folds in on the
-/// fast constant (`trail.rs`). `Stay` draws exactly what it drew before the
-/// ride was built. Inert under `[scroll] mode = "normal"`, which slides
-/// nothing.
+/// where the screen had it. `Ride` by default: a trail rides for at most
+/// two rows and then folds in on the fast constant (`trail.rs`). `Stay`
+/// draws exactly what it drew before the ride was built. Inert under
+/// `[scroll] mode = "normal"`, which slides nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TrailScroll {
     Ride,
@@ -1011,8 +984,7 @@ impl Config {
     /// from the first file that exists, over the defaults -- the defaults
     /// themselves when none is found -- its family names resolved to the
     /// installed faces ([`Config::resolve`]); the sentences it logged, for
-    /// the window to show (Jev's lean after a re-ask, LAUNCH_TOO, 0.78 and
-    /// 0.84); and the files it pulls in, for the watch.
+    /// the window to show; and the files it pulls in, for the watch.
     pub fn launch() -> Launched {
         let (mut c, said) = Config::read_saying();
         for s in &said {
@@ -1042,18 +1014,16 @@ impl Config {
     /// * A file that does not read as UTF-8 text, or has a line that is not
     ///   blank, a comment, a `[section]` header or `key = value`, or a list
     ///   it never closes, is [`Reread::Broken`]: the window keeps the last
-    ///   good config (Jev's lean after a re-ask, SYNTAX_KEEPS, 0.82 and
-    ///   0.77; alacritty keeps its config on a TOML error, WezTerm on any).
+    ///   good config (alacritty keeps its config on a TOML error, WezTerm
+    ///   on any).
     /// * A key it cannot act on is applied as launch applies it, that key
     ///   at its default, and said.
     /// * The file in force gone, with none above it in the lookup, is
     ///   [`Reread::Gone`]: the window keeps the last config, as alacritty's
-    ///   does. Jev leaned to running the lookup again (LOOKUP_AGAIN, 0.42
-    ///   and 0.88), below the 0.9 a fall back to the defaults was asked to
-    ///   carry.
-    /// * An empty file is the defaults, as at launch (Jev's lean,
-    ///   EMPTY_IS_DEFAULTS, 0.80 and 0.80): the watch's settle is what
-    ///   keeps a save in progress from being read.
+    ///   does, rather than running the lookup again or falling back to the
+    ///   defaults.
+    /// * An empty file is the defaults, as at launch: the watch's
+    ///   settle is what keeps a save in progress from being read.
     /// * **The first file that exists is read**, where a launch reads the
     ///   first that reads: a file above the one in force that is not UTF-8
     ///   text, which a launch skips, is [`Reread::Broken`] here, and each
@@ -1140,18 +1110,16 @@ impl Config {
 
     /// **The stack's family names, made files**: each name the installed
     /// face `cat` picks for its regular style (`[[source: css-fonts-3]]`
-    /// 5.2, [`crate::discover::pick`]), and a file that does not exist
-    /// left out. Once at launch, off every per-byte and per-frame path.
-    /// **The first font of a config's list that is found brings its
-    /// family's styled faces**:
-    /// its Bold, Italic and Bold Italic, each the face CSS 5.2 picks for the
-    /// style in the family it names (found among the installed faces, and
-    /// for a font named by path beside its file too), left out where that
-    /// pick is the regular face itself -- so a family without a bold draws
-    /// bold from its regular face, never a synthesised one (Jev, R_REGULAR,
-    /// 0.98/0.98), and one without italics draws bold italic from its Bold
-    /// (B_CSS, Jev's lean). The default stack's styled faces are the
-    /// embedded ones, as they were.
+    /// 5.2, [`crate::discover::pick`]), and a file that does not exist left
+    /// out. Once at launch, off every per-byte and per-frame path. **The
+    /// first font of a config's list that is found brings its family's
+    /// styled faces**: its Bold, Italic and Bold Italic, each the face CSS
+    /// 5.2 picks for the style in the family it names (found among the
+    /// installed faces, and for a font named by path beside its file too),
+    /// left out where that pick is the regular face itself -- so a family
+    /// without a bold draws bold from its regular face, never a synthesised
+    /// one, and one without italics draws bold italic from its Bold. The
+    /// default stack's styled faces are the embedded ones, as they were.
     ///
     /// Returns what it could not act on: a name a config gave that is no
     /// installed family, and a path that is no file, each left out of the
@@ -1333,19 +1301,18 @@ impl Config {
         out
     }
 
-    /// **A relative font path names a file beside the config**, in `dir`,
-    /// the directory the config file is in -- the owner's call of
-    /// 2026-10-13 -- and not under the directory baud was started in, which
-    /// from the Dock is `/`. **One that starts `~/` names a file in `home`**,
-    /// the home folder, as a theme path does ([`crate::palette::candidates`])
-    /// and as ghostty expands one (`[[source: ghostty-d9840f3-path-zig]]`:
-    /// "We explicitly look for \"~/\" because we don't support alternate
-    /// users such as \"~alice/\""), so `~user/` is relative like any other
-    /// name; with no home folder it is kept as written, and the launch
-    /// says it is not a file. An absolute path and a compiled-in face are
-    /// kept. The `@N` of a collection was split off when the value was
-    /// read, so only the path is joined. A path that `dir` would make
-    /// unreadable as UTF-8 is kept as written.
+    /// **A relative font path names a file beside the config**, in `dir`, the
+    /// directory the config file is in, and not under the directory baud was
+    /// started in, which from the Dock is `/`. **One that starts `~/` names a
+    /// file in `home`**, the home folder, as a theme path does
+    /// ([`crate::palette::candidates`]) and as ghostty expands one
+    /// (`[[source: ghostty-d9840f3-path-zig]]`: "We explicitly look for
+    /// \"~/\" because we don't support alternate users such as \"~alice/\""),
+    /// so `~user/` is relative like any other name; with no home folder it is
+    /// kept as written, and the launch says it is not a file. An absolute
+    /// path and a compiled-in face are kept. The `@N` of a collection was
+    /// split off when the value was read, so only the path is joined. A path
+    /// that `dir` would make unreadable as UTF-8 is kept as written.
     fn faces_beside(&mut self, dir: &std::path::Path, home: Option<&std::path::Path>) {
         for f in self.faces.iter_mut().chain(self.font_slots.iter_mut()) {
             if f.from != FaceFrom::File || !std::path::Path::new(&f.path).is_relative() {
@@ -1384,8 +1351,8 @@ impl Config {
                     )),
                 },
                 // Recognised only to say it is gone. Dropping it to the
-                // wildcard would leave the owner's own config carrying a
-                // number that reaches no drawing code, which is the
+                // wildcard would leave a config written for it carrying
+                // a number that reaches no drawing code, which is the
                 // failure the example's `GN_GTINT` comment records: a
                 // knob that reports one thing and does another.
                 ("", "background_alpha") => {
@@ -2150,19 +2117,19 @@ impl Config {
             }
         }
         if let Some(mut faces) = named {
-            // The owner's order: the configured faces, then baud's embedded
-            // font, then the system, which is not built for a configured
-            // stack yet (note AC decision 9). The embedded Regular goes first
-            // of the three, so it draws whatever the named faces lack and it
-            // maps: the 52 Hebrew code points, which were `.notdef`, and
-            // whatever else JetBrains Mono maps. By cmap, not rendering, that
-            // is 458 code points behind
+            // The order: the configured faces, then baud's embedded font,
+            // then the system, which is not built for a configured stack yet
+            // (note AC decision 9). The embedded Regular goes first of the
+            // three, so it draws whatever the named faces lack and it maps:
+            // the 52 Hebrew code points, which were `.notdef`, and whatever
+            // else JetBrains Mono maps. By cmap, not rendering, that is 458
+            // code points behind
             // `baud-font/tests/fonts/FiraCode-Regular.ttf`: the 52, 360 that
             // drew from STIX before, 8 from the icon face (U+23FB-23FE,
             // U+26A1, U+276E-276F, U+2B58) and 38 more that were boxes.
             // Regular only: a styled face is not in the chain, so the bold
-            // and italic Hebrew a configured family's styled faces lack
-            // draws from this face, upright and regular weight.
+            // and italic Hebrew a configured family's styled faces lack draws
+            // from this face, upright and regular weight.
             if self.font_fallback == FontFallback::Embedded {
                 faces.push(FaceSpec::embedded(crate::embedded::REGULAR));
                 faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
@@ -2229,8 +2196,8 @@ fn sixel_backgrounds(value: &str, said: &mut Vec<String>) -> baud_render::SixelB
 /// Its own parser, because `unit` clamps to 0-1 and would turn 1.2 into 1.0,
 /// which is off. **The target is the larger of 4.5 and the trigger**, so a
 /// reader asking for 7 (WCAG AAA) gets text lifted to 7, never to a ratio
-/// below the one they set; at or below 4.5 it is the owner's 4.5 (note Y,
-/// decision 6). A value that does not parse keeps the default and says so.
+/// below the one they set; at or below 4.5 it is 4.5 (note Y, decision 6). A
+/// value that does not parse keeps the default and says so.
 fn floor(value: &str, said: &mut Vec<String>) -> baud_render::Floor {
     let raw = value.trim().trim_matches('"');
     if raw == "off" {
@@ -2273,8 +2240,8 @@ fn selection_pick(value: &str, key: &str, said: &mut Vec<String>) -> SelectionPi
 /// **`[palette] selection` and `selection_text`, the `Theme` selection
 /// setting**: the page under selected text and the selected text, over both
 /// halves. Each wins over a theme file's colour, as a key set after the
-/// theme wins in ghostty and kitty (Jev, 0.97 both orders); both unset and
-/// no theme colour is reverse video, the default (the owner's V13 call).
+/// theme wins in ghostty and kitty; both unset and no theme colour is
+/// reverse video, the default (note V, V13).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Selection {
     pub page: SelectionPick,
@@ -2283,9 +2250,9 @@ pub struct Selection {
 
 /// **`[palette] cursor` and `cursor_text`**: the cursor's colour and the
 /// text under a block cursor, over both halves, each winning over a theme
-/// file's as the selection's do (Jev's lean, 0.74 and 0.85, for these keys
-/// in `[palette]`). A program's `OSC 12` wins over the colour while set and
-/// leaves the text colour as it is; `OSC 112` returns to the colour here.
+/// file's as the selection's do. A program's `OSC 12` wins over the colour
+/// while set and leaves the text colour as it is; `OSC 112` returns to the
+/// colour here.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct CursorColours {
     pub fill: SelectionPick,
@@ -2298,8 +2265,8 @@ pub enum SelectionPick {
     /// Not named: the theme file's colour, or none.
     #[default]
     Theme,
-    /// `"none"`: no colour of its own, whatever the theme file says (Jev,
-    /// 0.98 and 1.00 for kitty's word).
+    /// `"none"`: no colour of its own, whatever the theme file says,
+    /// kitty's word for it.
     None,
     /// A colour, whatever the theme file says.
     Colour(baud_render::Argb),
@@ -2426,8 +2393,8 @@ impl FaceSpec {
     /// **The face iTerm2's badge is drawn in**, baud's embedded JetBrains
     /// Mono Bold, whatever font the text is in: iTerm2's badge has a face
     /// of its own, `KEY_BADGE_FONT`, apart from the text's (`badgeFont:`,
-    /// `[[source: iterm2-964a75d-profile-preferences]]`; Jev,
-    /// EMBEDDED_BOLD). Never in the fallback chain (`Stack::badge`).
+    /// `[[source: iterm2-964a75d-profile-preferences]]`). Never in the
+    /// fallback chain (`Stack::badge`).
     fn badge() -> FaceSpec {
         FaceSpec {
             role: baud_render::FaceRole::Badge,
@@ -2605,10 +2572,9 @@ fn read_first() -> Option<(std::path::PathBuf, String)> {
 /// **Where a config file is looked for**, in order: `given`, from
 /// `BAUD_CONFIG`; `$XDG_CONFIG_HOME/baud/config.toml`; and
 /// `~/.config/baud/config.toml`. No entry is under the working directory:
-/// the `./config.toml` that ended this list was dropped on the owner's
-/// call of 2026-10-13, whose option said "No terminal surveyed reads its
-/// config from the cwd" (the record, "A shell baud starts from the Dock
-/// starts in the home directory"); a Dock launch's is `/`.
+/// the `./config.toml` that ended this list was dropped on 2026-10-13,
+/// because no terminal surveyed reads its config from the cwd; a Dock
+/// launch's is `/`.
 ///
 /// `given` is made absolute by the caller, against the directory baud was
 /// started in, which baud never changes: a relative `BAUD_CONFIG` typed
@@ -2738,14 +2704,12 @@ const DEFAULT_FACES: [&str; 6] = [
 ];
 
 /// The embedded Regular first -- JetBrains Mono with baud's Hebrew -- the
-/// embedded icon face right behind it (Jev's rule, 2026-09-29: it carries
-/// only private-use icons, so its place changes nothing for text), then the
-/// system faces as they were:
-/// Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does not
-/// (extended Latin, polytonic Greek, Georgian, more arrows), decided with
-/// Jev (0.98), 2026-09-29. Then the embedded STIX Two Math, last in the
-/// chain, for the symbols none of those has (the owner's call, 2026-10-02).
-/// Last, the three styled faces, which are not in the fallback chain.
+/// embedded icon face right behind it (it carries only private-use icons,
+/// so its place changes nothing for text), then the system faces as they
+/// were: Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does
+/// not (extended Latin, polytonic Greek, Georgian, more arrows). Then the
+/// embedded STIX Two Math, last in the chain, for the symbols none of those
+/// has. Last, the three styled faces, which are not in the fallback chain.
 #[cfg(target_os = "macos")]
 fn default_faces() -> Vec<FaceSpec> {
     [
@@ -2957,9 +2921,8 @@ mod named {
     }
 
     /// **A family name is not a path beside the config**: the relative
-    /// path rule (the owner's call of 2026-10-13) joins a file to the
-    /// config's directory, and joining a name there would make `Menlo` a
-    /// file that does not exist.
+    /// path rule joins a file to the config's directory, and joining a
+    /// name there would make `Menlo` a file that does not exist.
     #[test]
     fn a_family_name_is_not_read_beside_the_config() {
         let mut c = read("fonts = [\"Menlo\", \"fonts/Mine.ttf\"]\n");
@@ -3006,12 +2969,12 @@ mod named {
     }
 
     /// **baud's embedded font answers to its family's name, as one family
-    /// of four, and the icon face to its own** (Jev, E_IN_NAMES and
-    /// N_SHARE): with no font installed at all, the embedded Regular is
-    /// the first face, its Bold, Italic and Bold Italic the styled faces,
-    /// and nothing is said. "JetBrains Mono" is no embedded family: the
-    /// built italics carry the embedded family's name. An embedded
-    /// face wins a tie with an installed copy of itself.
+    /// of four, and the icon face to its own**: with no font installed at
+    /// all, the embedded Regular is the first face, its Bold, Italic and
+    /// Bold Italic the styled faces, and nothing is said. "JetBrains
+    /// Mono" is no embedded family: the built italics carry the embedded
+    /// family's name. An embedded face wins a tie with an installed copy
+    /// of itself.
     #[test]
     fn the_embedded_font_answers_to_its_name() {
         use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, STIX, SYMBOLS};
@@ -3254,10 +3217,10 @@ mod named {
     }
 
     /// **A configured family's own Bold, Italic and Bold Italic are its
-    /// styled faces** (the owner, 2026-09-29: "if there is bold font, baud
-    /// should not fake it and use the bold font"), found by CSS 5.2's
-    /// search in the family the first font named, and the stack they make
-    /// is one the renderer takes, each style drawn from its own face.
+    /// styled faces**, never a synthesised bold where the family has one,
+    /// found by CSS 5.2's search in the family the first font named, and
+    /// the stack they make is one the renderer takes, each style drawn
+    /// from its own face.
     #[test]
     fn a_configured_family_brings_its_own_styles() {
         let mut c = read("fonts = [\"JetBrains Mono\"]\n");
@@ -3308,7 +3271,7 @@ mod named {
 
     /// **A family with a Bold and no italic draws italic from its regular
     /// face and bold italic from its Bold** (CSS 5.2: style first, then
-    /// weight; Jev's lean B_CSS); nothing is synthesised (R_REGULAR).
+    /// weight); nothing is synthesised (R_REGULAR).
     #[test]
     fn a_family_without_italics_draws_bold_italic_bold() {
         let dir = some_of_jetbrains(
@@ -3333,9 +3296,8 @@ mod named {
     /// **A font named by its path brings its family's styles from beside
     /// it and from the installed fonts**: FiraCode-Regular.ttf's directory
     /// holds FiraCode-VF.ttf, whose wght reaches 700, so bold is the
-    /// variable face at 700 (Jev, V_AXIS); alone in a directory, with
-    /// nothing installed, it is the only face and every style draws from
-    /// it.
+    /// variable face at 700; alone in a directory, with nothing installed,
+    /// it is the only face and every style draws from it.
     #[test]
     fn a_font_named_by_path_brings_its_familys_styles() {
         let path = format!("{ROOT}/baud-font/tests/fonts/FiraCode-Regular.ttf");
@@ -3403,13 +3365,13 @@ mod named {
     }
 
     /// **A name that is a face's PostScript name or full name finds that
-    /// face**, as kitty and WezTerm take one (Jev's lean, L_PS_FIRST:
-    /// PostScript name, then full name, then family), by CSS's caseless
-    /// match, and the face's family brings the other styles: JetBrains
-    /// Mono's Bold named either way is the regular face, its Italic and
-    /// Bold Italic the styled ones, and no Bold is added beside itself. A
-    /// full name equal to the face's family is passed over for the family,
-    /// so "JetBrains Mono" still picks the Regular.
+    /// face**, as kitty and WezTerm take one (PostScript name, then full
+    /// name, then family), by CSS's caseless match, and the face's family
+    /// brings the other styles: JetBrains Mono's Bold named either way is
+    /// the regular face, its Italic and Bold Italic the styled ones, and
+    /// no Bold is added beside itself. A full name equal to the face's
+    /// family is passed over for the family, so "JetBrains Mono" still
+    /// picks the Regular.
     #[test]
     fn a_face_is_found_by_its_postscript_or_full_name() {
         use baud_render::FaceStyle::{BoldItalic, Italic};
@@ -3740,8 +3702,7 @@ mod reader {
     }
 
     /// The defaults: the material and the dims Apple's guidance gives, and
-    /// the crate example's own calibration for the rest. Pinned by value:
-    /// these are what the record quotes.
+    /// the crate example's own calibration for the rest. Pinned by value.
     #[test]
     fn the_glass_defaults_are_pinned_by_value() {
         let g = Config::defaults().glass;
@@ -3795,9 +3756,9 @@ mod reader {
         assert!(low.is_empty(), "under 4.5:1: {low:.2?} of {seen:.2?}");
     }
 
-    /// **Reduce Motion turns the default off and leaves a named trail**, the
-    /// owner's rule, for every trail: the table the design gave, and the one
-    /// the driver acts on through [`TrailPick::effective`].
+    /// **Reduce Motion turns the default off and leaves a named trail**, for
+    /// every trail: the table the design gave, and the one the driver acts
+    /// on through [`TrailPick::effective`].
     #[test]
     fn reduce_motion_turns_the_default_off_and_leaves_a_named_trail() {
         assert_eq!(
@@ -3937,10 +3898,10 @@ mod reader {
     }
 
     /// The cursor trail is the plasma unless `[cursor] trail` names another,
-    /// quoted or not -- the owner's call of 2026-09-29, replacing the fire.
-    /// `true` and `false` read as they did when the key was a switch -- the
-    /// default and none -- and a value that names no trail leaves the
-    /// default with a warning rather than being read as one.
+    /// quoted or not; the plasma replaced the fire on 2026-09-29. `true` and
+    /// `false` read as they did when the key was a switch -- the default and
+    /// none -- and a value that names no trail leaves the default with a
+    /// warning rather than being read as one.
     #[test]
     fn the_cursor_trail_is_the_plasma_unless_named() {
         assert_eq!(Config::defaults().cursor_trail, TrailPick::Default);
@@ -4225,9 +4186,9 @@ mod reader {
         );
     }
 
-    /// **A program may log unless `[screen] logging = "off"`** (the owner's
-    /// call of 2026-10-20), quoted or bare; any other value keeps the
-    /// default and says so, and the key is the `[screen]` section's.
+    /// **A program may log unless `[screen] logging = "off"`**, quoted or
+    /// bare; any other value keeps the default and says so, and the key is
+    /// the `[screen]` section's.
     #[test]
     fn logging_is_on_unless_turned_off() {
         use baud_domain::Logging;
@@ -4322,9 +4283,9 @@ mod reader {
         );
     }
 
-    /// **The window operations are performed unless `[window] operations =
-    /// "off"`** (the owner's call of 2026-10-19, option 4), quoted or bare;
-    /// any other value keeps the default and says so, and the key is the
+    /// **The window operations are performed unless
+    /// `[window] operations = "off"`**, quoted or bare; any other
+    /// value keeps the default and says so, and the key is the
     /// `[window]` section's, not the top level's.
     #[test]
     fn the_window_operations_are_on_unless_turned_off() {
@@ -4567,10 +4528,10 @@ mod reader {
         );
     }
 
-    /// **The screen checksum is answered unless `[screen] checksum = "off"`**
-    /// (the owner's call of 2026-10-19, option 3), quoted or bare; any other
-    /// value keeps the default and says so, and the key is the `[screen]`
-    /// section's, not the top level's.
+    /// **The screen checksum is answered unless
+    /// `[screen] checksum = "off"`**, quoted or bare; any other value keeps
+    /// the default and says so, and the key is the `[screen]` section's, not
+    /// the top level's.
     #[test]
     fn the_screen_checksum_is_answered_unless_turned_off() {
         use baud_domain::ChecksumReport;
@@ -4633,10 +4594,9 @@ mod reader {
     }
 
     /// **`[images] animation` follows the system unless it says on or
-    /// off**, the owner's call of 2026-10-23: `os`, `on` and `off` read,
-    /// quoted or not; anything else is said and follows the system; the key
-    /// is the images section's only. Perturbation: default it to `On` --
-    /// the first assertion fails.
+    /// off**: `os`, `on` and `off` read, quoted or not; anything else is
+    /// said and follows the system; the key is the images section's only.
+    /// Perturbation: default it to `On` -- the first assertion fails.
     #[test]
     fn image_animation_follows_the_system_unless_it_says_on_or_off() {
         assert_eq!(Config::defaults().image_animation, ImageAnimation::Os);
@@ -4695,11 +4655,11 @@ mod reader {
 
     /// **`[screen] substitute_mark` is off unless it says on, and
     /// `substitute_character` is U+2426 unless it names one character one
-    /// cell wide**, the owner's call of 2026-10-23: the mark reads on and
-    /// off; the character reads as itself or as a `\u` or `\U` escape; a
-    /// control, a combining mark, a wide or an ambiguous character, two
-    /// characters or an unquoted one are said and give U+2426. Perturbation:
-    /// default the mark on -- the first assertion fails.
+    /// cell wide**: the mark reads on and off; the character reads as itself
+    /// or as a `\u` or `\U` escape; a control, a combining mark, a wide or
+    /// an ambiguous character, two characters or an unquoted one are said
+    /// and give U+2426. Perturbation: default the mark on -- the first
+    /// assertion fails.
     #[test]
     fn the_substitute_mark_is_off_and_dec_s_unless_the_config_says() {
         use baud_domain::{Codepoint, ErrorCharacter, SubstituteMark};
@@ -4744,8 +4704,8 @@ mod reader {
         );
     }
 
-    /// **`[clipboard] copy_on_select` is on unless it says off**, the
-    /// owner's V13: `on` and `off` read, and anything else keeps on and
+    /// **`[clipboard] copy_on_select` is on unless it says off** (note
+    /// V, V13): `on` and `off` read, and anything else keeps on and
     /// says so.
     #[test]
     fn copy_on_select_is_on_unless_it_says_off() {
@@ -4777,7 +4737,7 @@ mod reader {
     #[test]
     fn a_clipboard_section_sets_the_policy_and_the_size() {
         let d = Config::defaults().clipboard;
-        assert_eq!(d.osc52, Osc52::Write, "on by default: the owner's V11");
+        assert_eq!(d.osc52, Osc52::Write, "on by default: note V's V11");
         assert_eq!(
             d.budget.text(),
             192 << 10,
@@ -5187,10 +5147,10 @@ shadow     = "never"
         assert!(is_symbols(&c.faces[2]));
     }
 
-    /// **The embedded Regular follows a configured stack** -- the owner's
-    /// order, configured faces, then baud's embedded font, then the
-    /// system's faces, which the first frame that needs one adds
-    /// (`fallback.rs`) -- after the named faces and ahead of the icon face and STIX, as a
+    /// **The embedded Regular follows a configured stack** -- the order
+    /// is configured faces, then baud's embedded font, then the system's
+    /// faces, which the first frame that needs one adds (`fallback.rs`)
+    /// -- after the named faces and ahead of the icon face and STIX, as a
     /// fallback face and never a styled one, and under the same switch:
     /// `font_fallback = false` takes it away with the other two.
     #[test]
@@ -5218,11 +5178,10 @@ shadow     = "never"
         );
     }
 
-    /// The owner's call of 2026-10-03: the symbol face follows a configured
-    /// stack as the icon face does, after it and under the same switch, so a
-    /// stack whose faces lack Claude Code's arrow and bullet still draws them,
-    /// and `font_fallback = false` still leaves the text's stack exactly as
-    /// named.
+    /// The symbol face follows a configured stack as the icon face does, after
+    /// it and under the same switch, so a stack whose faces lack Claude Code's
+    /// arrow and bullet still draws them, and `font_fallback = false` still
+    /// leaves the text's stack exactly as named.
     #[test]
     fn a_configured_stack_keeps_the_symbol_face_last() {
         let read = |text: &str| super::without_badge(read(text));
@@ -5332,9 +5291,8 @@ shadow     = "never"
     }
 
     /// **The standard material is the default and Liquid Glass is a word
-    /// away** (the owner, 2026-10-18: "use the recommendations"): a config
-    /// that names `regular` or `clear` keeps the glass it asked for, and
-    /// `standard` names the default.
+    /// away**: a config that names `regular` or `clear` keeps the glass it
+    /// asked for, and `standard` names the default.
     #[test]
     fn style_selects_the_standard_material_or_either_glass() {
         assert_eq!(read("").glass.style, Material::Standard);
@@ -5800,10 +5758,10 @@ mod lookup {
             .expect("a source line")
     }
 
-    /// **The working directory is not searched**, the owner's call of
-    /// 2026-10-13: a `config.toml` in the directory baud starts in is not
-    /// read. The control names the same file through `BAUD_CONFIG` and it
-    /// is read, so the file is one the load can find.
+    /// **The working directory is not searched**: a `config.toml` in the
+    /// directory baud starts in is not read. The control names the same
+    /// file through `BAUD_CONFIG` and it is read, so the file is one the
+    /// load can find.
     #[test]
     fn the_working_directory_is_not_searched_for_a_config() {
         let dir = scratch("cwd");
@@ -5883,10 +5841,9 @@ mod lookup {
         let _ = std::fs::remove_dir_all(home);
     }
 
-    /// **A relative font path is read beside the config file**, the
-    /// owner's call of 2026-10-13, not under the directory baud started
-    /// in; a collection's `@N` stays the index, and an absolute path is
-    /// kept as written.
+    /// **A relative font path is read beside the config file**, not
+    /// under the directory baud started in; a collection's `@N` stays
+    /// the index, and an absolute path is kept as written.
     #[test]
     fn a_relative_font_path_resolves_against_the_config_files_directory() {
         let dir = scratch("fonts");

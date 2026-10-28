@@ -89,8 +89,7 @@ fn lf_nel_and_ri_keep_the_presentation_position() {
 
 /// **`FF` keeps the presentation position as `LF` does**: it is `LF` here,
 /// DEC STD 070 p. 5-62's "identical in function to the Line Feed",
-/// 8.3.51's move to the page home recorded as a departure (Jev's lean,
-/// DEC_LINE_FEED, 0.89/0.94 asked again).
+/// 8.3.51's move to the page home recorded as a departure.
 #[test]
 fn ff_keeps_the_presentation_position_as_lf_does() {
     let at = |m, then| after(m, then).1;
@@ -486,11 +485,11 @@ fn tsr_clears_the_stop_hts_set_at_the_presentation_position() {
 }
 
 /// **HTJ shifts the field's positions as drawn** (8.3.61, "the contents of
-/// the active field (the field in the presentation component ...)"; Jev's
-/// lean, BUILD_DRAWN): with a stop at 6 and the cursor on `y`, drawn at 3,
-/// the content drawn at 0 to 3, `c b a y`, moves to 2 to 5, each cell
-/// keeping its string, so `c` is stored at column 0. In both DCSM states,
-/// as `HT` counts its stops; with BDSM set the cells.
+/// the active field (the field in the presentation component ...)"): with
+/// a stop at 6 and the cursor on `y`, drawn at 3, the content drawn at 0
+/// to 3, `c b a y`, moves to 2 to 5, each cell keeping its string, so `c`
+/// is stored at column 0. In both DCSM states, as `HT` counts its stops;
+/// with BDSM set the cells.
 #[test]
 fn htj_shifts_the_positions_drawn() {
     let htj = "\x1b[3g\x1b[1;7f\x1bH\x1b[1;4f\x1bI";

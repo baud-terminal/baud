@@ -1,8 +1,8 @@
 //! The terminal emulator as a process: read the pty, feed `baud-core`, render
 //! with `baud-render`, present through the platform crate, encode input back.
 //!
-//! macOS first, through the owner's `macos-liquid-glass`: the window is the
-//! crate's, the content view is its `DrawableView`, and this binary is the
+//! macOS first, through `macos-liquid-glass`: the window is the crate's,
+//! the content view is its `DrawableView`, and this binary is the
 //! `Responder` behind it -- one object on the main thread that owns the
 //! terminal, the renderer, the presenter and the pty's write end. The pty's
 //! read end lives on its own thread and hands chunks over a channel; the

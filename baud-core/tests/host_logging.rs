@@ -1,7 +1,7 @@
 //! xterm's logging, `?46` and `OSC 46` (`[[source: ctlseqs]]`, "Start
-//! logging (XTLOGGING)", "Change Log File to Pt"), the owner's call of
-//! 2026-10-20 (note AV): the core keeps the mode and the name and stops a
-//! read at each change, and the embedder writes the bytes.
+//! logging (XTLOGGING)", "Change Log File to Pt") (note AV): the core
+//! keeps the mode and the name and stops a read at each change, and the
+//! embedder writes the bytes.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -62,9 +62,9 @@ fn decrqm(t: &mut Term<'_>) -> Vec<u8> {
     r
 }
 
-/// **A core no embedder told refuses both, counts them, and answers `4`**:
-/// it writes no file, so no program can set the mode (Jev,
-/// PERMANENTLY_RESET, 0.96/1.00).
+/// **A core no embedder told refuses both, counts them, and
+/// answers `4`**: it writes no file, so no program can set
+/// the mode.
 #[test]
 fn off_both_are_refused_and_counted() {
     support::with_term(&WS, |t| {
@@ -165,8 +165,8 @@ fn osc_46_names_the_file_the_next_start_opens() {
 /// strings will be treated as their 7-bit equivalent (the eighth bit will
 /// be ignored)" (`[[source: dec-std-070]]` 3.5.4.5), ECMA-48 §9 gives a
 /// command string's GR bytes the meanings of 02/00-07/14, and xterm stores
-/// an `OSC` byte as its 7-bit byte outside a UTF-8 title (Jev, FOLD,
-/// 1.00/0.98). Under UTF-8 the path's characters are kept whole.
+/// an `OSC` byte as its 7-bit byte outside a UTF-8 title. Under UTF-8 the
+/// path's characters are kept whole.
 #[test]
 fn an_osc_46_path_in_gr_is_its_seven_bit_path_under_latin1() {
     support::with_term(&WS, |t| {
@@ -182,8 +182,7 @@ fn an_osc_46_path_in_gr_is_its_seven_bit_path_under_latin1() {
 
 /// **A name beginning `|` is a command, and no start runs one**: xterm
 /// runs it only when built with `ALLOWLOGFILEEXEC` and otherwise rings
-/// and logs nothing (`StartLog`, `[[source: xterm-misc]]`; Jev,
-/// XTERM_DEFAULT_BUILD, 1.00/1.00).
+/// and logs nothing (`StartLog`, `[[source: xterm-misc]]`).
 #[test]
 fn a_command_is_never_started() {
     support::with_term(&WS, |t| {
@@ -217,8 +216,8 @@ fn xtsave_and_xtrestore_keep_the_mode() {
     });
 }
 
-/// **`RIS` and `DECSTR` leave the log and its name**, as xterm's resets do
-/// (Jev, RIS_KEEPS, 0.98/0.96), and leave the setting.
+/// **`RIS` and `DECSTR` leave the log and its name**, as xterm's resets
+/// do, and leave the setting.
 #[test]
 fn a_reset_leaves_the_log() {
     support::with_term(&WS, |t| {

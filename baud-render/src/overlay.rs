@@ -2516,17 +2516,16 @@ impl Composition {
     ///
     /// **What continues the character before the cursor is drawn on that
     /// character's cell**, as the commit will leave it, in the marked-text
-    /// look (Jev's lean, `B_CELL_BEFORE`, 0.92/0.86 after research): where
-    /// `text` starts with what joins the cluster the core would attach it
-    /// to -- the cell before the cursor, a wide one's lead, or the cursor's
-    /// own past a pending wrap -- the composition starts on that cell, its
-    /// text led by the cell's cluster, so a vowel sign is drawn on its
-    /// consonant and a skin tone on its emoji, and what a commit widens
-    /// takes the cells it will. The head takes the hints on `text`'s first
-    /// codepoint, and `caret` is moved past it. At column 0, after a blank
-    /// cell, and where the cell's cluster and what follows would not form
-    /// one cluster, the composition starts at the cursor and what continues
-    /// is drawn at commit.
+    /// look: where `text` starts with what joins the cluster the core would
+    /// attach it to -- the cell before the cursor, a wide one's lead, or
+    /// the cursor's own past a pending wrap -- the composition starts on
+    /// that cell, its text led by the cell's cluster, so a vowel sign is
+    /// drawn on its consonant and a skin tone on its emoji, and what a
+    /// commit widens takes the cells it will. The head takes the hints on
+    /// `text`'s first codepoint, and `caret` is moved past it. At column 0,
+    /// after a blank cell, and where the cell's cluster and what follows
+    /// would not form one cluster, the composition starts at the cursor and
+    /// what continues is drawn at commit.
     pub fn at_cursor(
         term: &Term<'_>,
         text: &[Codepoint],

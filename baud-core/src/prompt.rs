@@ -266,7 +266,7 @@ impl Paint<'_, '_> {
     /// A redraw under `redraw=0` erases nothing: "the shell will not redraw
     /// the prompt on resize so it should not erase it". `redraw=last` erases
     /// as `1` does: under it an initial mark reaches a block only where the
-    /// shell redraws a line that begins with one (Jev's lean, AS_ONE).
+    /// shell redraws a line that begins with one.
     fn initial_prompt(&mut self, mark: InitialMark, command: Option<(Aid, Opener)>) {
         let redraw = mark == InitialMark::Redraw;
         if redraw && self.strs.shell.asks.redraw != Redraw::Never {
@@ -358,13 +358,12 @@ impl Paint<'_, '_> {
     /// [`PromptAtBottom::On`]: the rows from `from` to the cursor's move
     /// down over the blank rows directly below the cursor, which open above
     /// them, so the prompt lands with its last line on the last row and
-    /// nothing above it moves -- Jev's GAP (0.97/0.98), the page zsh4humans'
-    /// shell-side `prompt-at-bottom` leaves, output where it was written and
-    /// the blank rows between it and the prompt. A move of `IL` at `from`
-    /// in the band down to the last blank row, with no cell holding text
-    /// pushed off it, and the selection, the images, the block start, the
-    /// input and the prompt log following the rows as they follow a region
-    /// scroll.
+    /// nothing above it moves -- the page zsh4humans' shell-side
+    /// `prompt-at-bottom` leaves, output where it was written and the blank
+    /// rows between it and the prompt. A move of `IL` at `from` in the band
+    /// down to the last blank row, with no cell holding text pushed off it,
+    /// and the selection, the images, the block start, the input and the
+    /// prompt log following the rows as they follow a region scroll.
     ///
     /// `from` is the block's first row, and the walk is taken once the
     /// prompt is drawn ([`Paint::pin_prompt_block`]). **Only where a mark

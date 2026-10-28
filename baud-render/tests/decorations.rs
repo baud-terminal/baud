@@ -282,13 +282,12 @@ fn an_encircled_run_is_one_enclosure() {
     );
 }
 
-/// **An encircled run's ends keep to the corners**, at 9-13 px and
-/// 18-26 px, 9-13 pt at 1x and 2x: between the rounded
-/// corners an end is the stroke at the cell's outer edge and nothing
-/// further in, and its corner is round, not the frame's square. A half
-/// ellipse filling the end cell crossed most end glyphs' ink at every one
-/// of those sizes; Jev leaned to the rounded corners at 0.85 and 0.88
-/// over the ellipse and over the frame's square box.
+/// **An encircled run's ends keep to the corners**, at 9-13 px and 18-26
+/// px, 9-13 pt at 1x and 2x: between the rounded corners an end is the
+/// stroke at the cell's outer edge and nothing further in, and its corner
+/// is round, not the frame's square. A half ellipse filling the end cell
+/// crossed most end glyphs' ink at every one of those sizes; The rounded
+/// corners are chosen over the ellipse and over the frame's square box.
 #[test]
 fn an_encircled_end_keeps_to_its_corners() {
     use baud_render::boxes::Ring;

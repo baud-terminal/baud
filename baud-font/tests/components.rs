@@ -52,8 +52,8 @@ enum Side {
     Ft,
     /// Nothing, `Drawn::Refused`: a first component placed by points, which
     /// the glyf text says "cannot be used for the first component glyph"
-    /// (`[[source: ms-opentype-glyf]]`), refuses the glyph -- the owner's
-    /// decision of 2026-10-13, and FreeType's.
+    /// (`[[source: ms-opentype-glyf]]`), refuses the glyph, as FreeType
+    /// does.
     Refused,
     /// Neither engine's: the text's drawing at each weight, worked by hand
     /// from `scripts/component-cases-font.py`, where both depart. FreeType

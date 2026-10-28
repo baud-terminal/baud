@@ -164,9 +164,9 @@ impl Paint<'_, '_> {
     /// picture decoded, placed and the cursor moved, an animated GIF
     /// playing; anything that is no picture baud decodes -- a format other
     /// than PNG, JPEG and GIF, data that is not base64, a file that does
-    /// not decode -- drawn as the broken-image
-    /// placeholder at the size asked (Jev, BROKEN_PLACEHOLDER, 0.94/0.98)
-    /// and counted. More data than the scratch holds is refused whole.
+    /// not decode -- drawn as the broken-image placeholder at the size
+    /// asked and counted. More data than the scratch holds is refused
+    /// whole.
     fn file_finish(&mut self, key: ItermKey) {
         let s = &mut *self.strs;
         let Some(end) = s.iterm_file.end(s.kitty_scratch) else {
@@ -212,9 +212,9 @@ impl Paint<'_, '_> {
     /// `writeBaseCharacter` writes its image characters: each row's cells
     /// from the cursor's column, a line feed before each row after the
     /// first, scrolling at the bottom, the cells' text erased as an image
-    /// character replaces it (Jev's lean, ERASED); then the cursor right of
-    /// the picture on its last row, at the pending wrap past the screen's
-    /// edge, as iTerm2 sets its column to the screen's width there.
+    /// character replaces it; then the cursor right of the picture on its
+    /// last row, at the pending wrap past the screen's edge, as iTerm2 sets
+    /// its column to the screen's width there.
     fn place_picture(&mut self, args: FileArgs, picture: Option<Picture>, key: ItermKey) {
         let (iw, ih) = picture.map_or((BROKEN_W, BROKEN_H), |p| (p.width, p.height));
         let at = self.display_col(self.cx.col());

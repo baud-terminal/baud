@@ -2,32 +2,31 @@
 //! "This control function starts/stops the right-to-left cursor
 //! direction."
 //!
-//! **A character is written at the cursor and the cursor moves left**:
-//! "The next character position is defined as the current cursor position
-//! minus 1", and "DECRLM does not affect column numbering within the line",
-//! so the cells hold the characters in the order shown, the first sent at
-//! the right. A wide character takes the cursor's column and the one to its
-//! left, its lead on the left as everywhere, and the cursor moves two. Under
-//! IRM "All characters from the current cursor position to the left margin
-//! inclusively are shifted one position towards the left. The character
-//! previously displayed at the left margin disappears." A character written
-//! at the left margin leaves a wrap pending there
-//! ([`crate::term::Pinned::LeftEdge`]); with DECAWM set "a graphic character
-//! received when the cursor is at column number one appears at the right
-//! margin column of the next line", scrolling at the region's end, and with
-//! it reset it overwrites the margin. `BS` moves right, `CR` to the right
-//! margin, `HT` to the previous tab stop (Jev, LEFTWARD, 0.92/0.94), and the
-//! margins are DECLRMM's (Jev's lean, MARGINS, the orders apart, by
-//! mean probability 0.39 against 0.37); "ICH, DCH, ED, EL, DECSED, DECSEL, ECH ... CUP, HVP, CUF, CUB" are
-//! not affected. A combining mark joins the character the last write put
-//! down, the cell right of the cursor.
+//! **A character is written at the cursor and the cursor moves left**: "The
+//! next character position is defined as the current cursor position minus
+//! 1", and "DECRLM does not affect column numbering within the line", so
+//! the cells hold the characters in the order shown, the first sent at the
+//! right. A wide character takes the cursor's column and the one to its
+//! left, its lead on the left as everywhere, and the cursor moves two.
+//! Under IRM "All characters from the current cursor position to the left
+//! margin inclusively are shifted one position towards the left. The
+//! character previously displayed at the left margin disappears." A
+//! character written at the left margin leaves a wrap pending there
+//! ([`crate::term::Pinned::LeftEdge`]); with DECAWM set "a graphic
+//! character received when the cursor is at column number one appears at
+//! the right margin column of the next line", scrolling at the region's
+//! end, and with it reset it overwrites the margin. `BS` moves right, `CR`
+//! to the right margin, `HT` to the previous tab stop, and the margins are
+//! DECLRMM's; "ICH, DCH, ED, EL, DECSED, DECSEL, ECH ... CUP, HVP, CUF,
+//! CUB" are not affected. A combining mark joins the character the last
+//! write put down, the cell right of the cursor.
 //!
-//! **Each row written so is drawn as its cells hold** (Jev, AS_STORED,
-//! 0.97/0.97): its [`RowWritten`] mark keeps UAX #9 off it, so a Hebrew word
-//! written under DECRLM reads as the VT510 shows it, until the row is
-//! erased whole -- by ED, EL, ECH or a fill from its first column to its
-//! end, a scroll or IL and DL bringing it in, or DECSED and DECSEL leaving
-//! no protected character on it -- when the mark goes and its path stays.
+//! **Each row written so is drawn as its cells hold**: its [`RowWritten`]
+//! mark keeps UAX #9 off it, so a Hebrew word written under DECRLM reads as
+//! the VT510 shows it, until the row is erased whole -- by ED, EL, ECH or a
+//! fill from its first column to its end, a scroll or IL and DL bringing it
+//! in, or DECSED and DECSEL leaving no protected character on it -- when the
+//! mark goes and its path stays.
 //!
 //! **What it costs while reset: nothing on the text path.** While set the
 //! core chooses the one-by-one graph, and SAPV's writer, which the text
@@ -153,9 +152,9 @@ impl Paint<'_, '_> {
 
     /// **A selective erase over row `r`'s whole line ends DECRLM's mark
     /// when it left no character standing**: a protected one DECSCA kept
-    /// stands where it was written, and the row is not erased whole; a
-    /// row of spaces is (Jev, AS_STORED: drawn as its cells hold "until it
-    /// is erased whole"). ED and EL's fills end it in the grid
+    /// stands where it was written, and the row is not erased whole; a row
+    /// of spaces is (drawn as its cells hold "until it is erased whole").
+    /// ED and EL's fills end it in the grid
     /// ([`baud_domain::RowExtent::erased`]).
     pub(crate) fn selectively_erased_whole(&mut self, r: Row, from: Col, to: Col) {
         let line = self.view.bidi(r);

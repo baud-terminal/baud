@@ -1,15 +1,15 @@
 //! PNG, decoded to RGBA8 (`[[source: w3c-png-2003]]`; the compression is
 //! zlib over deflate, `[[source: rfc1950-zlib]]` and `[[source: rfc1951-deflate]]`).
 //!
-//! **Why it lives here.** Two crates decode PNG: `baud-font` its colour
-//! emoji strikes -- Apple Color Emoji's `sbix` carries 31,707 of them on this
-//! Mac, Noto Color Emoji's `CBDT` thousands more -- and the core a kitty
-//! `f=100` picture (note V, V19 step 2: "In baud-domain", the owner,
-//! 2026-10-15). Both depend on this crate, and "no engine dependencies"
-//! covers image libraries too. The decoder is the smallest complete one:
-//! every colour type and bit depth the specification allows, the five
-//! filters, both interlace methods, CRC-32 on every chunk, and the zlib
-//! stream through [`crate::zlib`], which checks its Adler-32.
+//! **Why it lives here.** Two crates decode PNG: `baud-font` its colour emoji
+//! strikes -- Apple Color Emoji's `sbix` carries 31,707 of them on this Mac,
+//! Noto Color Emoji's `CBDT` thousands more -- and the core a kitty `f=100`
+//! picture (note V, V19 step 2: "In baud-domain"). Both depend on this crate,
+//! and "no engine dependencies" covers image libraries too. The decoder is
+//! the smallest complete one: every colour type and bit depth the
+//! specification allows, the five filters, both interlace methods, CRC-32 on
+//! every chunk, and the zlib stream through [`crate::zlib`], which checks its
+//! Adler-32.
 //!
 //! **Adam7 is read, because PNG requires it**: "Decoders are required to be
 //! able to read interlaced images" (13.10; 15.2.3 asks for "all the
@@ -543,9 +543,9 @@ impl<'a> Png<'a> {
             // The whole image as its one reduced image, called on its own:
             // sent through the loop below instead, a 1920x1080 RGB decode
             // retired 491 M instructions against 470 M this way and 477 M
-            // before Adam7 (`baud-bench`'s `png_decode`; the record,
-            // "png.rs reads Adam7"). `codes`, inflate's symbol loop, was
-            // the same machine code in all three.
+            // before Adam7 (`baud-bench`'s `png_decode`). `codes`,
+            // inflate's symbol loop, was the same machine code in all
+            // three.
             let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
             self.unfilter(raw, self.size, 0..h)?;
             self.expand(raw, rgba, self.size, Pass::WHOLE, 0..h)?;
@@ -933,12 +933,11 @@ impl<'a> Iterator for Idat<'a> {
 
 /// **A decode advanced a bounded amount at a time**: [`Png::step`] resumes
 /// it. What the core's deferred `f=100` decode keeps between steps (note V,
-/// V19 step 3: deferred inside the core, in bounded steps, Jev
-/// DEFER_IN_CORE_STEPPED). The same work as [`Png::decode`] in the same
-/// order -- the `IDAT` stream inflated into the scratch, then each reduced
-/// image unfiltered and expanded a scanline at a time -- so the output is
-/// the same whatever the steps' sizes. `Copy`, for a caller that keeps it in
-/// caller memory beside the stream it came from.
+/// V19 step 3: deferred inside the core, in bounded steps). The same work as
+/// [`Png::decode`] in the same order -- the `IDAT` stream inflated into the
+/// scratch, then each reduced image unfiltered and expanded a scanline at a
+/// time -- so the output is the same whatever the steps' sizes. `Copy`, for
+/// a caller that keeps it in caller memory beside the stream it came from.
 #[derive(Clone, Copy)]
 pub struct PngSteps {
     z: Inflate,

@@ -202,12 +202,12 @@ fn every_cut(n: usize) -> Vec<Vec<usize>> {
     sizes.chain(splits).collect()
 }
 
-/// **A Private Use Area character takes one column under either policy**, the
-/// owner's call of 2026-10-15 ("Always one column"): xterm's default
-/// `privateWidth`, which `mk_wcwidth_cjk` reads before its ambiguous table
-/// (`[[source: xterm-wcwidth-c]]` 887-888). `[[source: uax11]]` § 6.1 puts
-/// all private use in `A` by default, and § 2 invites a terminal to tailor
-/// it; the embedded icon face, sized to one cell, is the § 4.2 context.
+/// **A Private Use Area character takes one column under either policy**:
+/// xterm's default `privateWidth`, which `mk_wcwidth_cjk` reads before its
+/// ambiguous table (`[[source: xterm-wcwidth-c]]` 887-888).
+/// `[[source: uax11]]` § 6.1 puts all private use in `A` by default, and § 2
+/// invites a terminal to tailor it; the embedded icon face, sized to one
+/// cell, is the § 4.2 context.
 ///
 /// Each end of the three ranges, and U+E0B0 and U+F0186 from the middle,
 /// in runs of one to five, so the write path's three places that read the
@@ -273,7 +273,7 @@ fn rqm(a: AmbiguousWidth, prefix: &str, mode: u16) -> String {
 
 /// **`?1021` reports the policy, `1` under `Wide` and `2` under `Narrow`**,
 /// as xterm answers its read-only `cjkWidth` resource with `MdBool`
-/// (`[[source: xterm-misc]]` 5845-5853; Jev 2026-10-15, 0.96 and 1.00).
+/// (`[[source: xterm-misc]]` 5845-5853).
 /// `[[source: ctlseqs]]`: "Ps = 1 0 2 1  -> cjkWidth resource (read-only),
 /// xterm." A full reset (`RIS`) and a soft one (`DECSTR`) leave the
 /// policy, and the answer with it, as they leave the widths.
@@ -300,12 +300,12 @@ fn decrqm_1021_reports_the_ambiguous_width_policy() {
 }
 
 /// **`?1023` answers set, and `?1022` is not recognized**, under either
-/// policy. `?1023` reports `privateWidth`, "whether to assume that codes in
-/// the Unicode PUA (private use area) are single-width"
-/// (`[[source: xterm-man]]` 5202-5206), which baud always does: the
-/// owner's call of 2026-10-15. `?1022` reports an `emojiWidth` baud has no switch for, so it
-/// answers `0` (Jev 2026-10-15, 0.98 and 1.00): its `Vs16Width` neither
-/// narrows on VS15 nor widens a bare listed emoji.
+/// policy. `?1023` reports `privateWidth`, "whether to assume that
+/// codes in the Unicode PUA (private use area) are single-width"
+/// (`[[source: xterm-man]]` 5202-5206), which baud always does. `?1022`
+/// reports an `emojiWidth` baud has no switch for, so it answers `0`:
+/// its `Vs16Width` neither narrows on VS15 nor widens a bare listed
+/// emoji.
 #[test]
 fn decrqm_1023_answers_set_and_1022_is_not_recognized() {
     for a in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {

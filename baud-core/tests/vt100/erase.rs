@@ -244,10 +244,10 @@ fn a_value_with_no_case_is_skipped_and_counted() {
     assert_eq!((rows[0].as_str(), skipped), ("......", 1));
 }
 
-/// **A `3` in a list is skipped** (Jev's lean, SKIP, 2026-10-19): the
-/// algorithms' `switch` has no case 3, and xterm's "Erase Saved Lines" is
-/// the value of a lone parameter. `CSI 3 ; 1 J` keeps the history and
-/// erases through the cursor; a lone `CSI 3 J` still erases the history.
+/// **A `3` in a list is skipped**: the algorithms' `switch` has no case
+/// 3, and xterm's "Erase Saved Lines" is the value of a lone parameter.
+/// `CSI 3 ; 1 J` keeps the history and erases through the cursor; a lone
+/// `CSI 3 J` still erases the history.
 #[test]
 fn a_three_in_a_list_is_skipped() {
     let scroll: Vec<u8> = (0..60)

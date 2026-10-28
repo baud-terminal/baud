@@ -62,9 +62,8 @@ fn b64(data: &[u8]) -> String {
 // ── CursorShape ─────────────────────────────────────────────────────────────
 
 /// "0: Block 1: Vertical bar 2: Underline": the shape changes and the blink
-/// stays (Jev, KEEP_BLINK); a value that is not a number is 0, as iTerm2's
-/// `intValue` reads it (Jev, BLOCK); one outside 0-2 changes nothing and is
-/// counted.
+/// stays; a value that is not a number is 0, as iTerm2's `intValue` reads
+/// it; one outside 0-2 changes nothing and is counted.
 #[test]
 fn cursor_shape_sets_the_shape_and_keeps_the_blink() {
     for size in SIZES {
@@ -239,7 +238,7 @@ fn screen_text(t: &Term<'_>) -> Vec<Vec<Content>> {
 
 /// "To erase the scrollback history": the saved lines go and the screen
 /// stays, as `CSI 3 J` (the documentation's sentence; iTerm2's source
-/// clears the screen too, a departure Jev did not reach 0.9 for).
+/// clears the screen too, a departure not followed).
 #[test]
 fn clear_scrollback_erases_the_history_and_keeps_the_screen() {
     for size in SIZES {
@@ -258,9 +257,8 @@ fn clear_scrollback_erases_the_history_and_keeps_the_screen() {
 // ── CurrentDir and RemoteHost ───────────────────────────────────────────────
 
 /// `CurrentDir` names the directory as sent; a `RemoteHost` names the host
-/// the following directories are on, and alone leaves the directory unknown
-/// (Jev, LAST_REMOTE_HOST, 0.96/0.98); an empty `CurrentDir` leaves none and
-/// is counted (Jev's lean, LEAVES_NONE).
+/// the following directories are on, and alone leaves the directory unknown;
+/// an empty `CurrentDir` leaves none and is counted.
 #[test]
 fn current_dir_and_remote_host_name_the_directory() {
     for size in SIZES {
@@ -288,9 +286,8 @@ fn current_dir_and_remote_host_name_the_directory() {
 // ── ReportCellSize ──────────────────────────────────────────────────────────
 
 /// "OSC 1337 ; ReportCellSize=[height];[width];[scale] ST", in points, each
-/// as iTerm2 writes it (Jev, COMPACTED), ended as the query was (Jev's lean,
-/// QUERY_TERMINATOR); silent and counted while the cell or the scale is
-/// untold.
+/// as iTerm2 writes it, ended as the query was; silent and counted while the
+/// cell or the scale is untold.
 #[test]
 fn report_cell_size_answers_in_points() {
     for size in SIZES {
@@ -319,9 +316,8 @@ fn report_cell_size_answers_in_points() {
 // ── ReportVariable ──────────────────────────────────────────────────────────
 
 /// Every variable is answered with iTerm2's empty value while reports are
-/// off, its shape for one not reported (Jev's lean, EMPTY_AS_DENIED), ended
-/// as the query was; a name that is not base64 gets no reply, as in iTerm2,
-/// and is counted.
+/// off, its shape for one not reported, ended as the query was; a name that
+/// is not base64 gets no reply, as in iTerm2, and is counted.
 #[test]
 fn report_variable_answers_with_the_empty_value() {
     for size in SIZES {
@@ -810,10 +806,9 @@ fn copy_puts_the_text_on_the_clipboard() {
 
 // ── SetColors ───────────────────────────────────────────────────────────────
 
-/// Each `key=value` of a list split on `,` (Jev, COMMA_PAIRS) sets the
-/// colour baud keeps for that role, as `OSC 4`, `OSC 10`-`19` and `OSC 5`
-/// do; a P3 or Generic RGB value is converted to sRGB; a name baud keeps no
-/// colour for is counted.
+/// Each `key=value` of a list split on `,` sets the colour baud keeps for
+/// that role, as `OSC 4`, `OSC 10`-`19` and `OSC 5` do; a P3 or Generic RGB
+/// value is converted to sRGB; a name baud keeps no colour for is counted.
 #[test]
 fn set_colors_sets_each_colour_named() {
     for size in SIZES {
@@ -903,8 +898,7 @@ fn every_key_not_acted_on_is_counted() {
 /// **iTerm2's segmented copy, as its `it2copy` sends it inside tmux**:
 /// `Copy=2;uid`, a `Copy=3;uid:base64` for each line of `base64 | fold`,
 /// and `Copy=4;uid`, with other output between them; a piece under another
-/// `uid` abandons the copy, and an end with none open is counted (Jev's
-/// lean, BUILD_SEGMENTS).
+/// `uid` abandons the copy, and an end with none open is counted.
 #[test]
 fn a_segmented_copy_is_copied_at_its_end() {
     let text: Vec<u8> = b"0123456789".iter().copied().cycle().take(700).collect();

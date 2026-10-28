@@ -1,12 +1,12 @@
 //! The present path, headless: which frame reaches the layer when a frame
 //! drawn for one set of surfaces lands after the set has been replaced.
 //!
-//! This is the bug the owner reported three ways -- a doubled image on a
-//! grow, the old font size on a zoom, a resize that "doesn't render btop
-//! properly" -- and per the research no shipping terminal has a test for it.
-//! ghostty guards it in `setSurfaceCallback` and has zero test blocks in its
-//! whole renderer; kitty has no offscreen GL in CI at all; wezterm's only
-//! GPU-free texture cannot read pixels back.
+//! This is the bug reported three ways -- a doubled image on a grow, the old
+//! font size on a zoom, a resize that "doesn't render btop properly" -- and
+//! per the research no shipping terminal has a test for it. ghostty guards
+//! it in `setSurfaceCallback` and has zero test blocks in its whole
+//! renderer; kitty has no offscreen GL in CI at all; wezterm's only GPU-free
+//! texture cannot read pixels back.
 //!
 //! **Deterministic, because the test chooses the delivery order rather than
 //! racing a GPU.** A real completion arrives when the hardware is done, so
@@ -133,8 +133,8 @@ fn a_frame_that_finished_after_a_resize_never_reaches_the_layer() {
     // surfaces the resize replaced must not reach the layer: it is a
     // 640x480 image landing on an 800x600 layer *after* the frame drawn for
     // the new size, and `contentsGravity` puts it in the top-left corner --
-    // the owner's "two btops, one overriding the other". No frame the layer
-    // shows may be half-done or a size behind.
+    // "two btops, one overriding the other", as it was reported. No frame
+    // the layer shows may be half-done or a size behind.
     assert_eq!(
         showing(&l, &[&old, &new]),
         Some(1),
@@ -147,7 +147,7 @@ fn a_frame_that_finished_after_a_resize_never_reaches_the_layer() {
 ///
 /// Without this, a rule that discarded *everything* would satisfy the test
 /// above -- and a window that shows no frame at all is black. This is the
-/// catastrophic case made into an assertion rather than something the owner
+/// catastrophic case made into an assertion rather than something a user
 /// discovers on screen.
 #[test]
 fn a_steady_surface_set_shows_every_frame() {

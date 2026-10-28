@@ -203,10 +203,10 @@ fn a_picture_anchored_above_or_pushed_out_moves_with_the_text() {
     assert_eq!(on.1, Some((0, tall - 2 * ch)), "on: two lines up");
 }
 
-/// **`?96` copies the lines as they are drawn**: each line of a copy
-/// "from its right edge" (`[[source: vt510-decrlcm]]`), and on a finished
+/// **`?96` copies the lines as they are drawn**: each line of a copy "from
+/// its right edge" (`[[source: vt510-decrlcm]]`), and on a finished
 /// paragraph the display draws at its words the lines are its display
-/// lines. The owner's paragraph, Hebrew, an English run, Hebrew, at 44
+/// lines. The reported paragraph, Hebrew, an English run, Hebrew, at 44
 /// columns: the first Hebrew line reads right to left in the order it
 /// reads, the English line, flush left, from its right edge -- the run
 /// reversed, its trailing space first -- and the last Hebrew line in its
@@ -243,13 +243,13 @@ fn decrlcm_reads_a_re_broken_paragraph_by_its_display_lines() {
     assert_eq!(sel.text(&t, scrolled), format!("{he1}{en}{he2}"));
 }
 
-/// **A paragraph that wrapped at side margins keeps the terminal's cut**
-/// (Jev's lean, RECORD_BIT_KEEP_CUT): written inside DECSLRM margins at
-/// columns 4 to 20, the word "dddd" cut at the right margin, beside "LL"
-/// in columns 1 and 2 of each row, outside the margins. Re-broken, "LL"
-/// would be read into the paragraph; kept, every row is drawn as stored.
-/// The same words from column 4 with no margins, cut at the page's edge,
-/// are re-broken, the control.
+/// **A paragraph that wrapped at side margins keeps the terminal's
+/// cut**: written inside DECSLRM margins at columns 4 to 20, the word
+/// "dddd" cut at the right margin, beside "LL" in columns 1 and 2 of
+/// each row, outside the margins. Re-broken, "LL" would be read into the
+/// paragraph; kept, every row is drawn as stored. The same words from
+/// column 4 with no margins, cut at the page's edge, are re-broken, the
+/// control.
 #[test]
 fn a_paragraph_wrapped_at_side_margins_keeps_its_cut() {
     let ws = WinSize {

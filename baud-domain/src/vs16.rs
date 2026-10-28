@@ -1,4 +1,4 @@
-//! Which characters a `U+FE0F` makes two cells wide (owner, 2026-10-01).
+//! Which characters a `U+FE0F` makes two cells wide.
 //!
 //! A text-default emoji followed by `U+FE0F` asks for emoji presentation, and
 //! baud draws it two cells wide -- the width tmux 3.6+, fish, macOS bash and
@@ -189,8 +189,9 @@ pub fn presents_as_emoji(cp: Codepoint) -> bool {
 /// What a `U+FE0F` after a listed base does to its width: the embedder's
 /// power-on choice, which `DECRQM ?2027` reports permanently.
 ///
-/// `Two` is the default (owner, 2026-10-01). `One` is the escape hatch for a
-/// session whose programs all measure with a legacy `wcwidth` -- zsh prompts
+/// `Two` is the default, the width the programs named at the top of this
+/// module assume. `One` is the escape hatch for a session whose programs
+/// all measure with a legacy `wcwidth` -- zsh prompts
 /// outside tmux, glibc readline, prompt_toolkit -- the way ghostty's
 /// `grapheme-width-method = legacy` is: a configuration, not a mode an
 /// application can flip, because bubbletea v2 resets `?2027` on exit behind

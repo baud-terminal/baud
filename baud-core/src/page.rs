@@ -2,13 +2,12 @@
 //! 8.3.87, 8.3.95 to 8.3.98; `[[source: dec-std-070]]` pp. 5-77 to 5-83).
 //!
 //! baud's page memory is one page, its screen, as xterm's "single page
-//! (which corresponds to its visible window)" (`[[source: ctlseqs]]`;
-//! Jev, ONE_PAGE, 0.94/0.94). STD 070's algorithms clamp the page to
-//! `number_of_pages`, "the highest numbered page is used" and "the first
-//! page is used", and NP and PP then take "the home position in the new
-//! page obeying Origin Mode" whichever page that is, so on one page NP and
-//! PP home the cursor and PPA, PPR and PPB, which keep "the corresponding
-//! line and column", move nothing (Jev, STD070_HOME, 0.92/0.98). The
+//! (which corresponds to its visible window)" (`[[source: ctlseqs]]`). STD
+//! 070's algorithms clamp the page to `number_of_pages`, "the highest
+//! numbered page is used" and "the first page is used", and NP and PP then
+//! take "the home position in the new page obeying Origin Mode" whichever
+//! page that is, so on one page NP and PP home the cursor and PPA, PPR and
+//! PPB, which keep "the corresponding line and column", move nothing. The
 //! VT510's "If there is only one page, then the terminal ignores NP"
 //! (`[[source: vt510-np]]`), the VT420's "If there is only one page, the
 //! terminal ignores NP", is the products' departure, not followed. A

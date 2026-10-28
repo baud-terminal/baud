@@ -480,9 +480,9 @@ SEQS
 wc -l "$RV_OUT"
 
 # Mark order: two or more Hebrew points in one cluster, which baud sorts
-# by HarfBuzz's modified combining classes (`[[source:
-# harfbuzz-hb-unicode]]`; the owner's pick, note AB 11.4) before the face
-# sees them. The clusters are the thirteen of the hand-typed Genesis 1:1-5
+# by HarfBuzz's modified combining classes
+# (`[[source: harfbuzz-hb-unicode]]`; note AB 11.4) before the face sees
+# them. The clusters are the thirteen of the hand-typed Genesis 1:1-5
 # (`docs/research/notes/ab/qc/corpus-gen5-differ.txt`) whose canonical
 # order is not HarfBuzz's, and shin + qamats + shin dot, the cluster
 # Courier New's `ccmp` was found to need in this order (note AB 11.4);

@@ -974,12 +974,12 @@ pub struct Build {
     ///
     /// **Because `pipelines` alone cannot answer row 1's leftover.** Shipping
     /// the `.metallib` took a cold launch's pipeline build from 45.1 ms to
-    /// **73.6**, reproduced across every settled launch, and the record
-    /// carries that +28.5 as unexplained with one named next step: time the
-    /// five separately under both libraries. A cost spread across all five in
-    /// proportion to their shaders is work `newLibraryWithSource` was doing
-    /// eagerly and `newLibraryWithData` leaves here; a cost in one is
-    /// something about that shader.
+    /// **73.6**, reproduced across every settled launch, and that +28.5 was
+    /// left unexplained with one named next step: time the five separately
+    /// under both libraries. A cost spread across all five in proportion to
+    /// their shaders is work `newLibraryWithSource` was doing eagerly and
+    /// `newLibraryWithData` leaves here; a cost in one is something about
+    /// that shader.
     pub each: [Duration; 5],
     /// Which of the two the library came from. A measurement that cannot
     /// say this cannot tell a shipped library from a cold compile that

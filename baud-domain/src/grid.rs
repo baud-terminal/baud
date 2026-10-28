@@ -718,18 +718,17 @@ impl<'a> View<'a> {
     /// The mark after a fill of `cell` that ran to `to`, where `low` is the
     /// mark the fill would leave on a row it covered to the live edge and no
     /// further. Past the live edge the fill ran on to the mark, and that
-    /// blank is the line's to the mark and no further: past it lie the
-    /// cells of whatever line the row held before, which the passes past
-    /// the edge clear to [`PackedCell::EMPTY`] from the mark on
+    /// blank is the line's to the mark and no further: past it lie the cells
+    /// of whatever line the row held before, which the passes past the edge
+    /// clear to [`PackedCell::EMPTY`] from the mark on
     /// ([`View::clear_past_edge`]). So the mark stays at `to`, and comes
-    /// down to `low` only when `cell` is `EMPTY` and either the cell at
-    /// `to` is `EMPTY` or `to` is the pitch: then the row is uniform from
-    /// `low` and that clear changes nothing. That lowering is also how a
-    /// held row comes back inside the edge and the reach comes down. A
-    /// coloured blank equal to the retired cell at `to` is not uniform with
-    /// it -- the retired cell is cleared and the blank is not -- and reading
-    /// it so lost the blank past the edge on a growth (the record, "A row
-    /// erased or fed in a colour past the edge keeps it to the mark").
+    /// down to `low` only when `cell` is `EMPTY` and either the cell at `to`
+    /// is `EMPTY` or `to` is the pitch: then the row is uniform from `low`
+    /// and that clear changes nothing. That lowering is also how a held row
+    /// comes back inside the edge and the reach comes down. A coloured blank
+    /// equal to the retired cell at `to` is not uniform with it -- the
+    /// retired cell is cleared and the blank is not -- and reading it so
+    /// lost the blank past the edge on a growth.
     fn mark_after_fill(
         &self,
         base: usize,
@@ -1124,8 +1123,7 @@ impl<'a> View<'a> {
     /// copy would write what is there; a row's flag goes with its cells. One
     /// line of history wider than the narrowed screen held `reach` at the old
     /// width and the repair copied every row under the region past the edge
-    /// every scroll: the narrowed log pane read 95.7 MB/s against 208.4
-    /// (the record, "A row the repair puts back carries what a growth can show").
+    /// every scroll: the narrowed log pane read 95.7 MB/s against 208.4.
     ///
     /// A pass of its own rather than a step of `copy_row`, because the two
     /// halves touch disjoint columns: a screen with nothing past its edge --
@@ -1293,13 +1291,11 @@ impl<'a> View<'a> {
     /// holds nothing past the edge at all, and is not read. The uniform run
     /// is every writer's to keep, a wrapped row's after a growth included
     /// ([`View::settle_growth`]): a generated program that broke it found the
-    /// one-cell read three columns short (the record, "A wrapped row's mark
-    /// rises with a growth at a prompt"). Only a row held is read whole, as
+    /// one-cell read three columns short. Only a row held is read whole, as
     /// every row was: before this, a narrowing of `k` columns read up to `k`
     /// cells of every row of the ring, and a same-size or height-only resize
     /// read them all whenever anything lay past the edge; the measure was
-    /// 67-90% of a drag's resize time (the record, "The resize measure is
-    /// most of a resize at a prompt"). The answer is the full read's, row for
+    /// 67-90% of a drag's resize time. The answer is the full read's, row for
     /// row: [`Viewport::past_edge_check`] reads every cell and is the oracle.
     ///
     /// **The re-cut's blanked rows are read whole** (`blanked`, the window's
@@ -1375,18 +1371,17 @@ impl<'a> View<'a> {
     }
 
     /// [`View::clear_past_edge`] on the ring row `at`, wherever the window
-    /// is -- `rot.advance(y, ring)` for screen row `y`, `rot.retreat(1 +
-    /// back, ring)` for a row behind it: **a row an erase covers to its
-    /// end**, before the erase's fill. The erase is the line being cleared,
-    /// so what the row held past the edge is the erased line's: past the
-    /// mark a coloured blank run on from the width it was written at,
-    /// which the mark does not bound because the mark is where the row
-    /// stops being uniform, and past the edge a tail under a mark inside
-    /// it. Left there, a growth showed the erased line's colour again. The
-    /// erase then fills to the mark, which reads the cleared cell there, so
-    /// a default erase lowers the mark and a coloured one keeps it (the
-    /// record, "An erase taken while narrow clears what the line held past
-    /// the edge"). So when `blank`, the erase's, is the default, the row
+    /// is -- `rot.advance(y, ring)` for screen row `y`,
+    /// `rot.retreat(1 + back, ring)` for a row behind it: **a row an erase
+    /// covers to its end**, before the erase's fill. The erase is the line
+    /// being cleared, so what the row held past the edge is the erased
+    /// line's: past the mark a coloured blank run on from the width it was
+    /// written at, which the mark does not bound because the mark is where
+    /// the row stops being uniform, and past the edge a tail under a mark
+    /// inside it. Left there, a growth showed the erased line's colour
+    /// again. The erase then fills to the mark, which reads the cleared
+    /// cell there, so a default erase lowers the mark and a coloured one
+    /// keeps it. So when `blank`, the erase's, is the default, the row
     /// holds nothing past the edge once filled, and its flag goes clear
     /// here: left held, the reach stayed up for nothing and the next pass
     /// cleared the row again. Only after a narrowing, so out of line.
@@ -1418,14 +1413,13 @@ impl<'a> View<'a> {
     /// growth shows on a line that was blank when it came in. Nothing reads
     /// those cells before a growth or a pass that moves or clears rows past
     /// the edge, so each of those clears the rows the window's bottom swept
-    /// first, and the scroll -- the line feed's, the hottest path in the
-    /// core -- keeps its source. Clearing there at once is a test of the
-    /// reach and a cold call on every scroll; `multibench`'s cat row did not
-    /// separate that arm from the base or from this form (the record, "A row
-    /// is carried past the edge only where it holds something, and the reach
-    /// comes down"), so the work goes to the rare passes, not the common one.
-    /// Rows only: the caller knows how many lines came in. Only after a
-    /// narrowing, so out of line. Returns the cells written.
+    /// first, and the scroll -- the line feed's, the hottest path in the core
+    /// -- keeps its source. Clearing there at once is a test of the reach and
+    /// a cold call on every scroll; `multibench`'s cat row did not separate
+    /// that arm from the base or from this form, so the work goes to the rare
+    /// passes, not the common one. Rows only: the caller knows how many lines
+    /// came in. Only after a narrowing, so out of line. Returns the cells
+    /// written.
     #[cold]
     #[inline(never)]
     pub fn clear_swept_past_edge(
@@ -1596,8 +1590,7 @@ impl<'a> View<'a> {
     /// the DEC sets' arm took `with_charset` out of line and the call in this
     /// loop made `put_ascii_run`'s prologue save five register pairs on every
     /// run, ASCII ones included: `cat` retired 1.6% more instructions a rep.
-    /// Forced inline, `put_ascii_run` still saved four (docs/record.md, "DEC
-    /// Supplemental, JIS-Katakana and JIS-Roman are translated").
+    /// Forced inline, `put_ascii_run` still saved four.
     #[inline(never)]
     fn put_designated_run(dst: &mut [PackedCell], src: &[u8], proto: PackedCell, set: Charset) {
         for (d, &b) in dst.iter_mut().zip(src) {
@@ -2228,9 +2221,8 @@ impl<'a> View<'a> {
         // carrying `MARKED` is not equal to the blank in front of it. Setting
         // the bit without raising the mark left the row non-uniform beyond its
         // own extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a
-        // mark that `CSI 1 J` left alone, which core2's DECSED-subset
-        // property reported (the record, "A fifth marks bug: setting a bit
-        // without moving the extent").
+        // mark that `CSI 1 J` left alone, which core2's DECSED-subset property
+        // reported.
         //
         // This is the same defect `ECH` at the last column already had, and
         // that this file records: an operation that makes a cell differ from
@@ -2590,8 +2582,7 @@ impl<'a> View<'a> {
     /// erase runs on to the mark and keeps it there unless `cell` is the
     /// default ([`View::mark_after_fill`]). Filling to the mark alone and
     /// marking the row empty left the old blank between the mark and the
-    /// edge, and took a coloured erase's cells past the edge on a growth
-    /// (the record, "The prompt redraw erases as ED does").
+    /// edge, and took a coloured erase's cells past the edge on a growth.
     pub fn fill_at(&mut self, at: RowRot, cell: PackedCell) -> RowExtent {
         let cols = self.cols.index();
         if cols == 0 {

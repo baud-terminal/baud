@@ -2,12 +2,12 @@
 //! (`[[source: ms-opentype-eblc]]`, which `CBLC` extends): "Records must be
 //! sorted by firstGlyphIndex, and records should not have overlapping glyph ID
 //! ranges". A size whose records run past the table or whose firsts decrease
-//! is refused whole; a glyph at or past the face's `numGlyphs` has no
-//! bitmap; on a size whose records overlap -- legal, since the overlap rule
-//! is a "should not" -- the first record that holds the glyph answers, as
-//! FreeType, ttf-parser and HarfBuzz all do; and an index subtable of format
-//! 4 finds a glyph among its real pairs only, the extra one marking where the
-//! last image ends (the owner's calls of 2026-10-02 and 2026-10-03).
+//! is refused whole; a glyph at or past the face's `numGlyphs` has no bitmap;
+//! on a size whose records overlap -- legal, since the overlap rule is a
+//! "should not" -- the first record that holds the glyph answers, as FreeType,
+//! ttf-parser and HarfBuzz all do; and an index subtable of format 4 finds a
+//! glyph among its real pairs only, the extra one marking where the last image
+//! ends.
 //!
 //! The fonts are the Noto Color Emoji subset (`tests/fonts/`), byte surgeries
 //! on it, and `tests/bitmap/cblc-cases.ttf`, which `scripts/gen-cblc-fixture.py`
@@ -193,13 +193,13 @@ fn lower_bound(n: u32, g: u16, key: impl Fn(u32) -> Option<u16>) -> Option<u32> 
 }
 
 /// Size `i`'s answer for glyph `g`, from EBLC's text (which CBLC extends) and
-/// the owner's calls: the table holds at most 255 sizes whose records fit;
-/// a size is refused when its index subtable records run past the table or
-/// a record's first glyph is below the one before it; a glyph answers only
+/// the choices above: the table holds at most 255 sizes whose records fit; a
+/// size is refused when its index subtable records run past the table or a
+/// record's first glyph is below the one before it; a glyph answers only
 /// below `glyphs` and inside the size's start..end range, from the first
 /// record whose range holds it; format 4's pairs are sorted by glyph id and
-/// the extra pair names no glyph; then the subtable's and the image's
-/// formats as the specification lays them out.
+/// the extra pair names no glyph; then the subtable's and the image's formats
+/// as the specification lays them out.
 fn spec(cblc: &[u8], cbdt: &[u8], glyphs: u32, i: u32, g: u32) -> Result<Option<Image>, Refusal> {
     let Some(sizes) = be32(cblc, 4) else {
         return Ok(None);

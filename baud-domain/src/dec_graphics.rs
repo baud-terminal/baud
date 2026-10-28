@@ -8,8 +8,8 @@
 //! Indexed by `byte - 0x60`, covering `` ` `` through `~`: foot's 31 entries.
 //! The set is 32. DEC replaces `0x5F` as well, with "Blank"
 //! (`[[source: vt100-ug-ch3]]` Table 3-9), and foot does not, so neither does
-//! this table: an open departure. See docs/record.md, "DEC Special Graphics
-//! begins at 0x5F, and what it stores there is the owner's call".
+//! this table: an open departure, the codepoint `0x5F` stores still to be
+//! chosen.
 
 /// `[[source: foot-vt100-0]]`'s `vt100_0[]`.
 pub static DEC_GRAPHICS: [u32; 31] = [

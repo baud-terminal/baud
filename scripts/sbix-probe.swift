@@ -1,8 +1,7 @@
 // How CoreText draws an sbix colour bitmap: which strike it takes for a size,
-// and what Apple's undocumented graphic type `flip` does. docs/record.md quotes
-// the numbers in "A colour bitmap is drawn from a strike that holds it, and `flip`
-// is a mirror"; this file reproduces most of them, and that section lists the
-// ones it does not.
+// and what Apple's undocumented graphic type `flip` does: a colour bitmap is
+// drawn from a strike that holds it, and `flip` is a mirror. This file
+// reproduces most of the numbers that rest on, though not all of them.
 //
 // NOTHING IS DRAWN ON SCREEN AND NOTHING IS POSTED. Every glyph is drawn with
 // CTFontDrawGlyphs into an offscreen CGBitmapContext: sRGB, 8-bit RGBA,

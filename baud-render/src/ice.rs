@@ -9,8 +9,7 @@
 //! **The frost is laid on the path, not on the quad.** A point of the path
 //! is inside kitty's quad for 10-40 ms at mid-path, too short for a crystal
 //! to grow in 0.12 s, so the lace is drawn over the path's capsule as well as
-//! the quad ([`Vfx::support`](crate::effect::Vfx::support)) -- the spec's
-//! first owner question, taken as it recommended.
+//! the quad ([`Vfx::support`](crate::effect::Vfx::support)).
 //!
 //! **A crystal is a fold, not a table.** The pixel is rotated by a hashed
 //! angle through the tangent half-angle form and folded into one 30-degree

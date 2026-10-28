@@ -5,8 +5,7 @@
 //! (NEL)"; under DATA, and with BDSM set, which reads DCSM as DATA (7.3.4
 //! c), it is also "the position ahead of which no implicit movement ...
 //! shall occur", and SLL "the position beyond which no implicit movement
-//! ... shall occur". Positions of their own, apart from DEC's margins
-//! (Jev, OWN_POSITIONS, 0.96/0.98).
+//! ... shall occur". Positions of their own, apart from DEC's margins.
 
 mod support;
 
@@ -139,8 +138,7 @@ fn the_inner_of_the_margins_and_the_bounds_holds() {
 }
 
 /// `Pn` has no default value: an omitted or zero one is counted and sets
-/// nothing. A position past the line is its last column (Jev split,
-/// CLAMPED 0.04/0.06).
+/// nothing. A position past the line is its last column.
 #[test]
 fn a_missing_position_is_counted_and_one_past_the_line_is_its_last() {
     support::render(&WS, b"\x1b[ U\x1b[0 Vabc\r", |t| {
@@ -150,7 +148,7 @@ fn a_missing_position_is_counted_and_one_past_the_line_is_its_last() {
     assert_eq!(cursor(b"\x1b[99 Uabc\r"), (0, 19));
 }
 
-/// **`RIS` forgets them, `DECSTR` keeps them** (Jev, KEEP, 0.96/0.96).
+/// **`RIS` forgets them, `DECSTR` keeps them**.
 #[test]
 fn ris_forgets_the_bounds_and_decstr_keeps_them() {
     assert_eq!(cursor(b"\x1b[5 U\x1bcabcdefg\r"), (0, 0));
@@ -161,7 +159,7 @@ fn ris_forgets_the_bounds_and_decstr_keeps_them() {
 }
 
 /// **A resize keeps them**, a position past the narrower line acting as
-/// its last column (Jev, KEPT_CLAMPED, 1.00/1.00).
+/// its last column.
 #[test]
 fn a_resize_keeps_the_bounds() {
     support::with_term(&WS, |t| {
@@ -181,9 +179,9 @@ fn a_resize_keeps_the_bounds() {
     });
 }
 
-/// **Under DECRLM `CR` keeps DECRLM's right margin** (Jev's lean,
-/// DECRLM_MARGIN), SLH naming the home of a left-to-right line: `IL`
-/// keeps DEC's left margin there too.
+/// **Under DECRLM `CR` keeps DECRLM's right margin**, SLH naming the
+/// home of a left-to-right line: `IL` keeps DEC's left margin there
+/// too.
 #[test]
 fn under_decrlm_cr_keeps_the_right_margin() {
     assert_eq!(cursor(b"\x1b[?34h\x1b[5 U\x1b[1;10H\r"), (0, 19));

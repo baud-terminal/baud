@@ -272,13 +272,12 @@ fn the_keypad_modifier_and_special_resources_act_at_4() {
 }
 
 /// **The ignore mask factors a modifier out**: `CSI > 4 ; Pv : mask m`, as
-/// xterm parses it (Jev's lean, CODE_FORM, 0.69/0.88 then 0.80/0.89), the
-/// mask in the parameter's bits ("a mask of modifier bits to factor out of
-/// the parameter encoding", `[[source: ctlseqs]]`). At levels 1 and 2 a key
-/// whose only modifier is in the mask is not sent as a sequence, xterm's
-/// `allowedCharModifiers`; with another held it is. At 3, where an
-/// unmodified key is a sequence too, the masked key is sent with the
-/// modifier factored out, as xterm's min_mod 0 there gives it.
+/// xterm parses it, the mask in the parameter's bits ("a mask of modifier
+/// bits to factor out of the parameter encoding", `[[source: ctlseqs]]`).
+/// At levels 1 and 2 a key whose only modifier is in the mask is not sent
+/// as a sequence, xterm's `allowedCharModifiers`; with another held it is.
+/// At 3, where an unmodified key is a sequence too, the masked key is sent
+/// with the modifier factored out, as xterm's min_mod 0 there gives it.
 #[test]
 fn the_ignore_mask_factors_a_modifier_out() {
     assert_eq!(
@@ -318,10 +317,9 @@ fn the_ignore_mask_factors_a_modifier_out() {
 
 /// **Each control resets, sets or disables what the text says.** An
 /// omitted `Pv` resets one resource, no parameter at all every one of the
-/// seven (ctlseqs' "all resources", Jev's lean, ALL_SEVEN, 0.76/0.76 then
-/// 0.68/0.76), `CSI > Ps n` disables `Ps`, and with no parameter
-/// modifyFunctionKeys.
-/// DECSTR and RIS put every one back, as xterm's `ReallyReset` does.
+/// seven (ctlseqs' "all resources"), `CSI > Ps n` disables `Ps`, and with
+/// no parameter modifyFunctionKeys. DECSTR and RIS put every one back, as
+/// xterm's `ReallyReset` does.
 #[test]
 fn the_controls_reset_set_and_disable() {
     let probe = b"\x1b[?0;1;2;3;4;6;7m\x1b[>0;1;2;3;4;6;7g";
@@ -384,10 +382,10 @@ fn the_controls_reset_set_and_disable() {
 }
 
 /// **A value no resource documents is refused and counted**, the resource
-/// unchanged (Jev's lean, REFUSE_COUNT, 0.82/0.90 then 0.88/0.86), as
-/// `CSI > 4 ; 2 f` already was: modifyOtherKeys past 3, the others past 4,
-/// modifyKeyboard past its four bits, a format past 1, the reserved
-/// resource 5, a `Pp` that names none, and the mask on any resource but 4.
+/// unchanged, as `CSI > 4 ; 2 f` already was: modifyOtherKeys past 3, the
+/// others past 4, modifyKeyboard past its four bits, a format past 1, the
+/// reserved resource 5, a `Pp` that names none, and the mask on any
+/// resource but 4.
 #[test]
 fn an_undocumented_value_is_refused_and_counted() {
     support::with_corpus(|t| {
@@ -416,12 +414,11 @@ fn an_undocumented_value_is_refused_and_counted() {
     });
 }
 
-/// **Open departure: ctlseqs' own example of the mask is refused.**
-/// "For example CSI > 4 : 1 m factors out the shift modifier"
+/// **Open departure: ctlseqs' own example of the mask is refused.** "For
+/// example CSI > 4 : 1 m factors out the shift modifier"
 /// (`[[source: ctlseqs]]`) puts the mask on `Pp`; xterm's parser reads it
 /// only as `Pv`'s sub-parameter, `CSI > 4 ; Pv : mask m`, and baud reads it
-/// as xterm does (Jev's lean, CODE_FORM, 0.69/0.88 then 0.80/0.89, below
-/// the bar). The text's form is counted and changes nothing.
+/// as xterm does. The text's form is counted and changes nothing.
 #[test]
 fn the_texts_mask_example_is_refused_and_counted() {
     support::with_corpus(|t| {
@@ -446,11 +443,10 @@ fn the_texts_mask_example_is_refused_and_counted() {
 
 /// **XTQMODKEYS answers every resource as xterm's `report_mod_fkeys`**:
 /// `CSI > Pp ; Pv m`, and for a `Pp` that names none the value xterm writes
-/// for its `DEFAULT`, -1 as an unsigned short, 65535 (Jev's lean,
-/// XTERM_65535), and so for a disabled one, -1 as xterm writes it, the
-/// first ask's lean in both orders. DECRQSS answers a
-/// known one `DCS 1 $ r > Pp ; Pv m ST`, -1 written as -1 and the mask as
-/// `:mask`, as xterm's `do_dcs` does (XTERM_MINUS_ONE), and an unknown one
+/// for its `DEFAULT`, -1 as an unsigned short, 65535, and so for a disabled
+/// one, -1 as xterm writes it. DECRQSS answers a known one
+/// `DCS 1 $ r > Pp ; Pv m ST`, -1 written as -1 and the mask as `:mask`, as
+/// xterm's `do_dcs` does (XTERM_MINUS_ONE), and an unknown one
 /// `DCS 0 $ r ST`.
 #[test]
 fn every_resource_answers_as_xterm_reports_it() {

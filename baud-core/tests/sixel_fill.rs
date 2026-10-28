@@ -1,11 +1,11 @@
-//! **The background a Sixel's `P2` of 0 or 2 asks for.** `[[source:
-//! vt3xx-sixel]]`: 0 or 2, "Pixel positions specified as 0 are set to the
-//! current background color", and "The VT300 uses Ph and Pv to erase the
-//! background when P2 is set to 0 or 2"; with no raster extent, `[[source:
-//! dec-std-070]]` 070-9 §10 starts a Sixel with the extent from the text
-//! position to the right and bottom margins, and a VT340 clears "from the
-//! cursor to the bottom right corner" (`[[source: vt340test-p2effect-sh]]`).
-//! Decided by Jev 2026-10-12, EXTENT_ELSE_MARGINS, 0.92 and 0.94.
+//! **The background a Sixel's `P2` of 0 or 2 asks for.**
+//! `[[source: vt3xx-sixel]]`: 0 or 2, "Pixel positions specified as 0 are
+//! set to the current background color", and "The VT300 uses Ph and Pv to
+//! erase the background when P2 is set to 0 or 2"; with no raster extent,
+//! `[[source: dec-std-070]]` 070-9 §10 starts a Sixel with the extent from
+//! the text position to the right and bottom margins, and a VT340 clears
+//! "from the cursor to the bottom right corner"
+//! (`[[source: vt340test-p2effect-sh]]`).
 //!
 //! The core sets each such position to `Pixel::FILL` and marks the image
 //! `ImageGround::Filled` with how far its data reached; what colour a
@@ -228,8 +228,7 @@ fn text_on_the_data_frees_the_image() {
 }
 
 /// **An erase clears the fill in the cells it erases**, as it clears a
-/// Sixel's own pixels there (the record, "Erasing clears what a Sixel or
-/// ReGIS drew in the erased cells"), and keeps it elsewhere.
+/// Sixel's own pixels there, and keeps it elsewhere.
 #[test]
 fn an_erase_clears_the_fill_in_the_cells_it_erases() {
     let prog = [b"\x1b[3;5H".as_slice(), OPAQUE, b"\x1b[6;9H\x1b[K"].concat();

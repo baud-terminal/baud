@@ -6,10 +6,9 @@
 //! can still lose a cluster the old one kept. A sweep that ran whenever one
 //! cluster's eight slots were full did exactly that -- it freed the growing
 //! prefixes of clusters still on cells, and when such a cluster was written
-//! again its prefix was refused, so 35 cells the base drew right over
-//! note AD's texts were drawn without a point (docs/record.md, "The cluster
-//! store holds 1024 clusters and sweeps the dead ones"). Sweeping only once
-//! every slot is filled, the owner's "when all slots are used", keeps them.
+//! again its prefix was refused, so 35 cells the base drew right over note
+//! AD's texts were drawn without a point. Sweeping only once every slot is
+//! filled, when all slots are used, keeps them.
 //!
 //! The texts that showed it are external (`[[source: hi-bharat]]` and the
 //! rest of note AD's session), so this test generates the mechanism instead:

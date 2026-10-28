@@ -17,20 +17,18 @@
 //! control information" (8), and the canvas becomes a frame when its
 //! graphic's Delay Time is not zero, or it waits for input: a delay of 0 is
 //! no wait, so a graphic with none is composited into the next and never
-//! shown alone, and a stream that ends on one ends showing it. A stream
-//! whose every delay is 0 is one still picture, every graphic composited,
-//! as the text says; kitty's `icat` and browsers play each such graphic
-//! for ten hundredths (`[[source: kitty-imaging-5a098df-gifmeta]]`), which
-//! would be a departure. A stream of one graphic is a still picture
-//! whatever its delay. Where no image covers the screen, and where disposal 2
-//! restores, it shows "the Background Color" of the global table, opaque,
-//! clear only with no global table (18 vii, 23 iv; Jev's lean,
-//! SPEC_BACKGROUND, 0.70/0.74 after research).
+//! shown alone, and a stream that ends on one ends showing it. A stream whose
+//! every delay is 0 is one still picture, every graphic composited, as the
+//! text says; kitty's `icat` and browsers play each such graphic for ten
+//! hundredths (`[[source: kitty-imaging-5a098df-gifmeta]]`), which would be a
+//! departure. A stream of one graphic is a still picture whatever its delay.
+//! Where no image covers the screen, and where disposal 2 restores, it shows
+//! "the Background Color" of the global table, opaque, clear only with no
+//! global table (18 vii, 23 iv).
 //!
 //! **What is not drawn.** A Plain Text Extension's text (25) is not
 //! rendered -- its Graphic Control Extension is still taken, so its delay
-//! and disposal apply -- and is counted by the caller (Jev's lean,
-//! NOT_DRAWN_LATER, 0.66/0.82 after research).
+//! and disposal apply -- and is counted by the caller.
 //!
 //! **Malformed input never panics**, and the work is bounded: every read
 //! is checked against the file, an LZW code past the table ends its
@@ -346,8 +344,7 @@ impl<'a> Gif<'a> {
     /// **How many times the animation plays**, zero for ever: "an
     /// iteration count of zero indicates infinite", and a count of `n`
     /// loops `n` times after the first play, as Firefox and kitty's `icat`
-    /// read it; with no NETSCAPE2.0 block the stream is processed once
-    /// (Jev, NETSCAPE_COUNT, 0.94/0.94).
+    /// read it; with no NETSCAPE2.0 block the stream is processed once.
     pub fn plays(&self) -> u32 {
         match self.loops {
             None => 1,

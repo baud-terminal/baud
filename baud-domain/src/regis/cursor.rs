@@ -43,23 +43,20 @@ pub enum RegisInput {
     Multiple,
 }
 
-/// A cursor's shape. **The input cursor is numbered as the VT330/VT340
-/// manual's table numbers it** (`[[source: vt3xx-screen-control]]`):
-/// omitted and 0 the crosshair, 0 marked "(default)", 1 the diamond, 2 the
-/// crosshair, 3 and 4 the rubber band line and rectangle, and the
-/// crosshair is what power-up and a valid `S(A)` select; 070-13 § 5.1
-/// says of one-shot input "a cross hair cursor appears", and a real VT340
-/// (`[[source: vt340test-locator]]`) shows "fine crosshairs". Jev's lean, VT340, at
-/// confidences 0.59 and 0.67 after a re-ask, below the bar, taken as the
-/// lean. **An open departure from 070-8 § 8.8.1.4.2** (`[[source:
-/// dec-std-070]]`), whose selection syntax "has the force of a standard":
-/// "A value of zero or 1 for <n> selects a the diamond cursor ... This too
-/// is the default cursor, and is selected after a valid S(A) has been
-/// executed", so `I0`, an
-/// omitted number and `S(A)` select the crosshair here where 070-8 selects
-/// the diamond, and `S(A)` is not § 8.8.1.4.1 g's "S(C(H1)(I1)1)", `I1`
-/// being the diamond. The output cursor's numbers, `H`, are the same in
-/// both texts.
+/// A cursor's shape. **The input cursor is numbered as the VT330/VT340 manual's
+/// table numbers it** (`[[source: vt3xx-screen-control]]`): omitted and 0 the
+/// crosshair, 0 marked "(default)", 1 the diamond, 2 the crosshair, 3 and 4 the
+/// rubber band line and rectangle, and the crosshair is what power-up and a valid
+/// `S(A)` select; 070-13 § 5.1 says of one-shot input "a cross hair cursor
+/// appears", and a real VT340 (`[[source: vt340test-locator]]`) shows "fine
+/// crosshairs". **An open departure from 070-8 § 8.8.1.4.2**
+/// (`[[source: dec-std-070]]`), whose selection syntax "has the force of a
+/// standard": "A value of zero or 1 for <n> selects a the diamond cursor ... This
+/// too is the default cursor, and is selected after a valid S(A) has been
+/// executed", so `I0`, an omitted number and `S(A)` select the crosshair here where
+/// 070-8 selects the diamond, and `S(A)` is not § 8.8.1.4.1 g's "S(C(H1)(I1)1)",
+/// `I1` being the diamond. The output cursor's numbers, `H`, are the same in both
+/// texts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegisCursorStyle {
     /// "A 21 x 21 pixel diamond" (`[[source: vt3xx-regis-intro]]`) "with a
@@ -184,12 +181,11 @@ impl Cursors {
 
 /// Which of a cursor's colours a pixel takes. The VT340's: "The graphics
 /// cursor is a composite character in two shades or colors ... The VT340
-/// uses location 0 for the foreground, and location 15 for the
-/// background", and for a user-defined cursor "color map entry 14 for the
-/// foreground and entry 1 for the background" (`[[source:
-/// vt3xx-screen-control]]`). A standard cursor's stroke takes the first and
-/// a one-pixel border round it the second, so it shows on black and on a
-/// light drawing alike: decided by Jev, TWO_TONE, 1.00 and 1.00.
+/// uses location 0 for the foreground, and location 15 for the background",
+/// and for a user-defined cursor "color map entry 14 for the foreground and
+/// entry 1 for the background" (`[[source: vt3xx-screen-control]]`). A
+/// standard cursor's stroke takes the first and a one-pixel border round it
+/// the second, so it shows on black and on a light drawing alike.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegisCursorTone {
     /// A standard cursor's line: map entry 0.
@@ -503,8 +499,8 @@ impl Input {
 }
 
 /// A value of 1/65536 user units to a tenth, half away from zero, written
-/// as `-12.5` or `200`: Jev's decision, TENTHS (0.96 and 0.98), the
-/// VT340's report example `[102.5,200]` (`[[source: vt3xx-locator]]`).
+/// as `-12.5` or `200`, as in the VT340's report example `[102.5,200]`
+/// (`[[source: vt3xx-locator]]`).
 pub(crate) fn tenths(v: i64, out: &mut [u8; 24]) -> usize {
     let neg = v < 0;
     let a = i128::from(v).abs();

@@ -152,7 +152,7 @@ fn leaving_vt52_returns_to_level_one_seven_bit() {
 /// conformance level"; the VT420 guideline lists DECANM among Level 4's
 /// queryable modes, the VT510 and VT520 manuals state no level, and the
 /// VT520 enters VT52 "from VT500 mode" (`[[source: vt520-rm]]` 2.10.1), as
-/// xterm and vttest do. Jev's lean, ANY_LEVEL (0.56/0.76, then 0.74/0.82).
+/// xterm and vttest do.
 #[test]
 fn vt52_is_entered_from_every_level() {
     for level in [&b"61"[..], b"62", b"63", b"64"] {
@@ -278,8 +278,8 @@ fn levels_two_three_and_four_add_their_functions() {
     });
 }
 
-/// **A control no DEC level defines acts at every level** (Jev,
-/// EVERY_LEVEL): CHA, REP and the alternate screen at Level 1.
+/// **A control no DEC level defines acts at every level**: CHA,
+/// REP and the alternate screen at Level 1.
 #[test]
 fn an_extension_acts_at_level_one() {
     every_read_size(b"\x1b[61\"pab\x1b[5Gc\x1b[2b", |t, n| {
@@ -447,7 +447,7 @@ fn the_level_one_keyboard() {
     // effected in any way by the depression of the Control, Shift or Lock
     // keys" (§6.9); Shift "has no effect" on a cursor key (§6.13.2), which
     // is "dead" with Control (§6.13.1 Note 1). Alt, which no DEC keyboard
-    // has, is dropped from them as well (§6.2.1 b; Jev's lean).
+    // has, is dropped from them as well (§6.2.1 b).
     let held = |pre: &[u8], code: KeyCode, mods: Modifiers| {
         support::with_term(&WS, |t| {
             support::feed(t, pre);
@@ -499,8 +499,7 @@ fn the_level_one_keyboard() {
         }
     }
     // A keypad navigation key that duplicates an arrow sends the arrow's
-    // code in both keypad modes, so it is that arrow, dead with Control
-    // (Jev's lean, INOPERATIVE).
+    // code in both keypad modes, so it is that arrow, dead with Control.
     for k in [KeypadKey::Up, KeypadKey::Left] {
         let kp = KeyCode::Keypad(k);
         for (pre, mode) in [(&one[..], "DECKPNM"), (&app[..], "DECKPAM")] {
@@ -551,7 +550,7 @@ fn the_level_one_keyboard() {
     );
     assert_eq!(remap(Modifiers::SHIFT, 4), (false, vec![]), "Shift-F4");
     assert_eq!(remap(Modifiers::SHIFT, 10), (false, vec![]), "Shift-F10");
-    // Past F20 xterm's made-up `CSI 42 ~` and on is no Level 1 key (Jev).
+    // Past F20 xterm's made-up `CSI 42 ~` and on is no Level 1 key.
     assert_eq!(remap(Modifiers::CTRL, 1), (false, vec![]), "Ctrl-F1");
     assert_eq!(
         remap(Modifiers::CTRL.with(Modifiers::SHIFT), 2),

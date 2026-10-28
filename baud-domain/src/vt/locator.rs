@@ -146,10 +146,9 @@ pub fn locator_request(p: &Params<'_>) -> Option<()> {
 }
 
 /// One of the locator's buttons: "up to 4 buttons", "1-Right 2-Middle
-/// 4-Left 8-Fourth" (DECLRP, 070-13 p. 6). The fourth is a tablet
-/// cursor's in the text ("Ky4 = B4 (tablet cursor only)", § 5.4); on a
-/// mouse it is the first button past the three (Jev, FIRST_EXTRA, 0.98 and
-/// 0.98).
+/// 4-Left 8-Fourth" (DECLRP, 070-13 p. 6). The fourth is a tablet cursor's
+/// in the text ("Ky4 = B4 (tablet cursor only)", § 5.4); on a mouse it is
+/// the first button past the three.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LocatorButton {
     Left,
@@ -310,8 +309,7 @@ impl FilterCorners {
 /// does. DEC's area operations ignore such a rectangle, and xterm swaps
 /// its corners (`InitLocatorFilter`, `[[source: xterm-button-c]]`);
 /// ignoring it leaves the program waiting for a report that never comes,
-/// which 070-13 avoids wherever it gives a reason (Jev's lean, AS_GIVEN,
-/// 0.89 and 0.85 on a second ask, after IGNORE at 0.82 and 0.69).
+/// which 070-13 avoids wherever it gives a reason.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FilterRect {
     top: OneBased,
@@ -550,20 +548,18 @@ impl LocatorKeys {
     /// "0-(or omitted) Clear all LKDs before loading new values. All button
     /// definition strings are empty (not the default). 1-Clear old
     /// definition only for keys that are redefined"; any other value is no
-    /// DECLKD and the string is refused whole, as DECUDK's `OTHERWISE
-    /// VALID_UDK_SYNTAX:= FALSE` (070-11). Each definition is "Key
-    /// selection code n, slash delimiter (2/15), and string parameter n for
-    /// down and up key transitions. Kyn is a single ASCII digit, and
+    /// DECLKD and the string is refused whole, as DECUDK's
+    /// `OTHERWISE VALID_UDK_SYNTAX:= FALSE` (070-11). Each definition is
+    /// "Key selection code n, slash delimiter (2/15), and string parameter
+    /// n for down and up key transitions. Kyn is a single ASCII digit, and
     /// Std/Stu is a series of ASCII hex pairs. If Std or Stu is omitted,
     /// the corresponding button string will be empty", separated by `;`.
-    /// Read as DECUDK's loading reads its definitions (070-11 FILL_KEYS),
-    /// all three decided by Jev: a key other than 1 to 4 skips its
-    /// definition (SKIP_DEFINITION, 0.96 and 0.94); a hex pair broken or a
+    /// Read as DECUDK's loading reads its definitions (070-11 FILL_KEYS): a
+    /// key other than 1 to 4 skips its definition; a hex pair broken or a
     /// character that is no hex digit stops the rest of the string, the
-    /// definitions before it kept (STOP, 0.96 and 0.98); a string past six
-    /// bytes is not stored -- the key keeps what the clear left it -- and
-    /// the rest of the string is ignored (UDK_OVERFLOW, 0.92 and 0.94).
-    /// Each refusal is counted.
+    /// definitions before it kept; a string past six bytes is not stored --
+    /// the key keeps what the clear left it -- and the rest of the string
+    /// is ignored (UDK_OVERFLOW, 0.92 and 0.94). Each refusal is counted.
     pub fn end(&mut self, body: &[u8]) {
         match self.pc {
             0 => self.defs = [KeyDef::EMPTY; 8],

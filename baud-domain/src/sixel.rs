@@ -75,8 +75,8 @@ pub enum SixelFit {
 /// **preserved where it is not a whole number** by varying the rows each
 /// sixel row takes.
 ///
-/// `[[source: dec-std-070]]` 070-9 §7.1's table (PDF p. 918): `P1` omitted,
-/// 0, 1 and 5 are 200:100, 2 is 450:100, 3 300:100, 4 250:100, 6 150:100, 7
+/// `[[source: dec-std-070]]` 070-9 §7.1's table (PDF p. 918): `P1` omitted, 0,
+/// 1 and 5 are 200:100, 2 is 450:100, 3 300:100, 4 250:100, 6 150:100, 7
 /// 130:100, 8 112:100 and 9 100:100; a raster command `"Pan;Pad` before any
 /// data overrides it ([`Sixel::decode`]). §12 lets a device fall back from a
 /// grid it cannot image but says "The pixel aspect ratio should be preserved
@@ -86,16 +86,16 @@ pub enum SixelFit {
 /// 4.5:1 takes rows of 5 and 4 in turn and every `P1` ratio repeats within 30.
 /// The VT330/VT340 manual's column rounds each to a whole number, 5, 3, 2, 1
 /// and 1 ("The VT300 rounds the pixel aspect ratio to the nearest integer"),
-/// that terminal's own fallback. Jev, PRESERVE, 0.97/0.98 (2026-10-23).
+/// that terminal's own fallback; the ratio is preserved here (since
+/// 2026-10-23).
 ///
 /// **A ratio below one is drawn 1:1**: a row shorter than a device row is
 /// "less than the smallest imageable unit of the device", which §12 then
-/// images at that unit (Jev, CLAMP_ONE, 0.91/0.97). **A `P1` past 9** is
-/// read as omitted, 2:1: 070-3 §3.5.1.3, "unimplemented selective parameter
-/// values of control sequences shall be ignored as if that parameter were
-/// not received" (PDF p. 125), which a DCS introducer is parsed as (Jev,
-/// AS_DEFAULT, 1.00/1.00). Both were drawn 1:1, as was every ratio that is
-/// not whole, until 2026-10-23.
+/// images at that unit. **A `P1` past 9** is read as omitted, 2:1: 070-3
+/// §3.5.1.3, "unimplemented selective parameter values of control sequences
+/// shall be ignored as if that parameter were not received" (PDF p. 125),
+/// which a DCS introducer is parsed as. Both were drawn 1:1, as was every
+/// ratio that is not whole, until 2026-10-23.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SixelAspect {
     num: u16,
@@ -329,8 +329,7 @@ pub enum SixelRegisters {
     /// shared Sixel with that definition. A picture already drawn keeps its
     /// pixels -- they are colours, not register numbers -- which is what
     /// ctlseqs states and no more; recolouring them as a VT340's single
-    /// colour map would is the owner's question (Jev 2026-10-15, CARRY at
-    /// 0.90 and 0.88, one ordering short of the bar).
+    /// colour map would is an open question.
     Shared,
 }
 
@@ -376,15 +375,15 @@ pub enum SixelFill {
     /// `P2` = 1: they stay clear, and what is under the image shows.
     Keep,
     /// `P2` = 0 or 2: they are set to the background ([`Pixel::FILL`]) over
-    /// the raster extent `Ph` by `Pv` when a raster command sends one --
-    /// "The VT300 uses Ph and Pv to erase the background when P2 is set to 0
-    /// or 2" (`[[source: vt3xx-sixel]]` 302-303) -- and otherwise over `w` by
-    /// `h` device pixels from the image's corner, the extent `[[source:
-    /// dec-std-070]]` 070-9 §10 starts a Sixel with, "Distance from current
-    /// ANSI text position to current ANSI right margin" and "to current ANSI
-    /// bottom margin" (PDF p. 926). Zero where the terminal does not know
-    /// its cell size, and the fill then covers the data's reach on that
-    /// side. Decided by Jev 2026-10-12, EXTENT_ELSE_MARGINS, 0.92 and 0.94.
+    /// the raster extent `Ph` by `Pv` when a raster command sends one -- "The
+    /// VT300 uses Ph and Pv to erase the background when P2 is set to 0 or 2"
+    /// (`[[source: vt3xx-sixel]]` 302-303) -- and otherwise over `w` by `h`
+    /// device pixels from the image's corner, the extent
+    /// `[[source: dec-std-070]]` 070-9 §10 starts a Sixel with, "Distance
+    /// from current ANSI text position to current ANSI right margin" and "to
+    /// current ANSI bottom margin" (PDF p. 926). Zero where the terminal does
+    /// not know its cell size, and the fill then covers the data's reach on
+    /// that side.
     ///
     /// `h` is also the rows left to the bottom margin, past which the image
     /// scrolls the screen and the fill goes on, in whole cells of `cell`
@@ -441,9 +440,7 @@ impl Sixel {
     /// **The common byte is decided by one compare**
     /// ([`Sixel::body_byte_is_gl_past_space`]), and the encoding is read only
     /// for `A0-FF`. A fold and two compares on every byte, the first shape,
-    /// retired 16.5% more instructions on `sixel/yazi-walk.raw` (the record,
-    /// "A SPACE in a Sixel body is ignored, and a GR byte is its GL byte under
-    /// ISO 8859-1").
+    /// retired 16.5% more instructions on `sixel/yazi-walk.raw`.
     #[inline]
     pub fn body_byte(enc: InputEncoding, b: StreamByte) -> Option<StreamByte> {
         match b.raw_byte() {

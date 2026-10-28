@@ -7,12 +7,11 @@
 //! level that defines it is the lowest its page's `Levels:` field names, an
 //! `x` there being an extension baud has: "Higher levels, by definition,
 //! support the functionality of lower levels" (070-4 DA, PDF 221), and the
-//! chapters whose fields stop at 2 or 3 predate Level 4 (Jev, LOWEST_ONLY,
-//! 0.90/0.92). A function no DEC level defines -- xterm's, kitty's, one only
-//! ECMA-48 has -- acts at every level (Jev, EVERY_LEVEL, 0.98/0.98), and one
-//! only a DEC terminal's own manual defines is that terminal's level, the
-//! VT510's and VT520's Level 4 (Jev, LEVEL_4, 0.94/0.91), whose DECSCL makes
-//! 62, 63 and 64 one "VT Level 4 mode" (`[[source: vt510-decscl]]`).
+//! chapters whose fields stop at 2 or 3 predate Level 4. A function no DEC
+//! level defines -- xterm's, kitty's, one only ECMA-48 has -- acts at every
+//! level, and one only a DEC terminal's own manual defines is that terminal's
+//! level, the VT510's and VT520's Level 4, whose DECSCL makes 62, 63 and 64
+//! one "VT Level 4 mode" (`[[source: vt510-decscl]]`).
 //!
 //! **A table, built at compile time and indexed at runtime.** [`LEVELS`] has
 //! one row a function, in [`Function`]'s order, and [`Function::introduced`]
@@ -131,7 +130,7 @@ functions! {
     Ss3 "SS3" Since(One), Field(186);
     // "Levels: 2, 3" on their pages, which the VT420's Table 4-1 follows,
     // where 070-3 §3.6.1.1 (PDF 166) lists LS0 to LS3 "in Level 1
-    // operation" (Jev's lean, LEVEL_2, 0.34/0.60).
+    // operation".
     Ls2 "LS2" Since(Two), Field(180);
     Ls3 "LS3" Since(Two), Field(181);
     Ls1r "LS1R" Since(Two), Field(182);
@@ -140,7 +139,7 @@ functions! {
     S7c1t "S7C1T" Since(Two), Field(176);
     S8c1t "S8C1T" Since(Two), Field(177);
     // "Levels: 2X, 3"; its algorithm acts "if (conformance_level > 2)"
-    // (070-3 §3.8.1; Jev's lean, ACT_AT_3_PLUS).
+    // (070-3 §3.8.1).
     Announce "ACS" Since(Three), Overridden(173);
     // Identification, 070-4.
     Da "DA" Since(One), Field(221);
@@ -256,7 +255,7 @@ functions! {
     Sixel "Sixel" Since(One), Ext(4);
     // Appendix D's exceptions, and 070-0A's VT52 entry: its page says "only
     // recognized in Level 1 and Level 2", and its change history A.9.1 "to
-    // allow entry from any conformance level" (Jev's lean, ANY_LEVEL).
+    // allow entry from any conformance level".
     Ris "RIS" Since(One), Exception;
     Decaln "DECALN" Since(One), Exception;
     Decawm "DECAWM" Since(One), Exception;
@@ -264,8 +263,8 @@ functions! {
     // Only a terminal's manual: as the VT420's "Control Functions Ignored in
     // Level 1" (`[[source: vt420-rm]]` Table 4-1) names them or not, the
     // keyboard report at Level 2 and the rest at Level 1, DECSDM and DECGEPM
-    // with Sixel and the printer (Jev's lean, PRODUCT_TABLE, 0.66/0.64);
-    // the VT510's and VT520's controls at Level 4.
+    // with Sixel and the printer; the VT510's and VT520's controls at
+    // Level 4.
     DsrKeyboard "DSR (keyboard)" Since(Two), Manual(Vt220);
     Decbkm "DECBKM" Since(One), Manual(Vt340);
     Decsdm "DECSDM" Since(One), Manual(Vt340);
@@ -547,13 +546,12 @@ impl DecStatus {
 
 impl Charset {
     /// The levels designating this set acts at: SCS's own character-set
-    /// table (070-5 pp. 5-119 and 5-120; Jev's lean, TEXT_TABLE, 0.89/0.98).
-    /// ASCII, DEC Line Drawing and note 4's UK at Level 1, and the NRC sets,
-    /// Table 1's extension 9 ("1-4") and DECNRCM's "1x", as the VT340 and
-    /// VT420 have them (Jev's lean, LEVEL_1, 0.84/0.82); "if (conformance
-    /// level >= LEVEL 2)" DEC Supplemental, under `<` and `% 5`; ISO
-    /// Latin-1 Supplemental at Level 2 as 070-4's implicit 8-bit extension
-    /// there; the Technical set from Level 2, Table 1's extension
+    /// table (070-5 pp. 5-119 and 5-120). ASCII, DEC Line Drawing and note
+    /// 4's UK at Level 1, and the NRC sets, Table 1's extension 9 ("1-4")
+    /// and DECNRCM's "1x", as the VT340 and VT420 have them; "if
+    /// (conformance level >= LEVEL 2)" DEC Supplemental, under `<` and
+    /// `% 5`; ISO Latin-1 Supplemental at Level 2 as 070-4's implicit 8-bit
+    /// extension there; the Technical set from Level 2, Table 1's extension
     /// 15 ("2-4"); JIS-Roman and Katakana at Level 1, extension 5 ("1-3");
     /// the VT500's sets at Level 4. A final no text lists acts as ever.
     pub fn introduced(self) -> Introduced {
@@ -581,12 +579,11 @@ impl GSlot {
     }
 }
 
-/// An SGR parameter's levels, by the value that starts it (070-5 SGR,
-/// pp. 5-103 to 5-106): colour is §5.6.3's Color Text extension, which "may
-/// be provided at Level 2 or higher", and 22, 24, 25, 27 and 28 act from
-/// Level 2, as the algorithm's "if (conformance level == LEVEL_2)" and the
-/// VT520's Table 5-15 have them (Jev's lean, COLOUR_AND_OFFS_AT_2,
-/// 0.89/0.95). The rest are Level 1's or no DEC level's.
+/// An SGR parameter's levels, by the value that starts it (070-5 SGR, pp.
+/// 5-103 to 5-106): colour is §5.6.3's Color Text extension, which "may be
+/// provided at Level 2 or higher", and 22, 24, 25, 27 and 28 act from Level
+/// 2, as the algorithm's "if (conformance level == LEVEL_2)" and the
+/// VT520's Table 5-15 have them. The rest are Level 1's or no DEC level's.
 pub fn sgr_introduced(v: u16) -> Introduced {
     match v {
         22 | 24 | 25 | 27 | 28 | 30..=39 | 40..=49 | 58 | 59 | 90..=97 | 100..=107 => Since(Two),

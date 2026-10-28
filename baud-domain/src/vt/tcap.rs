@@ -10,16 +10,15 @@
 //! name (one not found in xterm's tables) ends processing of the list".
 //!
 //! **The names are xterm's table**, `[[source: xterm-xtermcap-c]]` 70-244,
-//! compiled into `tcap_data.rs` by
-//! `scripts/gen-tcap-table.py` and indexed at build time: a request costs a
-//! hash and at most [`TCAP_PROBES`] compares, never a walk of the table.
-//! **A key's value is what baud's key sends now**: the row's key and
-//! modifiers through [`encode_key`] under the live [`KeyState`], the press
-//! xterm simulates through `Input()` (`[[source: xterm-misc]]` 5227-5232). A
-//! key that sends nothing in that state -- one baud has no code for, F21-F35
-//! before a kitty flag, any key under KAM -- answers the empty string and
-//! the list goes on, xterm's own answer for Undo, Clear and every key under
-//! KAM (note AM, section 3; Jev's lean VALID_EMPTY, 0.80/0.88).
+//! compiled into `tcap_data.rs` by `scripts/gen-tcap-table.py` and indexed
+//! at build time: a request costs a hash and at most [`TCAP_PROBES`]
+//! compares, never a walk of the table. **A key's value is what baud's key
+//! sends now**: the row's key and modifiers through [`encode_key`] under the
+//! live [`KeyState`], the press xterm simulates through `Input()`
+//! (`[[source: xterm-misc]]` 5227-5232). A key that sends nothing in that
+//! state -- one baud has no code for, F21-F35 before a kitty flag, any key
+//! under KAM -- answers the empty string and the list goes on, xterm's own
+//! answer for Undo, Clear and every key under KAM (note AM, section 3).
 
 use super::tcap_data::{MUL, ROWS};
 use crate::*;
@@ -325,9 +324,9 @@ impl Put<'_> {
 /// reply is a wrong answer.
 ///
 /// One response, `DCS 1 + r n1=v1;n2=v2 ST`, ending at the first name
-/// refused, without the `;` before it; `DCS 0 + r ST` when the first is
-/// (Jev, R1, 0.90/0.92). A name is echoed as it was sent, in either case,
-/// as xterm copies the request's bytes.
+/// refused, without the `;` before it; `DCS 0 + r ST` when the first is.
+/// A name is echoed as it was sent, in either case, as xterm copies the
+/// request's bytes.
 pub fn encode_tcap_reply(
     list: &[u8],
     c1: C1Transmit,

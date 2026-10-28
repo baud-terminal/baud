@@ -1,10 +1,10 @@
 //! What a program's page-width request does to the window: the policy, pure,
 //! so its tests run on every platform.
 //!
-//! **The owner's call of 2026-10-13, "xterm's ?40 gate (Recommended)"**: the
-//! core acts on `?3` only while `?40` allows it, and asks for the width it
-//! selects -- 132 or 80 -- as it does for DECSCPP, and `RIS` after a request
-//! asks back for the width the window had before it (`Term::requested_width`). The window is the driver's, so the driver
+//! **xterm's `?40` gate**: the core acts on `?3` only while `?40` allows it,
+//! and asks for the width it selects -- 132 or 80 -- as it does for DECSCPP,
+//! and `RIS` after a request asks back for the width the window had before
+//! it (`Term::requested_width`). The window is the driver's, so the driver
 //! decides: the macOS window takes the columns and keeps its rows; a grid
 //! `BAUD_GRID` pinned for a benchmark stays, and so does the Linux driver's,
 //! which has no window it resizes. Each refusal warns once, by its reason.

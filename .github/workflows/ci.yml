@@ -205,7 +205,7 @@ jobs:
       #
       # This comment used to say `baud-core` had no ISA code, that nothing
       # depended on `baud-isa-x86-64` or `baud-isa-aarch64` or tested either,
-      # and that wiring them in waited on the owner. All four are stale:
+      # and that wiring them in was still to be done. All four are stale:
       # `baud-core`'s default `neon-scan` and its off-by-default `avx2-scan`
       # call `Neon::run`, `Neon::stride_three` and `Avx2::run` through safe
       # wrappers under `#![forbid(unsafe_code)]` (`baud-core/Cargo.toml`), and

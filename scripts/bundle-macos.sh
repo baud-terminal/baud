@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-# The owner's scheme is 1.0.0-beta.N. CFBundleShortVersionString is "three
+# The version scheme is 1.0.0-beta.N. CFBundleShortVersionString is "three
 # period-separated integers ... only numeric characters (0-9) and periods"
 # (Apple, [[source: apple-cfbundleshortversionstring]]), so it takes the
 # version less its pre-release part; any other shape stops the bundle here
@@ -29,10 +29,10 @@ else
   exit 1
 fi
 # CFBundleVersion is the counter committed beside the plist, raised by hand
-# for each release (the owner, 2026-10-17), so a build with no .git -- nix,
-# a source tarball -- writes the same number. Apple allows "one to three
-# period-separated integers" ([[source: apple-cfbundleversion]]); anything
-# else stops the bundle here.
+# for each release, so a build with no .git -- nix, a source tarball --
+# writes the same number. Apple allows "one to three period-separated
+# integers" ([[source: apple-cfbundleversion]]); anything else stops the
+# bundle here.
 BUILD_NUMBER=$(cat packaging/macos/build-number)
 if ! [[ $BUILD_NUMBER =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
   echo "packaging/macos/build-number \"$BUILD_NUMBER\" is not one to three integers" >&2

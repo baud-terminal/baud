@@ -1,8 +1,8 @@
 //! XTWINOPS's window operations, `CSI 1 t` to `CSI 10 t`, and DECSLPP,
 //! `CSI Ps t` with `Ps` 24 and up (`[[source: ctlseqs]]`, "Window
 //! manipulation (XTWINOPS)"): queued for the embedder, which has the
-//! window, on by default (the owner's call of 2026-10-19, option 4), and
-//! refused and counted while the embedder has them off.
+//! window, on by default, and refused and counted while the embedder has
+//! them off.
 
 #[path = "support/mod.rs"]
 mod support;

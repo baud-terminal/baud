@@ -97,15 +97,15 @@ pub enum Axis {
 /// **The one axis an event scrolls along: the larger of its two deltas**,
 /// the vertical on a tie. AppKit's scroll views do it by default, "Some
 /// content is scrollable in both the horizontal and vertical axes, but is
-/// predominantly scrolled one axis at a time ... With scroll balls and
-/// touch surfaces, it becomes more difficult to determine the user's
-/// intention" (`usesPredominantAxisScrolling`, default true,
+/// predominantly scrolled one axis at a time ... With scroll balls and touch
+/// surfaces, it becomes more difficult to determine the user's intention"
+/// (`usesPredominantAxisScrolling`, default true,
 /// `[[source: apple-nsscrollview-usespredominantaxisscrolling]]`); alacritty
-/// keeps one axis of a trackpad's deltas too (`[[source:
-/// alacritty-0151-input-mod]]`). Without it a vertical swipe's small
-/// sideways deltas reach a program tracking the mouse as buttons 6 and 7.
-/// Jev, PREDOMINANT, 0.92 and 0.96. Per event, since the event names no
-/// gesture to latch an axis to; a wheel's event has one axis anyway.
+/// keeps one axis of a trackpad's deltas too
+/// (`[[source: alacritty-0151-input-mod]]`). Without it a vertical swipe's
+/// small sideways deltas reach a program tracking the mouse as buttons 6
+/// and 7. Per event, since the event names no gesture to latch an axis to; a
+/// wheel's event has one axis anyway.
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub fn predominant(dx: f64, dy: f64) -> Axis {
     match dx.abs() > dy.abs() {
@@ -146,30 +146,28 @@ pub enum Route {
 /// holds, the wheel's 4 and 5 included, to its own `scroll-back` and
 /// `scroll-forw` (`[[source: xterm-button-c]]`): the wheel is then the
 /// screen's, as it is with no tracking. Under `CSI > 1 s` the wheel binds
-/// no selection, so it stays the program's, its Shift bit sent (Jev's
-/// leans, OVERRIDE 0.78/0.94 on the second ask and SELECTION_BUTTONS
-/// 0.80/0.88 then 0.78/0.78).
+/// no selection, so it stays the program's, its Shift bit sent.
 ///
 /// **DEC's locator takes no wheel**: 070-13 gives it four buttons and no
-/// wheel, so under DECELR the wheel is the screen's, as with no tracking
-/// (Jev's lean, AS_UNTRACKED, 0.73/0.77 then 0.53/0.38). xterm reports X's
-/// buttons 4 and 5, its wheel, as the fourth button's down and as event
-/// 10, "outside filter rectangle" (`SendLocatorPosition`, `[[source:
-/// xterm-button-c]]`), a numbering artifact not followed.
+/// wheel, so under DECELR the wheel is the screen's, as with no tracking.
+/// xterm reports X's buttons 4 and 5, its wheel, as the fourth button's
+/// down and as event 10, "outside filter rectangle"
+/// (`SendLocatorPosition`, `[[source: xterm-button-c]]`), a numbering
+/// artifact not followed.
 pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
     route_on(term, mods, Axis::Vertical)
 }
 
 /// [`route`] for a wheel along `axis`. **Across, only a program tracking
-/// the mouse takes it**, as buttons 6 and 7; otherwise it does nothing,
-/// on either screen: ctlseqs' Alternate Scroll sends "cursor up/down
+/// the mouse takes it**, as buttons 6 and 7; otherwise it does nothing, on
+/// either screen: ctlseqs' Alternate Scroll sends "cursor up/down
 /// controls" and nothing for the columns, xterm binds nothing to buttons 6
 /// and 7 and foot nothing to `BTN_WHEEL_LEFT` and `BTN_WHEEL_RIGHT` by
 /// default, and the history has no columns to move across. alacritty sends
-/// cursor left and right on the alternate screen, practice not followed
-/// (Jev's lean, NOTHING, 0.86 and 0.92). Shift's override takes it as it
-/// takes the vertical wheel, so Shift with a mouse wheel, which macOS
-/// gives as a sideways scroll, reaches the program only under `CSI > 1 s`.
+/// cursor left and right on the alternate screen, practice not followed.
+/// Shift's override takes it as it takes the vertical wheel, so Shift with
+/// a mouse wheel, which macOS gives as a sideways scroll, reaches the
+/// program only under `CSI > 1 s`.
 pub fn route_on(term: &Term<'_>, mods: MouseMods, axis: Axis) -> Route {
     let shifted = mods.has(MouseMods::SHIFT) && term.shift_escape() == ShiftEscape::Override;
     let tracked = !matches!(

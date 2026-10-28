@@ -3,12 +3,12 @@
 //! `missing_mark.rs` is the bug: a cluster's face was picked from its base
 //! alone, and a mark that face lacks became a `.notdef` that JetBrains Mono
 //! classes as a base with a full advance, so the box drew one cell right and
-//! every later mark landed over it. These pin the rule that replaced it
-//! (Jev, 0.99): a marked cell is drawn from the first face, its base's face
-//! and then the chain, that has the letter and every mark after the
-//! shaper's normalisation; when none has, its base's face draws it and the
-//! marks it lacks are dropped and counted. A default-ignorable -- a joiner,
-//! a variation selector -- is never a mark a face must have.
+//! every later mark landed over it. These pin the rule that replaced it: a
+//! marked cell is drawn from the first face, its base's face and then the
+//! chain, that has the letter and every mark after the shaper's
+//! normalisation; when none has, its base's face draws it and the marks it
+//! lacks are dropped and counted. A default-ignorable -- a joiner, a
+//! variation selector -- is never a mark a face must have.
 //!
 //! The fonts: JetBrains Mono lacks U+0305, U+0316; Fira Code lacks U+0309,
 //! U+0316; each test asserts the premise it rests on.

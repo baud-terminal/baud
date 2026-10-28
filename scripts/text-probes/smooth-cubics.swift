@@ -6,7 +6,7 @@
 // the flattening rule baud reproduces (halve a cubic while 3/4 of the max-norm of its second
 // differences exceeds 0.2 device px). These are cubic paths -- circles of four arcs and closed
 // blobs of random cubics, at fractional positions, and blobs left open for the fill to close -- filled by CoreGraphics at flatness 1, which
-// is how CoreText fills a glyph (`scratchpad/flatten3`: CTFontDrawGlyphs == a fill at flatness 1,
+// is how CoreText fills a glyph (CTFontDrawGlyphs draws what a fill at flatness 1 draws, at
 // 11-128 px). Deterministic: a fixed-seed generator, no font.
 //
 // File, little-endian: "BCUB" | u16 version=1 | u16 shape count

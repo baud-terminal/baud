@@ -240,13 +240,13 @@ fn kitty_row(row: &str) -> (String, &str, Option<&str>, Option<&str>) {
     (f[..n - cols].join("\t"), f[n - cols], case, go)
 }
 
-/// **Every value reads as kitty reads it**, on the 2849 the oracle ran:
-/// all 753 names in three cases, every `#` and `rgb:` form, and `oklch(` and
+/// **Every value reads as kitty reads it**, on the 2849 the oracle ran: all
+/// 753 names in three cases, every `#` and `rgb:` form, and `oklch(` and
 /// `lab(` with each number form C's `strtod` takes or refuses. A value kitty
 /// refuses skips its line; a name resolves; an `oklch(` or `lab(` kitty
-/// reads is drawn by the owner's call on note AR's O14: black or white at an
-/// edge, a grey and a colour inside sRGB as kitty's terminal draws them, a
-/// colour outside sRGB as kitty's Go code does -- byte for byte.
+/// reads is drawn as note AR's O14 has it: black or white at an edge, a grey
+/// and a colour inside sRGB as kitty's terminal draws them, a colour outside
+/// sRGB as kitty's Go code does -- byte for byte.
 #[test]
 fn every_value_reads_as_kittys_own_parser_reads_it() {
     let mut n = 0;

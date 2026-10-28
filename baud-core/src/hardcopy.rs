@@ -5,20 +5,19 @@
 //! § 7.8.1, "Graphics Print Screen" and "Graphics Print Region", invoked
 //! "by the host through the ReGIS hardcopy command").
 //!
-//! **The visible image is text and pictures** (Jev, VISIBLE_IMAGE,
-//! 0.98/0.98): the VT340's one bit map holds both, and its own dump shows
-//! the shell's prompt beside a Sixel (`[[source:
-//! vt340test-background-select-2-png]]`). Each cell's background, its
-//! character drawn by the embedder's face at the cell's size -- the face
-//! ReGIS's built-in alphabet uses (`Term::set_regis_font`), a pixel half
-//! covered or more set -- in its foreground, an underline along its last
-//! pixel row, and over them the Sixel images and the ReGIS page, in their
-//! drawing order. Reverse video swaps a cell's colours, and an invisible
-//! character is not drawn. kitty's images are not printed.
+//! **The visible image is text and pictures**: the VT340's one bit map
+//! holds both, and its own dump shows the shell's prompt beside a Sixel
+//! (`[[source: vt340test-background-select-2-png]]`). Each cell's
+//! background, its character drawn by the embedder's face at the cell's
+//! size -- the face ReGIS's built-in alphabet uses
+//! (`Term::set_regis_font`), a pixel half covered or more set -- in its
+//! foreground, an underline along its last pixel row, and over them the
+//! Sixel images and the ReGIS page, in their drawing order. Reverse video
+//! swaps a cell's colours, and an invisible character is not drawn.
+//! kitty's images are not printed.
 //!
-//! **A print screen stays text** (Jev's lean, TEXT_ONLY, 0.35/0.28 after a
-//! re-ask): 070-7 § 7.6.2 says its contents "may be transmitted as sixels",
-//! a guideline, and a picture is printed by `S(H)`.
+//! **A print screen stays text**: 070-7 § 7.6.2 says its contents "may be
+//! transmitted as sixels", a guideline, and a picture is printed by `S(H)`.
 //!
 //! **The dump is built in the print area**: the job writes from its front,
 //! and the characters' pixels, a bit each, and one band of the dump are
@@ -154,9 +153,8 @@ impl Visible<'_, '_, '_> {
     /// written misses, and one written with index 0 is clear, "no bits set
     /// in any plane" (070-7 § 7.8.2.1), and covers the text, as the page
     /// shows its colour over it. A page left behind keeps no plane, so a
-    /// pixel of it showing index 0's colour is taken for index 0 (Jev's
-    /// lean, COLOUR_MATCH, 0.23/0.53 after a re-ask). Magnified, a page
-    /// pixel reads the plane pixel `S(S)` shows there.
+    /// pixel of it showing index 0's colour is taken for index 0.
+    /// Magnified, a page pixel reads the plane pixel `S(S)` shows there.
     fn picture_at(&self, at: PagePx) -> Hit {
         let PagePx { x: gx, y: gy } = at;
         let imgs = &*self.paint.images;

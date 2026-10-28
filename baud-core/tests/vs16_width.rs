@@ -1,13 +1,12 @@
-//! **A `U+FE0F` makes its base two cells wide** (owner, 2026-10-01).
+//! **A `U+FE0F` makes its base two cells wide.**
 //!
 //! `DECRQM ?2027` answered 3 -- permanently set -- while a text-default emoji
-//! and its `U+FE0F` stayed one cell, which is a wrong answer to a query. The
-//! owner chose two cells, the width tmux 3.6+, fish, macOS bash, helix and
-//! lipgloss assume: the base widens when `[[source:
-//! emoji-variation-sequences]]` lists it with an emoji-style sequence, keycap
-//! bases excepted, in place when the row has room and moved whole to the next
-//! row at the right margin, as ghostty does. A configuration keeps one cell,
-//! and then `?2027` answers 4.
+//! and its `U+FE0F` stayed one cell, which is a wrong answer to a query. baud
+//! takes two cells, the width tmux 3.6+, fish, macOS bash, helix and lipgloss
+//! assume: the base widens when `[[source: emoji-variation-sequences]]` lists
+//! it with an emoji-style sequence, keycap bases excepted, in place when the
+//! row has room and moved whole to the next row at the right margin, as
+//! ghostty does. A configuration keeps one cell, and then `?2027` answers 4.
 //!
 //! Every test feeds at read sizes 1, 2, 3 and whole, because the widen happens
 //! on the codepoint *after* the base, which a read boundary can separate.

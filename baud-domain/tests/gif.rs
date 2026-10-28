@@ -251,8 +251,8 @@ fn a_full_table_decodes_with_and_without_a_clear() {
 }
 
 /// **"The Background Color is the color used for those pixels on the
-/// screen that are not covered by an image"**, and disposal 2 restores it
-/// (Jev's lean, SPEC_BACKGROUND); with no global table it is clear.
+/// screen that are not covered by an image"**, and disposal 2 restores
+/// it; with no global table it is clear.
 #[test]
 fn the_background_colour_shows_where_no_image_covers() {
     let one = |x, y, v, gce| Img {
@@ -420,8 +420,7 @@ fn a_zero_delay_composites_and_all_zero_is_a_still() {
 }
 
 /// **The loop count**: NETSCAPE2.0's 0 for ever, `n` plays `n + 1`
-/// times, and with no such block the stream plays once (Jev,
-/// NETSCAPE_COUNT).
+/// times, and with no such block the stream plays once.
 #[test]
 fn the_loop_count_is_netscapes() {
     let im = Img {

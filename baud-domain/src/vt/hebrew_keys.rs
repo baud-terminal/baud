@@ -2,22 +2,21 @@
 //! "This control function sets the keyboard mapping to Hebrew/N-A and
 //! resets the mapping to North American."
 //!
-//! **Group 2 is the standard Israeli layout, by the key's place** (Jev's
-//! lean, STANDARD_LAYOUT, 0.88/0.83 asked again): DEC's own Hebrew key
-//! legends are figures, so a key the platform's layout typed its unshifted
-//! character on sends the letter SI-1452's first level puts on that
-//! physical key, as xkeyboard-config's `il` layout transcribes it
-//! (`[[source: xkb-symbols-il-2ec770a]]`, "an implemetation of the Israeli
-//! standard SI-1452 (2013)"). The key is named by its place on the US
-//! layout, which both apps give each key event. With Shift a key types
-//! SI-1452's second level, the US layout's but for six keys, which type
-//! their mirror: `(` and `)`, `{` and `}`, `<` and `>`, each the other.
+//! **Group 2 is the standard Israeli layout, by the key's place**: DEC's
+//! own Hebrew key legends are figures, so a key the platform's layout
+//! typed its unshifted character on sends the letter SI-1452's first level
+//! puts on that physical key, as xkeyboard-config's `il` layout
+//! transcribes it (`[[source: xkb-symbols-il-2ec770a]]`, "an implemetation
+//! of the Israeli standard SI-1452 (2013)"). The key is named by its place
+//! on the US layout, which both apps give each key event. With Shift a key
+//! types SI-1452's second level, the US layout's but for six keys, which
+//! type their mirror: `(` and `)`, `{` and `}`, `<` and `>`, each the
+//! other.
 //!
 //! **Only with a Hebrew keyboard**: "DECHEBM is only valid when a Hebrew
 //! keyboard language is selected", and baud's keyboard is the system's, so
 //! the embedder says whether the system has a Hebrew layout enabled
-//! ([`HebrewLayout`]; Jev's lean, EMBEDDER_SAYS, the orders apart, by mean
-//! probability 0.40 against 0.37).
+//! ([`HebrewLayout`]).
 
 use crate::*;
 

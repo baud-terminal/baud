@@ -228,9 +228,8 @@ impl FillChar {
         (self.0 < 0x80).then(|| StreamByte::from_stream(self.0))
     }
     /// The character a GR value, `160-255`, names: the Latin-1 supplement,
-    /// U+00A0 + (Pch - 160), under either input encoding (decided by Jev
-    /// 2026-10-18, LATIN1, 0.92 and 0.98): it is the GR set of an ISO 8859-1
-    /// terminal, and under UTF-8 the same characters.
+    /// U+00A0 + (Pch - 160), under either input encoding: it is the GR set
+    /// of an ISO 8859-1 terminal, and under UTF-8 the same characters.
     pub fn gr(self) -> Option<Codepoint> {
         (self.0 >= 0xa0).then(|| Codepoint(u32::from(self.0)))
     }
@@ -304,14 +303,14 @@ impl Attrs {
 
     /// One DECCARA parameter applied, or `None` for a value it ignores.
     ///
-    /// **Each does what its SGR namesake does** (Jev 2026-10-18, AS_SGR,
-    /// 0.70 and 0.88, the lean taken): "These parameters correspond to the
-    /// parameters of the Set Graphic Rendition control function (SGR)", so
-    /// 22 clears faint too, 24 every underline style and 25 both blinks, and
-    /// 4 and 5 replace their families. 0 is "Attributes off (normal
-    /// intensity, positive image, not underlined, not blinking)" and nothing
-    /// more: not SGR 0, which would reset the colours. "All other parameter
-    /// values shall be ignored" -- 8 and 28 too, xterm's extension.
+    /// **Each does what its SGR namesake does**: "These parameters
+    /// correspond to the parameters of the Set Graphic Rendition control
+    /// function (SGR)", so 22 clears faint too, 24 every underline style and
+    /// 25 both blinks, and 4 and 5 replace their families. 0 is "Attributes
+    /// off (normal intensity, positive image, not underlined, not blinking)"
+    /// and nothing more: not SGR 0, which would reset the colours. "All
+    /// other parameter values shall be ignored" -- 8 and 28 too, xterm's
+    /// extension.
     pub fn changed_by(self, p: Param) -> Option<Attrs> {
         Some(match p.0 {
             0 => self.without(Attrs::AREA),
@@ -367,7 +366,7 @@ pub enum AreaAttrs {
     /// no default ... if no valid subsequent parameter is received, the
     /// command is ignored" (`[[source: dec-std-070]]` p. 5-176), against the
     /// VT420 and VT510 manuals' "0 Reverse all attributes (default)": the
-    /// standard, decided by Jev 2026-10-18 (IGNORE, 0.94 and 0.98).
+    /// standard is followed.
     Reverse,
 }
 
@@ -418,8 +417,8 @@ impl AreaAttrs {
 /// **Bits 0 to 4, the ones ctlseqs lists; any higher bit is ignored**, as
 /// xterm's code reads only those five (`[[source: xterm-ptyx-h]]`
 /// 490-495). The manual adds a bit 5, "do not mask cell value to 7 bits",
-/// which ctlseqs and the code lack (Jev's lean, IGNORE_HIGH, 0.02/0.30
-/// after a second ask). A bare `CSI # y` is 0, xterm's `zero_if_default`.
+/// which ctlseqs and the code lack. A bare `CSI # y` is 0, xterm's
+/// `zero_if_default`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ChecksumExtension(u8);
 
@@ -456,19 +455,18 @@ impl ChecksumExtension {
     }
 
     /// **Whether an unwritten cell counts, as a space**: under bit 2, the
-    /// blanks, unless bit 3 omits it, as ctlseqs has bit 3 (Jev's lean,
-    /// TEXT, 0.92/0.82 and 0.90/0.72 after a second ask). xterm's code reads
-    /// bit 3 the other way, "do not skip uninitialized cells" (`csDRAWN`,
-    /// `[[source: xterm-ptyx-h]]`), and counts such a cell under either
-    /// bit where it passes its trim (`xtermCheckRect`, `[[source:
-    /// xterm-screen]]`): its departure from its own text.
+    /// blanks, unless bit 3 omits it, as ctlseqs has bit 3. xterm's code
+    /// reads bit 3 the other way, "do not skip uninitialized cells"
+    /// (`csDRAWN`, `[[source: xterm-ptyx-h]]`), and counts such a cell under
+    /// either bit where it passes its trim (`xtermCheckRect`,
+    /// `[[source: xterm-screen]]`): its departure from its own text.
     fn counts_unwritten(self) -> bool {
         self.has(ChecksumExtension::BLANKS) && !self.has(ChecksumExtension::OMIT_UNWRITTEN)
     }
 
     /// **Whether combining marks count**: under bit 2 and not bit 4, as
-    /// xterm's `xtermCheckRect` adds them (Jev, CODE, 0.94/0.98), where
-    /// ctlseqs' bit 4 reads "or ignore combining characters".
+    /// xterm's `xtermCheckRect` adds them, where ctlseqs' bit 4 reads
+    /// "or ignore combining characters".
     pub fn counts_marks(self) -> bool {
         self.has(ChecksumExtension::BLANKS) && !self.has(ChecksumExtension::FULL_CODES)
     }
@@ -479,18 +477,17 @@ impl ChecksumExtension {
 /// **No DEC text defines the algorithm**: DEC STD 070 asks for "a checksum"
 /// in "four hexadecimal digits" (pp. 5-179, 5-181) and the VT420 and VT510
 /// references say no more. This is xterm's `csDEC` mode
-/// (`[[source: xterm-screen]]`, `xtermCheckRect`), the one vttest's
-/// expected values agree with: each written cell's 8-bit code plus 0x80 for
-/// bold, 0x40 blink, 0x20 reverse, 0x10 underline, 0x08 invisible and 0x04
+/// (`[[source: xterm-screen]]`, `xtermCheckRect`), the one vttest's expected
+/// values agree with: each written cell's 8-bit code plus 0x80 for bold,
+/// 0x40 blink, 0x20 reverse, 0x10 underline, 0x08 invisible and 0x04
 /// protected; an unwritten cell counted not at all; the sum negated, sixteen
 /// bits. A written space counts like any other character: xterm sets
 /// `CHARDRAWN` on every cell it writes, and its trim test passes any cell
 /// carrying that bit. baud's extra aspects are weighted by family: any
 /// underline style adds 0x10 and either blink 0x40, where xterm's `csDEC`
-/// adds 0x10 only for its single-underline bit (SGR 21 sets
-/// `ATR_DBL_UNDER`, which it does not count). Answering at all is
-/// Jev's lean of 2026-10-18 (ANSWER_ALWAYS, 0.49 against 0.47 for an
-/// embedder opt-in, after a second ask).
+/// adds 0x10 only for its single-underline bit (SGR 21 sets `ATR_DBL_UNDER`,
+/// which it does not count). It is always answered, rather than behind an
+/// embedder's opt-in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Checksum {
     sum: u16,
@@ -540,38 +537,33 @@ impl Checksum {
     /// Special Graphics, and for one a national set replaced ([`nrcs_byte`];
     /// German's `Ä` counts `[`, 0x5B, as xterm's `charSeen` does), else the
     /// codepoint up to U+00FF, and 0x1B, the value xterm's `xtermCharSetDec`
-    /// gives, for anything above. Both decided by Jev 2026-10-19 on a second
-    /// ask, CODE_RECEIVED, line drawing 0.98 and 0.96 and the national sets
-    /// 0.98 and 0.98; xterm counts its own internal codes for line drawing.
-    /// The UK set's `£` counts 0xA3, its codepoint's, as xterm special-cases
-    /// it (Jev's lean, 0.52 and 0.44, taken). A wide character's tail is not
-    /// a character and is not counted. Nor is a combining mark: xterm's
-    /// `xtermCheckRect` adds marks only to the total its `csNOTRIM`
-    /// extension reports, so its default `csDEC` sum leaves them out too
-    /// (Jev, LEFT_OUT, 1.00 and 0.97, 2026-10-19).
+    /// gives, for anything above. Both count the code received; xterm counts
+    /// its own internal codes for line drawing. The UK set's `£` counts
+    /// 0xA3, its codepoint's, as xterm special-cases it. A wide character's
+    /// tail is not a character and is not counted. Nor is a combining mark:
+    /// xterm's `xtermCheckRect` adds marks only to the total its `csNOTRIM`
+    /// extension reports, so its default `csDEC` sum leaves them out too.
     ///
     /// **Every set that replaces a code is read back through the cell's
     /// tag** ([`CellFlags::received`]): line drawing, the national sets,
     /// DEC Supplemental, JIS-Katakana and JIS-Roman, so Supplemental's `W`
-    /// drawn `Œ` counts 0x57 and JIS-Katakana's `1` drawn U+FF71 0x31
-    /// (Jev's lean, CODE_RECEIVED, 0.70 and 0.86 after a second ask).
+    /// drawn `Œ` counts 0x57 and JIS-Katakana's `1` drawn U+FF71 0x31.
     /// **Open**: a reserved DEC Supplemental position counts DEC's error
     /// character, 0x1B, as xterm's `unmap_DEC_Supp_Graphic` does, where
     /// CODE_RECEIVED would count the code sent; the cell does not keep it.
-    /// A character sent as UTF-8 carries no tag and counts itself
-    /// under line drawing too, a UTF-8 `─` 0x1B, though its cell keeps the
-    /// line-drawing flag (note AE, Q16(a); Jev's lean, OWN_VALUE, 0.82 and
-    /// 0.94 after a second ask), as xterm's `charSeen` counts it.
+    /// A character sent as UTF-8 carries no tag and counts itself under
+    /// line drawing too, a UTF-8 `─` 0x1B, though its cell keeps the
+    /// line-drawing flag (note AE, Q16(a)), as xterm's `charSeen` counts
+    /// it.
     ///
     /// **Under XTCHECKSUM**: an unwritten cell counts as a space where
     /// [`ChecksumExtension::counts_unwritten`] says; bit 4 counts a written
     /// cell's whole code point, to sixteen bits, as xterm's `csBYTE` takes
     /// `charData` (a DEC Special Graphics cell its Unicode value, which is
     /// what the cell holds), and U+FFF0 to U+FFFF count as themselves where
-    /// xterm's `is_UCS_SPECIAL` skips them (Jev's lean, COUNT, 0.30/0.00,
-    /// then split on a second ask): baud keeps a wide character's tail,
-    /// the marker that test exists for, apart and skips it. Bit 1 leaves the
-    /// weights out.
+    /// xterm's `is_UCS_SPECIAL` skips them: baud keeps a wide character's
+    /// tail, the marker that test exists for, apart and skips it. Bit 1
+    /// leaves the weights out.
     pub fn add(&mut self, base: Content, flags: CellFlags, attrs: Attrs) {
         if base.is_wide_tail() {
             return;

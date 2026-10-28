@@ -4,11 +4,11 @@
 //! `[[source: contour-palette-notifications]]` specifies the query and the
 //! report -- `CSI ? 997 ; 1 n` for dark, `CSI ? 997 ; 2 n` for light, and
 //! nothing else -- and never says how a palette is classified. baud's rule is
-//! the owner's (decision 5 of note Y): **WCAG relative luminance of the
-//! background against the text**, dark when the background is the darker of
-//! the two. kitty and iTerm2 classify the background alone by a luma under
-//! one half; the rules agree on all 602 bundled ghostty themes and differ only
-//! near mid-grey, where the pair is illegible either way (note Y, section 7).
+//! note Y's decision 5: **WCAG relative luminance of the background against
+//! the text**, dark when the background is the darker of the two. kitty and
+//! iTerm2 classify the background alone by a luma under one half; the rules
+//! agree on all 602 bundled ghostty themes and differ only near mid-grey,
+//! where the pair is illegible either way (note Y, section 7).
 
 use crate::ColorWord;
 

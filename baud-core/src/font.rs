@@ -1,6 +1,6 @@
 //! `OSC 50 ; Pt`, "Set Font to Pt", and its `?` query (`[[source: ctlseqs]]`),
-//! out of the OSC dispatch's line: the owner's call of 2026-10-20, option D,
-//! "set and query, on by default, a setting turns changes off".
+//! out of the OSC dispatch's line: set and query, on by default, and a setting
+//! turns changes off.
 //!
 //! **The core has no font.** The embedder tells it the family it draws in
 //! and whether that is at the configured size (`Term::set_font`), and the
@@ -14,10 +14,8 @@
 //! entry 0 is the configured size, `#+n` and `#-n` step the size `n`
 //! points within 6-72, a step past them refused where the View menu's
 //! Bigger and Smaller clamp, and on Linux, which has no size keys, `n` of
-//! the configured pixel size (Jev's lean, SIZE_STEPS, 0.22/0.18 after a
-//! re-ask); entries 1-7 are none; a
-//! query of a relative step names no numbered entry and gets xterm's empty
-//! reply (Jev, EMPTY, 0.91/0.91).
+//! the configured pixel size; entries 1-7 are none; a query of a relative
+//! step names no numbered entry and gets xterm's empty reply.
 
 use baud_domain::{
     ByteLen, FontChanges, FontEntry, FontIndex, FontRequest, FontSize, FontWritten, SizeStep,

@@ -57,12 +57,11 @@ pub(crate) enum Shown {
 /// counts.
 ///
 /// **Not in `Cold`**, whose size is pinned and which the per-glyph write
-/// dereferences: this is written only inside a clipboard string, and
-/// `StrBuf` is reached only through a control string. Moving it here was not
-/// what took `ingest2`'s `cat` back to base, though: with the state in either
-/// struct the per-byte loop was instruction for instruction base's, and the
-/// cost followed the decoder's placement (`Base64::push`; `docs/record.md`,
-/// "OSC 52 writes reach the pasteboard").
+/// dereferences: this is written only inside a clipboard string, and `StrBuf`
+/// is reached only through a control string. Moving it here was not what took
+/// `ingest2`'s `cat` back to base, though: with the state in either struct
+/// the per-byte loop was instruction for instruction base's, and the cost
+/// followed the decoder's placement (`Base64::push`).
 ///
 /// [`StrBuf`]: crate::storage::StrBuf
 #[derive(Clone, Copy)]

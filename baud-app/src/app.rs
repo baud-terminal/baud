@@ -146,11 +146,11 @@ enum Path {
 /// the CPU 15-20 us a frame on every recording; else Metal over the
 /// converted instances; else the CPU. The cell path draws a smaller program
 /// -- no cross-cell ligature and no attached mark, counted by
-/// `MapStats::dropped_marks` at 55 cells a frame on cat-cjk -- and the owner
-/// took that trade for the default (2026-09-13) until the hybrid lands;
-/// `1` asks for the instances and their fidelity, `0` or `cpu` forces the
-/// CPU for a comparison that needs it. A bench pins the path explicitly so
-/// two arms never measure two tiers.
+/// `MapStats::dropped_marks` at 55 cells a frame on cat-cjk -- and that
+/// trade is the default (since 2026-09-13) until the hybrid lands; `1` asks
+/// for the instances and their fidelity, `0` or `cpu` forces the CPU for a
+/// comparison that needs it. A bench pins the path explicitly so two arms
+/// never measure two tiers.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Request {
     Auto,
@@ -2664,12 +2664,12 @@ fn kind_of(key: &KeyPress) -> KeyEventKind {
 /// is always the digit. Linux names them from the keysym NumLock picks.
 ///
 /// `0x47`, `kVK_ANSI_KeypadClear`, is NumLock: the HID usage tables name
-/// the one key "Keypad Num Lock and Clear" (`[[source:
-/// usb-hid-usage-tables-1-6]]`, Keyboard/Keypad page, usage 0x53), and
-/// kitty's macOS layer names it `GLFW_FKEY_NUM_LOCK` (`[[source:
-/// kitty-glfw-cocoa-window-851cb80]]`). It sends nothing on the legacy
-/// layer, as a lock key does, and kitty's `57360` under "report all keys"
-/// (Jev, NUM_LOCK, 0.95/0.96).
+/// the one key "Keypad Num Lock and Clear"
+/// (`[[source: usb-hid-usage-tables-1-6]]`, Keyboard/Keypad page, usage
+/// 0x53), and kitty's macOS layer names it `GLFW_FKEY_NUM_LOCK`
+/// (`[[source: kitty-glfw-cocoa-window-851cb80]]`). It sends nothing on
+/// the legacy layer, as a lock key does, and kitty's `57360` under
+/// "report all keys".
 fn special(key: &KeyPress) -> Option<KeyCode> {
     use baud_domain::KeypadKey as Kp;
     Some(match key.key_code {
@@ -2733,8 +2733,7 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 /// the German layout, `[[source: xkeyboard-config-de-193cc6c]]` line 35),
 /// so it takes line 2498's comma row, `SS3 l` under DECKPAM, and kitty's
 /// `KP_SEPARATOR`. kitty's and iTerm2's macOS layers name it `KP_DECIMAL`
-/// by its code alone. Taken as Jev's lean, `SEPARATOR_BY_TEXT` at
-/// 0.26/0.04 and on a second ask 0.34/0.41, below the bar. U+066B, the
+/// by its code alone; here the key is told by its text. U+066B, the
 /// Arabic decimal separator, and every other character keep it the
 /// decimal key.
 fn decimal(key: &KeyPress) -> baud_domain::KeypadKey {
@@ -2953,10 +2952,11 @@ fn appearance_of(window: &GlassWindow) -> Appearance {
 
 /// The appearance the **material** follows: Icon & widget style.
 ///
-/// This is the axis the crate's example follows, and the one the owner was
-/// watching when they said the example changes with the system settings --
-/// measured, because the example's body is byte-identical under a light
-/// and a dark system while its own band reads "Clear > Light" under both.
+/// This is the axis the crate's example follows, and the one that was
+/// being watched when the example was seen to change with the system
+/// settings -- measured, because the example's body is byte-identical
+/// under a light and a dark system while its own band reads "Clear >
+/// Light" under both.
 ///
 /// `ThemeMode::Auto` is the one token with no light/dark of its own, and
 /// `WidgetStyle::is_dark` resolves it against an ambient appearance -- so
@@ -3136,8 +3136,7 @@ fn drawn_in(kind: BodyKind, system: Appearance, widget: Appearance) -> Appearanc
 /// the palette follows the system -- the material follows the window's
 /// appearance, so a palette that follows it too sits on that half's
 /// material. Black to white over the glass (note AS), and under a pinned
-/// palette, which can sit on either half's material. Jev, 0.98/0.97
-/// (`decisions.jsonl` 796/797).
+/// palette, which can sit on either half's material.
 fn backdrop(
     style: crate::config::Material,
     half: crate::palette::Half,
@@ -3270,10 +3269,10 @@ fn display_settings(
 ///
 /// **Reduce Transparency draws every background at alpha 1.0**, the margin
 /// included, since it clears to the default background at the theme's
-/// alpha. That overrides the owner's rule that application backgrounds
-/// stay dim, and only while the setting is on (note Y, decision 9). The
-/// 32 pt titlebar strip stays material, which the system itself frosts
-/// under the setting (Jev's lean, 0.80/0.66, decisions 718/719).
+/// alpha. That overrides the rule that application backgrounds stay dim,
+/// and only while the setting is on (note Y, decision 9). The 32 pt
+/// titlebar strip stays material, which the system itself frosts under the
+/// setting.
 fn accessible(mut theme: Theme, display: Display) -> Theme {
     if display.transparency == Transparency::Reduced {
         theme.bg_alpha = baud_domain::Chan::from_u8(0xFF);
@@ -3310,8 +3309,7 @@ enum PaletteSwitch {
 /// Contrast where light or dark is the same, and a switch drops every colour
 /// an application set (note Y, decision 5). So a callback that resolves to the
 /// appearance the palette is already set for changes nothing, and a pinned
-/// theme never switches. Jev, logged: this rule over dropping on every
-/// callback, 0.81.
+/// theme never switches, rather than dropping them on every callback.
 fn palette_switch(
     choice: crate::config::ThemeChoice,
     set_for: Option<Appearance>,
@@ -3586,25 +3584,25 @@ enum Thumb {
 /// `kept`**, and what the pump does after: `before` was taken with the
 /// erasure watch armed ([`Before::watched`]).
 ///
-/// Note V's V1, the owner's answer of 2026-09-25: when the reset count moves,
-/// the selection goes -- it names cells the power-on state does not have, as
-/// foot's hard reset and xterm's `RIS` both drop theirs -- the guesses drawn
-/// ahead of the shell are dropped as contradicted, the wheel's part-line
-/// settles, and a window over the history that came to the live screen
-/// reveals its thumb, as a key's snap does (V1's first fork). **The window is
-/// the one the reset took live, at the reset's byte**, which the core keeps
-/// with the first erasure (`Erasure::Reset`, note V, V2), so the answer is
-/// the same however the bytes fell into pumps: the primary's window is drawn
-/// only while the primary is up, and any erasure takes it live, so only the
-/// first erasure in a pump can reveal, and only a reset made from the
-/// primary while the window was off the live screen. Read at the pump's
-/// edges it was the window drawn before the pump, and `?1049h` then `RIS`
-/// revealed in one pump and not in two; read as the window at the pump's
-/// start, a full-screen `SD`, `RI` at the top or a prompt redraw that took
-/// it live earlier in the same pump still revealed. The slide is the pump's
-/// erase arm's, which `RIS` moves too. **No fade on a primary reset** (V1's second fork): it is not a switch,
-/// so [`Surface`] stays the epoch's; a reset from the alternate screen is
-/// both, and fades as a switch does.
+/// Note V's V1: when the reset count moves, the selection goes -- it names
+/// cells the power-on state does not have, as foot's hard reset and xterm's
+/// `RIS` both drop theirs -- the guesses drawn ahead of the shell are
+/// dropped as contradicted, the wheel's part-line settles, and a window over
+/// the history that came to the live screen reveals its thumb, as a key's
+/// snap does (V1's first fork). **The window is the one the reset took live,
+/// at the reset's byte**, which the core keeps with the first erasure
+/// (`Erasure::Reset`, note V, V2), so the answer is the same however the
+/// bytes fell into pumps: the primary's window is drawn only while the
+/// primary is up, and any erasure takes it live, so only the first erasure
+/// in a pump can reveal, and only a reset made from the primary while the
+/// window was off the live screen. Read at the pump's edges it was the
+/// window drawn before the pump, and `?1049h` then `RIS` revealed in one
+/// pump and not in two; read as the window at the pump's start, a
+/// full-screen `SD`, `RI` at the top or a prompt redraw that took it live
+/// earlier in the same pump still revealed. The slide is the pump's erase
+/// arm's, which `RIS` moves too. **No fade on a primary reset** (V1's second
+/// fork): it is not a switch, so [`Surface`] stays the epoch's; a reset from
+/// the alternate screen is both, and fades as a switch does.
 fn restart(term: &Term<'_>, before: Before, kept: Kept<'_>) -> (Surface, Thumb) {
     let surface = match switched(term, before) {
         true => Surface::Switched,
@@ -3878,11 +3876,11 @@ mod alt_window_tests {
     /// **A region retire keeps a selection on the rows under the region on
     /// their text, and one in the region moves with its rows.** The rows
     /// under it stayed while the count advanced, so the core carries the
-    /// selection there against the count (Jev's STAY of 2026-10-20, where it
-    /// was dropped until then); a whole-screen scroll moves every row; a
-    /// read that resets its region after the scroll is judged by the
-    /// scroll's own rows. At every read size and every split into two reads,
-    /// each kept selection on its own text.
+    /// selection there against the count (since 2026-10-20; it was dropped
+    /// until then); a whole-screen scroll moves every row; a read that
+    /// resets its region after the scroll is judged by the scroll's own
+    /// rows. At every read size and every split into two reads, each kept
+    /// selection on its own text.
     #[test]
     fn a_region_retire_keeps_a_selection_on_the_rows_under_it() {
         let setup: &[u8] = b"\x1b[1;5r\x1b[7;1Hdash\x1b[3;1Hpane";
@@ -4020,17 +4018,17 @@ mod alt_window_tests {
     }
 
     /// **Rows a region moved in place carry a selection on them with their
-    /// text** (Jev's MOVE of 2026-10-20, as xterm does; dropped until
-    /// then). A region in the middle of the screen scrolls by copying its
-    /// rows, so no ring moves and the count does not renumber the
-    /// selection: the core's watch carries it a row up with the pane's
-    /// line. Above the region and under it nothing moved, and the history
-    /// is not the live screen. A selection from above the region into its
-    /// first row keeps only that row, which the scroll takes out: dropped,
-    /// as xterm disowns it. A read that copies and then resets the region
-    /// is judged by the copy's rows; `IL` with no region drops one holding
-    /// the cursor's row, as xterm's `InsertLine` does, and one on the row
-    /// it pushes out, and moves the rest. At every read size and split.
+    /// text** (since 2026-10-20, as xterm does; dropped until then). A
+    /// region in the middle of the screen scrolls by copying its rows, so
+    /// no ring moves and the count does not renumber the selection: the
+    /// core's watch carries it a row up with the pane's line. Above the
+    /// region and under it nothing moved, and the history is not the live
+    /// screen. A selection from above the region into its first row keeps
+    /// only that row, which the scroll takes out: dropped, as xterm
+    /// disowns it. A read that copies and then resets the region is judged
+    /// by the copy's rows; `IL` with no region drops one holding the
+    /// cursor's row, as xterm's `InsertLine` does, and one on the row it
+    /// pushes out, and moves the rest. At every read size and split.
     #[test]
     fn rows_moved_in_place_carry_a_selection_with_their_text() {
         use baud_domain::Row;
@@ -4097,12 +4095,12 @@ mod alt_window_tests {
     }
 
     /// **A write or an erase on a selected row drops the selection, whatever
-    /// it writes, and one on another row keeps it** -- the owner's answer A
-    /// to B23. An erase on row 0 and an `IL` on row 9 in one read drop a
-    /// selection on row 0, which the move does not reach, read whole, at
-    /// every read size and cut into two reads at every byte. `ICH`, `DCH`,
-    /// `DECIC` and `DECDC` drop it with `?1040` set, the power-on state,
-    /// where xterm shifts it: the owner's answer A of 2026-10-22.
+    /// it writes, and one on another row keeps it**. An erase on row 0 and
+    /// an `IL` on row 9 in one read drop a selection on row 0, which the
+    /// move does not reach, read whole, at every read size and cut into two
+    /// reads at every byte. `ICH`, `DCH`, `DECIC` and `DECDC` drop it with
+    /// `?1040` set, the power-on state, where xterm shifts it (since
+    /// 2026-10-22).
     #[test]
     fn a_write_or_an_erase_on_a_selected_row_drops_it() {
         let setup: &[u8] = b"\x1b[1;1Hhello\x1b[5;1Hworld\x1b[3;1H";
@@ -4249,15 +4247,14 @@ mod alt_window_tests {
     /// **A region anchored at the top that scrolls keeps a selection under
     /// it on its text, whatever region the read ends in.** The scroll
     /// advances the ring and the rows under the region stay, so the core
-    /// carries a selection there against the count (Jev's STAY of
-    /// 2026-10-20; dropped until then). Begun in 1;9, scrolled in 1;5: then
-    /// a copy in 8;9 and back to 1;9, or straight back to 1;9. Rows 5 to 9
-    /// were under 1;5 and stay on their own text, but for the first
-    /// program's row 7, which the copy then takes out of 8;9's top. Rows 1
-    /// to 4 were in it and moved with the ring, and row 0 went to the
-    /// history: kept on their own text, row 0's in the history. At every
-    /// read size and every split into two reads, no feed keeps one on
-    /// another row's text.
+    /// carries a selection there against the count (dropped until then).
+    /// Begun in 1;9, scrolled in 1;5: then a copy in 8;9 and back to 1;9,
+    /// or straight back to 1;9. Rows 5 to 9 were under 1;5 and stay on
+    /// their own text, but for the first program's row 7, which the copy
+    /// then takes out of 8;9's top. Rows 1 to 4 were in it and moved with
+    /// the ring, and row 0 went to the history: kept on their own text, row
+    /// 0's in the history. At every read size and every split into two
+    /// reads, no feed keeps one on another row's text.
     #[test]
     fn a_top_regions_scroll_keeps_a_selection_under_it_at_every_read_size() {
         use baud_domain::Row;
@@ -4600,10 +4597,9 @@ mod alt_window_tests {
     /// be taken back blank; on the alternate screen, which keeps none, the
     /// scroll that takes row 1 off the top trims it there, as xterm
     /// truncates a selection a scroll moves out of the screen, and the rest
-    /// is kept on its text at every feed (Jev's TRIM_AT_SCROLL of
-    /// 2026-10-20). Until then it was trimmed only where a read ended with
-    /// row 1 off the top, and dropped on the 4 of 15 feeds whose read took
-    /// it back blank.
+    /// is kept on its text at every feed. Until then it was trimmed only
+    /// where a read ended with row 1 off the top, and dropped on the 4 of
+    /// 15 feeds whose read took it back blank.
     #[test]
     fn a_scroll_up_and_down_in_one_read_keeps_the_rows_it_brought_back() {
         let prog: &[&[u8]] = &[b"\x1b[2S\x1b[2T"];
@@ -4634,15 +4630,15 @@ mod alt_window_tests {
     }
 
     /// **A scroll carries a selection with its text, at every read size and
-    /// split, on both screens** -- the three cases the record left open on
-    /// 2026-10-17, decided by Jev on 2026-10-20 as xterm does with
-    /// `keepSelection` at its default. A scroll down keeps what it does not
-    /// push under the screen (`SD 2` over rows 5 to 9, `RI` at the top over
-    /// rows 8 and 9); a region's scroll, `3;8` (rows 2 to 7), moves the rows
-    /// inside it, keeps the part inside of one across its top or its bottom,
-    /// and drops one it scrolls out whole; `IL` and `DL` there move the rows
-    /// below the cursor, and drop one holding the cursor's row or a deleted
-    /// one. Each was dropped until then.
+    /// split, on both screens** -- the three cases open until 2026-10-20,
+    /// settled as xterm does with `keepSelection` at its default. A scroll
+    /// down keeps what it does not push under the screen (`SD 2` over rows 5
+    /// to 9, `RI` at the top over rows 8 and 9); a region's scroll, `3;8`
+    /// (rows 2 to 7), moves the rows inside it, keeps the part inside of one
+    /// across its top or its bottom, and drops one it scrolls out whole;
+    /// `IL` and `DL` there move the rows below the cursor, and drop one
+    /// holding the cursor's row or a deleted one. Each was dropped until
+    /// then.
     #[test]
     fn a_scroll_carries_a_selection_with_its_text_at_every_read_size() {
         let region: &[u8] = b"\x1b[3;8r";
@@ -6388,17 +6384,17 @@ mod resize_selection_tests {
     }
 }
 
-/// **What a full reset owes the app** (note V, V1, the owner's 2026-09-25
-/// answer): when the core's reset count moves across a read, the selection
-/// goes, the echoes drawn ahead of the shell are dropped as contradicted, the
-/// wheel's part-line settles, and a window over the history comes to the live
-/// screen with its thumb revealed -- and no screen-switch fade runs, because
-/// a reset on the primary puts no other surface up. The window and the slide
-/// already follow `Term::history_erasures`, which `RIS` moves; these hold
-/// what only the reset count can say, and `CSI 3 J` -- which moves the
-/// erasure count and keeps the screen -- is the control that tells the two
-/// apart. Each read here is the pump's: `Before`, the feed, then `restart`;
-/// the window is the core's (note V, V2).
+/// **What a full reset owes the app** (note V, V1): when the core's reset
+/// count moves across a read, the selection goes, the echoes drawn ahead of
+/// the shell are dropped as contradicted, the wheel's part-line settles, and
+/// a window over the history comes to the live screen with its thumb revealed
+/// -- and no screen-switch fade runs, because a reset on the primary puts no
+/// other surface up. The window and the slide already follow
+/// `Term::history_erasures`, which `RIS` moves; these hold what only the
+/// reset count can say, and `CSI 3 J` -- which moves the erasure count and
+/// keeps the screen -- is the control that tells the two apart. Each read
+/// here is the pump's: `Before`, the feed, then `restart`; the window is the
+/// core's (note V, V2).
 #[cfg(test)]
 mod restart_tests {
     use super::{Before, Guess, Kept, Prediction, Surface, Thumb, restart, window_of};
@@ -6915,18 +6911,16 @@ mod restart_tests {
     }
 
     /// **What a reset's reveal shows**, through the frame's own bar
-    /// (`baud_render::bar`, the overlay style, at the frame's widths): the
-    /// thumb a key's snap would show is revealed, but `RIS` empties the
-    /// history and a window with nothing behind it has no knob, so nothing
-    /// is drawn at the reset; lines printed within the hold give a knob at
-    /// the bottom of its travel until the fade ends. That is what HEAD
-    /// draws, pinned here because the reveal's test read only `Thumb`.
-    /// What an emptied history shows is Jev's answer, as built (A, decisions
-    /// lines 453-454): V1's fork says reveal "on that snap", the scrollbar
-    /// note draws no thumb with no history, and Apple's `flashScrollers`
-    /// text permits a flash on new content without requiring one. The controls: the
-    /// instrument draws a knob over the history before the reset, and with
-    /// the reveal left out the lines show none.
+    /// (`baud_render::bar`, the overlay style, at the frame's widths): the thumb a
+    /// key's snap would show is revealed, but `RIS` empties the history and a
+    /// window with nothing behind it has no knob, so nothing is drawn at the reset;
+    /// lines printed within the hold give a knob at the bottom of its travel until
+    /// the fade ends. That is what HEAD draws, pinned here because the reveal's
+    /// test read only `Thumb`. What an emptied history shows is no knob, as built:
+    /// V1's fork says reveal "on that snap", the scrollbar note draws no thumb with
+    /// no history, and Apple's `flashScrollers` text permits a flash on new content
+    /// without requiring one. The controls: the instrument draws a knob over the
+    /// history before the reset, and with the reveal left out the lines show none.
     #[test]
     fn a_resets_reveal_draws_a_knob_only_over_lines_printed_after_it() {
         let size = (Px::of(800), Px::of(500));
@@ -6965,7 +6959,7 @@ mod restart_tests {
                 }
                 assert!(
                     sample(t, &mut rv, 10).is_none(),
-                    "no knob at the reset (as built, and Jev's answer A)"
+                    "no knob at the reset (as built)"
                 );
                 assert!(sample(t, &mut rv, 90).is_none());
                 s.read(t, &lines);
@@ -7670,10 +7664,10 @@ mod ride_tests {
 
 #[cfg(test)]
 mod motion_tests {
-    //! Reduce Motion: the owner's rule, "no trail, unless the config names
-    //! one", and blinking text held shown. The decisions are pure and gated
-    //! here; `poll_motion`, the tick and the launch read are AppKit-bound,
-    //! held by the source gates at the end.
+    //! Reduce Motion: no trail, unless the config names one, and blinking
+    //! text held shown. The decisions are pure and gated here;
+    //! `poll_motion`, the tick and the launch read are AppKit-bound, held
+    //! by the source gates at the end.
     use super::{MotionSource, Owes, motion_change, motion_override, retrail, system_motion};
     use crate::config::{CursorTrail as T, SystemMotion as M, TrailPick as P};
     use crate::trail::Chase;
@@ -8489,12 +8483,12 @@ mod anchor_tests {
     };
 
     /// **A window on the live screen stays there however far the ring
-    /// moved** -- the owner's "we should not change the scroll ever". A
-    /// zoom in shrinks the grid and the shorter screen retires the rows the
-    /// cursor needs; the app once added that retirement to its window
-    /// whatever the window was, so from the prompt the screen filled with
-    /// the prompt blocks the shell had already written, a banner four times.
-    /// The core holds the window now, and the resize leaves a live one live.
+    /// moved** -- a resize never changes the scroll position. A zoom in
+    /// shrinks the grid and the shorter screen retires the rows the cursor
+    /// needs; the app once added that retirement to its window whatever the
+    /// window was, so from the prompt the screen filled with the prompt
+    /// blocks the shell had already written, a banner four times. The core
+    /// holds the window now, and the resize leaves a live one live.
     #[test]
     fn a_window_on_the_live_screen_stays_there_however_far_the_ring_moved() {
         let mut owned = Owned::new(&TALL);
@@ -8559,9 +8553,8 @@ mod anchor_tests {
 /// the shell's redraws queue in the pty channel and land together
 /// afterwards -- and `Pty::drain` hands the core one chunk per `read(2)`
 /// at boundaries no reconstruction can guess. On those fixtures the
-/// worst case was one stray prompt; the owner's screen showed five. A
-/// trace *is* the session, so a test replaying it is a test of what
-/// happened.
+/// worst case was one stray prompt; a live screen showed five. A trace
+/// *is* the session, so a test replaying it is a test of what happened.
 ///
 /// A resize with no bytes before the next event is a step of length 0;
 /// consecutive chunks at one size are consecutive lines at that size.
@@ -9518,17 +9511,17 @@ impl Driver {
 
 /// **Command-C or Command-V that the Edit menu did not take**, by what the
 /// key types with Command held, `NSEvent.characters`. The menu matches its
-/// key equivalent against the key's own character: given the Hebrew,
-/// Russian or Greek layout's Command-C, whose characters are `c` and whose
-/// own is `ב`, `с` or `ψ`, an `NSMenu` holding Copy on `c` took nothing
-/// with the US layout selected, where the US layout's event was taken (a
-/// headless probe through `UCKeyTranslate` and `performKeyEquivalent:`,
-/// `docs/record.md`); whether AppKit's own localization of an unreachable
-/// key equivalent takes it with the Hebrew layout selected was not
-/// observed, and a key the menu took never gets here. Those layouts type the
-/// Latin letter under Command, so the copy is found by it, as foot finds a
-/// binding on a non-Latin layout by the key's Latin keysym. Command alone:
-/// Shift, Option or Control held makes another command.
+/// key equivalent against the key's own character: given the Hebrew, Russian
+/// or Greek layout's Command-C, whose characters are `c` and whose own is
+/// `ב`, `с` or `ψ`, an `NSMenu` holding Copy on `c` took nothing with the US
+/// layout selected, where the US layout's event was taken (a headless probe
+/// through `UCKeyTranslate` and `performKeyEquivalent:`); whether AppKit's
+/// own localization of an unreachable key equivalent takes it with the
+/// Hebrew layout selected was not observed, and a key the menu took never
+/// gets here. Those layouts type the Latin letter under Command, so the copy
+/// is found by it, as foot finds a binding on a non-Latin layout by the
+/// key's Latin keysym. Command alone: Shift, Option or Control held makes
+/// another command.
 fn menu_missed(
     characters: &str,
     m: macos_liquid_glass::drawable::Modifiers,
@@ -9588,7 +9581,7 @@ impl Responder for Driver {
             if let Some(selector) = menu_missed(&key.characters, m) {
                 self.command(selector);
             }
-            // The find chords, which the owner's menu carries no item for.
+            // The find chords, which the menu carries no item for.
             if !(m.option || m.control) {
                 let shift = match m.shift {
                     true => crate::find::Shift::Down,
@@ -10197,16 +10190,15 @@ fn icon_titlebar() -> Option<Retained<NSImage>> {
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
-/// **Below macOS 26 baud refuses, and says why.** The owner, 2026-10-13,
-/// picked "macOS 26 and later": the window is NSGlassEffectView, which
-/// exists from 26 (`[[source: sdk27-nsglasseffectview-h]]`), and there is
-/// no fallback backdrop. The refusal has three
-/// layers. Launch Services refuses the bundle, from Info.plist's
-/// `LSMinimumSystemVersion` of 26.0. A bare `baud` run from a shell meets
-/// no such check -- macOS 13's dyld and kernel do not refuse on the
-/// binary's `minos` (`[[source: dyld-1042-1-loader]]`,
-/// `[[source: dyld-1066-10-loader]]`, `[[source: xnu-8796-mach-loader]]`;
-/// the record, "macOS 26 is the floor") -- so it reaches this, which
+/// **Below macOS 26 baud refuses, and says why.** baud runs on macOS 26
+/// and later: the window is NSGlassEffectView, which exists from 26
+/// (`[[source: sdk27-nsglasseffectview-h]]`), and there is no fallback
+/// backdrop. The refusal has three layers. Launch Services refuses the
+/// bundle, from Info.plist's `LSMinimumSystemVersion` of 26.0. A bare
+/// `baud` run from a shell meets no such check -- macOS 13's dyld and
+/// kernel do not refuse on the binary's `minos`
+/// (`[[source: dyld-1042-1-loader]]`, `[[source: dyld-1066-10-loader]]`,
+/// `[[source: xnu-8796-mach-loader]]`) -- so it reaches this, which
 /// prints `GlassError`'s message on stderr and exits 1 where it used to
 /// panic on `.expect("glass")`. It runs first in [`run`], ahead of the
 /// display link and `-[NSApplication activate]` (macOS 14:
@@ -10418,13 +10410,13 @@ pub fn run() {
     // **The body is the config's, and it is chosen once.** `Standard`, the
     // default, is `.underWindowBackground`: the HIG puts "Standard
     // materials" behind "app backgrounds" and keeps Liquid Glass out of the
-    // content layer ([[source: apple-hig-materials]]; note AT), and the
-    // owner took that recommendation (2026-10-18). `Regular` is the glass
-    // the HIG gives surfaces with "a significant amount of text"; `Clear`
-    // the more transparent glass. Unlike the dim, the tint and the shadow,
-    // the body does not change with the appearance -- the standard material
-    // follows the window's appearance and active state itself -- so it is
-    // a constructor argument and nothing else.
+    // content layer ([[source: apple-hig-materials]]; note AT), the default
+    // since 2026-10-18. `Regular` is the glass the HIG gives surfaces with
+    // "a significant amount of text"; `Clear` the more transparent glass.
+    // Unlike the dim, the tint and the shadow, the body does not change
+    // with the appearance -- the standard material follows the window's
+    // appearance and active state itself -- so it is a constructor argument
+    // and nothing else.
     let glass = Body::of(mtm, frame, glass_cfg.style);
     // Tinted before it is shown rather than after: the surface is not the
     // window's content until the first frame is on the layer, so doing it
@@ -11171,12 +11163,13 @@ impl Driver {
     }
 
     /// Whether the system asks for reduced motion, read on the tick like
-    /// focus: one message send and a cached byte, about 0.04 us.
-    /// **Polled, not observed**: AppKit registers its own observer of the
+    /// focus: one message send and a cached byte, about 0.04 us. **Polled,
+    /// not observed**: AppKit registers its own observer of the
     /// display-options notification in `sharedApplication`, and its handler
     /// invalidates the cached answer before anything is posted, so a toggle
     /// reads fresh here within a frame (the design's probes; the live
-    /// toggle is the owner's check). Under `BAUD_MOTION` nothing is read.
+    /// toggle is checked by hand, not by a test). Under `BAUD_MOTION`
+    /// nothing is read.
     fn poll_motion(&mut self) {
         let m = system_motion(self.app.motion_source, reduce_motion);
         if m == self.app.motion {
@@ -11209,13 +11202,14 @@ impl Driver {
     /// Motion and on the same terms: AppKit's own observer of the
     /// display-options notification invalidates the cached answers, which
     /// the Reduce Motion design probed for that setting, so baud adds no
-    /// observer of its own for these (`follow_settings` observes others); that a live toggle of these two reads fresh within
-    /// a frame is the owner's check, and the cost of these two reads is
-    /// carried over from Reduce Motion's, not measured for them.
-    /// **Not through `apply_style`**, whose early return for a
-    /// pinned theme would leave a pinned reader's cells as they were: this
-    /// rebuilds whichever theme is in force. The core is told nothing,
-    /// because the settings move no colour it reports.
+    /// observer of its own for these (`follow_settings` observes others);
+    /// that a live toggle of these two reads fresh within a frame is
+    /// checked by hand, not by a test, and the cost of these two reads is
+    /// carried over from Reduce Motion's, not measured for them. **Not
+    /// through `apply_style`**, whose early return for a pinned theme
+    /// would leave a pinned reader's cells as they were: this rebuilds
+    /// whichever theme is in force. The core is told nothing, because the
+    /// settings move no colour it reports.
     fn poll_display(&mut self) {
         let display = display_settings(reduce_transparency, increase_contrast);
         if display == self.display {
@@ -11392,8 +11386,7 @@ impl Driver {
         }
         self.show_notice(crate::live::Notice::of(&said));
         // **Off is applied, then nothing after it until the next launch**,
-        // as WezTerm stops watching when a reload says so (Jev's lean after
-        // a re-ask, OFF_AFTER_APPLY, 0.61 and 0.33).
+        // as WezTerm stops watching when a reload says so.
         if off {
             crate::info!("config: config_reload is off; changes wait for the next launch");
             self.reload = None;
@@ -11529,8 +11522,8 @@ impl Driver {
             }
         }
         // **A size the user zoomed to stays**, as alacritty keeps one
-        // "changed at runtime" (Jev, KEEP_ZOOM, 0.94 and 0.94); Actual Size
-        // returns to the new configured size either way.
+        // "changed at runtime"; Actual Size returns to the new configured
+        // size either way.
         let points = crate::live::size_after(self.app.font_size, self.app.font_base, c.font_size);
         self.app.font_base = c.font_size;
         // Every part is applied by here, so a frame the fonts' relayout or
@@ -11604,8 +11597,8 @@ impl Driver {
     /// **The fonts a config read again names**, mapped, parsed and leading
     /// the chain at `points`: the stack restacked as a program's `OSC 50`
     /// restacks it, and a face a program led with dropped, its slot naming
-    /// nothing in the new list (Jev's lean, CONFIG_WINS_ON_CHANGE, 0.72 and
-    /// 0.62). A font that does not load leaves the fonts as they were.
+    /// nothing in the new list. A font that does not load leaves the fonts
+    /// as they were.
     fn reload_fonts(&mut self, c: &crate::config::Config, points: f32) -> Result<(), String> {
         let resolved = c.clone().resolved();
         let px = PxSize::of(points * self.app.scale as f32).ok_or("no size")?;
@@ -11619,7 +11612,7 @@ impl Driver {
 
     /// **The config's notice on its row, or none**: the grid gives the row
     /// up while one is shown and takes it back when it goes, the program
-    /// told each time (Jev's lean, ROWS).
+    /// told each time.
     fn show_notice(&mut self, notice: crate::live::Notice) {
         if notice == self.notice {
             return;
@@ -12079,9 +12072,8 @@ impl Driver {
     /// prompt** (`Term::jump_to_prompt`), the prompt's first line at the
     /// window's top: Terminal's "Jump to previous mark Command-Up Arrow"
     /// (`[[source: apple-terminal-shortcuts]]`), and Ghostty's macOS default
-    /// ("matches Terminal.app", `[[source: ghostty-b58ef1d-config]]`). Jev's
-    /// lean, CMD_ARROWS (0.56/0.61). A jump reveals the thumb as a wheel's
-    /// move does.
+    /// ("matches Terminal.app", `[[source: ghostty-b58ef1d-config]]`). A
+    /// jump reveals the thumb as a wheel's move does.
     fn jump_to_prompt(&mut self, to: PromptJump) {
         if !self.app.term.jump_to_prompt(to) {
             return;
@@ -12349,8 +12341,8 @@ impl Driver {
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
         // **A resize no longer waits for the frame in flight, and that is
-        // the freeze the owner reported.** It used to: a reflow rewrites
-        // the ring, and while the shader read the ring in place that was
+        // the freeze a user reported.** It used to: a reflow rewrites the
+        // ring, and while the shader read the ring in place that was
         // memory a live draw was sampling.
         //
         // What made the wait a freeze is what else is on this path.
@@ -12445,11 +12437,11 @@ impl Driver {
             // Truncated only past MAX_GRID, which the clamp above prevents.
             // The core holds a window that is *already* looking back on its
             // line, through the re-cut, and leaves one on the live screen
-            // where it is -- the owner's "we should not change the scroll
-            // ever", which a zoom that repeated a banner four times broke
-            // when the app anchored it (`Term::resize`). `scrolled` is
-            // moved by what the resize retired or took back, when the
-            // selection is kept (`kept_across_resize`).
+            // where it is -- a resize never changes the scroll position,
+            // which a zoom that repeated a banner four times broke when the
+            // app anchored it (`Term::resize`). `scrolled` is moved by what
+            // the resize retired or took back, when the selection is kept
+            // (`kept_across_resize`).
             let was = (
                 self.app.term.history_mark(),
                 self.app.term.geometry().0,
@@ -13408,8 +13400,7 @@ mod tests {
     /// **The floor reads text against the body actually drawn**: the
     /// standard material's own greys for each half while the palette
     /// follows the system, and black to white over either glass and under
-    /// a pinned palette, which can sit on the other half's material
-    /// (Jev, 0.98/0.97, `decisions.jsonl` 796/797).
+    /// a pinned palette, which can sit on the other half's material.
     #[test]
     fn the_floor_reads_against_the_body_drawn() {
         use crate::config::{Glass, Material, ThemeChoice};
@@ -13530,8 +13521,8 @@ mod tests {
     /// **Increase Contrast makes the floor stricter**: a trigger of at
     /// least 3.0 and a target of at least 4.5 (note Y, decision 9), over a
     /// floor that is off too, by analogy with Reduce Transparency over the
-    /// dim (note Y; the owner can reverse it). A reader's stricter floor
-    /// is kept, never lowered: `floor = 7` is a target of 7 already.
+    /// dim (note Y). A reader's stricter floor is kept, never lowered:
+    /// `floor = 7` is a target of 7 already.
     #[test]
     fn increase_contrast_makes_the_floor_stricter() {
         use baud_render::Floor;
@@ -13749,12 +13740,11 @@ mod tests {
 
     /// **Control on a non-Latin Apple layout sends what the layout's
     /// Control layer types**, and the PC-101 key rides as the base layout
-    /// key: Ctrl+С on Russian, whose Control layer types `0x03` (the
-    /// `UCKeyTranslate` probe of the record), names `c` for Control and is
-    /// `^C` through the core, as Ctrl+ב on Hebrew and Ctrl+ψ on Greek;
-    /// under kitty's disambiguate it is the key itself with its base
-    /// layout key. Option alone is not Control. On US nothing is added,
-    /// Shift held or not.
+    /// key: Ctrl+С on Russian, whose Control layer types `0x03` (a
+    /// `UCKeyTranslate` probe), names `c` for Control and is `^C` through
+    /// the core, as Ctrl+ב on Hebrew and Ctrl+ψ on Greek; under kitty's
+    /// disambiguate it is the key itself with its base layout key. Option
+    /// alone is not Control. On US nothing is added, Shift held or not.
     #[test]
     fn control_on_a_non_latin_mac_layout_is_its_control_layers_key() {
         use macos_liquid_glass::drawable::Modifiers as Held;
@@ -14925,10 +14915,10 @@ enum Done {
 /// config sets it, else AppKit's own defaults,
 /// `NSTextInsertionPointBlinkPeriodOn` and `...Off`, each read on its own
 /// as AppKit reads it, with 333 ms where one is unset -- AppKit's unset
-/// 650/350 is no longer taken, the owner's pick of 2026-10-15.
-/// `doubleForKey` converts a number or a numeric string, and answers 0 for
-/// a key that is absent or will not convert -- which `of_defaults` reads as
-/// unset -- by its header. A set interval reads no key at all.
+/// 650/350 is no longer taken. `doubleForKey` converts a number or a
+/// numeric string, and answers 0 for a key that is absent or will not
+/// convert -- which `of_defaults` reads as unset -- by its header. A set
+/// interval reads no key at all.
 fn os_cycle(interval: crate::config::BlinkInterval) -> Cycle {
     if let crate::config::BlinkInterval::Set(_) = interval {
         return Cycle::of_config(interval);
@@ -15002,7 +14992,7 @@ fn retrail(
 /// The scroller the user's "Show scroll bars" setting asks for:
 /// `NSScroller`'s preferred style, which follows the setting and, under
 /// Automatically, whether a mouse is connected. `BAUD_SCROLLER` names one
-/// instead, for a check that must not change the owner's settings -- an
+/// instead, for a check that must not change the user's settings -- an
 /// instrument like `BAUD_GPU`, not a configuration. Off the main thread,
 /// where AppKit cannot be asked, it is the overlay.
 fn scroller_style() -> Scroller {
@@ -15031,9 +15021,8 @@ fn auto_play(a: AnimatedImages) -> crate::access::AutoPlay {
 /// **Blinking text's phases as Dim Flashing Lights asks them drawn**: each
 /// off phase faint rather than hidden while it is on, the rates unchanged
 /// -- ECMA-48's two rates hold, and the page shows less change at each
-/// flip. Jev's lean, below the bar (the record, "Blinking text dims under
-/// Dim Flashing Lights"). Phases Reduce Motion held shown stay shown, so
-/// with both settings on the text is steady.
+/// flip. Phases Reduce Motion held shown stay shown, so with both settings
+/// on the text is steady.
 fn dim_off_phases(phases: BlinkPhases, flashing: Flashing) -> BlinkPhases {
     match flashing {
         Flashing::Full => phases,
@@ -15076,10 +15065,10 @@ fn printers_listed() -> crate::print::Printers {
 
 /// **The printer list read on a thread of its own**: `printerNames` waits
 /// 0.3-0.8 ms on the print system's daemon a call, and 40-78 ms on the
-/// call that has to start it (docs/record.md), which the thread that
-/// feeds the core and draws does not. Started at the first read; each
-/// read's answer is left for the pump and the main thread woken
-/// for it. The thread ends with the app, its channel closed.
+/// call that has to start it, which the thread that feeds the core and
+/// draws does not. Started at the first read; each read's answer is left
+/// for the pump and the main thread woken for it. The thread ends with
+/// the app, its channel closed.
 struct PrinterList {
     waker: Waker,
     ask: std::cell::OnceCell<std::sync::mpsc::Sender<()>>,

@@ -4,19 +4,17 @@
 //!
 //! **What a reader sees.** With `wrap_words = "on"`, the default, a word
 //! that does not fit at the end of a line moves whole to the next one, so
-//! no word is split across two lines (the owner, 2026-10-27: "when we do
-//! wrapping, we do not break words , the word drop for the next line").
-//! A word wider than the whole line is the one exception: it breaks at the
-//! line's edge, UAX #14's emergency break (`[[source: uax14]]` section 3,
-//! "line breaks may be placed with no regard to the ordinary line breaking
-//! behavior"). In a paragraph that mixes directions, a run of the other
-//! direction that the wrap would split -- English the wrap would cut in a
-//! Hebrew paragraph -- is given lines of its own instead, laid out in its
-//! own direction against its own language's edge, and the paragraph's
-//! language resumes on a fresh line after it. A run the wrap breaks before
-//! rather than inside stays inline, as a word does: one word, or several
-//! that fit whole on the next line (the owner, 2026-10-27, on
-//! `bd/owner-runs`' B and own-direction panels: "this is what i like").
+//! no word is split across two lines. A word wider than the whole line is
+//! the one exception: it breaks at the line's edge, UAX #14's emergency
+//! break (`[[source: uax14]]` section 3, "line breaks may be placed with
+//! no regard to the ordinary line breaking behavior"). In a paragraph that
+//! mixes directions, a run of the other direction that the wrap would
+//! split -- English the wrap would cut in a Hebrew paragraph -- is given
+//! lines of its own instead, laid out in its own direction against its own
+//! language's edge, and the paragraph's language resumes on a fresh line
+//! after it. A run the wrap breaks before rather than inside stays inline,
+//! as a word does: one word, or several that fit whole on the next line
+//! (`bd/owner-runs`' B and own-direction panels).
 //!
 //! **Where the breaks come from.** Every break is a UAX #14 break
 //! opportunity (`baud_domain::line_breaks`, which passes
@@ -82,8 +80,8 @@ use crate::select::WindowLine;
 use crate::units::Tally;
 
 /// **Whether the display wraps a finished paragraph at its words**, the
-/// `wrap_words` setting: on by default (the owner, 2026-10-27: "and warp
-/// should be default on"); off draws every row as the terminal cut it.
+/// `wrap_words` setting: on by default; off draws every row as the
+/// terminal cut it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WordWrap {
     #[default]

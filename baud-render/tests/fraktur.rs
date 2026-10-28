@@ -89,9 +89,9 @@ fn sgr_20_draws_the_fraktur_face() {
 
 /// **Fraktur is over the alternative font**: with both set and both named,
 /// a character the Fraktur face carries is drawn from it, and one it lacks
-/// from the alternative font before the chain (Jev, FRAKTUR_FIRST). The
-/// alternative here is the Nerd Fonts icon face, which the chain lacks, so
-/// the icon shows which face it came from.
+/// from the alternative font before the chain. The alternative here is the
+/// Nerd Fonts icon face, which the chain lacks, so the icon shows which
+/// face it came from.
 #[test]
 fn fraktur_is_over_the_alternative_font() {
     let regular = app_font("jetbrains-mono/JetBrainsMono-Regular.ttf");

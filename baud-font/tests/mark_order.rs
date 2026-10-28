@@ -2,7 +2,7 @@
 //! canonical order (`[[source: unicode-ch3]]` D109) over HarfBuzz's
 //! modified combining classes, which permute Hebrew's fixed-position
 //! classes 10-26 and leave every other class as it is
-//! (`[[source: harfbuzz-hb-unicode]]`; the owner's pick, note AB 11.4).
+//! (`[[source: harfbuzz-hb-unicode]]`; note AB 11.4).
 //!
 //! The documents check the code here: the classes are read from the pinned
 //! UnicodeData.txt and the permutation from the pinned hb-unicode.hh, so a

@@ -140,8 +140,8 @@ const RULE_NAMES: [&str; 6] = [
     "reversed letter, default foreground",
 ];
 
-/// **The default draws every background under the dim** -- the owner's
-/// 2026-09-20 call, which the key must not change unless it is asked for.
+/// **The default draws every background under the dim** -- which the
+/// key must not change unless it is asked for.
 #[test]
 fn app_backgrounds_are_dimmed_by_default() {
     render(RULE_ROW, |r| {

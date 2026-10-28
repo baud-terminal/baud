@@ -159,13 +159,13 @@ fn every_sampling_and_colour_form_decodes_to_its_reference() {
     }
 }
 
-/// **Four components draw as the inverted product** (Jev's lean,
-/// INVERTED_PRODUCT): Adobe's applications store C, M, Y and K inverted,
-/// and each of R, G, B is its stored channel times stored K over 255,
-/// rounded, as Firefox draws them. The samples are ImageMagick's decode
-/// with libjpeg's integer DCT (`baud-domain/tests/jpeg/README.md`), which
-/// reports each channel as the colour's own, the inverse of what is
-/// stored; a YCCK file reaches them through JFIF's YCbCr equations first.
+/// **Four components draw as the inverted product**: Adobe's applications
+/// store C, M, Y and K inverted, and each of R, G, B is its stored
+/// channel times stored K over 255, rounded, as Firefox draws them. The
+/// samples are ImageMagick's decode with libjpeg's integer DCT
+/// (`baud-domain/tests/jpeg/README.md`), which reports each channel as
+/// the colour's own, the inverse of what is stored; a YCCK file reaches
+/// them through JFIF's YCbCr equations first.
 #[test]
 fn cmyk_and_ycck_draw_as_the_inverted_product() {
     let cases: [(&str, &[u8], &[u8]); 2] = [

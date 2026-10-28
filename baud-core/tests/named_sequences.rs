@@ -10,8 +10,7 @@
 //! the terminal steps through, so a sequence the generator lost is a
 //! failure here. A cell names a listed sequence's node and no slot of the
 //! cluster store; a cluster that goes on past a listed one is interned
-//! whole, as every cluster was (docs/record.md, "A named emoji sequence is
-//! a trie step, not an intern").
+//! whole, as every cluster was.
 
 #[path = "support/mod.rs"]
 mod support;

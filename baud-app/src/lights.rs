@@ -1,20 +1,18 @@
 //! **The activity lights in the macOS title strip**: RD for bytes read from
-//! the child, SD for bytes the kernel took from baud, at the strip's right
-//! (the owner: "on the title - most right LEDs like old style modems
-//! rx/tx"; F1-20).
+//! the child, SD for bytes the kernel took from baud, at the strip's right.
 //!
 //! **Where**: an image view in baud's own container, as the app icon is,
 //! re-placed on every resize -- the title strip is AppKit's, drawn over the
-//! glass, and the owner's window crate has no titlebar-accessory API
-//! (note AH, 5.1), so baud draws where it already draws (Jev, SUBVIEW,
-//! 1.00/1.00). The pixels are baud's renderer's
-//! (`Renderer::activity_lights`), one picture for each of the four states,
-//! drawn when the scale, the appearance or Dim Flashing Lights changes; a
-//! light that changes swaps the view's picture and builds no frame of the
-//! grid. The clocks step on the display link's tick, which already runs,
-//! from the stamp the reader already puts on each read (the latest a
-//! drain brought) and a stamp on each write the kernel took any of:
-//! nothing is added to a byte's path, and nothing is timed off the link.
+//! glass, and the `macos-liquid-glass` window crate has no
+//! titlebar-accessory API (note AH, 5.1), so baud draws where it already
+//! draws. The pixels are baud's renderer's (`Renderer::activity_lights`),
+//! one picture for each of the four states, drawn when the scale, the
+//! appearance or Dim Flashing Lights changes; a light that changes swaps
+//! the view's picture and builds no frame of the grid. The clocks step on
+//! the display link's tick, which already runs, from the stamp the reader
+//! already puts on each read (the latest a drain brought) and a stamp on
+//! each write the kernel took any of: nothing is added to a byte's path,
+//! and nothing is timed off the link.
 //!
 //! The Linux window has no title bar -- no compositor decorations are asked
 //! for and none are drawn -- so the lights are this driver's alone.

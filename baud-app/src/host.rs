@@ -27,28 +27,26 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
     ImagePx::of(u16::try_from(cell_h.value()).unwrap_or(u16::MAX))
 }
 
-/// The default image arena, when a config names no `[images]` section:
-/// 95 MiB of decoded pixels. That is three 3840x2160 screens (24,883,200
-/// pixels) with 20,480 to spare, because `[images] pixels_mb` counts whole
-/// MiB and the committed example writes the default. The gap-scan packs
-/// smaller images into it, and an overflow is refused and counted rather
-/// than truncated.
-/// **It is the one limit a config sets on an image**, with the 65535 pixels a
+/// The default image arena, when a config names no `[images]` section: 95 MiB
+/// of decoded pixels. That is three 3840x2160 screens (24,883,200 pixels) with
+/// 20,480 to spare, because `[images] pixels_mb` counts whole MiB and the
+/// committed example writes the default. The gap-scan packs smaller images
+/// into it, and an overflow is refused and counted rather than truncated. **It
+/// is the one limit a config sets on an image**, with the 65535 pixels a
 /// coordinate holds each way and the slot table beside it: a Sixel is decoded
-/// as its body arrives (`SixelStream`), and no copy of the body is held, so
-/// no body is refused for its bytes. That is `[[source: dec-std-070]]` 070-9's
-/// limit: §8.1.2's raster extent "does not limit the number of pixels a
-/// device may image" (its p. 9, PDF p. 920), §2 makes "'picture too
-/// complex'" for an 800x240 raster not permitted and says "The protocol
-/// should support any size rasters, although not all devices will be capable
-/// of displaying them" (p. 2, PDF p. 913), and no section read names a limit
-/// on a body's bytes. Until 2026-10-14 a body was held whole in a scratch,
-/// 256 KiB and then the owner's 3 MiB interim; at 256 KiB yazi's UI
-/// screenshot (334-390 KiB at 600x375), photo (474-680 KiB at 600x800) and
-/// text-PDF page (797-820 KiB at 600x776) previews were refused whole though
-/// each fit the arena, and the pane went blank (the record, "A Sixel is
-/// decoded as its body arrives"). The single source of the default;
-/// `Config::defaults` reads it, and `[images] pixels_mb` overrides it.
+/// as its body arrives (`SixelStream`), and no copy of the body is held, so no
+/// body is refused for its bytes. That is `[[source: dec-std-070]]` 070-9's
+/// limit: §8.1.2's raster extent "does not limit the number of pixels a device
+/// may image" (its p. 9, PDF p. 920), §2 makes "'picture too complex'" for an
+/// 800x240 raster not permitted and says "The protocol should support any size
+/// rasters, although not all devices will be capable of displaying them" (p.
+/// 2, PDF p. 913), and no section read names a limit on a body's bytes. Until
+/// 2026-10-14 a body was held whole in a scratch, 256 KiB and then a 3 MiB
+/// interim; at 256 KiB yazi's UI screenshot (334-390 KiB at 600x375), photo
+/// (474-680 KiB at 600x800) and text-PDF page (797-820 KiB at 600x776)
+/// previews were refused whole though each fit the arena, and the pane went
+/// blank (note S). The single source of the default; `Config::defaults` reads
+/// it, and `[images] pixels_mb` overrides it.
 ///
 /// **Sized to the kitty quota's "It should allow at least a few full
 /// screen images"** (`[[source: kitty-graphics]]`, "Image persistence and
@@ -1117,9 +1115,8 @@ mod tests {
     /// **Every stack draws the badge in the embedded Bold, whatever the
     /// text's font**: the default stack, Fira Code configured, and Fira Code
     /// configured with `font_fallback = false` each give `Stack::badge` the
-    /// embedded JetBrains Mono Bold, as iTerm2's badge has a face of its own
-    /// (Jev, EMBEDDED_BOLD), and the text's `a` is drawn from another face
-    /// in every style.
+    /// embedded JetBrains Mono Bold, as iTerm2's badge has a face of its
+    /// own, and the text's `a` is drawn from another face in every style.
     #[test]
     fn every_stack_draws_the_badge_in_the_embedded_bold() {
         use crate::config::FaceFrom;
@@ -1157,13 +1154,13 @@ mod tests {
         }
     }
 
-    /// **The default stack draws Hebrew from the embedded font** -- the
-    /// owner's boxes (2026-10-08), on the path a launch takes: `Config::defaults`,
-    /// `load_faces`, the renderer's stack. Alef, shin and sheva -- two letters
-    /// and a point -- map in the embedded Regular, which regular text draws
-    /// from, and bold, italic and bold-italic text draw them from the
-    /// embedded Bold, Italic and Bold Italic. Linux loads its faces through
-    /// the same two calls.
+    /// **The default stack draws Hebrew from the embedded font** -- the boxes
+    /// Hebrew drew as until 2026-10-08, on the path a launch takes:
+    /// `Config::defaults`, `load_faces`, the renderer's stack. Alef, shin and
+    /// sheva -- two letters and a point -- map in the embedded Regular, which
+    /// regular text draws from, and bold, italic and bold-italic text draw them
+    /// from the embedded Bold, Italic and Bold Italic. Linux loads its faces
+    /// through the same two calls.
     #[test]
     fn the_default_stack_draws_hebrew_from_the_embedded_font() {
         use baud_render::FaceStyle;
@@ -1202,13 +1199,12 @@ mod tests {
     }
 
     /// **A configured stack draws Hebrew from the embedded Regular behind
-    /// it**, the owner's order: the configured faces, then baud's embedded
-    /// font, then the system's faces, which a frame that needs one adds
-    /// (`follow_gaps`). FiraCode, named alone in `fonts`, maps no
-    /// Hebrew; the embedded Regular follows it, ahead of the icon face and
-    /// STIX, and draws alef, while Latin stays with FiraCode. With
-    /// `font_fallback = false` the stack is FiraCode alone and alef is its
-    /// `.notdef`.
+    /// it**: the configured faces, then baud's embedded font, then the
+    /// system's faces, which a frame that needs one adds (`follow_gaps`).
+    /// FiraCode, named alone in `fonts`, maps no Hebrew; the embedded
+    /// Regular follows it, ahead of the icon face and STIX, and draws
+    /// alef, while Latin stays with FiraCode. With `font_fallback = false`
+    /// the stack is FiraCode alone and alef is its `.notdef`.
     #[test]
     fn a_configured_stack_draws_hebrew_from_the_embedded_regular() {
         let font = concat!(
@@ -1404,11 +1400,10 @@ mod tests {
     }
 
     /// **Claude Code's arrow and bullet draw from STIX behind a configured
-    /// font** (the owner's call of 2026-10-03). The committed plain JetBrains
-    /// Mono has neither U+23F5 nor U+23FA, and neither has the embedded
-    /// Regular behind it nor the icon face, so the renderer's stack selects
-    /// STIX, fourth; with `font_fallback = false` both fall to the named
-    /// face's `.notdef`.
+    /// font**. The committed plain JetBrains Mono has neither U+23F5 nor
+    /// U+23FA, and neither has the embedded Regular behind it nor the icon
+    /// face, so the renderer's stack selects STIX, fourth; with
+    /// `font_fallback = false` both fall to the named face's `.notdef`.
     #[test]
     fn claude_codes_symbols_draw_from_stix_behind_a_configured_font() {
         let font = concat!(

@@ -9,7 +9,7 @@
 //! 232-235). A reverse-video selection, the default, takes that pair while
 //! the window is not key and is reverse video again once it is; a
 //! selection colour of its own (`[palette] selection`, a theme file,
-//! `OSC 17`/`19`) is drawn as it is (Jev's lean, note AZ).
+//! `OSC 17`/`19`) is drawn as it is (note AZ).
 
 mod support;
 

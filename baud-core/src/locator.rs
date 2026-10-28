@@ -52,12 +52,12 @@ impl Locator {
 /// **In cells under DECOM, counted from the margins, and undefined outside
 /// them**: 070-13 § 3.1 gives "outside the range of defined coordinates"
 /// the example "the input cursor is outside the active scrolling region,
-/// and the origin mode is set to relative", and CPR counts from the
-/// margins the same way (`Paint::reported_cursor`). xterm ignores DECOM
-/// here, practice not followed. **In pixels, from the text area's first
-/// pixel whatever DECOM says**: device pixels are for dot addressing, which
-/// origin mode does not move (Jev, PIXELS_ABSOLUTE, 0.96 and 0.94); a
-/// pixel the embedder did not give is undefined, as `?1016` refuses one.
+/// and the origin mode is set to relative", and CPR counts from the margins
+/// the same way (`Paint::reported_cursor`). xterm ignores DECOM here,
+/// practice not followed. **In pixels, from the text area's first pixel
+/// whatever DECOM says**: device pixels are for dot addressing, which
+/// origin mode does not move; a pixel the embedder did not give is
+/// undefined, as `?1016` refuses one.
 fn locator_pos(cold: &Cold, rows: Rows, cols: Cols) -> Option<LocatorPos> {
     let at = cold.locator.at?;
     match cold.locator.units {

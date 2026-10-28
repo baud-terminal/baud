@@ -17,13 +17,12 @@ use crate::*;
 ///
 /// **Refused, and counted apart from the unknown**: `CSI 2 i`, the VT510's
 /// "Sends screen data through host port" (`[[source: vt510-rm-b]]` p. 5-178),
-/// would type the screen back into the program's input, the reason the
-/// title reports are refused; `CSI ? 2 i`, "Graphics to Host", which sends
-/// what ReGIS's hard copy prints to the host instead, the screen's image as
-/// a reply, refused for the same reason (Jev's lean, PRINTER_ONLY, 0.61/0.72);
-/// `CSI ? 8 i` and `CSI ? 9 i` stop and start a
-/// printer-to-host session, which needs a printer that talks back; xterm's
-/// `CSI 10 i` and `CSI 11 i` write HTML and SVG dumps to files
+/// would type the screen back into the program's input, the reason the title
+/// reports are refused; `CSI ? 2 i`, "Graphics to Host", which sends what
+/// ReGIS's hard copy prints to the host instead, the screen's image as a
+/// reply, refused for the same reason; `CSI ? 8 i` and `CSI ? 9 i` stop and
+/// start a printer-to-host session, which needs a printer that talks back;
+/// xterm's `CSI 10 i` and `CSI 11 i` write HTML and SVG dumps to files
 /// (`[[source: ctlseqs]]`). A `Ps` no text gives is [`Csi::Unsupported`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MediaCopy {
@@ -139,11 +138,11 @@ pub enum PrintFormFeed {
 /// `?19` DECPEX: set, the whole page; reset, "only the area of the display
 /// within the scrolling region (Top Margin to Bottom Margin inclusive)"
 /// (070-7 p. 7-38). **The scrolling region at power-on and after `RIS`**,
-/// a source conflict decided by Jev's lean (SCROLLING_REGION, 0.20/0.54 on
-/// a second ask): `[[source: vt420-rm]]` p. 210 and `[[source:
-/// vt510-rm-b]]` p. 5-81 say "Default: Scrolling region", and xterm's
-/// `printerExtent` is false; the VT420's own Table 11-5 marks the page
-/// "(D)", and STD 070's `host_state_init` sets `PRINT_DISPLAY` from NVM.
+/// a source conflict: `[[source: vt420-rm]]` p. 210 and
+/// `[[source: vt510-rm-b]]` p. 5-81 say "Default: Scrolling region", and
+/// xterm's `printerExtent` is false; the VT420's own Table 11-5 marks the
+/// page "(D)", and STD 070's `host_state_init` sets `PRINT_DISPLAY` from
+/// NVM.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrintExtent {
     ScrollingRegion,
@@ -187,7 +186,7 @@ pub enum PrintSize {
 /// by a logical OR of all pixels which are selected for any color"; in
 /// colour "the terminal will send out color specifiers at the beginning of
 /// each Sixel dump". **Monochrome by default**, the text's "Default: Black
-/// and white" (Jev, DEFAULT_MONO, 0.98/0.98).
+/// and white".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrintColour {
     Mono,
@@ -222,13 +221,12 @@ pub enum PrintRotation {
     Rotated,
 }
 
-/// **The graphics print choices the user makes under local control**:
-/// 070-7 § 7.8.2 lets the user select colour, the background and rotation,
-/// and the VT340 the colour syntax, each also a DEC private mode
-/// (`?44`-`?47`) whose number xterm, and so baud, gives to the margin bell,
-/// reverse wraparound, logging and the alternate screen (Jev's lean,
-/// ESCAPE_43_SETTINGS_REST, 0.38/0.43 then 0.31/0.61). The embedder sets
-/// them ([`crate::GraphicsPrint::DEFAULT`] the texts' defaults).
+/// **The graphics print choices the user makes under local control**: 070-7
+/// § 7.8.2 lets the user select colour, the background and rotation, and
+/// the VT340 the colour syntax, each also a DEC private mode (`?44`-`?47`)
+/// whose number xterm, and so baud, gives to the margin bell, reverse
+/// wraparound, logging and the alternate screen. The embedder sets them
+/// ([`crate::GraphicsPrint::DEFAULT`] the texts' defaults).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct GraphicsPrint {
     pub colour: PrintColour,

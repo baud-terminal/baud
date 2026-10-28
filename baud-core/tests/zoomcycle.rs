@@ -1,6 +1,6 @@
 //! A zoom cycle must not duplicate a line.
 //!
-//! The owner's report: on a fresh instance, zoom all the way in and all
+//! A user's report: on a fresh instance, zoom all the way in and all
 //! the way out and lines start to multiply. A recording shows a shell
 //! that printed its banner once with the banner on screen four times.
 //!

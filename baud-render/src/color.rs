@@ -93,9 +93,9 @@ pub enum Floor {
 }
 
 impl Floor {
-    /// The owner's defaults: a trigger of about 1.2 -- "fixing the invisible
-    /// pairs of any convention, the built-in light theme's included" -- and
-    /// WCAG 2.2's 4.5:1 for text (SC 1.4.3).
+    /// The defaults: a trigger of about 1.2 -- "fixing the invisible pairs
+    /// of any convention, the built-in light theme's included" -- and WCAG
+    /// 2.2's 4.5:1 for text (SC 1.4.3).
     pub const DEFAULT: Floor = Floor::Lift {
         trigger: 1.2,
         target: 4.5,
@@ -147,11 +147,9 @@ impl Floor {
     }
 
     /// The trigger for text the window's dim made unreadable, beside the
-    /// floor's own: the owner's call of 2026-10-17, measured on every
-    /// capture first (the record, "A trigger of 3 for text the dim broke,
-    /// measured: the owner's call"). WCAG 2.2's 3:1 is SC 1.4.3's minimum
-    /// for large-scale text and SC 1.4.11's for graphical objects
-    /// (`[[source: wcag22]]`).
+    /// floor's own: measured on every capture first. WCAG 2.2's 3:1 is SC
+    /// 1.4.3's minimum for large-scale text and SC 1.4.11's for graphical
+    /// objects (`[[source: wcag22]]`).
     pub const GLASS_TRIGGER: f64 = 3.0;
 
     /// `text` as drawn on `page`, which the window draws at `alpha` over
@@ -171,18 +169,17 @@ impl Floor {
     /// is lifted as far as the glass trigger, and only where none reaches
     /// that either to the extreme that reads better: a pair the floor
     /// cannot bring to 4.5 ends where an untouched pair may already sit,
-    /// keeping what hue it can (Jev's lean, `decisions.jsonl` 744-747).
+    /// keeping what hue it can.
     ///
     /// **Just far enough, in OKLab** (`Oklab::lift`): note Y decision 6
-    /// lifts "just far enough to reach 4.5:1, keeping the hue", and over
-    /// the glass a linear-light mix toward white washes the hue out. It drew
+    /// lifts "just far enough to reach 4.5:1, keeping the hue", and over the
+    /// glass a linear-light mix toward white washes the hue out. It drew
     /// btop's red `#7f3b3b` used segment `#c8b9b9` beside its `#404040`
     /// track at `#bcbcbc`, 0.017 apart in OKLab where btop drew them 0.118
     /// apart, so every meter read full. Moving the lightness with the hue
     /// and chroma kept draws them `#f7a8a5` and `#bcbcbc`, 0.095 apart, at
     /// the same contrast. Greys have no hue, so greys lifted to one target
-    /// still land on one grey. Jev's lean, below the bar (`decisions.jsonl`
-    /// 754-755), and open to the owner.
+    /// still land on one grey. An open question.
     pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
@@ -783,11 +780,11 @@ pub struct Theme {
     /// the glass through; `baud-render/tests/translucent.rs` is the gate,
     /// and it is the only one in the workspace that renders below `0xFF`.
     pub bg_alpha: Chan,
-    /// Whether a background the application set is drawn under the dim
-    /// or above it. The default is [`AppBg::Dimmed`]: every background is
-    /// translucent, which is the owner's 2026-09-20 call. [`AppBg::Opaque`]
-    /// keeps every background an application set at full alpha and leaves
-    /// only the default one glass; see [`Theme::opaque_bg`].
+    /// Whether a background the application set is drawn under the dim or
+    /// above it. The default is [`AppBg::Dimmed`]: every background is
+    /// translucent. [`AppBg::Opaque`] keeps every background an application
+    /// set at full alpha and leaves only the default one glass; see
+    /// [`Theme::opaque_bg`].
     pub app_bg: AppBg,
     /// Whether a picture drawn in text keeps its backgrounds solid under
     /// [`AppBg::Dimmed`]. See [`PictureBg`].
@@ -803,12 +800,11 @@ pub struct Theme {
     pub palette: [Argb; 256],
     /// **The selection's colours, the `Theme` selection setting**: the
     /// page under selected text and the selected text, each `None` for no
-    /// colour of its own -- both `None` is reverse video, the default (the
-    /// owner's V13 call; Jev, 1.00 both orders, with renders beside
-    /// Terminal.app's and iTerm2's). A page alone draws each selected
-    /// cell's own text on it. A program's `OSC 17`/`19` wins over each
-    /// while it is set ([`Renderer::hilite`](crate::Renderer::hilite)). A
-    /// theme file may name the cell's own text or page instead of a colour
+    /// colour of its own -- both `None` is reverse video, the default
+    /// (note V, V13). A page alone draws each selected cell's own text on
+    /// it. A program's `OSC 17`/`19` wins over each while it is set
+    /// ([`Renderer::hilite`](crate::Renderer::hilite)). A theme file may
+    /// name the cell's own text or page instead of a colour
     /// ([`CellPaint`]).
     pub selection: Option<CellPaint<Argb>>,
     pub selection_text: Option<CellPaint<Argb>>,
@@ -833,19 +829,18 @@ pub struct Theme {
 ///
 /// **Why the rule is every set background and not something narrower**, and
 /// the one exception [`PictureBg`] carves out of it by looking at a block of
-/// cells rather than at one,
-/// measured 2026-09-22 on the owner's own yazi preview: a file manager
-/// with no image protocol draws a photo with chafa, whose output is a
-/// grid of cells each carrying its own foreground *and* background --
-/// block elements, box-drawing strokes, and plain spaces for the flat
-/// areas. On that .heic 68% of the preview's area was cell background, and
-/// on a photo with flat regions most cells are spaces. A space on a set
-/// background is also every TUI panel there is, so no rule that looks at
-/// one cell can keep the image's spaces opaque and btop's glass; the
-/// block-elements-only rule this replaced covered 66% of that photo's
-/// cells and 19% of another's. So the choice is the owner's, per window,
-/// and it is this key -- and under `Dimmed`, [`PictureBg`] finds the
-/// pictures from the blocks they make and draws those solid.
+/// cells rather than at one, measured 2026-09-22 on a yazi preview: a file
+/// manager with no image protocol draws a photo with chafa, whose output is
+/// a grid of cells each carrying its own foreground *and* background --
+/// block elements, box-drawing strokes, and plain spaces for the flat areas.
+/// On that .heic 68% of the preview's area was cell background, and on a
+/// photo with flat regions most cells are spaces. A space on a set
+/// background is also every TUI panel there is, so no rule that looks at one
+/// cell can keep the image's spaces opaque and btop's glass; the
+/// block-elements-only rule this replaced covered 66% of that photo's cells
+/// and 19% of another's. So the choice is the user's, per window, and it is
+/// this key -- and under `Dimmed`, [`PictureBg`] finds the pictures from the
+/// blocks they make and draws those solid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum AppBg {
     /// The same alpha as the default background.
@@ -858,9 +853,9 @@ pub enum AppBg {
 /// What the window's dim does to a picture drawn in text, under
 /// [`AppBg::Dimmed`] -- a block of set backgrounds holding at least
 /// [`crate::PICTURE_COLOURS`] distinct colours, found by
-/// [`crate::Pictures`]. The owner's call, 2026-09-22: panels stay glass and
-/// pictures are drawn solid, because under the dim a picture splits into
-/// solid glyphs beside see-through backgrounds.
+/// [`crate::Pictures`]. Panels stay glass and pictures are drawn solid,
+/// because under the dim a picture splits into solid glyphs beside
+/// see-through backgrounds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PictureBg {
     /// A picture's backgrounds are drawn solid.
@@ -871,9 +866,8 @@ pub enum PictureBg {
 }
 
 /// **How a Sixel's background fill draws on the see-through window**:
-/// `[glass] sixel_backgrounds`, the owner's call of 2026-10-22, "i would
-/// say b is default with config option to change it". A Sixel with `P2` 0
-/// or 2 sets the positions its data leaves at zero to the background
+/// `[glass] sixel_backgrounds`. A Sixel with `P2` 0 or 2 sets the
+/// positions its data leaves at zero to the background
 /// (`[[source: vt3xx-sixel]]`); no DEC text knows a see-through window,
 /// so how that background meets the glass is this setting. On an opaque
 /// window, or under Reduce Transparency, every choice draws as
@@ -903,7 +897,7 @@ pub enum SixelBg {
 /// inside reverse video draws a normal cell.
 ///
 /// **Every background keeps the window's alpha under it**, the reversed
-/// default one included: the owner's call, 2026-09-25, "same alpha for all".
+/// default one included: the same alpha for all.
 pub use baud_domain::Video;
 
 impl Default for Theme {
@@ -946,7 +940,7 @@ impl Theme {
     ///
     /// **The sixteen are not xterm's**, which it had been: xterm keeps one
     /// palette under either background, so on this page its bright green
-    /// read at 1.19:1 and its bright cyan at 1.09:1. The owner chose Modus
+    /// read at 1.19:1 and its bright cyan at 1.09:1. baud takes Modus
     /// Operandi's (note Y, decision 3), whose colours are made for a light
     /// page; the cube and the grey ramp stay xterm's.
     pub fn light() -> Theme {
@@ -1070,10 +1064,10 @@ impl Theme {
     /// stored ([`Theme::defaults`] under [`Video::Normal`]: the theme's, or
     /// `OSC 11`'s). By the colour, not the word: an explicit colour equal to
     /// the default's is default, as kitty's `cell_has_default_bg` compares
-    /// the drawn colour (`[[source: kitty-background-slang]]`), the owner's
-    /// pick of 2026-10-16. Alpha is the window's and not the colour's, so
-    /// it is not compared. What a kitty image below `INT32_MIN/2` shows
-    /// through (`[[source: kitty-graphics]]`).
+    /// the drawn colour (`[[source: kitty-background-slang]]`). Alpha is the
+    /// window's and not the colour's, so it is not compared. What a kitty
+    /// image below `INT32_MIN/2` shows through
+    /// (`[[source: kitty-graphics]]`).
     pub fn default_bg(drawn: Argb, default: Argb) -> bool {
         let opaque = Chan::from_u8(0xFF);
         drawn.with_alpha(opaque) == default.with_alpha(opaque)
@@ -1087,13 +1081,13 @@ impl Theme {
     /// **Under `?5` every cell is exchanged, an explicit colour included**
     /// (DEC STD 070 § 5.6.3.2, `[[source: dec-std-070]]` page 5-107, PDF
     /// 362: the mode "will affect which attribute bits from display memory
-    /// are used to render the text foreground and background color"; the
-    /// owner's decision of 2026-10-13). The pair is resolved from the stored
-    /// defaults and the stored palette and only then exchanged, so no entry
-    /// moves and a default cell comes out as the defaults swapped. Bold
-    /// brightens before the exchange, as the VT525 order j4james reports
-    /// does (`[[source: gh-ckwin-547-comments]]`, not a DEC text).
-    /// Hiding is not a colour and is not here: `Resolved::text`.
+    /// are used to render the text foreground and background color"). The
+    /// pair is resolved from the stored defaults and the stored palette and
+    /// only then exchanged, so no entry moves and a default cell comes out
+    /// as the defaults swapped. Bold brightens before the exchange, as the
+    /// VT525 order j4james reports does
+    /// (`[[source: gh-ckwin-547-comments]]`, not a DEC text). Hiding is not
+    /// a colour and is not here: `Resolved::text`.
     pub fn resolve(
         &self,
         style: StyleWord,
@@ -1247,7 +1241,7 @@ pub const MODUS_OPERANDI: [(u8, u8, u8); 16] = [
 ///
 /// **Entry 7 is `#6c6c6c`, not Operandi's `#a6a6a6`**: 4.57:1 on the page
 /// where Operandi's grey reads at 2.12, the one change to Operandi, its OKLCH
-/// lightness only. The owner's answer of 2026-10-18 to note Y's decision 3.
+/// lightness only (note Y, decision 3).
 pub fn light_palette() -> [Argb; 256] {
     let mut p = xterm_palette();
     for (slot, &(r, g, b)) in p.iter_mut().zip(&MODUS_OPERANDI) {
@@ -1259,10 +1253,10 @@ pub fn light_palette() -> [Argb; 256] {
 
 /// The four of xterm's sixteen that read below 4.5:1 on the dark page,
 /// `0x10`, and what each becomes: the colour with its OKLCH lightness raised
-/// until it reads at 4.5, hue kept (note Y, decision 8; the owner's answer of
-/// 2026-10-18). Red 3.26 to 4.50, blue 2.02 to 4.50, magenta 4.06 to 4.51,
-/// bright blue 4.01 to 4.52. The two blues lose chroma too, because sRGB
-/// holds no blue that light at xterm's chroma.
+/// until it reads at 4.5, hue kept (note Y, decision 8). Red 3.26 to 4.50,
+/// blue 2.02 to 4.50, magenta 4.06 to 4.51, bright blue 4.01 to 4.52. The two
+/// blues lose chroma too, because sRGB holds no blue that light at xterm's
+/// chroma.
 const DARK_FIXES: [(usize, (u8, u8, u8)); 4] = [
     (1, (0xE9, 0x33, 0x27)),
     (4, (0x37, 0x71, 0xFF)),

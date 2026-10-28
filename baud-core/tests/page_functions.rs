@@ -1,14 +1,13 @@
 //! **NP, PP, PPA, PPR and PPB on baud's one page** (`[[source: ecma48]]`
 //! 8.3.87, 8.3.95 to 8.3.98; `[[source: dec-std-070]]` pp. 5-77 to 5-83).
-//! baud's page memory is one page, its screen (Jev, ONE_PAGE, 0.94/0.94).
-//! STD 070's algorithms clamp the page to `number_of_pages` and NP and PP
-//! then take "the home position in the new page obeying Origin Mode", so
-//! on one page NP and PP home the cursor and PPA, PPR and PPB, which keep
-//! the line and column, move nothing (Jev, STD070_HOME, 0.92/0.98); the
-//! VT510's "If there is only one page, then the terminal ignores NP", the
-//! VT420's "If there is only one page, the terminal ignores NP", is the
-//! products' departure. A page asked for that baud
-//! does not have is counted in `Term::pages_missing`.
+//! baud's page memory is one page, its screen. STD 070's algorithms clamp
+//! the page to `number_of_pages` and NP and PP then take "the home
+//! position in the new page obeying Origin Mode", so on one page NP and
+//! PP home the cursor and PPA, PPR and PPB, which keep the line and
+//! column, move nothing; the VT510's "If there is only one page, then the
+//! terminal ignores NP", the VT420's "If there is only one page, the
+//! terminal ignores NP", is the products' departure. A page asked for
+//! that baud does not have is counted in `Term::pages_missing`.
 
 mod support;
 
@@ -138,11 +137,10 @@ fn below_level_three_the_page_functions_do_nothing() {
     assert_eq!(cursor(b"\x1b[63\"p\x1b[5;7H\x1b[U"), (0, 0), "Level 3");
 }
 
-/// **DECPCCM is not recognized** (Jev's lean, NOT_RECOGNIZED, 0.32/0.52):
-/// one page has no other page to couple, and STD 070 has "DEC Private
-/// modes that cannot be set or reset from the host will report as
-/// unknown" (p. 5-193). DECRQM answers 0 and `SM ? 64` and `RM ? 64` are
-/// counted.
+/// **DECPCCM is not recognized**: one page has no other page to couple,
+/// and STD 070 has "DEC Private modes that cannot be set or reset from
+/// the host will report as unknown" (p. 5-193). DECRQM answers 0 and
+/// `SM ? 64` and `RM ? 64` are counted.
 #[test]
 fn decpccm_is_not_recognized_on_one_page() {
     support::render(&WS, b"\x1b[?64$p", |t| {

@@ -225,7 +225,7 @@ fn sorted(mut v: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
 
 /// "W(L2) sets a width twice the nominal width, W(L3) three times": the
 /// nominal width is a pixel, and a wider line is a round pen of that many
-/// pixels swept along it (Jev's lean, ROUND).
+/// pixels swept along it.
 #[test]
 fn a_wide_line_is_a_round_pen_swept_along_it() {
     let got = sorted(lit(b"\x1bPpW(L5)P[100,100]V[120,100]\x1b\\"));
@@ -267,8 +267,8 @@ fn nominal_minimum_and_fractions() {
 
 /// "W(L2) sets a width twice the nominal width, W(L3) three times, and so
 /// on": § 8.8.3.2 names no widest line, and baud sets none short of the
-/// page (decided by Jev, UNBOUNDED, 0.96 and 0.96). A pen wider than twice
-/// the page's diagonal covers the whole page from any pixel of it.
+/// page. A pen wider than twice the page's diagonal covers the whole page
+/// from any pixel of it.
 #[test]
 fn a_width_has_no_limit_short_of_the_page() {
     let got = sorted(lit(b"\x1bPpW(L40)P[200,200]V[260,200]\x1b\\"));
@@ -509,8 +509,7 @@ fn scrolled(scroll: &[u8]) -> Vec<(usize, usize)> {
 /// "The position you specify becomes the new upper-left corner of the
 /// screen" (`[[source: vt3xx-screen-control]]`): the data move left and up
 /// by the address's distance from the origin, and what they reveal is the
-/// background, "moved off and erased from the display medium" (Jev's lean,
-/// BACKGROUND).
+/// background, "moved off and erased from the display medium".
 #[test]
 fn a_scroll_moves_the_page_and_reveals_the_background() {
     assert_eq!(scrolled(b"S[+50,+20]"), row(80, 50..=60));
@@ -540,7 +539,7 @@ fn a_scroll_moves_the_page_and_reveals_the_background() {
 /// A relative part and an omitted one are measured from the origin, the
 /// address at the screen's upper-left, so the drawing position does not
 /// matter, an absolute part is the address itself, and an omitted part
-/// moves nothing (Jev's lean, FROM_ORIGIN).
+/// moves nothing.
 #[test]
 fn a_scroll_is_measured_from_the_origin() {
     let want = row(80, 50..=60);
@@ -636,10 +635,9 @@ fn block(x0: usize, x1: usize, y0: usize, y1: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// Each pixel shown `n` by `n` from the screen's upper-left (Jev's lean,
-/// UPPER_LEFT), `X` and `Y` apart, and the bitmap kept, so `S(S1)` shows
-/// it again: "The display can be rescaled only by respecifying a scale
-/// factor of 1".
+/// Each pixel shown `n` by `n` from the screen's upper-left, `X` and `Y`
+/// apart, and the bitmap kept, so `S(S1)` shows it again: "The display
+/// can be rescaled only by respecifying a scale factor of 1".
 #[test]
 fn scaling_magnifies_from_the_upper_left_and_s_s1_shows_the_bitmap_again() {
     let base = lit(b"\x1bPpP[100,100]V[110,100]\x1b\\");
@@ -706,9 +704,9 @@ fn drawing_and_scrolling_while_magnified_work_on_the_bitmap() {
 
 /// "Negative values for scaling factors are not allowed. A value which
 /// exceeds the implementation limit in a device is mapped to the
-/// implementation limit" -- sixteen (Jev's lean, LIMIT_16) -- and "The
-/// default value for scaling factors is 1, and is restored by the
-/// execution of a valid S(A)".
+/// implementation limit" -- sixteen -- and "The default value for
+/// scaling factors is 1, and is restored by the execution of a valid
+/// S(A)".
 #[test]
 fn the_limit_the_refusals_and_s_a() {
     assert_eq!(
@@ -896,8 +894,7 @@ fn line_boxes(cols: std::ops::Range<usize>, colour: u32) -> Vec<(usize, usize, u
 /// commands received appears on the bottom line of the screen", and "The
 /// appearance of the characters is based only on the output map settings
 /// and the image that the characters are drawn over. Other ReGIS-settable
-/// states have no effect" (`[[source: vt3xx-regis-intro]]`; Jev's lean,
-/// OVERLAY).
+/// states have no effect" (`[[source: vt3xx-regis-intro]]`).
 #[test]
 fn magnified_the_command_display_stays_on_the_bottom_line() {
     // Unmagnified: `S(S1)P[1,1]`, eleven characters, eleven boxes.

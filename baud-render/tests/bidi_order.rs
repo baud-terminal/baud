@@ -70,7 +70,7 @@ fn a_hebrew_word_reads_right_to_left_in_a_left_to_right_line() {
 }
 
 /// **A terminal as it starts draws a Hebrew word right to left**: BDSM is
-/// set at power-on, the owner's answer of 2026-10-24.
+/// set at power-on.
 #[test]
 fn a_fresh_terminal_draws_a_hebrew_word_right_to_left() {
     let mut owned = Owned::new(&WS);
@@ -86,9 +86,9 @@ fn a_fresh_terminal_draws_a_hebrew_word_right_to_left() {
     );
 }
 
-/// **A paragraph takes its direction from its first strong letter**
-/// (UAX #9 P2-P3), and a right-to-left one sits against the right edge:
-/// the owner's sentence, all Hebrew, runs right to left at level 1, so its
+/// **A paragraph takes its direction from its first strong letter** (UAX
+/// #9 P2-P3), and a right-to-left one sits against the right edge: a
+/// reported sentence, all Hebrew, runs right to left at level 1, so its
 /// closing period, a neutral between an R and the paragraph's end (N1-N2),
 /// is drawn at the left end of the text, and the erased cells past it are
 /// laid out before it, at the line's end in the paragraph direction.
@@ -180,8 +180,7 @@ fn a_paragraph_resolved_in_pieces_keeps_its_first_pieces_direction() {
 /// cells of a table will be in different paragraphs"; HL4) at the level
 /// its own first strong letter gives it, ordered inside its own columns:
 /// a Hebrew cell reads right to left against its cell's right side (L1),
-/// a cell of digits stays as it is. The owner's row, 2026-10-24: "the
-/// table should be like B but דנהshould b be rtl".
+/// a cell of digits stays as it is. A reported row, 2026-10-24.
 #[test]
 fn a_table_row_keeps_its_columns_and_each_cell_its_own_direction() {
     let ws = WinSize {
@@ -606,14 +605,13 @@ fn the_leaving_row_is_laid_out_as_the_first_row_one_line_up() {
 
 /// **A composition on a right-to-left row draws as the same text written
 /// there**, on the CPU path: its row is laid out with the composition's
-/// text in its cells (`Written`; Jev AS_WRITTEN, 0.98 in both orders), so
-/// `cd` composed after `ab` in a Hebrew paragraph is drawn `abcd`, the `ab`
-/// moved left to make room, and composed over the `xy` of `abxy` its
-/// records and the cells it blanks are where that order puts them. The
-/// reference is `composition.rs`'s, the same text written underlined at
-/// the cursor, the cursor on the cell after it in logical order, which the
-/// paragraph draws left of `abcd`; the instance and cell arms are held to
-/// it in `baud-present-macos`.
+/// text in its cells (`Written`), so `cd` composed after `ab` in a Hebrew
+/// paragraph is drawn `abcd`, the `ab` moved left to make room, and
+/// composed over the `xy` of `abxy` its records and the cells it blanks are
+/// where that order puts them. The reference is `composition.rs`'s, the
+/// same text written underlined at the cursor, the cursor on the cell after
+/// it in logical order, which the paragraph draws left of `abcd`; the
+/// instance and cell arms are held to it in `baud-present-macos`.
 #[test]
 fn a_composition_on_a_right_to_left_row_draws_as_the_text_written() {
     use baud_font::Face;

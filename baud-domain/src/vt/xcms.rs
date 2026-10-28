@@ -10,13 +10,13 @@
 //! the profile is sRGB's: the matrices and D65 white of
 //! `[[source: css-color-4-20261009]]` 10.2, and for `rgbi:`, whose values are
 //! "linear intensity values ... not gamma corrected", the sRGB transfer
-//! curve. Jev decided it at 0.94 and 0.92 (decisions 810/811).
+//! curve.
 //!
 //! **CIELab and CIELuv are CIE's** (`[[source: cie-015-2018]]` 8.2.1, 8.2.2
 //! and Annex C), the definitions the manual names. libX11 reads a*, b*, u*
 //! and v* at one hundredth of CIE's scale and gives L* below 8 a Y a hundred
 //! times too large, so its `CIELab:7/0/0` is near white; that is its
-//! departure. Jev decided it at 0.92 and 0.92 (decisions 810/811).
+//! departure, not followed.
 //!
 //! **TekHVC, the conversions between the CIE forms and the gamut clip are
 //! Xcms's**, ported from libX11 b8d5a70's `src/xcms`:

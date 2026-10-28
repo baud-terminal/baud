@@ -1,9 +1,9 @@
 //! **baud's version, and the two places outside Cargo that spell it.**
 //!
-//! The owner, 2026-10-16: "1.0.0-beta.N". The workspace version is the one
-//! source: every crate inherits it, `TERM_PROGRAM_VERSION` and XTVERSION
-//! read it at compile time (`baud-app/src/pty.rs` holds those two to each
-//! other), and `scripts/bundle-macos.sh` writes it into the app bundle's
+//! The version is `1.0.0-beta.N`. The workspace version is the one source:
+//! every crate inherits it, `TERM_PROGRAM_VERSION` and XTVERSION read it
+//! at compile time (`baud-app/src/pty.rs` holds those two to each other),
+//! and `scripts/bundle-macos.sh` writes it into the app bundle's
 //! Info.plist, which Apple allows only digits and periods. Beside it the
 //! script writes the build number, a counter committed in
 //! `packaging/macos/build-number` and raised by hand per release.
@@ -34,9 +34,9 @@ fn integer(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0'))
 }
 
-/// The owner's scheme, `1.0.0-beta.N`, with N a positive integer.
+/// The scheme, `1.0.0-beta.N`, with N a positive integer.
 #[test]
-fn the_version_is_the_owners_scheme() {
+fn the_version_is_the_beta_scheme() {
     let v = workspace_version();
     let n = v
         .strip_prefix("1.0.0-beta.")
@@ -110,10 +110,9 @@ fn build_number() -> String {
 
 /// **`CFBundleVersion` is the committed counter, not anything git knows.**
 ///
-/// The owner, 2026-10-17 (decision 7, the recommended answer): a counter
-/// raised by hand per release, kept in the repository, so a build from a
-/// tarball or nix, with no `.git`, writes the same number. The script is
-/// run, so what is checked is what it emits.
+/// A counter raised by hand per release, kept in the repository, so a
+/// build from a tarball or nix, with no `.git`, writes the same number.
+/// The script is run, so what is checked is what it emits.
 #[test]
 fn the_bundles_build_number_is_the_committed_counter() {
     let counter = build_number();

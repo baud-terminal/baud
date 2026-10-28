@@ -11,10 +11,9 @@
 //!
 //! And through the stack the app builds: bold, italic and bold-italic Hebrew
 //! each paint what the built face of that style paints as the only text
-//! face, and differ from the Regular's -- italic Hebrew leans with the
-//! Latin, as the owner asked (2026-10-24), instead of drawing upright from
-//! the chain. Pointed Genesis 1:1-5 in italic and bold italic keeps every
-//! point.
+//! face, and differ from the Regular's -- italic Hebrew leans with the Latin
+//! (since 2026-10-24), instead of drawing upright from the chain. Pointed
+//! Genesis 1:1-5 in italic and bold italic keeps every point.
 //!
 //! These are properties of the committed files, which baud-render reads by
 //! path; which bytes the app compiles in is `baud-app/src/embedded.rs`'s

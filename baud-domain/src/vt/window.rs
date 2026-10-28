@@ -56,13 +56,12 @@ impl ScreenCoord {
         u16::try_from(self.0.rem_euclid(1 << 16)).unwrap_or(u16::MAX)
     }
 
-    /// A coordinate a program sent, read as [`ScreenCoord::wire`] writes
-    /// one: 32768-65535 are -32768 to -1. An ECMA-48 parameter has no minus
-    /// sign ("each of which represents a number in decimal notation", 5.4.2),
-    /// and xterm's move reads its two through X's signed sixteen-bit
-    /// `Position` (`window_ops`, `[[source: xterm-reset]]`'s file), so the
-    /// position `CSI 13 t` reports, sent back, is where the window goes
-    /// (Jev's lean, SIGNED16, 0.65 and 0.68 after a second ask).
+    /// A coordinate a program sent, read as [`ScreenCoord::wire`] writes one:
+    /// 32768-65535 are -32768 to -1. An ECMA-48 parameter has no minus sign
+    /// ("each of which represents a number in decimal notation", 5.4.2), and
+    /// xterm's move reads its two through X's signed sixteen-bit `Position`
+    /// (`window_ops`, `[[source: xterm-reset]]`'s file), so the position
+    /// `CSI 13 t` reports, sent back, is where the window goes.
     pub fn from_wire(v: u16) -> ScreenCoord {
         ScreenCoord(i32::from(i16::from_ne_bytes(v.to_ne_bytes())))
     }
@@ -113,13 +112,13 @@ impl WindowFacts {
 }
 
 /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
-/// embedder. `On` by default, the owner's call of 2026-10-19 (option 4),
-/// and `Off` refuses every one, counted and nothing queued, as xterm does
-/// with them among its disallowed window operations (`AllowWindowOps`,
-/// `[[source: xterm-reset]]`'s file). A program on the other end of the
-/// line, a remote one included, can move, resize, hide or raise the
-/// window, which is why a setting turns them off. The reports and the
-/// title stack are not window operations here and answer either way.
+/// embedder. `On` by default, and `Off` refuses every one, counted and
+/// nothing queued, as xterm does with them among its disallowed window
+/// operations (`AllowWindowOps`, `[[source: xterm-reset]]`'s file). A
+/// program on the other end of the line, a remote one included, can move,
+/// resize, hide or raise the window, which is why a setting turns them
+/// off. The reports and the title stack are not window operations here
+/// and answer either way.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum WindowOps {
     #[default]
@@ -295,15 +294,14 @@ impl WindowAbilities {
     }
 }
 
-/// Whether a program may log what it sends to a file: xterm's `?46`,
-/// "Start logging", and `OSC 46`, "Change Log File to Pt" (`[[source:
-/// ctlseqs]]`). The embedder's, since only it writes files: `Off` in a core
-/// no embedder told, and in the app `On` by default, the owner's call of
-/// 2026-10-20, with `Off` refusing both, counted, as xterm's `logInhibit`
-/// "prevent[s] the logging feature from being enabled" (`[[source:
-/// xterm-man]]`). A program on the other end of the line, a remote one
-/// included, can otherwise append what it sends to any file the user owns
-/// that no one else may write.
+/// Whether a program may log what it sends to a file: xterm's `?46`, "Start
+/// logging", and `OSC 46`, "Change Log File to Pt" (`[[source: ctlseqs]]`).
+/// The embedder's, since only it writes files: `Off` in a core no embedder
+/// told, and in the app `On` by default, with `Off` refusing both, counted,
+/// as xterm's `logInhibit` "prevent[s] the logging feature from being
+/// enabled" (`[[source: xterm-man]]`). A program on the other end of the
+/// line, a remote one included, can otherwise append what it sends to any
+/// file the user owns that no one else may write.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Logging {
     On,
@@ -384,7 +382,7 @@ pub enum WindowRequest {
     /// `CSI 4 ; height ; width t`, "Resize the xterm window to given height
     /// and width in pixels": the text area with its padding, which xterm's
     /// own measure is (`RequestResize` sizes its VT100 widget, the text and
-    /// its border; Jev, CONTENT_VIEW, 0.98 and 0.98).
+    /// its border).
     ResizePixels { height: SizeAsk, width: SizeAsk },
     /// `CSI 5 t`, "Raise the xterm window to the front of the stacking
     /// order".

@@ -4,8 +4,8 @@
 //! "All bi-directional aspects of data are handled by the device itself"
 //! (`[[source: ecma48]]` 7.2.1) -- under the line properties SCP and
 //! `?2501` gave it while it was selected, the line's own, as DEC STD 070
-//! gives it "its own ANSI text state and settings" (`[[source:
-//! dec-std-070]]` 070-14 § 14.2; Jev OWN_PARAGRAPH, 0.94/0.97).
+//! gives it "its own ANSI text state and settings"
+//! (`[[source: dec-std-070]]` 070-14 § 14.2).
 //!
 //! Every expectation is a visual order worked by hand from UAX #9's rules;
 //! `.` is an erased cell.

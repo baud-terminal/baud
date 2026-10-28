@@ -275,15 +275,15 @@ pub enum Cover {
 }
 
 /// One answer about a marked cluster, remembered: which face draws it
-/// ([`crate::Stack::select_cluster`]), or whether a face draws all of it. **The
-/// owner's rule (2026-10-01) is that per-cell work is a lookup**, and either
-/// answer underneath is a normalisation and a `cmap` lookup per codepoint
-/// per face tried -- `Face::glyph` walks the `cmap` subtables each time,
-/// which is why the base's face is a table ([`crate::FaceTable`]). In an
-/// earlier session, on a payload of 2,547 marked cells a frame, every mark
-/// one JetBrains Mono has, before the memo held the second answer: asking
-/// it on every shaping was 115 us of a 1,462 us convert (medians of five
-/// settled rounds, against an arm that never asked).
+/// ([`crate::Stack::select_cluster`]), or whether a face draws all of it.
+/// **Per-cell work is a lookup**, and either answer underneath is a
+/// normalisation and a `cmap` lookup per codepoint per face tried --
+/// `Face::glyph` walks the `cmap` subtables each time, which is why the base's
+/// face is a table ([`crate::FaceTable`]). In an earlier session, on a payload
+/// of 2,547 marked cells a frame, every mark one JetBrains Mono has, before the
+/// memo held the second answer: asking it on every shaping was 115 us of a
+/// 1,462 us convert (medians of five settled rounds, against an arm that never
+/// asked).
 ///
 /// **What marked cells pay is not separated from what the build moved.** On
 /// that payload (`scripts/gen-marks-payload.py covered`: nothing moves face

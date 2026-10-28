@@ -360,8 +360,8 @@ fn a_program_palette_moves_the_wash() {
 
 /// **The field is drawn in the selection's colours, the theme's
 /// included**: with a theme's selection page, a blank of the field is that
-/// page, where reverse video makes it the text colour (Jev, 0.96 and 0.98:
-/// the find takes the selection's colours).
+/// page, where reverse video makes it the text colour (the find takes the
+/// selection's colours).
 #[test]
 fn the_field_takes_the_themes_selection_colour() {
     let mono = font("JetBrainsMono-Regular.ttf");

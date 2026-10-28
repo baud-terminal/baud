@@ -259,9 +259,9 @@ fn every_split_and_size(input: &[u8]) {
 
 #[test]
 fn a_feed_cut_anywhere_decodes_as_a_byte_at_a_time() {
-    // kitty's chunks need not be multiples of four (Jev, 2026-10-15), and a
-    // read boundary falls anywhere, so a quantum straddles feeds: padded and
-    // unpadded ends, every rejection above, and data long enough for the
+    // kitty's chunks need not be multiples of four, and a read boundary
+    // falls anywhere, so a quantum straddles feeds: padded and unpadded
+    // ends, every rejection above, and data long enough for the
     // four-at-a-time path to run between straddling quanta.
     let mut data = Vec::new();
     for i in 0..=255u8 {

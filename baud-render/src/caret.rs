@@ -1,8 +1,7 @@
 //! **What a blinking cursor shows on a frame**: how much of it is drawn,
 //! and how bright the plasma glow over its cell is. The driver's clock
-//! decides both -- `baud-app`'s `caret.rs`, the owner's picks of
-//! 2026-10-15 -- and hands them over as a [`CursorPhase`]; this is what
-//! every path draws from them.
+//! decides both -- `baud-app`'s `caret.rs` -- and hands them over as a
+//! [`CursorPhase`]; this is what every path draws from them.
 //!
 //! * **The opacity is the cursor's own, taken part way.** A block cursor
 //!   is the cell's two colours swapped, so a block at opacity `t` is each

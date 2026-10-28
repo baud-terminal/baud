@@ -222,8 +222,7 @@ fn a_press_with_the_position_undefined_omits_the_coordinates() {
 /// **Under DECOM, cells count from the margins and outside them the
 /// position is undefined**: § 3.1's example, "the input cursor is outside
 /// the active scrolling region, and the origin mode is set to relative".
-/// Pixels stay counted from the text area (Jev, PIXELS_ABSOLUTE, 0.96 and
-/// 0.94). xterm ignores DECOM.
+/// Pixels stay counted from the text area. xterm ignores DECOM.
 #[test]
 fn under_decom_cells_count_from_the_margins_and_pixels_do_not() {
     // Rows 3-6 and, under DECLRMM, columns 4-10, one-based.
@@ -288,8 +287,7 @@ fn decefr_reports_once_when_the_pointer_leaves_the_rectangle() {
 /// "any locator movement" -- into another cell, or in pixel units another
 /// pixel; a rectangle that does not contain the pointer reports at once,
 /// "immediately and de-activate it" -- and so does one whose top is below
-/// its bottom, which contains no position (Jev's lean, AS_GIVEN, 0.89 and
-/// 0.85).
+/// its bottom, which contains no position.
 #[test]
 fn decefr_takes_omitted_corners_from_the_pointer_and_reports_at_once_outside() {
     let r = run(

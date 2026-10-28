@@ -75,8 +75,9 @@ fn xtsmgraphics_does_not_scroll_and_is_counted() {
     });
 }
 
-/// The cell yazi would see on this Mac's Retina display at the owner's size:
-/// 17 by 34 device pixels, the unit every render path draws a Sixel pixel in.
+/// The cell yazi would see on this Mac's Retina display at the size in use:
+/// 17 by 34 device pixels, the unit every render path draws a Sixel pixel
+/// in.
 fn retina(t: &mut Term<'_>) {
     t.set_cell_size(ImagePx::of(17), ImagePx::of(34));
 }

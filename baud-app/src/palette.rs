@@ -5,14 +5,13 @@
 //! so a file that fails is reported and leaves baud's own half in place
 //! rather than stopping the terminal.
 //!
-//! **The content chooses the reader** (note AR; the owner's call of
-//! 2026-10-17): [`themefile::detect::classify`] gives one verdict and only
-//! that verdict's reader runs. Every load says what the file was read as and
-//! the line that decided; a file named for another format is read by its
-//! content and the name reported (Jev, O1, 0.90/0.92, decisions.jsonl
-//! 680/681). A bare name is tried as given, then with `.yaml`, then `.yml`
-//! (the owner, 2026-10-17, keeping Jev's 0.65 order); a scheme whose
-//! polarity is the other half's is used as named and reported (Jev, 0.93).
+//! **The content chooses the reader** (note AR):
+//! [`themefile::detect::classify`] gives one verdict and only that verdict's
+//! reader runs. Every load says what the file was read as and the line that
+//! decided; a file named for another format is read by its content and the
+//! name reported. A bare name is tried as given, then with `.yaml`, then
+//! `.yml`; a scheme whose polarity is the other half's is used as named and
+//! reported.
 
 use std::path::{Path, PathBuf};
 
@@ -104,11 +103,11 @@ pub fn load_halves(light: Option<&str>, dark: Option<&str>, dirs: &Dirs) -> (Hal
 
 /// The paths a value names, in the order they are tried. A value with a `/`
 /// is a path: `~/` expanded from `HOME`, and none when there is no `HOME`;
-/// a relative one beside the config file in force, the owner's call of
-/// 2026-10-13, not under the directory baud was started in. A bare name is
-/// looked up in the `themes` directory beside the config file in force,
-/// then in `$XDG_CONFIG_HOME/baud/themes` and `~/.config/baud/themes`, each
-/// directory once, as given and then with `.yaml` and `.yml`.
+/// a relative one beside the config file in force, not under the directory
+/// baud was started in. A bare name is looked up in the `themes` directory
+/// beside the config file in force, then in `$XDG_CONFIG_HOME/baud/themes`
+/// and `~/.config/baud/themes`, each directory once, as given and then with
+/// `.yaml` and `.yml`.
 pub fn candidates(spec: &str, dirs: &Dirs) -> Vec<PathBuf> {
     if spec.contains('/') {
         if let Some(rest) = spec.strip_prefix("~/") {
@@ -748,11 +747,10 @@ mod tests {
         assert!(candidates("day", &none).is_empty());
     }
 
-    /// **A relative theme path is read beside the config file**, the
-    /// owner's call of 2026-10-13, not under the directory baud started
-    /// in. An absolute path is kept and `~/` is still home; a `~/` with no
-    /// home to expand is looked for nowhere, rather than as a directory
-    /// named `~` under the working directory.
+    /// **A relative theme path is read beside the config file**, not under
+    /// the directory baud started in. An absolute path is kept and `~/` is
+    /// still home; a `~/` with no home to expand is looked for nowhere,
+    /// rather than as a directory named `~` under the working directory.
     #[test]
     fn a_relative_theme_path_resolves_against_the_config_files_directory() {
         let d = Dirs {
@@ -1021,7 +1019,7 @@ mod tests {
     }
 
     /// **A ghostty theme named `.yaml` is read as ghostty**, and the name
-    /// that says otherwise is reported (Jev, O1, decisions.jsonl 680/681).
+    /// that says otherwise is reported.
     #[test]
     fn a_ghostty_theme_named_yaml_is_read_as_ghostty_and_the_name_reported() {
         let (mislabelled, said) = dark_of("night-yaml", "night.yaml");
@@ -1051,7 +1049,7 @@ mod tests {
     }
 
     /// Two grammars in one file are refused naming both lines; tinted's
-    /// slot names in ghostty's grammar are refused saying so (Jev, O10).
+    /// slot names in ghostty's grammar are refused saying so.
     #[test]
     fn a_mixed_file_and_tinted_slots_in_equals_syntax_are_refused() {
         let (mixed, said) = dark_of("mixed", "mixed");
@@ -1138,8 +1136,8 @@ mod tests {
     }
 
     /// **A list of sixteen colours is read** as ANSI 0 to 15, as pywal's
-    /// `colors` file holds them; its page and text stay baud's own (Jev,
-    /// O11), and the notice says so.
+    /// `colors` file holds them; its page and text stay baud's own, and
+    /// the notice says so.
     #[test]
     fn a_list_of_sixteen_colours_reads_as_ansi_0_to_15() {
         let (got, said) = dark_of("colors", "colors");
@@ -1249,9 +1247,9 @@ mod tests {
     }
 
     /// **The config's selection colours win over a theme file's, and a
-    /// file's over reverse video** (Jev, 0.97 both orders: a key set after
-    /// the theme wins, as in ghostty and kitty); `"none"` takes a file's
-    /// colour away. The file here is iTerm2's, which names both.
+    /// file's over reverse video** (a key set after the theme wins, as in
+    /// ghostty and kitty); `"none"` takes a file's colour away. The file
+    /// here is iTerm2's, which names both.
     #[test]
     fn the_configs_selection_wins_over_the_files_and_none_takes_it_away() {
         use crate::config::{Selection, SelectionPick};
@@ -1461,9 +1459,8 @@ mod tests {
     }
 
     /// **An empty or comments-only file loads empty**, setting nothing and
-    /// saying so (Jev decided load_empty_with_notice 0.98 / 0.98,
-    /// decisions.jsonl 710/711): TOML's grammar allows an empty document,
-    /// and ghostty, kitty, foot and alacritty each load one and set nothing.
+    /// saying so: TOML's grammar allows an empty document, and ghostty,
+    /// kitty, foot and alacritty each load one and set nothing.
     #[test]
     fn an_empty_or_comments_only_file_loads_empty_with_the_unset_notice() {
         for (tag, text) in [

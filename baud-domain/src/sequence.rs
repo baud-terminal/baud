@@ -22,8 +22,7 @@
 //! cell's word and the next codepoint to the child node is a perfect hash
 //! the generator built, so nothing probes and nothing searches. The store
 //! re-hashed the whole growing cluster on every continuation, six times a
-//! growing list for a family of seven (docs/record.md, "A named emoji
-//! sequence is a trie step, not an intern").
+//! growing list for a family of seven.
 
 use crate::sequence_data::*;
 use crate::*;

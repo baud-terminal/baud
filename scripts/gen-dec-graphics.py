@@ -6,10 +6,9 @@ DEC's tables name each glyph of the set and give no Unicode codepoint:
 octal, and `[[source: dec-special-graphics]]` draws them. foot's `vt100_0[]` is
 one implementation's choice of codepoint for 31 of them, `0x60..0x7E`, and is
 cited as foot's rather than as DEC's, because that is whose judgement it is.
-It omits `0x5F`, which DEC names "Blank"; which codepoint that stores is the
-owner's call, open in docs/record.md, "DEC Special Graphics begins at 0x5F, and
-what it stores there is the owner's call". Until it lands, this table is 31
-entries and baud leaves `0x5F` as `_`.
+It omits `0x5F`, which DEC names "Blank"; which codepoint that stores is an
+open question. Until it is answered, this table is 31 entries and baud leaves
+`0x5F` as `_`.
 """
 import pathlib, re, sys, unicodedata
 
@@ -32,8 +31,8 @@ lines = ['''//! DEC Special Graphics, generated from the source pinned in
 //! Indexed by `byte - 0x60`, covering `` ` `` through `~`: foot's 31 entries.
 //! The set is 32. DEC replaces `0x5F` as well, with "Blank"
 //! (`[[source: vt100-ug-ch3]]` Table 3-9), and foot does not, so neither does
-//! this table: an open departure. See docs/record.md, "DEC Special Graphics
-//! begins at 0x5F, and what it stores there is the owner's call".
+//! this table: an open departure, the codepoint `0x5F` stores still to be
+//! chosen.
 
 /// `[[source: foot-vt100-0]]`'s `vt100_0[]`.
 pub static DEC_GRAPHICS: [u32; 31] = [''']

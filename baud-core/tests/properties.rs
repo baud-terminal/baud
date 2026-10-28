@@ -458,11 +458,10 @@ const ALPHABET: &[Atom] = &[
         count: 0,
     },
     // **A UTF-8 character inside a `CSI`, one atom a `CSI` state**: it
-    // cancels the sequence and is the ground's after a control (the owner's
-    // decision of 2026-10-13), so the byte after it is text. `fast_csi`
-    // declines at the lead in one read and the graph walks it in every
-    // other, so the two paths meet here; a split can fall inside the
-    // character, after the cancel.
+    // cancels the sequence and is the ground's after a control, so the byte
+    // after it is text. `fast_csi` declines at the lead in one read and the
+    // graph walks it in every other, so the two paths meet here; a split
+    // can fall inside the character, after the cancel.
     Atom {
         name: "csi-entry-lead",
         bytes: b"\x1b[\xe0\xa4\x83u",
@@ -488,9 +487,9 @@ const ALPHABET: &[Atom] = &[
         count: 0,
     },
     // **A U+FFFD for ill-formed bytes after a Prepend joins the cluster**,
-    // as a literal one does (the owner's SAME_AS_LITERAL, 2026-10-13): a
-    // stray `80`, and a lead cut short at the end of the atom, which the
-    // next atom's first byte ends and which a split can fall inside.
+    // as a literal one does: a stray `80`, and a lead cut short at the end
+    // of the atom, which the next atom's first byte ends and which a split
+    // can fall inside.
     Atom {
         name: "fffd-after-prepend",
         bytes: b"a\xd8\x80\x80Z",

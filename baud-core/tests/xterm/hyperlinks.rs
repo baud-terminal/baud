@@ -5,15 +5,15 @@
 //! `OSC 8 ; ; ST` — an empty URI, not a link to nowhere.
 //!
 //! The link table is bounded at `NLINK` -- a URI is attacker-supplied content
-//! used as a key, which `CLAUDE.md` names as the content-addressing failure
+//! used as a key, which `docs/protocol-decisions.md` names as the failure
 //! mode: a page cycling through thousands of links must cost the same as one
 //! with four -- and **it refuses a colliding link rather than evicting the
 //! occupant**. It evicted like the style table until activation was designed
 //! and a review showed what that lets a program do: an `OSC 8` run that writes
 //! no cell lands in the slot an honest link already on screen resolves
 //! through, and a click on unchanged text opens the newcomer's target. A
-//! refused link is counted and renders as plain text; a clipped one is
-//! refused too, because a cut URL is a different URL.
+//! refused link is counted and renders as plain text; a clipped one is refused
+//! too, because a cut URL is a different URL.
 //!
 //! [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
 
@@ -347,8 +347,8 @@ fn hyperlinks_are_chunk_invariant() {
 /// The cell is still eight bytes.
 ///
 /// The link rides in spare `CellFlags` bits precisely so this stays true —
-/// `CLAUDE.md` records the 8-byte width as measured, and a ninth byte would
-/// round the cell to twelve.
+/// `CONTRIBUTING.md` records the 8-byte width as measured, and a ninth byte
+/// would round the cell to twelve.
 #[test]
 fn the_cell_is_still_eight_bytes() {
     assert_eq!(core::mem::size_of::<PackedCell>(), 8);

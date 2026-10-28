@@ -1,12 +1,12 @@
 //! Growing the window must not move what is already on the screen.
 //!
-//! The owner's report, twice: *"when resizing the current first row
-//! changes and it should not -- we should not change the scroll ever, we
-//! should only re-arrange the grid of what is visible, not go to
-//! history."* A screen recording of btop mid-drag shows what it costs --
-//! three copies of its lower panels at three different sizes, stacked
-//! down the screen, because each redraw landed where the last one had
-//! been moved to rather than over it.
+//! A user's report, twice: *"when resizing the current first row changes
+//! and it should not -- we should not change the scroll ever, we should
+//! only re-arrange the grid of what is visible, not go to history."* A
+//! screen recording of btop mid-drag shows what it costs -- three copies
+//! of its lower panels at three different sizes, stacked down the
+//! screen, because each redraw landed where the last one had been moved
+//! to rather than over it.
 mod support;
 use baud_core::{PackedCell, Term};
 use baud_domain::WinSize;
@@ -69,10 +69,10 @@ fn a_taller_alternate_screen_does_not_move_what_is_on_it() {
 /// as "a taller primary screen does not pull history back", and it could not
 /// fail: `with_corpus` provisions exactly the fifty rows the screen has, so
 /// the growth came back `Truncated` into a `let _`, nothing grew, and the
-/// comparison held on a screen that had not moved. On 2026-09-18 the owner's
-/// rule for the primary became "pull down to the bottom, and blank-fill only
-/// when nothing is left to pull" (`Term::resize`, and note M), because
-/// refusing to pull lost the lines a shrink had pushed into the history. The
+/// comparison held on a screen that had not moved. On 2026-09-18 the rule
+/// for the primary became "pull down to the bottom, and blank-fill only when
+/// nothing is left to pull" (`Term::resize`, and note M), because refusing
+/// to pull lost the lines a shrink had pushed into the history. The
 /// alternate screen keeps no history and has nothing to pull, which is why
 /// the report above still governs it.
 ///

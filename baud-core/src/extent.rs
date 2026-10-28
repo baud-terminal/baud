@@ -5,45 +5,41 @@
 //!
 //! **Before any SEE the extent is DEC's**: `ICH`, `DCH` and a write under
 //! IRM shift within the line between the margins, SEE 1's, and `IL` and
-//! `DL` within the scrolling region, SEE 0's, as DEC STD 070's ICH note 1 and xterm do
-//! and as terminfo's xterm entries, which carry no `in`, tell curses (Jev's
-//! lean, LINE, 0.54/0.48 then 0.72/0.74). SEE's "default Ps = 0" is the
-//! value of an omitted parameter, so `CSI Q` selects the page. `RIS`
-//! returns to the line; `DECSTR` and a resize keep the extent (Jev, KEEP,
-//! 0.96/0.96); a value past 4 is counted and changes nothing (Jev,
-//! COUNTED_KEEP, 0.98/0.94).
+//! `DL` within the scrolling region, SEE 0's, as DEC STD 070's ICH note 1
+//! and xterm do and as terminfo's xterm entries, which carry no `in`,
+//! tell curses. SEE's "default Ps = 0" is the value of an omitted
+//! parameter, so `CSI Q` selects the page. `RIS` returns to the line;
+//! `DECSTR` and a resize keep the extent; a value past 4 is counted and
+//! changes nothing.
 //!
-//! **A shift across lines keeps within DEC's margins** (Jev's lean,
-//! WITHIN_MARGINS, 0.52/0.64 then 0.92/0.86): the shifted part runs through
-//! the rectangle DECSTBM and DECSLRM bound, from one line's right margin to
-//! the next line's left margin, and ends at the bottom margin; outside the
-//! rectangle the edit is ignored, as DEC's are outside the margins. SEE 4
-//! is the page here, the history not being on the display (Jev, AS_PAGE,
-//! 1.00/1.00). The field is `EF`'s, bounded by the line and the margins;
-//! the qualified area `EA`'s run of positions sharing the cursor's guard,
+//! **A shift across lines keeps within DEC's margins**: the shifted part
+//! runs through the rectangle DECSTBM and DECSLRM bound, from one line's
+//! right margin to the next line's left margin, and ends at the bottom
+//! margin; outside the rectangle the edit is ignored, as DEC's are outside
+//! the margins. SEE 4 is the page here, the history not being on the
+//! display. The field is `EF`'s, bounded by the line and the margins; the
+//! qualified area `EA`'s run of positions sharing the cursor's guard,
 //! within the rectangle. HEM's PRECEDING shifts from the extent's start to
 //! the cursor, as FOLLOWING shifts from the cursor to its end.
 //!
 //! **`IL` and `DL`**: with the extent a line or a field, the shifted part is
-//! the active line alone, so they erase it (Jev, ERASE_ACTIVE, 0.98/0.98);
-//! with a qualified area they shift the lines from the cursor's to the
-//! area's last, within the scrolling region (Jev's lean, AREA_LINES,
-//! 0.24/0.22 then 0.66/0.86); with the page as before.
+//! the active line alone, so they erase it; with a qualified area they shift
+//! the lines from the cursor's to the area's last, within the scrolling
+//! region; with the page as before.
 //!
 //! **A wide character stays whole, as under DEC's `ICH` and `DCH`**: an
 //! edit at either half takes the whole character, the shift starting at
 //! whichever half it reaches first (the lead under FOLLOWING, the tail
 //! under PRECEDING), a delete taking the character and the n-1 positions
-//! after it in the shift's direction, and a character the shift
-//! would part is erased, both halves: one a line end would cut, one pushed
-//! off the shifted part's end or out of it, one whose other half lies
-//! outside it. Under DCSM's PRESENTATION, on a line holding a string, the
-//! positions are the ones drawn and their content moves between the cells
-//! drawn there, each keeping the string it is stored in, so the line is
-//! drawn as before with the content shifted (Jev's lean, BUILD_DRAWN,
-//! 0.66/0.66 then 0.69/0.76); a wide character there moves whole where
-//! its two halves land side by side in their order, and is erased where
-//! they would not.
+//! after it in the shift's direction, and a character the shift would part
+//! is erased, both halves: one a line end would cut, one pushed off the
+//! shifted part's end or out of it, one whose other half lies outside it.
+//! Under DCSM's PRESENTATION, on a line holding a string, the positions
+//! are the ones drawn and their content moves between the cells drawn
+//! there, each keeping the string it is stored in, so the line is drawn as
+//! before with the content shifted; a wide character there moves whole
+//! where its two halves land side by side in their order, and is erased
+//! where they would not.
 //!
 //! **What it costs while no SEE has chosen another: nothing on the text
 //! path.** `ICH` and `DCH` test it out of line, and a write under IRM is a

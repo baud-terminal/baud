@@ -9,8 +9,7 @@
 //! is recoloured. The sweep frees the slots no cell names, at 7/8 load and
 //! before any eviction, so a cell keeps its rendition while the cells name
 //! fewer renditions than the table has slots. Each test names the mechanism
-//! it holds; the record ("A full rendition table sweeps before it evicts")
-//! lists the perturbation that turns each red.
+//! it holds.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -388,7 +387,7 @@ fn a_full_table_sweeps_before_it_evicts() {
 /// next rendition evicts a named slot rather than sweeping again. A sweep
 /// frees at least a sixteenth of the table or leaves it within a sixteenth
 /// of full, so this happens only where the cells name more than 15/16 of the
-/// slots (the record, "A full rendition table sweeps before it evicts").
+/// slots.
 #[test]
 fn a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes() {
     support::with_term(&SMALL, |t| {

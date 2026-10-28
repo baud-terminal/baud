@@ -43,19 +43,18 @@ members = ["baud-domain", "baud-core", "baud-bench",
 # terminals. They do not belong in this lock file.
 exclude = ["bench-others"]
 
-# **`cargo run` builds the binary the bundle ships.** `baud` is the one binary
-# (the owner, 2026-09-14: "the only bin should be and default one is baud, rest
-# is part of tests"). Without this line a bare `cargo run --release` resolves
-# features across every member, and `baud-bench` turns on `baud-render`'s
-# `exceptions`, which that manifest says the app does not get, and libc's
-# `std`: 4,160 more bytes of `__text` than `scripts/bundle-macos.sh`'s
-# `cargo build --release -p baud-app`, measured at 1e02e6b. With it a bare
-# `cargo run`, `build`, `test` or `clippy` covers `baud-app` alone; the gate
-# passes `--workspace`.
+# **`cargo run` builds the binary the bundle ships.** `baud` is the one binary,
+# and the rest is part of the tests. Without this line a bare
+# `cargo run --release` resolves features across every member, and `baud-bench`
+# turns on `baud-render`'s `exceptions`, which that manifest says the app does
+# not get, and libc's `std`: 4,160 more bytes of `__text` than
+# `scripts/bundle-macos.sh`'s `cargo build --release -p baud-app`, measured at
+# 1e02e6b. With it a bare `cargo run`, `build`, `test` or `clippy` covers
+# `baud-app` alone; the gate passes `--workspace`.
 default-members = ["baud-app"]
 
 [workspace.package]
-# The owner, 2026-10-16: "1.0.0-beta.N". Every crate inherits this, and
+# The version is `1.0.0-beta.N`. Every crate inherits this, and
 # `baud-app/tests/version.rs` holds it to that scheme.
 version = "1.0.0-beta.1"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition
@@ -79,10 +78,10 @@ repository = "https://github.com/i-am-logger/baud"
 # are what a debug run is for. `baud-app` and the present and window
 # crates stay at 0, so a debug run still lays out their constants
 # unmerged, as it did when it caught a test comparing `include_bytes!`
-# addresses; in the four, `audit_all.sh` holds address operations to
-# their count instead. Only `dev`, and `test` through it, read these;
-# `release` and `bench` do not. The measurement: docs/record.md, "The
-# debug suite spent its time in four crates at opt-level 0".
+# addresses; in the four, `audit_all.sh` holds address operations to their
+# count instead. Only `dev`, and `test` through it, read these; `release`
+# and `bench` do not. Measured: the debug suite spent its time in those
+# four crates at opt-level 0.
 [profile.dev.package.baud-domain]
 opt-level = 1
 
@@ -102,12 +101,12 @@ opt-level = 1
 opt-level = 3
 lto = true
 codegen-units = 1
-# **Every function starts on a 64-byte boundary.** Without it a function's
-# offset in its cache line moves whenever anything linked before it changes
-# size, and `cat` read -8%, -9% and +3% across three builds of one change whose
-# ingest loop was instruction for instruction the same -- a layout lottery this
-# repo had recorded on `cat` several times before. Aligned, all three equalled the
-# base. The cost and the corpus sweep are in CLAUDE.md, "Every function starts
-# on a 64-byte boundary". `bench` inherits this profile, and `test:unit` builds
-# it, so the measurements and the tests run the code that ships.
+# **Every function starts on a 64-byte boundary.** Without it a function's offset
+# in its cache line moves whenever anything linked before it changes size, and
+# `cat` read -8%, -9% and +3% across three builds of one change whose ingest loop
+# was instruction for instruction the same -- a layout lottery this repo had
+# recorded on `cat` several times before. Aligned, all three equalled the base, at
+# no cost on eleven payloads and +2.0% on the app binary's size
+# (`CONTRIBUTING.md`). `bench` inherits this profile, and `test:unit` builds it,
+# so the measurements and the tests run the code that ships.
 rustflags = ["-C", "llvm-args=-align-all-functions=6"]

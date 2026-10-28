@@ -5,33 +5,30 @@
 //! SCP selects the character path "for the active line (the line that
 //! contains the active presentation position) and subsequent lines", and
 //! "This takes effect immediately": the paragraph holding the cursor's line
-//! takes it at once, wherever in it the cursor stands (Jev, ACTIVE_LINE,
-//! 0.94/0.92), and it becomes the direction in force, which the lines that
-//! follow take by terminal-wg's draft rules
-//! (`[[source: terminal-wg-bidi-escape-sequences]]`, Jev's lean
-//! DRAFT_RULES): a line feed into a new paragraph, a line a scroll brings in
-//! that a wrap did not, the lines ED erases whole, the lines SU, SD, IL and
-//! DL bring in, each one of its own ([`Paint::lines_bounded`]), and the
-//! screen a clear leaves. A wrap joins the row it
-//! brings in to the paragraph above, which keeps its own direction, and an
-//! erase inside a line keeps the line's. A cursor move takes nothing: "the
-//! new mode is not applied" to a line the cursor only reaches.
+//! takes it at once, wherever in it the cursor stands, and it becomes the
+//! direction in force, which the lines that follow take by terminal-wg's
+//! draft rules (`[[source: terminal-wg-bidi-escape-sequences]]`): a line
+//! feed into a new paragraph, a line a scroll brings in that a wrap did not,
+//! the lines ED erases whole, the lines SU, SD, IL and DL bring in, each one
+//! of its own ([`Paint::lines_bounded`]), and the screen a clear leaves. A
+//! wrap joins the row it brings in to the paragraph above, which keeps its
+//! own direction, and an erase inside a line keeps the line's. A cursor move
+//! takes nothing: "the new mode is not applied" to a line the cursor only
+//! reaches.
 //!
 //! SPD sets the whole presentation component: every line of the screen,
-//! the history aside, and the direction in force (Jev's lean,
-//! WHOLE_SCREEN, 0.88/0.83).
+//! the history aside, and the direction in force.
 //!
 //! **terminal-wg's `?2500` and `?2501` are paragraph properties too**
 //! (`[[source: terminal-wg-bidi-basic-modes]]`), carried by the same rules:
-//! each becomes the value in force, and applies at once only to a
-//! paragraph whose first position the cursor stands on, "if the cursor
-//! stands at the first logical position of a paragraph then the received
-//! BiDi property value is immediately applied on that paragraph ... If the
-//! cursor is not at the first logical position ... the new mode is not
-//! applied" (`[[source: terminal-wg-bidi-escape-sequences]]`; Jev,
-//! FIRST_POSITION, 0.90/0.94). SPD spreads only the path: "It would be ugly
-//! for SPD to spread the current BDSM, autodetection etc. modes too across
-//! all the lines".
+//! each becomes the value in force, and applies at once only to a paragraph
+//! whose first position the cursor stands on, "if the cursor stands at the
+//! first logical position of a paragraph then the received BiDi property
+//! value is immediately applied on that paragraph ... If the cursor is not
+//! at the first logical position ... the new mode is not applied"
+//! (`[[source: terminal-wg-bidi-escape-sequences]]`). SPD spreads only the
+//! path: "It would be ugly for SPD to spread the current BDSM,
+//! autodetection etc. modes too across all the lines".
 //!
 //! **What a line holds is its paragraph's properties**, every row of it,
 //! so the renderer reads them from any row of the paragraph and a reflow,
@@ -39,14 +36,13 @@
 //! ([`baud_domain::RowExtent`], [`baud_domain::LineBidi`]).
 //!
 //! **What this costs a program that never sends either: one test of the
-//! mode word where a line feed, a `CR LF` and a wrap already tested LNM and
-//! autoprint**, [`ModeBit::PathSelected`] the third bit of it; cells
-//! written were equal and the timing gave no result (docs/record.md, "SCP
-//! and SPD set which way a line runs"). Until a path or a property is
-//! selected every line holds the power-on byte and so does the value in
-//! force, so none of the rules has anything to write. The lines SU, SD, IL and DL end are
-//! ended whatever the path: a line they bring in is a paragraph of its own
-//! either way, which a reflow reads too.
+//! mode word where a line feed, a `CR LF` and a wrap already tested LNM
+//! and autoprint**, [`ModeBit::PathSelected`] the third bit of it; cells
+//! written were equal and the timing gave no result. Until a path or a
+//! property is selected every line holds the power-on byte and so does the
+//! value in force, so none of the rules has anything to write. The lines
+//! SU, SD, IL and DL end are ended whatever the path: a line they bring in
+//! is a paragraph of its own either way, which a reflow reads too.
 
 use baud_domain::{
     BandMove, CharacterPath, Col, Count, LineBidi, LineProperty, PathCursor, Row, Rows,

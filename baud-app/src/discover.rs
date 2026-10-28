@@ -1,40 +1,35 @@
 //! **Fonts by family name**: the installed faces, read once at launch, and
 //! the face a family name and a style pick among them.
 //!
-//! **What is installed is what the font directories hold** (Jev's lean,
-//! D_SCAN, 0.72/0.85 then 0.89/0.89): fontconfig's own default directories
-//! for each system (`[[source: fontconfig-configure-2-15-0]]`: on Darwin
-//! "/System/Library/Fonts,/Library/Fonts,~/Library/Fonts" and the system's
-//! downloadable-font assets, elsewhere "/usr/share/fonts";
+//! **What is installed is what the font directories hold**: fontconfig's own
+//! default directories for each system (`[[source: fontconfig-configure-2-15-0]]`:
+//! on Darwin "/System/Library/Fonts,/Library/Fonts,~/Library/Fonts" and the
+//! system's downloadable-font assets, elsewhere "/usr/share/fonts";
 //! `[[source: fontconfig-fonts-conf-2-15-0]]` adds `<dir prefix="xdg">fonts</dir>`
 //! and `~/.fonts`), each XDG data directory's `fonts`
-//! (`[[source: xdg-basedir-0-8]]`), and the X11 font directories fontconfig
-//! adds where they exist. Apple's Font Book puts a font a user installs in
+//! (`[[source: xdg-basedir-0-8]]`), and the X11 font directories fontconfig adds
+//! where they exist. Apple's Font Book puts a font a user installs in
 //! `~/Library/Fonts` or `/Library/Fonts` (`[[source: apple-font-book-settings]]`).
-//! Every face is read with baud-font's own reader ([`Described`]), nothing
-//! past its directory and five small tables, from a mapping released as
-//! soon as it is read; the files are split across the cores. A font Font
-//! Book has disabled is still found -- the state is CoreText's, not the
-//! file's -- and so is nothing CoreText reaches only through its private
-//! frameworks.
+//! Every face is read with baud-font's own reader ([`Described`]), nothing past
+//! its directory and five small tables, from a mapping released as soon as it is
+//! read; the files are split across the cores. A font Font Book has disabled is
+//! still found -- the state is CoreText's, not the file's -- and so is nothing
+//! CoreText reaches only through its private frameworks.
 //!
 //! **A family is matched as CSS Fonts matches one** (`[[source: css-fonts-3]]`
-//! 5.1 and 5.2): the name against every family record of every face by
-//! default caseless match, then the family's faces narrowed by width, then
-//! slope, then weight, each by the text's search order. A variable face
-//! covers the range its axes reach and is drawn at the value the search
-//! lands on (Jev, V_AXIS, 0.94/0.96), the reading CSS Fonts 4
-//! (`[[source: css-fonts-4-wd-2026-10-16]]` 5.2) gives: "the algorithm
-//! proceeds as if each supported combination of values is a unique font in
-//! the set". Nothing is synthesised (Jev, R_REGULAR, 0.98/0.98): a family
-//! with no face nearer a style than its regular one draws that style
-//! regular.
+//! 5.1 and 5.2): the name against every family record of every face by default
+//! caseless match, then the family's faces narrowed by width, then slope, then
+//! weight, each by the text's search order. A variable face covers the range
+//! its axes reach and is drawn at the value the search lands on, the reading
+//! CSS Fonts 4 (`[[source: css-fonts-4-wd-2026-10-16]]` 5.2) gives: "the
+//! algorithm proceeds as if each supported combination of values is a unique
+//! font in the set". Nothing is synthesised: a family with no face nearer a
+//! style than its regular one draws that style regular.
 //!
 //! **baud's own embedded faces answer to their names too, ahead of every
-//! installed face** (Jev, E_IN_NAMES, the re-ask's lean): the embedded
-//! font's four faces by its family's name -- one family, the built italics
-//! carrying the built family's name records (Jev, N_SHARE, 0.92/0.96) --
-//! and the icon and maths faces by theirs.
+//! installed face**: the embedded font's four faces by its family's name
+//! -- one family, the built italics carrying the built family's name
+//! records -- and the icon and maths faces by theirs.
 
 use crate::fontconf::{FaceView, FcIndex, Kept, Select};
 use baud_font::var::{Fixed, Variation};
@@ -557,12 +552,11 @@ impl Catalogue {
         self.faces.iter().filter(|k| k.answers_to(name)).collect()
     }
 
-    /// **What a `fonts` name names** (Jev's lean, L_PS_FIRST, kitty's
-    /// order, `[[source: kitty-fonts-core-text-fa9f8da]]`
-    /// `find_best_match`): the first face whose PostScript name it is,
-    /// else the first whose full name it is (but for a full name that is
-    /// one of the face's own family names), else the faces of the family
-    /// it is. A unique
+    /// **What a `fonts` name names** (kitty's order,
+    /// `[[source: kitty-fonts-core-text-fa9f8da]]` `find_best_match`):
+    /// the first face whose PostScript name it is, else the first whose
+    /// full name it is (but for a full name that is one of the face's
+    /// own family names), else the faces of the family it is. A unique
     /// name "specifies a single font, not an entire font family"
     /// (`[[source: css-fonts-3]]` 4.3).
     pub fn lookup(&self, name: &str) -> Named<'_> {
@@ -661,20 +655,20 @@ pub fn named_in(path: &str, postscript: &str) -> Option<Picked> {
 }
 
 impl Catalogue {
-    /// **fontconfig's charset match over the installed faces** (Jev's lean,
-    /// LINUX IN_HOUSE, confidence 0.89 and 0.92 after research): for each of `wanted`,
-    /// the faces whose `cmap` maps it -- fontconfig scores the characters of
-    /// a pattern's charset a font lacks, `FcCompareCharSet`, ahead of every
-    /// tier such a pattern sets (`[[source: fontconfig-fcmatch-2-15-0]]`,
-    /// `PRI_CHARSET`) -- then, among those, one of `family` (the primary's,
-    /// fontconfig's strong family tier), then the face nearest the regular
-    /// style (its slant, weight and width tiers, in that order), which a
-    /// fallback face is drawn as, rather than the primary's own style, then
-    /// the one the walk met first. fontconfig's lang tier and its aliases' weak
-    /// family tier are not taken. Each face that maps a wanted character no
-    /// earlier pick maps is returned once, in the order of the first
-    /// character it is picked for; baud's embedded faces are not the
-    /// system's and are passed over.
+    /// **fontconfig's charset match over the installed faces**: for each of
+    /// `wanted`, the faces whose `cmap` maps it -- fontconfig scores the
+    /// characters of a pattern's charset a font lacks, `FcCompareCharSet`,
+    /// ahead of every tier such a pattern sets
+    /// (`[[source: fontconfig-fcmatch-2-15-0]]`, `PRI_CHARSET`) -- then,
+    /// among those, one of `family` (the primary's, fontconfig's strong
+    /// family tier), then the face nearest the regular style (its slant,
+    /// weight and width tiers, in that order), which a fallback face is
+    /// drawn as, rather than the primary's own style, then the one the walk
+    /// met first. fontconfig's lang tier and its aliases' weak family tier
+    /// are not taken. Each face that maps a wanted character no earlier
+    /// pick maps is returned once, in the order of the first character it
+    /// is picked for; baud's embedded faces are not the system's and are
+    /// passed over.
     #[cfg(any(not(target_os = "macos"), test))]
     pub fn covering(&self, family: Option<&str>, wanted: &[baud_domain::Codepoint]) -> Vec<Picked> {
         let mut ranked: Vec<(usize, Vec<bool>)> = Vec::new();
@@ -980,8 +974,8 @@ fn system_config() -> (Vec<PathBuf>, Select) {
         }
         (mac_dirs(home, assets), Select::default())
     } else {
-        // fontconfig's own list where its configuration is found (Jev's
-        // lean, C_CONF_ONLY); the fixed list where there is none.
+        // fontconfig's own list where its configuration is found; the
+        // fixed list where there is none.
         match crate::fontconf::load(&crate::fontconf::Env::from_process()) {
             Some(c) => (c.dirs, c.select),
             None => (
@@ -1476,8 +1470,8 @@ mod tests {
     }
 
     /// **A variable face covers its axis and is drawn at the value the
-    /// search lands on** (Jev, V_AXIS): FiraCode's wght runs 300 to 700, so
-    /// regular is 400 and bold 700, from the one file.
+    /// search lands on**: FiraCode's wght runs 300 to 700, so regular is
+    /// 400 and bold 700, from the one file.
     #[test]
     fn a_variable_face_is_drawn_at_the_searched_weight() {
         let cat = Catalogue::scan(&[PathBuf::from(format!("{ROOT}/baud-font/tests/fonts"))]);

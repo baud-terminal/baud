@@ -666,17 +666,17 @@ fn every_reverse_chain_fixture_shapes_as_harfbuzz_does() {
 }
 
 /// **Two or more Hebrew points in one cell reach the face in HarfBuzz's
-/// order**, its modified combining classes (`[[source:
-/// harfbuzz-hb-unicode]]`; the owner's pick, note AB 11.4), so a font's
-/// `ccmp` sees what HarfBuzz hands it. Every line of
-/// `tests/shape/order.txt` is what hb-shape made of a cluster typed in
-/// canonical order and in HarfBuzz's, compared as `script.txt`'s are. On
-/// Courier New canonical order put the shin dot after the qamats, its
-/// `ccmp` did not form the shin-dot ligature, and the dot drew a cell to
-/// the right. The built JetBrains Mono draws the same glyphs at the same
-/// offsets in either order, but hands them on in the order the points were
-/// sorted, so its lines tell the orders apart too, on every platform, and
-/// Courier New's on macOS.
+/// order**, its modified combining classes
+/// (`[[source: harfbuzz-hb-unicode]]`; note AB 11.4), so a font's `ccmp`
+/// sees what HarfBuzz hands it. Every line of `tests/shape/order.txt` is
+/// what hb-shape made of a cluster typed in canonical order and in
+/// HarfBuzz's, compared as `script.txt`'s are. On Courier New canonical
+/// order put the shin dot after the qamats, its `ccmp` did not form the
+/// shin-dot ligature, and the dot drew a cell to the right. The built
+/// JetBrains Mono draws the same glyphs at the same offsets in either
+/// order, but hands them on in the order the points were sorted, so its
+/// lines tell the orders apart too, on every platform, and Courier New's
+/// on macOS.
 #[test]
 fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -706,9 +706,9 @@ fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
 
 /// **On a face with no `GPOS`, a Hebrew point is placed by the class
 /// HarfBuzz's fallback gives it** (`recategorize_combining_class`,
-/// `[[source: harfbuzz-hb-ot-shape-fallback]]`; the owner's pick of
-/// 2026-10-15): the vowels and meteg below, rafe attached above, shin dot
-/// above right, sin dot and holam above left, varika above. Every line of
+/// `[[source: harfbuzz-hb-ot-shape-fallback]]`): the vowels and meteg
+/// below, rafe attached above, shin dot above right, sin dot and holam
+/// above left, varika above. Every line of
 /// `tests/shape/fallback-hebrew.txt` is what hb-shape made of a cluster on
 /// such a face, compared as `script.txt`'s are: the built Regular with its
 /// `GPOS` renamed away, on every platform, and on macOS Raanana, New
@@ -1004,14 +1004,14 @@ fn meteg_stays_in_its_cell_on_the_side_its_text_order_gives() {
 }
 
 /// **A Hebrew run whose `GPOS` selects no Script table is placed as on a
-/// face with no `GPOS`** -- HarfBuzz's Hebrew shaper takes `GPOS` only
-/// from `hebr` (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and
-/// baud now does too where nothing else is selected (Jev, 0.97 and 1.00).
-/// The built Regular with every `GPOS` Script table renamed away keeps its
-/// table and its lookups, and must shape each line of
-/// `tests/shape/fallback-hebrew.txt` exactly as the face with no `GPOS` at
-/// all does: the points zeroed and placed by the fallback, on every
-/// platform. Kept in the pen, they sat a cell right of their letters.
+/// face with no `GPOS`** -- HarfBuzz's Hebrew shaper takes `GPOS` only from
+/// `hebr` (`gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`), and baud
+/// now does too where nothing else is selected. The built Regular with every
+/// `GPOS` Script table renamed away keeps its table and its lookups, and
+/// must shape each line of `tests/shape/fallback-hebrew.txt` exactly as the
+/// face with no `GPOS` at all does: the points zeroed and placed by the
+/// fallback, on every platform. Kept in the pen, they sat a cell right of
+/// their letters.
 #[test]
 fn a_gpos_selecting_no_table_places_hebrew_as_no_gpos_does() {
     let Tally {

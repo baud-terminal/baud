@@ -8,10 +8,10 @@
 //! `[[source: ms-opentype-vmtx]]` places those: "The y coordinate of a
 //! glyph’s vertical origin is specified as the sum of the glyph’s top side
 //! bearing (recorded in the 'vmtx' table) and the top (i.e. maximum y) of
-//! the glyph’s bounding box", and "The advance height of a glyph starts
-//! from the y coordinate of the glyph’s vertical origin and advances
-//! downwards". Read so, the owner's decision of 2026-10-13. The x of both,
-//! which "is not specified", is HarfBuzz's and FreeType's 0.
+//! the glyph’s bounding box", and "The advance height of a glyph starts from
+//! the y coordinate of the glyph’s vertical origin and advances downwards".
+//! Read so. The x of both, which "is not specified", is HarfBuzz's and
+//! FreeType's 0.
 //!
 //! `tests/var/vertical-cases.ttf` (`scripts/vertical-cases-font.py`) is the
 //! fixture and `tests/var/vertical.txt` (`scripts/vertical-oracle.py`)
@@ -219,8 +219,8 @@ const SIDES: &[(&str, Side)] = &[
         ]),
     ),
     // p7 is past the parent's four phantoms, which no text names: bar
-    // stays where its matrix put it (the owner's decision of 2026-10-13
-    // keeps it at offset 0).
+    // stays where its matrix put it (kept at offset 0 since
+    // 2026-10-13).
     (
         "vpast",
         Side::Text(&[
@@ -461,11 +461,10 @@ fn without_vertical_metrics(data: &[u8]) -> Vec<u8> {
 /// and an advance height of unitsPerEm, so the top origin at `(0, yMax)`
 /// and the advance height point 1,000 below it -- the text gives no rule
 /// for a face without vertical metrics (`[[source: ms-opentype-vmtx]]`),
-/// and the owner's decision of 2026-10-13 takes HarfBuzz's. The child's
-/// phantoms against HarfBuzz's drawing of the same renamed font
-/// (`hb-novmtx`); the parent's, where HarfBuzz's numbering departs, worked
-/// by hand: `vptop`'s top origin at (0, 300), `vpbot`'s advance height
-/// point at (0, -700).
+/// and baud takes HarfBuzz's. The child's phantoms against HarfBuzz's
+/// drawing of the same renamed font (`hb-novmtx`); the parent's, where
+/// HarfBuzz's numbering departs, worked by hand: `vptop`'s top origin at
+/// (0, 300), `vpbot`'s advance height point at (0, -700).
 #[test]
 fn without_vertical_metrics_the_phantoms_are_harfbuzzs() {
     let data = without_vertical_metrics(&fixture());

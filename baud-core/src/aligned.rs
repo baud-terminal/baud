@@ -5,35 +5,29 @@
 //! each replacing "any tabulation stop previously set at that character
 //! position" and leaving the others.
 //!
-//! **The string is laid out again as each character arrives** (Jev's lean,
-//! RELAYOUT, 0.45/0.73 then 0.77/0.82): a terminal receives it a byte at a
-//! time, so after an `HT` lands on such a stop each graphic character is
-//! put where the stop says, the string written so far moved back to make
-//! room. The stop is the left edge of its cell, where TATE puts the first
-//! character's trailing edge, so TATE's string starts in the stop's cell,
-//! as an ordinary stop's; TALE's ends in the cell before it, the last
-//! character's leading edge at the stop (Jev's lean, BEFORE_STOP,
-//! 0.44/0.66 then 0.66/0.78); TAC's is centred on the same edge, an odd
-//! length's extra column after it (Jev's lean, ON_BOUNDARY, 0.72/0.60);
-//! TCC's starts in the stop's cell until the target arrives, which goes in
-//! the stop's cell, the text before it moved back so it ends in the cell
-//! before, and what follows goes on after it (Jev's lean, TARGET_IN_CELL,
-//! 0.88/0.92).
+//! **The string is laid out again as each character arrives**: a terminal
+//! receives it a byte at a time, so after an `HT` lands on such a stop
+//! each graphic character is put where the stop says, the string written
+//! so far moved back to make room. The stop is the left edge of its cell,
+//! where TATE puts the first character's trailing edge, so TATE's string
+//! starts in the stop's cell, as an ordinary stop's; TALE's ends in the
+//! cell before it, the last character's leading edge at the stop; TAC's is
+//! centred on the same edge, an odd length's extra column after it; TCC's
+//! starts in the stop's cell until the target arrives, which goes in the
+//! stop's cell, the text before it moved back so it ends in the cell
+//! before, and what follows goes on after it.
 //!
 //! **A format effector or a cursor movement ends the string**; SGR and the
 //! other controls that move nothing do not, so a number coloured with SGR
-//! stays one string (Jev, FORMAT_EFFECTOR, 0.92/0.92): `CR`, `LF`, `VT`,
-//! `FF`, `IND`, `NEL` and `RI` end it before they move anything, so a line
-//! scrolled in under the cursor takes none, and the other format effectors
-//! and the cursor movements end it as they execute
-//! ([`Paint::effector_ends_string`]). **An erase or edit of its line ends
-//! it too**, the decided rule's "and an erase or edit of the line", before
-//! it acts ([`EditRows`]; Jev's lean, LINE_REACHED, 0.83/0.94 on a second
-//! ask), and so does a resize that moves the cursor (Jev's lean,
-//! CURSOR_MOVED; `Term::resize_ends_string`). A string that would move
-//! back past the line's start, the left margin under DECLRMM, or on past
-//! the line's end goes on as plain text (Jev's lean, AS_TEXT, 0.16/0.26
-//! then 0.94/0.88).
+//! stays one string: `CR`, `LF`, `VT`, `FF`, `IND`, `NEL` and `RI` end it
+//! before they move anything, so a line scrolled in under the cursor takes
+//! none, and the other format effectors and the cursor movements end it as
+//! they execute ([`Paint::effector_ends_string`]). **An erase or edit of
+//! its line ends it too**, the decided rule's "and an erase or edit of the
+//! line", before it acts ([`EditRows`]), and so does a resize that moves
+//! the cursor (`Term::resize_ends_string`). A string that would move back
+//! past the line's start, the left margin under DECLRMM, or on past the
+//! line's end goes on as plain text.
 //!
 //! `HTS` and `CTC 0` set an ordinary stop where an aligned one was; `TBC`,
 //! `TSR` and `CTC` clear one as any stop; DECST8C, `RIS` and a restored
@@ -41,7 +35,7 @@
 //! With BDSM reset, on a line holding a string, the stop is found at the
 //! cursor's presentation position, where `HT` counted it, and the string
 //! moves by the positions as drawn, each cell keeping the string it is
-//! stored in (Jev's lean, BUILD_DRAWN, 0.66/0.66 then 0.69/0.76).
+//! stored in.
 //!
 //! **What it costs while no stop calls for alignment: nothing on the text
 //! path.** An `HT` maps through [`ModeBit::ReturnMapped`] once an aligned
@@ -197,21 +191,20 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **A format effector ends the string** (Jev, FORMAT_EFFECTOR):
-    /// `CR`, `LF`, `VT`, `FF`, `IND`, `NEL` and `RI`, before they move
-    /// anything, so a line scrolled in under the cursor, or one the cursor
-    /// stays on, takes no string; and, as each executes, the other format
-    /// effectors of 8.2.4 (`HPA`, `HPB`, `HPR`, `HVP`, `HTS`, `TBC`, `TSR`,
-    /// `VPA`, `VPB`, `VPR`, `VTS`, PPA, PPB and PPR) and the cursor
-    /// movements (`CUU`, `CUD`, `CUF`, `CUB`, `CUP`, `CNL`, `CPL`, `CHA`,
-    /// `CHT`, `CBT` and `CVT`, routed by [`ModeBit::CursorRouted`] with the
-    /// format effectors among the control sequences, and NP, PP, `DECRC`,
-    /// `?1048`'s restore, `CSI u`, DECFI, VT52's moves and erases, and
-    /// the controls that home the cursor, DECSTBM, DECSLRM, DECOM, DECCOLM
-    /// and DECALN), so a move away and back, or one that leaves the cursor
-    /// where the string left it, ends it; and DECSASD and a screen switch,
-    /// which take the active position to another display or page buffer
-    /// (Jev's lean, SWITCH_ENDS, 0.42/0.26 on a second ask).
+    /// **A format effector ends the string**: `CR`, `LF`, `VT`, `FF`,
+    /// `IND`, `NEL` and `RI`, before they move anything, so a line scrolled
+    /// in under the cursor, or one the cursor stays on, takes no string;
+    /// and, as each executes, the other format effectors of 8.2.4 (`HPA`,
+    /// `HPB`, `HPR`, `HVP`, `HTS`, `TBC`, `TSR`, `VPA`, `VPB`, `VPR`,
+    /// `VTS`, PPA, PPB and PPR) and the cursor movements (`CUU`, `CUD`,
+    /// `CUF`, `CUB`, `CUP`, `CNL`, `CPL`, `CHA`, `CHT`, `CBT` and `CVT`,
+    /// routed by [`ModeBit::CursorRouted`] with the format effectors among
+    /// the control sequences, and NP, PP, `DECRC`, `?1048`'s restore,
+    /// `CSI u`, DECFI, VT52's moves and erases, and the controls that home
+    /// the cursor, DECSTBM, DECSLRM, DECOM, DECCOLM and DECALN), so a move
+    /// away and back, or one that leaves the cursor where the string left
+    /// it, ends it; and DECSASD and a screen switch, which take the active
+    /// position to another display or page buffer.
     ///
     /// **A control that cannot leave the cursor there needs no test of its
     /// own**: `BS` and DECBI move it off the string's end, and HTJ's tab
@@ -229,14 +222,12 @@ impl Paint<'_, '_> {
     }
 
     /// **An erase or edit reaching `rows` ends a string open on one of
-    /// them**, before it acts (Jev, FORMAT_EFFECTOR, 0.92/0.92: "an erase or
-    /// edit of the line"; Jev's lean, LINE_REACHED, 0.83/0.94 on a second
-    /// ask): one that moves or erases the string's cells under it would
-    /// leave the layout moving what is no longer the string. One that
-    /// reaches only other lines, and an attribute change, leave it open,
-    /// and so does one the margins or the region make a no-op: `IL`, `DL`,
-    /// `ICH`, `DCH`, `DECIC` and `DECDC` ask past the guards that ignore
-    /// them.
+    /// them**, before it acts ("an erase or edit of the line"): one that
+    /// moves or erases the string's cells under it would leave the layout
+    /// moving what is no longer the string. One that reaches only other
+    /// lines, and an attribute change, leave it open, and so does one the
+    /// margins or the region make a no-op: `IL`, `DL`, `ICH`, `DCH`, `DECIC`
+    /// and `DECDC` ask past the guards that ignore them.
     #[inline(always)]
     pub(crate) fn edit_reaches(&mut self, rows: EditRows) {
         if self.cold.modes.is_set(ModeBit::Aligning) {
@@ -437,16 +428,16 @@ impl Paint<'_, '_> {
 }
 
 impl crate::term::Term<'_> {
-    /// **A resize that moves the cursor ends an open string** (Jev's lean,
-    /// CURSOR_MOVED, split first, then 0.79/0.89): one that leaves it on
-    /// another row or column, by the width's clamp, rows retired above it
-    /// or its line re-cut, is a cursor movement under FORMAT_EFFECTOR, as
-    /// DEC's page-size controls move the active position only when it no
-    /// longer fits (`[[source: dec-std-070]]` DECSCPP p. 5-73, DECSLPP p.
-    /// 5-75), and DECSCPP's request is executed by the embedder's resize.
-    /// One that leaves the cursor where it was keeps the string's cells
-    /// where they were, since a re-cut keeps a line's order and the string
-    /// ends at the cursor on its row, so the string goes on.
+    /// **A resize that moves the cursor ends an open string**: one that
+    /// leaves it on another row or column, by the width's clamp, rows
+    /// retired above it or its line re-cut, is a cursor movement under
+    /// FORMAT_EFFECTOR, as DEC's page-size controls move the active
+    /// position only when it no longer fits (`[[source: dec-std-070]]`
+    /// DECSCPP p. 5-73, DECSLPP p. 5-75), and DECSCPP's request is
+    /// executed by the embedder's resize. One that leaves the cursor where
+    /// it was keeps the string's cells where they were, since a re-cut
+    /// keeps a line's order and the string ends at the cursor on its row,
+    /// so the string goes on.
     pub(crate) fn resize_ends_string(&mut self, before: (Row, CursorCol)) {
         if self.cold.modes.is_set(ModeBit::Aligning) && (self.cy, self.cx) != before {
             self.store.strs.aligned.open = None;
@@ -485,15 +476,14 @@ mod tests {
         ]
     }
 
-    /// **A control that homes the cursor ends the string as it executes**
-    /// (Jev, FORMAT_EFFECTOR, 0.92/0.92: "or other cursor movement"):
-    /// DECSTBM, DECSLRM, DECOM set and reset, DECCOLM, DECALN, SPD and SCP
-    /// with `Ps2` 1, DECRSPS's cursor restore and RIS, from the string's line,
-    /// row 4, where none of them leaves the cursor. No
-    /// character written after one can show it, since the home is never
-    /// where a string can go on being laid out, so the string's state is
-    /// read here. **SGR, and a DECSTBM that is ignored and moves nothing,
-    /// keep it**, the controls.
+    /// **A control that homes the cursor ends the string as it executes** ("or
+    /// other cursor movement"): DECSTBM, DECSLRM, DECOM set and reset,
+    /// DECCOLM, DECALN, SPD and SCP with `Ps2` 1, DECRSPS's cursor restore and
+    /// RIS, from the string's line, row 4, where none of them leaves the
+    /// cursor. No character written after one can show it, since the home is
+    /// never where a string can go on being laid out, so the string's state is
+    /// read here. **SGR, and a DECSTBM that is ignored and moves nothing, keep
+    /// it**, the controls.
     #[test]
     fn a_control_that_homes_the_cursor_ends_the_string() {
         let string = "\x1b[3g\x1b[9 a\x1b[4;1H\tab";
@@ -540,15 +530,15 @@ mod tests {
         ]
     }
 
-    /// **A resize that moves the cursor ends the string** (Jev's lean,
-    /// CURSOR_MOVED): the string on TALE's stop at 9, row 1 or row 4. A
-    /// narrowing to 6 columns re-cuts the line and to 8 clamps the cursor,
-    /// and a shortening to 2 rows retires the rows above the string's row
-    /// 4, each leaving the cursor elsewhere. No character written after
-    /// one shows it, since the next character is not where the string left
-    /// the cursor, so the string's state is read here. **A resize that
-    /// leaves the cursor where it was keeps it**, the controls: to the same
-    /// geometry, to 30 columns, and to 3 rows cut below the cursor on row 1.
+    /// **A resize that moves the cursor ends the string**: the string on
+    /// TALE's stop at 9, row 1 or row 4. A narrowing to 6 columns re-cuts
+    /// the line and to 8 clamps the cursor, and a shortening to 2 rows
+    /// retires the rows above the string's row 4, each leaving the cursor
+    /// elsewhere. No character written after one shows it, since the next
+    /// character is not where the string left the cursor, so the string's
+    /// state is read here. **A resize that leaves the cursor where it was
+    /// keeps it**, the controls: to the same geometry, to 30 columns, and
+    /// to 3 rows cut below the cursor on row 1.
     #[test]
     fn a_resize_that_moves_the_cursor_ends_the_string() {
         let row1 = "\x1b[3g\x1b[9 a\tab";

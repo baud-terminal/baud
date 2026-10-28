@@ -1,5 +1,5 @@
 //! **A variation selector picks the face; a bare character takes the
-//! configured default** (owner, 2026-09-30).
+//! configured default.**
 //!
 //! `U+FE0F` asks for colour and `U+FE0E` for text. A character with neither
 //! is drawn from a text face under `EmojiDefault::Font`, the default --

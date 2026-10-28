@@ -10,23 +10,22 @@
 //! names of the text's table.
 //!
 //! **A value is read by the text's grammar, not by kitty's parser**, where
-//! the two differ (Jev's lean, G_DOC, 0.50/0.74 and 0.44/0.74 after
-//! research, under the bar): `rgb:` scaled, `#` as the high bits, `rgbi:`
-//! clipped to 0 to 1, kitty's colour names, and an optional `@` alpha in the
-//! same float grammar. kitty's Color.parse_color reads `rgb:` by its first
-//! two digits a channel, refuses every `rgbi:` (it tests the byte after the
-//! `i` for a second `i`, `[[source: kitty-colors-1e1486e]]` 1532-1536),
-//! and takes `oklch(`, `lab(` and a trailing `#` comment the text does not
-//! name: its departures.
+//! the two differ: `rgb:` scaled, `#` as the high bits, `rgbi:` clipped to 0
+//! to 1, kitty's colour names, and an optional `@` alpha in the same float
+//! grammar. kitty's Color.parse_color reads `rgb:` by its first two digits a
+//! channel, refuses every `rgbi:` (it tests the byte after the `i` for a
+//! second `i`, `[[source: kitty-colors-1e1486e]]` 1532-1536), and takes
+//! `oklch(`, `lab(` and a trailing `#` comment the text does not name: its
+//! departures.
 
 use super::osc::{device, high, sharp};
 use crate::Chan;
 
-/// One of the colours kitty's table names (`[[source:
-/// kitty-6d5d0c4-color-stack]]` 62-77). `transparent_background_color1`
-/// to `7` are not here: baud draws no background at an opacity of its own
-/// colour, so they are keys it does not know ([`KittyTarget::Unknown`]),
-/// answered as kitty answers one (Jev, T_UNKNOWN_ROW, 0.98 both orders).
+/// One of the colours kitty's table names
+/// (`[[source: kitty-6d5d0c4-color-stack]]` 62-77).
+/// `transparent_background_color1` to `7` are not here: baud draws no
+/// background at an opacity of its own colour, so they are keys it does
+/// not know ([`KittyTarget::Unknown`]), answered as kitty answers one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum KittyKey {
     Foreground,

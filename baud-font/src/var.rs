@@ -228,15 +228,14 @@ pub fn normalize(axis: Axis, index: Index, avar: Option<Avar<'_>>, value: Fixed)
     );
     let one = i64::from(Fixed::ONE.0);
     // The two divisions are in 16.16: the numerator shifted up by 16 so the
-    // quotient keeps its sixteen fractional bits, rounded to the nearest
-    // 16.16 value -- the one step the specification leaves open, which
-    // HarfBuzz takes as `roundf` of the quotient
-    // (`[[source: harfbuzz-12-3-0-ot-var]]`, `[[source: harfbuzz-12-3-0-fvar]]`;
-    // Jev, 0.99), and HarfBuzz's `roundf` is its own `floorf (x + .5f)`
-    // (`[[source: harfbuzz-12-3-0-hb]]`): a half rounds up, -2.5 to -2.
-    // Truncating instead differs from HarfBuzz by one 2.14 unit in 1,482 of
-    // the 12,003 fixture values. A side of zero width is only reached at the
-    // default itself, which is exactly 0.
+    // quotient keeps its sixteen fractional bits, rounded to the nearest 16.16
+    // value -- the one step the specification leaves open, which HarfBuzz takes
+    // as `roundf` of the quotient (`[[source: harfbuzz-12-3-0-ot-var]]`,
+    // `[[source: harfbuzz-12-3-0-fvar]]`), and HarfBuzz's `roundf` is its own
+    // `floorf (x + .5f)` (`[[source: harfbuzz-12-3-0-hb]]`): a half rounds up,
+    // -2.5 to -2. Truncating instead differs from HarfBuzz by one 2.14 unit in
+    // 1,482 of the 12,003 fixture values. A side of zero width is only reached
+    // at the default itself, which is exactly 0.
     let n = if v < def {
         div_round(Wide((v - def) * one), Wide(def - min)).0
     } else if v > def {

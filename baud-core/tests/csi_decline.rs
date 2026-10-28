@@ -28,10 +28,9 @@
 //!   and baud ignores it as it does `DEL`.
 //! - `80-FF` under UTF-8 is no control: a continuation byte or a lead,
 //!   which cancels the sequence and is the ground's after a control, as
-//!   after `ESC`, the owner's decision of 2026-10-13
-//!   (`under_utf8_a_c1_byte_in_a_sequence_is_what_it_was`; the row "a byte
-//!   `80-FF` inside a control sequence"). It was dropped and the sequence
-//!   went on.
+//!   after `ESC` (`under_utf8_a_c1_byte_in_a_sequence_is_what_it_was`; the
+//!   row "a byte `80-FF` inside a control sequence"). It was dropped and
+//!   the sequence went on.
 //!
 //! Each case is held against the same control written outside the sequence,
 //! or the sequence without the byte, at every read size and every split into

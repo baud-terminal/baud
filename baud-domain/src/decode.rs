@@ -592,7 +592,7 @@ impl Codepoint {
     /// 2718 and 2719, `[[source: eaw-data]]`), and the ones xterm's
     /// `privateWidth` keeps one column (`[[source: xterm-wcwidth-c]]`
     /// 228-231 and 887-888). baud keeps them one column under either
-    /// ambiguous-width policy, the owner's call of 2026-10-15.
+    /// ambiguous-width policy.
     pub fn is_private_use(self) -> bool {
         let v = self.0;
         (0xe000..=0xf8ff).contains(&v)

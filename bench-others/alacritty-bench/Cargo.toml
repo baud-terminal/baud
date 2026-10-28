@@ -2,7 +2,7 @@
 name = "alacritty-bench"
 version = "0.1.0"
 edition = "2021"
-# Not published: the owner's "no publishing, private".
+# Not published: nothing here is.
 publish = false
 
 [dependencies]

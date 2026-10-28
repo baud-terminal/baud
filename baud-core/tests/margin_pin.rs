@@ -312,12 +312,12 @@ fn where_a_character_lands(s: &str, read: usize) -> Option<(usize, usize)> {
 
 /// **After a control, a combining mark is a cluster of its own and takes the
 /// cell a character would** (`[[source: uax29]]` GB4/GB5; TUS D57's
-/// defective combining character sequence; note AB, Q24 item 1, Jev
-/// OWN_CELL_MARK_ALONE, 0.96/0.99): for each of `s`, under both `DECAWM`
-/// modes after `prefix`, the only marked cell on the screen is where a `z`
-/// put in the mark's place lands, at every read size. Until 2026-10-23 the
-/// mark went to the cell before the cursor, the character the control had
-/// stepped past or the pin's; these tests probed the pin with it.
+/// defective combining character sequence; note AB, Q24 item 1): for each of
+/// `s`, under both `DECAWM` modes after `prefix`, the only marked cell on
+/// the screen is where a `z` put in the mark's place lands, at every read
+/// size. Until 2026-10-23 the mark went to the cell before the cursor, the
+/// character the control had stepped past or the pin's; these tests probed
+/// the pin with it.
 fn as_a_character(prefix: &str, body: &str) {
     let mut wrong = Vec::new();
     for mode in ["\x1b[?7h", "\x1b[?7l"] {

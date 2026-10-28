@@ -1,48 +1,42 @@
 //! **The system's face for a character no face of the chain draws**: the
-//! third tier of the owner's order -- the configured font, then baud's
-//! embedded faces, then "the system's font" (2026-10-07) -- so an Arabic or
-//! Syriac word draws from a face macOS or Linux ships rather than as boxes.
-//! The Unicode Standard allows the box only where no font has the
-//! character: one "unable to render it, because it lacks a font for the
-//! code point" can show it "only ... by some placeholder"
-//! (`[[source: unicode18-ch5]]` 5.3).
+//! third tier of the order -- the configured font, then baud's embedded
+//! faces, then the system's font -- so an Arabic or Syriac word draws from
+//! a face macOS or Linux ships rather than as boxes. The Unicode Standard
+//! allows the box only where no font has the character: one "unable to
+//! render it, because it lacks a font for the code point" can show it "only
+//! ... by some placeholder" (`[[source: unicode18-ch5]]` 5.3).
 //!
-//! **Asked when a frame first draws such a character** (Jev, WHEN, asked
-//! when a frame meets it rather than at launch, confidence 0.97 and 0.94;
-//! for the characters drawn rather than every one of their block, Jev's
-//! lean, GRANULARITY, confidence 0.68 and 0.86): the renderer lists a
-//! character no face draws the first time a cell is drawn with it
-//! (`Renderer::take_gaps`); [`extend`] asks the system for those it can
-//! show, appends the faces it answers behind the chain, and the driver
-//! restacks once. A session that never draws such a character asks
-//! nothing, and a frame of text every face covers does no new work. Each
-//! character is asked once a process and each answer kept, so a config read
-//! again keeps the faces ([`keep`]) and a character met again asks nothing.
+//! **Asked when a frame first draws such a character** (when a frame meets
+//! it rather than at launch, and for the characters drawn rather than every
+//! one of their block): the renderer lists a character no face draws the
+//! first time a cell is drawn with it (`Renderer::take_gaps`); [`extend`]
+//! asks the system for those it can show, appends the faces it answers
+//! behind the chain, and the driver restacks once. A session that never
+//! draws such a character asks nothing, and a frame of text every face
+//! covers does no new work. Each character is asked once a process and each
+//! answer kept, so a config read again keeps the faces ([`keep`]) and a
+//! character met again asks nothing.
 //!
-//! **On macOS the answer is CoreText's** (Jev's lean, MAC_QUERY PER_STRING,
-//! confidence 0.82 and 0.76 after research): `CTFontCreateForString` from CoreText's
-//! font made of the primary's own bytes, as kitty asks it per cell
-//! (`[[source: kitty-6d5d0c4-core-text]]` `find_substitute_face`) and
-//! ghostty per codepoint (`[[source: ghostty-discovery-8f0dd37]]`). Its
-//! cascade list alone (`[[source: crossfont-darwin-0-8-1]]`, alacritty's
-//! way) maps 33 of the 161 scripts' first letters where the per-string
-//! answer maps 133: Syriac, Thaana and N'Ko are not in it. From JetBrains
-//! Mono's bytes CoreText answers Courier New for Arabic and Urdu, the
-//! monospaced face it gives Menlo too, and Noto Sans Syriac for Syriac.
-//! The face it answers for the noncharacter U+FDD0, LastResort, is its
-//! placeholder and is refused, as kitty and ghostty refuse it, so such a
-//! character keeps the primary's `.notdef` box and a later one is still
-//! asked (Jev split, PLACEHOLDER, confidence 0.02 and 0.06, its pick
-//! flipping with the order; this keeps today's box and the asking).
+//! **On macOS the answer is CoreText's**: `CTFontCreateForString` from
+//! CoreText's font made of the primary's own bytes, as kitty asks it per
+//! cell (`[[source: kitty-6d5d0c4-core-text]]` `find_substitute_face`)
+//! and ghostty per codepoint (`[[source: ghostty-discovery-8f0dd37]]`).
+//! Its cascade list alone (`[[source: crossfont-darwin-0-8-1]]`,
+//! alacritty's way) maps 33 of the 161 scripts' first letters where the
+//! per-string answer maps 133: Syriac, Thaana and N'Ko are not in it.
+//! From JetBrains Mono's bytes CoreText answers Courier New for Arabic
+//! and Urdu, the monospaced face it gives Menlo too, and Noto Sans
+//! Syriac for Syriac. The face it answers for the noncharacter U+FDD0,
+//! LastResort, is its placeholder and is refused, as kitty and ghostty
+//! refuse it, so such a character keeps the primary's `.notdef` box and
+//! a later one is still asked.
 //!
 //! **Elsewhere the answer is fontconfig's charset match over baud's own
-//! scan** (Jev's lean, LINUX IN_HOUSE, confidence 0.89 and 0.92):
-//! [`crate::discover::Catalogue::covering`].
+//! scan**: [`crate::discover::Catalogue::covering`].
 //!
-//! **Behind every stack**, `font_fallback = false` included (Jev's lean,
-//! OFF STILL_ON, confidence 0.30 and 0.66): that switch is documented for baud's
-//! built-in fonts, and the owner made the system tier "a must-build for
-//! everyone".
+//! **Behind every stack**, `font_fallback = false` included: that switch is
+//! documented for baud's built-in fonts, and the system tier is built for
+//! every stack.
 
 use crate::config::{Config, FaceFrom, FaceSpec};
 use baud_domain::Codepoint;

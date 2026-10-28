@@ -54,24 +54,22 @@
 //! frame, and an end that never did is drawn by the next frame drawn for any
 //! reason, not forced again.
 //!
-//! **A `BEL` rings here too**, the owner's call of 2026-10-13,
-//! "System sound + Dock bounce": `NSBeep` while the window is focused; while
-//! it is not,
-//! `?1042` asks for the user's attention -- the Dock icon bounces -- and
-//! `?1043` raises the window; the config's `bell` picks the sound, the
-//! visual bell or nothing. [`ring`] is that decision, a pure function of the
-//! config, the motion preference, the window and the two modes, and the
-//! macOS driver's shim makes the AppKit calls it names. The Linux driver
-//! asks it too, its window focused while the keyboard is its: the sound is
-//! the compositor's system bell where it offers `xdg-system-bell-v1`, and
-//! nothing where it does not. There the two modes are one request,
-//! `xdg-activation-v1`'s `activate` with a token the window asks for, as
-//! foot marks a window urgent (`[[source: foot-2705e36-wayland]]`
-//! 2630-2658): Wayland has no request that tells urgency from a raise, and
-//! the compositor decides what it shows (`[[source: xdg-activation-v1]]`).
-//! [`Ringer`] reads the bells the terminal counted
-//! at each volume ([`Term::bells_rung`]) after each read and rings once for
-//! the bells of one frame interval. A flash it decides is
+//! **A `BEL` rings here too**, as the system sound and a Dock bounce:
+//! `NSBeep` while the window is focused; while it is not, `?1042` asks for
+//! the user's attention -- the Dock icon bounces -- and `?1043` raises the
+//! window; the config's `bell` picks the sound, the visual bell or nothing.
+//! [`ring`] is that decision, a pure function of the config, the motion
+//! preference, the window and the two modes, and the macOS driver's shim
+//! makes the AppKit calls it names. The Linux driver asks it too, its window
+//! focused while the keyboard is its: the sound is the compositor's system
+//! bell where it offers `xdg-system-bell-v1`, and nothing where it does not.
+//! There the two modes are one request, `xdg-activation-v1`'s `activate`
+//! with a token the window asks for, as foot marks a window urgent
+//! (`[[source: foot-2705e36-wayland]]` 2630-2658): Wayland has no request
+//! that tells urgency from a raise, and the compositor decides what it shows
+//! (`[[source: xdg-activation-v1]]`). [`Ringer`] reads the bells the
+//! terminal counted at each volume ([`Term::bells_rung`]) after each read
+//! and rings once for the bells of one frame interval. A flash it decides is
 //! started through [`Bell::ring`], so it is planned, committed and refused
 //! as a `?5` pair's is.
 
@@ -438,15 +436,15 @@ impl Window {
 /// system beep. Users can select a sound to be played as the system beep"
 /// (`[[source: apple-nsbeep]]`).
 ///
-/// **Low plays it too**, as high does (Jev's lean, LOW_SAME_SOUND,
-/// 0.61/0.70 then 0.69/0.67): `NSBeep` takes no volume, NSSound's own
-/// documentation sends the system beep to it, "If you want to play the
-/// system beep sound, use the NSBeep ... function" (`[[source:
-/// apple-nssound]]`), and the system sound services play "at the current
-/// system audio volume, with no programmatic volume control available"
-/// (`[[source: apple-audioservicesplaysystemsound]]`). No documented API
-/// names the user's alert sound or plays it below the user's alert volume,
-/// so on macOS low and high sound alike, an open gap; off is silence.
+/// **Low plays it too**, as high does: `NSBeep` takes no volume, NSSound's
+/// own documentation sends the system beep to it, "If you want to play the
+/// system beep sound, use the NSBeep ... function"
+/// (`[[source: apple-nssound]]`), and the system sound services play "at
+/// the current system audio volume, with no programmatic volume control
+/// available" (`[[source: apple-audioservicesplaysystemsound]]`). No
+/// documented API names the user's alert sound or plays it below the
+/// user's alert volume, so on macOS low and high sound alike, an open gap;
+/// off is silence.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sound {
@@ -502,22 +500,22 @@ pub struct Ring {
     pub raise: Raise,
 }
 
-/// **What a `BEL` does**, the owner's call of 2026-10-13: "NSBeep when
-/// focused; ?1042 bounces the Dock and ?1043 raises the window when
-/// unfocused; config bell = sound|flash|none".
+/// **What a `BEL` does**: "NSBeep when focused; ?1042 bounces the Dock
+/// and ?1043 raises the window when unfocused; config bell =
+/// sound|flash|none".
 ///
 /// * Focused: the config's `bell` -- the sound, the visual bell, or nothing.
 ///   Neither mode acts: the window is the one the user is in.
 /// * Not focused: `?1042` asks for attention, as xterm sets its urgency hint
 ///   only `if (enable && !(screen->select & FOCUS))` (`setXUrgency`,
 ///   `[[source: xterm-misc]]`); `?1043` raises the window, unless it is
-///   minimized. **No sound**: the owner's "NSBeep when focused", read as
-///   written; xterm rings whatever the focus, which is the alternative. A
-///   flash is drawn whatever the focus, as xterm's `VisualBell` is, since
-///   the decision limits only the sound to a focused window -- **but not in
-///   a minimized one**, which "is removed from the screen" (`[[source:
-///   apple-nswindow-isminiaturized]]`): its flash would wait for the next
-///   drawn frame and show on the restore, long after the bell.
+///   minimized. **No sound**: `NSBeep` sounds only in the focused window;
+///   xterm rings whatever the focus, which is the alternative. A flash is
+///   drawn whatever the focus, as xterm's `VisualBell` is, since the
+///   decision limits only the sound to a focused window -- **but not in a
+///   minimized one**, which "is removed from the screen"
+///   (`[[source: apple-nswindow-isminiaturized]]`): its flash would wait for
+///   the next drawn frame and show on the restore, long after the bell.
 /// * **The program's volume silences the sound alone**: DECSWBV's for a
 ///   `BEL`, DECSMBV's for the margin bell. Off, nothing is heard, and the
 ///   flash, the attention request and the raise act as they would, as
@@ -1121,8 +1119,8 @@ mod tests {
             );
         }
 
-        /// The owner's rule in the focused window: the config's `bell`, and
-        /// neither mode.
+        /// The rule in the focused window: the config's `bell`, and neither
+        /// mode.
         #[test]
         fn a_focused_window_does_what_the_config_says() {
             let quiet = Ring {
@@ -1277,7 +1275,7 @@ mod tests {
 
         /// **The program's volume reaches the sound alone**: off is silence
         /// with the flash, the request and the raise as they were; low
-        /// sounds as high does, `NSBeep` (Jev's lean, LOW_SAME_SOUND).
+        /// sounds as high does, `NSBeep`.
         #[test]
         fn the_volume_silences_the_sound_and_nothing_else() {
             for ((s, m, w, u, p, v), r) in every() {

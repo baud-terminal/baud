@@ -17,10 +17,10 @@ use baud_render::{Blink, BlinkPhases, GuideLook, Window};
 const BLINK_HALF_MS: u32 = 400;
 /// Half a rapid blink cycle, milliseconds: text with `SGR 6` shows for this
 /// long, then hides for this long -- 150 blinks a minute, 2.5 a second, the
-/// floor of § 8.3.117's "rapidly blinking (150 per minute or more)", which
-/// the owner chose on 2026-10-13. Under WCAG 2.3.1's "more than three times
-/// in any one second period" (`[[source: wcag22]]`), whose flash is "a pair
-/// of opposing changes": one shown-and-hidden cycle is one flash.
+/// floor of § 8.3.117's "rapidly blinking (150 per minute or more)". Under
+/// WCAG 2.3.1's "more than three times in any one second period"
+/// (`[[source: wcag22]]`), whose flash is "a pair of opposing changes": one
+/// shown-and-hidden cycle is one flash.
 const RAPID_HALF_MS: u32 = 200;
 // The two bounds, in integers: 150 a minute is exactly the rapid floor, so a
 // float comparison would sit on a rounding edge.

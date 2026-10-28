@@ -52,10 +52,9 @@ fn sends(bytes: &str, code: KeyCode) -> String {
 
 /// **DECRQM answers all three**, each in its power-on state: box mirroring
 /// reset, autodetection set (a line nobody set a direction for takes its
-/// first strong letter's, the owner's answer of 2026-10-24; Jev's lean,
-/// SET_FALLBACK) and arrow-key swapping set ("needs to be the default";
-/// Jev's lean, SET), and each as it is set and reset. Until now each was
-/// counted and answered `0`.
+/// first strong letter's) and arrow-key swapping set ("needs to be the
+/// default"), and each as it is set and reset. Until now each was counted
+/// and answered `0`.
 #[test]
 fn decrqm_answers_the_three_modes() {
     support::with_term(&WS, |t| {
@@ -89,10 +88,9 @@ fn xtsave_and_xtrestore_keep_the_three_modes() {
 /// **A mode applies at once only to the paragraph whose first position the
 /// cursor is on** (terminal-wg's draft, "if the cursor stands at the first
 /// logical position of a paragraph then the received BiDi property value
-/// is immediately applied on that paragraph"; Jev, FIRST_POSITION,
-/// 0.90/0.94): sent mid-line, or at column 1 of a row a wrap brought in,
-/// it changes only the mode in force, which the next line a line feed
-/// reaches takes.
+/// is immediately applied on that paragraph"): sent mid-line, or at column
+/// 1 of a row a wrap brought in, it changes only the mode in force, which
+/// the next line a line feed reaches takes.
 #[test]
 fn a_mode_applies_to_the_paragraph_whose_start_the_cursor_is_on() {
     support::with_term(&WS, |t| {
@@ -127,9 +125,9 @@ fn a_mode_applies_to_the_paragraph_whose_start_the_cursor_is_on() {
 }
 
 /// **DECSTR returns the modes in force to their power-on states and leaves
-/// the lines'; RIS returns every line too** (Jev's lean, RESET_ALL): as
-/// mintty's soft reset returns its paragraph modes, VTE's every mode, and
-/// DEC's table the cursor keys.
+/// the lines'; RIS returns every line too**: as mintty's soft reset
+/// returns its paragraph modes, VTE's every mode, and DEC's table the
+/// cursor keys.
 #[test]
 fn decstr_returns_the_modes_in_force_and_ris_every_line() {
     support::with_term(&WS, |t| {
@@ -153,10 +151,9 @@ fn decstr_returns_the_modes_in_force_and_ris_every_line() {
 
 /// **With autodetection on a path is only the fallback** (terminal-wg:
 /// "The sequence affects ... the fallback direction of implicit paragraphs
-/// with autodetection"; Jev's lean, SET_FALLBACK): SCP 2 leaves an English
-/// line left to right and puts a line of digits right to left; with it off
-/// SCP 2 turns the English line, and an unset Hebrew line runs left to
-/// right.
+/// with autodetection"): SCP 2 leaves an English line left to right and
+/// puts a line of digits right to left; with it off SCP 2 turns the
+/// English line, and an unset Hebrew line runs left to right.
 #[test]
 fn a_path_is_the_fallback_while_autodetection_is_on() {
     support::with_term(&WS, |t| {
@@ -306,9 +303,9 @@ fn the_swap_follows_the_direction_drawn() {
 
 /// **On a table row the cell holds the direction**: a row holding a Box
 /// Drawing character is laid out cell by cell, each cell a paragraph of
-/// its own (UAX #9 section 3; Jev, CELL, 0.98/0.98), so the cursor in a
-/// Hebrew cell swaps and in a Latin one does not; on a rule it is in the
-/// cell before it, and past the row's text in none.
+/// its own (UAX #9 section 3), so the cursor in a Hebrew cell swaps and
+/// in a Latin one does not; on a rule it is in the cell before it, and
+/// past the row's text in none.
 #[test]
 fn on_a_table_row_the_cell_holds_the_direction() {
     let row = format!("\u{2502}{HEBREW}\u{2502}ab\u{2502}");

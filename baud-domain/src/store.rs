@@ -144,9 +144,9 @@ pub struct RunRange {
 /// fits, and with the path beside it an entry is 4 bytes, so at `MAX_ROWS`
 /// entries per buffer and two buffers the narrow form is 5 KB of working set
 /// against the 20 KB a `usize` word and its padding would take. That is the
-/// "thousands are stored" case
-/// `CLAUDE.md` names as the one where narrowing earns its place, and it is read
-/// once per row operation rather than once per cell.
+/// "thousands are stored" case `CONTRIBUTING.md` names as the one where
+/// narrowing earns its place, and it is read once per row operation rather than
+/// once per cell.
 ///
 /// **Beside the word, the row's paragraph properties** ([`LineBidi`]): the
 /// character path SCP and SPD give a line (`[[source: ecma48]]` 8.3.111 and
@@ -196,10 +196,8 @@ pub enum CharacterPath {
 /// from its first strong letter (UAX #9 P2-P3), its character path the
 /// fallback where none is found; off, the path is its direction. **On at
 /// power-on**, so a line nobody set a direction for takes its first strong
-/// letter's, the owner's answer of 2026-10-24 ("all match C"); the draft
-/// leaves the default to the terminal ("terminal emulators might pick their
-/// favorite one"), and mintty starts with it on (Jev's lean, SET_FALLBACK,
-/// 0.82/0.86 then 0.82/0.89).
+/// letter's; the draft leaves the default to the terminal ("terminal
+/// emulators might pick their favorite one"), and mintty starts with it on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Autodetect {
     On,
@@ -243,7 +241,7 @@ pub struct LineBidi(u8);
 /// **How a row's characters were written**: in the order sent, or under
 /// DECRLM (`[[source: vt510-decrlm]]`), right to left from the cursor, so
 /// the cells hold them in the order shown. A row written so is drawn as
-/// its cells hold, UAX #9 not applied to it (Jev, AS_STORED, 0.97/0.97).
+/// its cells hold, UAX #9 not applied to it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RowWritten {
     InOrder,
@@ -253,13 +251,11 @@ pub enum RowWritten {
 /// **Where a row has wrapped since it was last erased whole**: only at
 /// the page's edge, or at DECSLRM side margins narrower than the page,
 /// where the next line starts at the left margin. DECSLRM "sets the left
-/// and right margins to define the scrolling region" (`[[source:
-/// vt510-decslrm]]`) and says nothing of the cells outside them; that
-/// they are no part of a paragraph wrapped inside the margins is baud's
-/// reading.
-/// A paragraph holding a row that wrapped at margins is drawn as the
-/// terminal cut it, never re-broken across its margins (Jev's lean,
-/// RECORD_BIT_KEEP_CUT, confidence 0.33 / 0.40 on the re-ask).
+/// and right margins to define the scrolling region"
+/// (`[[source: vt510-decslrm]]`) and says nothing of the cells outside
+/// them; that they are no part of a paragraph wrapped inside the margins
+/// is baud's reading. A paragraph holding a row that wrapped at margins
+/// is drawn as the terminal cut it, never re-broken across its margins.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WrappedAt {
     Edge,
@@ -450,9 +446,9 @@ impl RowExtent {
     }
     /// **What a fill over the whole row leaves of the paragraph
     /// properties**: the row is no longer one DECRLM wrote
-    /// ([`RowWritten::InOrder`]; Jev, AS_STORED, drawn as its cells hold
-    /// "until it is erased whole"), and its path, autodetection and box
-    /// mirroring are kept, as any fill keeps them.
+    /// ([`RowWritten::InOrder`]; drawn as its cells hold "until it is
+    /// erased whole"), and its path, autodetection and box mirroring are
+    /// kept, as any fill keeps them.
     pub fn erased(self) -> RowExtent {
         RowExtent {
             bidi: self
@@ -677,9 +673,7 @@ pub enum Encoding {
     Utf8,
     /// DEC Special Graphics (`ESC ( 0`). DEC defines 32 positions, `0x5F`
     /// through `0x7E`; `PackedCell::with_dec_graphics` maps the 31 from `0x60`
-    /// and leaves `0x5F` as `_`, an open departure (the record, "DEC Special
-    /// Graphics begins at 0x5F, and what it stores there is the owner's
-    /// call"). Width is always 1.
+    /// and leaves `0x5F` as `_`, an open departure. Width is always 1.
     DecGraphics,
     /// Uninterpretable. Render U+FFFD per byte, width 1 each. `cat /bin/ls`
     /// lands here and must render rather than be rejected.
@@ -800,12 +794,11 @@ impl<'a> Bytes<'a, Printable> {
 }
 
 impl<'a> Bytes<'a, Utf8> {
-    // `measure` lived here and returned `from_cells(0)` behind a `// model
-    // only` comment, taking a `WidthTable` it discarded. Nothing called it. It
-    // is deleted rather than fixed because measuring a stored UTF-8 run is for
-    // reflow, selection and search, none of which exist -- CLAUDE.md lists all
-    // three under "unmeasured, do not assert". An API that answers zero looks
-    // implemented; its absence does not.
+    // `measure` lived here and returned `from_cells(0)` behind a
+    // `// model only` comment, taking a `WidthTable` it discarded. Nothing
+    // called it. It is deleted rather than fixed because measuring a stored
+    // UTF-8 run is for reflow, selection and search, none of which existed
+    // then. An API that answers zero looks implemented; its absence does not.
     pub fn len(&self) -> ByteLen {
         ByteLen::new(self.raw.len() as u16)
     }

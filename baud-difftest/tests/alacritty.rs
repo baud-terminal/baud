@@ -3,9 +3,9 @@
 //! Feeds identical bytes to `baud-core` and to alacritty's `Term`, then compares
 //! the visible grid cell by cell.
 //!
-//! **A test target, not a binary** (the owner, 2026-09-14: "the only bin should
-//! be and default one is baud, rest is part of tests"). What the binary printed
-//! and exited 1 on is `the_report_lists_every_case_and_none_differs`; run it with
+//! **A test target, not a binary**: `baud` is the one binary, and the rest is
+//! part of the tests. What the binary printed and exited 1 on is
+//! `the_report_lists_every_case_and_none_differs`; run it with
 //! `cargo test --release -p baud-difftest -- --nocapture` to see the table.
 //!
 //! **It was the only external oracle left when `baud-core2` went.** Until

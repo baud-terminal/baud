@@ -30,9 +30,7 @@ pub const READ_CHUNK: usize = 4096;
 /// 1 MiB, from a sweep on `baud-core2`'s ring, where reads advanced through
 /// the arena; it peaked there against a 2 MiB L2. Every caller outside the
 /// tests places each read at `BytePos::ZERO`, so on this core it is a ceiling
-/// on one read rather than a working set, and nothing walks it to re-sweep
-/// (`docs/record.md`, "A resize moves no cell, and the first fixed pitch was
-/// the wrong one").
+/// on one read rather than a working set, and nothing walks it to re-sweep.
 pub const ARENA: usize = 1 << 20;
 
 /// The widest and tallest grid addressable. A `CSI 8 ; r ; c t` past these is
@@ -302,8 +300,7 @@ pub struct Book<'b> {
     /// offset; the word grows from 80 bytes to 96, and `Paint` carries it by
     /// reference. The relayout measured flat in instructions retired on
     /// `cat`, `btop`, `vim` and `less`, none of which reaches the take-back
-    /// on the primary (the record, "The terminal keeps the window over the
-    /// history").
+    /// on the primary.
     pub(crate) window: HistoryWindow,
 }
 
@@ -849,11 +846,11 @@ impl Owned {
     /// [`Owned::new`] provisions none -- the `with_cell_table` opt-in shape --
     /// so a terminal draws no images until a caller that wants them sizes it.
     ///
-    /// **The size is the owner's call, between one image and a screenful.** A
-    /// 64x48 image is 3072 `Pixel`s (12 KiB); a full 200x50 screen at an
-    /// 8x18 cell is ~1.4M (5.6 MiB). It is the only limit on a Sixel's size
-    /// besides the 65535 a coordinate holds and the slot table: a body is
-    /// decoded as it arrives, and no scratch holds it.
+    /// **The size is a choice between one image and a screenful.** A 64x48
+    /// image is 3072 `Pixel`s (12 KiB); a full 200x50 screen at an 8x18 cell
+    /// is ~1.4M (5.6 MiB). It is the only limit on a Sixel's size besides the
+    /// 65535 a coordinate holds and the slot table: a body is decoded as it
+    /// arrives, and no scratch holds it.
     ///
     /// **A zero-length arena is valid and refuses every image**, which the
     /// gate depends on -- do not add a non-empty assert here. Refuse-and-count
@@ -1163,16 +1160,15 @@ impl Owned {
 
 /// How many distinct grapheme clusters can be live at once.
 ///
-/// **1024, the owner's choice of 2026-10-13** ("1024 slots, 8 probes"). The
-/// index rides in the cell's `Content`, above U+10FFFF, where it was six
-/// bits of `CellFlags` and the store held 63. The 1024 slots are 40,960
-/// bytes, and an intern reads at most eight of them
-/// (`ClusterStore::PROBES`). A slot no cell names is reclaimed by a sweep
-/// once every slot holds a cluster, so a session can pass more clusters
-/// than the store holds. It is not a bound on what is on a cell at once:
-/// a cluster whose eight slots are taken is refused while others are free.
-/// `ClusterStore` refuses and counts, so the answer is never wrong and how
-/// often it is missing is a number.
+/// **1024 slots, 8 probes.** The index rides in the cell's `Content`, above
+/// U+10FFFF, where it was six bits of `CellFlags` and the store held 63.
+/// The 1024 slots are 40,960 bytes, and an intern reads at most eight of
+/// them (`ClusterStore::PROBES`). A slot no cell names is reclaimed by a
+/// sweep once every slot holds a cluster, so a session can pass more
+/// clusters than the store holds. It is not a bound on what is on a cell at
+/// once: a cluster whose eight slots are taken is refused while others are
+/// free. `ClusterStore` refuses and counts, so the answer is never wrong
+/// and how often it is missing is a number.
 pub const NCLUSTER: usize = ClusterStore::SLOTS_MAX;
 
 /// The **floor** on the rendition table: the smallest it is ever sized to, for
@@ -1345,10 +1341,9 @@ pub const NIMAGE: usize = 32;
 /// (`[[source: kitty-graphics]]`) -- and a client may place a picture one
 /// cell at a time: yazi 26.9.1 sends an `a=p` per cell of its preview, 660
 /// for a 44 by 15 one, and the 64-slot table this replaced placed one row
-/// and twenty cells of it (Jev, SCREEN_CELLS, 0.80 and 0.80 then 0.71 and
-/// 0.80 after research, under the bar and taken as the lean). The table
-/// comes from zeroed memory, and every walk of it stops at its highest live
-/// slot, so an idle terminal pays nothing for its size.
+/// and twenty cells of it. The table comes from zeroed memory, and every
+/// walk of it stops at its highest live slot, so an idle terminal pays
+/// nothing for its size.
 #[cfg(feature = "alloc")]
 pub const NPLACEMENT: usize = 64;
 

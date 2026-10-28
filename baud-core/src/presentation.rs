@@ -2,11 +2,10 @@
 //! either.
 //!
 //! `[[source: dec-std-070]]` pp. 5-198 to 5-205; `[[source: vt510-decrqpsr]]`,
-//! `[[source: vt510-deccir]]`, `[[source: vt510-dectabsr]]`, `[[source:
-//! vt510-decrsps]]`. Answered whatever level DA claims, as DECRQSS and the
-//! rectangle operations are (Jev's lean UNGATED, 0.52/0.56 then 0.64/0.62,
-//! with the owner's standing rule quoted); at the levels DECSCL selects,
-//! from Level 2, "Levels: 2x (TSI), 3-4" (`baud_domain::LEVELS`).
+//! `[[source: vt510-deccir]]`, `[[source: vt510-dectabsr]]`,
+//! `[[source: vt510-decrsps]]`. Answered whatever level DA claims, as DECRQSS
+//! and the rectangle operations are; at the levels DECSCL selects, from Level
+//! 2, "Levels: 2x (TSI), 3-4" (`baud_domain::LEVELS`).
 
 use crate::osc::StrKind;
 use crate::paint::Paint;
@@ -128,10 +127,9 @@ impl Paint<'_, '_> {
     }
 
     /// One byte of a tab-stop restore's body ([`TabRestore`]); a column
-    /// outside the screen is an invalid value too (Jev's lean STOP: SKIP at
-    /// confidence 0.28 and STOP at 0.06, then STOP at 0.36 and 0.34 after
-    /// research). Every C0 and a `DEL` are dropped first, and a GR byte read
-    /// as its 7-bit byte, as for DECRQSS (`Paint::status_data_put`).
+    /// outside the screen is an invalid value too. Every C0 and a `DEL` are
+    /// dropped first, and a GR byte read as its 7-bit byte, as for DECRQSS
+    /// (`Paint::status_data_put`).
     pub(crate) fn restore_tab_put(&mut self, b: StreamByte) {
         self.cold.tab_restore = match self.cold.tab_restore.put(b) {
             TabRestore::Ended(c) => self.restore_tab_stop(c),
@@ -176,11 +174,10 @@ impl Paint<'_, '_> {
     /// The position is the screen's, as DECCIR reports it, confined to the
     /// margins when the restored origin mode is set, as DECRC confines it
     /// (`Paint::restore`). Srend sets or clears the four renditions it
-    /// carries and keeps the rest of the rendition (Jev's lean FOUR_ONLY,
-    /// 0.80/0.70 then 0.84/0.86); an underline or blink already on stays the
-    /// style it is. A pending wrap is restored where the column is the one a
-    /// wrap is pending on. A single-shift bit leaves the shift pending after
-    /// the string (Jev's lean RESTORE_PENDING, four asks averaging 0.63).
+    /// carries and keeps the rest of the rendition; an underline or blink
+    /// already on stays the style it is. A pending wrap is restored where
+    /// the column is the one a wrap is pending on. A single-shift bit leaves
+    /// the shift pending after the string.
     pub(crate) fn restore_cursor_information(&mut self, data: &[u8]) {
         let r = CirRestore::parse(data, self.rows, self.cols);
         if let (Some(row), Some(col)) = (r.row, r.col) {

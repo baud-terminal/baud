@@ -10,9 +10,9 @@
 //! the file, and by the last frame they are thousands of lines gone. A probe
 //! that compared final screens measured "0 of 10,000 cells differ on six of
 //! nine recordings" and that number said nothing about width. This is the
-//! probe-that-cannot-fire failure `CLAUDE.md` records seven times, arriving as
-//! a comparison point rather than a gate; comparing at each read is the same
-//! instrument `baud-render/tests/incremental.rs` uses for the damage path.
+//! probe-that-cannot-fire failure, arriving as a comparison point rather than a
+//! gate; comparing at each read is the same instrument
+//! `baud-render/tests/incremental.rs` uses for the damage path.
 //!
 //! **Why sfte.** Since `baud-core2` was deleted, `baud-difftest` against
 //! alacritty has been the only thing in this repository that can disagree with

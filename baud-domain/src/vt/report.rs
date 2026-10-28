@@ -171,8 +171,8 @@ pub enum Report {
     /// DECXCPR, `CSI ? Pl ; Pc ; Pp R`: the cursor and its page, which is
     /// always the first. `[[source: dec-std-070]]` p. 5-55's report format,
     /// with the `?` that the standard and `[[source: ctlseqs]]` give and
-    /// `[[source: vt420-rm]]` and `[[source: vt510-dsr-xcpr]]` print without
-    /// (decided for STD 070 by Jev, 0.92 and 0.92).
+    /// `[[source: vt420-rm]]` and `[[source: vt510-dsr-xcpr]]` print
+    /// without, STD 070's form taken.
     ExtendedCursorPosition { row: OneBased, col: OneBased },
     /// A DEC private status, `CSI ? Ps n` ([`DecReply`]).
     DecStatus(DecReply),
@@ -186,8 +186,8 @@ pub enum Report {
     /// DECREPTPARM, `CSI sol ; 1 ; 1 ; 120 ; 120 ; 1 ; 0 x`
     /// (`[[source: vt100-ug-ch3]]`): no parity, eight bits, 19200 both ways
     /// -- the highest speed the table defines, for a pty that has no line
-    /// speed (Jev's lean, 0.86 and 0.80; xterm sends 128, a code the table
-    /// does not have) -- the clock multiplier 1 and no STP flags.
+    /// speed (xterm sends 128, a code the table does not have) -- the clock
+    /// multiplier 1 and no STP flags.
     TerminalParameters { sol: u16 },
     /// DECAUPSS, `DCS 0 ! u % 5 ST`, the answer to DECRQUPSS: the
     /// user-preference supplemental set is DEC Supplemental
@@ -197,12 +197,12 @@ pub enum Report {
     /// one page, shown from its first cell (`[[source: dec-std-070]]`
     /// p. 5-88).
     DisplayedExtent { rows: Rows, cols: Cols },
-    /// The answer to XTQMODKEYS or XTQFMTKEYS: `CSI > Pp ; Pv m` or `f`,
-    /// the control that sets the resource, so "the response can be used to
+    /// The answer to XTQMODKEYS or XTQFMTKEYS: `CSI > Pp ; Pv m` or `f`, the
+    /// control that sets the resource, so "the response can be used to
     /// restore this state" (`[[source: ctlseqs]]`; `report_mod_fkeys` and
     /// `report_fmt_fkeys`, `[[source: xterm-reset]]`'s file). `value` is as
     /// xterm writes it, an unsigned short, so a disabled resource and a `Pp`
-    /// naming none are 65535, xterm's `DEFAULT` (Jev's lean, XTERM_65535).
+    /// naming none are 65535, xterm's `DEFAULT`.
     KeyOption {
         which: KeyOption,
         pp: u16,
@@ -310,14 +310,13 @@ pub enum Report {
     /// the pushes not yet popped and the stack's depth, as xterm's
     /// `xtermReportTitleStack` writes `used` and `MAX_SAVED_TITLES`
     /// (`[[source: xterm-misc]]`), so `index` passes `max` once a push
-    /// past the tenth has overwritten the oldest (Jev, RAW, 0.90/0.96).
+    /// past the tenth has overwritten the oldest.
     TitlePosition { index: u16, max: u16 },
     /// XTREPORTCOLORS's answer, `CSI ? Pu ; Ps # Q`: the palette stack's
     /// current entry and the palettes stored on it, "using the same form as
     /// XTPOPCOLORS" (`[[source: ctlseqs]]` 658-660) with the `?` xterm's
     /// `xtermReportColors` writes (`[[source: xterm-misc]]`), which keeps
-    /// the answer from popping two palettes if it is echoed back (Jev,
-    /// XTERM_Q, 0.94/0.96).
+    /// the answer from popping two palettes if it is echoed back.
     ColorStack { current: u16, stored: u16 },
 }
 
@@ -375,13 +374,13 @@ pub enum SixelClaim {
 }
 
 /// Whether DECRQCRA, `CSI Pi ; Pp ; Pt ; Pl ; Pb ; Pr * y`, is answered
-/// with a checksum report. The embedder's choice: `On` by default, the
-/// owner's call of 2026-10-19 (option 3), and `Off` makes every request go
-/// unanswered, as xterm does with `GetChecksum` among its disallowed window
-/// operations (`CASE_DECRQCRA`, `[[source: xterm-reset]]`'s file; its
-/// default list, `[[source: xterm-man]]`). A checksum of
-/// one cell at a time reads the screen back, other programs' output
-/// included, which is why a setting turns it off.
+/// with a checksum report. The embedder's choice: `On` by default, and
+/// `Off` makes every request go unanswered, as xterm does with
+/// `GetChecksum` among its disallowed window operations (`CASE_DECRQCRA`,
+/// `[[source: xterm-reset]]`'s file; its default list,
+/// `[[source: xterm-man]]`). A checksum of one cell at a time reads the
+/// screen back, other programs' output included, which is why a setting
+/// turns it off.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum ChecksumReport {
     #[default]
@@ -614,13 +613,12 @@ impl Report {
     ///   maximum graphics dimensions" -- baud limits an image by its arena's
     ///   area and a coordinate's range, not by a width and height; set and
     ///   reset fail, as xterm's do.
-    /// * `Pi = 3`, the ReGIS geometry: read answers the page ReGIS draws
-    ///   on (`regis_page_size`), the text area in pixels or the VT300's 800
-    ///   by 480; read-maximum answers `0 ; 0`, as the Sixel maximum does,
-    ///   the page following the window (Jev's lean, ZERO, 0.46 and 0.52);
-    ///   set and reset fail, the page being the window's. **Not gated on
-    ///   DA**: ReGIS is always on, so baud is configured for it, though DA
-    ///   lists no attribute 3 (decided by Jev, ALWAYS, 0.96 and 0.96).
+    /// * `Pi = 3`, the ReGIS geometry: read answers the page ReGIS draws on
+    ///   (`regis_page_size`), the text area in pixels or the VT300's 800 by
+    ///   480; read-maximum answers `0 ; 0`, as the Sixel maximum does, the
+    ///   page following the window; set and reset fail, the page being the
+    ///   window's. **Not gated on DA**: ReGIS is always on, so baud is
+    ///   configured for it, though DA lists no attribute 3.
     /// * Any other item: an error in `Pi`.
     pub fn graphics(
         req: GraphicsRequest,
@@ -1434,8 +1432,7 @@ pub enum DecReply {
     /// `CSI ? 27 ; 0 ; 0 n`: the keyboard language "cannot be determined"
     /// and the keyboard ready (`[[source: vt510-dsr-kbd]]`). No keyboard
     /// type: each `Ptyp` names a DEC keyboard, none an unidentified one, and
-    /// the three-parameter form is ctlseqs' VT300 one (Jev's lean, 0.81 and
-    /// 0.93, taken).
+    /// the three-parameter form is ctlseqs' VT300 one.
     KeyboardUnknown,
     /// `CSI ? 50 n`: "Locator ready" (070-13 p. 15, PDF 1030), "a locator
     /// device is plugged in" -- the embedder's pointer, once it has said it

@@ -161,8 +161,8 @@ fn insert_mode_is_chunk_invariant() {
 /// "The Active Position is not affected by execution of this control", and
 /// xterm, where `[[source: ecma48]]` 8.3.64 moves it to the line home; a
 /// curses program sends `ich1` "just before sending the character to be
-/// inserted" (terminfo(5)). Decided by Jev, DEC_STAYS, 0.94/0.95 asked
-/// again, and recorded as a departure.
+/// inserted" (terminfo(5)). DEC's reading is built, and recorded as a
+/// departure.
 #[test]
 fn ich_leaves_the_cursor_where_it_is() {
     let at = |bytes: &[u8]| {

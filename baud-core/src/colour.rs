@@ -7,8 +7,7 @@
 //! each byte after it comes here, and each record is read at its `;`, so no
 //! length limits a sequence -- kitty takes one up to 256 KiB
 //! (`[[source: kitty-6d5d0c4-vt-parser]]` 18-21), and one setting the 256
-//! entries is about 4 KB (Jev's lean, L_STREAM, 0.82/0.88 and 0.72/0.80
-//! after research). A record is kept in `pending`; one longer than
+//! entries is about 4 KB. A record is kept in `pending`; one longer than
 //! `OSC_MAX` is refused and counted.
 //!
 //! **Nothing changes until the terminator.** A record's change is kept in
@@ -382,8 +381,7 @@ impl Paint<'_, '_> {
             // other video, which is the "Automatic color selection based on
             // current screen colors" kitty's table names, so an empty value
             // or a reset asks for what is drawn already, and a colour is
-            // refused and counted (Jev's lean, V_EMPTY_COUNT, 0.38/0.76 and
-            // 0.82/0.95 after research).
+            // refused and counted.
             (KittyTarget::Named(KittyKey::VisualBell), KittyOp::Set(..)) => {
                 self.unsupported_total += 1
             }
@@ -415,9 +413,8 @@ impl Paint<'_, '_> {
                     // allowed" (`[[source: kitty-6d5d0c4-color-stack]]`
                     // 82), so the entry keeps what it had, as kitty's own
                     // code keeps a default colour asked to be dynamic
-                    // (`[[source: kitty-window-py]]` 617-619, `[[source:
-                    // kitty-6d5d0c4-colors-c]]` 825-840). Decided by Jev,
-                    // REFUSE, 0.96/1.00 after research.
+                    // (`[[source: kitty-window-py]]` 617-619,
+                    // `[[source: kitty-6d5d0c4-colors-c]]` 825-840).
                     KittyOp::Automatic => {
                         self.unsupported_total += 1;
                         return;
@@ -471,12 +468,10 @@ impl Paint<'_, '_> {
 
     /// The stored slot a named colour is under the video shown: **under
     /// `?5` foreground and background name the colour shown in that role**,
-    /// as `OSC 10`/`11` do by the owner's V17 ("make OSC 4, 10 and 11 set,
-    /// query and reset the colour you see"), which kitty's text replaces
-    /// with these keys; so `background=?` and `OSC 11 ; ?` never disagree.
-    /// Jev leaned to the stored colours, as kitty's code reads its profile
-    /// (R_STORED, 0.40/0.34 after research, the first ask split): a lean
-    /// under the bar, and the owner's call outranks it.
+    /// as `OSC 10`/`11` do (note V, V17: they set, query and reset the
+    /// colour shown), which kitty's text replaces with these keys; so
+    /// `background=?` and `OSC 11 ; ?` never disagree. kitty's code reads
+    /// its profile's stored colours instead; V17 decides it here.
     fn slot(&self, n: Named) -> Option<DynamicColor> {
         n.dynamic().map(|d| self.cold.video().role(d))
     }

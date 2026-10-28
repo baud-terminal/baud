@@ -613,8 +613,8 @@ pub enum Show {
 /// a geometry that no longer exists, so putting it on the layer replaces a
 /// current image with an older, differently-sized one -- and
 /// `contentsGravity` pins it to the top-left rather than stretching it, so
-/// what the owner saw was two images at once. No frame the layer shows may
-/// be a size behind.
+/// what a user saw was two images at once. No frame the layer shows may be
+/// a size behind.
 ///
 /// The discard is safe because it is a *generation* comparison rather than
 /// a size: a window dragged from A to B and back to A leaves two surface

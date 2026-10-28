@@ -158,12 +158,11 @@ fn base24_takes_its_own_brights_and_is_inferred() {
     }
 }
 
-/// **Any one of base10-base17 makes an unlabelled file base24** (O2,
-/// Jev decided any_one 1.00 / 1.00, decisions.jsonl 710/711), as both
-/// tinted builders that infer the system class it: base16-builder-go by
-/// its count, tinted-builder-python on the first `base1x` it finds. A
-/// base24 file without all 24 is then refused at its first missing slot
-/// (O3), however many it has.
+/// **Any one of base10-base17 makes an unlabelled file base24** (note
+/// AR, O2), as both tinted builders that infer the system class it:
+/// base16-builder-go by its count, tinted-builder-python on the first
+/// `base1x` it finds. A base24 file without all 24 is then refused at
+/// its first missing slot (O3), however many it has.
 #[test]
 fn one_base1x_slot_makes_an_unlabelled_file_base24() {
     let sixteen: String = slot_lines().map(|l| format!("{l}\n")).collect();

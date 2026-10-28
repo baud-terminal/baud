@@ -1,8 +1,8 @@
 //! **The launch splash, as both drivers time it** (note AJ): baud's colour
 //! lockup from the first frame, held until the shell draws something or
-//! [`CAP`] passes, whichever is first, then gone in the plasma -- or, under
-//! reduced motion, in a fade (Jev, FADE, 1.00 and 1.00), one of the HIG's
-//! Reduce Motion practices and no motion animation by WCAG's definition. The renderer
+//! [`CAP`] passes, whichever is first, then gone in the plasma -- or,
+//! under reduced motion, in a fade, one of the HIG's Reduce Motion
+//! practices and no motion animation by WCAG's definition. The renderer
 //! draws it (`baud_render::splash`); this says where it is on a clock, the
 //! display link's timestamp on macOS and seconds since start on Linux, so
 //! it is a pure function of the clock and the screen, and the tests run on
@@ -23,8 +23,7 @@ use baud_render::{SplashLook, SplashPhase};
 
 /// **Seconds from the first frame after which the logo vanishes though the
 /// shell has drawn nothing**: a slow login shell, a remote one, a command
-/// that prints nothing. Jev's lean, CAP_05 (0.55 and 0.45, under the 0.9
-/// bar after a re-ask): the owner asked for "fast so it feels snappy".
+/// that prints nothing. Short, so a launch feels quick.
 pub(crate) const CAP: f64 = 0.5;
 
 /// What the splash owes the frame loop.

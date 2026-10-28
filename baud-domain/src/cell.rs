@@ -59,12 +59,11 @@ impl Content {
     ///
     /// **A cell with continuations holds its cluster's index here, not its
     /// base**: the base is in the slot, with the marks ([`ClusterSlot`]).
-    /// That is the id space the owner chose on 2026-10-13 ("1024 slots, 8
-    /// probes"), measured flat on plain text because a cell with no
-    /// continuations is written and read as it was: the range above
-    /// U+10FFFF had two words in use and room for any slot count a `u16`
-    /// names, where `CellFlags` had six bits left (docs/record.md, "The
-    /// cluster store holds 1024 clusters and sweeps the dead ones").
+    /// That is the id space of 1024 slots and 8 probes, measured flat on
+    /// plain text because a cell with no continuations is written and read
+    /// as it was: the range above U+10FFFF had two words in use and room
+    /// for any slot count a `u16` names, where `CellFlags` had six bits
+    /// left.
     const CLUSTERS: u32 = 0x0012_0000;
     /// The word a cell holds when its continuations live in slot `id`.
     pub fn cluster(id: ClusterId) -> Content {
@@ -318,9 +317,8 @@ impl CellFlags {
     /// `[[source: vt100-ug-ch3]]` Table 3-9 names the set's 32 positions,
     /// `0x5F..0x7E`, in text. None of the DEC texts read gives a codepoint, so
     /// the 31 the table has are `[[source: foot-vt100-0]]`'s, and `0x5F`
-    /// "Blank" is still `_`: an open departure, U+0020 or U+00A0 being the
-    /// owner's call (docs/record.md, "DEC Special Graphics begins at 0x5F, and
-    /// what it stores there is the owner's call").
+    /// "Blank" is still `_`: an open departure, U+0020 or U+00A0 still to be
+    /// chosen.
     pub const GRAPHICS: CellFlags = CellFlags(2);
     pub fn is_graphics(self) -> bool {
         self.0 & CellFlags::GRAPHICS.0 != 0
@@ -358,10 +356,10 @@ impl CellFlags {
     ///
     /// **The link rides in the spare bits of this word rather than in a field
     /// of its own, and that is a measured constraint, not a packing game.**
-    /// `CLAUDE.md`: "`PackedCell` is 8 bytes" — going from 4 to 8 already cost
-    /// two points of the kernel ceiling, and a ninth and tenth byte would round
-    /// the cell to twelve. Three flag bits are in use and thirteen are not, so
-    /// a link index fits with 13 bits of room, against `NLINK` of 128.
+    /// `CONTRIBUTING.md`: "`PackedCell` is 8 bytes" — going from 4 to 8 already
+    /// cost two points of the kernel ceiling, and a ninth and tenth byte would
+    /// round the cell to twelve. Three flag bits are in use and thirteen are
+    /// not, so a link index fits with 13 bits of room, against `NLINK` of 128.
     const LINK_SHIFT: u16 = 3;
     /// The link takes exactly the bits `NLINK = 128` needs, and no more.
     ///
@@ -398,10 +396,9 @@ impl CellFlags {
     /// code is written with, beside [`CellFlags::GRAPHICS`], so the write
     /// path ORs what it already ORs; the pen a decoded character is written
     /// with, a UTF-8 `Ä`'s among them, has it cleared, since no set
-    /// replaced that character (decided by Jev 2026-10-19, CODE_RECEIVED,
-    /// 0.98 and 0.98). **Apart from `GRAPHICS`**, which names the set GL
-    /// held whatever arrived (note AE, Q16(a)): a UTF-8 `─` written while
-    /// GL holds line drawing carries that flag and no tag.
+    /// replaced that character. **Apart from `GRAPHICS`**, which names the
+    /// set GL held whatever arrived (note AE, Q16(a)): a UTF-8 `─` written
+    /// while GL holds line drawing carries that flag and no tag.
     const SET_SHIFT: u16 = 11;
     const SET_MASK: u16 = 0x1f;
 
@@ -519,12 +516,12 @@ impl PackedCell {
     /// change. ... empty character positions, are not affected"; DECSERA
     /// (p. 5-172) the same.
     ///
-    /// **The flags the position keeps**: DECSCA's attribute, ECMA-48's
-    /// guard (Jev, 2026-10-16, 0.94/0.90; for DECSERA 1.00/0.98,
-    /// 2026-10-19) and an `OSC 8` link (Jev's lean, KEEP, 2026-10-19).
-    /// The line-drawing flag, the set the character was received under and
-    /// a cluster's mark belong to the character and go with it, so the space
-    /// draws as a space, counts 0x20, and its stale marks are unreachable
+    /// **The flags the position keeps**: DECSCA's attribute, ECMA-48's guard
+    /// (since 2026-10-16, and under DECSERA since 2026-10-19) and an
+    /// `OSC 8` link. The line-drawing
+    /// flag, the set the character was received under and a cluster's mark
+    /// belong to the character and go with it, so the space draws as a
+    /// space, counts 0x20, and its stale marks are unreachable
     /// ([`CellFlags::MARKED`]).
     pub fn selectively_erased(old: PackedCell) -> PackedCell {
         if old.content.is_empty() {
@@ -571,9 +568,8 @@ impl PackedCell {
     /// and a return in the caller, as it was; a designated set goes through
     /// `translate_designated`, out of line. Built with `with_charset` forced
     /// inline once it gained the DEC sets' arm, this function went out of line
-    /// whole, and every short run and every run's `REP` record called it,
-    /// ASCII ones included (docs/record.md, "DEC Supplemental, JIS-Katakana and
-    /// JIS-Roman are translated").
+    /// whole, and every short run and every run's `REP` record called it, ASCII
+    /// ones included.
     #[inline(always)]
     pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
         // **ASCII is the answer, not a case of the general one.** Without this
@@ -756,10 +752,8 @@ impl PackedCell {
     /// the rest ASCII (`[[source: vt100-ug-ch3]]`: "the graphics for ASCII
     /// codes 137 through 176 will be replaced", octal). The table holds
     /// `[[source: foot-vt100-0]]`'s 31, so `_` stays `_` where DEC draws
-    /// "Blank". Whether Blank stores U+0020 or U+00A0 is the owner's call
-    /// (docs/record.md, "DEC Special Graphics begins at 0x5F, and what it
-    /// stores there is the owner's call"), and the base here moves to `0x5F`
-    /// with the answer.
+    /// "Blank". Whether Blank stores U+0020 or U+00A0 is open, and the base
+    /// here moves to `0x5F` with the answer.
     pub fn with_dec_graphics(self, b: StreamByte) -> PackedCell {
         let v = b.raw_byte();
         let cp = match v.checked_sub(0x60) {
@@ -784,8 +778,7 @@ impl PackedCell {
 /// its state was only ever multiplied by 0x1b3, so at a power-of-two size a
 /// change in the last code point never reached the bits that chose the slot.
 /// At 1024 slots that store refused 142 of Genesis 1:1-5's 146 points; this
-/// construction, [`LinkId::bucket`]'s, refuses none (docs/record.md, "The
-/// cluster store holds 1024 clusters and sweeps the dead ones").
+/// construction, [`LinkId::bucket`]'s, refuses none.
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -853,13 +846,13 @@ impl ClusterSlot {
     /// emoji, which are not orthography.
     ///
     /// It still does not cover every RGI sequence: a four-person family with a
-    /// skin tone on each member is eleven codepoints, and those lose their
-    /// tail. That is a bounded table behaving as one, stated rather than
-    /// implied by a number, and a departure: the Unicode Standard's grapheme
-    /// cluster is a base "together with any number of nonspacing marks
-    /// applied to it" (`[[source: unicode18-ch3]]`, D60). The owner left the cap
-    /// open on 2026-10-13 when deciding the slot count and the sweep, so it
-    /// stays eight and `docs/vt-coverage.md` states it.
+    /// skin tone on each member is eleven codepoints, and those lose their tail.
+    /// That is a bounded table behaving as one, stated rather than implied by a
+    /// number, and a departure: the Unicode Standard's grapheme cluster is a
+    /// base "together with any number of nonspacing marks applied to it"
+    /// (`[[source: unicode18-ch3]]`, D60). The cap was left open on 2026-10-13
+    /// when the slot count and the sweep were set, so it stays eight and
+    /// `docs/vt-coverage.md` states it.
     pub const CAPACITY: usize = 8;
 
     pub const EMPTY: ClusterSlot = ClusterSlot {
@@ -1005,17 +998,16 @@ impl Default for ClusterLive {
 /// a cluster finds its slots taken and every slot of the store holds a
 /// cluster, the caller may [`ClusterStore::sweep`] the cells that can name
 /// one -- both screens, and the history behind the primary -- and every
-/// slot none of them names is freed. The owner's choice, 2026-10-13: "Sweep
-/// when full": "when all slots are used, walk the live cells once and free
-/// unreferenced slots. No cost until the table fills."
+/// slot none of them names is freed. Sweep when full: when all slots are
+/// used, walk the live cells once and free unreferenced slots. No cost
+/// until the table fills.
 ///
 /// **That bounds what is refused only once the store has filled.** Before
 /// it, a cluster whose eight slots are taken is refused while other slots
 /// are free, as it was with no sweep; after a sweep, what is left is what
 /// cells name, and a cluster is refused when its eight slots hold those.
 /// Neither is a bound on what is on a cell at once: with 300 one-mark
-/// clusters on cells, 2,905 of 4,000 more were refused (docs/record.md,
-/// "The cluster store holds 1024 clusters and sweeps the dead ones").
+/// clusters on cells, 2,905 of 4,000 more were refused.
 pub struct ClusterStore<'b> {
     slots: &'b mut [ClusterSlot],
     /// Clusters that did not fit. Never silent.
@@ -1035,15 +1027,13 @@ impl<'b> ClusterStore<'b> {
     /// cannot degrade into a scan under content chosen to collide, and an
     /// intern reads at most eight 40-byte slots.
     ///
-    /// It was two. The owner chose eight on 2026-10-13 ("1024 slots, 8
-    /// probes"): at 1024 slots and the hash above, with no sweep, eight
-    /// refused 0, 0, 2, 0, 0, 349 and 0 code points on Genesis 1:1-5, Pango's
-    /// Genesis 1, OSHB Genesis, Bialik, an Arabic and a Hindi text and
-    /// `cat-cjk`, each through a terminal of its own, where four refused 0,
-    /// 2, 22, 0, 2, 555 and 0. The sweep, which runs only once every slot
-    /// is used, runs on none of them, so they refuse the same with it
-    /// (docs/record.md, "The cluster store holds 1024 clusters and sweeps
-    /// the dead ones").
+    /// It was two, and is eight since 2026-10-13: at 1024 slots and the hash
+    /// above, with no sweep, eight refused 0, 0, 2, 0, 0, 349 and 0 code
+    /// points on Genesis 1:1-5, Pango's Genesis 1, OSHB Genesis, Bialik, an
+    /// Arabic and a Hindi text and `cat-cjk`, each through a terminal of its
+    /// own, where four refused 0, 2, 22, 0, 2, 555 and 0. The sweep, which
+    /// runs only once every slot is used, runs on none of them, so they
+    /// refuse the same with it.
     pub const PROBES: usize = 8;
     /// The most slots a store uses, and the size of the sweep's live set:
     /// a larger slice is used to this length.
@@ -1165,9 +1155,8 @@ impl<'b> ClusterStore<'b> {
     /// Called across the crate boundary it was not inlined, and the call
     /// cost `cat-cjk` 2.15% more instructions and the two pointed Hebrew
     /// texts 7.41% and 12.33% against the store it replaced; inlined, as
-    /// built, 0.29%, 3.14% and 6.84%, against the costs the owner chose
-    /// from ("1024 slots, 8 probes": +0.39%, +3.38% and +6.97% on the
-    /// prototype).
+    /// built, 0.29%, 3.14% and 6.84%, against the prototype's +0.39%,
+    /// +3.38% and +6.97% for 1024 slots and 8 probes.
     #[inline]
     pub fn try_intern(&mut self, base: Content, cps: &[u32]) -> Result<ClusterId, Refused> {
         let n = self.len();
@@ -1233,12 +1222,11 @@ impl<'b> ClusterStore<'b> {
     }
 
     /// Whether a refusal for want of a slot should sweep: **only when every
-    /// slot holds a cluster**, the owner's "when all slots are used", and
-    /// then only once [`ClusterStore::DUE`] interns, fills or refusals, have
-    /// wanted a slot since the last sweep. A store never swept, or reset,
-    /// sweeps at its first refusal once full; a store a sweep left with
-    /// fewer than `DUE` slots free waits `DUE` interns from that sweep,
-    /// whatever its cells name by then.
+    /// slot holds a cluster**, and then only once [`ClusterStore::DUE`]
+    /// interns, fills or refusals, have wanted a slot since the last sweep.
+    /// A store never swept, or reset, sweeps at its first refusal once full;
+    /// a store a sweep left with fewer than `DUE` slots free waits `DUE`
+    /// interns from that sweep, whatever its cells name by then.
     pub fn sweep_due(&self) -> bool {
         self.filled >= self.len() && self.since >= ClusterStore::DUE
     }

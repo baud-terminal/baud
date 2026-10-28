@@ -6,7 +6,7 @@ cargo-features = ["profile-rustflags"]
 name = "multibench"
 version = "0.1.0"
 edition = "2021"
-# Not published: the owner's "no publishing, private".
+# Not published: nothing here is.
 publish = false
 
 [dependencies]
@@ -52,7 +52,7 @@ codegen-units = 1
 #
 # **An environment `RUSTFLAGS` carrying `-align-all-functions=6` overrides
 # this, silently**: a build so made came out at 64 bytes (1,843 of 3,741
-# functions at 0 mod 128, against 3,671 without it). Leave it out.
-# See the record, "The cat row was a code-placement lottery, and multibench
-# now aligns to 128 bytes".
+# functions at 0 mod 128, against 3,671 without it). Leave it out: the
+# `cat` row was a code-placement lottery until multibench aligned to 128
+# bytes.
 rustflags = ["-C", "llvm-args=-align-all-functions=7"]

@@ -5,11 +5,9 @@
 //! processed by placing a reversed question mark in the display at the
 //! Active Position" through `insert_or_replace_character()`, the routine
 //! every graphic character is written by (pp. 5-140-5-141); the VT220's
-//! "Causes a reverse question mark to be displayed" (`[[source:
-//! vt220-rm-ch4]]`). baud draws nothing by default, the owner's call of
-//! 2026-10-23 ("i would say keep A as default and add config option and
-//! maybe also which char to show? and default is the reverse question
-//! mark"), and [`SubstituteMark::Drawn`] is the setting turned on.
+//! "Causes a reverse question mark to be displayed"
+//! (`[[source: vt220-rm-ch4]]`). baud draws nothing by default, and
+//! [`SubstituteMark::Drawn`] is the setting turned on.
 
 use crate::{AmbiguousWidth, Classified, Codepoint, GraphemeClass, UnicodeWidths, Width};
 use crate::{DEC_ERROR_CHARACTER, WidthPolicy};

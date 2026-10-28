@@ -2,9 +2,9 @@
 //! **The reference numbers the whole ladder is quoted against, made
 //! reproducible.**
 //!
-//! `CLAUDE.md`'s ladder section opens with four figures "measured on this box
-//! rather than assumed" -- a 64 MB buffer read, `memcpy`, scalar eight-byte
-//! stores into the grid, and `Simd<u64, 8>` stores -- and derives from the last
+//! The project notes' ladder section opened with four figures "measured on this
+//! box rather than assumed" -- a 64 MB buffer read, `memcpy`, scalar eight-byte
+//! stores into the grid, and `Simd<u64, 8>` stores -- and derived from the last
 //! one that a materialising terminal cannot exceed **17,156 MB/s of input**,
 //! that the honest maximum for the operation baud performs is **11,660**, and
 //! that `put_ascii_run` is already at it so "there is nothing left" in it.

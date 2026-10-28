@@ -5,13 +5,13 @@
 //! **The cursor's colours are drawn**: the block fills with a theme's
 //! cursor colour and its glyph takes the theme's cursor text colour; a
 //! program's `OSC 12` wins over the fill while set and leaves the text
-//! colour as it is, as kitty, alacritty, ghostty and foot leave theirs
-//! (Jev, 0.94 and 0.96). **A cell's own colour is a colour too**:
-//! alacritty's `CellForeground`/`CellBackground` "references the affected
-//! cell" (`[[source: alacritty-0c405d5-man-5]]` 327-334, 398-405), and
-//! ghostty's `cell-foreground`/`cell-background` match "the cell foreground
-//! color" and "the cell background color" (`[[source:
-//! ghostty-config-8f0dd37]]` 707-716, 845-859, 905-911).
+//! colour as it is, as kitty, alacritty, ghostty and foot leave theirs. **A
+//! cell's own colour is a colour too**: alacritty's
+//! `CellForeground`/`CellBackground` "references the affected cell"
+//! (`[[source: alacritty-0c405d5-man-5]]` 327-334, 398-405), and ghostty's
+//! `cell-foreground`/`cell-background` match "the cell foreground color"
+//! and "the cell background color" (`[[source: ghostty-config-8f0dd37]]`
+//! 707-716, 845-859, 905-911).
 
 mod support;
 

@@ -41,8 +41,7 @@ impl Paint<'_, '_> {
     /// per-byte loop by 128 instructions and 54 loads from the stack.
     ///
     /// An undefined register paints the foreground shown -- 070-9 §10's
-    /// "default Sixel color", "Contrasting to background" -- decided by Jev
-    /// 2026-10-15 (DEFAULT_FOREGROUND, 0.92 and 0.95); a foreground the
+    /// "default Sixel color", "Contrasting to background"; a foreground the
     /// embedder has not said is `DEFAULT`, drawn as nothing. `?1070` picks
     /// whose registers it starts from, and `?80`'s display mode stops it at
     /// the screen's bottom and right edges.
@@ -61,8 +60,8 @@ impl Paint<'_, '_> {
     /// "clearly state in their product documentation how grid sizes fall
     /// back" (PDF p. 928), which `docs/vt-coverage.md` does. One above zero
     /// is counted in `ImageStore::sixel_grids_fixed`. No text maps a
-    /// decipoint to a screen pixel; Jev leaned to this, 0.48/0.32, over
-    /// scaling by the display's points (2026-10-23).
+    /// decipoint to a screen pixel, and this is chosen over scaling by the
+    /// display's points.
     #[cold]
     #[inline(never)]
     pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect, grid: Option<u16>) {
@@ -254,24 +253,23 @@ impl Paint<'_, '_> {
         // it falls in (`[[source: vt340test-textcursor-sh]]`), and 070-9
         // §11.3 moves it by "the vertical motion commands executed", allowing
         // "an adjustment less than one character height ... in a downward
-        // direction". Jev chose the VT340's row at 0.91 and 0.88 on
-        // 2026-10-15, one ordering short of the bar, so the choice is the
-        // owner's and this is unchanged until it is made.
+        // direction". Whether to take the VT340's row is open, and this is
+        // unchanged until it is decided.
         if self.cell_height == ImagePx::ZERO {
             return;
         }
         let rows = usize::from(h.raw()).div_ceil(self.cell_height.index());
-        // **`?8452`: the cursor to the right of the image** (`[[source:
-        // ctlseqs]]`, "Sixel scrolling leaves cursor to right of graphic"),
-        // on the image's last row and `ceil(w / cell_w)` columns past where
-        // it started, as xterm's `finished_parsing` puts it
-        // (`[[source: xterm-graphics-sixel]]`: `new_row = charrow - 1 +
-        // ceil(h / FontHeight)`, and under `sixel_scrolls_right` only the
-        // column changes). Past the right margin it goes to the left margin
-        // of the next row, scrolling at the bottom, as xterm does, decided
-        // by Jev 2026-10-15 (WRAP_NEXT_ROW, 0.94 and 0.92). No column moves
-        // while the cell width is unknown, and the cursor then goes below
-        // the image as without the mode.
+        // **`?8452`: the cursor to the right of the image**
+        // (`[[source: ctlseqs]]`, "Sixel scrolling leaves cursor to right
+        // of graphic"), on the image's last row and `ceil(w / cell_w)`
+        // columns past where it started, as xterm's `finished_parsing` puts
+        // it (`[[source: xterm-graphics-sixel]]`:
+        // `new_row = charrow - 1 + ceil(h / FontHeight)`, and under
+        // `sixel_scrolls_right` only the column changes). Past the right
+        // margin it goes to the left margin of the next row, scrolling at
+        // the bottom, as xterm does. No column moves while the cell width
+        // is unknown, and the cursor then goes below the image as without
+        // the mode.
         let right_of =
             self.cold.modes.is_set(ModeBit::SixelScrollsRight) && self.cell_width != ImagePx::ZERO;
         // The image's right edge on the display, from where it began.
@@ -303,12 +301,11 @@ impl Paint<'_, '_> {
     /// image begun at the cursor is placed: "the sixel active position
     /// begins at the upper-left corner of the ANSI text active position"
     /// (`[[source: vt3xx-sixel]]`), unscaled, as "No other information is
-    /// carried from the ANSI text state" (070-9 § 11.1) -- decided by Jev
-    /// 2026-10-19, UNSCALED_AT_CURSOR, 0.97 and 0.94 on a re-ask; xterm
-    /// places it at the character position's single-width column
+    /// carried from the ANSI text state" (070-9 § 11.1); xterm places it
+    /// at the character position's single-width column
     /// (`[[source: xterm-graphics-c]]`, `charcol * FontWidth` in
-    /// `refresh_graphic`). An image's columns are the
-    /// display's from then on: it stays where it was drawn.
+    /// `refresh_graphic`). An image's columns are the display's from then
+    /// on: it stays where it was drawn.
     pub(crate) fn display_col(&self, c: Col) -> Col {
         match self.view.rendition(self.cy).is_double() {
             true => Col::at_index((c.index() * 2).min(self.cols.index() - 1)),
@@ -354,9 +351,9 @@ impl Paint<'_, '_> {
     /// an erase or a shift of characters left showing no character there
     /// (`ImageStore::erase`): ED, EL, ECH, DECERA, the selective erases in
     /// the positions they erase, and ICH, DCH and IRM's gap over the span
-    /// they shift. DECIC and DECDC leave an image where it is (Jev,
-    /// IMAGES_STAY, 2026-10-19). Gated on `any_placed`, so a stream with no
-    /// image on screen pays one comparison.
+    /// they shift. DECIC and DECDC leave an image where it is. Gated on
+    /// `any_placed`, so a stream with no image on screen pays one
+    /// comparison.
     #[inline(always)]
     pub(crate) fn erase_images(&mut self, r: Row, a: Col, b: Col) {
         if self.images.any_placed() {

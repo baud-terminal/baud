@@ -60,13 +60,11 @@ pub(crate) struct AltStyle {
 /// will be invoked into the GL position of the In Use Table, and the G2 set
 /// (UPSS, typically DEC Supplemental or ISO Latin-1 supplemental) will be
 /// invoked into the GR position". The UPSS is its factory value, DEC
-/// Supplemental (070-4 p. 14, `upss = DEC_SUPPLEMENTAL_G`; `[[source:
-/// vt510-decaupss]]`, "Default: DEC Supplemental Graphic"), in both
-/// encodings: Jev's leans DEC_SUPPLEMENTAL (0.85/0.88, then 0.80/0.82) and
-/// SAME_IN_BOTH_ENCODINGS (0.18/0.14 split, then 0.20/0.28), and GR on G2
-/// decided (1.00/0.96). Under ISO 8859-1 a GR byte therefore draws DEC
-/// Supplemental, which departs from `[[source: ctlseqs]]` 312's "That is
-/// ISO 8859-1" at 20 positions.
+/// Supplemental (070-4 p. 14, `upss = DEC_SUPPLEMENTAL_G`;
+/// `[[source: vt510-decaupss]]`, "Default: DEC Supplemental Graphic"), in
+/// both encodings, with G2 in GR. Under ISO 8859-1 a GR byte therefore
+/// draws DEC Supplemental, which departs from `[[source: ctlseqs]]` 312's
+/// "That is ISO 8859-1" at 20 positions.
 pub(crate) const POWER_UP_SETS: [Charset; 4] = [
     Charset::Ascii,
     Charset::Ascii,
@@ -101,7 +99,7 @@ pub struct Saved {
     /// character set most recently invoked into the right hand side (GR)"),
     /// and the slots as slots (note AE's Q11, decided). A pending single
     /// shift is not saved: the `ESC` of `ESC 7` has cancelled it (070-3 p.
-    /// 3-81; Jev's lean STD070_CANCEL).
+    /// 3-81).
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
     pub(crate) gr: GSlot,
@@ -149,10 +147,10 @@ pub struct Saved {
     /// designations took it to 72.
     pub(crate) pending: ModeChange,
     /// **The Unicode version `UnicodeVersion` selected**, saved and restored
-    /// with the cursor as iTerm2's source saves it (`savedCursor->
-    /// unicodeVersion`, `[[source: iterm2-964a75d-vt100terminal]]`; Jev's
-    /// lean, SAVED_WITH_CURSOR, 0.30/0.54 asked again with wezterm's, which
-    /// does not, read).
+    /// with the cursor as iTerm2's source saves it
+    /// (`savedCursor-> unicodeVersion`,
+    /// `[[source: iterm2-964a75d-vt100terminal]]`; wezterm's does not save
+    /// it).
     pub(crate) widths: UnicodeWidths,
 }
 
@@ -417,19 +415,18 @@ pub struct WatchedLines {
 /// [`Term::watched_moved`] gives it to the embedder, which numbers its
 /// selection by it.
 ///
-/// **And carried with their text through a move of rows** (note V, the
-/// Jev decisions of 2026-10-20, as xterm's `adjustHiliteOnFwdScroll` and
-/// `adjustHiliteOnBakScroll` do with `keepSelection` at its default,
-/// `[[source: xterm-scroll]]`): a full-width region's scroll moves the
-/// lines inside it, keeps only the part inside when they straddle its
-/// edge, and trims the lines it moves out; a scroll down trims what it
-/// pushes under the screen; on the alternate screen a line leaving the top
-/// trims the first; the rows under a top region's scroll stay where they
-/// are; `IL` and `DL` move the lines below the cursor, and reach them
-/// when the cursor's row, or a deleted row, is one of them. Only a move
-/// that leaves nothing, a move under side margins, a write, an erase and a
-/// line taken back over them still reach them. [`Term::watched_lines`]
-/// gives where they stand.
+/// **And carried with their text through a move of rows** (note V, as
+/// xterm's `adjustHiliteOnFwdScroll` and `adjustHiliteOnBakScroll` do with
+/// `keepSelection` at its default, `[[source: xterm-scroll]]`): a
+/// full-width region's scroll moves the lines inside it, keeps only the
+/// part inside when they straddle its edge, and trims the lines it moves
+/// out; a scroll down trims what it pushes under the screen; on the
+/// alternate screen a line leaving the top trims the first; the rows under
+/// a top region's scroll stay where they are; `IL` and `DL` move the lines
+/// below the cursor, and reach them when the cursor's row, or a deleted
+/// row, is one of them. Only a move that leaves nothing, a move under side
+/// margins, a write, an erase and a line taken back over them still reach
+/// them. [`Term::watched_lines`] gives where they stand.
 #[derive(Clone, Copy)]
 pub(crate) struct RowWatch {
     /// The arm's screen row 0, in the watch's numbering: the live ring's
@@ -512,8 +509,8 @@ impl RowWatch {
     /// xterm's rule for a scroll of a region (`[[source: xterm-scroll]]`,
     /// `adjustHiliteOnFwdScroll`, `adjustHiliteOnBakScroll`). Lines wholly
     /// outside the band stay; lines straddling its edge keep the part
-    /// inside it (Jev's lean, 0.67 and 0.58); the rest move with their text
-    /// and lose what the move takes out of the band.
+    /// inside it; the rest move with their text and lose what the move
+    /// takes out of the band.
     fn band(
         &mut self,
         from: Row,
@@ -914,7 +911,7 @@ const _: () = assert!(
 /// 3-67): "The high order bit of all 8-bit characters received will be
 /// stripped by the terminal before any processing occurs". Under UTF-8 a
 /// byte is a code unit, not a character of that code, and is decoded at
-/// every level (Jev, LATIN1_ONLY, 0.98/0.95).
+/// every level.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Strip {
     Eight,
@@ -1016,10 +1013,9 @@ pub struct Cold {
     /// followed. Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
     /// `?30` ([`baud_domain::ScrollbarShown`]): shown at power-on, **shown
-    /// again by `RIS`** (`[[source: ecma48]]` 8.3.105) and kept by
-    /// `DECSTR`. xterm keeps it across both, its scrollbar a property of
-    /// its window, a practice not followed: Jev's lean to keep it, 0.90/0.74
-    /// and 0.92/0.58, is below the 0.9 a departure needs. Read by the
+    /// again by `RIS`** (`[[source: ecma48]]` 8.3.105) and kept by `DECSTR`.
+    /// xterm keeps it across both, its scrollbar a property of its window, a
+    /// practice not followed, since the text resets it. Read by the
     /// embedder, never here.
     pub(crate) scrollbar: baud_domain::ScrollbarShown,
     /// `?41`, xterm's more(1) fix ([`MoreFix`]): read by `HT` and `CHT` at a
@@ -1377,23 +1373,23 @@ pub struct Cold {
 // 120 bytes after it had grown to 192 (charset slots, input modes); nothing
 // forced the number to be acknowledged. This does, and it grew to 256 when the
 // two per-screen kitty stacks landed -- which is free on the write path,
-// because `Cold` is carried by reference and the loop never reads them.
-// And to 264 for `prompt`, the prompt block's ring row: written once per
+// because `Cold` is carried by reference and the loop never reads them. And to
+// 264 for `prompt`, the prompt block's ring row: written once per
 // `OSC 133 ; P` and read by `Term::prompt_row`, which is a resize-time and
-// embedder-side question the per-byte loop never asks.
-// And to 288 for the dynamic colours: three `ColorWord` pairs, written once
-// per `OSC 10`/`11`/`12` and by the embedder's theme, read by a query and by
-// the renderer once a frame. Measured on landing rather than assumed free --
-// vim and btop interleaved with an A/A copy, every range overlapping. The
-// cursor colour took this from 280 to 288, one word each on `defaults` and
-// `dynamic`, on `Cold` which the per-byte loop carries by reference. The Sixel
-// body length (`sixel_len: ReadLen`) took it from 288 to 296 -- a `usize`,
-// because a Sixel body runs to tens of kilobytes past `str_len`'s `u16`; it is
-// read only while a Sixel is parsing, not per glyph. The prompt state went
-// per screen at 320: two `Shell`s, a zone and a block start each, where one
-// zone and one block were -- written once per `OSC 133` mark and swapped once
-// per `?1049` transition, never on the write path. `region_scrolls` took it
-// to 328: a `u32` bumped once per region scroll that retires a line, which the
+// embedder-side question the per-byte loop never asks. And to 288 for the
+// dynamic colours: three `ColorWord` pairs, written once per
+// `OSC 10`/`11`/`12` and by the embedder's theme, read by a query and by the
+// renderer once a frame. Measured on landing rather than assumed free -- vim
+// and btop interleaved with an A/A copy, every range overlapping. The cursor
+// colour took this from 280 to 288, one word each on `defaults` and `dynamic`,
+// on `Cold` which the per-byte loop carries by reference. The Sixel body
+// length (`sixel_len: ReadLen`) took it from 288 to 296 -- a `usize`, because
+// a Sixel body runs to tens of kilobytes past `str_len`'s `u16`; it is read
+// only while a Sixel is parsing, not per glyph. The prompt state went per
+// screen at 320: two `Shell`s, a zone and a block start each, where one zone
+// and one block were -- written once per `OSC 133` mark and swapped once per
+// `?1049` transition, never on the write path. `region_scrolls` took it to
+// 328: a `u32` bumped once per region scroll that retires a line, which the
 // per-byte loop reaches only through a scroll. The two `?5` counts took it to
 // 336 -- the first `u32` landed in padding and the second did not -- and the
 // count of `?2026` openings landed in padding again. Each `?5` change bumps
@@ -1402,148 +1398,133 @@ pub struct Cold {
 // took it to 344: one byte, set by the embedder and read by `DECSCUSR 0` and
 // `7` and by both resets, none of them on the write path. The placement took
 // it to 408: a placed position, the stream's last 31 bytes before the read --
-// copied once a read -- and where the read starts, all read on a `?25l` and
-// by the embedder, and none on the write path. `?12` as a bit of its own, and
-// the style and that bit saved with `?1049`'s cursor, took it to 416: written
-// by `?12`, `?1049` and the resets, and read by the embedder once a frame,
-// none of them on the write path. The last reported mouse cell took it to
-// 440, none of its 24 bytes in padding: `Option<(Col, Row)>`, written by a
-// pointer event that reports, a mouse mode change and the resets, and read by
+// copied once a read -- and where the read starts, all read on a `?25l` and by
+// the embedder, and none on the write path. `?12` as a bit of its own, and the
+// style and that bit saved with `?1049`'s cursor, took it to 416: written by
+// `?12`, `?1049` and the resets, and read by the embedder once a frame, none
+// of them on the write path. The last reported mouse cell took it to 440, none
+// of its 24 bytes in padding: `Option<(Col, Row)>`, written by a pointer event
+// that reports, a mouse mode change and the resets, and read by
 // `Term::mouse_report` alone -- input-side, an embedder's call per pointer
 // event, which the per-byte loop never makes. The count of history erasures
 // landed in padding beside `region_scrolls`, so 440 held: a `u32` bumped by
 // `CSI 3 J` and `RIS` and read by the embedder after a read. XTSAVE's cache
 // took it to 456, none of its 16 bytes in padding: two `u64` words, which
-// slots were saved and the value each had, written by `CSI ? Pm s` and
-// `RIS` and read by `CSI ? Pm r` -- arms of the dispatch, never the write
-// path. `Pinned` took it to 464, one byte that found no padding: **written on
-// the write path**, but only in `Paint::pin`, `end_at`'s `DECAWM`-reset arm,
-// once a character or a run, and read by a continuation the cluster machine
-// joined (`tests/margin_pin.rs`). The `OSC 52` state does not live here but
-// in `StrBuf`, which only a control string reaches (`clip.rs`). The count of
-// rows moved in place landed in padding beside `history_erasures`, so 464
-// held: a `u32` bumped by `IL`, `DL` and a region scroll that copies -- a
-// control sequence or a scroll, never a glyph -- and read by the embedder
-// after a read. `?1001`'s handshake took it to 512, replacing the flag and
-// the stored region (eleven bytes) with a `Handshake` of 56: two `CellAt`s
-// and two `Row`s while tracking, `usize`-backed as every coordinate is.
-// Written by a pointer event under `?1001`, by XTHIMOUSE -- an arm of the
-// dispatch -- and by a mode change and the resets; read by
-// `Term::mouse_report` and `Term::highlight`. None of it on the write path.
-// The first erasure since an embedder's watch landed in padding, so 512
-// held: one byte, an `Option<Erasure>`, written by `CSI 3 J` and `RIS` beside
-// `history_erasures` and read by `Term::first_erasure` after a read; the
-// reading the watch was armed at went into `Book`'s padding (`watched_at`).
-// The page-width request took it to 584, seventy-two bytes with their
-// padding: two `u32` counts -- the requests, and the `?3`s `?40` refused --
-// the hold, a one-byte enum, the last request, an `Option<WidthRequest>` of
-// sixteen because `RIS` asks back for the window's `Cols`, that width
-// itself, an `Option<Cols>`, the node a held rest resumes from, one byte,
-// and a read held back, a `BytePos` and a `ReadLen`. Written by `?3`,
-// DECSCPP, DECANM and `RIS` -- arms of the dispatch -- by `Act::Hold`, and
-// once a read by `Term::feed`'s clearing store and its end; read there and by
-// `Term::take_held`, never by a glyph.
-// It fell 8 bytes, to 576, when a Sixel began decoding as its body arrived:
-// the body's length (`sixel_len`, the `usize` above) and its starting aspect
-// ratio (`sixel_aspect`, two bytes) left, the one read at the terminator
-// against a scratch no longer kept, and the other handed to the decoder at the
-// `q`.
-// The watch on a selection's rows took it to 600: a rotation and two rows,
-// 24 bytes with none in padding, and the one-byte state of the watch in
-// padding -- written by the embedder's arm (`Term::watch_rows`), by a move of
-// rows in place beside `row_moves` and by a top region's scroll beside
+// slots were saved and the value each had, written by `CSI ? Pm s` and `RIS`
+// and read by `CSI ? Pm r` -- arms of the dispatch, never the write path.
+// `Pinned` took it to 464, one byte that found no padding: **written on the
+// write path**, but only in `Paint::pin`, `end_at`'s `DECAWM`-reset arm, once
+// a character or a run, and read by a continuation the cluster machine joined
+// (`tests/margin_pin.rs`). The `OSC 52` state does not live here but in
+// `StrBuf`, which only a control string reaches (`clip.rs`). The count of rows
+// moved in place landed in padding beside `history_erasures`, so 464 held: a
+// `u32` bumped by `IL`, `DL` and a region scroll that copies -- a control
+// sequence or a scroll, never a glyph -- and read by the embedder after a
+// read. `?1001`'s handshake took it to 512, replacing the flag and the stored
+// region (eleven bytes) with a `Handshake` of 56: two `CellAt`s and two `Row`s
+// while tracking, `usize`-backed as every coordinate is. Written by a pointer
+// event under `?1001`, by XTHIMOUSE -- an arm of the dispatch -- and by a mode
+// change and the resets; read by `Term::mouse_report` and `Term::highlight`.
+// None of it on the write path. The first erasure since an embedder's watch
+// landed in padding, so 512 held: one byte, an `Option<Erasure>`, written by
+// `CSI 3 J` and `RIS` beside `history_erasures` and read by
+// `Term::first_erasure` after a read; the reading the watch was armed at went
+// into `Book`'s padding (`watched_at`). The page-width request took it to 584,
+// seventy-two bytes with their padding: two `u32` counts -- the requests, and
+// the `?3`s `?40` refused -- the hold, a one-byte enum, the last request, an
+// `Option<WidthRequest>` of sixteen because `RIS` asks back for the window's
+// `Cols`, that width itself, an `Option<Cols>`, the node a held rest resumes
+// from, one byte, and a read held back, a `BytePos` and a `ReadLen`. Written
+// by `?3`, DECSCPP, DECANM and `RIS` -- arms of the dispatch -- by
+// `Act::Hold`, and once a read by `Term::feed`'s clearing store and its end;
+// read there and by `Term::take_held`, never by a glyph. It fell 8 bytes, to
+// 576, when a Sixel began decoding as its body arrived: the body's length
+// (`sixel_len`, the `usize` above) and its starting aspect ratio
+// (`sixel_aspect`, two bytes) left, the one read at the terminator against a
+// scratch no longer kept, and the other handed to the decoder at the `q`. The
+// watch on a selection's rows took it to 600: a rotation and two rows, 24
+// bytes with none in padding, and the one-byte state of the watch in padding
+// -- written by the embedder's arm (`Term::watch_rows`), by a move of rows in
+// place beside `row_moves` and by a top region's scroll beside
 // `region_scrolls`, read by the embedder after a read. `ingest2`'s
-// `cells_written` held on all
-// seven payloads timed, every rate overlapping its base (the record, "A
-// selection is judged by the rows each copy moved"). The lines the live
-// surface moved since the arm took it to 624: the primary's top line then
-// and two counts of the lines it does not count, 24 bytes, written by the
-// arm and, with the watch armed, by a line retired or taken back on the
-// alternate screen. The state of the watch is read on that path: one compare
-// a line scrolled on the alternate screen, and one a line the whole screen's
-// scroll down takes back on either. **And on the write path**, since B23's
-// answer A: one compare of the watch's state an erase or a joined mark
-// (`Paint::wrote_rows`), and for text none but under `cell-table`: text
-// tests it behind the gate the image check had (`Paint::hooks`); no byte
-// added (the record, "A write or an erase on a selection's rows drops it").
-// Numbering by the count rather than the rotation, and lines of the history
-// in the watch, took no byte either: the arm's rotation became the watch's
-// base, and the two rows two numbers in its numbering, a word each (the
-// record, "A selection is numbered by the lines the surface moved").
-// The selection's two colours, `OSC 17` and `OSC 19`, took it to 640: a
-// `ColorWord` each in `dynamic` and in `defaults`, written by an `OSC 17`,
-// `19`, `117` or `119` and read by the renderer once a frame, never by a
-// glyph. An open SPA's start took it to 664, 24 bytes with none in padding,
-// and whether any position is guarded landed in padding: the start is
-// written by SPA, EPA, a screen switch, the resets and a resize, and read
-// by EPA and by every move of rows while it is open -- **on the per-byte
-// path**, one compare in `Paint::index`'s alternate-screen scroll beside
-// the image test there; the guard byte is read once an ED, EL or ECH.
-// The write path's fence took it to 672: a `Col`, the last column the
-// cursor's line writes to, `right` on every single-width line. **Read on the
-// write path where `right` was read** -- the fit test, the wrap, the pin --
-// so a character compares against one field of `Cold` as it did, at another
-// offset; written where the cursor reaches a line or its line changes size.
-// Code extension took it to 728: which slot GR invokes, the slot a pending
-// single shift names, how each slot was designated (DECCIR's `Sdesig`), a
-// DECRSPS's restored shift and tab-stop parse, and GR and the designations
-// in both `Saved` copies, `saved` and the `?1049` save (56 to 72 bytes
-// each).
-// None is read on the per-byte path: GR where a GR byte is written, the
-// rest by control functions and reports.
-// The line tabulation stops took it to 808: ten words, written by VTS, CTC,
-// TBC and RIS and read by CVT and by VT's out-of-line arm, never by a glyph.
-// DECBKM, `?1037` and `?1035` are three bytes that fit in its padding
-// (760 on a base with only the tab stops), read by `Term::key` alone.
-// xterm's key-modifier resources took it to 824: seven values, seven
-// formats and modifyOtherKeys' mask, fifteen bytes where two were,
-// written by XTMODKEYS, XTFMTKEYS, `CSI > Ps n` and the resets and read by
-// `Term::key` and the queries alone.
-// The prompt marks' two `Shell`s, 32 bytes, moved to `StrBuf` when the
-// `OSC 133` options came in, which took it to 792: a mark and a resize read
-// them, never a glyph.
-// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone;
-// XTCHECKSUM's and `?30`'s fit in the padding, read by DECRQCRA and the
-// embedder alone.
-// The per-screen saved cursor's slot (`saved_other`, a `Saved` where the
-// `?1049` record was) is eight bytes smaller, which took it back to 792.
-// The watch's `carried`, written by a move of rows while a selection's
-// lines are watched, takes the word its count of lines taken back had,
-// which now moves the arm's top line on instead, so it stays at 792.
-// DEC's text locator took it to 832: DECELR's, DECSLE's and DECEFR's
-// state and the pointer, written by those controls and by
-// `Term::locator` and read by them alone, never by a glyph.
-// The bells' volumes, `?44`, the margin bell's armed line and the bells
-// rung at each volume took it to 928, 96 bytes more: written by DECSWBV,
-// DECSMBV, `?44`, the resets, a keystroke, a read that rang a `BEL` and a
-// margin bell's ring, and read by the write path only behind its hook
-// compare, which the armed line turns on (`margin.rs`).
-// The count of selective erases of the saved lines took it to 936: a `u32`
-// beside `history_erasures` that found no padding, bumped by `CSI ? 3 J` --
-// an arm of the dispatch -- and read by the embedder after a read, never by
-// a glyph.
-// `SUB`'s mark is four bytes in `BellState`'s tail padding
-// (`margin::BellState`), so it stays at 936: as a field of its own it took
-// the struct to 944, every field packed and none of its padding free.
-// BDSM's byte (`bidi`) took it to 944 for that reason: written by `SM 8`,
-// `RM 8` and `RIS`, read by DECRQM and the renderer, never by a glyph.
-// XTSAVE's second word of each bitset (`SavedModes`, the 65th and 66th
-// slots), DECRLCM's byte (`copy`) and DECHEM's (`hebrew`) took it to 968:
+// `cells_written` held on all seven payloads timed, every rate overlapping its
+// base. The lines the live surface moved since the arm took it to 624: the
+// primary's top line then and two counts of the lines it does not count, 24
+// bytes, written by the arm and, with the watch armed, by a line retired or
+// taken back on the alternate screen. The state of the watch is read on that
+// path: one compare a line scrolled on the alternate screen, and one a line
+// the whole screen's scroll down takes back on either. **And on the write
+// path**, since a write or an erase on a selection's rows drops it: one
+// compare of the watch's state an erase or a joined mark
+// (`Paint::wrote_rows`), and for text none but under `cell-table`: text tests
+// it behind the gate the image check had (`Paint::hooks`); no byte added.
+// Numbering by the count rather than the rotation, and lines of the history in
+// the watch, took no byte either: the arm's rotation became the watch's base,
+// and the two rows two numbers in its numbering, a word each. The selection's
+// two colours, `OSC 17` and `OSC 19`, took it to 640: a `ColorWord` each in
+// `dynamic` and in `defaults`, written by an `OSC 17`, `19`, `117` or `119`
+// and read by the renderer once a frame, never by a glyph. An open SPA's start
+// took it to 664, 24 bytes with none in padding, and whether any position is
+// guarded landed in padding: the start is written by SPA, EPA, a screen
+// switch, the resets and a resize, and read by EPA and by every move of rows
+// while it is open -- **on the per-byte path**, one compare in
+// `Paint::index`'s alternate-screen scroll beside the image test there; the
+// guard byte is read once an ED, EL or ECH. The write path's fence took it to
+// 672: a `Col`, the last column the cursor's line writes to, `right` on every
+// single-width line. **Read on the write path where `right` was read** -- the
+// fit test, the wrap, the pin -- so a character compares against one field of
+// `Cold` as it did, at another offset; written where the cursor reaches a line
+// or its line changes size. Code extension took it to 728: which slot GR
+// invokes, the slot a pending single shift names, how each slot was designated
+// (DECCIR's `Sdesig`), a DECRSPS's restored shift and tab-stop parse, and GR
+// and the designations in both `Saved` copies, `saved` and the `?1049` save
+// (56 to 72 bytes each). None is read on the per-byte path: GR where a GR byte
+// is written, the rest by control functions and reports. The line tabulation
+// stops took it to 808: ten words, written by VTS, CTC, TBC and RIS and read
+// by CVT and by VT's out-of-line arm, never by a glyph. DECBKM, `?1037` and
+// `?1035` are three bytes that fit in its padding (760 on a base with only the
+// tab stops), read by `Term::key` alone. xterm's key-modifier resources took
+// it to 824: seven values, seven formats and modifyOtherKeys' mask, fifteen
+// bytes where two were, written by XTMODKEYS, XTFMTKEYS, `CSI > Ps n` and the
+// resets and read by `Term::key` and the queries alone. The prompt marks' two
+// `Shell`s, 32 bytes, moved to `StrBuf` when the `OSC 133` options came in,
+// which took it to 792: a mark and a resize read them, never a glyph. `?41`'s
+// byte took it to 800, read by `HT` at a pending wrap alone; XTCHECKSUM's and
+// `?30`'s fit in the padding, read by DECRQCRA and the embedder alone. The
+// per-screen saved cursor's slot (`saved_other`, a `Saved` where the `?1049`
+// record was) is eight bytes smaller, which took it back to 792. The watch's
+// `carried`, written by a move of rows while a selection's lines are watched,
+// takes the word its count of lines taken back had, which now moves the arm's
+// top line on instead, so it stays at 792. DEC's text locator took it to 832:
+// DECELR's, DECSLE's and DECEFR's state and the pointer, written by those
+// controls and by `Term::locator` and read by them alone, never by a glyph.
+// The bells' volumes, `?44`, the margin bell's armed line and the bells rung
+// at each volume took it to 928, 96 bytes more: written by DECSWBV, DECSMBV,
+// `?44`, the resets, a keystroke, a read that rang a `BEL` and a margin bell's
+// ring, and read by the write path only behind its hook compare, which the
+// armed line turns on (`margin.rs`). The count of selective erases of the
+// saved lines took it to 936: a `u32` beside `history_erasures` that found no
+// padding, bumped by `CSI ? 3 J` -- an arm of the dispatch -- and read by the
+// embedder after a read, never by a glyph. `SUB`'s mark is four bytes in
+// `BellState`'s tail padding (`margin::BellState`), so it stays at 936: as a
+// field of its own it took the struct to 944, every field packed and none of
+// its padding free. BDSM's byte (`bidi`) took it to 944 for that reason:
+// written by `SM 8`, `RM 8` and `RIS`, read by DECRQM and the renderer, never
+// by a glyph. XTSAVE's second word of each bitset (`SavedModes`, the 65th and
+// 66th slots), DECRLCM's byte (`copy`) and DECHEM's (`hebrew`) took it to 968:
 // written by `?96`, `?36`, XTSAVE and the resets, read by DECRQM, XTRESTORE,
-// DECTSR and the embedder's copy, never by a glyph.
-// DECRLM's `left_edge`, the row a leftward write left its wrap waiting on,
-// took it to 976: written by that write, read by the next one and by a
-// mark's attach while DECRLM is set, never by the text path. DECHEBM's
-// byte and the embedder's Hebrew layout landed in its padding: written by
-// `?35`, `RIS` and the embedder, read by a key, DECRQM and a change of GL.
-// SLH's and SLL's two positions (`bounds`) took it to 1008: written by
-// SLH, SLL and `RIS`, read by `CR`, `NEL`, `IL`, `DL` and the fence and
-// wraps of the writes `ModeBit::LineBounded` sends out of line, never by
-// the text path.
-// The page functions' count (`pages_missing`) landed in its padding:
-// written by NP, PP, PPA, PPR and PPB, read by the embedder, never by a
-// glyph.
-// Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
+// DECTSR and the embedder's copy, never by a glyph. DECRLM's `left_edge`, the
+// row a leftward write left its wrap waiting on, took it to 976: written by
+// that write, read by the next one and by a mark's attach while DECRLM is set,
+// never by the text path. DECHEBM's byte and the embedder's Hebrew layout
+// landed in its padding: written by `?35`, `RIS` and the embedder, read by a
+// key, DECRQM and a change of GL. SLH's and SLL's two positions (`bounds`)
+// took it to 1008: written by SLH, SLL and `RIS`, read by `CR`, `NEL`, `IL`,
+// `DL` and the fence and wraps of the writes `ModeBit::LineBounded` sends out
+// of line, never by the text path. The page functions' count (`pages_missing`)
+// landed in its padding: written by NP, PP, PPA, PPR and PPB, read by the
+// embedder, never by a glyph. Guarded off `sgr-table`, which adds
+// `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1008);
 
@@ -1711,7 +1692,7 @@ impl Cold {
     /// 3718-3750), and with none configured reverse video: the text shown
     /// is its page (`OSC 17`) and the page shown its text (`OSC 19`), as a
     /// default xterm answers, its `highlightColor` defaulting to the
-    /// resource its text foreground does (Jev, 0.90 both orders).
+    /// resource its text foreground does.
     ///
     /// **A colour a program made automatic** (`OSC 21`'s empty value) is
     /// what is drawn: a selection's reverse video, and no colour of the
@@ -1825,8 +1806,8 @@ impl Cold {
     /// **`IL` of `k` rows at `at`, full width, in the band to `bot`**:
     /// xterm's `InsertLine` (`[[source: xterm-scroll]]`) disowns the
     /// selection when the cursor's row lies in it, since blank rows then
-    /// open inside it, and otherwise the rows carry it down; Jev's XTERM,
-    /// 0.91 and 0.94. Counted for [`Term::row_moves`].
+    /// open inside it, and otherwise the rows carry it down. Counted for
+    /// [`Term::row_moves`].
     pub(crate) fn lines_inserted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(at, bot);
@@ -1863,8 +1844,8 @@ impl Cold {
     /// the region's last row `bot`, the primary's top line at `top`, before
     /// the advance: their text stays while the count moves, so watched
     /// lines wholly under it are carried down against the count and stay on
-    /// their text (Jev's STAY, 0.96 and 0.94), and lines straddling the
-    /// region's bottom keep the part inside it, which the count moves.
+    /// their text, and lines straddling the region's bottom keep the part
+    /// inside it, which the count moves.
     pub(crate) fn under_top_region(&mut self, bot: Row, k: Rows, top: LineIdx) {
         if self.watched != Watched::Rows {
             return;
@@ -1886,7 +1867,7 @@ impl Cold {
     /// primary's top line at `top`, after the line was counted: watched
     /// lines on it are trimmed off the end, as xterm's
     /// `adjustHiliteOnBakScroll` truncates them at the bottom margin, and
-    /// reached only when nothing above it stays (Jev's TRIM, 0.98 and 0.94).
+    /// reached only when nothing above it stays.
     pub(crate) fn pushed_under(&mut self, under: Row, top: LineIdx) {
         if self.watched != Watched::Rows {
             return;
@@ -1943,9 +1924,8 @@ impl Cold {
     /// watched lines lose it at that scroll, as xterm's
     /// `adjustHiliteOnFwdScroll` truncates a selection's start at the top
     /// there: a later scroll down in the same read then carries what stays
-    /// with its text, at every read size (Jev's TRIM_AT_SCROLL, 0.98 and
-    /// 0.94). `Up` comes from the alternate screen alone, `top` being the
-    /// primary's top line.
+    /// with its text, at every read size. `Up` comes from the alternate
+    /// screen alone, `top` being the primary's top line.
     #[cold]
     #[inline(never)]
     pub(crate) fn watch_uncounted(&mut self, way: crate::ops::Scroll, top: LineIdx) {
@@ -2137,11 +2117,11 @@ pub enum Overrides {
 
 /// A terminal: a cursor, a rendition, a grid, and where the parser stands.
 ///
-/// **All of it behind one `&mut self`, and state does not migrate to
-/// statics.** A C prototype from before the import is said to have run slower
-/// with file-scope globals (`git show d8262f5:CLAUDE.md`, line 39); no harness,
-/// data or record survives, so no figure is quoted here, and the mechanism,
-/// LLVM's `noalias`, is presumed rather than shown.
+/// **All of it behind one `&mut self`, and state does not migrate to statics.**
+/// A C prototype from before the import is said to have run slower with
+/// file-scope globals; no harness, data or record survives, so no figure is
+/// quoted here, and the mechanism, LLVM's `noalias`, is presumed rather than
+/// shown.
 pub struct Term<'b> {
     /// Segment hashes, for the `ceiling-segment-cache` arm only.
     #[cfg(feature = "ceiling-segment-cache")]
@@ -2232,8 +2212,7 @@ pub struct Term<'b> {
     /// The parser the local echo runs through while SRM is reset
     /// ([`Term::key`]): a state of its own, so a key typed between the halves
     /// of a host sequence split across reads lands on its own, and kept from
-    /// key to key, as xterm's echo keeps `myState` (Jev 2026-10-19,
-    /// OWN_STATE, 1.00/1.00).
+    /// key to key, as xterm's echo keeps `myState`.
     pub(crate) echo: EchoParse,
     /// Bytes ingested, the denominator of every amplification figure.
     pub(crate) bytes_in: usize,
@@ -2266,10 +2245,9 @@ pub struct Term<'b> {
     #[cfg(feature = "diag")]
     pub run_len: [usize; 5],
     /// **Iterations of the ingest loop.** The unit this core is designed
-    /// against: `CLAUDE.md` records that the floor tracks *bytes an iteration*
-    /// and not what the actions do, and nothing here reported it. `bytes_in /
-    /// iters` is that quantity, measured rather than reasoned from run
-    /// histograms.
+    /// against: the floor tracks *bytes an iteration* and not what the actions
+    /// do, and nothing here reported it. `bytes_in / iters` is that quantity,
+    /// measured rather than reasoned from run histograms.
     #[cfg(feature = "diag")]
     pub iters: usize,
     /// Characters served by the three-byte permutation table.
@@ -2782,16 +2760,16 @@ impl<'b> Term<'b> {
                 // cursor to a row that was not the one it was on. The
                 // shell's next redraw then landed *there*, over output,
                 // and no later growth can restore a cell that was
-                // overwritten rather than hidden: the owner's `ls`
+                // overwritten rather than hidden: a reported `ls`
                 // deleted, ten of twelve lines, and
                 // `a_shrink_does_not_let_the_prompt_overwrite_output`
                 // reproduces it.
                 //
                 // A shrink means the content no longer fits, and content
-                // that no longer fits pushes into the history -- which
-                // is the owner's own refinement of the invariant. So the
-                // cursor keeps its row, the prompt stays the last line,
-                // and the growth below brings the rows back.
+                // that no longer fits pushes into the history -- a
+                // refinement of the invariant. So the cursor keeps its
+                // row, the prompt stays the last line, and the growth
+                // below brings the rows back.
                 let cut = k.min(from - 1 - cy);
                 let retire = k - cut;
                 self.rot = self.rot.advance(retire, ring);
@@ -2817,24 +2795,24 @@ impl<'b> Term<'b> {
                 // row that is blank is not content, and a growth that
                 // showed blank rows under the prompt while the line the
                 // shrink pushed into the history stayed there changed the
-                // first line for no reason -- the owner's rule is the
-                // other way: pull down to the bottom, and blank-fill only
-                // when nothing is left to pull. So the cut rows come back
-                // as far as the last one that holds anything, the history
-                // is pulled next, and the blank cut rows last -- which are
+                // first line for no reason -- the rule is the other way:
+                // pull down to the bottom, and blank-fill only when
+                // nothing is left to pull. So the cut rows come back as
+                // far as the last one that holds anything, the history is
+                // pulled next, and the blank cut rows last -- which are
                 // what a fresh blank would be anyway.
                 //
                 // **A cut row holds something when it holds a written
-                // character** (note V, V9, the owner's B): a space counts
-                // and colour alone does not, by the test the prompt's
-                // retreat asks (`View::ring_row_holds`). The row's mark was
-                // asked until 2026-10-20, and a mark says where a row stops
-                // being uniform: a run of blanks erased in a foreground
-                // colour came back as a row that shows nothing while a
-                // history line stayed behind. Read at the width the row
-                // will be shown at: the old one when the width step below
-                // re-cuts it, so text the re-cut wraps into view counts,
-                // and the new one otherwise.
+                // character** (note V, V9): a space counts and colour alone
+                // does not, by the test the prompt's retreat asks
+                // (`View::ring_row_holds`). The row's mark was asked until
+                // 2026-10-20, and a mark says where a row stops being
+                // uniform: a run of blanks erased in a foreground colour
+                // came back as a row that shows nothing while a history
+                // line stayed behind. Read at the width the row will be
+                // shown at: the old one when the width step below re-cuts
+                // it, so text the re-cut wraps into view counts, and the
+                // new one otherwise.
                 let v = View::new(
                     self.store.vp,
                     self.store.used,
@@ -3545,12 +3523,11 @@ impl<'b> Term<'b> {
     /// by the screen, so a row past the last one, short of the ring's
     /// length, names a ring slot behind the screen: a retained history line
     /// or one nothing has written. This returned those cells, silently,
-    /// until the owner's decision of 2026-10-13 between an `Option` and a
-    /// panic. A caller looping to the row count it read from
-    /// [`Term::geometry`] in the same borrow can `expect` it; one holding a
-    /// row number from elsewhere -- a pointer, a selection, a count kept
-    /// across a resize -- has `None` to handle. It absorbed `get_row`, the
-    /// checked form it now is.
+    /// until 2026-10-13, when an `Option` was chosen over a panic. A caller
+    /// looping to the row count it read from [`Term::geometry`] in the same
+    /// borrow can `expect` it; one holding a row number from elsewhere -- a
+    /// pointer, a selection, a count kept across a resize -- has `None` to
+    /// handle. It absorbed `get_row`, the checked form it now is.
     pub fn row(&self, y: Row) -> Option<&[PackedCell]> {
         (y.index() < self.rows.index()).then(|| self.viewport().row(y))
     }
@@ -3976,12 +3953,11 @@ impl<'b> Term<'b> {
         }
     }
 
-    /// Whether DECRQCRA is answered: `On`, the default, the owner's call
-    /// of 2026-10-19 (option 3), or `Off`, which leaves every request
-    /// unanswered and counts it in `checksums_refused`, as xterm sends
-    /// nothing with `GetChecksum` disallowed. The embedder's choice: no
-    /// sequence changes it, `RIS` included, so a program cannot turn a
-    /// refusal back into an answer.
+    /// Whether DECRQCRA is answered: `On`, the default, or `Off`, which
+    /// leaves every request unanswered and counts it in
+    /// `checksums_refused`, as xterm sends nothing with `GetChecksum`
+    /// disallowed. The embedder's choice: no sequence changes it, `RIS`
+    /// included, so a program cannot turn a refusal back into an answer.
     pub fn set_checksum_report(&mut self, c: ChecksumReport) {
         self.cold.checksum_report = c;
     }
@@ -3991,15 +3967,14 @@ impl<'b> Term<'b> {
         self.cold.checksum_report
     }
 
-    /// **What a `SUB` draws where it arrives**: nothing, the default, the
-    /// owner's call of 2026-10-23, or with `Drawn` the error character,
-    /// written as DEC's terminals write it (`[[source: dec-std-070]]` p.
-    /// 5-132): at the cursor, in the current rendition, the cursor moving
-    /// on. In ground and wherever `SUB` cancels an escape sequence, a
-    /// control sequence or a control string in ANSI mode; a Sixel's body
-    /// keeps its own rule, a blank sixel (070-9 §9.1), and VT52 mode draws
-    /// nothing. The embedder's choice: no sequence changes it, `RIS`
-    /// included.
+    /// **What a `SUB` draws where it arrives**: nothing, the default, or
+    /// with `Drawn` the error character, written as DEC's terminals write
+    /// it (`[[source: dec-std-070]]` p. 5-132): at the cursor, in the
+    /// current rendition, the cursor moving on. In ground and wherever
+    /// `SUB` cancels an escape sequence, a control sequence or a control
+    /// string in ANSI mode; a Sixel's body keeps its own rule, a blank
+    /// sixel (070-9 §9.1), and VT52 mode draws nothing. The embedder's
+    /// choice: no sequence changes it, `RIS` included.
     pub fn set_substitute_mark(&mut self, m: baud_domain::SubstituteMark) {
         self.cold.bell.sub_mark = m;
     }
@@ -4012,10 +3987,9 @@ impl<'b> Term<'b> {
     /// **Whether a new prompt is drawn on the window's last row**, the
     /// embedder's `[screen] prompt_at_bottom` ([`PromptAtBottom`]). The
     /// embedder's choice: no sequence changes it, `RIS` included. **Turned
-    /// on while the primary is at a prompt, it pins that prompt at once**
-    /// (Jev, AT_ONCE, 0.98/0.96): the prompt zone is state the marks set,
-    /// so this moves a prompt only where a mark said one is. Turned off,
-    /// nothing moves back.
+    /// on while the primary is at a prompt, it pins that prompt at once**:
+    /// the prompt zone is state the marks set, so this moves a prompt only
+    /// where a mark said one is. Turned off, nothing moves back.
     pub fn set_prompt_at_bottom(&mut self, p: PromptAtBottom) {
         let was = self.store.strs.prompt_at_bottom;
         self.store.strs.prompt_at_bottom = p;
@@ -4064,11 +4038,10 @@ impl<'b> Term<'b> {
     }
 
     /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
-    /// embedder: `On`, the default, the owner's call of 2026-10-19 (option
-    /// 4), or `Off`, which queues none and counts each in
-    /// [`Term::window_ops_refused`], as xterm performs none it disallows.
-    /// The embedder's choice: no sequence changes it, `RIS` included, so a
-    /// program cannot turn a refusal back on.
+    /// embedder: `On`, the default, or `Off`, which queues none and counts
+    /// each in [`Term::window_ops_refused`], as xterm performs none it
+    /// disallows. The embedder's choice: no sequence changes it, `RIS`
+    /// included, so a program cannot turn a refusal back on.
     pub fn set_window_ops(&mut self, ops: WindowOps) {
         self.store.strs.window_asks.ops = ops;
     }
@@ -4113,10 +4086,9 @@ impl<'b> Term<'b> {
     }
 
     /// Whether a program's `OSC 50` may change the font: `On`, the default,
-    /// the owner's call of 2026-10-20 (option D), or `Off`, which queues
-    /// none and counts each in [`Term::fonts_refused`]; the query is
-    /// answered either way. The embedder's choice: no sequence changes it,
-    /// `RIS` included.
+    /// or `Off`, which queues none and counts each in
+    /// [`Term::fonts_refused`]; the query is answered either way. The
+    /// embedder's choice: no sequence changes it, `RIS` included.
     pub fn set_font_changes(&mut self, c: FontChanges) {
         self.store.strs.fonts.changes = c;
     }
@@ -4241,8 +4213,7 @@ impl<'b> Term<'b> {
 
     /// **The embedder could not log**: the file did not open, or a write
     /// failed. The log stops, so `DECRQM ?46` answers that it is reset, as
-    /// xterm's `StartLog` leaves logging off when its open fails (Jev,
-    /// REQUESTED_THEN_CLEARED, 0.98/0.82).
+    /// xterm's `StartLog` leaves logging off when its open fails.
     pub fn stop_log(&mut self) {
         self.store.strs.log.mode = baud_domain::LogMode::Stopped;
     }
@@ -5467,11 +5438,10 @@ impl<'b> Term<'b> {
     }
 
     /// The pointer mode this terminal powers on in and `RIS` returns to:
-    /// xterm's `pointerMode` resource, the embedder's `[pointer]
-    /// hide_while_typing` (the owner's on/off settings, Jev ON_OFF
-    /// 0.96/0.91). Sets the mode in force too, so an embedder calls it once,
-    /// before the child writes anything. [`PointerMode::UnlessTracking`]
-    /// until it is called.
+    /// xterm's `pointerMode` resource, the embedder's
+    /// `[pointer] hide_while_typing` (on or off). Sets the mode in force
+    /// too, so an embedder calls it once, before the child writes anything.
+    /// [`PointerMode::UnlessTracking`] until it is called.
     pub fn set_initial_pointer_mode(&mut self, m: PointerMode) {
         self.cold.initial_pointer_mode = m;
         self.cold.pointer_mode = m;
@@ -5683,9 +5653,9 @@ impl<'b> Term<'b> {
             (MouseTracking::X10Compat, MouseKind::Press, Left | Middle | Right) => true,
             (MouseTracking::X10Compat, ..) => false,
             // "Release events for the wheel buttons are not reported", and
-            // buttons 6 and 7 "are encoded like the wheel mice" (Jev's
-            // lean, PRESS_ONLY, where xterm's `EditorButton` reports their
-            // release and neovim reads one as a bare `<Release>`).
+            // buttons 6 and 7 "are encoded like the wheel mice" (where
+            // xterm's `EditorButton` reports their release and neovim
+            // reads one as a bare `<Release>`).
             (_, MouseKind::Release, WheelUp | WheelDown | WheelLeft | WheelRight) => false,
             // `?1001` reports what `?1000` does: no motion.
             (MouseTracking::Normal | MouseTracking::Highlight, MouseKind::Motion, _) => false,
@@ -5713,8 +5683,8 @@ impl<'b> Term<'b> {
         // encoding, and SGR-Pixels changes only the format -- "Use the same
         // mouse response format as the 1006 control, but report position in
         // pixels rather than character cells" -- so the text's cell stands
-        // and xterm's per-pixel motion is a practice baud departs from, left
-        // to the owner.
+        // and xterm's per-pixel motion is a practice baud departs from, an
+        // open question.
         let at = (e.col, e.row);
         if e.kind == MouseKind::Motion && self.cold.mouse_at == Some(at) {
             return false;
@@ -6287,9 +6257,9 @@ impl<'b> Term<'b> {
     ///   the *encoder* had carried all along.
     pub fn key(&mut self, e: KeyEvent) -> bool {
         // **KAM set: the keyboard is locked.** "The terminal ignores all
-        // keystrokes that send characters to the host" (`[[source:
-        // vt510-kam]]`): nothing sent and nothing echoed. A focus or mouse
-        // report is the terminal's own and goes on (Jev, KEYS_ONLY).
+        // keystrokes that send characters to the host"
+        // (`[[source: vt510-kam]]`): nothing sent and nothing echoed. A
+        // focus or mouse report is the terminal's own and goes on.
         if self.cold.modes.is_set(ModeBit::KeyboardAction) {
             return false;
         }
@@ -6339,7 +6309,7 @@ impl<'b> Term<'b> {
     /// A cursor key the wheel sends under `?1007`, or a `?2001` click sends
     /// to move the shell's point, encoded as [`Term::key`] encodes it. **Not
     /// a keystroke**: KAM does not lock it and SRM does not draw it, as
-    /// neither touches a mouse report (Jev 2026-10-19, KEYS_ONLY, 1.00/1.00).
+    /// neither touches a mouse report.
     pub fn wheel_key(&mut self, e: KeyEvent) -> bool {
         self.queue_key(e).is_some()
     }
@@ -6462,8 +6432,7 @@ impl Term<'_> {
     /// sends nothing. **Exposed, and drawn on the indicator line**: VT510
     /// shows a Wait indicator on its keyboard indicator line, which the
     /// status line's indicator type draws (`status.rs`); with no status
-    /// line the embedder draws it from here, if at all (Jev 2026-10-19,
-    /// EXPOSE_STATE, 1.00/1.00).
+    /// line the embedder draws it from here, if at all.
     pub fn keyboard_locked(&self) -> bool {
         self.cold.modes.is_set(ModeBit::KeyboardAction)
     }

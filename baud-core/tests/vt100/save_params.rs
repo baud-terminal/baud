@@ -30,7 +30,7 @@
 //! restored the cursor. Reading § 3.5.1.3's other sentence -- an
 //! unimplemented parameter "ignored as if that parameter were not received"
 //! -- as making `CSI 5 s` a SCOSC and `CSI 5 u` a SCORC is the other
-//! option, open in the record.
+//! option, still open.
 //!
 //! Each case saves with `ESC 7` first, so a sequence that saves or restores
 //! nothing shows as `ESC 8` or the cursor finding that first save, and none

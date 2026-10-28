@@ -180,9 +180,8 @@ fn a_relative_placement_left_of_column_zero_hangs_over_the_edge() {
     });
 }
 
-/// **With no `Q`, the parent image's oldest placement** (Jev, OLDEST,
-/// 1.00 and 0.98; the text names no rule and kitty takes the first of its
-/// map).
+/// **With no `Q`, the parent image's oldest placement** (the text names
+/// no rule and kitty takes the first of its map).
 #[test]
 fn with_no_q_the_parent_is_the_oldest_placement() {
     with(|t| {
@@ -417,10 +416,8 @@ fn a_parent_that_moves_takes_its_children() {
 /// **A delete naming a cell finds a relative placement where it is
 /// drawn**, the text's "Delete all placements that intersect a specific
 /// cell". kitty tests the cursor cell it was put at, which need not be
-/// where it is drawn: a departure from "intersect", which needs Jev at 0.9
-/// in both orders, and the first ask chose PUT_CURSOR at 0.38 and 0.80
-/// confidence and the re-ask split, RESOLVED at 0.24 and PUT_CURSOR at
-/// 0.04, so the text's reading is built.
+/// where it is drawn: a departure from "intersect", so the text's reading
+/// is built.
 #[test]
 fn a_cell_delete_finds_a_relative_placement_where_it_is_drawn() {
     with(|t| {

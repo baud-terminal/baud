@@ -15,22 +15,23 @@
 //! times its image quota ("Image persistence and storage quotas"), its
 //! practice and not followed.
 //!
-//! **Every frame is stored whole**, a snapshot coalesced when it is made,
-//! and a frame's pixels here are what a renderer draws, as every image's
-//! are. The text says only that frames are "created by composing the
-//! transmitted data onto a background canvas". kitty keeps a frame as its
-//! data over its base frame and coalesces when it shows it (`[[source:
-//! kitty-graphics-c]]` `get_coalesced_frame_data()`, a long chain made a
-//! whole frame when it is made), so after its base frame is edited
-//! (`a=f,r=`), composed into (`a=c`) or deleted, kitty's dependent frame
-//! changes and this one does not: kitty's practice, not followed. A frame is made as kitty makes it, in its order: on a
+//! **Every frame is stored whole**, a snapshot coalesced when it is
+//! made, and a frame's pixels here are what a renderer draws, as every
+//! image's are. The text says only that frames are "created by composing
+//! the transmitted data onto a background canvas". kitty keeps a frame
+//! as its data over its base frame and coalesces when it shows it
+//! (`[[source: kitty-graphics-c]]` `get_coalesced_frame_data()`, a long
+//! chain made a whole frame when it is made), so after its base frame is
+//! edited (`a=f,r=`), composed into (`a=c`) or deleted, kitty's
+//! dependent frame changes and this one does not: kitty's practice, not
+//! followed. A frame is made as kitty makes it, in its order: on a
 //! canvas of the base frame `c`, or of the background `Y` -- for a frame
 //! that covers only part of the image, the data as sent for one that
-//! covers all of it (Jev, KITTY, 0.98 and 1.00) -- the data composed at
-//! `x`, `y`, alpha blended unless `X=1` or the data is RGB. The blend is
-//! kitty's straight-alpha over (`[[source: kitty-simd-string-h]]`
-//! `blend_pixel_over_straight()`), onto an RGB frame its opaque one; an RGB
-//! frame keeps no alpha, as kitty's three-byte frames keep none.
+//! covers all of it -- the data composed at `x`, `y`, alpha blended
+//! unless `X=1` or the data is RGB. The blend is kitty's straight-alpha
+//! over (`[[source: kitty-simd-string-h]]`
+//! `blend_pixel_over_straight()`), onto an RGB frame its opaque one; an
+//! RGB frame keeps no alpha, as kitty's three-byte frames keep none.
 //!
 //! **The clock is the caller's** ([`ImageStore::animate`]): a renderer's
 //! display link, or a loop's wait, says what time it is, and a frame
@@ -87,8 +88,7 @@ pub enum AnimState {
 
 /// **Whether terminal-driven animation runs**: the system's motion
 /// preference, which the embedder reads. Held, no frame changes on the
-/// clock and a client's `c=` still shows at once (Jev's lean,
-/// HOLD_CURRENT, 0.85 and 0.88 after research): Apple's "reducing
+/// clock and a client's `c=` still shows at once: Apple's "reducing
 /// automatic and repetitive animations" under Reduce Motion
 /// (`[[source: apple-hig-accessibility]]`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

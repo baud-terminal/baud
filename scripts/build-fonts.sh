@@ -17,13 +17,13 @@
 # v2407.24 release, the dagesh anchors read from its instances, and the build modules
 # (build/). The steps: instance the variable font at wght 400 and 700, regenerate the
 # anchors from those instances and require them equal to the committed ones, then run
-# build/build.py once per style under `env -i` with that style's exact environment.
-# The italics are the upright design leaning right 9 degrees with the Latin, the
-# owner's call of 2026-10-24, with JetBrains Mono Italic's correction of rounds: its
-# bowls' joints levelled and its round corners' handles re-balanced (build/optical.py);
-# each merges into JetBrains Mono's own Italic or Bold Italic and
-# carries the built family's name, so the four embedded faces are one family, as the
-# OpenType name table's nameID 1 has a style-linking group share one name.
+# build/build.py once per style under `env -i` with that style's exact environment. The
+# italics are the upright design leaning right 9 degrees with the Latin, with JetBrains
+# Mono Italic's correction of rounds: its bowls' joints levelled and its round corners'
+# handles re-balanced (build/optical.py); each merges into JetBrains Mono's own Italic
+# or Bold Italic and carries the built family's name, so the four embedded faces are
+# one family, as the OpenType name table's nameID 1 has a style-linking group share one
+# name.
 #
 # **The gate is the sha256 of the gated files, by value.** These outputs are the
 # research tree's final3 set (note AC, docs/research/notes/ac-built-font.md, section
@@ -138,11 +138,11 @@ BASE_ENV=(SOURCE_DATE_EPOCH=315532800 PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1
 
 # Each style's environment, copied exactly from the research drivers that built the
 # gated set. buildone.sh exported DIP_FLOOR=1 and LOWEST_DIP=-293 for every style.
-# buildall.sh gave Bold and Bold Italic BOLDENV, and Bold Italic right its own hataf
-# gap (54). buildall3.sh rebuilt the two right leans with the meteg cell fit
+# buildall.sh gave Bold and Bold Italic BOLDENV, and Bold Italic right its own
+# hataf gap (54). buildall3.sh rebuilt the two right leans with the meteg cell fit
 # (METEG_FIT=1) under UID_TAG prototype-bi-bold2-m: those are the italics' recipes,
-# whose rounds' correction is style.py's ROUND_K and LEVEL, set by STYLE. VARIANT=A and LAMED=L2
-# are the interim picks for the owner's 1a and 1b, the review page's shown defaults.
+# whose rounds' correction is style.py's ROUND_K and LEVEL, set by STYLE. VARIANT=A
+# and LAMED=L2 are the interim picks for the open choices 1a and 1b.
 BOLDENV=(BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF_BAR_MIN_DROP=3
   BOLD_LOWEST_TWO=-272.0 BOLD_LOWEST_DIP=-298.0 BOLD_SEG_PITCH=133 BOLD_QUB_DX=146
   BOLD_QUB_PITCH=134.4 BOLD_SEG_HOME=-43 BOLD_QUB_HOME=-42)

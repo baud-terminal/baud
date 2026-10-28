@@ -84,48 +84,44 @@ pub(crate) fn watched_lines(
     ))
 }
 
-/// Whether a read wrote or erased on a row of the live screen the
-/// selection names -- text, a mark, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the
-/// selective erases, `DECIC`, `DECDC`, `DECALN` -- whatever it left there:
-/// the owner's answer A to B23, as xterm disowns a selection a write or an
-/// erase lands on. A copy reads the cells as they are at `Cmd-C`, so a
-/// selection kept there would copy what replaced its text. Or whether a
-/// read moved, in place,
-/// rows the selection names: an `IL` or `DL`, or a region scroll that
-/// copies its rows -- a
-/// region in the middle of the screen, a short top region
-/// on the alternate screen, `SD` and `RI` in any partial region, and every
-/// vertical scroll under side margins, the whole screen included, which
-/// moves only the rectangle. Rows are tested and columns are not, so a
-/// selection beside the rectangle on its rows is stale too, though its text
-/// did not move. No ring moves, so the selection's lines still name the
-/// same screen rows while the text on them has moved, and it would copy
-/// what took their place. Or whether a region anchored at the top
-/// scrolled over rows of the selection under it: the ring moved and the
-/// text under the region did
+/// Whether a read wrote or erased on a row of the live screen the selection
+/// names -- text, a mark, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the selective
+/// erases, `DECIC`, `DECDC`, `DECALN` -- whatever it left there, as xterm
+/// disowns a selection a write or an erase lands on. A copy reads the cells
+/// as they are at `Cmd-C`, so a selection kept there would copy what
+/// replaced its text. Or whether a read moved, in place, rows the selection
+/// names: an `IL` or `DL`, or a region scroll that copies its rows -- a
+/// region in the middle of the screen, a short top region on the alternate
+/// screen, `SD` and `RI` in any partial region, and every vertical scroll
+/// under side margins, the whole screen included, which moves only the
+/// rectangle. Rows are tested and columns are not, so a selection beside
+/// the rectangle on its rows is stale too, though its text did not move. No
+/// ring moves, so the selection's lines still name the same screen rows
+/// while the text on them has moved, and it would copy what took their
+/// place. Or whether a region anchored at the top scrolled over rows of the
+/// selection under it: the ring moved and the text under the region did
 /// not, so the count would renumber the selection onto the row below's
 /// text. Or whether a line taken back erased a line of the selection, on
 /// the screen or in the history: the whole screen's scroll down shows the
 /// newest saved line on the top row and blanks it, and gives up the last
 /// row to a line feed that brings it back blank, and a redraw mark erases
-/// the block it takes back, so a read that retires as many lines again
-/// nets none taken back and nothing at its two ends says the text went.
-/// The core judges each write and erase by the rows it lands on, and each
-/// move by its own rows -- the region's, from the cursor to the region's
-/// bottom for `IL` and `DL`, the rows under a top region, the rows a line
-/// taken back erases -- against the lines [`Before::watched`] armed it on,
-/// numbered through every line the read retired or took back before it, as
-/// the core counts them. Not by the region the read ends in, nor by its net
+/// the block it takes back, so a read that retires as many lines again nets
+/// none taken back and nothing at its two ends says the text went. The core
+/// judges each write and erase by the rows it lands on, and each move by
+/// its own rows -- the region's, from the cursor to the region's bottom for
+/// `IL` and `DL`, the rows under a top region, the rows a line taken back
+/// erases -- against the lines [`Before::watched`] armed it on, numbered
+/// through every line the read retired or took back before it, as the core
+/// counts them. Not by the region the read ends in, nor by its net
 /// movement: a read can scroll in one region and then set another, or set
 /// it back, and take lines back and retire them again. So the answer is the
 /// one the same bytes give fed in any number of reads, and a selection the
 /// watch did not reach holds its text however far the read moved the
 /// surface, and is renumbered by [`numbered`] -- back as well as on. Until
 /// 2026-10-17 the pump dropped a selection on a read that netted lines
-/// taken back, and on rows under the region a read ended in, both judged
-/// at the read's two ends, and the watch was reached by a read past half
-/// the ring whatever it moved (the record, "A selection is numbered by the
-/// lines the surface moved").
+/// taken back, and on rows under the region a read ended in, both judged at
+/// the read's two ends, and the watch was reached by a read past half the
+/// ring whatever it moved.
 pub(crate) fn stale_in_moved_rows(term: &Term<'_>) -> bool {
     term.watched_rows_changed()
 }
@@ -332,9 +328,9 @@ pub(crate) fn numbered(
 /// its rows and trims what it takes out of the region, a scroll down trims
 /// what it pushes under the screen, the alternate screen's top trims what
 /// leaves it, the rows under a top region keep theirs, and `IL` and `DL`
-/// move it below the cursor (`Term::watched_lines`, note V and the Jev
-/// decisions of 2026-10-20). Unchanged by a read that moved no rows in
-/// place; the caller has dropped one the watch reached.
+/// move it below the cursor (`Term::watched_lines`, note V). Unchanged by
+/// a read that moved no rows in place; the caller has dropped one the
+/// watch reached.
 pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrolled: Scrolled) {
     if let (Some(sel), Some(w)) = (selection.as_mut(), term.watched_lines()) {
         let last = Col::at_index(term.geometry().0.index().saturating_sub(1));
@@ -343,19 +339,19 @@ pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrol
 }
 
 /// **What a window resize leaves of the selection, and how the count that
-/// numbers it moves** (note V, V3, the owner's answer of 2026-09-25): on
-/// the primary, across a change of height alone, the selection is kept on
-/// its lines and the count moves by the rows the resize retired into the
-/// history or took back from it, as a read's would -- the core counts them
-/// by the window's top line (`Term::history_moved_since`), however many.
-/// A change of columns re-cuts the lines, so the columns a selection names
-/// no longer name its cells and it goes; on the alternate screen the
-/// program redraws for the new size and the screen has no history to
-/// number by, so it goes; and it goes where it reaches a row the shrink
-/// cut below the screen, which may come back or be blanked when history is
-/// pulled instead. A line the ring recycled is clipped, as after a read.
-/// Until 2026-10-20 every change of grid cleared it. `mark`, `cols` and
-/// `screen` are read before the resize.
+/// numbers it moves** (note V, V3): on the primary, across a change of
+/// height alone, the selection is kept on its lines and the count moves by
+/// the rows the resize retired into the history or took back from it, as a
+/// read's would -- the core counts them by the window's top line
+/// (`Term::history_moved_since`), however many. A change of columns
+/// re-cuts the lines, so the columns a selection names no longer name its
+/// cells and it goes; on the alternate screen the program redraws for the
+/// new size and the screen has no history to number by, so it goes; and it
+/// goes where it reaches a row the shrink cut below the screen, which may
+/// come back or be blanked when history is pulled instead. A line the ring
+/// recycled is clipped, as after a read. Until 2026-10-20 every change of
+/// grid cleared it. `mark`, `cols` and `screen` are read before the
+/// resize.
 pub(crate) fn kept_across_resize(
     term: &Term<'_>,
     (mark, cols, screen): (HistoryMark, Cols, Screen),

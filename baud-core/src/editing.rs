@@ -110,8 +110,8 @@ impl Paint<'_, '_> {
         if !drawn.unwrap_or(fits) {
             // With autowrap reset a wide character too wide for the last
             // position goes in at the two positions ending at the margin,
-            // the cells drawn there pushed on (Jev's lean, LAST_TWO); a line
-            // with no string writes its lead at the last column instead.
+            // the cells drawn there pushed on; a line with no string writes
+            // its lead at the last column instead.
             let pin = map.as_ref().filter(|_| fits).and_then(|m| {
                 (!self.cold.modes.is_set(ModeBit::AutoWrap))
                     .then(|| m.data(Col::at_index(to.saturating_sub(need))))

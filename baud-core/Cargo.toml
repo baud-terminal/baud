@@ -78,8 +78,7 @@ probe-double-attach = []
 # by construction, and `a_flag_is_one_cluster` says so (four regional
 # indicators where two flags belong). `cells_written` is byte-identical on all
 # nine recordings, so on the corpus it is a like-for-like A/B rather than an
-# upper bound (`docs/record.md`, "Ten compiled arms had rotted, and nothing
-# built them to notice").
+# upper bound.
 ceiling-no-run-gate = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
@@ -144,12 +143,10 @@ neon-scan = ["dep:baud-isa", "dep:baud-isa-aarch64"]
 #
 # **It measured flat**: about 1% on `cat`, disjoint from base by 0.2 MB/s,
 # which is below anything the protocol can call, and overlapping on every other
-# row, on a CI runner (`docs/record.md`, "AVX2 is measured at last, and it is
-# ~1% on the rows it can reach"). That is the prior this paragraph gave before
-# it was measured: wiring `Scan::run`
-# alone on aarch64 was a flat null on all nine, because the payloads with long
-# printable runs are store-bound -- `cat`'s write path sits at 74% of the
-# machine's vectored-store ceiling.
+# row, on a CI runner. That is the prior this paragraph gave before it was
+# measured: wiring `Scan::run` alone on aarch64 was a flat null on all nine,
+# because the payloads with long printable runs are store-bound -- `cat`'s
+# write path sits at 74% of the machine's vectored-store ceiling.
 #
 # **And it needs a build that targets AVX2.** `#[cfg(target_feature = "avx2")]`
 # guards it, so `-C target-feature=+avx2` or a `target-cpu` implying it is

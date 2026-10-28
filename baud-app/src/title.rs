@@ -106,8 +106,7 @@ impl Shown {
 }
 
 /// **The icon name on macOS: the minimized window's title** (note AK
-/// question 8, I1, decided by Jev at 0.92 both orders, decisions
-/// 1209-1210). ctlseqs: "Ps = 1 -> Change Icon Name to Pt"; AppKit's
+/// question 8, I1). ctlseqs: "Ps = 1 -> Change Icon Name to Pt"; AppKit's
 /// nearest place is `miniwindowTitle`, and "changing the full-size
 /// `NSWindow` object's title ... automatically changes the minimized
 /// window's title as well" (`[[source: apple-nswindow-miniwindowtitle]]`),
@@ -149,13 +148,11 @@ impl Mini {
     }
 }
 
-// **When a program sets no title, the folder and the program**: Jev's
-// lean T2, 0.61/0.72 (note AK question 2, decisions 1207-1208): a
-// program's title wins outright, as ctlseqs' "Change Window Title to Pt"
-// has it, and the derived title stands only in place of a missing one, so
-// nothing is added to what a program set. Spelled `folder — program`
-// (FOLDER_PROGRAM, decided on a second ask, 0.95/0.98, decisions
-// 1215-1216), the folder as [`folder_text`] spells it.
+// **When a program sets no title, the folder and the program** (note AK
+// question 2, T2): a program's title wins outright, as ctlseqs' "Change
+// Window Title to Pt" has it, and the derived title stands only in place
+// of a missing one, so nothing is added to what a program set. Spelled
+// `folder — program`, the folder as [`folder_text`] spells it.
 
 /// A process id, `pid_t`, as `sys.rs` declares it; spelled here so this
 /// module stays pure and its tests run on every platform.
@@ -311,14 +308,13 @@ impl Derive {
     /// whichever of the two is known. The folder is the one the shell's
     /// `OSC 7` named when it names this machine -- no host, `localhost`, or
     /// one of `hosts`, this machine's names (`[[source: rfc8089]]` § 2 and
-    /// § 3, compared without case) -- and the program's own otherwise.
-    /// **An `OSC 7` naming another host is refused** for the title and
-    /// counted in [`Derive::refused`] (Jev's lean R1, 0.76/0.61, "Refuse a
-    /// remote host for every use and count it"): "Treating a non-local file
-    /// URI as local ... can result in security problems" (§ 5). A title is
-    /// built on every read, so a report is counted when it is judged first,
-    /// not on every build: the same report read again counts nothing, and
-    /// a different one, or the same one after another, counts again.
+    /// § 3, compared without case) -- and the program's own otherwise. **An
+    /// `OSC 7` naming another host is refused** for the title and counted
+    /// in [`Derive::refused`]: "Treating a non-local file URI as local ...
+    /// can result in security problems" (§ 5). A title is built on every
+    /// read, so a report is counted when it is judged first, not on every
+    /// build: the same report read again counts nothing, and a different
+    /// one, or the same one after another, counts again.
     pub fn title(
         &mut self,
         cwd: Option<baud_core::WorkingDirectory<'_>>,
@@ -401,10 +397,9 @@ pub fn local<'d>(d: baud_core::WorkingDirectory<'d>, hosts: &[String]) -> Option
 /// shell integrations title a prompt, with zsh's `%(4~|…/%3~|%~)` (kitty's
 /// zsh integration 271-281, ghostty's 243-248). Counted as zsh counts,
 /// measured: `~` is a folder and the root is not, so `/usr/share/man` is
-/// whole and `/usr/share/man/man1` is `…/share/man/man1`. Jev's lean,
-/// F-SHORT, on a second ask after reading those (0.25/0.37, decisions
-/// 1215-1216), over the whole path and the last folder alone. Shown as a
-/// title shows text.
+/// whole and `/usr/share/man/man1` is `…/share/man/man1`. This is chosen
+/// over the whole path and over the last folder alone. Shown as a title
+/// shows text.
 pub fn folder_text(path: &[u8], home: Option<&[u8]>) -> String {
     let home = home.filter(|h| h.len() > 1 && !h.ends_with(b"/"));
     let spelled: Vec<u8> = match home {

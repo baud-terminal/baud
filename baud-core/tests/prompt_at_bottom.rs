@@ -9,13 +9,13 @@
 //! then 80x20 at a prompt. `tests/resize/fresh-zoom` is zsh with a
 //! five-line prompt through a zoom gesture.
 //!
-//! What the mode does is Jev's GAP (0.97/0.98): once the shell has drawn
-//! a prompt, at the mark where its input begins (`B` or `I`), the prompt
-//! walks down over the blank rows directly below it, so its last line
-//! lands on the last row and output stays where it was written; a shrink
-//! at the prompt sends the top rows into the history and a growth brings
-//! them back. Nothing happens in the output zone, on the alternate
-//! screen, or under a scrolling region.
+//! What the mode does: once the shell has drawn a prompt, at the mark
+//! where its input begins (`B` or `I`), the prompt walks down over the
+//! blank rows directly below it, so its last line lands on the last row
+//! and output stays where it was written; a shrink at the prompt sends
+//! the top rows into the history and a growth brings them back. Nothing
+//! happens in the output zone, on the alternate screen, or under a
+//! scrolling region.
 mod support;
 use baud_core::{Owned, PackedCell, PromptLine, Resized, SurfaceLine, Term};
 use baud_domain::{BytePos, PromptAtBottom, ReadLen, Row, WinSize};
@@ -192,8 +192,8 @@ fn the_block_and_the_prompt_log_name_the_row_the_prompt_landed_on() {
 
 /// **A window that grows at a prompt keeps the prompt on its last row**:
 /// bash redraws its prompt with its `A` after each `SIGWINCH`, and the
-/// input mark that ends the redraw pins it. Off, the session's first line stays at the top,
-/// the owner's rule for a growth.
+/// input mark that ends the redraw pins it. Off, the session's first
+/// line stays at the top, the rule for a growth.
 #[test]
 fn a_growth_at_a_prompt_keeps_it_on_the_last_row() {
     let mut on = Vec::new();
@@ -306,10 +306,9 @@ fn text_below_the_cursor_stops_the_walk() {
     });
 }
 
-/// **Turned on at a prompt, it pins that prompt at once** (Jev, AT_ONCE,
-/// 0.98/0.96), the typed text and a selection on the prompt's row going
-/// with it and the output above left alone; turned off, nothing moves
-/// back.
+/// **Turned on at a prompt, it pins that prompt at once**, the typed
+/// text and a selection on the prompt's row going with it and the output
+/// above left alone; turned off, nothing moves back.
 #[test]
 fn turning_it_on_at_a_prompt_pins_that_prompt_at_once() {
     session_at(PromptAtBottom::Off, 2, |t| {

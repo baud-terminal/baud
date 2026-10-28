@@ -21,7 +21,7 @@ MANIFEST="$SRC/MANIFEST.toml"
 # This gate has carried two, and both were narrower than the sentence above
 # them. `DOCS="docs"` sat under a comment reading "Every doc, not just the
 # notes ... a gate that only scanned notes/ would have let those citations rot
-# unchecked" -- and left **CLAUDE.md's 39 citations** out, along with
+# unchecked" -- and left **the root guide's 39 citations** out, along with
 # README.md's and MEASUREMENTS.md's, because those are at the repository root
 # rather than under docs/. `CODE` named nine crates and omitted the three ISA
 # ones, where `baud-isa-aarch64` cites `arm-neon-bitmask` in the doc comment
@@ -158,7 +158,7 @@ done
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
 {
-  # .claude/worktrees holds other branches' checkouts (agent lanes), each with its own
+  # .claude/worktrees holds other branches' checkouts, each with its own
   # manifest: their citations are theirs, and a lane's new key reads as missing here.
   find . \( -path ./target -o -path ./.git -o -path ./.devenv -o -path ./node_modules -o -path ./.claude/worktrees \) -prune \
     -o -type f \( -name '*.md' -o -name '*.rs' \) -print0 |

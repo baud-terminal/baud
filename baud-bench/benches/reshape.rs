@@ -1,6 +1,6 @@
 //! `reshape`: what one step of a window drag costs the presenter.
 //!
-//! The owner reported that holding a drag froze the window until the drag
+//! A user reported that holding a drag froze the window until the drag
 //! stopped. `pump` is not the suspect -- the waker and the display link are
 //! both on `NSRunLoopCommonModes`, so they run inside the modal tracking loop
 //! a drag puts the run loop into. What a drag step *does* is replace the
@@ -23,14 +23,13 @@
 //! taken in different sessions. Two instruments, and neither figure is
 //! quoted as the other.)
 //!
-//! **This was a test with a 4 ms wall-clock bound, and it is a bench
-//! because a wall-clock bound inside `cargo test` measures the machine's
-//! load.** Inside the full parallel `devenv test` the same 40 steps read a
-//! 1.85 ms mean and a 9.41 ms worst and failed the pre-push run -- the
-//! preemption of a test binary sharing the cores with a hundred others, not
-//! the surfaces. The owner's call, 2026-09-22: a measurement prints, and the
-//! order-of-magnitude claim is reproduced by running it rather than gated on
-//! how busy the machine happened to be.
+//! **This was a test with a 4 ms wall-clock bound, and it is a bench because
+//! a wall-clock bound inside `cargo test` measures the machine's load.**
+//! Inside the full parallel `devenv test` the same 40 steps read a 1.85 ms
+//! mean and a 9.41 ms worst and failed the pre-push run -- the preemption of
+//! a test binary sharing the cores with a hundred others, not the surfaces.
+//! So a measurement prints, and the order-of-magnitude claim is reproduced
+//! by running it rather than gated on how busy the machine happened to be.
 //!
 //! Every round is printed so the reader discards the first, the protocol
 //! every bench here follows.

@@ -5,8 +5,8 @@
 //! yazi and fzf previews fall back to, writes every cell as a glyph in one
 //! colour on a background in another. Under the window's dim the glyph half
 //! is drawn solid and the background half at the dim, so a picture splits
-//! into solid slivers beside see-through holes -- measured on the owner's
-//! yazi preview on 2026-09-22, and no `dim_dark` below 1.0 closes it.
+//! into solid slivers beside see-through holes -- measured on a yazi
+//! preview on 2026-09-22, and no `dim_dark` below 1.0 closes it.
 //!
 //! **One cell cannot tell a picture from a panel, and this looks at the
 //! block instead.** chafa draws a picture's flat areas as spaces on a set

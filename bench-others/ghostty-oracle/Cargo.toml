@@ -2,7 +2,7 @@
 name = "ghostty-oracle"
 version = "0.1.0"
 edition = "2021"
-# Not published: the owner's "no publishing, private".
+# Not published: nothing here is.
 publish = false
 description = "V10's oracle: baud-core against libghostty-vt, cell for cell, at every read size."
 

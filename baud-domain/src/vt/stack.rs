@@ -60,8 +60,7 @@ impl SgrGroups {
     /// correspond to the SGR encoding", and SGR 10 and 11 are fonts, which
     /// the text lists no group for. xterm reads them as 30 and 31,
     /// "deprecated - for compatibility" (`[[source: xterm-reset]]`'s file);
-    /// Jev's lean for that, ALIAS, was 0.94/0.86, below the 0.9 in both
-    /// orders a departure needs, so the text is built.
+    /// that is a departure, so the text is built.
     pub fn with(self, p: Param) -> SgrGroups {
         match p.value() {
             n @ 1..=31 => SgrGroups(self.0 | 1 << (n - 1)),
@@ -79,15 +78,13 @@ impl SgrGroups {
 /// (`[[source: xterm-misc]]`). A bare push restores the whole rendition,
 /// what xterm has and what it does not -- an underline colour, a font,
 /// fraktur, overline, framing, the ideogram lines -- which no listed group
-/// names and a list therefore leaves as they are (Jev's lean, NEAREST,
-/// 0.86/0.38).
+/// names and a list therefore leaves as they are.
 ///
-/// **5 restores both blink rates**, one aspect by the owner's call of
-/// 2026-10-13 ("Own rate, exclusive"). **4 and 21 restore xterm's two
-/// underline bits** onto baud's one underline style (Jev's lean,
-/// XTERM_BITS, 0.28/0.18): 4 is whether a single or styled underline is
-/// in force, 21 whether a double one is, and with one of them alone the
-/// other keeps its current value.
+/// **5 restores both blink rates**, one aspect, each rate its own and
+/// exclusive of the other. **4 and 21 restore xterm's two underline
+/// bits** onto baud's one underline style: 4 is whether a single or
+/// styled underline is in force, 21 whether a double one is, and with
+/// one of them alone the other keeps its current value.
 pub fn restore_rendition(saved: StyleWord, now: StyleWord, saved_as: SgrGroups) -> StyleWord {
     if saved_as == SgrGroups::ALL {
         return saved;
@@ -241,8 +238,8 @@ pub fn decode_hex_title<'o>(hex: &[u8], out: &'o mut [u8]) -> Option<&'o [u8]> {
 /// What two renditions share, for XTREPORTSGR's "attributes which are
 /// common to all cells": the attributes both have, and each colour and the
 /// font where both agree, else the default. Every aspect baud records, as
-/// DECRQSS's SGR answer carries them (Jev, ALL_COMMON, 0.96/0.98), where
-/// xterm's `xtermReportSGR` keeps its own subset (`[[source: xterm-misc]]`).
+/// DECRQSS's SGR answer carries them, where xterm's `xtermReportSGR` keeps
+/// its own subset (`[[source: xterm-misc]]`).
 pub fn common_rendition(a: StyleWord, b: StyleWord) -> StyleWord {
     let same = |x: crate::ColorWord, y: crate::ColorWord| match x == y {
         true => x,

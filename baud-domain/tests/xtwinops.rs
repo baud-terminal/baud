@@ -110,8 +110,8 @@ fn every_other_t_is_refused_or_not_xtwinops() {
 }
 
 /// The window and screen reports, the two title reports and the title stack
-/// each parse to their own operation. A bare `CSI 22 t` is the push of
-/// both titles, as xterm reads the omitted `Ps` as 0 (Jev's lean, AS_ZERO).
+/// each parse to their own operation. A bare `CSI 22 t` is the push of both
+/// titles, as xterm reads the omitted `Ps` as 0.
 #[test]
 fn the_window_and_title_forms_parse_to_their_operations() {
     for (ps, want) in [

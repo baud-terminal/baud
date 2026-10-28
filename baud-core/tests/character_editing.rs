@@ -117,7 +117,7 @@ fn ich_under_preceding_pushes_toward_the_line_start() {
 /// `b` and `c` toward the start and off it, `Y` last at the cursor. A wide
 /// character takes the cursor's column and the one before it, and at the
 /// line's start, with no column before it, the cursor's and the one after
-/// it (Jev's lean, NEXT_COLUMN).
+/// it.
 #[test]
 fn irm_under_preceding_inserts_at_the_cursor_which_stays() {
     assert_eq!(

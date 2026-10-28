@@ -7,12 +7,11 @@
 **Why it exists.** `ingest2` once inlined its timed loop into `main`, so the
 loop shared a register allocation with everything `main` built before it. A
 setup-only change -- the cluster store's `vec!` sized 1024 instead of 64, or
-that `vec!` moved into a function of its own, with the core untouched -- put
-two stack reloads at the head of the dispatch loop and moved instructions per
-rep +0.69% on `cat`. Nothing in the timing said which; this does. Run it on both
+that `vec!` moved into a function of its own, with the core untouched -- put two
+stack reloads at the head of the dispatch loop and moved instructions per rep
++0.69% on `cat`. Nothing in the timing said which; this does. Run it on both
 arms before attributing a small `ingest2` delta: if the timed function differs,
-the delta may be the allocator's and not the change's (docs/record.md,
-"ingest2's setup moved its timed loop").
+the delta may be the allocator's and not the change's.
 
 **What it prints**, for each binary: the function's instruction count, its
 loads from the stack frame (`ldr*`/`ldp`/`ldur*` off `sp` or `x29`), and a
@@ -35,10 +34,10 @@ different register allocation is a difference.
 The page-offset rewrite applies to a register function-wide, live or not (13
 registers in `timed`, one of them holding a stack address), so an offset-only
 change through one of them reads IDENTICAL. `--no-pageoff` keeps every
-offset. Every IDENTICAL arm in the record section also compares IDENTICAL
-with the rewrite disabled but one: the G cut's outlined-`vec!` arm, where
-`ingest2::run` loads one 16-byte constant from 0x80 lower in the same page
-(`[x26, #0x820]` for `#0x8a0`, an `adrp` base) at three sites.
+offset. Every IDENTICAL arm checked also compares IDENTICAL with the rewrite
+disabled but one: the G cut's outlined-`vec!` arm, where `ingest2::run` loads
+one 16-byte constant from 0x80 lower in the same page (`[x26, #0x820]` for
+`#0x8a0`, an `adrp` base) at three sites.
 
 **Default function: `ingest2::timed`**, the harness's out-of-line timed loop.
 `--fn ingest2::main` reads a harness from before it was outlined, where the
@@ -49,10 +48,9 @@ body at two addresses with different call and page targets must compare equal,
 and one changed register, one added stack reload, or an immediate off a
 register no `adr` writes must not; the two page offsets that compare equal
 must differ under `--no-pageoff`; and a name that two functions share must
-exit 2. On real binaries (docs/record.md, the
-section named above): two byte-identical builds report IDENTICAL, and so does
-a setup-only change (the cluster `vec!` outlined, or `NCLUSTER` raised); a
-change to `Term`'s layout (32,776 unread bytes added to `ClusterStore`)
+exit 2. On real binaries: two byte-identical builds report IDENTICAL, and so
+does a setup-only change (the cluster `vec!` outlined, or `NCLUSTER` raised);
+a change to `Term`'s layout (32,776 unread bytes added to `ClusterStore`)
 reports DIFFER: the function's frame grows from 0x340 to 0x390 bytes and its
 registers are allocated anew; no instruction in that diff differs only in an
 offset off a non-stack register.

@@ -1,12 +1,12 @@
 //! **The effect trails**: a shader drawn over kitty's collapsing quad, lit by
-//! a long move and burning out after it -- the fire, and the family the owner
-//! asked for beside it. What they share lives here: the ignition a move
-//! lights (the path, the age, the seed and the cell's height), the records a
-//! GPU path draws an effect with -- one band a cell row over the effect's
-//! reach, then one soft disc a live particle -- and the uniform its fragment
-//! function reads. What each effect draws is its own module: [`crate::fire`],
-//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`], [`crate::ufo`],
-//! [`crate::orb`], [`crate::liquid`].
+//! a long move and burning out after it -- the fire, and the family beside
+//! it. What they share lives here: the ignition a move lights (the path, the
+//! age, the seed and the cell's height), the records a GPU path draws an
+//! effect with -- one band a cell row over the effect's reach, then one soft
+//! disc a live particle -- and the uniform its fragment function reads. What
+//! each effect draws is its own module: [`crate::fire`], [`crate::plasma`],
+//! [`crate::lightning`], [`crate::ice`], [`crate::ufo`], [`crate::orb`],
+//! [`crate::liquid`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -16,9 +16,9 @@
 //! its formulas.
 //!
 //! **Every effect is the cursor's colour** -- the one the quad trail is drawn
-//! in, the owner's call -- and its intensity is its opacity. Premultiplied,
-//! that is valid over a glass window and dark over a light theme, whose
-//! cursor is dark, so one rule serves every ground.
+//! in -- and its intensity is its opacity. Premultiplied, that is valid over
+//! a glass window and dark over a light theme, whose cursor is dark, so one
+//! rule serves every ground.
 //!
 //! **Every path draws every effect.** The GPU's fragment functions and the
 //! CPU compositor read one Rust model of each -- [`Vfx::light`] over a band,

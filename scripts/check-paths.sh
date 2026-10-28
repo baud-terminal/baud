@@ -9,13 +9,14 @@
 # second by not being a member.
 #
 # So the rule is the whole rule: a `path` dependency must stay inside the
-# repository, and **there is no exception**. There was one -- the owner's
-# window crate, taken by absolute path because `feat/drawable-view` existed on
-# exactly one machine -- and the gate carried it with the single action that
-# would clear it written out. That action was taken: the branch is pushed and
-# both manifests name it by git revision, so the exemption has nothing to
-# exempt. A gate that keeps an exception after its subject is gone is an
-# exemption nobody re-reads, which is the shape this file was written against.
+# repository, and **there is no exception**. There was one -- the
+# `macos-liquid-glass` window crate, taken by absolute path because
+# `feat/drawable-view` existed on exactly one machine -- and the gate carried
+# it with the single action that would clear it written out. That action was
+# taken: the branch is pushed and both manifests name it by git revision, so
+# the exemption has nothing to exempt. A gate that keeps an exception after
+# its subject is gone is an exemption nobody re-reads, which is the shape this
+# file was written against.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 root=$(pwd -P)

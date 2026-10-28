@@ -62,8 +62,8 @@ pub enum StringKind {
     /// SDS 2, "establish the direction right-to-left".
     RightToLeft,
     /// SRS 1, "reverse the direction": the one opposite to the string
-    /// around it, or at a line's top level to the line's character path
-    /// (Jev's lean, PATH, 0.74/0.78 then 0.88/0.90).
+    /// around it, or at a line's top level to the line's character
+    /// path.
     Reversed,
 }
 
@@ -82,8 +82,7 @@ impl StringKind {
     }
 
     /// Whether `edge` ends a string of this kind: SDS 0 a directed string
-    /// and SRS 0 a reversed one, and no other (Jev's lean, MATCH_KIND,
-    /// 0.82/0.62 then 0.90/0.76).
+    /// and SRS 0 a reversed one, and no other.
     pub fn ended_by(self, edge: StringEdge) -> bool {
         matches!(
             (self, edge),

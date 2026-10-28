@@ -493,15 +493,15 @@ fn extreme(c: Argb) -> bool {
 }
 
 /// **Text the dim makes unreadable is lifted, on herdr's own themes**
-/// (`tests/panels/herdr-themes.raw`; the record, "herdr's themes under the
-/// glass"). At every read boundary of the capture, under the glass at the
-/// shipped dark dim, alpha 179: every glyph on a page the program set,
-/// whose pair reads at the trigger or above as asked, reads at the trigger
-/// or above against everything that page can show over the glass, and one
-/// asked at 3 or above reads at 3 or above -- unless no colour reaches the
-/// target against all of it, and then the text reads at the glass trigger,
-/// or is black or white where no colour reaches that either.
-/// Box-drawing lines are drawn as asked and left out.
+/// (`tests/panels/herdr-themes.raw`). At every read boundary of the
+/// capture, under the glass at the shipped dark dim, alpha 179: every
+/// glyph on a page the program set, whose pair reads at the trigger or
+/// above as asked, reads at the trigger or above against everything that
+/// page can show over the glass, and one asked at 3 or above reads at 3 or
+/// above -- unless no colour reaches the target against all of it, and
+/// then the text reads at the glass trigger, or is black or white where no
+/// colour reaches that either. Box-drawing lines are drawn as asked and
+/// left out.
 #[test]
 fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     let bytes = std::fs::read(format!(
@@ -598,12 +598,12 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     assert!(lifted > beyond, "the positive control: nothing was lifted");
 }
 
-/// **The glass trigger is 3** (the owner, 2026-10-17): gruvbox-light's
-/// text on its `bg3`, `#3c3836` on `#bdae93`, reads 5.32:1 as asked and
-/// 2.75:1 against everything its page can show over the glass at alpha
-/// 179 -- between the two triggers -- and is lifted to the target against
-/// all of it. (Catppuccin's selected row, which this test held at the old
-/// dim, reads 4.26 against the range at 179 and is not lifted.)
+/// **The glass trigger is 3**: gruvbox-light's text on its `bg3`,
+/// `#3c3836` on `#bdae93`, reads 5.32:1 as asked and 2.75:1 against
+/// everything its page can show over the glass at alpha 179 -- between
+/// the two triggers -- and is lifted to the target against all of it.
+/// (Catppuccin's selected row, which this test held at the old dim, reads
+/// 4.26 against the range at 179 and is not lifted.)
 #[test]
 fn a_pair_between_the_triggers_against_the_range_is_lifted() {
     let sgr = "38;2;60;56;54;48;2;189;174;147";
@@ -626,15 +626,14 @@ fn a_pair_between_the_triggers_against_the_range_is_lifted() {
     );
 }
 
-/// **Where no colour reaches the target, as far as the glass trigger**
-/// (Jev's lean, decisions 744-747): gruvbox-light's text on its `bg4`,
-/// `#3c3836` on `#a89984`, reads 4.17:1 as asked and 2.23:1 against the
-/// range at alpha 179. No luminance is 4.5 times beyond either end of the
-/// range, so the text is darkened only until it reads 3 against the page
-/// over black, keeping its hue, and not to black. Where 3 is out of reach
-/// too -- `#87acf5` on `#1e66f5` under the light glass, 2.16 as asked and
-/// reading 1.0 inside the range -- it goes to the extreme that reads
-/// better, white.
+/// **Where no colour reaches the target, as far as the glass trigger**:
+/// gruvbox-light's text on its `bg4`, `#3c3836` on `#a89984`, reads
+/// 4.17:1 as asked and 2.23:1 against the range at alpha 179. No
+/// luminance is 4.5 times beyond either end of the range, so the text is
+/// darkened only until it reads 3 against the page over black, keeping
+/// its hue, and not to black. Where 3 is out of reach too -- `#87acf5` on
+/// `#1e66f5` under the light glass, 2.16 as asked and reading 1.0 inside
+/// the range -- it goes to the extreme that reads better, white.
 #[test]
 fn a_pair_no_colour_lifts_to_the_target_is_lifted_to_the_glass_trigger() {
     let sgr = "38;2;60;56;54;48;2;168;153;132";
@@ -967,15 +966,16 @@ fn cell_pixels(r: &Renderer<'_, '_>, c: &support::Canvas, col: usize) -> Vec<u32
         .collect()
 }
 
-/// **Box drawing is left out of the floor; block elements are not** (the
-/// owner, 2026-10-17). herdr draws its dividers `#15161b` on the default
-/// dark page, 1.05:1, and the floor lifted them to a grey that glares. The
-/// Box Drawing block, `U+2500..=U+257F`, where DEC Special Graphics' line
-/// drawing lands, is drawn as asked with the floor on: each cell's pixels
-/// equal the floor off's, on the plain and the glass theme. Block Elements,
+/// **Box drawing is left out of the floor; block elements are not**. herdr
+/// draws its dividers `#15161b` on the default dark page, 1.05:1, and the
+/// floor lifted them to a grey that glares. The Box Drawing block,
+/// `U+2500..=U+257F`, where DEC Special Graphics' line drawing lands, is
+/// drawn as asked with the floor on: each cell's pixels equal the floor
+/// off's, on the plain and the glass theme. Block Elements,
 /// `U+2580..=U+259F`, which btop and cava draw graphs with, keep the floor:
 /// their pixels move. `U+257F` and `U+2580` are the two sides of the edge.
-/// The CPU arm; `baud-present-macos`'s `cells.rs` holds the other two to it.
+/// The CPU arm; `baud-present-macos`'s `cells.rs` holds the other two to
+/// it.
 #[test]
 fn box_drawing_is_drawn_as_asked_and_block_elements_are_floored() {
     let glyphs = [
@@ -1038,9 +1038,9 @@ fn box_drawing_is_drawn_as_asked_and_block_elements_are_floored() {
 }
 
 /// **A bar or underline cursor over a box-drawing line keeps the colour it
-/// always had.** The owner's call 3 draws a line as asked; it names lines,
-/// not the cursor. herdr's divider `#15161b` reads 1.05:1 on the default
-/// page, and a bar over it was drawn in that colour, invisible, where base
+/// always had.** The line rule draws a line as asked; it names lines, not
+/// the cursor. herdr's divider `#15161b` reads 1.05:1 on the default page,
+/// and a bar over it was drawn in that colour, invisible, where base
 /// lifted it. The bar's pixels over `U+2500` equal the bar's over a letter
 /// of the same colour with the floor on, and differ from the floor off's.
 /// The CPU arm; `glass_floor_gate` in `baud-present-macos`'s `cells.rs`

@@ -31,14 +31,13 @@
 //! and its particles. It outlives the chase, burning out after the corners
 //! land, and two rules keep it from flashing:
 //!
-//! * **At most three ignitions a second.** A long move within
-//!   [`REIGNITE`] of the last ignition retargets the quad and keeps the flame
-//!   that is already burning, rather than lighting a new one. It limits
-//!   ignitions, not flashes: counted on the frames the trails draw, one pixel
-//!   flashed up to 23 times a second under it, and at 32 pt the fire and the
-//!   orb fail WCAG 2.3.1 on a light ground; at the default 13 pt every effect
-//!   passes, by the area clause alone (docs/record.md, "The cursor trails'
-//!   flashes, counted on the frames they draw").
+//! * **At most three ignitions a second.** A long move within [`REIGNITE`] of
+//!   the last ignition retargets the quad and keeps the flame that is already
+//!   burning, rather than lighting a new one. It limits ignitions, not
+//!   flashes: counted on the frames the trails draw, one pixel flashed up to
+//!   23 times a second under it, and at 32 pt the fire and the orb fail WCAG
+//!   2.3.1 on a light ground; at the default 13 pt every effect passes, by
+//!   the area clause alone (note AL).
 //! * **Typing never ignites**: a move of two cells or fewer snaps, as it does
 //!   for the quad, and a burning flame follows the cursor it snapped to.
 //!
@@ -92,9 +91,8 @@ pub const REIGNITE: Duration = Duration::from_millis(334);
 /// taller than this, a long move over a stretch of screen a full pass swept
 /// less than [`LEDGER`] before is a repeat, drawn under the flash
 /// thresholds ([`Strength::UnderThreshold`]). At 32 pt and up the fire and
-/// the orb fail WCAG 2.3.1 as shipped (the record, "The cursor trails'
-/// flashes, counted on the frames they draw"); JetBrains Mono's cell is 32
-/// pt at 24 pt, which the strict test keeps below it.
+/// the orb fail WCAG 2.3.1 as shipped (note AL); JetBrains Mono's cell is
+/// 32 pt at 24 pt, which the strict test keeps below it.
 pub const GATE: Points = Points(32.0);
 
 /// How long a full pass holds the screen it swept: WCAG 2.3.1's "any one
@@ -172,9 +170,9 @@ struct Burning<M> {
 
 /// Whether the move in flight still rides a smooth scroll, and how far it
 /// has, pixels, y down: at most [`THRESHOLD`] rows, then it folds in on the
-/// fast constant and rides no more -- the owner's call of 2026-09-27, so a
-/// trail in flight when output starts streaming lands rather than hanging a
-/// row or more above the cursor for as long as the stream lasts.
+/// fast constant and rides no more -- so a trail in flight when output
+/// starts streaming lands rather than hanging a row or more above the
+/// cursor for as long as the stream lasts.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Carry {
     Riding(f32),

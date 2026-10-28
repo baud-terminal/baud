@@ -1827,7 +1827,7 @@ mod tests {
     /// in each of R, G and B with other values beside it, the channel is
     /// the integer nearest `c a / 255` and the alpha passes through.
     /// `wl_shm`'s formats are premultiplied (`[[source: wayland]]`,
-    /// `wl_shm.format`); one rounding on both systems is the owner's same
+    /// `wl_shm.format`); one rounding on both systems gives the same
     /// pixels on every OS. It holds `premultiply` as imported here, the
     /// function `present` calls per pixel; a `present` that skipped it
     /// would not be caught by this test.

@@ -140,13 +140,12 @@ impl Paint<'_, '_> {
     /// (`[[source: kitty-graphics]]`, "Controlling displayed image layout").
     /// Down is `index`, so a placement at the bottom scrolls. Kitty moves
     /// down by the rows less one (`[[source: kitty-graphics-c]]`
-    /// `handle_put_command`), its practice and not followed: Jev, asked
-    /// uncached on 2026-10-16, favoured the text at 0.86 and 0.76, under
-    /// the bar for a departure. Past the right margin the cursor goes to
-    /// the left margin of the next row, the Sixel `?8452` rule, where "the
-    /// exact positioning of the cursor is undefined, and up to
-    /// implementations". A move longer than the ring scrolls no further
-    /// than the ring, which it has blanked by then.
+    /// `handle_put_command`), its practice and not followed, since the text
+    /// says otherwise. Past the right margin the cursor goes to the left
+    /// margin of the next row, the Sixel `?8452` rule, where "the exact
+    /// positioning of the cursor is undefined, and up to implementations". A
+    /// move longer than the ring scrolls no further than the ring, which it
+    /// has blanked by then.
     ///
     /// **Right of the image on the row it lands on**: its right edge on the
     /// display, from the column it began at, as a column of that row, so a

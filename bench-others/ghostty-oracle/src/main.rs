@@ -45,9 +45,9 @@ use std::process::ExitCode;
 /// `0.1.0-dev` with no build metadata, so the library cannot be tied to the
 /// pinned `Terminal.zig` from inside. The tie is the checkout's: the
 /// library on the box this was written on was built in a clean clone at
-/// d9840f3 whose only reflog entry is the clone, three minutes after it
-/// (the record, "V10's oracle"). This check catches a library from another
-/// release line, not another commit.
+/// d9840f3 whose only reflog entry is the clone, three minutes after it.
+/// This check catches a library from another release line, not another
+/// commit.
 const GHOSTTY_VERSION: &str = "0.1.0-dev";
 
 const ROWS: u16 = 8;
@@ -331,9 +331,9 @@ const DECRC_UNCONFINED: &str = "ghostty departs: DECRC under DECOM keeps a resto
                                 margins when the restored Origin Mode is displaced; xterm's \
                                 CursorRestore goes through CursorSet (cursor.c 484-492), which \
                                 stops it at the right margin and not at the left (79-84)";
-/// `CHA`/`HPA` under DECOM: the displacement is a Jev item, and ghostty also
-/// moves the row.
-const CHA_DISPLACED: &str = "Jev item: under DECOM baud counts CHA/HPA from the screen's \
+/// `CHA`/`HPA` under DECOM: the displacement is an open question, and
+/// ghostty also moves the row.
+const CHA_DISPLACED: &str = "An open question: under DECOM baud counts CHA/HPA from the screen's \
                              column 1 and clamps into the margins, option (a'); ghostty \
                              counts from the left margin, option (b), as xterm's CursorSet \
                              does, and also moves the row down by the top margin";

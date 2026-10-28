@@ -11,12 +11,10 @@
 //! but the controls fails on a BDSM that is counted and dropped, which is
 //! what it was.
 //!
-//! **Set at power-on**, the owner's answer of 2026-10-24 ("Should
-//! right-to-left lines be on from the start? C", the panel drawing them
-//! right to left from the start). `[[source: ecma48]]` 7.1 recommends the
-//! reset state as the initial one; Annex D item 11 leaves "the initial
-//! state of a device upon power up including the settings of the modes"
-//! to the implementation.
+//! **Set at power-on**. `[[source: ecma48]]` 7.1 recommends the reset
+//! state as the initial one; Annex D item 11 leaves "the initial state of
+//! a device upon power up including the settings of the modes" to the
+//! implementation.
 mod support;
 use baud_core::{BidiSupport, Owned, Term, WinSize};
 

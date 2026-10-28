@@ -29,18 +29,17 @@
 //! (`[[source: harfbuzz-hb-ot-shape]]`, `zero_mark_widths_by_gdef()`), so an
 //! advance a lookup gives one is spent before anything reads it.
 //!
-//! **At a variation, a format-3 anchor moves** (note Z step 4): its x and
-//! y device tables, when of the VariationIndex format `0x8000`, index
-//! `GDEF`'s item variation store, and the coordinate takes the store's
-//! delta rounded -- HarfBuzz 12.3.0's `AnchorFormat3::get_anchor` and
-//! `VariationDevice::get_x_delta`, which rounds through `em_scalef`
-//! (`[[source: harfbuzz-12-3-0-anchor-format3]]`,
+//! **At a variation, a format-3 anchor moves** (note Z step 4): its x and y device
+//! tables, when of the VariationIndex format `0x8000`, index `GDEF`'s item
+//! variation store, and the coordinate takes the store's delta rounded -- HarfBuzz
+//! 12.3.0's `AnchorFormat3::get_anchor` and `VariationDevice::get_x_delta`, which
+//! rounds through `em_scalef` (`[[source: harfbuzz-12-3-0-anchor-format3]]`,
 //! `[[source: harfbuzz-12-3-0-layout-common]]`, `[[source: harfbuzz-12-3-0-font]]`,
-//! `[[source: harfbuzz-12-3-0-hb]]`). The anchors' difference is whole units
-//! then, so HarfBuzz's final `roundf` (`[[source: harfbuzz-12-3-0-mark-array]]`)
-//! changes nothing. A value record's devices move its values the same way.
-//! A device that does not check out is no device: that coordinate does
-//! not vary, where HarfBuzz refuses the whole `GPOS` (Jev B, 0.84).
+//! `[[source: harfbuzz-12-3-0-hb]]`). The anchors' difference is whole units then,
+//! so HarfBuzz's final `roundf` (`[[source: harfbuzz-12-3-0-mark-array]]`) changes
+//! nothing. A value record's devices move its values the same way. A device that
+//! does not check out is no device: that coordinate does not vary, where HarfBuzz
+//! refuses the whole `GPOS`.
 //!
 //! **Offsets are from the cell origin.** Before any lookup runs every
 //! glyph's `dx` is its pen position within the cluster, so a positioned
@@ -1034,10 +1033,9 @@ mod tests {
     }
 
     /// Without a ppem a hinting device moves nothing, as in HarfBuzz; an
-    /// offset of 0 is no device; a device cut short, one past the table,
-    /// or an index past the store is no delta -- baud's per-subtable rule,
-    /// where HarfBuzz refuses the whole GPOS for the malformed ones (Jev B,
-    /// 0.84).
+    /// offset of 0 is no device; a device cut short, one past the table, or
+    /// an index past the store is no delta -- baud's per-subtable rule,
+    /// where HarfBuzz refuses the whole GPOS for the malformed ones.
     #[test]
     fn a_device_that_is_not_a_variation_index_moves_nothing() {
         // Sizes 0 to 0, which read as outer 0 and inner 0 would name the

@@ -91,9 +91,8 @@ pub enum BarChange {
     Redraw,
     /// The legacy gutter comes or goes and the window widens or narrows by
     /// it, the grid kept, as xterm's `ScrollBarOn` and `ScrollBarOff`
-    /// resize its window through `DoResizeScreen` (`[[source:
-    /// xterm-scrollbar-c]]` 101, 507-585; Jev's lean, AS_XTERM, 0.74/0.78
-    /// and 0.74/0.74 after a second ask).
+    /// resize its window through `DoResizeScreen`
+    /// (`[[source: xterm-scrollbar-c]]` 101, 507-585).
     Resize,
     /// The window may not change size -- full screen, or a program's
     /// window operations turned off -- so the grid takes the gutter's
@@ -121,8 +120,8 @@ pub fn bar_change(scroller: Scroller, full: crate::winops::Full, ops: WindowOps)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Over {
     /// Over the strip, with the window scrolled back: the thumb widens and
-    /// holds. At the live screen the strip is cells -- the owner's call, so
-    /// a terminal's rightmost columns stay its own.
+    /// holds. At the live screen the strip is cells, so a terminal's
+    /// rightmost columns stay its own.
     Strip,
     /// Anywhere else, or the strip at the live screen.
     Cells,
@@ -130,9 +129,8 @@ pub enum Over {
 
 /// Where a pointer event is, for the hover: over the strip only while the
 /// window is scrolled back and the pointer is not leaving the view. At the
-/// live screen the strip is cells -- the owner's call, 2026-09-23, so a
-/// terminal's rightmost columns keep their clicks, their selection and a
-/// tracking program's reports.
+/// live screen the strip is cells, so a terminal's rightmost columns keep
+/// their clicks, their selection and a tracking program's reports.
 pub fn over(place: Place, back: Rows, motion: Motion) -> Over {
     match (place, back.index() > 0, motion) {
         (Place::Strip, true, Motion::Within) => Over::Strip,
@@ -628,7 +626,7 @@ mod tests {
     #[test]
     fn the_strip_hovers_only_while_scrolled_back_and_presses_only_while_seen() {
         let (live, up) = (Rows::ZERO, Rows::of_count(3));
-        // The owner's call: at the live screen the strip is cells.
+        // At the live screen the strip is cells.
         assert_eq!(over(Place::Strip, live, Motion::Within), Over::Cells);
         assert_eq!(over(Place::Strip, up, Motion::Within), Over::Strip);
         assert_eq!(over(Place::Strip, up, Motion::Leaving), Over::Cells);

@@ -1,4 +1,4 @@
-//! Scratch: renders the italic Hebrew options to raw RGBA for the owner.
+//! Scratch: renders the italic Hebrew options to raw RGBA for review.
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::{Face, Px};

@@ -5,13 +5,12 @@
 //! **The reports answer from what the embedder has said** (`Term::set_window`,
 //! `Term::set_cell_size`) and are silent and counted where it has said
 //! nothing. **`CSI 20 t` and `CSI 21 t` are refused and counted on their
-//! own**: their reply is `OSC L label ST` and `OSC l label ST`, text a
-//! program set put back into the input stream, which a remote program can
-//! use to make the terminal type for it. **The window operations, 1-10,
-//! and DECSLPP, 24 and up, are queued for the embedder** ([`WindowAsks`]),
-//! which has the window: the owner's call of 2026-10-19, option 4, on by
-//! default and refused, counted, while the embedder has them off
-//! ([`WindowOps::Off`]).
+//! own**: their reply is `OSC L label ST` and `OSC l label ST`, text a program
+//! set put back into the input stream, which a remote program can use to make
+//! the terminal type for it. **The window operations, 1-10, and DECSLPP, 24
+//! and up, are queued for the embedder** ([`WindowAsks`]), which has the
+//! window: on by default, and refused, counted, while the embedder has them
+//! off ([`WindowOps::Off`]).
 
 use baud_domain::{
     ByteLen, InputEncoding, ModeChange, Osc52Writes, ParamIdx, PasteControls, Report, TitleMode,
@@ -353,16 +352,16 @@ impl Paint<'_, '_> {
 
     /// XTSMTITLE `CSI > Pm t` and XTRMTITLE `CSI > Pm T`, as xterm's
     /// `CASE_XTERM_SM_TITLE` and `CASE_XTERM_RM_TITLE` read them
-    /// (`[[source: xterm-reset]]`'s file): each parameter sets or resets one
-    /// mode, one past 3 or omitted is skipped, and **with none given every
-    /// mode returns to the default**, "If no parameters are given, title
-    /// mode features are set to the initial (compiled-in) default"
+    /// (`[[source: xterm-reset]]`'s file): each parameter sets or resets
+    /// one mode, one past 3 or omitted is skipped, and **with none given
+    /// every mode returns to the default**, "If no parameters are given,
+    /// title mode features are set to the initial (compiled-in) default"
     /// (`[[source: ctlseqs]]`). xterm's own branch for that never runs, its
     /// `CSI` entry counting one omitted parameter, so its bare form changes
-    /// nothing: a departure from the text not followed. **The two query modes are refused and counted
-    /// with the title reports they shape**, never recorded (Jev,
-    /// REFUSE_COUNT, 0.90/0.90); resetting one changes nothing, as it is
-    /// never set. A value past 3 is counted.
+    /// nothing: a departure from the text not followed. **The two query
+    /// modes are refused and counted with the title reports they shape**,
+    /// never recorded; resetting one changes nothing, as it is never set. A
+    /// value past 3 is counted.
     #[cold]
     #[inline(never)]
     pub(crate) fn title_modes(&mut self, change: ModeChange, csi: &Csi) {
@@ -388,10 +387,9 @@ impl Paint<'_, '_> {
 /// `ChangeGroup` decides it (`[[source: xterm-misc]]`): **read as UTF-8
 /// where the UTF-8 title mode is in force and the bytes are valid UTF-8,
 /// else as ISO 8859-1.** Under UTF-8 the mode is always in force, as
-/// xterm's `utf8Title` resource follows the encoding by default (Jev,
-/// RESOURCE_FOLLOWS, 0.96/0.98), and a title that arrived as text, not in
-/// hexadecimal, is UTF-8 there, its bytes having come through as a
-/// character's.
+/// xterm's `utf8Title` resource follows the encoding by default, and a
+/// title that arrived as text, not in hexadecimal, is UTF-8 there, its
+/// bytes having come through as a character's.
 pub(crate) fn label_encoding(
     string: InputEncoding,
     modes: TitleModes,

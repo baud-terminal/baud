@@ -1,5 +1,4 @@
-//! `?3` DECCOLM behind xterm's `?40`, `?95` DECNCSM, and DECSCPP: the owner's
-//! call of 2026-10-13, "xterm's ?40 gate (Recommended)".
+//! `?3` DECCOLM behind xterm's `?40`, `?95` DECNCSM, and DECSCPP.
 //!
 //! `[[source: ctlseqs]]`: "Ps = 3 -> 132 Column Mode (DECCOLM), VT100" and
 //! "Ps = 4 0 -> Allow 80 -> 132 mode, xterm"; "Ps = 9 5 -> Do not clear screen
@@ -514,7 +513,7 @@ fn a_held_reads_tail_ends_at_the_request() {
 }
 
 /// **`RIS` asks without holding**: an `ESC` final is not stopped at, so the
-/// read goes on at the old width -- the gap the record names.
+/// read goes on at the old width, a known gap.
 #[test]
 fn ris_asks_without_holding() {
     let mut o = Owned::new(&ROOM);

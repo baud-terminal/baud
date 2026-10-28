@@ -46,11 +46,10 @@
 //!
 //! What the macOS app has and this does not, yet: the GPU paths, and with
 //! them the smooth-scroll slide, which only the cell path draws -- the CPU
-//! path this paints on jumps (`docs/record.md`, "Smooth scroll slides the
-//! cell path on the ring, and the one-row cap is the latency answer"); the
-//! system caret's rate (this keeps 333 ms a phase until the desktop's
-//! settings are read); a backing scale other than one -- the window binds
-//! no fractional-scale global; and the report every five seconds.
+//! path this paints on jumps; the system caret's rate (this keeps 333 ms a
+//! phase until the desktop's settings are read); a backing scale other
+//! than one -- the window binds no fractional-scale global; and the report
+//! every five seconds.
 //!
 //! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
 //! the wheel over the history, the alternate screen's cursor keys and a
@@ -1200,8 +1199,8 @@ impl Driver {
         }
     }
 
-    /// **What a ring does here** (`bell.rs`, `ring`): the owner's rule as
-    /// the macOS driver's shim applies it, the window focused while the
+    /// **What a ring does here** (`bell.rs`, `ring`): the rule as the
+    /// macOS driver's shim applies it, the window focused while the
     /// keyboard is ours -- xdg-shell tells a client nothing of a minimized
     /// window. The sound is the compositor's system bell, where it offers
     /// `xdg-system-bell-v1`, and nothing without it; the flash is the
@@ -1211,7 +1210,7 @@ impl Driver {
     /// (`[[source: foot-2705e36-wayland]]` 2630-2658): no Wayland request
     /// tells the two apart, and the compositor decides whether the window
     /// is marked for attention or brought forward
-    /// (`[[source: xdg-activation-v1]]`; Jev, 0.97 and 0.98).
+    /// (`[[source: xdg-activation-v1]]`).
     fn ring_bell(&mut self, volume: baud_core::BellVolume) {
         use crate::bell::{Attention, Raise, Shown, Sound, Window};
         let state = match self.focus {
@@ -1324,8 +1323,7 @@ impl Driver {
             Owed::Keys => self.caret.input(Instant::now()),
             // A selection made is SELECT's: the primary, or the clipboard
             // under `?1041`, as xterm's `select-end(SELECT, CUT_BUFFER0)`
-            // (Jev's lean, PRIMARY_ONLY, 0.73/0.88: V13's copy-on-select is
-            // this on Linux).
+            // (note V's V13 copy-on-select is this on Linux).
             Owed::Selected => {
                 self.pending = Pending::Dirty;
                 let board = board_of(crate::clip::select_board(&self.term));
@@ -1835,7 +1833,7 @@ impl Driver {
                 | Part::ClipboardArea => {}
             }
         }
-        // A size the user zoomed to stays (Jev, KEEP_ZOOM, 0.94 and 0.94).
+        // A size the user zoomed to stays.
         let points = crate::live::size_after(self.font_size, self.font_base, c.font_size);
         self.font_base = c.font_size;
         if parts.contains(&Part::Fonts) {
@@ -1889,7 +1887,7 @@ impl Driver {
     }
 
     /// **The config's notice on its row, or none**, the grid giving the
-    /// row up while one is shown (Jev's lean, ROWS).
+    /// row up while one is shown.
     fn show_notice(&mut self, notice: crate::live::Notice) {
         if notice == self.notice {
             return;

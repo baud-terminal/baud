@@ -45,7 +45,7 @@ fn show(b: &[u8]) -> String {
 /// "Report Format: CSI ? Pl ; Pc ; Pp R" (`[[source: dec-std-070]]` p. 5-55),
 /// the page always sent, and baud has one page, the first. The `?` is the
 /// standard's and ctlseqs'; `[[source: vt510-dsr-xcpr]]` prints the report
-/// without it, the conflict decided for STD 070 (Jev 0.92/0.92).
+/// without it, the conflict decided for STD 070.
 #[test]
 fn decxcpr_reports_the_cursor_with_its_page() {
     assert_eq!(show(&answer(b"\x1b[?6n")), show(b"\x1b[?1;1;1R"));
@@ -81,7 +81,7 @@ fn each_private_status_answers_what_baud_has() {
         (b"\x1b[?25n", b"\x1b[?23n", "user-defined keys"),
         // `[[source: vt510-dsr-kbd]]`: language 0, "Keyboard language cannot
         // be determined", status 0, ready; no keyboard type, since no value
-        // names an unidentified keyboard (Jev's lean, 0.81/0.93).
+        // names an unidentified keyboard.
         (b"\x1b[?26n", b"\x1b[?27;0;0n", "keyboard"),
         // 070-13 p. 15: "?53 No locator", "?57;0 'Unknown Locator'
         // response": a core no embedder has told of a pointer
@@ -144,8 +144,7 @@ fn an_unknown_private_status_is_silent_and_counted() {
 /// report is the request's value plus two, then no parity (1), eight bits
 /// (1), the transmit and receive speeds, the clock multiplier (1) and the STP
 /// flags (0). The speed is 120, 19200, the highest the table defines: a pty
-/// has no line speed (Jev's lean, 0.86/0.80; xterm sends 128, a code the
-/// table does not have).
+/// has no line speed (xterm sends 128, a code the table does not have).
 #[test]
 fn decreqtparm_reports_the_line_the_vt100_table_can_name() {
     assert_eq!(show(&answer(b"\x1b[x")), show(b"\x1b[2;1;1;120;120;1;0x"));
@@ -223,7 +222,7 @@ fn xtqmodkeys_answers_modify_other_keys_with_its_value() {
 /// `report_fmt_fkeys`: `CSI > Pp ; Pv f`. xterm 411 parses the query as
 /// `CSI > Pp g` (`[[source: xterm-vtprstbl-c]]`, `dec2_table`), where
 /// `[[source: ctlseqs]]` documents `CSI ? Pp g`, which xterm ignores; baud
-/// answers xterm's (Jev's lean, 0.48/0.34) and counts the other.
+/// answers xterm's and counts the other.
 #[test]
 fn xtqfmtkeys_answers_format_other_keys_with_its_value() {
     assert_eq!(show(&answer(b"\x1b[>4g")), show(b"\x1b[>4;0f"));
@@ -299,7 +298,7 @@ fn decrqss_answers_invalid_for_what_baud_does_not_act_on() {
 /// (`[[source: dec-std-070]]` p. 5-197): the screen's rows, and 24 on a
 /// shorter screen, since "if (parv[0] <= 24) lines_per_page = 24" (p. 5-76)
 /// and a `CSI Ps t` below 24 is an XTWINOPS (`[[source: ctlseqs]]`), not a
-/// DECSLPP (Jev, FLOOR, 0.96/0.94).
+/// DECSLPP.
 #[test]
 fn decrqss_answers_decslpp_as_the_lines_per_page() {
     assert_eq!(show(&answer(b"\x1bP$qt\x1b\\")), show(b"\x1bP1$r24t\x1b\\"));

@@ -371,7 +371,7 @@ fn the_alaph_rules_touch_alaph_alone() {
     assert_eq!(syriac(&[ALAPH]), [Some(Isolated)]);
     // After a space or a ZWNJ, a word of its own, as at the start of the
     // text: S2's character to its right is a letter of the word, as
-    // HarfBuzz and CoreText read it (Jev ISOLATED_AFTER_SPACE, 0.98/0.98).
+    // HarfBuzz and CoreText read it.
     assert_eq!(
         syriac(&[BETH, 0x20, ALAPH]),
         [Some(Isolated), None, Some(Isolated)]

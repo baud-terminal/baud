@@ -6,27 +6,23 @@
 //! an error, even 0"). A prompt whose command has not ended, or whose `D`
 //! said nothing, has no mark: nothing is guessed.
 //!
-//! **The look** (Jev, MARGIN_SHAPES, 0.99/0.99, over iTerm2's one triangle,
-//! Warp's tinted block and a line across the row, each rendered): a filled
-//! disc for success, a cross for failure and a ring for a cancelled
-//! command (Jev, OWN_MARK, 0.95/0.97), VS Code's scheme
+//! **The look** (over iTerm2's one triangle, Warp's tinted block and a line
+//! across the row, each rendered): a filled disc for success, a cross for
+//! failure and a ring for a cancelled command, VS Code's scheme
 //! (`[[source: vscode-terminal-icons-ec01053]]`), so the shape carries the
 //! state and the colour repeats it -- "Avoid relying solely on color to
 //! differentiate between objects ... you can use text labels or glyph
 //! shapes to identify objects or states" (`[[source: apple-hig-color]]`,
 //! Inclusive color). The colours are the palette's, so a theme or `OSC 4`
 //! moves them: entry 4 for success and 1 for failure, iTerm2's and VS
-//! Code's blue and red (Jev, BLUE_RED, 1.00/0.98), and 8 for a cancelled
-//! command.
+//! Code's blue and red, and 8 for a cancelled command.
 //!
 //! **Where**: a strip of its own, which the grid gives a column to while
-//! the setting is on (Jev's lean, OWN_COLUMN, 0.86/0.82), so no mark lies
-//! on a program's text; the setting is off unless set (Jev's lean, OFF,
-//! the first ask's 0.82/0.66 against a split re-ask). Each frame reads the
-//! prompts on the window it shows ([`Term::prompts_from`]), so a mark
-//! moves with its line through scrolling, a reflow and the history. The
-//! alternate screen has no prompts: a full-screen program's rows have no
-//! marks.
+//! the setting is on, so no mark lies on a program's text; the setting is
+//! off unless set. Each frame reads the prompts on the window it shows
+//! ([`Term::prompts_from`]), so a mark moves with its line through
+//! scrolling, a reflow and the history. The alternate screen has no
+//! prompts: a full-screen program's rows have no marks.
 
 use baud_core::{ExitCode, ExitStatus, PromptLine, Screen, Term};
 use baud_domain::{Chan, Row, Rows};

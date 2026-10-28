@@ -16,16 +16,15 @@
 //! DECSET counts it.
 //!
 //! xterm's `savemodes` and `restoremodes` (`[[source: xterm-reset]]`) depart
-//! from that text in places. Where Jev decided for the text on 2026-10-10,
-//! each listed for the owner's veto, baud follows the text: xterm ignores
-//! `?2` and `?8` and saves `?3` only under the `c132` resource `?40` sets
-//! (XT-3), restores `?1049` without the cursor or the clear (XT-6), and
-//! keeps the cache across `RIS` (XT-8); and where the text is silent, xterm
-//! re-applies `?6`, and `?3` under `c132`, at a value already in force, and
-//! baud changes nothing (XT-7). The rest are the owner's call rather than
-//! followed here: it saves one tracking level under all four mouse modes and
-//! one encoding under all four encodings, and restores a never-saved mode
-//! from a zeroed array.
+//! from that text in places. Where the text speaks, baud follows it (since
+//! 2026-10-10): xterm ignores `?2` and `?8` and saves `?3` only under the
+//! `c132` resource `?40` sets (XT-3), restores `?1049` without the cursor or
+//! the clear (XT-6), and keeps the cache across `RIS` (XT-8); and where the
+//! text is silent, xterm re-applies `?6`, and `?3` under `c132`, at a value
+//! already in force, and baud changes nothing (XT-7). The rest are open
+//! rather than followed here: it saves one tracking level under all four
+//! mouse modes and one encoding under all four encodings, and restores a
+//! never-saved mode from a zeroed array.
 
 use crate::support;
 use baud_core::*;
@@ -117,9 +116,8 @@ fn xtrestore_brings_back_what_xtsave_saved() {
 /// leaves the alternate screen and restores the cursor `?1049 h` saved, as
 /// `?1049 l` does; restoring it set saves the cursor, switches and clears.
 /// Restoring `?47` switches and does nothing else, as `?47` does. xterm's
-/// restore of `?1049` is the bare switch of `?47`; baud follows the text,
-/// decided 2026-10-10 by Jev at 0.98 and 0.96 (XT-6), listed for the owner's
-/// veto.
+/// restore of `?1049` is the bare switch of `?47`; baud follows the text
+/// (since 2026-10-10).
 #[test]
 fn xtrestore_has_the_side_effects_of_setting_the_mode() {
     support::with_corpus(|t| {
@@ -189,8 +187,7 @@ fn xtrestore_has_the_side_effects_of_setting_the_mode() {
 /// has keeps every effect it has: `?1049 r` saved set, on the alternate
 /// screen, does not clear it. The text is silent on a value already in
 /// force; xterm re-applies `?6` whatever its value, and `?3` too under its
-/// `c132` resource, and baud's no change was decided 2026-10-10 by Jev at
-/// 0.96 and 0.94 (XT-7), listed for the owner's veto.
+/// `c132` resource, and baud changes nothing (since 2026-10-10).
 #[test]
 fn a_restore_changes_only_what_differs_from_the_saved_value() {
     for restore in [&b"\x1b[?1000;1002;1003r"[..], b"\x1b[?1003;1002;1000r"] {
@@ -219,7 +216,7 @@ fn a_restore_changes_only_what_differs_from_the_saved_value() {
         assert_eq!(t.mouse_tracking(), MouseTracking::Normal);
         // While `?1002` is in force, restoring it reset turns tracking off:
         // DECRST of any level does. xterm restores the level saved under it,
-        // `?1000` -- the owner's call.
+        // `?1000` -- an open question.
         feed(t, b"\x1b[?1002h\x1b[?1002r");
         assert_eq!(t.mouse_tracking(), MouseTracking::Off);
     });
@@ -257,10 +254,10 @@ fn a_restore_at_the_value_in_force_neither_homes_nor_clears() {
     });
 }
 
-/// **Only what was saved is restored, and only what is listed.** A mode
-/// never saved has no value "previously saved", so a restore of it changes
-/// nothing -- xterm restores it from a zeroed array, which turns `?25` off and
-/// `?7` off; the owner's call.
+/// **Only what was saved is restored, and only what is listed.** A mode never
+/// saved has no value "previously saved", so a restore of it changes nothing
+/// -- xterm restores it from a zeroed array, which turns `?25` off and `?7`
+/// off; an open question.
 #[test]
 fn only_what_was_saved_and_listed_is_restored() {
     support::with_corpus(|t| {
@@ -378,13 +375,12 @@ fn the_question_mark_keeps_them_apart_from_scosc_decstbm_and_decslrm() {
     });
 }
 
-/// **`RIS` empties the cache and `DECSTR` keeps it.** ECMA-48 § 8.3.105:
-/// "RIS causes a device to be reset to its initial state, i.e. the state it
-/// has after it is made operational" (`[[source: ecma48]]`), and at power-on
+/// **`RIS` empties the cache and `DECSTR` keeps it.** ECMA-48 § 8.3.105: "RIS
+/// causes a device to be reset to its initial state, i.e. the state it has
+/// after it is made operational" (`[[source: ecma48]]`), and at power-on
 /// nothing is saved. DECSTR's list does not name it. xterm keeps it across
 /// both -- `ReallyReset` never touches `save_modes` -- which departs from the
-/// text; baud follows the text, decided 2026-10-10 by Jev at 0.94 and 0.94
-/// (XT-8), listed for the owner's veto.
+/// text; baud follows the text (since 2026-10-10).
 #[test]
 fn ris_empties_the_cache_and_decstr_keeps_it() {
     support::with_corpus(|t| {

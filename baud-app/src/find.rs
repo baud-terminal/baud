@@ -25,11 +25,11 @@
 //! the query goes there as it changes, and Command-F, Command-G or
 //! Shift-Command-G with the field closed reopen it on that string,
 //! selected so a key typed replaces it, and step from the match current
-//! when it closed (`Finding::reopen`), as iTerm2's Find Next with no
-//! field open searches it (`[[source: iterm2-finddriver-654bb13]]`
-//! 589-594, 649-668; Jev, 0.90 and 0.90). **An input method composes in
-//! the field** while it is open, at its caret ([`Finding::look_typing`]),
-//! and its candidate window opens there.
+//! when it closed (`Finding::reopen`), as iTerm2's Find Next with no field
+//! open searches it (`[[source: iterm2-finddriver-654bb13]]` 589-594,
+//! 649-668). **An input method composes in the field** while it is open,
+//! at its caret ([`Finding::look_typing`]), and its candidate window opens
+//! there.
 
 use baud_core::{Found, Term};
 use baud_domain::{Codepoint, KeyCode, Modifiers, Rows};

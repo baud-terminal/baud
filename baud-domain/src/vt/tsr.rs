@@ -11,14 +11,12 @@
 //! the VT420's guideline its alphabet: every data byte is `4/0` to `4/15`
 //! and carries one nibble, "system parameters are contained in low nibble
 //! of each byte", and two checksum bytes follow, the 2's complement of the
-//! 8-bit sum of the data bytes, a nibble each, high first (Jev, C_NIBBLE,
-//! 0.92/0.96).
+//! 8-bit sum of the data bytes, a nibble each, high first.
 //!
 //! **The layout is fixed**, every field at a known nibble, so a field with
 //! a value baud cannot take is stepped over and the next one read, STD
-//! 070's "the terminal will ignore the error if possible" (Jev's lean,
-//! I_SKIP, 0.72/0.36 after research); a first nibble that is not
-//! [`TSR_VERSION`] restores nothing. In order:
+//! 070's "the terminal will ignore the error if possible"; a first nibble
+//! that is not [`TSR_VERSION`] restores nothing. In order:
 //!
 //! | nibbles | field |
 //! |---|---|
@@ -39,18 +37,16 @@
 //! | 4 | the tab stops: carried (bit 0) or every eighth column (bit 1); the columns (3) |
 //! | 0-58 | the tab stops' bitmap, a bit a column, when carried, [`TSR_TAB_COLS`] columns at most |
 //!
-//! **The `DECSC` save is the shown screen's** (Jev's lean, S_SHOWN,
-//! 0.86/0.88 after research): no other control reads it back, and
-//! the VT420 manual's DECTSR has "the entire state of the terminal, except
-//! for user-defined key definitions and the current soft character set".
-//! The other screen's, the primary's `?1049` save while the alternate
-//! screen is up, is not carried.
+//! **The `DECSC` save is the shown screen's**: no other control reads it
+//! back, and the VT420 manual's DECTSR has "the entire state of the
+//! terminal, except for user-defined key definitions and the current soft
+//! character set". The other screen's, the primary's `?1049` save while
+//! the alternate screen is up, is not carried.
 //!
 //! A tab bitmap is carried only where it fits the 256-character bound, a
 //! screen up to [`TSR_TAB_COLS`] columns; a wider screen carries the stops
 //! as one flag when they are every eighth column, and else not at all, and
-//! DECTABSR reports them at any width (Jev's lean, T_FIT_DEFAULT,
-//! 0.64/0.27 after research).
+//! DECTABSR reports them at any width.
 
 use crate::*;
 
@@ -789,9 +785,9 @@ pub enum ColorSpace {
 }
 
 impl ColorSpace {
-    /// DECCTR's `Pu`: 0 or omitted HLS, the VT340's default (`[[source:
-    /// vt3xx-tp-002]]` p. 206, "0 or none HLS (default)"; Jev, D_HLS,
-    /// 0.92/0.91), 1 HLS, 2 RGB, and any other no system the text names.
+    /// DECCTR's `Pu`: 0 or omitted HLS, the VT340's default
+    /// (`[[source: vt3xx-tp-002]]` p. 206, "0 or none HLS (default)"),
+    /// 1 HLS, 2 RGB, and any other no system the text names.
     pub fn of_request(pu: u16) -> Option<ColorSpace> {
         match pu {
             0 | 1 => Some(ColorSpace::Hls),
@@ -888,9 +884,8 @@ pub enum ColorRestore {
         n: u8,
         cur: Option<u16>,
     },
-    /// An invalid group was met: the rest is ignored (Jev's lean, G_STOP,
-    /// 0.18/0.30 after research; the VT340's, VT420's and VT510's "ignores
-    /// the rest of the sequence").
+    /// An invalid group was met: the rest is ignored (the VT340's, VT420's
+    /// and VT510's "ignores the rest of the sequence").
     Stopped,
 }
 

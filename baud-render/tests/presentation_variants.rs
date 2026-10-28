@@ -174,17 +174,17 @@ fn with_words(bytes: &str) -> Vec<(Option<JoiningForm>, (Vec<Read>, Vec<Read>))>
 }
 
 /// **A form asked wins over the forms joining finds from the word**
-/// (`[[source: ecma48]]` 8.3.108's 5-8 and 18, over `[[source:
-/// unicode-ch9]]` 9.3's S1-S3): a Syriac alaph after he, fin2 by S2, is
-/// drawn final under 8 and isolated under 5; one inside a word, med2, is
-/// drawn final under 8. The letters around it read it in the form asked
-/// -- the beth before it, shaped with its word, reads a final alaph, not
-/// med2 -- and under 18 as stored. The asked letter keeps its word (Jev's
-/// lean WORD, 0.90/0.86), joined or not: an alef after a dal and an alaph
-/// after he inside a word, which no letter joins, and an alef between two
-/// dals, in a word none of whose letters join; with BDSM reset on a row
-/// that also holds Mongolian, read left to right, the alef's word is the
-/// one read right to left.
+/// (`[[source: ecma48]]` 8.3.108's 5-8 and 18, over
+/// `[[source: unicode-ch9]]` 9.3's S1-S3): a Syriac alaph after he, fin2
+/// by S2, is drawn final under 8 and isolated under 5; one inside a word,
+/// med2, is drawn final under 8. The letters around it read it in the
+/// form asked -- the beth before it, shaped with its word, reads a final
+/// alaph, not med2 -- and under 18 as stored. The asked letter keeps its
+/// word, joined or not: an alef after a dal and an alaph after he inside
+/// a word, which no letter joins, and an alef between two dals, in a word
+/// none of whose letters join; with BDSM reset on a row that also holds
+/// Mongolian, read left to right, the alef's word is the one read right
+/// to left.
 #[test]
 fn a_form_asked_wins_over_the_word_and_the_word_reads_it() {
     use JoiningForm::{Final, Final2, Initial, Isolated, Medial2};
@@ -462,11 +462,11 @@ fn value_17_slants_right_to_left_italics_to_the_left() {
 }
 
 /// **Under DECRLM the letters join as written, right to left, and take the
-/// forms SAPV asks**: a row DECRLM wrote is drawn as its cells hold (Jev,
-/// AS_STORED), the first letter sent in the last column, so it is read
-/// from the right as the program wrote it, with BDSM set and reset; the
-/// letter after a form asked is drawn as its neighbours give it, as on a
-/// row written left to right.
+/// forms SAPV asks**: a row DECRLM wrote is drawn as its cells hold, the
+/// first letter sent in the last column, so it is read from the right as
+/// the program wrote it, with BDSM set and reset; the letter after a form
+/// asked is drawn as its neighbours give it, as on a row written left to
+/// right.
 #[test]
 fn under_decrlm_letters_join_as_written_and_take_the_forms_asked() {
     use JoiningForm::{Final, Initial, Isolated};

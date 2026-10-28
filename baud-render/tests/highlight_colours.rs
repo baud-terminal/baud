@@ -4,10 +4,9 @@
 //!
 //! `[[source: ctlseqs]]`: "Ps = 1 7 -> Change highlight background color to
 //! Pt", "Ps = 1 9 -> Change highlight foreground color to Pt", and 117 and
-//! 119 reset them. Each is drawn whenever it is set (Jev's lean, decisions
-//! of 2026-10-18 under the bar, kitty's practice): the page alone draws
-//! each cell's own text on it, the text alone draws on the reversed page,
-//! and neither is reverse video.
+//! 119 reset them. Each is drawn whenever it is set (kitty's practice): the
+//! page alone draws each cell's own text on it, the text alone draws on the
+//! reversed page, and neither is reverse video.
 
 mod support;
 
@@ -101,7 +100,7 @@ fn a_selection_is_drawn_in_the_highlight_colours_each_when_set() {
 }
 
 /// **A theme's selection colours are drawn until a program sets its
-/// own**, the owner's V13 `Theme` selection setting: each is the theme's
+/// own**, note V's V13 `Theme` selection setting: each is the theme's
 /// where no `OSC 17`/`19` is set, the program's while one is, and the
 /// theme's again after `OSC 117`/`119` -- "their default (resource)
 /// values" (`[[source: ctlseqs]]`). Both unset is still reverse video.

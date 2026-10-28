@@ -53,9 +53,7 @@ pub struct Flex {
     /// for a horizontal flex and `[dx, 0]` for a vertical one. Where the
     /// start and the end share a `y` (or an `x`), it is the joining point's
     /// offset from that line; where they share neither, or both, its offset
-    /// from the end point's own line, as the text's figure draws it (the
-    /// owner's decision of 2026-10-13; the record, "A flex shallower than
-    /// half a pixel draws straight", question 6).
+    /// from the end point's own line, as the text's figure draws it.
     pub depth: [f32; 2],
     /// The threshold in device pixels: `fd / 100` for `flex`, and the
     /// implicit 0.5 ("threshold fd = 50 is implicit") for `hflex`, `hflex1`

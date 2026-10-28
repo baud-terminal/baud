@@ -1,12 +1,11 @@
-//! **Math that gives the same bits on every OS.** Rust's `f32::exp`,
-//! `sin` and the rest call the platform's libm -- Apple's on macOS,
-//! glibc's on Linux -- and the two disagree: with std's math in place of
-//! these, 12 of the 21 light digests pinned on macOS
+//! **Math that gives the same bits on every OS.** Rust's `f32::exp`, `sin`
+//! and the rest call the platform's libm -- Apple's on macOS, glibc's on
+//! Linux -- and the two disagree: with std's math in place of these, 12 of
+//! the 21 light digests pinned on macOS
 //! (`every_effect_lights_the_same_bits_on_every_os`) differ on Linux
-//! aarch64 (`docs/record.md`, "Every cursor trail on the CPU, with the
-//! same bits on every OS"). A trail's light and its corners are built from
-//! them, so a frame drawn from std's would differ between the two systems
-//! where one ulp moves a pixel's rounding.
+//! aarch64. A trail's light and its corners are built from them, so a
+//! frame drawn from std's would differ between the two systems where one
+//! ulp moves a pixel's rounding.
 //!
 //! These are evaluated in `f64` with IEEE 754 basic operations alone --
 //! add, subtract, multiply, divide, square root, `floor`, `round` and bit

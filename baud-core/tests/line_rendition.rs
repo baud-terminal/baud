@@ -555,9 +555,9 @@ fn resize(t: &mut Term<'_>, rows: u16, cols: u16) {
 }
 
 /// **A width change keeps a sized line one row, whole.** No text resizes a
-/// page; Jev's lean, taken below the bar (the record): never joined to the
-/// rows round it, its characters past a narrower half kept unseen and shown
-/// again by the growth back.
+/// page, so this is a choice: never joined to the rows round it, its
+/// characters past a narrower half kept unseen and shown again by the
+/// growth back.
 #[test]
 fn a_reflow_keeps_a_sized_line_whole_and_on_its_own() {
     let forty = letters(40, false);
@@ -966,8 +966,7 @@ fn decrqcra_sums_a_double_line_to_its_end() {
 /// DECCRA's source: "characters 5 through 10 from all lines within the
 /// rectangular area will be copied" (p. 5-169), and a position past a
 /// double line's end is none, so it is copied as unoccupied -- what a DEC
-/// terminal's copy gives, whose cells there are always empty (decided by
-/// Jev 2026-10-19, UNOCCUPIED, 1.00 and 1.00 on a re-ask). A narrowed
+/// terminal's copy gives, whose cells there are always empty. A narrowed
 /// line's hidden letters never reach the single-width line.
 #[test]
 fn deccra_reads_a_double_line_past_its_end_as_unoccupied() {
@@ -993,10 +992,9 @@ fn deccra_reads_a_double_line_past_its_end_as_unoccupied() {
 // information is carried from the ANSI text state" (`[[source: dec-std-070]]`
 // 070-9 § 11.1). It starts at the cursor's displayed place, "the upper-left
 // corner of the ANSI text active position" (`[[source: vt3xx-sixel]]`), which
-// on a double line is the doubled character field, "column 9 of the
-// physical display" for character position 5 (p. 5-95). Decided by Jev
-// 2026-10-19, UNSCALED_AT_CURSOR, 0.97 and 0.94 on a re-ask; xterm places it
-// at the single-width column of the character position
+// on a double line is the doubled character field, "column 9 of the physical
+// display" for character position 5 (p. 5-95); xterm places it at the
+// single-width column of the character position
 // (`[[source: xterm-graphics-c]]`, `charcol * FontWidth`).
 
 /// A 24x6 red Sixel: three columns at an eight-pixel cell.
@@ -1194,8 +1192,7 @@ fn size_of(set: &str) -> LineRendition {
 /// any: the kitty text moves images only when "scrolling the screen" and
 /// gives erases "no effect on graphics" (`[[source: kitty-graphics]]`,
 /// "Interaction with other terminal actions"), no DEC text puts a Sixel
-/// under DECIC, and xterm and kitty move none. Decided by Jev 2026-10-19,
-/// IMAGES_STAY, 1.00 both orders. The text shifts under it.
+/// under DECIC, and xterm and kitty move none. The text shifts under it.
 #[test]
 fn decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is() {
     let kitty = kitty_32x48();
@@ -1225,18 +1222,16 @@ fn decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is() {
 /// their shift by the line's end (pp. 5-143 and 5-145,
 /// `ich_and_dch_shift_within_the_half`), and the scroll_left and
 /// scroll_right routines of the horizontal-scrolling extension, which
-/// DECFI and DECBI call, run every row to the right margin (§ 5.14.4 and
-/// § 5.14.5, pp. 5-212 and 5-213). So three letters DECIC pushes past a
+/// DECFI and DECBI call, run every row to the right margin (§ 5.14.4 and §
+/// 5.14.5, pp. 5-212 and 5-213). So three letters DECIC pushes past a
 /// double line's fortieth position are kept past it and come back on
 /// DECSWL, which "does not cause data contained in the Active Line to be
-/// lost" (p. 5-96), and DECDC after it brings them back in. The one
-/// STD 070 note on a sized line under a horizontal shift is note 1 of
-/// DECFI and of DECBI (pp. 5-37 and 5-39), not of DECIC: "Lines of text
-/// are shifted one column regardless of their line attributes. This
-/// means double-wide and double-size lines will appear to shift twice as
-/// fast as single-width lines." Jev's lean, RIGHT_MARGIN, taken
-/// below the bar after one re-ask (confidence 0.84 and 0.90, then 0.52
-/// and 0.66, 2026-10-19); xterm shifts each row to its right margin
+/// lost" (p. 5-96), and DECDC after it brings them back in. The one STD
+/// 070 note on a sized line under a horizontal shift is note 1 of DECFI
+/// and of DECBI (pp. 5-37 and 5-39), not of DECIC: "Lines of text are
+/// shifted one column regardless of their line attributes. This means
+/// double-wide and double-size lines will appear to shift twice as fast as
+/// single-width lines." xterm shifts each row to its right margin
 /// (`[[source: xterm-scroll]]`, `xtermColScroll`).
 #[test]
 fn decic_and_decdc_shift_a_sized_line_to_the_right_margin() {

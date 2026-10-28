@@ -15,12 +15,11 @@ use baud_domain::{AmbiguousWidth, Classified, Codepoint, InputEncoding, Width};
 /// **The control characters a paste replaces: xterm's default**, its
 /// `disallowedPasteControls`, "BS,DEL,ENQ,EOT,ESC,NUL,STTY", each turned
 /// into a space in every paste, bracketed or not, while every other C0
-/// control passes (`[[source: xterm-man]]`; `removeControls`, `[[source:
-/// xterm-button]]` 2582-2690). The conforming choice: Jev's lean,
-/// XTERM_DEFAULT, 0.25/0.58, where keeping today's paste and foot's
-/// stripping were departures neither order took to 0.9. Both drivers tell
-/// the core, so `OSC 61 ; allowPasteControls` names them
-/// (`host::set_window_abilities`).
+/// control passes (`[[source: xterm-man]]`; `removeControls`,
+/// `[[source: xterm-button]]` 2582-2690). The conforming choice: keeping
+/// the paste whole, or stripping as foot does, would each depart from it.
+/// Both drivers tell the core, so `OSC 61 ; allowPasteControls` names
+/// them (`host::set_window_abilities`).
 pub const FILTER: PasteControls = PasteControls::XtermDefault;
 
 /// **The tty's special characters**, xterm's `STTY`: each `c_cc` entry
@@ -129,20 +128,20 @@ const DEFAULT_STRING: u8 = b'#';
 
 /// **`text` as ISO 8859-1, xterm's way**, `UTF8toLatin1` and then
 /// `removeControls` outside UTF-8 (`[[source: xterm-button-c]]` 1749-1809,
-/// 2662-2686; Jev, XTERM_CONVERT, 0.91/0.94): a code point below 256 is its
-/// own byte, except a C1 control, 0x80 to 0x9F, which is deleted -- a C1
-/// byte is a control to a child reading ISO 8859-1 (`[[source: ecma48]]`
-/// § 5.3, "in an 8-bit code by bit combinations from 08/00 to 09/15";
-/// `[[source: iso8859-1]]`, `<control>`), and 0x9B is CSI, which could end
-/// a bracketed paste early (Jev's lean, DELETE, 0.80/0.88, over a space).
-/// Above 256, a DEC Special Graphics character becomes `DECtoASCII`'s,
-/// one of xterm's DEC Technical internal codes `?`, a character
-/// `AsciiEquivs` names its ASCII (`[[source: xterm-scroll]]` 3699-3735:
-/// dashes and the minus sign `-`, the single quotation marks and the angle
-/// brackets, and the fullwidth forms), and anything else `#`; a wide
-/// character that took no DEC position is followed by a space, so it keeps
-/// its two columns. xterm's `is_UCS_SPECIAL`, U+FFF0 to U+FFFF, is `#`
-/// (`[[source: xterm-ptyx-h]]` 1819).
+/// 2662-2686): a code point below 256 is its own byte, except a C1 control,
+/// 0x80 to 0x9F, which is deleted -- a C1 byte is a control to a child
+/// reading ISO 8859-1 (`[[source: ecma48]]` § 5.3, "in an 8-bit code by bit
+/// combinations from 08/00 to 09/15"; `[[source: iso8859-1]]`,
+/// `<control>`), and 0x9B is CSI, which could end a bracketed paste early
+/// (deleted rather than turned into a space). Above 256, a DEC Special
+/// Graphics character becomes `DECtoASCII`'s, one of xterm's DEC Technical
+/// internal codes `?`, a character `AsciiEquivs` names its ASCII
+/// (`[[source: xterm-scroll]]` 3699-3735: dashes and the minus sign `-`,
+/// the single quotation marks and the angle brackets, and the fullwidth
+/// forms), and anything else `#`; a wide character that took no DEC
+/// position is followed by a space, so it keeps its two columns. xterm's
+/// `is_UCS_SPECIAL`, U+FFF0 to U+FFFF, is `#` (`[[source: xterm-ptyx-h]]`
+/// 1819).
 pub fn latin1(text: &str, ambiguous: AmbiguousWidth) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len());
     for ch in text.chars() {

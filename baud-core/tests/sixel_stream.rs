@@ -641,15 +641,14 @@ fn shown_at(data: &[u8], budget: ImageBudget) -> Shown {
 
 /// **A body cut off is placed from what it received**: four fifths of the
 /// swirl's body, past its colour definitions and into its data, then what
-/// cuts it off -- `CAN`, an `ESC` and a final that is not `\`, a new DCS
-/// -- leaves what the same four fifths ended by `ST` and followed by the
-/// cut's own escape sequence leaves, then the whole swirl at home: williams'
+/// cuts it off -- `CAN`, an `ESC` and a final that is not `\`, a new DCS --
+/// leaves what the same four fifths ended by `ST` and followed by the cut's
+/// own escape sequence leaves, then the whole swirl at home: williams'
 /// "Cancelling a control string does not undo these effects" (501-503) and
-/// 070-9's printing in received order (Jev, KEEP, 0.94/0.94; the lean KEEP,
-/// 0.72/0.68, for `CAN`). Until 2026-10-19 each left nothing. `RIS` still
-/// leaves nothing: it places the image and then removes every one, and
-/// done forty times, past the 32 image slots, the swirl after it still
-/// draws alone, so no cut keeps a slot or a span.
+/// 070-9's printing in received order. Until 2026-10-19 each left nothing.
+/// `RIS` still leaves nothing: it places the image and then removes every
+/// one, and done forty times, past the 32 image slots, the swirl after it
+/// still draws alone, so no cut keeps a slot or a span.
 #[test]
 fn a_body_cut_off_is_placed_from_what_it_received() {
     let want = swirl_alone();
@@ -731,8 +730,7 @@ fn a_raster_that_overstates_or_understates_the_image_draws_the_datas_extent() {
 /// **A body past any scratch the app had draws**: the swirl with 8 MiB of
 /// graphics carriage returns before its terminator, each a no-op at the
 /// left edge, draws the swirl's image exactly. At e46ee3a7 the app's 3 MiB
-/// scratch refused it for its body (the record, "A Sixel is decoded as its
-/// body arrives").
+/// scratch refused it for its body (note S).
 #[test]
 fn a_body_past_any_old_scratch_draws_its_image() {
     let st = SWIRL
@@ -795,8 +793,7 @@ fn ten_bands(w: usize, rgb: &str) -> Vec<u8> {
 /// * where they reach the fourth band, 720 words painted into a 600-word
 ///   claim, the band that did not fit was refused with its bytes, and the
 ///   image is refused for the arena at 30x60: the open departure from the
-///   buffered decoder (the record, "A Sixel is decoded as its body
-///   arrives").
+///   buffered decoder (note S).
 #[test]
 fn a_resize_inside_a_body_frees_room_the_rest_of_it_can_use() {
     let red = Pixel::opaque(

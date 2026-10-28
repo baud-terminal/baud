@@ -77,10 +77,9 @@ fn the_typesetting_functions_are_counted_and_write_nothing() {
 
 /// The seventeen baud could act on, which note BF lists to build: the
 /// twelve that set a character's size or spacing, on the cell machinery
-/// `OSC 66` would bring (Jev's lean, BUILD_LATER); JFY and QUAD, which lay
-/// a string out between the line home and limit; IDCS, whose 2 names
-/// DECDLD's DRCS; GCC, which images characters as one symbol; and SCO,
-/// which rotates them.
+/// `OSC 66` would bring; JFY and QUAD, which lay a string out between the
+/// line home and limit; IDCS, whose 2 names DECDLD's DRCS; GCC, which
+/// images characters as one symbol; and SCO, which rotates them.
 const TO_BUILD: [&str; 17] = [
     "GSM", "GSS", "TSS", "SPI", "SHS", "SVS", "PEC", "SSW", "SACS", "SRCS", "SCS", "SLS", "JFY",
     "QUAD", "IDCS", "GCC", "SCO",

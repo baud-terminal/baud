@@ -130,8 +130,7 @@ fn bs_cr_lnm_nel_and_ht_follow_the_direction() {
 }
 
 /// **Inside DECLRMM's margins `CR` goes to the right margin, and the wrap
-/// from the left margin lands on the right margin of the next line**
-/// (Jev's lean, MARGINS).
+/// from the left margin lands on the right margin of the next line**.
 #[test]
 fn inside_side_margins_the_margins_bound_it() {
     let m = "\x1b[?69h\x1b[3;7s";
@@ -206,13 +205,13 @@ fn under_unicode_8_a_mark_at_column_0_joins_the_last_write() {
     );
 }
 
-/// **A row erased whole is no longer one DECRLM wrote** (Jev, AS_STORED:
-/// drawn as its cells hold, "until it is erased whole"): `ED 2`, `EL 2`,
-/// `EL 0` from column one and `DECSED 2` with nothing protected end the
-/// mark, and a line written in order on it is drawn by UAX #9 again. An
-/// erase that leaves part of the row, `EL 0` from column five or `DECSED`
-/// sparing a protected character, keeps it. The line's path, SCP's,
-/// survives every erase, as it did.
+/// **A row erased whole is no longer one DECRLM wrote** (drawn as its
+/// cells hold, "until it is erased whole"): `ED 2`, `EL 2`, `EL 0` from
+/// column one and `DECSED 2` with nothing protected end the mark, and a
+/// line written in order on it is drawn by UAX #9 again. An erase that
+/// leaves part of the row, `EL 0` from column five or `DECSED` sparing a
+/// protected character, keeps it. The line's path, SCP's, survives every
+/// erase, as it did.
 #[test]
 fn a_row_erased_whole_is_no_longer_one_decrlm_wrote() {
     let written = |scp: &str, erase: &str| {

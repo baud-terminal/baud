@@ -5,17 +5,16 @@
 //!
 //! **A key** the system's layout typed its own unshifted character on
 //! sends the letter the standard Israeli layout puts on that physical key
-//! (`baud_domain::hebrew_key`; Jev's lean, STANDARD_LAYOUT), so on a US,
-//! AZERTY or QWERTZ layout the key where the US layout has `a` sends shin.
-//! **With Shift** a key types SI-1452's second level, which is the US
-//! layout's but for six keys that type their mirror
-//! (`baud_domain::hebrew_key_shifted`): the key where the US layout
-//! types `{` sends `}`, `(` sends `)` and `<` sends `>`, and each the
-//! other way. Both apps send a shifted key as the character it typed,
-//! Shift consumed, with the US layout's character on its place beside
-//! it where that differs, so a key is taken as shifted when it typed
-//! what the US layout or SI-1452 types there with Shift. On Wayland a
-//! key whose unshifted character is the US layout's names no place, and
+//! (`baud_domain::hebrew_key`), so on a US, AZERTY or QWERTZ layout the
+//! key where the US layout has `a` sends shin. **With Shift** a key types
+//! SI-1452's second level, which is the US layout's but for six keys that
+//! type their mirror (`baud_domain::hebrew_key_shifted`): the key where
+//! the US layout types `{` sends `}`, `(` sends `)` and `<` sends `>`, and
+//! each the other way. Both apps send a shifted key as the character it
+//! typed, Shift consumed, with the US layout's character on its place
+//! beside it where that differs, so a key is taken as shifted when it
+//! typed what the US layout or SI-1452 types there with Shift. On Wayland
+//! a key whose unshifted character is the US layout's names no place, and
 //! is sent as typed, an open departure (the `?35` row of
 //! `docs/vt-coverage.md`): a US layout's Shift+`9` and a Hebrew layout's
 //! arrive alike. A letter Caps Lock made a capital is sent as typed, as
@@ -32,11 +31,9 @@
 //! are selected", DECHEM set, the letter is sent as itself, and "It does
 //! not affect ... the processing of received characters".
 //!
-//! **At Level 4**, the VT510's, as DECRLM and DECHEM act (Jev, LEVEL_4):
-//! the page's "or the terminal is set to VT100 mode" is not reached, an
-//! open departure; Jev's lean to act at every level had probability 0.63
-//! in one order and 0.50 in the other, a tie that does not outrank the
-//! decided rule.
+//! **At Level 4**, the VT510's, as DECRLM and DECHEM act: the page's "or
+//! the terminal is set to VT100 mode" is not reached, an open departure,
+//! which acting at every level would close.
 
 use baud_domain::{
     Codepoint, HebrewEncoding, HebrewKeyboard, HebrewLayout, KeyCode, KeyEvent, Modifiers,

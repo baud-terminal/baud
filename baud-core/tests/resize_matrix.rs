@@ -1,6 +1,6 @@
 //! Everything a resize must and must not do, in one place.
 //!
-//! These were written from four things the owner reported over a day of
+//! These were written from four things a user reported over a day of
 //! using baud, and each is a behaviour rather than an implementation --
 //! so a rule that satisfies one by breaking another fails here rather
 //! than in their terminal. That already happened once: not reaching into
@@ -55,11 +55,11 @@ fn after_a_command(t: &mut Term<'_>, lines: usize) {
     prompt(t);
 }
 
-/// The owner's zsh, as the fixtures record it: the mark, then a newline
-/// that is part of the prompt, then four lines with the cursor on the
-/// last -- a block of five rows whose first, the mark's, is blank. The
-/// redraw moves up four from the cursor to that row. An earlier version
-/// of this model sent the newline on the redraw and not on the first
+/// zsh, as the fixtures record it: the mark, then a newline that is
+/// part of the prompt, then four lines with the cursor on the last -- a
+/// block of five rows whose first, the mark's, is blank. The redraw
+/// moves up four from the cursor to that row. An earlier version of
+/// this model sent the newline on the redraw and not on the first
 /// prompt, so its `CUU 4` landed one row low and every redraw drifted
 /// the block down a row: a model wrong in a way the recordings are not.
 fn prompt(t: &mut Term<'_>) {
@@ -68,10 +68,10 @@ fn prompt(t: &mut Term<'_>) {
     support::feed(t, b"\x1b]133;B\x07");
 }
 
-/// The prompt **redrawn**, in the shape the owner's `zsh` actually
-/// sends: carriage return, cursor up by the rows it believes its prompt
-/// occupies, erase from there to the end of the screen, then a newline
-/// and the prompt again.
+/// The prompt **redrawn**, in the shape a real `zsh` sends: carriage
+/// return, cursor up by the rows it believes its prompt occupies, erase
+/// from there to the end of the screen, then a newline and the prompt
+/// again.
 ///
 /// Modelling this is the whole point. A helper that merely appends
 /// stacks prompts no matter what the terminal does -- a test that cannot
@@ -83,9 +83,9 @@ fn redraw_prompt(t: &mut Term<'_>) {
 
 #[test]
 fn output_comes_back_when_the_window_does() {
-    // The owner: "did ls, then made window smaller then bigger and the
-    // ls disappear". A shrink and a growth back to the same size is the
-    // identity, whatever the terminal did in between.
+    // A user's report: "did ls, then made window smaller then bigger
+    // and the ls disappear". A shrink and a growth back to the same
+    // size is the identity, whatever the terminal did in between.
     support::with_room(60, |t| {
         after_a_command(t, 12);
         let (cols, rows) = t.geometry();
@@ -101,17 +101,17 @@ fn output_comes_back_when_the_window_does() {
 
 #[test]
 fn a_drag_through_a_short_window_stacks_this_many_prompts() {
-    // The owner's own drag, in miniature: down through a window too
-    // short to hold the prompt and back up. The shell redraws at every
-    // step, and each redraw at a short window scrolls the last one away.
-    // Exactly one may be on screen at the end.
+    // A recorded drag, in miniature: down through a window too short to
+    // hold the prompt and back up. The shell redraws at every step, and
+    // each redraw at a short window scrolls the last one away. Exactly
+    // one may be on screen at the end.
     support::with_room(60, |t| {
         after_a_command(t, 8);
         let (cols, rows) = t.geometry();
         for h in [20, 12, 6, 4, 3, 4, 6, 12, 20] {
             resize(t, cols.index(), h);
             // The shell redraws its prompt on every resize, which is
-            // what the owner's log shows: two marks a step.
+            // what a recorded log shows: two marks a step.
             redraw_prompt(t);
         }
         resize(t, cols.index(), rows.index());
@@ -137,8 +137,9 @@ fn a_drag_through_a_short_window_stacks_this_many_prompts() {
 
 #[test]
 fn the_top_row_does_not_move_on_a_growth_while_the_shell_owns_the_screen() {
-    // The owner, twice: "the current first row changes and it should
-    // not". A growth must not slide the screen over the history.
+    // A user's report, twice: "the current first row changes and it
+    // should not". A growth must not slide the screen over the
+    // history.
     support::with_room(60, |t| {
         after_a_command(t, 8);
         let (cols, rows) = t.geometry();
@@ -180,8 +181,8 @@ fn the_zone_is_what_these_rules_key_on() {
 
 #[test]
 fn a_shrink_does_not_let_the_prompt_overwrite_output() {
-    // **The owner, and the worst report yet:** "change size to small and
-    // big actually DELETE the ls and it never comes back".
+    // **The worst report yet:** "change size to small and big actually
+    // DELETE the ls and it never comes back".
     //
     // What `output_comes_back_when_the_window_does` missed is that the
     // shell **redraws while shrunk**. If a shrink moves the cursor to a
@@ -231,12 +232,12 @@ fn screen(t: &Term<'_>) -> Vec<String> {
 
 #[test]
 fn a_fresh_terminal_dragged_through_a_tiny_window_comes_back_as_it_was() {
-    // The owner's recording of 2026-09-18 02:18: a fresh terminal, the
-    // prompt at the top, the window dragged small and back -- and the
-    // prompt sits at the bottom of the same-sized window with a screen
-    // of blank rows above it. Every row must read as it did, and the
-    // history must hold nothing, because nothing exceeded the screen at
-    // this size.
+    // A recording of 2026-09-18 02:18: a fresh terminal, the prompt at
+    // the top, the window dragged small and back -- and the prompt sits
+    // at the bottom of the same-sized window with a screen of blank
+    // rows above it. Every row must read as it did, and the history
+    // must hold nothing, because nothing exceeded the screen at this
+    // size.
     support::with_room(60, |t| {
         resize(t, 100, 28);
         fresh(t);
@@ -325,9 +326,9 @@ fn a_shell_that_sends_no_marks_is_left_exactly_as_before() {
 }
 
 /// The prompt as the shell draws it for a screen `width` wide: the first
-/// line padded to that width, which is what the owner's zsh does for its
-/// right prompt. Drawn on a narrower screen it wraps, and the block is a
-/// row taller than the shell believes.
+/// line padded to that width, which is what a zsh with a right prompt
+/// does. Drawn on a narrower screen it wraps, and the block is a row
+/// taller than the shell believes.
 fn prompt_for_width(t: &mut Term<'_>, width: usize) {
     support::feed(t, b"\x1b]133;P;k=i\x07\r\n");
     let mut first = b"zsh prompt".to_vec();
@@ -377,13 +378,13 @@ fn long_name(i: usize, n: usize) -> String {
 
 #[test]
 fn a_program_that_forwards_marks_does_not_decide_the_shells_reflow() {
-    // The owner's zsh runs a full-screen program, the window is dragged
-    // narrow while it runs, and it exits. The command output above the
-    // prompt is re-cut to the narrow width -- every line's tail on a row
-    // of its own -- whether or not the program forwarded an inner shell's
-    // marks on its own screen. It was not when it did: the resize read the
-    // program's zone for the primary's reflow and left the output cut at
-    // the edge. The arm with no mark is the control and runs first.
+    // A zsh runs a full-screen program, the window is dragged narrow while
+    // it runs, and it exits. The command output above the prompt is re-cut
+    // to the narrow width -- every line's tail on a row of its own --
+    // whether or not the program forwarded an inner shell's marks on its
+    // own screen. It was not when it did: the resize read the program's
+    // zone for the primary's reflow and left the output cut at the edge.
+    // The arm with no mark is the control and runs first.
     for forwards in [false, true] {
         support::with_room(60, |t| {
             support::feed(t, b"\r\n\x1b]133;C\x07");
@@ -420,12 +421,12 @@ fn a_program_that_forwards_marks_does_not_decide_the_shells_reflow() {
 
 #[test]
 fn a_reset_leaves_no_history_for_a_resize_to_bring_back() {
-    // The owner's zsh runs `reset` after a long listing, and the window
-    // is then made shorter and taller again. The reset's bytes are the
-    // real ones (`tests/reset/`); the prompt it leaves stays at the top,
-    // and no line from before it comes back -- the history is gone, and a
-    // growth has nothing to pull. It pulled the reset's stale history
-    // count: the prompt slid down twenty-seven rows over blanks.
+    // A zsh runs `reset` after a long listing, and the window is then
+    // made shorter and taller again. The reset's bytes are the real ones
+    // (`tests/reset/`); the prompt it leaves stays at the top, and no
+    // line from before it comes back -- the history is gone, and a growth
+    // has nothing to pull. It pulled the reset's stale history count: the
+    // prompt slid down twenty-seven rows over blanks.
     let raw = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/reset/seq-reset.raw"

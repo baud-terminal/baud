@@ -77,9 +77,9 @@ pub(crate) fn baud_rep(p: &[u8], total: usize) -> f64 {
     // still said "baud carries `SB = 10_000`" -- `baud-core2`'s constant,
     // which went with that crate -- so the harness had the ghostty trap
     // again with a different carrier: a dimension nobody set, in baud's own
-    // favour this time. `CLAUDE.md` measures the ring at ~7% on scrolling
-    // payloads at 2,000; at 10,000 the ring is 16 MB at this pitch, and the
-    // published table is re-taken with it rather than inherited.
+    // favour this time. The ring measured ~7% on scrolling payloads at
+    // 2,000; at 10,000 the ring is 16 MB at this pitch, and the published
+    // table is re-taken with it rather than inherited.
     let mut owned =
         nb::Owned::with_history(&ws, &nb::CacheGeometry::UNKNOWN, nb::Depth::of(10_000));
     let mut t = nb::Term::new(owned.storage(), &ws);

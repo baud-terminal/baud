@@ -75,8 +75,7 @@ DEC_OVERRIDES = {
 # DEC's error character: what a DEC text says is "printed" or "displayed" for
 # SUB, a reserved position or A0 with a 94-set in GR. DEC names no codepoint
 # (070-3 §3.4.3: "usually imaged as a REVERSE QUESTION MARK"); U+2426 is note
-# AE's AE8.1, decided by Jev at 1.00 twice, the second with the options
-# reordered. It is emitted beside the tables so every consumer takes it from
+# AE's AE8.1. It is emitted beside the tables so every consumer takes it from
 # one place, and `the_dec_error_character_is_symbol_for_substitute_form_two`
 # holds it to its name in the pinned UnicodeData.txt.
 ERROR_CHARACTER = 0x2426
@@ -231,8 +230,7 @@ lines.append('/// p. 6-4 calls it "a reverse question mark". U+2426 is ISO 2047\
 lines.append("/// SUB, the control DEC ties it to, and its reference glyph is a reversed")
 lines.append("/// question mark (`[[source: unicode18-chart-2400]]`). U+FFFD, one of the")
 lines.append("/// three other options asked (with U+2E2E and U+2592), departs from that")
-lines.append("/// description by name and by glyph (note AF, Q-UNDEF). Note AE's AE8.1,")
-lines.append("/// decided by Jev at 1.00 twice, the second with the options reordered.")
+lines.append("/// description by name and by glyph (note AF, Q-UNDEF; note AE's AE8.1).")
 lines.append("///")
 lines.append("/// **It is drawn at a reserved position of a DEC set baud translates**,")
 lines.append("/// DEC Supplemental's 13 and JIS-Katakana's 31 (`dec_sets_data.rs`): \"The")

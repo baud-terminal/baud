@@ -256,8 +256,8 @@ fn the_main_display_draws_by_dechebm_set_on_the_status_line() {
     });
 }
 
-/// **At Level 4, the VT510's** (Jev, LEVEL_4): under `DECSCL 61`, VT100
-/// mode, `?35` is counted and not acted on.
+/// **At Level 4, the VT510's**: under `DECSCL 61`, VT100 mode, `?35` is
+/// counted and not acted on.
 #[test]
 fn below_level_4_it_is_counted() {
     support::with_term(&WS, |t| {

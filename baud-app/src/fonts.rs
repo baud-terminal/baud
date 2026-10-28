@@ -3,40 +3,39 @@
 //! the parse of a face already in memory, so its tests run on every
 //! platform, and both drivers perform through it.
 //!
-//! **A name resolves to a face baud has loaded** (Jev's lean, OWN_FACES,
-//! 0.79/0.85 after a re-ask), through the lookup a config's `fonts` names
-//! take (`Catalogue::lookup_at`, kitty's order): a face's PostScript name
-//! (nameID 6), else its full name (nameID 4) where that is none of its own
-//! family names, else a family name (nameID 16 or 1, any language,
-//! `[[source: ms-opentype-name]]`) of a face in the fallback chain -- the
-//! embedded Regular, Symbols Nerd Font Mono and STIX Two Math, and the
-//! faces a config names -- each by the default caseless match CSS Fonts
-//! gives a family name (`[[source: css-fonts-3]]` 5.1). A face found by its
-//! PostScript or full name may be a styled one, the embedded Bold among
-//! them; it leads the chain as the regular face, as a config's face named
-//! alone does. The embedded Regular's table names it "Proto Hebrew Mono
-//! C", the built font's name while its family name is open
-//! (`fonts/built/FONTLOG.txt`). The face named leads the chain, the rest
-//! follow in the config's order, and the other styled faces of its family
-//! come with it; the embedded faces stay behind it as they stay behind a
-//! configured stack. A name baud has not loaded leaves the font as it
-//! was: a program's name is not looked up among the installed fonts, only
-//! a config's is.
+//! **A name resolves to a face baud has loaded**, through the lookup a
+//! config's `fonts` names take (`Catalogue::lookup_at`, kitty's order): a
+//! face's PostScript name (nameID 6), else its full name (nameID 4) where
+//! that is none of its own family names, else a family name (nameID 16 or
+//! 1, any language, `[[source: ms-opentype-name]]`) of a face in the
+//! fallback chain -- the embedded Regular, Symbols Nerd Font Mono and STIX
+//! Two Math, and the faces a config names -- each by the default caseless
+//! match CSS Fonts gives a family name (`[[source: css-fonts-3]]` 5.1). A
+//! face found by its PostScript or full name may be a styled one, the
+//! embedded Bold among them; it leads the chain as the regular face, as a
+//! config's face named alone does. The embedded Regular's table names it
+//! "Proto Hebrew Mono C", the built font's name while its family name is
+//! open (`fonts/built/FONTLOG.txt`). The face named leads the chain, the
+//! rest follow in the config's order, and the other styled faces of its
+//! family come with it; the embedded faces stay behind it as they stay
+//! behind a configured stack. A name baud has not loaded leaves the font as
+//! it was: a program's name is not looked up among the installed fonts,
+//! only a config's is.
 //!
-//! **The query answers the name a program set** (Jev, Q_AS_SET,
-//! 0.94/0.94 after reading mintty): the last name baud took, as the program
-//! sent it, as xterm answers the face name `setFaceName` stored
-//! (`[[source: xterm-misc]]` 3798-3846, `getFaceName` in its
-//! `fontutils.c`) and mintty the name `win_change_font` stored
+//! **The query answers the name a program set**: the last name
+//! baud took, as the program sent it, as xterm answers the face
+//! name `setFaceName` stored (`[[source: xterm-misc]]`
+//! 3798-3846, `getFaceName` in its `fontutils.c`) and mintty
+//! the name `win_change_font` stored
 //! (`[[source: mintty-wintext-0aea388]]` 1120-1154), so the
-//! answer sent back finds the same face: each face's last name while it
-//! leads, and the family of a face no program has named.
+//! answer sent back finds the same face: each face's last name
+//! while it leads, and the family of a face no program has
+//! named.
 //!
 //! **A size step is a point of the View menu's Bigger and Smaller**,
-//! bounded as they are (Jev's lean, SIZE_STEPS, 0.22/0.18): `#+n` and `#-n`
-//! step `n` points, `#0` returns to the configured size, and a step past
-//! the bounds is refused whole, as xterm's `lookupRelativeFontSize` finds
-//! no entry.
+//! bounded as they are: `#+n` and `#-n` step `n` points, `#0` returns to
+//! the configured size, and a step past the bounds is refused whole, as
+//! xterm's `lookupRelativeFontSize` finds no entry.
 
 use crate::config::Config;
 use crate::discover::{Catalogue, NamedAt};
@@ -337,7 +336,7 @@ pub enum Zoom {
 /// How far one zoom step moves the size: one of the configured size's
 /// units on both systems -- a point on macOS, a pixel on Linux, which has
 /// no backing scale yet -- so the same presses reach the same `font_size`
-/// (Jev, ONE_POINT, 0.94/0.92, over foot's half point).
+/// (rather than foot's half point).
 pub const ZOOM_STEP: f32 = 1.0;
 
 /// **The size a zoom step from `at` lands on**: a point up or down, within
@@ -531,12 +530,12 @@ mod tests {
     }
 
     /// **The query answers the name a program set, as it sent it**, while
-    /// the face it named leads (Jev, Q_AS_SET), as xterm's `getFaceName`
-    /// and mintty's `win_get_font` answer the stored string, so the answer
-    /// sent back finds the same face; the family before any, a size step
-    /// keeping the name, a refused name changing nothing, and each face's
-    /// own name while it leads. A name for the face in force is told the
-    /// core at once, as nothing restacks (`host::plan_font`).
+    /// the face it named leads, as xterm's `getFaceName` and mintty's
+    /// `win_get_font` answer the stored string, so the answer sent back
+    /// finds the same face; the family before any, a size step keeping the
+    /// name, a refused name changing nothing, and each face's own name
+    /// while it leads. A name for the face in force is told the core at
+    /// once, as nothing restacks (`host::plan_font`).
     #[test]
     fn the_query_answers_the_name_a_program_set() {
         let mut f = fonts("");

@@ -1,16 +1,15 @@
-//! **A wide character on a line's last column, with `DECAWM` reset,
-//! writes its lead alone there**: no tail past the right margin, a double
-//! line's half or SLL's limit, which are positions no write may reach,
-//! "the Active Position will not advance beyond the Right Margin or last
-//! column of the Active Line" (`[[source: dec-std-070]]` p. 5-139), and on
-//! a double line "character positions cannot be addressed which are more
-//! than half the current value of the right edge of the display" (§ 5.6.1,
-//! p. 5-95). No text gives a character two positions there: ECMA-48 6.1.6's
-//! NOTE leaves the move to the implementation, and the VT382's DECAWM
+//! **A wide character on a line's last column, with `DECAWM` reset, writes
+//! its lead alone there**: no tail past the right margin, a double line's
+//! half or SLL's limit, which are positions no write may reach, "the Active
+//! Position will not advance beyond the Right Margin or last column of the
+//! Active Line" (`[[source: dec-std-070]]` p. 5-139), and on a double line
+//! "character positions cannot be addressed which are more than half the
+//! current value of the right edge of the display" (§ 5.6.1, p. 5-95). No
+//! text gives a character two positions there: ECMA-48 6.1.6's NOTE leaves
+//! the move to the implementation, and the VT382's DECAWM
 //! (`[[source: vt382-rm]]` p. 10-4) has characters "replace characters
-//! already on the screen". At the
-//! screen's edge the lead stood alone already; Jev's lean, LEAD_ONLY,
-//! 0.52/0.43, makes the other three lines the same.
+//! already on the screen". At the screen's edge the lead stood alone
+//! already, and the other three lines are the same.
 
 mod support;
 

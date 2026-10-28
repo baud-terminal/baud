@@ -172,11 +172,11 @@ fn the_guide_fills_the_cursor_row_under_the_text() {
 /// **No guide while the cursor is hidden, and while the window looks back
 /// into the history the guide stays on the cursor's line for as long as
 /// that line is in view**: iTerm2's CPU path hides it with the cursor
-/// (DECTCEM; Jev's lean, WITH_CURSOR), and both its paths draw it on the
-/// cursor's line, shifted with the scroll, while that line is inside the
-/// window (`drawCursrGuideIfNeededInRect`, iTerm2's spelling, `[[source:
-/// iterm2-7ce037e-text-drawing-helper]]`). The controls: shown again, it
-/// draws, and at the live screen it draws on the cursor's row.
+/// (DECTCEM), and both its paths draw it on the cursor's line, shifted
+/// with the scroll, while that line is inside the window
+/// (`drawCursrGuideIfNeededInRect`, iTerm2's spelling,
+/// `[[source: iterm2-7ce037e-text-drawing-helper]]`). The controls: shown
+/// again, it draws, and at the live screen it draws on the cursor's row.
 #[test]
 fn the_guide_hides_with_the_cursor() {
     let mono = font("JetBrainsMono-Regular.ttf");

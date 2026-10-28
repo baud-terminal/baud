@@ -362,13 +362,13 @@ fn the_badge_keeps_two_sizes_in_the_atlas() {
 
 /// **The badge is drawn in its own face, whatever face the text is**:
 /// with Fira Code leading the stack and baud's embedded JetBrains Mono
-/// Bold given the badge's role, its records -- each glyph's place
-/// against the frame's right edge and its size -- are those of a stack
-/// whose only face is JetBrains Mono Bold, grid and glyphs both, as
-/// iTerm2's badge has a face of its own (`badgeFont:`, `[[source:
-/// iterm2-964a75d-profile-preferences]]`; Jev, EMBEDDED_BOLD). The screen
-/// is tall enough that both reach iTerm2's largest size, 100 points, so
-/// the frames' sizes do not decide it. The control: the stack without the
+/// Bold given the badge's role, its records -- each glyph's place against
+/// the frame's right edge and its size -- are those of a stack whose only
+/// face is JetBrains Mono Bold, grid and glyphs both, as iTerm2's badge
+/// has a face of its own (`badgeFont:`,
+/// `[[source: iterm2-964a75d-profile-preferences]]`). The screen is tall
+/// enough that both reach iTerm2's largest size, 100 points, so the
+/// frames' sizes do not decide it. The control: the stack without the
 /// badge's role draws it in Fira Code, and differs.
 #[test]
 fn the_badge_is_drawn_in_its_own_face() {

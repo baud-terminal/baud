@@ -8,12 +8,9 @@
 //! characters to the host." `[[source: vt510-srm]]`: "When the SRM function is
 //! reset, the terminal sends keyboard characters to the host and to the
 //! screen", "Default: No local echo". `[[source: ecma48]]` 7.2.11 and 7.2.15
-//! give the same two modes as ENABLED/DISABLED and MONITOR/SIMULTANEOUS.
-//! Decided by Jev 2026-10-19: only the keys are locked and only the keys are
-//! echoed (KEYS_ONLY, 1.00/1.00 both), through a parser state of the echo's
-//! own (OWN_STATE, 1.00/1.00), the lock exposed rather than drawn
-//! (EXPOSE_STATE, 1.00/1.00) and built now (BUILD_NOW, 0.98/0.96); SRM set at
-//! power-on, Jev's lean (SET_NO_ECHO, 0.80/0.72).
+//! give the same two modes as ENABLED/DISABLED and MONITOR/SIMULTANEOUS. Only
+//! the keys are locked and only the keys are echoed, through a parser state of
+//! the echo's own, the lock exposed rather than drawn; SRM set at power-on.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -180,7 +177,7 @@ fn a_locked_keyboard_echoes_nothing() {
 }
 
 /// The wheel's cursor keys under `?1007` are the mouse's, not keystrokes:
-/// KAM does not lock them and SRM does not draw them (Jev, KEYS_ONLY).
+/// KAM does not lock them and SRM does not draw them.
 #[test]
 fn the_wheels_keys_are_neither_locked_nor_echoed() {
     support::with_corpus(|t| {
@@ -266,8 +263,7 @@ fn decnkm_is_the_keypad_mode_and_decrqm_reads_it() {
 /// `[[source: vt510-decbkm]]`: "Default: Delete key ... If DECBKM is set,
 /// ⌫ works as a backspace key ... sends a BS character". Control inverts
 /// it, xterm's `backarrowKey` ("Pressing the control key toggles this
-/// behavior") and the kitty protocol's legacy table (Jev's lean,
-/// XTERM_TOGGLE, 0.62/0.70).
+/// behavior") and the kitty protocol's legacy table.
 #[test]
 fn decbkm_chooses_what_the_backarrow_key_sends() {
     support::with_corpus(|t| {
@@ -347,7 +343,7 @@ fn mode_1037_makes_the_editing_delete_send_del() {
 
 /// `[[source: ctlseqs]]`: "Use the NumLock key to override the application
 /// mode", which `?1035` enables, xterm's `numLock` resource; set at
-/// power-on, as that resource is (Jev's lean, SET, 0.66/0.58).
+/// power-on, as that resource is.
 #[test]
 fn mode_1035_lets_num_lock_override_the_application_keypad() {
     support::with_corpus(|t| {

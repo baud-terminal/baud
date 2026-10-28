@@ -184,11 +184,11 @@ jobs:
           # presence.** `grep -c vpmovmskb` was the first spelling and it cannot
           # fire here: both arms carry `-C target-feature=+avx2`, so LLVM
           # VEX-encodes the *portable* path's movemask too and the token appears
-          # in both binaries. CLAUDE.md's note that "`Portable` compiles to SSE2
-          # and yields `pmovmskb` without the `v`" was written for a build
-          # *without* `+avx2`; that premise does not hold in this step, and a
-          # probe resting on it is `fast_hit` again -- a counter that reports
-          # rather than claims.
+          # in both binaries. The note that "`Portable` compiles to SSE2 and
+          # yields `pmovmskb` without the `v`" was written for a build *without*
+          # `+avx2`; that premise does not hold in this step, and a probe
+          # resting on it is `fast_hit` again -- a counter that reports rather
+          # than claims.
           #
           # What discriminates is the register. `Avx2::run` is 32 bytes a step,
           # so it movemasks a `%ymm`; the portable loop is `LANE_COUNT` = 16 and
@@ -244,11 +244,10 @@ jobs:
           # **Interleaved by round, not blocked by arm.** The first spelling ran
           # six base, then six avx2, then six A/A -- so the A/A column compared
           # one block of the sweep against another block, and a drift between
-          # blocks is exactly what it was supposed to detect. CLAUDE.md's cava
-          # entry is a ~1% "win" that turned out to be sweep position, and the
-          # lesson recorded there is that interleaving A/A *into* the same sweep
-          # is what turns a disjoint pair into a null. Round 1 is warm-up and is
-          # discarded by the reader.
+          # blocks is exactly what it was supposed to detect. A ~1% "win" on
+          # cava turned out to be sweep position, and the lesson is that
+          # interleaving A/A *into* the same sweep is what turns a disjoint pair
+          # into a null. Round 1 is warm-up and is discarded by the reader.
           printf "%-12s %-6s %s\n" payload arm "rounds, interleaved (MB/s)" \
             | tee -a "$GITHUB_STEP_SUMMARY"
           for n in cat git-log less cat-cjk less-cjk btop; do

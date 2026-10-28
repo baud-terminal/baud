@@ -420,9 +420,9 @@ fn an_at_inside_a_quoted_string_is_a_character() {
 
 #[test]
 fn a_macrograph_report_is_empty_whatever_it_holds() {
-    // The owner's call, 2026-10-20: "macrograph reports answered empty as
-    // 070-8 prefers" -- "The preferred fallback is the empty report, that
-    // is, just the terminating CR character".
+    // Macrograph reports are answered empty, as 070-8 prefers: "The
+    // preferred fallback is the empty report, that is, just the
+    // terminating CR character".
     let (_, rec) = run(b"@:Asecret@;R(M(A))R(M(B))R(M(AB))");
     assert_eq!(replies(&rec), vec![b"\r".to_vec(); 4]);
 }
@@ -905,7 +905,7 @@ fn the_built_in_alphabet_reads_through_its_sets() {
 fn a_utf8_character_outside_the_table_is_the_error_character() {
     // U+2500 has no code in the 8-bit in-use table, and nor has U+0080, a
     // C1 control. Both draw the error character, and the text around them
-    // is drawn (Jev's lean, DECODE_TO_TABLE).
+    // is drawn.
     let (_, rec) = run("T'a─b\u{80}c'".as_bytes());
     let g: Vec<_> = glyphs(&rec).into_iter().map(|(g, _)| g).collect();
     assert_eq!(

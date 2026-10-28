@@ -1,7 +1,7 @@
 //! xterm's logging: `CSI ? 46 h`, "Start logging (XTLOGGING), xterm",
-//! `CSI ? 46 l`, "Stop logging", and `OSC 46 ; Pt`, "Change Log File to
-//! Pt. The parameter Pt sets the logFile resource" (`[[source: ctlseqs]]`),
-//! the owner's call of 2026-10-20 (note AV).
+//! `CSI ? 46 l`, "Stop logging", and `OSC 46 ; Pt`, "Change Log File to Pt.
+//! The parameter Pt sets the logFile resource" (`[[source: ctlseqs]]`)
+//! (note AV).
 //!
 //! **The core keeps the mode and the name, and writes nothing**: the file
 //! is the embedder's, which turns the feature on ([`Logging`]) and writes
@@ -17,10 +17,9 @@
 //! until the next start; `?` and an empty `Pt` change nothing and are
 //! counted; a name beginning `|`, which xterm runs as a command only when
 //! built with `ALLOWLOGFILEEXEC`, is refused at the start and counted, as
-//! a program on the line, a remote one included, must not run commands
-//! (Jev, XTERM_DEFAULT_BUILD, 1.00/1.00); `RIS` and `DECSTR` leave the
-//! mode and the name (Jev, RIS_KEEPS, 0.98/0.96). A name `OSC_MAX` cut is
-//! a different file, refused and counted, as a clipped link is.
+//! a program on the line, a remote one included, must not run commands;
+//! `RIS` and `DECSTR` leave the mode and the name. A name `OSC_MAX` cut
+//! is a different file, refused and counted, as a clipped link is.
 
 use baud_domain::{ByteLen, LogFile, LogMode, Logging, ModeChange, ModeState};
 
@@ -72,8 +71,7 @@ impl Logger {
     }
 
     /// What `DECRQM ?46` answers: `4` while the embedder has logging off,
-    /// as no program can set it (Jev, PERMANENTLY_RESET, 0.96/1.00), else
-    /// whether a log is started.
+    /// as no program can set it, else whether a log is started.
     pub(crate) fn state(&self) -> ModeState {
         match (self.setting, self.mode) {
             (Logging::Off, _) => ModeState::PermanentlyReset,

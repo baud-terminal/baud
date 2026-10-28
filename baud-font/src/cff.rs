@@ -1217,19 +1217,18 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
     /// `dy1..dy5`.
     ///
     /// Where the start and the end share a `y` (horizontal) or an `x`
-    /// (vertical), every reading of the text gives the joining point's
-    /// offset across that line. Where they share neither, or both, the
-    /// depth is the joining point's distance across to the end point's own
-    /// line -- its horizontal line for a more horizontal flex, its vertical
-    /// one for a more vertical flex, the orientation by flex1's test,
-    /// horizontal where `|sum dx| > |sum dy|` -- as the figure the text
-    /// sends a slanted flex to draws it ("as illustrated in the following
-    /// figure", `[[source: ms-opentype-cff2-flex-depth-figure]]`; Figure 3 of
-    /// `[[source: adobe-5177-type2]]`): the owner's decision of 2026-10-13
-    /// between this, the perpendicular to the start-end line, that line's
-    /// distance along the minor axis, and the deepest of the three. A
-    /// `flex` back at its start is measured to its start's line, which is
-    /// its end's.
+    /// (vertical), every reading of the text gives the joining point's offset
+    /// across that line. Where they share neither, or both, the depth is the
+    /// joining point's distance across to the end point's own line -- its
+    /// horizontal line for a more horizontal flex, its vertical one for a
+    /// more vertical flex, the orientation by flex1's test, horizontal where
+    /// `|sum dx| > |sum dy|` -- as the figure the text sends a slanted flex
+    /// to draws it ("as illustrated in the following figure",
+    /// `[[source: ms-opentype-cff2-flex-depth-figure]]`; Figure 3 of
+    /// `[[source: adobe-5177-type2]]`), chosen on 2026-10-13 over the
+    /// perpendicular to the start-end line, that line's distance along the
+    /// minor axis, and the deepest of the three. A `flex` back at its start
+    /// is measured to its start's line, which is its end's.
     fn axis_depth(&self, x0: N, y0: N, joint: [N; 2], sum: [N; 2]) -> [N; 2] {
         let ([x3, y3], (x, y)) = (joint, (self.x, self.y));
         match (x == x0, y == y0) {

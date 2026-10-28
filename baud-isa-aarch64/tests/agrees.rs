@@ -88,8 +88,7 @@ fn a_full_block_of_valid_characters_is_capped_at_five() {
 // measured with it and without, and `baud-core/tests/bulk_paths.rs` pins that
 // decision in both directions -- so a sweep is what keeps it correct-if-used.
 //
-// `final_byte` and `st` had sweeps here too and went with the methods: see
-// CLAUDE.md, "Two scans the trait offered and nothing took".
+// `final_byte` and `st` had sweeps here too and went with the methods.
 
 /// Exhaustive agreement over the first eight lanes of an alphabet, with a
 /// fixed tail, for one scan.

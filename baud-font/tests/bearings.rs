@@ -11,9 +11,8 @@
 //! glyph". `[[source: ms-opentype-head]]`'s flags bit 1 is "Left sidebearing
 //! point at x=0", and "If bit 1 of the flags field is set, then pp1 = 0 for
 //! all glyphs and the xMin and left sidebearing for each glyph must be
-//! equal": a font that sets it and breaks the equality is malformed, and
-//! it is drawn from `xMin - lsb` as with the bit clear, the owner's pick
-//! of 2026-10-13, "xMin - lsb (Recommended)".
+//! equal": a font that sets it and breaks the equality is malformed, and it
+//! is drawn from `xMin - lsb` as with the bit clear.
 //!
 //! `tests/var/bearing-cases.ttf` and `bearing-cases-bit1.ttf`
 //! (`scripts/bearing-cases-font.py`) are the fixtures, the same glyphs with
@@ -284,12 +283,11 @@ fn with_bit_1_clear_a_glyph_is_drawn_from_its_left_side_bearing_point() {
     );
 }
 
-/// **With bit 1 set, every glyph is still drawn from its left side
-/// bearing point**, as with the bit clear. The `head` text puts the point
-/// at x = 0 for such a font and requires the lsb to be xMin, and `hmtx`'s
-/// formula puts it at `xMin - lsb`; this font breaks the requirement, and
-/// the formula is taken -- the owner's pick of 2026-10-13, "xMin - lsb
-/// (Recommended)" -- which is HarfBuzz's and FreeType's drawing, bit 1
+/// **With bit 1 set, every glyph is still drawn from its left side bearing
+/// point**, as with the bit clear. The `head` text puts the point at x = 0
+/// for such a font and requires the lsb to be xMin, and `hmtx`'s formula
+/// puts it at `xMin - lsb`; this font breaks the requirement, and the
+/// formula is taken, which is HarfBuzz's and FreeType's drawing, bit 1
 /// regardless: a simple glyph from its own start, a composite from its own
 /// or its last USE_MY_METRICS component's. To HarfBuzz within 1e-3 and
 /// FreeType within half a unit, at the default instance and three weights.

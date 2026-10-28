@@ -5,8 +5,7 @@
 //! `[[source: dec-std-070]]` 070-3 §3.6 and pp. 3-80/3-81 the receiver, and
 //! `[[source: ctlseqs]]` the spellings (`ESC N`, `ESC O`, `ESC n`, `ESC o`,
 //! `ESC ~`, `ESC }`, `ESC |`, `ESC - . /`). The forks the texts leave open
-//! were put to Jev (decision log lines 900/901 and 906/907) and are named at
-//! each test.
+//! are named at each test.
 //!
 //! Every case is fed at read sizes 1, 2, 3, 7 and whole: a read boundary
 //! between a single shift and its character is where a half-applied rule
@@ -80,10 +79,10 @@ fn ss3_draws_one_character_from_g3() {
 }
 
 /// **At power-up G2 and G3 hold the user-preference supplemental set, DEC
-/// Supplemental** (070-3 §3.6.4.3, 070-4 p. 14 `upss = DEC_SUPPLEMENTAL_G`;
-/// Jev's lean DEC_SUPPLEMENTAL 0.85/0.88, then 0.80/0.82), under UTF-8 too
-/// (Jev's lean SAME_IN_BOTH_ENCODINGS): `ESC N A` draws DEC Supplemental's
-/// `A`, U+00C1, and `ESC O P` its reserved 5/0, the error character.
+/// Supplemental** (070-3 §3.6.4.3, 070-4 p. 14
+/// `upss = DEC_SUPPLEMENTAL_G`), under UTF-8 too: `ESC N A` draws DEC
+/// Supplemental's `A`, U+00C1, and `ESC O P` its reserved 5/0, the error
+/// character.
 #[test]
 fn the_single_shifts_reach_dec_supplemental_at_power_up() {
     shows(b"\x1bNA\x1bOPA", "\u{00c1}\u{2426}A");
@@ -93,9 +92,8 @@ fn the_single_shifts_reach_dec_supplemental_at_power_up() {
 /// 070-3 p. 3-81, "If the next character in the received data stream is not
 /// a graphic character in this range, the single shift function is ignored
 /// and the received character is processed as if the single shift had not
-/// been received" (Jev's lean STD070_CANCEL, 0.56/0.79 then 0.72/0.85).
-/// So does an escape sequence, and so does a character outside 2/0-7/15
-/// under UTF-8 (decided, AE4).
+/// been received". So does an escape sequence, and so does a character
+/// outside 2/0-7/15 under UTF-8 (decided, AE4).
 #[test]
 fn a_control_or_sequence_cancels_a_pending_single_shift() {
     shows(b"\x1b*0\x1bN\rqq", "qq");
@@ -105,8 +103,7 @@ fn a_control_or_sequence_cancels_a_pending_single_shift() {
 
 /// **SO and SI act and keep the shift pending, any number of them** (070-3
 /// p. 3-81's exception; its algorithm clears `cancel_single_shift` after
-/// each, and Jev decided ANY_NUMBER 0.92/0.96), and SO's GL stays after the
-/// shifted character (Jev's lean SO_ACTS).
+/// each), and SO's GL stays after the shifted character.
 #[test]
 fn shift_out_and_shift_in_between_keep_the_single_shift() {
     shows(b"\x1b*0\x1b)A\x1bN\x0e\x0f\x0eq#", "\u{2500}\u{00a3}");
@@ -137,11 +134,11 @@ fn a_final_after_an_intermediate_is_not_a_single_shift() {
 
 // ---- ISO 8859-1: GR, and the 8-bit single shifts ---------------------------
 
-/// **GR holds G2, DEC Supplemental, at power-up** (Jev decided G2, 1.00 and
-/// 0.96; the set is Jev's lean DEC_SUPPLEMENTAL): under `ESC % @` `C1` draws
-/// `Á`, `D7` DEC Supplemental's `Œ` where ISO 8859-1 has `×`, `A4` its
-/// reserved 2/4, the error character; `A0` is the error character and `FF`
-/// is ignored with a 94-set in GR (070-3 §3.4.3/§3.4.4; AE8, decided).
+/// **GR holds G2, DEC Supplemental, at power-up** (the set DEC
+/// Supplemental): under `ESC % @` `C1` draws `Á`, `D7` DEC Supplemental's
+/// `Œ` where ISO 8859-1 has `×`, `A4` its reserved 2/4, the error character;
+/// `A0` is the error character and `FF` is ignored with a 94-set in GR
+/// (070-3 §3.4.3/§3.4.4; AE8, decided).
 #[test]
 fn gr_reads_through_g2_under_latin1() {
     shows(
@@ -151,8 +148,7 @@ fn gr_reads_through_g2_under_latin1() {
 }
 
 /// `8E` and `8F` are SS2 and SS3 under ISO 8859-1, and a GR operand is
-/// stripped to its 7-bit code (Jev's lean STRIP_BIT8): `8E F1` draws G2's
-/// `q`.
+/// stripped to its 7-bit code: `8E F1` draws G2's `q`.
 #[test]
 fn the_eight_bit_single_shifts_and_a_gr_operand() {
     shows(b"\x1b%@\x1b*0\x8eq\x8f\xf1q", "\u{2500}\u{00f1}q");
@@ -239,10 +235,10 @@ fn chk(n: u32) -> String {
 }
 
 /// **A character written through GR or a single shift counts the code DEC
-/// STD 070's display stores, `parv[0] & 0x7F`, through its set** (p. 5-140;
-/// Jev's lean STORED_7BIT, 0.44/0.70 then 0.48/0.58): DEC Supplemental `D7`
-/// drawn `Œ` counts 0x57, SS2's line-drawing `q` 0x71, Latin-1
-/// Supplemental's `A` in GL 0x41, and SS2's Greek `a` 0x61.
+/// STD 070's display stores, `parv[0] & 0x7F`, through its set** (p.
+/// 5-140): DEC Supplemental `D7` drawn `Œ` counts 0x57, SS2's line-drawing
+/// `q` 0x71, Latin-1 Supplemental's `A` in GL 0x41, and SS2's Greek `a`
+/// 0x61.
 #[test]
 fn the_checksum_counts_the_stored_code_through_gr_and_single_shifts() {
     let cases: [(&str, &[u8], u32); 4] = [

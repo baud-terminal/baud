@@ -601,11 +601,11 @@ fn a_moved_sixel_gives_back_the_rows_it_left() {
     );
 }
 
-/// **A Sixel cut off by `CAN` keeps its claim as the image it placed**,
-/// and gives it back when the image goes: a title or another Sixel after it
+/// **A Sixel cut off by `CAN` keeps its claim as the image it placed**, and
+/// gives it back when the image goes: a title or another Sixel after it
 /// hands back none of its rows, and `RIS`, which removes every image, all
-/// of them. The cut placed what it received (Jev's lean KEEP, 0.72/0.68,
-/// 2026-10-19); until then the claim was let go at the next string.
+/// of them. The cut placed what it received; until then the claim was let
+/// go at the next string.
 #[test]
 fn a_sixel_cut_off_keeps_its_claim_and_ris_gives_it_back() {
     let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));

@@ -278,12 +278,12 @@ const INVALID: &[u8] = b"\x1bP0$r\x1b\\";
 ///
 /// **The handler drops it**, since 2026-10-19: DECRQSS ignores every C0
 /// before it keeps its `Pt`, as `[[source: dec-std-070]]` 3.5.4.4
-/// recommends (Jev, B_PUT_ALL), so `m BEL` names SGR and answers valid. A
-/// terminator would answer `m` too, so `m BEL X` tells them apart: `mX`
-/// names nothing and nothing is drawn, where a terminator would answer `m`
-/// and draw the `X`. No bell rings. Every read size, and the 8-bit form
-/// under ISO 8859-1. The control is the same request without the BEL, which
-/// answers valid, so `INVALID` is not the only reply this harness can see.
+/// recommends, so `m BEL` names SGR and answers valid. A terminator would
+/// answer `m` too, so `m BEL X` tells them apart: `mX` names nothing and
+/// nothing is drawn, where a terminator would answer `m` and draw the `X`.
+/// No bell rings. Every read size, and the 8-bit form under ISO 8859-1. The
+/// control is the same request without the BEL, which answers valid, so
+/// `INVALID` is not the only reply this harness can see.
 #[test]
 fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
     let control = b"\x1bP$qm\x1b\\";
@@ -337,10 +337,10 @@ fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
 /// recognized within escape, control, or control string introducer
 /// sequences. The escape, control, or control string introducer sequence
 /// continues where it left off" (PDF p. 144); `[[source: williams]]` ignores
-/// them there (565), and baud did until 2026-10-23 (Jev's lean, 0.74/0.70).
-/// The prefix nodes once ended the string on BEL, so `ESC P BEL $ q m ST`
-/// lost its reply and drew `$qm`. Each spelling must answer as the request
-/// without the BEL, and ring once.
+/// them there (565), and baud did until 2026-10-23. The prefix nodes once
+/// ended the string on BEL, so `ESC P BEL $ q m ST` lost its reply and drew
+/// `$qm`. Each spelling must answer as the request without the BEL, and ring
+/// once.
 #[test]
 fn a_bel_before_a_dcs_body_rings_and_the_introducer_goes_on() {
     let plain = b"\x1bP$qm\x1b\\Y";
@@ -628,11 +628,12 @@ fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
 /// and ignores `7F` (line 388), and "C0 controls are also passed to the
 /// handler" (726). The graph ignored the six and put the `DEL`, the
 /// `osc string` row, so a handler could never see the first and always saw
-/// the second; and until 2026-10-19 it ignored the other C0 but `BEL`
-/// (Jev, B_PUT_ALL), so `SOH` counted none. `SO` and `SI` shift and do not
-/// reach it, `[[source: ecma48]]` §9's "no effect on the interpretation of
-/// ... a control string" (`a_shift_inside_a_control_string_shifts_the_text_after_it`),
-/// so they count none either.
+/// the second; and until 2026-10-19 it ignored the other C0 but `BEL`, so
+/// `SOH` counted none. `SO` and `SI` shift and do not reach it,
+/// `[[source: ecma48]]` §9's "no effect on the interpretation of ... a
+/// control string"
+/// (`a_shift_inside_a_control_string_shifts_the_text_after_it`), so they
+/// count none either.
 ///
 /// The control is one more printable byte, which counts one, so the counter
 /// is live for this string. None of them is executed: the screen and cursor
@@ -803,18 +804,17 @@ const GR_SGR: [(&str, &[u8], &[u8]); 7] = [
     ),
 ];
 
-/// **Under ISO 8859-1 a GR byte in a DECRQSS body is its 7-bit byte**, as
-/// in the prefix: the data is "the identifying intermediate and final
-/// characters of the control sequence" (`[[source: dec-std-070]]` p.
-/// 5-196), whose GR STD 070 3.5.3 g reads as "the character from the
-/// corresponding row in columns 02 to 07" (PDF p. 129); `[[source: ecma48]]`
-/// §9 gives GR in "the contents of the command string" "the same meanings
-/// as" 02/00-07/14, and `[[source: williams]]` (462) reads GR as GL in a
-/// control string (Jev's lean STRIP, 0.60/0.56, 2026-10-19). `ED` is
-/// `m`, `A0 F1` is `SP q`, DECSCUSR's, and an `FF`, read as `7F`, is dropped
-/// as a `DEL` is. Until then the byte was kept raw and every one answered
-/// invalid. Every framing and read size; under UTF-8 `ED` is a character's
-/// lead and the request names nothing, the control.
+/// **Under ISO 8859-1 a GR byte in a DECRQSS body is its 7-bit byte**, as in
+/// the prefix: the data is "the identifying intermediate and final
+/// characters of the control sequence" (`[[source: dec-std-070]]` p. 5-196),
+/// whose GR STD 070 3.5.3 g reads as "the character from the corresponding
+/// row in columns 02 to 07" (PDF p. 129); `[[source: ecma48]]` §9 gives GR
+/// in "the contents of the command string" "the same meanings as"
+/// 02/00-07/14, and `[[source: williams]]` (462) reads GR as GL in a control
+/// string. `ED` is `m`, `A0 F1` is `SP q`, DECSCUSR's, and an `FF`, read as
+/// `7F`, is dropped as a `DEL` is. Until then the byte was kept raw and
+/// every one answered invalid. Every framing and read size; under UTF-8 `ED`
+/// is a character's lead and the request names nothing, the control.
 #[test]
 fn a_gr_byte_in_a_decrqss_body_is_its_seven_bit_byte_under_latin1() {
     for (gr, gl) in [
@@ -861,13 +861,12 @@ fn a_gr_prefix_under_utf8_is_what_it_was() {
     }
 }
 
-/// **Every C0 in a DECRQSS `Pt` is dropped before the `Pt` is read**, so
-/// `m` followed by any of the 23 C0 that are not a format effector, `CAN`,
-/// `SUB` or `ESC` answers as `m` does: the graph puts them all, williams' row whole,
-/// and DECRQSS gives none a meaning, as `[[source: dec-std-070]]` 3.5.4.4
-/// recommends (Jev, B_PUT_ALL, 0.99/0.99, 2026-10-19). Until then the graph
-/// ignored 22 and put `BEL`, which the `Pt` kept, so `m BEL` alone answered
-/// invalid. Every read size, under UTF-8 and the 8-bit form under ISO
+/// **Every C0 in a DECRQSS `Pt` is dropped before the `Pt` is read**, so `m`
+/// followed by any of the 23 C0 that are not a format effector, `CAN`, `SUB` or
+/// `ESC` answers as `m` does: the graph puts them all, williams' row whole, and
+/// DECRQSS gives none a meaning, as `[[source: dec-std-070]]` 3.5.4.4 recommends.
+/// Until then the graph ignored 22 and put `BEL`, which the `Pt` kept, so `m BEL`
+/// alone answered invalid. Every read size, under UTF-8 and the 8-bit form under ISO
 /// 8859-1.
 #[test]
 fn every_c0_in_a_decrqss_pt_is_dropped() {

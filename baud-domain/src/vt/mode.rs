@@ -110,7 +110,7 @@ pub enum AnsiMode {
     /// the same in every line, MULTIPLE, the reset state, and cannot be made
     /// per-line: one state only, which 7.1 allows ("some or all of the modes
     /// may have one state only"). `DECRQM` answers it permanently reset and
-    /// SM and RM are counted (Jev 2026-10-19, PERMANENTLY_RESET, 0.98/0.98).
+    /// SM and RM are counted.
     TabulationStop,
     /// KAM, mode 2 (`[[source: vt510-kam]]`, `[[source: ecma48]]` 7.2.11):
     /// set locks the keyboard, "The terminal ignores all keystrokes that send
@@ -148,9 +148,8 @@ pub enum BidiSupport {
 
 impl BidiSupport {
     /// The state at power-on and after `RIS`: the set state, so
-    /// right-to-left lines are drawn right to left from the start -- the
-    /// owner's answer of 2026-10-24, "Should right-to-left lines be on from
-    /// the start? C". `[[source: ecma48]]` 7.1 recommends the reset state as
+    /// right-to-left lines are drawn right to left from the start (since
+    /// 2026-10-24). `[[source: ecma48]]` 7.1 recommends the reset state as
     /// the initial one, and Annex D item 11 leaves "the initial state of a
     /// device upon power up including the settings of the modes" to the
     /// implementation; terminal-wg makes the set state the default
@@ -164,14 +163,12 @@ impl BidiSupport {
 /// component", the functions "CPR, CR, DCH, DL, EA, ECH, ED, EF, EL, ICH,
 /// IL, LF, NEL, RI, SLH, SLL, SPH, SPL". **RM 9 selects PRESENTATION and
 /// SM 9 DATA**: 7.1, "the reset state is shown first", 7.2, "the first
-/// state is caused by RM", and Table 6 (Jev's lean, SM_IS_DATA,
-/// 0.58/0.72 then 0.72/0.86), where 7.3.4 c) calls DATA "the reset
-/// state". It acts only with BDSM reset, 7.3.4 b): with BDSM set "The
-/// setting of the DCSM has no effect; it is considered to be set to DATA",
-/// which `DECRQM` answers then (Jev's lean, DATA_WHILE_IMPLICIT, 0.80/0.52
-/// then 0.64/0.10). PRESENTATION differs from DATA only on a line holding
-/// an SDS or SRS string, the one place a presentation position holds
-/// another data position.
+/// state is caused by RM", and Table 6, where 7.3.4 c) calls DATA "the
+/// reset state". It acts only with BDSM reset, 7.3.4 b): with BDSM set
+/// "The setting of the DCSM has no effect; it is considered to be set to
+/// DATA", which `DECRQM` answers then. PRESENTATION differs from DATA only
+/// on a line holding an SDS or SRS string, the one place a presentation
+/// position holds another data position.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeviceComponent {
     Presentation,
@@ -180,8 +177,8 @@ pub enum DeviceComponent {
 
 impl DeviceComponent {
     /// The state at power-on and after `RIS`: the reset state, 7.1's
-    /// recommendation (Jev's lean, PRESENTATION, 0.38/0.52 then
-    /// 0.66/0.42); BDSM is set then, so it acts once a program resets it.
+    /// recommendation; BDSM is set then, so it acts once a program
+    /// resets it.
     pub const POWER_ON: DeviceComponent = DeviceComponent::Presentation;
 }
 
@@ -370,11 +367,11 @@ pub enum ModeBit {
     KeyboardAction,
     /// SRM, `SM 12`, set: no local echo. **Set at power-on and by `RIS`**,
     /// `[[source: vt510-srm]]`'s "Default: No local echo" and xterm's
-    /// `MODE_SRM` (`[[source: xterm-reset]]`'s file), where `[[source:
-    /// ecma48]]` 7.1 recommends the reset state as the initial one: every
-    /// pty echoes a typed key itself, and a terminal that echoed too would
-    /// draw it twice (Jev's lean, SET_NO_ECHO, 0.80/0.72). Kept by `DECSTR`,
-    /// whose table names no SRM. Read only by `Term::key`.
+    /// `MODE_SRM` (`[[source: xterm-reset]]`'s file), where
+    /// `[[source: ecma48]]` 7.1 recommends the reset state as the initial
+    /// one: every pty echoes a typed key itself, and a terminal that echoed
+    /// too would draw it twice. Kept by `DECSTR`, whose table names no SRM.
+    /// Read only by `Term::key`.
     SendReceive,
     /// Autoprint, `CSI ? 5 i` and `CSI ? 4 i` (`[[source: dec-std-070]]`
     /// 070-7): a line leaving by `LF`, `VT`, `FF` or an autowrap is printed.
@@ -495,9 +492,8 @@ impl ModeBit {
 /// mode terminfo's `smm`/`rmm` send -- and a `u32` until the 33rd,
 /// [`ModeBit::PathSelected`]. What that cost was not read from the machine
 /// code; a line feed, a `CR LF` and a wrap make one test of the mode word
-/// where they already tested LNM and autoprint, cells written were equal
-/// and the timing gave no result (docs/record.md, "SCP and SPD set which
-/// way a line runs").
+/// where they already tested LNM and autoprint, cells written were equal and
+/// the timing gave no result.
 ///
 /// **The bound counts the variants rather than naming the last one.** It
 /// named one, `LAST`, for its whole life, and named the wrong one twice:
@@ -618,13 +614,13 @@ pub enum PrivateMode {
     /// `MdBool` (`[[source: xterm-misc]]` 5845-5853).
     CjkWidthResource,
     /// `?1022` — xterm's `emojiWidth` resource. baud has no such switch, so
-    /// `DECRQM` answers it `0`, not recognized (Jev 2026-10-15): its
-    /// `Vs16Width` neither narrows on `U+FE0E` nor widens a bare listed
-    /// emoji, which is what the resource reports.
+    /// `DECRQM` answers it `0`, not recognized: its `Vs16Width` neither
+    /// narrows on `U+FE0E` nor widens a bare listed emoji, which is what
+    /// the resource reports.
     EmojiWidthResource,
     /// `?1023` — xterm's `privateWidth` resource: whether Private Use Area
     /// codes take one column whatever `?1021` says. baud always keeps them
-    /// one column (the owner, 2026-10-15), so `DECRQM` answers it `1`.
+    /// one column, so `DECRQM` answers it `1`.
     PrivateWidthResource,
     /// `?2027` — grapheme clustering. baud always clusters and has no mode
     /// that stops it, so `DECRQM` answers it permanently: `3` while a
@@ -758,9 +754,8 @@ pub enum PrivateMode {
     /// `[[source: ctlseqs]]` "Enable Sixel Display Mode" for `h` and "Turns
     /// on "Sixel Scrolling"" for `l`, as the VT382 manuals it quotes have
     /// it. `[[source: vt3xx-sixel]]` says the reverse, "When sixel display
-    /// mode is set, the Sixel Scrolling feature is enabled"; Jev decided
-    /// xterm's numbering on 2026-10-11 (0.90/0.90), a departure from that
-    /// manual on the owner's veto list.
+    /// mode is set, the Sixel Scrolling feature is enabled"; baud takes
+    /// xterm's numbering (since 2026-10-11), a departure from that manual.
     SixelDisplay,
     /// `?1070`, private colour registers for each Sixel ([`ModeBit`]'s
     /// `SixelPrivateRegisters`).
@@ -823,12 +818,12 @@ pub enum PrivateMode {
     /// "starts/stops the right-to-left cursor direction", one state for
     /// both displays ([`ModeBit::CursorRightToLeft`]).
     CursorRightToLeft,
-    /// `?35` DECHEBM, Hebrew/N-A keyboard mapping (`[[source:
-    /// vt510-dechebm]]`): "sets the keyboard mapping to Hebrew/N-A and
-    /// resets the mapping to North American" ([`HebrewKeyboard`]). Global.
-    /// rxvt's and xterm's `?35`, "Enable font-shifting functions (rxvt)"
-    /// (`[[source: ctlseqs]]`), is not this mode (Jev, DEC_DECHEBM,
-    /// 0.91/0.94).
+    /// `?35` DECHEBM, Hebrew/N-A keyboard mapping
+    /// (`[[source: vt510-dechebm]]`): "sets the keyboard mapping to
+    /// Hebrew/N-A and resets the mapping to North American"
+    /// ([`HebrewKeyboard`]). Global. rxvt's and xterm's `?35`, "Enable
+    /// font-shifting functions (rxvt)" (`[[source: ctlseqs]]`), is not
+    /// this mode.
     HebrewKeyboard,
     Other(Param),
 }
@@ -837,12 +832,11 @@ pub enum PrivateMode {
 /// right-to-left copy is selected, then the text is stored in the paste
 /// buffer starting from right-to-left. For example if \"ABCD\" is to be
 /// copied right-to-left ... the string is saved in the paste buffer as
-/// \"DCBA.\"" Right to left, each line of a copy is read in the order it
-/// is drawn from its right edge to its left, the lines kept in order (Jev's
-/// leans, DRAWN_FROM_RIGHT 0.02/0.22 and EACH_LINE 0.52/0.76): on a line
-/// nothing reorders that is the VT510's "DCBA", and on a Hebrew line UAX
-/// #9 draws right to left it is the order the line reads. Left to right at
-/// power-on and after `RIS` ("Default: Disable right-to-left-copy"), and
+/// \"DCBA.\"" Right to left, each line of a copy is read in the order it is
+/// drawn from its right edge to its left, the lines kept in order: on a
+/// line nothing reorders that is the VT510's "DCBA", and on a Hebrew line
+/// UAX #9 draws right to left it is the order the line reads. Left to right
+/// at power-on and after `RIS` ("Default: Disable right-to-left-copy"), and
 /// `DECSTR` leaves it, as its table does not list it
 /// (`[[source: vt510-decstr]]`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -853,16 +847,15 @@ pub enum CopyDirection {
 }
 
 /// **`?36` DECHEM's two states** (`[[source: vt510-dechem]]`): set, "the
-/// terminal's character set mode to DEC (8-bit) multinational mode"; reset,
-/// "(7-bit) national mode (NRC sets)", whose set on a Hebrew VT510 is the
-/// DEC 7-bit Hebrew NRCS, so reset designates it into G0 to G3 and set
-/// returns the sets to their power-up state, as DEC STD 070's DECNRCM
-/// algorithms do (Jev's lean, HEBREW_NATIONAL: the re-ask's two orders
-/// apart, this the likelier, by mean probability 0.47 against 0.41). Multinational at power-on and after `DECSTR` and `RIS`, as
-/// DECNRCM's reset state is, which "setting DECHEM has the same result as"
-/// (`[[source: vt510-chapter4]]` Table 4-8, note 1; `[[source:
-/// vt510-decstr]]`, "National replacement character set DECNRCM
-/// Multinational set").
+/// terminal's character set mode to DEC (8-bit) multinational mode";
+/// reset, "(7-bit) national mode (NRC sets)", whose set on a Hebrew VT510
+/// is the DEC 7-bit Hebrew NRCS, so reset designates it into G0 to G3 and
+/// set returns the sets to their power-up state, as DEC STD 070's DECNRCM
+/// algorithms do. Multinational at power-on and after `DECSTR` and `RIS`,
+/// as DECNRCM's reset state is, which "setting DECHEM has the same result
+/// as" (`[[source: vt510-chapter4]]` Table 4-8, note 1;
+/// `[[source: vt510-decstr]]`, "National replacement character set
+/// DECNRCM Multinational set").
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum HebrewEncoding {
     #[default]
@@ -875,10 +868,9 @@ pub enum HebrewEncoding {
 /// generated by the Left and Right arrows are swapped whenever the cursor
 /// is inside a RTL paragraph", the direction it is drawn in, detected or
 /// set; Home and End are not. **On at power-on and after `RIS`**: "this new
-/// arrow key swapping mode needs to be the default", as VTE has it (Jev's
-/// lean, SET, 0.00/0.02 then 0.86/0.86). `DECSTR` returns it to on, as
-/// DEC's table returns the cursor-key mode and VTE's soft reset every mode
-/// (Jev's lean, RESET_ALL, 0.30/0.51 then 0.77/0.77).
+/// arrow key swapping mode needs to be the default", as VTE has it.
+/// `DECSTR` returns it to on, as DEC's table returns the cursor-key mode
+/// and VTE's soft reset every mode.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ArrowSwap {
     #[default]
@@ -990,7 +982,7 @@ impl ConformanceLevel {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Resource {
     /// `?1010`, scrollTtyOutput: output sends the window over the history to
-    /// the live screen. Reset at power-on, the owner's V2 behaviour.
+    /// the live screen. Reset at power-on (note V, V2).
     ScrollOnOutput,
     /// `?1011`, scrollKey: a key sends the window to the live screen. Set
     /// at power-on.
@@ -1018,8 +1010,7 @@ pub enum Resource {
     /// as xterm keeps "the selection even after the selected area was
     /// touched by some output" (`[[source: xterm-man]]`); reset, the text
     /// goes with the highlight and a scroll that would trim the selection
-    /// drops it. Set at power-on, xterm's default (Jev, SET_AT_POWER_ON,
-    /// 0.95 and 0.98).
+    /// drops it. Set at power-on, xterm's default.
     KeepSelection,
 }
 
@@ -1074,8 +1065,7 @@ pub enum BellIsUrgent {
 /// (`[[source: ctlseqs]]`): whether the embedder draws its scrollbar.
 /// **Shown at power-on**, since baud's app has one, and `DECRQM` answers
 /// whether one is shown, as xterm's `MdBool(sb_info.width != OFF)`
-/// (`[[source: xterm-misc]]` 5553-5554); xterm's own default is none
-/// (Jev's lean, SET, 0.36/0.64 and 0.50/0.70 after a second ask).
+/// (`[[source: xterm-misc]]` 5553-5554); xterm's own default is none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ScrollbarShown {
     #[default]
@@ -1127,11 +1117,11 @@ impl BellVolume {
     /// DECSWBV's `Ps`: "1 Off; 2, 3, 4 Low; 5, 5, 7, 8, 0 or none High
     /// (default)" -- the repeated 5 is the manuals' own. The table lists
     /// "5, 5, 7, 8", omitting 6; 6 is read as high, as DECSMBV's table and
-    /// xterm's `CASE_DECSWBV` read it. **0 and none are
-    /// high, as the three DEC texts give them** (Jev, DEC, 1.00 and 1.00):
-    /// `[[source: ctlseqs]]` and xterm's `CASE_DECSWBV` read 0 and none as
-    /// off (`[[source: xterm-reset]]`'s file), a departure not followed. A
-    /// value past 8 no text defines, so it is `None`, refused.
+    /// xterm's `CASE_DECSWBV` read it. **0 and none are high, as the three
+    /// DEC texts give them**: `[[source: ctlseqs]]` and xterm's
+    /// `CASE_DECSWBV` read 0 and none as off (`[[source: xterm-reset]]`'s
+    /// file), a departure not followed. A value past 8 no text defines, so
+    /// it is `None`, refused.
     pub fn warning(p: Option<Param>) -> Option<BellVolume> {
         match p.map_or(0, |x| x.0) {
             0 | 5..=8 => Some(BellVolume::High),
@@ -1156,7 +1146,7 @@ impl BellVolume {
     /// **The `Ps` DECRQSS reports**: the first value of each band, 1, 2 and
     /// 5, on which DEC and xterm agree, so the report sent back sets the
     /// same volume under either reading; never 0 or none, which they read
-    /// apart (Jev's lean, FIRST, 0.18/0.58 then 0.12/0.56).
+    /// apart.
     pub const fn reported(self) -> u8 {
         match self {
             BellVolume::Off => 1,
@@ -1211,15 +1201,15 @@ impl BellsRung {
 }
 
 /// `?44`, xterm's `marginBell` resource: "Turn on margin bell, xterm"
-/// (`[[source: ctlseqs]]`), "whether or not the bell should be rung when
-/// the user types near the right margin. The default is \"false\""
+/// (`[[source: ctlseqs]]`), "whether or not the bell should be rung when the
+/// user types near the right margin. The default is \"false\""
 /// (`[[source: xterm-man]]`). **Off at power-on and after `RIS`.** The
 /// margin bell rings only with this on and DECSMBV's volume not off, xterm's
-/// two switches (Jev's lean, TWO_SWITCHES, 0.37/0.27 then 0.27/0.14): DEC
-/// STD 070's "Margin Bell is enabled in Set-Up" is this, and the VT520's
-/// volume the other. DEC assigns `?44` to the VT340's DECGPCM, a graphics
-/// print mode, which xterm takes only with its ReGIS graphics on
-/// (`[[source: xterm-reset]]`'s file); baud has no ReGIS, so it is xterm's.
+/// two switches: DEC STD 070's "Margin Bell is enabled in Set-Up" is this,
+/// and the VT520's volume the other. DEC assigns `?44` to the VT340's
+/// DECGPCM, a graphics print mode, which xterm takes only with its ReGIS
+/// graphics on (`[[source: xterm-reset]]`'s file); baud has no ReGIS, so it
+/// is xterm's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MarginBell {
     #[default]
@@ -1295,7 +1285,7 @@ impl PageWidth {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum StatusType {
     /// No status line: 070-14's "(1) No Status Line (factory default)",
-    /// which baud powers up with (Jev's lean, NONE, 0.80 and 0.92).
+    /// which baud powers up with.
     #[default]
     None,
     /// The indicator line, the terminal's own state in reverse video.
@@ -1448,7 +1438,7 @@ mod slot_wire {
 /// xterm keeps one array that `VTInitialize` zeroes (`memset(screen, 0, ...)`,
 /// `[[source: xterm-reset]]`), so its restore of a never-saved mode resets it
 /// -- `?25` hides the cursor -- which is a difference from the text, recorded
-/// as the owner's question rather than followed.
+/// as an open question rather than followed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct SavedModes {
     saved: [u64; 2],
@@ -1486,19 +1476,19 @@ impl SavedModes {
 impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
     /// no other** -- "Ps values are the same as for DECSET" -- but `?1048`,
-    /// whose save is the cursor's (Jev, XTERM_ACTIONS, 0.91/0.94). The named
-    /// modes without one are that and the nine DECSET cannot change: `?13`, `?14` and
-    /// `?1020` to `?1023` are read-only (`[[source: ctlseqs]]` marks them
-    /// so, and xterm's `savemodes` keeps none of them), and `?1014`,
-    /// `?1044` and `?2027` are permanent here. An unnamed mode has none, and DECSET counts it, as a
+    /// whose save is the cursor's. The named modes without one are that and
+    /// the nine DECSET cannot change: `?13`, `?14` and `?1020` to `?1023`
+    /// are read-only (`[[source: ctlseqs]]` marks them so, and xterm's
+    /// `savemodes` keeps none of them), and `?1014`, `?1044` and `?2027` are
+    /// permanent here. An unnamed mode has none, and DECSET counts it, as a
     /// save and a restore of it are counted.
     ///
     /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
     /// not `?2` or `?8`, and `?3` only under the `c132` resource `?40` sets,
-    /// where baud saves `?3` whatever `?40` says, decided 2026-10-10 (Jev,
-    /// XT-3) -- a restore of it acts only under `?40`, as DECSET does; and one
-    /// slot for all five tracking levels and one for all four encodings,
-    /// still the owner's question (XT-4, XT-5).
+    /// where baud saves `?3` whatever `?40` says, since 2026-10-10 -- a
+    /// restore of it acts only under `?40`, as DECSET does; and one slot for
+    /// all five tracking levels and one for all four encodings, still an open
+    /// question.
     pub const fn slot(self) -> Option<ModeSlot> {
         let n = match self {
             PrivateMode::CursorKeys => 0,

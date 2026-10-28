@@ -628,12 +628,12 @@ impl Width {
             // context is unavailable; for a core with no locale it always is, so
             // narrow is the default and this is the opt-in.
             //
-            // **Private use stays narrow under it**, the owner's call of
-            // 2026-10-15: xterm's default `privateWidth`, the tailoring
-            // `[[source: uax11]]` § 2 invites. The trie cannot say so -- its
-            // two bits are all used, and the data gives private use `A` -- so
-            // the three ranges are tested here, on the opt-in arm only. The
-            // write path reads `Classified`, generated from this.
+            // **Private use stays narrow under it**: xterm's default
+            // `privateWidth`, the tailoring `[[source: uax11]]` § 2 invites.
+            // The trie cannot say so -- its two bits are all used, and the
+            // data gives private use `A` -- so the three ranges are tested
+            // here, on the opt-in arm only. The write path reads
+            // `Classified`, generated from this.
             3 if ambiguous == AmbiguousWidth::Wide && !c.is_private_use() => Width::WIDE,
             _ => Width::NARROW,
         }
@@ -793,8 +793,7 @@ impl CursorCol {
     /// keeps the low half, which a load from memory does by its width; at
     /// bit 62 it was an `and` on each zero-width character's path (the
     /// cold `attach` and `widen`), 2.9 M instructions over 200 reps of
-    /// `cat-cjk` (`docs/record.md`, "A cursor placed right of the fence
-    /// writes on").
+    /// `cat-cjk`.
     const PLACED: usize = 1 << (usize::BITS / 2);
     pub const ZERO: CursorCol = CursorCol(0);
 

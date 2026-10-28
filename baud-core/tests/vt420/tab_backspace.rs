@@ -20,7 +20,7 @@
 //! the first and last rows of the screen. Note 1's "within the Scroll Area"
 //! and BS's algorithm (`line < top_margin || line > bottom_margin` is
 //! outside) both include them; that reading is built, and the conflict is
-//! open (`docs/record.md`, "HT and BS under side margins").
+//! open.
 //!
 //! 20 by 8, every row its own letter. **A probe that reads where the cursor
 //! is, not where `Term::cursor` clamps it**: `?69l` puts the margins back

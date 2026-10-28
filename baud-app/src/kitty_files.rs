@@ -1193,8 +1193,7 @@ os.waitpid(pid, 0)
             t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
             t.set_kitty_files(Box::leak(Box::new(LocalFiles::new())));
             // kitten's detection waits ten seconds on `CSI ? 6 c` and goes
-            // on at once on `CSI ? 6 ; 4 c`, baud's other answer (the
-            // record, "A `kitten icat` session, recorded").
+            // on at once on `CSI ? 6 ; 4 c`, baud's other answer.
             t.set_sixel_claim(baud_domain::SixelClaim::Yes);
             let mut seen = Vec::new();
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);

@@ -476,7 +476,7 @@ fn a_clustered_composition_draws_as_its_text_written() {
 /// sign composed after its consonant, a skin tone after its emoji and a
 /// `U+FE0F` after the `☠` it widens, each composed over `cdef` equal to
 /// the cell rewritten underlined with it, the cursor after it, and each
-/// drawn (Jev's lean, `B_CELL_BEFORE`).
+/// drawn.
 #[test]
 fn a_continuation_composed_draws_on_the_cell_before_it() {
     let data = jbm();

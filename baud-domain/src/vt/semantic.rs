@@ -27,8 +27,8 @@ pub enum Semantic<'a> {
     /// nushell's reedline does too -- and starts none.
     Command(Opener, PromptOptions<'a>),
     /// `P`: "Explicit start of prompt. Optional after an A or N command."
-    /// Its one applicable option is `k`. The owner's own `zsh` sends `P`
-    /// and no `A`, so an initial `P` where no prompt is open opens one.
+    /// Its one applicable option is `k`. A real `zsh` sends `P` and no
+    /// `A`, so an initial `P` where no prompt is open opens one.
     Prompt(PromptKind),
     /// `B` or `I`: the prompt has ended and what follows is what the user
     /// types, until `C` or another prompt (`B`), or until the end of the

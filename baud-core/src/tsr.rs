@@ -7,20 +7,19 @@
 //! (`baud_domain::TerminalState`): "The format of the data is firmware
 //! revision dependent". Answered whatever level DA claims, as DECRQPSR is.
 //!
-//! **A restore goes through each control's own handler**, a field at a
-//! time and only where the report differs from the state now, XTRESTORE's
-//! rule (Jev's lean, R_DIFFER, 0.48/0.62 after research): a mode through
-//! DECSET or SM, a setting through the control DECRQSS would answer with,
-//! the cursor information through DECRSPS's restore. So a restore has every
-//! effect the controls have -- `?3` clears, the alternate screen is
-//! switched to or from through `?47`, the first of its three modes in slot
-//! order, so `?1049`'s cursor save is not replayed, DECSTBM homes the
-//! cursor -- and the cursor, restored last, ends where the report put it.
-//! The conformance level goes first, since changing it soft-resets, and
-//! the input encoding after it, as `ESC % @` and `ESC % G` set it. The
+//! **A restore goes through each control's own handler**, a field at a time
+//! and only where the report differs from the state now, XTRESTORE's rule:
+//! a mode through DECSET or SM, a setting through the control DECRQSS would
+//! answer with, the cursor information through DECRSPS's restore. So a
+//! restore has every effect the controls have -- `?3` clears, the alternate
+//! screen is switched to or from through `?47`, the first of its three
+//! modes in slot order, so `?1049`'s cursor save is not replayed, DECSTBM
+//! homes the cursor -- and the cursor, restored last, ends where the report
+//! put it. The conformance level goes first, since changing it soft-resets,
+//! and the input encoding after it, as `ESC % @` and `ESC % G` set it. The
 //! tab stops and the shown screen's `DECSC` save, which no control
-//! restores, are written directly, the save into the slot of the screen
-//! the modes left shown.
+//! restores, are written directly, the save into the slot of the screen the
+//! modes left shown.
 
 use crate::osc::StrKind;
 use crate::paint::Paint;
@@ -196,8 +195,8 @@ impl Paint<'_, '_> {
     /// DECCTR, `DCS 2 $ s Pc;Pu;Px;Py;Pz/... ST`: a group for each colour
     /// the core knows, the application's `OSC 4` override else the
     /// embedder's table, as `OSC 4`'s query answers; an entry neither gave
-    /// is left out, as that query answers nothing for it (Jev's lean,
-    /// U_OMIT, 0.85/0.89 after research). Sent whole or not at all.
+    /// is left out, as that query answers nothing for it. Sent whole or
+    /// not at all.
     fn report_color_table(&mut self, space: ColorSpace) {
         let c1 = self.cold.replies.c1();
         let mut out = [0u8; CTR_REPLY_MAX];

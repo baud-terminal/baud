@@ -114,7 +114,7 @@ fn decelr_with_an_undefined_value_is_ignored_and_counted() {
 /// **The locator is one of ctlseqs' mutually exclusive mouse protocols**:
 /// a DECSET of an xterm one replaces it and a DECRST of any turns it off,
 /// and DECELR 0 turns off whichever is in force, as xterm's single
-/// `send_mouse_pos` does (Jev, ALL_OFF, 0.92 and 0.92).
+/// `send_mouse_pos` does.
 #[test]
 fn decelr_and_the_xterm_mouse_protocols_replace_each_other() {
     let rqm = b"\x1b[?1000$p";

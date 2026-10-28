@@ -159,7 +159,7 @@ impl Paint<'_, '_> {
     /// starts at column 0, DECOM or not, and nothing else is read. A mask of
     /// both bits, `0x24`, is no logical immediate on arm64: it cost a `mov`
     /// and a `tst` where one `tbnz` stands, 2.4 M instructions over 100 reps
-    /// of `cat` (`docs/record.md`, "Line starts and moves under side margins").
+    /// of `cat`.
     ///
     /// **Under DCSM's PRESENTATION** the column chosen is the line's home
     /// in the presentation, and the cursor goes to the cell drawn there
@@ -529,14 +529,13 @@ impl Paint<'_, '_> {
     /// screen holds**: an empty cell in the current text background with
     /// every other attribute cleared, or under DECECM set the screen
     /// background, the default rendition (`[[source: vt520-rm]]` p. 5-48,
-    /// "Controls the background color used when text is erased or new text
-    /// is scrolled on to the screen"; ED, EL and ECH "clear all character
+    /// "Controls the background color used when text is erased or new text is
+    /// scrolled on to the screen"; ED, EL and ECH "clear all character
     /// attributes", pp. 5-179 and 5-180). Reverse is an attribute and goes
     /// too, so the background is the colour word SGR 40-49 set, as xterm,
-    /// ghostty, foot and alacritty erase (Jev's lean, UNSWAPPED, 0.60/0.66).
-    /// The mode is one bit of a word the erase's caller reads anyway; a blank
-    /// is built once an erase or a line, never per byte, and in the default
-    /// rendition it interns nothing.
+    /// ghostty, foot and alacritty erase. The mode is one bit of a word the
+    /// erase's caller reads anyway; a blank is built once an erase or a line,
+    /// never per byte, and in the default rendition it interns nothing.
     #[inline(always)]
     pub(crate) fn blank(&mut self) -> PackedCell {
         if self.style == StyleId::DEFAULT || self.cold.modes.is_set(ModeBit::EraseScreenBackground)
@@ -1270,16 +1269,15 @@ impl Paint<'_, '_> {
     /// **A row an erase covers to its end, cleared past the live edge
     /// first** ([`View::clear_past_edge_of`]), on the primary narrower than
     /// its rows hold: `EL 0` and `EL 2`, the cursor's row of `ED 0`, and
-    /// each row of the prompt block a redraw erases, behind the window
-    /// too; the rows `ED` and `DECCOLM`'s clear cover whole go through
+    /// each row of the prompt block a redraw erases, behind the window too;
+    /// the rows `ED` and `DECCOLM`'s clear cover whole go through
     /// [`Paint::clear_erased_rows_past_edge`]. Not `DECSEL` or `DECSED`,
     /// which spare protected characters and stop at the live edge. The
     /// erase stands in for the line being cleared, so nothing of the old
     /// line survives past the edge for a growth to show; the erase's own
-    /// blank then runs on to the mark, which is TO_THE_MARK (the record, "A
-    /// row erased or fed in a colour past the edge keeps it to the mark").
-    /// `at` is the ring row and `blank` the erase's. Out of line, behind
-    /// one compare of the reach in each caller.
+    /// blank then runs on to the mark, which is TO_THE_MARK. `at` is the
+    /// ring row and `blank` the erase's. Out of line, behind one compare of
+    /// the reach in each caller.
     #[cold]
     #[inline(never)]
     pub(crate) fn clear_erased_past_edge(&mut self, at: RowRot, blank: PackedCell) {
@@ -1301,8 +1299,7 @@ impl Paint<'_, '_> {
     /// One compare of the reach for the erase and not one a row: with the
     /// compare in the row loop, `vim`'s 46 `EL` and 15 `ED 2` a rep took
     /// 6,448 more instructions than the base, ranges apart; out of it, the
-    /// difference is inside the base's range (the record, "An erase taken
-    /// while narrow clears what the line held past the edge").
+    /// difference is inside the base's range.
     #[cold]
     #[inline(never)]
     pub(crate) fn clear_erased_rows_past_edge(&mut self, from: Row, to: Row) {
@@ -1431,8 +1428,7 @@ impl Paint<'_, '_> {
             // followed by the swept count's store, they were sixteen
             // instructions a scroll down on a screen with nothing past the
             // edge, for a scroll of one line, and are five: 1,209 fewer a
-            // rep on `less`, 593,934 to 592,725 (the record, "The scroll
-            // down tests the edge once").
+            // rep on `less`, 593,934 to 592,725.
             if self.past_edge() {
                 self.scroll_down_past_edge(Rows::of_count(k));
                 self.path_rows(Row::ZERO, Row::from_index(k - 1));
@@ -1811,12 +1807,11 @@ impl Paint<'_, '_> {
 
     /// **SPA**: the active position starts a guarded area
     /// (`[[source: ecma48]]` 6.5.2.2). A second SPA before EPA starts it
-    /// again: Jev's lean (docs/record.md, "SPA, EPA and ERM are built").
-    /// The position is the cursor's as `CPR` reports it, so a pending wrap is
-    /// the last column, where the cursor is shown, and with BDSM reset its
-    /// presentation position: SPA and EPA name "the active presentation
-    /// position" (8.3.129, 8.3.46), in both DCSM states as the cursor
-    /// functions do (`crate::component`).
+    /// again. The position is the cursor's as `CPR` reports it, so a pending
+    /// wrap is the last column, where the cursor is shown, and with BDSM
+    /// reset its presentation position: SPA and EPA name "the active
+    /// presentation position" (8.3.129, 8.3.46), in both DCSM states as the
+    /// cursor functions do (`crate::component`).
     pub(crate) fn start_guarded_area(&mut self) {
         let (screen, line) = self.image_anchor();
         let col = self.guard_position();
@@ -1846,9 +1841,9 @@ impl Paint<'_, '_> {
     /// **EPA**: guard every position from SPA's through the cursor, in the
     /// order of the character path -- the rest of the first row, the rows
     /// between whole, the last row to the cursor -- whichever of the two
-    /// comes first. Nothing is guarded before it (Jev's lean). A start
-    /// whose line scrolled above the screen is its first position, and one
-    /// below it its last. With no SPA open it does nothing.
+    /// comes first. Nothing is guarded before it. A start whose line
+    /// scrolled above the screen is its first position, and one below it
+    /// its last. With no SPA open it does nothing.
     pub(crate) fn end_guarded_area(&mut self) {
         let Some(g) = self.cold.guard_open.take() else {
             return;
@@ -1930,16 +1925,15 @@ impl Paint<'_, '_> {
         self.guard_band_moved(from, to, Rows::of_count(1), BandMove::Down);
     }
 
-    /// **ED, EL, DECSED and DECSEL with a list: every parameter, in
-    /// order**, as `[[source: dec-std-070]]`'s algorithms loop `for (n=0;
-    /// n<parc; n++) switch(parv[n])` (EL p. 5-155, ED p. 5-157, DECSEL p.
-    /// 5-160, DECSED p. 5-163). A value the `switch` has no case for is
-    /// skipped, and counted. **So is a `3`**: xterm's "Erase Saved Lines" is
-    /// the value of a lone parameter, and STD 070's `switch` has no case 3
-    /// (Jev's lean, SKIP, 2026-10-19). Out of line: a lone parameter never
-    /// comes here. **Each extent ends an aligned string open on a line it
-    /// reaches**, before it erases, as the lone parameter's does
-    /// ([`Paint::edit_reaches`]).
+    /// **ED, EL, DECSED and DECSEL with a list: every parameter, in order**,
+    /// as `[[source: dec-std-070]]`'s algorithms loop
+    /// `for (n=0; n<parc; n++) switch(parv[n])` (EL p. 5-155, ED p. 5-157,
+    /// DECSEL p. 5-160, DECSED p. 5-163). A value the `switch` has no case
+    /// for is skipped, and counted. **So is a `3`**: xterm's "Erase Saved
+    /// Lines" is the value of a lone parameter, and STD 070's `switch` has
+    /// no case 3. Out of line: a lone parameter never comes here. **Each
+    /// extent ends an aligned string open on a line it reaches**, before it
+    /// erases, as the lone parameter's does ([`Paint::edit_reaches`]).
     #[cold]
     #[inline(never)]
     pub(crate) fn erase_each(&mut self, csi: &crate::write::Csi, which: EraseList) {
@@ -1974,13 +1968,13 @@ impl Paint<'_, '_> {
     /// area is the run, in the character path, of positions that share the
     /// active position's guard**: a guarded area, or the unguarded positions
     /// between two, or between one and the page's edge, each line to its own
-    /// end (Jev's lean, RUN, 2026-10-19). Two guarded areas that touch read
-    /// as one. Guarded positions go as ERM says, through `erase_span`, and
-    /// the blank is DECECM's. Out of line, and a walk over the area it
-    /// erases. **Under DCSM's PRESENTATION** the walk is over presentation
-    /// positions, each line's as drawn, and the cells drawn at the positions
-    /// it covers are erased where they stand (8.3.37, "the qualified area in
-    /// the presentation component"; `crate::component`).
+    /// end. Two guarded areas that touch read as one. Guarded positions go
+    /// as ERM says, through `erase_span`, and the blank is DECECM's. Out of
+    /// line, and a walk over the area it erases. **Under DCSM's
+    /// PRESENTATION** the walk is over presentation positions, each line's
+    /// as drawn, and the cells drawn at the positions it covers are erased
+    /// where they stand (8.3.37, "the qualified area in the presentation
+    /// component"; `crate::component`).
     #[cold]
     #[inline(never)]
     pub(crate) fn erase_in_area(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
@@ -2061,8 +2055,8 @@ impl Paint<'_, '_> {
     /// character position at the following character tabulation stop"
     /// (4.2.40). **A field stays in its line**: the line's start bounds the
     /// positions before its first stop, its end the positions after its last,
-    /// and with no stops the line is one field (Jev's lean, LINE_BOUNDED,
-    /// 2026-10-19). Guarded positions go as ERM says, as for EA.
+    /// and with no stops the line is one field. Guarded positions go as ERM
+    /// says, as for EA.
     #[cold]
     #[inline(never)]
     pub(crate) fn erase_in_field(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
@@ -2132,9 +2126,8 @@ impl Paint<'_, '_> {
     }
 
     /// **To whole characters** (`View::snap_span`): a wide character an
-    /// edge cuts becomes two spaces, Jev's lean WHOLE_SPACE (2026-10-19),
-    /// as ED and EL snap; both halves carry its protection, so a protected
-    /// one stays whole.
+    /// edge cuts becomes two spaces, as ED and EL snap; both halves carry
+    /// its protection, so a protected one stays whole.
     fn selective_wipe(&mut self, r: Row, from: Col, to: Col) {
         let (from, to) = self.view.snap_span(r, from, to);
         for x in from.index()..to.index() {
@@ -2148,8 +2141,8 @@ impl Paint<'_, '_> {
         // The positions erased lose what is drawn over them; a protected
         // one keeps it, and so does an unoccupied one, which the erase does
         // not touch ("Unoccupied character positions are not affected",
-        // DECSERA; Jev's lean, ERASED_POSITIONS). Judged after the wipe, an
-        // erased position holding a space.
+        // DECSERA). Judged after the wipe, an erased position holding a
+        // space.
         self.erase_images_where(r, from, to, |c| c.is_protected() || c.content.is_empty());
         self.selectively_erased_whole(r, from, to);
         self.row_changed_to(r);
@@ -2214,7 +2207,7 @@ impl Paint<'_, '_> {
     /// **xterm erases them whole**: `do_erase_display`'s `case 3` is the same
     /// for both forms and sets `savedlines` to zero whatever the protection
     /// (`[[source: xterm-scroll]]`). That departs from the text; this follows
-    /// the text, decided 2026-10-10 (Jev, XT-2) and open to the owner's veto.
+    /// the text (since 2026-10-10).
     ///
     /// **A selection on a saved line goes**, as one on a row a selective
     /// erase wipes does: the lines are tested against the watch on a
@@ -2678,12 +2671,11 @@ impl Paint<'_, '_> {
     /// and does not settle a copy made after a control: "If the character
     /// preceding REP is a control function or part of a control function,
     /// the effect of REP is not defined by this Standard." The copy is the
-    /// character as drawn, counted as the code it was received as, by Jev's
-    /// lean, AS_SHOWN (0.71 and 0.57, asked with renders), the text leaving
-    /// it undefined. A copy under GL's pen took the new set's tag, so a
-    /// German `[` drawn `Ä`, copied after `ESC ( B`, counted 0xC4 where the
-    /// original counts 0x5B. Resolved here, once a set change, so the write
-    /// path stores the same constant pen it did.
+    /// character as drawn, counted as the code it was received as, the text
+    /// leaving it undefined. A copy under GL's pen took the new set's tag,
+    /// so a German `[` drawn `Ä`, copied after `ESC ( B`, counted 0xC4
+    /// where the original counts 0x5B. Resolved here, once a set change, so
+    /// the write path stores the same constant pen it did.
     #[cold]
     #[inline(never)]
     fn keep_repeated_set(&mut self) {
@@ -2727,14 +2719,13 @@ impl Paint<'_, '_> {
     /// REP: repeat the last graphic character. Bounded by the row, so
     /// `CSI 65535 b` cannot spin.
     ///
-    /// **Each copy is a cell of its own and the machine is told the last
-    /// one went past**, from the state a control leaves, since `CSI b` is
-    /// one: `glyph` writes without asking it, so without this a continuation
-    /// after `ab CSI b` broke from the copy it follows, where GB9 and GB9a
-    /// join it, and `csi_final` leaves the parser in `Node::Ground` after it
-    /// so `Act::EndCluster` does not undo it (`after_rep_the_cluster_goes_on`).
-    /// The copy never joins what came before it, a choice for Jev (note AB,
-    /// Q24).
+    /// **Each copy is a cell of its own and the machine is told the last one
+    /// went past**, from the state a control leaves, since `CSI b` is one:
+    /// `glyph` writes without asking it, so without this a continuation after
+    /// `ab CSI b` broke from the copy it follows, where GB9 and GB9a join it,
+    /// and `csi_final` leaves the parser in `Node::Ground` after it so
+    /// `Act::EndCluster` does not undo it (`after_rep_the_cluster_goes_on`).
+    /// The copy never joins what came before it, an open choice (note AB, Q24).
     ///
     /// **Says whether it wrote**: with no last graphic character, after `RIS`
     /// or before any text, it writes nothing and tells the machine nothing, so
@@ -2821,10 +2812,9 @@ impl Paint<'_, '_> {
     /// screen's first column and the wrap reset, and the tab from there.
     /// So it is `IND` and column 1 even under `DECLRMM`, and the row left
     /// is not marked as continuing, where xterm's own `WrapLine` marks it:
-    /// more(1)'s next line is a line of its own (Jev's lean,
-    /// XTERM_LITERAL, 0.37/0.11; a second ask split, so the first stands).
-    /// Out of line, so an `HT` that finds no wrap pending reads nothing
-    /// new.
+    /// more(1)'s next line is a line of its own (a second ask split, so
+    /// the first stands). Out of line, so an `HT` that finds no wrap
+    /// pending reads nothing new.
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_wraps_first(&mut self) -> bool {
@@ -2875,12 +2865,11 @@ impl Paint<'_, '_> {
     ///
     /// **The scroll area includes its margin rows**, as note 1 and BS's
     /// algorithm (p. 5-63) have it; HT's own algorithm (p. 5-68) compares
-    /// strictly, which would put them outside (`docs/record.md`, "HT and BS
-    /// under side margins"). **A pending wrap is on the right margin**:
-    /// with `DECAWM` set the sentinel one past it reads as on it, as
-    /// [`crate::Term::wrap_pending`] reads it; with it reset no wrap is
-    /// pending, so one past the margin is beyond it. Under DECOM every move
-    /// keeps the cursor inside the margins (the `?6` row of
+    /// strictly, which would put them outside. **A pending wrap is on the
+    /// right margin**: with `DECAWM` set the sentinel one past it reads as
+    /// on it, as [`crate::Term::wrap_pending`] reads it; with it reset no
+    /// wrap is pending, so one past the margin is beyond it. Under DECOM
+    /// every move keeps the cursor inside the margins (the `?6` row of
     /// `docs/vt-coverage.md`), so the right margin stops it with no test of
     /// the mode here.
     #[cold]
@@ -2928,8 +2917,8 @@ impl Paint<'_, '_> {
             // **`?1045` wraps past the top margin too**, to the bottom
             // margin's line, and needs `?7`, as xterm's `REVERSEWRAP2` acts
             // only with `WRAPAROUND` (`[[source: xterm-cursor-c]]`,
-            // `CursorBack`; Jev's lean, WITH_DECAWM). Above the top margin
-            // it goes up a line, and not off the screen.
+            // `CursorBack`). Above the top margin it goes up a line, and
+            // not off the screen.
             let to = match y {
                 y if y == self.cold.top.index() => Some(self.cold.bot),
                 0 => None,
@@ -2975,22 +2964,22 @@ impl Paint<'_, '_> {
     }
 
     /// **Where `?45`'s walk back of `n` columns ends**, as `(line, column)`,
-    /// xterm's `CursorBack` with `rev` and not `rev2` (`[[source:
-    /// xterm-cursor-c]]` 121-191): a step past the left margin goes to the
-    /// end of the line above only when that line is marked wrapped, its
-    /// text having run on into this one (`LineTstWrapped`), and otherwise
-    /// the walk stops at the left margin. **No top margin bounds it while
-    /// `DECOM` is reset**: only an unwrapped line does, and the screen's
-    /// first line, where xterm would read a line of its history. **Under
-    /// `DECOM` the walk stops at the top margin**, which confines all cursor
-    /// movement to the region (`[[source: vt510-decom]]`); xterm's `rev`
-    /// reads no `ORIGIN` and would leave it, not followed. A failed step
-    /// from below the region leaves the cursor on the line above it, xterm's
-    /// `if (row < bottom) ++row; /* reverse-wrap failed */` as written (Jev's
-    /// lean, XTERM_UP, 0.86/0.80 then 0.76/0.78). From left of the left
-    /// margin the walk turns at the screen's first column, as xterm lets it
-    /// go there; within a line it moves as `CUB` does, a pending wrap
-    /// included, as `?1045`'s walk does ([`Paint::back_wrapping`]).
+    /// xterm's `CursorBack` with `rev` and not `rev2`
+    /// (`[[source: xterm-cursor-c]]` 121-191): a step past the left margin
+    /// goes to the end of the line above only when that line is marked
+    /// wrapped, its text having run on into this one (`LineTstWrapped`), and
+    /// otherwise the walk stops at the left margin. **No top margin bounds it
+    /// while `DECOM` is reset**: only an unwrapped line does, and the
+    /// screen's first line, where xterm would read a line of its history.
+    /// **Under `DECOM` the walk stops at the top margin**, which confines all
+    /// cursor movement to the region (`[[source: vt510-decom]]`); xterm's
+    /// `rev` reads no `ORIGIN` and would leave it, not followed. A failed
+    /// step from below the region leaves the cursor on the line above it,
+    /// xterm's `if (row < bottom) ++row; /* reverse-wrap failed */` as
+    /// written. From left of the left margin the walk turns at the screen's
+    /// first column, as xterm lets it go there; within a line it moves as
+    /// `CUB` does, a pending wrap included, as `?1045`'s walk does
+    /// ([`Paint::back_wrapping`]).
     fn reverse_walk(&self, n: Count) -> (usize, usize) {
         let start = self.cx.col().index();
         let left = match start < self.cold.left.index() {
@@ -3048,15 +3037,14 @@ impl Paint<'_, '_> {
     /// left margin to the end of the line above, and from the top margin
     /// to the bottom margin's line**, xterm's `CursorBack` with
     /// `REVERSEWRAP2` (`[[source: xterm-cursor-c]]` 121-190), which serves
-    /// `CUB` as it serves `BS` (`[[source: xterm-reset]]`,
-    /// `CASE_CUB`). From left of the left margin the walk turns at the
-    /// screen's first column, as xterm lets it go there. Within a line it
-    /// moves as `CUB` without the mode does, a pending wrap included, as
-    /// the original `CursorBack` counts one (`[[source:
-    /// xterm-x11r5-cursor-c]]` 81-84), where today's takes it off twice
-    /// (Jev's lean, SAME_AS_CUB, 0.84/0.72).
-    /// Above the top margin it goes up a line and not off the screen, as
-    /// `BS` does ([`Paint::back_space_at_left`]).
+    /// `CUB` as it serves `BS` (`[[source: xterm-reset]]`, `CASE_CUB`).
+    /// From left of the left margin the walk turns at the screen's first
+    /// column, as xterm lets it go there. Within a line it moves as `CUB`
+    /// without the mode does, a pending wrap included, as the original
+    /// `CursorBack` counts one (`[[source: xterm-x11r5-cursor-c]]` 81-84),
+    /// where today's takes it off twice. Above the top margin it goes up a
+    /// line and not off the screen, as `BS` does
+    /// ([`Paint::back_space_at_left`]).
     ///
     /// **A whole lap of the region is taken off the count** the first time
     /// the walk turns from the top margin to the bottom, so `CSI 65535 D`
@@ -3207,15 +3195,14 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **TSR**, `CSI Pn SP d` (`[[source: ecma48]]` 8.3.156): "any
-    /// character tabulation stop at character position n in the active line
-    /// ... and lines of subsequent text in the presentation component to be
-    /// cleared, but does not affect other tabulation stops". A character
-    /// stop is in every line under TSM MULTIPLE, so the stop at column `n`
-    /// goes from them all; a position past the line holds none. Position `n`
-    /// is a presentation position, the column `HTS` sets a stop at. `Pn` has
-    /// no default, so an omitted or zero one clears nothing and is counted
-    /// (Jev, COUNTED, 0.98/0.96).
+    /// **TSR**, `CSI Pn SP d` (`[[source: ecma48]]` 8.3.156): "any character
+    /// tabulation stop at character position n in the active line ... and
+    /// lines of subsequent text in the presentation component to be cleared,
+    /// but does not affect other tabulation stops". A character stop is in
+    /// every line under TSM MULTIPLE, so the stop at column `n` goes from
+    /// them all; a position past the line holds none. Position `n` is a
+    /// presentation position, the column `HTS` sets a stop at. `Pn` has no
+    /// default, so an omitted or zero one clears nothing and is counted.
     pub(crate) fn remove_stop(&mut self, n: Option<baud_domain::OneBased>) {
         let Some(n) = n else {
             self.unsupported_param += 1;
@@ -3227,20 +3214,19 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **HTJ**, `ESC I` (`[[source: ecma48]]` 8.3.61): "the contents of
-    /// the active field ... to be shifted forward so that it ends at the
+    /// **HTJ**, `ESC I` (`[[source: ecma48]]` 8.3.61): "the contents of the
+    /// active field ... to be shifted forward so that it ends at the
     /// character position preceding the following character tabulation
     /// stop", the positions before it "put into the erased state", and the
     /// cursor to that stop, where `HT` takes it. The field is `EF`'s, from
     /// the stop at or before the cursor to the next, bounded by the line
-    /// (4.2.40; Jev's lean, LINE_BOUNDED); its contents run from its start
-    /// through its last position not in the erased state, wherever the
-    /// cursor is in it (Jev's lean, WRITTEN_EXTENT, 0.52/0.18 asked again).
-    /// So the shift is an `ICH` at the field's start of the erased
-    /// positions after its contents, within the field: nothing leaves it.
-    /// The stops are found at the cursor's presentation position, as `HT`
-    /// finds them, and with BDSM reset on a line holding a string the
-    /// content drawn at the field's positions moves (`crate::extent`).
+    /// (4.2.40); its contents run from its start through its last position
+    /// not in the erased state, wherever the cursor is in it. So the shift
+    /// is an `ICH` at the field's start of the erased positions after its
+    /// contents, within the field: nothing leaves it. The stops are found
+    /// at the cursor's presentation position, as `HT` finds them, and with
+    /// BDSM reset on a line holding a string the content drawn at the
+    /// field's positions moves (`crate::extent`).
     #[cold]
     #[inline(never)]
     pub(crate) fn tab_justify(&mut self) {
@@ -3250,7 +3236,7 @@ impl Paint<'_, '_> {
         let start = (0..=x).rev().find(|&c| self.tabs[c]).unwrap_or(0);
         let stop = (x + 1..end).find(|&c| self.tabs[c]).unwrap_or(end);
         // With BDSM reset on a line holding a string the positions are the
-        // ones drawn, and their content moves (Jev's lean, BUILD_DRAWN).
+        // ones drawn, and their content moves.
         let mut d = crate::component::Drawn::presented(self.cold.modes);
         let written = (start..stop).rev().find(|&p| {
             let c = self.drawn_at(&mut d, r, Col::at_index(p));
@@ -3306,11 +3292,11 @@ impl Paint<'_, '_> {
     /// margin names the column it waits on**, which a report names: the
     /// active position is not advanced from "the last character position
     /// of the active line" (6.1.6), DEC's Last Column Flag leaves it there
-    /// and its HTS sets the stop at "the Active Column" (`[[source:
-    /// dec-std-070]]` D.6.1, p. 5-69), and xterm's `TabSet()` and
-    /// `TabClear()` take the cursor column, which stays there while the
-    /// wrap waits (Jev's lean, WAITED_COLUMN, 0.53/0.75 then 0.75/0.87).
-    /// The wrap still waits: HTS is not among the controls D.6.1 lists.
+    /// and its HTS sets the stop at "the Active Column"
+    /// (`[[source: dec-std-070]]` D.6.1, p. 5-69), and xterm's `TabSet()`
+    /// and `TabClear()` take the cursor column, which stays there while
+    /// the wrap waits. The wrap still waits: HTS is not among the controls
+    /// D.6.1 lists.
     fn stop_col(&self) -> Col {
         let c = self.cx.reported(self.report_fence(), self.cols);
         match self.cold.modes.is_set(ModeBit::CursorPresented) {
@@ -3333,9 +3319,8 @@ impl Paint<'_, '_> {
     /// The last line a line tabulation stop is read to from the cursor's:
     /// the bottom margin inside the scrolling region, the last line outside
     /// it -- HT's rule from `[[source: dec-std-070]]`'s note 1, turned
-    /// vertical, which CVT's text leaves open (Jev 2026-10-19, BOTTOM,
-    /// 0.96/0.90). A region is its rows here: the side margins bound no
-    /// line.
+    /// vertical, which CVT's text leaves open. A region is its rows here:
+    /// the side margins bound no line.
     fn line_tab_end(&self) -> Row {
         let y = self.cy.index();
         match y >= self.cold.top.index() && y <= self.cold.bot.index() {
@@ -3366,9 +3351,9 @@ impl Paint<'_, '_> {
     /// VT, `0x0B` (`[[source: ecma48]]` 8.3.161): to "the corresponding
     /// character position on the line at which the following line
     /// tabulation stop is set", read to [`Paint::line_tab_end`]; with none
-    /// following, `LF`, as DEC's table treats VT (Jev 2026-10-19,
-    /// NEXT_LINE_STOP, 0.94/0.92). Out of line: the per-byte loop's arm is
-    /// one call, and its own table entry rather than a test in `LF`'s.
+    /// following, `LF`, as DEC's table treats VT. Out of line: the
+    /// per-byte loop's arm is one call, and its own table entry rather
+    /// than a test in `LF`'s.
     #[cold]
     #[inline(never)]
     pub(crate) fn vertical_tab(&mut self) {
@@ -3569,22 +3554,21 @@ impl Paint<'_, '_> {
     /// SL and SR, `CSI Pn SP @` and `CSI Pn SP A` (`[[source: ecma48]]`
     /// 8.3.121 and 8.3.135): the rectangle the four margins bound moves left
     /// or right "and the active presentation position is not affected",
-    /// whatever line or column the cursor is on (Jev 2026-10-19, NO_GATE,
-    /// 0.96/0.96). The columns brought in take the fill SU and SD give a
-    /// line, [`Paint::blank`], DECECM's "background color used when text is
-    /// erased or new text is scrolled on to the screen" (`[[source:
-    /// vt520-rm]]` p. 5-48; SCROLL_FILL, 0.96/0.96), where DECIC and DECDC
-    /// take normal rendition by their own text.
+    /// whatever line or column the cursor is on. The columns brought in take
+    /// the fill SU and SD give a line, [`Paint::blank`], DECECM's
+    /// "background color used when text is erased or new text is scrolled on
+    /// to the screen" (`[[source: vt520-rm]]` p. 5-48), where DECIC and
+    /// DECDC take normal rendition by their own text.
     ///
     /// **A double-width line shifts to the right margin**, as DEC's own
     /// horizontal shifts move it: DECFI and DECBI shift "one column
     /// regardless of their line attributes", through scroll_left and
     /// scroll_right, which run every row of the region to the right margin
     /// (`[[source: dec-std-070]]` pp. 5-37, 5-39, 5-212 and 5-213), so what
-    /// goes past its half is kept and DECSWL shows it again (Jev 2026-10-19,
-    /// RIGHT_MARGIN, 0.94/0.96). It stopped at the half until then. Side
-    /// margins and a sized line never meet (p. 5-29), so the left margin is
-    /// column 1 on any line that is not single-width.
+    /// goes past its half is kept and DECSWL shows it again. It stopped at
+    /// the half until then. Side margins and a sized line never meet (p.
+    /// 5-29), so the left margin is column 1 on any line that is not
+    /// single-width.
     pub(crate) fn scroll_columns(&mut self, n: Count, dir: ColumnShift) {
         self.edit_reaches(crate::aligned::EditRows::Region);
         let (left, b) = (self.cold.left, self.blank());
@@ -3678,9 +3662,8 @@ impl Paint<'_, '_> {
     /// to `?1023`, the permanent `?2027` ([`PrivateMode::slot`]).
     ///
     /// **`?1048` saves the cursor**, as xterm's `savemodes` runs
-    /// `CursorSave` for it (`[[source: xterm-reset]]`'s file; Jev,
-    /// XTERM_ACTIONS, 0.91/0.94): the mode is an action and has no value
-    /// to keep.
+    /// `CursorSave` for it (`[[source: xterm-reset]]`'s file): the mode
+    /// is an action and has no value to keep.
     pub(crate) fn save_private_modes(&mut self, csi: &crate::write::Csi) {
         csi.for_each_param(|p| {
             let m = PrivateMode::from_wire(p);
@@ -3716,8 +3699,8 @@ impl Paint<'_, '_> {
     /// `?1002` restored before it -- and would clear an alternate screen that
     /// is already up. **A mode never saved restores nothing**: there is no
     /// value "previously saved". Where xterm's bespoke code and zeroed array
-    /// differ (`restoremodes`, `[[source: xterm-reset]]`), Jev kept `?1049`
-    /// and an equal value as here (XT-6, XT-7); the rest is the owner's call.
+    /// differ (`restoremodes`, `[[source: xterm-reset]]`), baud keeps `?1049`
+    /// and an equal value as here; the rest is open.
     pub(crate) fn restore_private_modes(
         &mut self,
         csi: &crate::write::Csi,
@@ -3859,14 +3842,14 @@ impl Paint<'_, '_> {
                     self.cold.pinned = crate::term::Pinned::Before;
                 }
             }
-            // **`?3` DECCOLM, behind xterm's `?40`** -- the owner's call of
-            // 2026-10-13. While `?40` is reset the control is ignored, as
-            // xterm's `srm_DECCOLM` does nothing without `c132`, and counted.
-            // Allowed, it is `[[source: dec-std-070]]`'s `set_column_mode`
-            // and `reset_column_mode` (p. 5-72): "Selecting Eighty or One
-            // Thirty Two Column Mode causes the display data to be cleared,
-            // the scrolling region to be eliminated, and the Active Position
-            // to be set to the display origin (1,1), even if the terminal was
+            // **`?3` DECCOLM, behind xterm's `?40`**. While `?40` is reset
+            // the control is ignored, as xterm's `srm_DECCOLM` does nothing
+            // without `c132`, and counted. Allowed, it is
+            // `[[source: dec-std-070]]`'s `set_column_mode` and
+            // `reset_column_mode` (p. 5-72): "Selecting Eighty or One Thirty
+            // Two Column Mode causes the display data to be cleared, the
+            // scrolling region to be eliminated, and the Active Position to
+            // be set to the display origin (1,1), even if the terminal was
             // already in the selected state" (p. 5-71) -- the top, bottom,
             // left and right margins all reset. **The clear is `?95`'s to
             // withhold**: "When enabled, a column mode change ... does not
@@ -3877,12 +3860,11 @@ impl Paint<'_, '_> {
             // mode (DECLRMM) to unavailable" (`[[source: vt510-deccolm]]`).
             // STD 070's algorithm sets `left_right_margins_mode = SETABLE`
             // instead, and xterm leaves the mode as it was, calling that line
-            // an error -- both readings in the record, as an open question.
-            // **On the status line, DECCOLM is the main display's**, and
-            // clears the line too: "DECCOLM affects both the Main Display
-            // and the Status Display simultaneously ... Receipt of this
-            // sequence will clear both" (`[[source: dec-std-070]]` 070-14
-            // p. 14-9).
+            // an error -- both readings stand, an open question. **On the
+            // status line, DECCOLM is the main display's**, and clears the
+            // line too: "DECCOLM affects both the Main Display and the Status
+            // Display simultaneously ... Receipt of this sequence will clear
+            // both" (`[[source: dec-std-070]]` 070-14 p. 14-9).
             PrivateMode::Column132 if self.on_status() => {
                 self.on_main(|p| p.set_private_mode(m, change, node, at));
             }
@@ -3915,9 +3897,8 @@ impl Paint<'_, '_> {
             // embedder cannot implement either without being told. Dropping
             // them is the "set and never read" failure in reverse -- a mode
             // parsed and discarded, which `docs/vt-coverage.md` rates worse
-            // than not implementing it.
-            // **`?12` is a second input to the blink, not a write to the
-            // style** -- foot's rule, the owner's F of 2026-09-27. It used to
+            // than not implementing it. **`?12` is a second input to the
+            // blink, not a write to the style** -- foot's rule. It used to
             // fold into the style, so the `?12l` vim sends at start and every
             // `cnorm` sends stopped a configured blink for good. Now the drawn
             // blink is `?12` *or* the style's own (`Term::cursor_style`), and
@@ -4233,11 +4214,11 @@ impl Paint<'_, '_> {
             // "This sequence is ignored when the North American or Dutch
             // Keyboard Dialect is selected" (`[[source: dec-std-070]]`
             // DECNRCM note 3, p. 5-126), and baud has no dialect setting,
-            // its keyboard a North American one, for which 7-bit NRCS
-            // "is not available" (070-6 p. 6-58). The national sets act
+            // its keyboard a North American one, for which 7-bit NRCS "is
+            // not available" (070-6 p. 6-58). The national sets act
             // whenever designated, as SCS's algorithm (p. 5-121) and its
             // note 5's workstation emulator have them (note AF's
-            // Q-DECNRCM: Jev's lean, C_STD070_NO_DIALECT, 0.37/0.51).
+            // Q-DECNRCM).
             PrivateMode::NationalReplacement => {}
             // **`?34` DECRLM** (`crate::leftward`): the one-by-one graph
             // while set, and a wrap left pending at the left margin taken
@@ -4334,7 +4315,7 @@ impl Paint<'_, '_> {
     /// restores it on the way out.
     fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
         // A switch takes the active position to another page buffer, and
-        // an aligned string ends (Jev's lean, SWITCH_ENDS).
+        // an aligned string ends.
         self.effector_ends_string();
         // **The alternate screen is the main display's**: from the status
         // line it switches the main display's screen, and the line stays
@@ -4350,8 +4331,8 @@ impl Paint<'_, '_> {
         // matters: a hide after any of them is not right after a move.
         self.cold.placement.forget();
         // **An open SPA's start is kept as its screen position** across the
-        // switch, Jev's lean: its row on the screen left, anchored again on
-        // the screen shown below.
+        // switch: its row on the screen left, anchored again on the screen
+        // shown below.
         let open = self.cold.guard_open.take().map(|g| {
             let (_, top) = self.image_top();
             (g.line.since(top), g.col)
@@ -4426,16 +4407,16 @@ impl Paint<'_, '_> {
                 // in DECSC", switches and clears, and names no move; xterm's
                 // set arm is `CursorSave; ToAlternate; ClearScreen`, and
                 // `ClearScreen` leaves the cursor (`xterm-util.c`), as
-                // `SwitchBufs` does for `?47`. This homed until the owner's
-                // decision of 2026-10-13. `ClearScreen` does reset the wrap
-                // (`ResetWrap`), so a cursor in pending wrap at the screen's
-                // edge stays in the last column with nothing pending: the
-                // `goto` to where it already is, whose clamp to the last
-                // column drops the sentinel and which re-reads the cleared
-                // row's extent. Under side margins narrower than the screen
-                // the sentinel one past the right margin is a column the
-                // clamp keeps, and stays the sentinel, as `goto` places
-                // nothing; a placed cursor keeps its tag.
+                // `SwitchBufs` does for `?47`. This homed until 2026-10-13.
+                // `ClearScreen` does reset the wrap (`ResetWrap`), so a
+                // cursor in pending wrap at the screen's edge stays in the
+                // last column with nothing pending: the `goto` to where it
+                // already is, whose clamp to the last column drops the
+                // sentinel and which re-reads the cleared row's extent.
+                // Under side margins narrower than the screen the sentinel
+                // one past the right margin is a column the clamp keeps, and
+                // stays the sentinel, as `goto` places nothing; a placed
+                // cursor keeps its tag.
                 if how == AltSwitch::SaveAndClear {
                     self.view.reset_rot();
                     self.clear_screen();
@@ -4801,18 +4782,17 @@ impl Paint<'_, '_> {
         // **And what else a program set that the initial state has none
         // of** (`[[source: ecma48]]` 8.3.105), the program's colours above
         // among it; `DECSTR`'s table (`[[source: vt510-decstr]]`) names
-        // none of it, so it keeps all of it. Both kitty keyboard stacks, the parked one too, so the shell a
-        // crashed program leaves in the protocol gets its keys back at
-        // `reset`, the case `[[source: kitty-keyboard]]` keeps Enter, Tab
-        // and Backspace legacy for. XTSHIFTESCAPE and `?30`, which xterm
-        // keeps (`[[source: xterm-reset]]`'s file), a practice not followed:
-        // `?30`'s lean to keep it (0.90/0.74, then 0.92/0.58) is below the
-        // 0.9 a departure needs. The title and icon name, the badge and its
-        // colour (Jev, RESTORES, 0.94/0.96), the user variables, and the
-        // reported directory with the host `RemoteHost` named: none of it
-        // is set at power-on, and Jev leans the same way on each but the
-        // badge (title 0.68/0.80, user variables 0.54/0.72, directory
-        // 0.80/0.86). xterm keeps the title and iTerm2 the rest.
+        // none of it, so it keeps all of it. Both kitty keyboard stacks,
+        // the parked one too, so the shell a crashed program leaves in the
+        // protocol gets its keys back at `reset`, the case
+        // `[[source: kitty-keyboard]]` keeps Enter, Tab and Backspace
+        // legacy for. XTSHIFTESCAPE and `?30`, which xterm keeps
+        // (`[[source: xterm-reset]]`'s file), a practice not followed,
+        // since `[[source: ecma48]]` 8.3.105 resets the device to its
+        // initial state. The title and icon name, the badge and its colour,
+        // the user variables, and the reported directory with the host
+        // `RemoteHost` named: none of it is set at power-on. xterm keeps the
+        // title and iTerm2 the rest.
         self.cold.kitty = baud_domain::KittyStack::new();
         self.cold.kitty_alt = baud_domain::KittyStack::new();
         self.cold.shift_escape = ShiftEscape::Override;
@@ -4828,7 +4808,7 @@ impl Paint<'_, '_> {
         // asked of the embedder in place of whatever is still queued, as
         // "RIS replaces all set-up features with their saved settings"
         // (`[[source: vt510-rm-b]]` p. 5-184). xterm keeps a font a program
-        // set, a practice not followed (Jev's lean, RESTORES, 0.84/0.90).
+        // set, a practice not followed.
         self.strs.fonts.reset();
         // The xterm resources a program set go back with the modes, as
         // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
@@ -4885,13 +4865,12 @@ impl Paint<'_, '_> {
         // operational" (`[[source: ecma48]]`), and nothing is saved then.
         // `DECSTR` keeps it, as its list does not name it. xterm keeps it
         // across both -- `ReallyReset` never touches `save_modes`
-        // (`[[source: xterm-reset]]`) -- which departs from the text; Jev
-        // decided for the text on 2026-10-10 (XT-8), open to the owner's veto.
+        // (`[[source: xterm-reset]]`) -- which departs from the text, and the
+        // text is followed.
         self.cold.xtsave = SavedModes::NONE;
-        // **And XTPUSHSGR's stack**, for the same text: nothing is saved
-        // in the initial state. xterm keeps it across both resets, a
-        // departure from the text not followed (Jev's lean, KEEP, 0.84/0.86,
-        // below the 0.9 a departure needs); `DECSTR` keeps it.
+        // **And XTPUSHSGR's stack**, for the same text: nothing is saved in
+        // the initial state. xterm keeps it across both resets, a departure
+        // from the text not followed; `DECSTR` keeps it.
         self.strs.renditions = crate::stack::RenditionStack::EMPTY;
         // XTPUSHCOLORS's stack too, for the same reason.
         self.strs.colors = crate::stack::ColorStack::EMPTY;
@@ -5058,13 +5037,12 @@ impl Paint<'_, '_> {
     /// device will be ignored", note 4). Then a soft reset, note 3's "soft
     /// reset ... without affecting the data contained in the display", which
     /// the VT220 manual and xterm do and the VT320 to VT520 manuals call a
-    /// hard one (Jev's lean, SOFT, 0.68/0.94); DECSTR unlocks the keyboard,
-    /// as 070-6 says DECSCL does. Then the C1 transmission: `Pc` 0 or 2
-    /// eight-bit, 1 seven-bit, at Levels 2 to 4; at Level 1 seven-bit
-    /// whatever `Pc` says, "it will be ignored in Level 1 operation" and
-    /// "Level 1 operation is 7-bits only" (070-3 §3.6.4.1). The primary DA
-    /// answer does not change: it is the terminal's identity (Jev,
-    /// STAYS_6C, 0.98/1.00).
+    /// hard one; DECSTR unlocks the keyboard, as 070-6 says DECSCL does.
+    /// Then the C1 transmission: `Pc` 0 or 2 eight-bit, 1 seven-bit, at
+    /// Levels 2 to 4; at Level 1 seven-bit whatever `Pc` says, "it will be
+    /// ignored in Level 1 operation" and "Level 1 operation is 7-bits only"
+    /// (070-3 §3.6.4.1). The primary DA answer does not change: it is the
+    /// terminal's identity.
     #[cold]
     #[inline(never)]
     pub(crate) fn select_conformance_level(&mut self, csi: &crate::write::Csi) {
@@ -5140,17 +5118,15 @@ impl Paint<'_, '_> {
         // eight-bit input modes are RIS-only there, and this reset them all --
         // so a program recovering with `CSI ! p` lost its bracketed paste.
         // `?2026` has no xterm precedent, and a held frame is released: a soft
-        // reset is a recovery.
-        // **The character path in force returns to none** (`crate::path`):
-        // DEC's DECSTR table returns its own right-to-left setting, "Cursor
-        // direction DECRLM Reset (Left-to-right)" (`[[source: vt510-decstr]]`
-        // Table 5-9), and VTE's soft reset its current direction; the lines
-        // keep theirs, drawn as they are (Jev's lean, RESET_CURRENT,
-        // 0.70/0.77). **And `?2500`, `?2501` and `?1243` to their power-on
-        // states**, the first two in force only, as mintty's soft reset
-        // returns its paragraph modes and VTE's every mode, and as DEC's
-        // table returns the cursor keys (Jev's lean, RESET_ALL, 0.30/0.51
-        // then 0.77/0.77).
+        // reset is a recovery. **The character path in force returns to none**
+        // (`crate::path`): DEC's DECSTR table returns its own right-to-left
+        // setting, "Cursor direction DECRLM Reset (Left-to-right)"
+        // (`[[source: vt510-decstr]]` Table 5-9), and VTE's soft reset its
+        // current direction; the lines keep theirs, drawn as they are. **And
+        // `?2500`, `?2501` and `?1243` to their power-on states**, the first
+        // two in force only, as mintty's soft reset returns its paragraph
+        // modes and VTE's every mode, and as DEC's table returns the cursor
+        // keys.
         self.cold.line = LineBidi::POWER_ON;
         self.cold.arrows = ArrowSwap::On;
         // "Cursor direction DECRLM Reset (Left-to-right), regardless of NVR
@@ -5283,10 +5259,9 @@ impl Paint<'_, '_> {
     /// resource, it supports Sixel Graphics controls": DA's `4`, `?80`,
     /// `?1070`, `?8452` and the `DCS q`. baud's configuration is the claim.
     /// xterm answers DECRQM from its flags whatever its configuration, a
-    /// practice departing from that sentence; Jev did not decide between the
-    /// two (2026-10-15, DA_CLAIM at 0.61 and 0.67), so this is the text's
-    /// reading, on the owner's list. A Sixel sent while unclaimed still
-    /// draws, also outside that sentence, and is recorded as open.
+    /// practice departing from that sentence; this follows the text's
+    /// reading, an open question. A Sixel sent while unclaimed still draws,
+    /// also outside that sentence, and is recorded as open.
     pub(crate) fn sixel_claim(&self) -> SixelClaim {
         match (self.cold.sixel_claim, self.images.provisioned()) {
             (SixelClaim::Yes, true) => SixelClaim::Yes,
@@ -5406,11 +5381,10 @@ impl Paint<'_, '_> {
             },
             // **`?1021` mirrors the width policy, as `?1020` the encoding**:
             // `1` or `2`, as xterm answers its read-only `cjkWidth` with
-            // `MdBool` (`[[source: xterm-misc]]` 5845-5853), not `3` or `4`
-            // (Jev 2026-10-15, 0.96 and 1.00). `?1023` is `privateWidth`,
-            // which baud always holds: private use is one column under
-            // either policy (the owner, 2026-10-15). `?1022`, `emojiWidth`,
-            // has no switch here and falls to `0` below (Jev, 0.98 and 1.00).
+            // `MdBool` (`[[source: xterm-misc]]` 5845-5853), not `3` or `4`.
+            // `?1023` is `privateWidth`, which baud always holds: private
+            // use is one column under either policy. `?1022`, `emojiWidth`,
+            // has no switch here and falls to `0` below.
             PrivateMode::CjkWidthResource => match self.cold.widths.ambiguous() {
                 AmbiguousWidth::Wide => ModeState::Set,
                 AmbiguousWidth::Narrow => ModeState::Reset,
@@ -5547,9 +5521,9 @@ impl Paint<'_, '_> {
             PrivateMode::SixelScrollsRight => self.sixel_state(ModeBit::SixelScrollsRight),
             // `?13` answers the blink the embedder configured, `1` or `2`, as
             // xterm answers its `cursorBlink` resource while it can still
-            // change (`[[source: xterm-misc]]`, `srm_CURSOR_BLINK_OPS`; Jev's
-            // lean, ONE_OR_TWO, 0.80/0.78). `?14`, `cursorBlinkXOR`, is never
-            // what baud does: `?12` is or-ed with the style's blink (rule F).
+            // change (`[[source: xterm-misc]]`, `srm_CURSOR_BLINK_OPS`).
+            // `?14`, `cursorBlinkXOR`, is never what baud does: `?12` is
+            // or-ed with the style's blink (rule F).
             PrivateMode::CursorBlinkResource => {
                 match self.cold.initial_cursor == self.cold.initial_cursor.with_blink(true) {
                     true => ModeState::Set,
@@ -5557,12 +5531,11 @@ impl Paint<'_, '_> {
                 }
             }
             PrivateMode::CursorBlinkXor => ModeState::PermanentlyReset,
-            // `?1014` and `?1044` are behaviour baud always has (Jev's
-            // leans, PERMANENT_SET, 0.88/0.88 and 0.89/0.86).
+            // `?1014` and `?1044` are behaviour baud always has.
             PrivateMode::FastScroll | PrivateMode::KeepClipboard => ModeState::PermanentlySet,
             // **`?1046` answers whether switching is allowed**, the mode's own
             // sense; xterm answers its titeInhibit bit, the inverse, a
-            // departure not followed (Jev's lean, TRUTHFUL, 0.50/0.50).
+            // departure not followed.
             PrivateMode::Resource(r) => match self.cold.resources.is_set(r) {
                 true => ModeState::Set,
                 false => ModeState::Reset,
@@ -5583,10 +5556,9 @@ impl Paint<'_, '_> {
             },
             // **`?42` answers `0`**, as STD 070's DECRQM has it: "DEC
             // Private modes that cannot be set or reset from the host will
-            // report as unknown" (p. 5-193), and no program can set it here
-            // (Jev's lean, UNKNOWN, 0.91/0.89). The arm equals the wildcard
-            // below on purpose, so the answer stays `0` if the wildcard
-            // changes.
+            // report as unknown" (p. 5-193), and no program can set it
+            // here. The arm equals the wildcard below on purpose, so the
+            // answer stays `0` if the wildcard changes.
             PrivateMode::NationalReplacement => ModeState::NotRecognized,
             PrivateMode::CursorRightToLeft => {
                 bit_state(self.cold.modes, ModeBit::CursorRightToLeft)

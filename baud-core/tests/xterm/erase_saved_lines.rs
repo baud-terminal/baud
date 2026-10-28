@@ -11,8 +11,8 @@
 //! screen -- the saved lines are the normal buffer's, and only it adds to
 //! them -- and touches nothing else. Its `case 3` is the same for DECSED, so
 //! xterm erases protected characters there; DECSCA's text says DECSED cannot
-//! (`[[source: vt510-decsca]]`), and baud follows the text: decided on
-//! 2026-10-10 by Jev at 1.00 and 0.98 (XT-2), listed for the owner's veto.
+//! (`[[source: vt510-decsca]]`), and baud follows the text (since
+//! 2026-10-10).
 
 use crate::support;
 use baud_core::*;

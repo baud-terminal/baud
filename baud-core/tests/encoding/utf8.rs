@@ -274,8 +274,8 @@ fn state_after(bytes: &[u8], size: usize) -> (Vec<PackedCell>, (Row, Col), usize
 /// decoding error that was not there; under ISO 8859-1 it is DEL. baud sent it
 /// to `Act::Bad` in every ground. VT52 ground takes the same rule: it has only
 /// 94-character sets, and no text read says DEL draws anything there (note AE,
-/// D4; Jev 0.94). Each program is held against itself without the DEL, at
-/// every read size.
+/// D4). Each program is held against itself without the DEL, at every read
+/// size.
 #[test]
 fn del_in_ground_is_ignored() {
     for (what, with, without) in [
@@ -483,8 +483,7 @@ const GR_CANDIDATES: [(&str, &[u8]); 6] = [
 const GL_CANDIDATES: [(&str, &[u8]); 2] = [("ESC ( 0", b"\x1b(0"), ("ESC ) 0 SO", b"\x1b)0\x0e")];
 
 /// **Under UTF-8, bytes `A0-FF` are UTF-8 and never a right half** (note AE,
-/// AE5 part 1, Q5(a): no GR; Jev 0.92 on the asking and 0.92 on a replicate
-/// with the options reordered, decided under the owner's 2026-10-10 rule).
+/// AE5 part 1, Q5(a): no GR).
 ///
 /// The texts: `[[source: unicode18-ch3]]` C4, "A process shall interpret a
 /// coded character sequence according to the character semantics established
@@ -508,11 +507,10 @@ const GL_CANDIDATES: [(&str, &[u8]); 2] = [("ESC ( 0", b"\x1b(0"), ("ESC ) 0 SO"
 ///   continuation byte is still U+FFFD and `replacements` +1, not a glyph from
 ///   the set.
 ///
-/// **A guard: green before and after.** The perturbation that turns it red is
-/// in the record: a decoded U+00A1-U+00FE written through `g[2]`. Once
-/// LS1R-LS3R exist (stage (c) of note AE §9) they join the candidates, for the
-/// bytes `A0-FF` only: what `ESC ~ } |` do to GL under UTF-8 is Q5's other
-/// half, still open.
+/// **A guard: green before and after.** The perturbation that turns it red: a
+/// decoded U+00A1-U+00FE written through `g[2]`. Once LS1R-LS3R exist (stage
+/// (c) of note AE §9) they join the candidates, for the bytes `A0-FF` only:
+/// what `ESC ~ } |` do to GL under UTF-8 is Q5's other half, still open.
 #[test]
 fn gr_bytes_under_utf8_are_utf8_whatever_is_designated() {
     for size in 1..=5 {
@@ -647,10 +645,8 @@ fn every_cut(n: usize) -> Vec<(String, Vec<usize>)> {
 /// **Under UTF-8 a byte `80-FF` after `ESC`, or after `ESC` and an
 /// intermediate, cancels the sequence and is the ground's: a character is
 /// written as the ground writes it after a control, U+0903 in a cell of its
-/// own, and only bytes that are no character write U+FFFD.** Jev's decision
-/// CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92; the owner
-/// can veto), the decision table's rows, at every read size and every split
-/// into two reads.
+/// own, and only bytes that are no character write U+FFFD.** The decision
+/// table's rows, at every read size and every split into two reads.
 ///
 /// `[[source: unicode-ch3]]` 3.9.5, when the stream is read as one UTF-8
 /// conversion: a converter "must not consume the successor bytes as part of
@@ -856,10 +852,10 @@ const VT52: &[u8] = b"\x1b[?2l";
 
 /// **Under UTF-8 a byte `80-FF` inside a control sequence cancels it and is
 /// the ground's after a control, as after `ESC`; and after a VT52 `ESC` the
-/// same.** The owner's decision of 2026-10-13, "cancel and print it", for
-/// `csi entry`, `csi param`, `csi intermediate` and `csi ignore`, and for
-/// VT52 that it follow the `ESC` decision: the decision's rows at every read
-/// size and every split into two reads, row, cursor and replacement count.
+/// same.** Cancel and print it, since 2026-10-13, for `csi entry`,
+/// `csi param`, `csi intermediate` and `csi ignore`, and for VT52 as for
+/// `ESC`: the decision's rows at every read size and every split into two
+/// reads, row, cursor and replacement count.
 ///
 /// Each row dropped the byte and the sequence went on or was ignored, so the
 /// continuations of a character whose lead was dropped wrote U+FFFD, or the

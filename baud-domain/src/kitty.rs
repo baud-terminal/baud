@@ -12,39 +12,35 @@
 //! [`Png`] reads its container whole. The terminator finishes a chunk, and
 //! the last chunk finishes the image.
 //!
-//! **Decoding a PNG, and turning inflated bytes into pixels, is deferred
-//! and stepped** (Jev, DEFER_IN_CORE_STEPPED, 1.00 and 1.00): the image is
-//! reserved and placed, and the cursor moved, when its size is known -- from
-//! `s` and `v`, or from the PNG's `IHDR` -- and [`KittyStream::step`]
-//! advances the rest a bounded amount at a time. The image is not shown
-//! until it is whole, as "terminals must not display anything, until the
-//! entire sequence is received and validated" ("Remote client"). Its reply
-//! is sent when it completes. A query (`a=q`) is decoded at its terminator,
-//! into the store's probe outside the arena when it fits there (a query
-//! "will not replace an existing image with the same id, nor will it store
-//! the image"), before the next byte, because "terminal emulators that support the
-//! graphics protocol, must reply to query actions immediately without
-//! processing other input" ("Querying support"). A command that arrives
-//! while a decode is pending finishes that decode first, so the replies
-//! leave in the order the commands came.
+//! **Decoding a PNG, and turning inflated bytes into pixels, is deferred and
+//! stepped**: the image is reserved and placed, and the cursor moved, when its
+//! size is known -- from `s` and `v`, or from the PNG's `IHDR` -- and
+//! [`KittyStream::step`] advances the rest a bounded amount at a time. The image
+//! is not shown until it is whole, as "terminals must not display anything, until
+//! the entire sequence is received and validated" ("Remote client"). Its reply is
+//! sent when it completes. A query (`a=q`) is decoded at its terminator, into the
+//! store's probe outside the arena when it fits there (a query "will not replace
+//! an existing image with the same id, nor will it store the image"), before the
+//! next byte, because "terminal emulators that support the graphics protocol, must
+//! reply to query actions immediately without processing other input" ("Querying
+//! support"). A command that arrives while a decode is pending finishes that
+//! decode first, so the replies leave in the order the commands came.
 //!
 //! **What a chunk may carry.** "Subsequent chunks must have only the m and
 //! optionally q keys" binds the client; a continuation chunk's other keys
-//! are ignored here and a chunk may be any length (Jev,
-//! ACCEPT_ANY_LENGTH_IGNORE_EXTRA_KEYS, 0.90 and 0.92), except that a delete
+//! are ignored here and a chunk may be any length, except that a delete
 //! aborts the upload: "If an image is being loaded in chunks and the upload
 //! is not complete when any delete command is received, the partial upload
 //! must be aborted" ("Deleting images").
 //!
-//! **Replies** are `ESC _ G i=<id>[,I=<number>][,p=<placement>];<OK or
-//! error> ESC \`, sent only for a command that named an image by `i` or `I`
-//! ("If it does so, the terminal emulator will reply"), in 7-bit form
-//! whatever S8C1T says, the shape the text writes:
-//! "`<ESC>_Gi=<id>;OK<ESC>\\`". Following S8C1T, as baud's other replies
-//! do, is an open owner question: Jev, asked uncached on 2026-10-16, gave
-//! FOLLOW_S8C1T 0.92 and 0.88, under the bar for a departure.
-//! `q=1` silences `OK` and `q=2` everything, as the placeholder section's
-//! "(q=2) so that there are no responses" and kitty's
+//! **Replies** are
+//! `ESC _ G i=<id>[,I=<number>][,p=<placement>];<OK or error> ESC \`, sent
+//! only for a command that named an image by `i` or `I` ("If it does so,
+//! the terminal emulator will reply"), in 7-bit form whatever S8C1T says,
+//! the shape the text writes: "`<ESC>_Gi=<id>;OK<ESC>\\`". Following S8C1T,
+//! as baud's other replies do, would be a departure, and is an open
+//! question. `q=1` silences `OK` and `q=2` everything, as the placeholder
+//! section's "(q=2) so that there are no responses" and kitty's
 //! `finish_command_response` (`[[source: kitty-graphics-c]]`) have it. The
 //! error codes are the ones the text names -- ENOENT for a put naming no
 //! image, EINVAL for `i` and `I` together, kitty's one EBADF string for a
@@ -52,38 +48,37 @@
 //! ENOSPC, EBADPNG), practice recorded as such. **A placement not made is
 //! never answered `OK`**: the reply to `a=p` and `a=T` is the placement's
 //! outcome, and a full table, on screen or virtual, answers ENOSPC -- a
-//! case the text names no code for and kitty, whose placements are not in
-//! a table, never meets; ENOSPC is the code the text gives for storage
-//! run out. kitty builds an `a=T` reply before it places
+//! case the text names no code for and kitty, whose placements are not in a
+//! table, never meets; ENOSPC is the code the text gives for storage run
+//! out. kitty builds an `a=T` reply before it places
 //! (`[[source: kitty-graphics-c]]`), so a refused placement there is
 //! answered `OK`, practice not followed, as the text's EINVAL for a
 //! relative virtual placement already was not.
 //!
 //! **The file mediums `t=f`, `t=t` and `t=s` are the embedder's**, through
-//! [`KittyFiles`] (Jev TD_FIRST_FILES_LATER): the payload is the path, or the
-//! shared-memory name, collected to [`KITTY_PATH_MAX`] bytes; the terminator
-//! hands it out with `O`, `S` and the most bytes the transmission can use
+//! [`KittyFiles`]: the payload is the path, or the shared-memory name,
+//! collected to [`KITTY_PATH_MAX`] bytes; the terminator hands it out with
+//! `O`, `S` and the most bytes the transmission can use
 //! ([`KittyFileRequest`]), and the bytes the embedder reads go where a direct
 //! payload's decoded octets go, from there on the `t=d` path. A stream no
 //! embedder serves ([`KittyMediums::Direct`], the default) answers each with
 //! the text's single error and touches nothing. A file medium is one chunk,
 //! whatever its `m`: the text chunks the data a remote client sends, and
 //! kitty reads the file at the chunk's end (`handle_add_command`,
-//! `[[source: kitty-graphics-c]]`). **Once the reader is asked (a load
-//! still open at the terminator), every refusal is that one error** --
-//! missing, unreadable, special, sensitive, past the bound, "smaller than
-//! the client claimed", and as much a PNG that does not decode, an `IHDR`
-//! past the arena or a placement refused after the decode, each of which
-//! tells the client the file exists and something of what it holds: "the
-//! terminal emulator must not allow such a program to use the responses
-//! to these commands to learn anything about files it cannot read itself"
-//! ("The transmission medium"). Each keeps nothing, as a missing file
-//! does: the image is freed and the cursor stays, so a file medium's
-//! image is decoded whole at its terminator and only then placed, and
-//! the reply comes before the next byte. kitty answers a decode failure
-//! EBADPNG (practice not followed). A refusal decided before the read,
-//! from the control data and the path alone, keeps its code
-//! ([`KittyFileRead`]).
+//! `[[source: kitty-graphics-c]]`). **Once the reader is asked (a load still
+//! open at the terminator), every refusal is that one error** -- missing,
+//! unreadable, special, sensitive, past the bound, "smaller than the client
+//! claimed", and as much a PNG that does not decode, an `IHDR` past the arena
+//! or a placement refused after the decode, each of which tells the client
+//! the file exists and something of what it holds: "the terminal emulator
+//! must not allow such a program to use the responses to these commands to
+//! learn anything about files it cannot read itself" ("The transmission
+//! medium"). Each keeps nothing, as a missing file does: the image is freed
+//! and the cursor stays, so a file medium's image is decoded whole at its
+//! terminator and only then placed, and the reply comes before the next byte.
+//! kitty answers a decode failure EBADPNG (practice not followed). A refusal
+//! decided before the read, from the control data and the path alone, keeps
+//! its code ([`KittyFileRead`]).
 //!
 //! **A virtual placement (`U=1`) is a prototype, kept apart from the
 //! placements on screen** (`[[source: kitty-graphics]]`, "Unicode
@@ -93,10 +88,9 @@
 //! scroll, erase and expiry is about a place on the screen. It holds a
 //! reference on its image ([`ImageStore::hold`]), so the quota does not
 //! delete an image placeholders show. It moves no cursor, whatever `C`
-//! says, having "no physical location on the screen" (Jev, STAY, 1.00 and
-//! 1.00), and draws the whole image fitted into its `c` x `r` cells with
-//! its aspect kept and centred, `x`, `y`, `w`, `h`, `X` and `Y` unused
-//! (Jev, FIT_WHOLE, 1.00 and 1.00; kitty's `grman_put_cell_image`,
+//! says, having "no physical location on the screen", and draws the whole
+//! image fitted into its `c` x `r` cells with its aspect kept and centred,
+//! `x`, `y`, `w`, `h`, `X` and `Y` unused (kitty's `grman_put_cell_image`,
 //! `[[source: kitty-graphics-c]]`). Only `d=i`, `I`, `n`, `N`, `r` and `R`
 //! delete one; the same image and placement id replace one. The placeholder
 //! cells that show it are `placeholder.rs`'s.
@@ -817,9 +811,7 @@ impl KittyFileRequest<'_> {
     /// [`KittyFileRequest::past`] says. kitty reads `S` as a bound and
     /// judges the claim against the image (`read_img_file`), and kitten's
     /// detection leans on that, sending `S` as the payload's length -- 87
-    /// for a three-byte `t=t` pixel. The text's plain reading stands: Jev,
-    /// asked uncached on 2026-10-16, favoured it at 0.69 and 0.72, under the
-    /// bar for a departure.
+    /// for a three-byte `t=t` pixel. The text's plain reading stands.
     pub fn read_len(&self, available: u64) -> Result<usize, KittyFileFailed> {
         let want = match self.size {
             0 => available,
@@ -2304,16 +2296,16 @@ impl KittyStream {
     }
 
     /// **The parent `cmd`'s `P` and `Q` name**, checked in kitty's order
-    /// (`[[source: kitty-graphics-c]]` `handle_put_command`): no image with
-    /// the id `P`, then one with no placement on this screen or virtual,
-    /// `Q` given or not, then none with the placement id `Q`, is
-    /// ENOPARENT, each with kitty's text less the ids it prints; with no
-    /// `Q`, the image's
-    /// oldest placement, on screen or virtual (Jev, OLDEST, 1.00 and
-    /// 0.98). A placement named as its own parent is EINVAL, and a chain
-    /// that would loop or run past [`KITTY_PARENT_DEPTH`](crate::KITTY_PARENT_DEPTH)
-    /// parents ECYCLE or ETOODEEP. `replacing` is the slot of the
-    /// placement this put replaces, if it replaces one.
+    /// (`[[source: kitty-graphics-c]]` `handle_put_command`): no image
+    /// with the id `P`, then one with no placement on this screen or
+    /// virtual, `Q` given or not, then none with the placement id `Q`,
+    /// is ENOPARENT, each with kitty's text less the ids it prints; with
+    /// no `Q`, the image's oldest placement, on screen or virtual. A
+    /// placement named as its own parent is EINVAL, and a chain that
+    /// would loop or run past
+    /// [`KITTY_PARENT_DEPTH`](crate::KITTY_PARENT_DEPTH) parents ECYCLE
+    /// or ETOODEEP. `replacing` is the slot of the placement this put
+    /// replaces, if it replaces one.
     fn parent_of(
         &self,
         cmd: &KittyCommand,
@@ -3057,11 +3049,10 @@ impl ReplyBuf {
 }
 
 /// Why a placement `cmd` asks for is not made: a relative one (`P`), a
-/// later step (Jev, REFUSE_WITH_EINVAL), and a virtual one made relative
-/// with it, which "the terminal must respond with the EINVAL error code"
-/// ("Relative placements").
-/// **The image an animation command names**: by `i`, or the newest with
-/// the number `I`, whole.
+/// later step, and a virtual one made relative with it, which "the
+/// terminal must respond with the EINVAL error code" ("Relative
+/// placements"). **The image an animation command names**: by `i`, or
+/// the newest with the number `I`, whole.
 fn frame_root(cmd: &KittyCommand, store: &ImageStore) -> Option<ImageId> {
     let image = match cmd.id.is_none() {
         false => store.kitty_image(cmd.id),

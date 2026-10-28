@@ -2,9 +2,9 @@
 //! The shim, the two drivers and the comparison types are in `lib.rs`, so
 //! `multibench` can reuse one description of how sfte is driven.
 //!
-//! **A test target, not a binary** (the owner, 2026-09-14: "the only bin should
-//! be and default one is baud, rest is part of tests"). What the binary printed
-//! and exited 1 on is `the_report_has_nothing_unpinned`; run it with
+//! **A test target, not a binary**: `baud` is the one binary, and the rest is
+//! part of the tests. What the binary printed and exited 1 on is
+//! `the_report_has_nothing_unpinned`; run it with
 //! `cargo test --release -p baud-sfte-difftest -- --nocapture` to see the
 //! tables.
 use baud_core::{Col, Owned, READ_CHUNK, Row};
@@ -259,11 +259,11 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   (`xterm-util.c`), so after `HELLO` baud's cursor is at (0, 5) and sfte's
 ///   at (0, 0). Until `3024b2b` baud did not clear at all, and the five cells
 ///   of `HELLO` were the difference pinned here.
-/// * **`alt screen entry` -- sfte homes the cursor on a first `?1049 h`
-///   too, and baud leaves it**, at (2, 6) after `CUP 3;7`: `[[source:
-///   ctlseqs]]`'s `1049` names no move and xterm's `ClearScreen` makes none.
-///   sfte's 1049 arm sets `cursor_col` and `cursor_row` to 0 after its clear
-///   (sfte.h 34101-34104). baud homed here too until the owner's decision of
+/// * **`alt screen entry` -- sfte homes the cursor on a first `?1049 h` too,
+///   and baud leaves it**, at (2, 6) after `CUP 3;7`:
+///   `[[source: ctlseqs]]`'s `1049` names no move and xterm's `ClearScreen`
+///   makes none. sfte's 1049 arm sets `cursor_col` and `cursor_row` to 0
+///   after its clear (sfte.h 34101-34104). baud homed here too until
 ///   2026-10-13, when the two agreed and nothing compared the cursor.
 /// * **`OSC 11 set then query` -- sfte's dynamic-colour setter is a no-op.**
 ///   It answers every query with its compile-time default (`SFTE_COLOR_BG`,

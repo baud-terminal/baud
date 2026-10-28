@@ -46,14 +46,14 @@ fn alloc_sgr(n: usize) -> String {
 /// The row pitch the arm under measurement lays the grid out at.
 ///
 /// **One binary per arm**, because a runtime switch in the loop measures the
-/// switch (`CLAUDE.md`, "Runtime variant switches in the hot loop"). The
-/// default is what ships: the pitch `grid_stride` derives
-/// from the cache geometry. `stride-live` is the
-/// layout this core had before -- the live column count, the +14% over the
-/// aliasing one that the fixed pitch has to match. `stride-pad0` is the
-/// aliasing layout itself, `MAX_COLS` cells and exactly one L1 way a row on
-/// this class of machine, kept as the positive control: an instrument that
-/// cannot see the 14% cannot see the pitch either.
+/// switch (`CONTRIBUTING.md`, "Runtime variant switches in the hot loop").
+/// The default is what ships: the pitch `grid_stride` derives from the cache
+/// geometry. `stride-live` is the layout this core had before -- the live
+/// column count, the +14% over the aliasing one that the fixed pitch has to
+/// match. `stride-pad0` is the aliasing layout itself, `MAX_COLS` cells and
+/// exactly one L1 way a row on this class of machine, kept as the positive
+/// control: an instrument that cannot see the 14% cannot see the pitch
+/// either.
 fn stride_arm(ws: &WinSize) -> Stride {
     #[cfg(feature = "stride-live")]
     {
@@ -131,12 +131,11 @@ fn main() {
         v
     };
 
-    // **Homogeneous CJK.** `CLAUDE.md`'s 2,440 MB/s for this name is a
+    // **Homogeneous CJK.** The 2,440 MB/s once quoted for this name is a
     // `baud-core2` figure (2026-08-28), and this generated payload did not
     // enter `ingest2` until core2 was deleted -- on `baud-core` it reads
     // 1,137-1,159 over three launches at `bfc6632`, and always has. Not a
-    // regression; a different core. `CLAUDE.md`'s `opcost` entry has the
-    // attribution.
+    // regression; a different core.
     //
     // Three bytes and two columns a character, so a 200-column row is 100
     // characters and 300 bytes. Deliberately without SGR: mixing in escapes
@@ -232,7 +231,7 @@ fn main() {
         // recording in the corpus that sets a scrolling region.** One escape
         // per 12.1 bytes, 19.5% non-ASCII, 51,954 control sequences of which
         // 24% are absolute cursor moves -- and 83 `DECSTBM`s, which is the
-        // shape `CLAUDE.md` asks for before the row map is built again.
+        // shape a row map would need before it is built again.
         "cava" => recording("utf8/cava.raw"),
         "btop" => recording("utf8/btop.raw"),
         "pipes" => recording("ascii/pipes.raw"),
@@ -497,8 +496,7 @@ fn main() {
 /// instructions an iteration, +0.69% per rep on `cat` and +0.55% on `btop`,
 /// with no change to the core. Out of line, the loop is allocated on its own
 /// and the base moved too (`btop` +5.95% a rep, `cat` -0.04%), so per-rep
-/// figures from before this function are not comparable with those after:
-/// docs/record.md, "ingest2's setup moved its timed loop".
+/// figures from before this function are not comparable with those after.
 /// `scripts/loop-head.py` compares this function between two binaries.
 ///
 /// **The chunk is written into the arena and then parsed, which is what a

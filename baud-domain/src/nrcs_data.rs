@@ -22,8 +22,7 @@ use crate::{Codepoint, Nrcs};
 /// SUB, the control DEC ties it to, and its reference glyph is a reversed
 /// question mark (`[[source: unicode18-chart-2400]]`). U+FFFD, one of the
 /// three other options asked (with U+2E2E and U+2592), departs from that
-/// description by name and by glyph (note AF, Q-UNDEF). Note AE's AE8.1,
-/// decided by Jev at 1.00 twice, the second with the options reordered.
+/// description by name and by glyph (note AF, Q-UNDEF; note AE's AE8.1).
 ///
 /// **It is drawn at a reserved position of a DEC set baud translates**,
 /// DEC Supplemental's 13 and JIS-Katakana's 31 (`dec_sets_data.rs`): "The

@@ -13,23 +13,22 @@
 //!
 //! **The host-writable line is a second display of one row**, "a permanent
 //! separate logical display, that contains its own ANSI text state and
-//! settings" (070-14 §14.2). A read that writes it swaps the [`View`]
-//! onto its surface and the main display's own state into [`Parked`], as
-//! `?1049` swaps the alternate screen's surface, so the per-character loop
-//! never learns which display is up: on a screen of one row, `CUP`'s line
-//! is clamped away, `CUU` and `CUD` move nowhere, `CPR` reports line 1, and
-//! a line feed at the bottom scrolls the one row out, which 070-14 asks
-//! for -- "If scrolling occurs as a result of a Format Effector, a single
-//! line Host Writable Status Line is erased". What each display keeps is
+//! settings" (070-14 §14.2). A read that writes it swaps the [`View`] onto
+//! its surface and the main display's own state into [`Parked`], as `?1049`
+//! swaps the alternate screen's surface, so the per-character loop never
+//! learns which display is up: on a screen of one row, `CUP`'s line is
+//! clamped away, `CUU` and `CUD` move nowhere, `CPR` reports line 1, and a
+//! line feed at the bottom scrolls the one row out, which 070-14 asks for
+//! -- "If scrolling occurs as a result of a Format Effector, a single line
+//! Host Writable Status Line is erased". What each display keeps is
 //! 070-14's list, §14.2.2: the active position and its pending wrap, the
 //! rendition and DECSCA, origin mode, G0-G3, GL, GR and the single shifts,
 //! and the `DECSC` slot -- the character sets separate where the VT420
-//! shares them (Jev, SEPARATE, 0.98 and 1.00), the wrap's mode shared and
-//! its pending flag each display's (Jev, MODE_SHARED_FLAG_SEPARATE, 0.94
-//! and 0.96). The cursor's visibility is each display's too, 070-14 item
-//! 14, "Each of the Main and Status Display cursors may be individually
-//! enabled or disabled". The rest is shared: tabs, IRM, DECAWM, DECSCLM,
-//! DECSCNM, the width.
+//! shares them, the wrap's mode shared and its pending flag each display's.
+//! The cursor's visibility is each display's too, 070-14 item 14, "Each of
+//! the Main and Status Display cursors may be individually enabled or
+//! disabled". The rest is shared: tabs, IRM, DECAWM, DECSCLM, DECSCNM, the
+//! width.
 //!
 //! **Between reads the terminal is the main display's**: a read that ends
 //! on the line swaps back before it writes its state to [`crate::Term`],
@@ -213,8 +212,8 @@ impl Status {
         self.park.style_raw.string()
     }
 
-    /// 070-14's "No Status Line (factory default)", baud's power-up type
-    /// (Jev's lean, NONE, 0.78 and 0.86, then 0.80 and 0.92).
+    /// 070-14's "No Status Line (factory default)", baud's power-up
+    /// type.
     pub(crate) fn power_on(cols: Cols, room: Room) -> Status {
         Status {
             room,
@@ -507,7 +506,7 @@ impl Paint<'_, '_> {
             return;
         }
         // The active position goes to another display, which ends an
-        // aligned string (Jev's lean, SWITCH_ENDS).
+        // aligned string.
         self.effector_ends_string();
         self.strs.status.active = d;
         self.swap_display();

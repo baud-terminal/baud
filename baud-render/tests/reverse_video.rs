@@ -5,13 +5,12 @@
 //! PDF 362): the mode "will affect which attribute bits from display memory are
 //! used to render the text foreground and background color", so **every cell
 //! draws with its foreground and background exchanged**, an explicit `SGR`
-//! colour included -- the owner's decision of 2026-10-13, which took this over
-//! xterm's palette swap. A cell's own `SGR 7` exchanges again. What is drawn
-//! "in the foreground" or "in the background" -- the margin, the scrollbar, a
-//! cursor trail, a screen fade -- takes the default pair as a default cell
-//! shows it. The owner's call on the dim, 2026-09-25: the same alpha for every
-//! background, so the reversed default background is as translucent as the
-//! normal one.
+//! colour included -- taken over xterm's palette swap (since 2026-10-13). A
+//! cell's own `SGR 7` exchanges again. What is drawn "in the foreground" or "in
+//! the background" -- the margin, the scrollbar, a cursor trail, a screen fade
+//! -- takes the default pair as a default cell shows it. On the dim: the same
+//! alpha for every background, so the reversed default background is as
+//! translucent as the normal one.
 //!
 //! Every test here renders at a translucent `bg_alpha`, because at `0xFF` the
 //! alpha half of the rule is invisible.
@@ -151,13 +150,13 @@ fn reverse_inside_reverse_video_draws_a_normal_cell() {
 }
 
 /// **Every cell exchanges its colours, an explicit one included** (DEC STD
-/// 070 § 5.6.3.2; the owner, 2026-10-13): a coloured letter is drawn as a
-/// coloured cell with the default page's colour for its text, and a coloured
-/// background as coloured text on the reversed page -- whichever way the
-/// colour was asked for, an SGR colour, the bright forms, `38;5`, `48;5`,
-/// truecolour. Bold brightens the foreground's index first, then the pair
-/// exchanges. No palette entry moves, so entries 0, 7, 8 and 15 are drawn
-/// as themselves, which xterm's swap did not do.
+/// 070 § 5.6.3.2): a coloured letter is drawn as a coloured cell with the
+/// default page's colour for its text, and a coloured background as coloured
+/// text on the reversed page -- whichever way the colour was asked for, an
+/// SGR colour, the bright forms, `38;5`, `48;5`, truecolour. Bold brightens
+/// the foreground's index first, then the pair exchanges. No palette entry
+/// moves, so entries 0, 7, 8 and 15 are drawn as themselves, which xterm's
+/// swap did not do.
 #[test]
 fn every_cell_exchanges_its_colours_explicit_ones_included() {
     let theme = dim_theme();

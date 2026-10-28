@@ -559,12 +559,12 @@ const REDRAW: &[u8] = b"\r\x1b[3A\x1b[J\x1b]133;P;k=i\x07line one\r\nline two\r\
 
 #[test]
 fn an_image_above_a_prompt_the_shell_redraws_keeps_its_row() {
-    // The owner's own path: zsh marks its prompt, and a window too short for
-    // the block pushes its first rows into the history; the redraw mark then
-    // moves the window back over them (`prompt.rs`). That move is the window
-    // retreating without a reverse scroll, so the image above the prompt has
-    // to move with it -- and a width change while the prompt zone is open
-    // re-cuts nothing, which must leave the image alone too.
+    // The path a real session takes: zsh marks its prompt, and a window too
+    // short for the block pushes its first rows into the history; the redraw
+    // mark then moves the window back over them (`prompt.rs`). That move is
+    // the window retreating without a reverse scroll, so the image above the
+    // prompt has to move with it -- and a width change while the prompt zone
+    // is open re-cuts nothing, which must leave the image alone too.
     with(Depth::DEFAULT, |t| {
         feed(t, b"MARK\r\n");
         feed(t, SWIRL);

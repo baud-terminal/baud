@@ -1,14 +1,13 @@
 //! **The fire trail**: a procedural flame rising off kitty's collapsing quad,
 //! and embers the emitter sheds along its path -- the research's "burning
-//! fuse", the owner's default trail from 2026-09-25 until 2026-10-10, when
-//! the plasma replaced it (their call of 2026-09-29; note V). One effect of
-//! the family in [`crate::effect`], which holds what every effect shares: the
-//! ignition, the records and the uniform. This is the fire's own: its
-//! numbers, its life and its embers.
+//! fuse", the default trail from 2026-09-25 until 2026-10-10, when the plasma
+//! replaced it (note V). One effect of the family in [`crate::effect`], which
+//! holds what every effect shares: the ignition, the records and the uniform.
+//! This is the fire's own: its numbers, its life and its embers.
 //!
-//! **The flame is the cursor's colour** -- the one the quad trail is drawn
-//! in, the owner's call -- and heat is its opacity: a hot core is the cursor,
-//! a tongue's tip and the halo are translucent.
+//! **The flame is the cursor's colour** -- the one the quad trail is drawn in
+//! -- and heat is its opacity: a hot core is the cursor, a tongue's tip and
+//! the halo are translucent.
 //!
 //! **Rust owns the numbers.** The flame's height, rise and drift ride in the
 //! uniform's own numbers ([`PARAMS`]), so the shader and the embers built

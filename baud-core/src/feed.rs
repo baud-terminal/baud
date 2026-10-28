@@ -10,9 +10,8 @@
 //! mask extractions a block, run detection, run-length extension past the
 //! block boundary, whole-block fast paths and three specialised writers.
 //! Everything they did is either in the table now or in one of nine action
-//! arms. `CLAUDE.md` records what each of those pieces measured, because
-//! several were worth real percentages and the next person should know what
-//! was given up for the simplicity.
+//! arms. Several of those pieces were worth real percentages, and the next
+//! person should know what was given up for the simplicity.
 
 use crate::graph::{Edge, Node, split};
 // `Act` names the ASCII-only ladder's arms and nothing else in this file, so

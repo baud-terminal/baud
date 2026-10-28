@@ -13,7 +13,7 @@
 //! a character where the other is one vector step. **No assertion about output
 //! can separate them, so this asserts about entry.**
 //!
-//! `CLAUDE.md` records the defect being half-fixed: *"`Act::Char2` and
+//! The defect was recorded as fixed while only half fixed: *"`Act::Char2` and
 //! `Act::Char4` had no run scan at all ... Fixed by generalising `run_of_three`
 //! to `run_of` over any stride."* The **scalar** loop was generalised. The
 //! vector scan was not, and stayed stride-three-only while `Act::Char4` grew to

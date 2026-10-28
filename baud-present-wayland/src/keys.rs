@@ -219,11 +219,10 @@ pub enum Shortcut {
 /// **The shortcut a press of `keycode` makes under `state`, if any.**
 /// Ctrl+Shift+C and Ctrl+Shift+V are foot's `clipboard-copy` and
 /// `clipboard-paste` (`[[source: foot-2705e36-foot-ini-5]]`) and kitty's
-/// `kitty_mod+c` and `kitty_mod+v` (`[[source:
-/// kitty-options-definition]]`); Shift+Insert is xterm's default
-/// translation (`[[source: xterm-man]]`), and foot's, kitty's and
-/// wezterm's primary paste (`[[source: wezterm-3725482-commands]]`; Jev's
-/// lean, BIND, 0.66/0.44).
+/// `kitty_mod+c` and `kitty_mod+v`
+/// (`[[source: kitty-options-definition]]`); Shift+Insert is xterm's
+/// default translation (`[[source: xterm-man]]`), and foot's, kitty's and
+/// wezterm's primary paste (`[[source: wezterm-3725482-commands]]`).
 ///
 /// **Matched as foot matches a binding** (`[[source: foot-2705e36-input]]`
 /// 1709-1745): the key's first-level keysyms in the active layout against
@@ -275,7 +274,7 @@ fn chord(mask: baud_xkb::ModMask) -> Modifiers {
 /// `font-increase`, `font-decrease` and `font-reset` defaults, "Control+plus
 /// Control+equal Control+KP_Add", "Control+minus Control+KP_Subtract" and
 /// "Control+0 Control+KP_0" (`[[source: foot-2705e36-foot-ini-5]]`
-/// 1368-1377; Jev's lean, CTRL, 0.50/0.40, over kitty's Ctrl+Shift).
+/// 1368-1377, rather than kitty's Ctrl+Shift).
 fn bound(sym: Keysym, chord: Modifiers) -> Option<Shortcut> {
     let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
     let ctrl_shift = ctrl.with(Modifiers::SHIFT);

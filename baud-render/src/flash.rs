@@ -1,32 +1,28 @@
 //! **A trail's repeat passes, drawn under the flash thresholds** (note AL,
-//! option O2; the census is the record's "The cursor trails' flashes,
-//! counted on the frames they draw").
+//! option O2, and its census).
 //!
-//! Above a size gate the driver marks a pass over a stretch of screen that
-//! a full pass swept less than a second before [`Strength::UnderThreshold`],
+//! Above a size gate the driver marks a pass over a stretch of screen that a
+//! full pass swept less than a second before [`Strength::UnderThreshold`],
 //! and the renderer draws it with no record carrying more alpha than
 //! [`under_threshold`] of the cursor's colour over the ground. Every
 //! fragment multiplies its alpha by its record's and draws the record's
 //! colour, so where one record covers a pixel, no alpha it can draw there
 //! makes a WCAG 2.3.1 transition from the ground. **One record a pixel is
-//! what a repeat pass keeps** (Jev, decisions 720/721, 0.98 and 0.97): its
-//! bands, one a cell row and disjoint, and not its particles, which stack
-//! over the bands and over each other, and whose alphas compound under
-//! source-over past any one record's cap. **The ground is every colour the
-//! cells under the pass draw** -- their backgrounds, and over text every
-//! mixture of the text over its background a glyph's edge can draw
-//! ([`under_threshold_over`]) -- Jev's lean below the bar (722/723, 0.83 and
-//! 0.77), taken on the owner's word of 2026-10-17; a frame scans two new
-//! caps, and over more than 64 grounds, or one not yet scanned, the pass
-//! draws nothing (Jev, 728/729, 0.98 and 1.00), and so does one whose
-//! records meet an image placed under the text or below the backgrounds,
-//! whose pixels the cells do not name. **A selection and the cursor under
-//! the pass are grounds too**, by the colours they draw, and **a dimmed page
-//! is read over the desktop**, a flat white and a flat black, note AS's
-//! bound. A coloured desktop is not read, and neither is a grey one
-//! between white and black: a glyph's edge over such a desktop is a
-//! mixture inside the triangle of text, page over white and page over
-//! black, and only that triangle's edges are scanned.
+//! what a repeat pass keeps**: its bands, one a cell row and disjoint, and
+//! not its particles, which stack over the bands and over each other, and
+//! whose alphas compound under source-over past any one record's cap. **The
+//! ground is every colour the cells under the pass draw** -- their
+//! backgrounds, and over text every mixture of the text over its background
+//! a glyph's edge can draw ([`under_threshold_over`]) -- and a frame scans
+//! two new caps, and over more than 64 grounds, or one not yet scanned, the
+//! pass draws nothing, and so does one whose records meet an image placed
+//! under the text or below the backgrounds, whose pixels the cells do not
+//! name. **A selection and the cursor under the pass are grounds too**, by
+//! the colours they draw, and **a dimmed page is read over the desktop**, a
+//! flat white and a flat black, note AS's bound. A coloured desktop is not
+//! read, and neither is a grey one between white and black: a glyph's edge
+//! over such a desktop is a mixture inside the triangle of text, page over
+//! white and page over black, and only that triangle's edges are scanned.
 //!
 //! The thresholds are WCAG 2.2's definition of the general and red flash
 //! thresholds ([[source: wcag22]]), as `baud_bench::flash` counts them: a

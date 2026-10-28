@@ -192,17 +192,14 @@ impl<'a> View<'a> {
         }
     }
 
-    /// **A line not single-width is a line of its own, one row, kept
-    /// whole.** No DEC text resizes a page but DECCOLM, which clears it (`[[source:
-    /// dec-std-070]]` p. 5-72); asked with the texts and xterm's, mintty's
-    /// and konsole's practice, Jev leaned to keeping every character the
-    /// row holds, 0.78 and 0.71 in the two orders, below the bar, and the
-    /// lean is taken (the record, "Double-width and double-height lines").
-    /// So it is never joined to the rows round it by a wrap -- a
-    /// double-height pair would interleave -- and its cells go where they
-    /// were, those past the new half unseen until a growth shows them:
-    /// xterm keeps a double line's cells, and konsole never splits a
-    /// double-height line.
+    /// **A line not single-width is a line of its own, one row, kept whole.** No
+    /// DEC text resizes a page but DECCOLM, which clears it
+    /// (`[[source: dec-std-070]]` p. 5-72); with the texts and xterm's, mintty's
+    /// and konsole's practice read, every character the row holds is kept. So it is
+    /// never joined to the rows round it by a wrap -- a double-height pair would
+    /// interleave -- and its cells go where they were, those past the new half
+    /// unseen until a growth shows them: xterm keeps a double line's cells, and
+    /// konsole never splits a double-height line.
     fn sized_line(&self, c: Cut, start: usize) -> Line {
         let p = self.lin(c, start);
         Line {

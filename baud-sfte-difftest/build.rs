@@ -12,8 +12,8 @@
 //! `OUT_DIR` and applies every patch under `patches/` as an exact-anchor
 //! replacement, and **a patch whose anchor is found zero or several times fails
 //! the build**. A patch that silently fails to apply is the no-op edit
-//! `CLAUDE.md` records three times, and the build refusing is the positive
-//! control -- there is no `patch(1)` fuzz here on purpose.
+//! `CONTRIBUTING.md` records, and the build refusing is the positive control --
+//! there is no `patch(1)` fuzz here on purpose.
 //!
 //! The shape is `bench-others/multibench/build.rs`'s ghostty arm: find the
 //! source, put the artefact in `OUT_DIR`, `rustc-link-lib=static`. It differs

@@ -819,9 +819,8 @@ pub(crate) struct PairGlyphs {
 
 /// **Where a lam-alef pair's ligature is drawn**: over the cells from the
 /// lam's to the alef's, so many of them, the lam on the given side -- two
-/// for a pair in adjacent cells, more where erased cells lie between them
-/// (Jev CENTRED and LIGATED_CENTRED); or in the lam's cell alone, for a pair
-/// a soft wrap parts (Jev's lean LIGATED_LAM_ROW).
+/// for a pair in adjacent cells, more where erased cells lie between them;
+/// or in the lam's cell alone, for a pair a soft wrap parts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PairSpan {
     Cells(LamAt, Cols),
@@ -990,15 +989,14 @@ impl InSpan {
 /// for a kitty Unicode placeholder, U+10EEEE, whose cell shows a slice of
 /// an image or nothing (`[[source: kitty-graphics]]`, "Unicode
 /// placeholders"): the protocol is the private agreement that gives this
-/// private-use character its meaning, and it is never drawn as a glyph,
-/// nor are its diacritics, as kitty's `font_for_cell` draws it with the
-/// blank font (`[[source: kitty-fonts-c]]`). With no image to show, the
-/// cell shows its background: Jev favoured BLANK over TUS 5.3's `.notdef`
-/// at 0.80 and 0.84, under the bar, so it is the interim choice and an
-/// open question. Every path that draws a glyph asks here; a copy asks
-/// [`Term::base_of`] and gets the character back. **A combining mark stored
-/// alone draws on a no-break space** ([`Content::drawn`], TUS 5.13), so the
-/// mark sits in its own cell rather than over the one before.
+/// private-use character its meaning, and it is never drawn as a glyph, nor
+/// are its diacritics, as kitty's `font_for_cell` draws it with the blank
+/// font (`[[source: kitty-fonts-c]]`). With no image to show, the cell
+/// shows its background, rather than TUS 5.3's `.notdef`: the interim
+/// choice and an open question. Every path that draws a glyph asks here; a
+/// copy asks [`Term::base_of`] and gets the character back. **A combining
+/// mark stored alone draws on a no-break space** ([`Content::drawn`], TUS
+/// 5.13), so the mark sits in its own cell rather than over the one before.
 pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
     term.base_of(cell)
         .drawn()
@@ -2721,14 +2719,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.faces_of.take_gaps()
     }
 
-    /// Where a cluster whose base is `base`, on `face`, sits in `span`:
-    /// the grid phase in one cell; in two, its base's advance centred in
-    /// the span -- half the slack, whole pixels and the fraction. The
-    /// owner's call (Jev A 0.97, over 13 of 14 terminals' left edge): a
-    /// one-cell ⚡ in its two cells, an emoji a third of a cell narrower than
-    /// two, and a CJK fallback face's ideographs all sit in the middle. An
-    /// icon is left to the patcher's rules, and a base with no advance, or
-    /// one far wider than the span, keeps the grid phase.
+    /// Where a cluster whose base is `base`, on `face`, sits in `span`: the
+    /// grid phase in one cell; in two, its base's advance centred in the
+    /// span -- half the slack, whole pixels and the fraction. Centred, over
+    /// 13 of 14 terminals' left edge: a one-cell ⚡ in its two cells, an
+    /// emoji a third of a cell narrower than two, and a CJK fallback face's
+    /// ideographs all sit in the middle. An icon is left to the patcher's
+    /// rules, and a base with no advance, or one far wider than the span,
+    /// keeps the grid phase.
     pub fn phase_in(&self, face: FaceIx, base: Codepoint, span: CellSpan) -> Phase {
         let grid = self.metrics.phase;
         if span == CellSpan::One || is_icon(base) {
@@ -3382,9 +3380,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **The splash's records**: `baud` and `❯` in the badge's face --
     /// baud's embedded JetBrains Mono Bold, 700 where the lockup asks 500
-    /// for the wordmark and no embedded face has it (Jev, BOLD, 0.98 and
-    /// 0.98, against the Regular) -- at the lockup's sizes and pens, and the
-    /// block, each at its opacity this phase.
+    /// for the wordmark and no embedded face has it, rather than the Regular
+    /// -- at the lockup's sizes and pens, and the block, each at its opacity
+    /// this phase.
     fn build_splash(&mut self) {
         self.splash_inst.clear();
         let Some(look) = self.splash else {
@@ -4302,13 +4300,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// offset while it is still inside the main display, the status line's
     /// row while DECSASD puts the cursor there, since that line is in view
     /// whatever the window looks back on, and none while DECTCEM hides the
-    /// cursor, as iTerm2's CPU path hides the guide (Jev's lean,
-    /// WITH_CURSOR). Both of iTerm2's paths draw the guide on the cursor's
-    /// line, shifted with the scroll, for as long as that line is in view:
-    /// `drawCursrGuideIfNeededInRect`, iTerm2's spelling (`[[source:
-    /// iterm2-7ce037e-text-drawing-helper]]`), and the Metal path's
-    /// `loadCursorInfoWithDrawingHelper` (`[[source:
-    /// iterm2-964a75d-metal-per-frame-state]]`).
+    /// cursor, as iTerm2's CPU path hides the guide. Both of iTerm2's paths
+    /// draw the guide on the cursor's line, shifted with the scroll, for as
+    /// long as that line is in view: `drawCursrGuideIfNeededInRect`,
+    /// iTerm2's spelling
+    /// (`[[source: iterm2-7ce037e-text-drawing-helper]]`), and the Metal
+    /// path's `loadCursorInfoWithDrawingHelper`
+    /// (`[[source: iterm2-964a75d-metal-per-frame-state]]`).
     pub fn cursor_line(term: &Term<'_>, back: Rows) -> Option<Row> {
         let main = term.geometry().1;
         if term.status_line().and_then(|l| l.cursor).is_some() {
@@ -4542,13 +4540,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the configured colour it was told), else the theme's, which may
         // name the cell's own; and the theme's text under a block, which a
         // program's cursor colour leaves as it is, as kitty, alacritty,
-        // ghostty and foot leave theirs (Jev, 0.94 and 0.96), and kitty's
-        // `OSC 21 ; cursor_text` sets. A program's automatic colour, `OSC
-        // 21`'s empty value, is the cell's colours swapped, over the
-        // theme's. **A change repaints every row**, as the selection's
-        // does: the cursor's cell compares as unchanged when only its
-        // colours moved. Rare, so the whole frame; the sized rows' key reads
-        // it too.
+        // ghostty and foot leave theirs, and kitty's `OSC 21 ; cursor_text`
+        // sets. A program's automatic colour, `OSC 21`'s empty value, is the
+        // cell's colours swapped, over the theme's. **A change repaints
+        // every row**, as the selection's does: the cursor's cell compares
+        // as unchanged when only its colours moved. Rare, so the whole
+        // frame; the sized rows' key reads it too.
         let fill = match term.program_paint(PaintRole::Cursor) {
             ProgramPaint::Automatic => None,
             _ => rgb(term.cursor_color_in(self.video))
@@ -5074,15 +5071,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             let x0 = (p.col.index() as i64 - over_c) * cw + i64::from(dest.x);
             let y0 = (p.line.value() as i64 - over_r - top) * ch - cut_top + i64::from(dest.y);
-            // **On a row drawn right to left, the box mirrored** (Jev
-            // MIRROR_BY_ANCHOR_ROW, 0.97/0.98): its anchor row's direction
-            // places the whole box, `cols - (col + w)` from the left, and
-            // its pixels are not flipped -- terminal-wg's "images must not
-            // be flipped by default in RTL mode ... In paragraphs of RTL
-            // direction, the overall layout should be the mirrored version
-            // of the LTR one" (`[[source: terminal-wg-bidi-misc]]`), the
-            // anchor being where the picture is in the text, UAX #9 3.2's
-            // object (`[[source: uax9-bidi]]`).
+            // **On a row drawn right to left, the box mirrored**: its
+            // anchor row's direction places the whole box,
+            // `cols - (col + w)` from the left, and its pixels are not
+            // flipped -- terminal-wg's "images must not be flipped by
+            // default in RTL mode ... In paragraphs of RTL direction, the
+            // overall layout should be the mirrored version of the LTR
+            // one" (`[[source: terminal-wg-bidi-misc]]`), the anchor being
+            // where the picture is in the text, UAX #9 3.2's object
+            // (`[[source: uax9-bidi]]`).
             let anchor = match p.line.value().checked_sub(origin.top.value()) {
                 Some(y) => Anchor::At(Row::from_index(usize::try_from(y).unwrap_or(usize::MAX))),
                 None => Anchor::Above(Rows::of_index(
@@ -5205,16 +5202,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ///
     /// **On a line that is not single-width (`size`) a placeholder is drawn
     /// as the character it is**: each cell's part of the image fills the box
-    /// its character takes there, twice as wide, and on a double-height
-    /// line twice as tall with each row showing its half (`[[source:
-    /// dec-std-070]]` § 5.6.1, DECDWL displays "all characters ... in
-    /// double-width rendition"). Decided by Jev 2026-10-19, AS_TEXT, 0.97
-    /// and 0.95 on a re-ask; kitty draws no sized line.
-    /// **Which way the row a picture is anchored on is drawn**: row `r`
-    /// of the window `back` lines into the history, a row above it read in
-    /// the window that shows it first (a tall picture whose top has
-    /// scrolled off keeps its place), and left to right for a line the
-    /// history no longer holds.
+    /// its character takes there, twice as wide, and on a double-height line
+    /// twice as tall with each row showing its half
+    /// (`[[source: dec-std-070]]` § 5.6.1, DECDWL displays "all characters
+    /// ... in double-width rendition"). kitty draws no sized line. **Which
+    /// way the row a picture is anchored on is drawn**: row `r` of the
+    /// window `back` lines into the history, a row above it read in the
+    /// window that shows it first (a tall picture whose top has scrolled off
+    /// keeps its place), and left to right for a line the history no longer
+    /// holds.
     fn anchor_direction(&self, term: &Term<'_>, back: Rows, at: Anchor) -> BidiDirection {
         let back = term.looking_back(back);
         match at {
@@ -5491,17 +5487,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// set to the current background color". Under `?5` too: a VT340 fills
     /// with colour-map entry 0 on a reversed screen
     /// (`[[source: vt340test-background-select-2-png]]`), and xterm's
-    /// graphics read no reverse video (`[[source: xterm-graphics-c]]`);
-    /// decided by Jev 2026-10-22, UNREVERSED, 0.98 and 0.94. Read each
-    /// frame, as a VT340 looks its map up at every refresh (Jev 2026-10-12,
-    /// DEFAULT_BG_EACH_FRAME, 0.97 and 0.94).
+    /// graphics read no reverse video (`[[source: xterm-graphics-c]]`). Read
+    /// each frame, as a VT340 looks its map up at every refresh.
     ///
     /// **On the see-through window as `[glass] sixel_backgrounds` says**
-    /// ([`crate::SixelBg`], the owner's call of 2026-10-22): opaque, the
-    /// default, as on an opaque window; or the same colour at the window's
-    /// dim, the alpha an erased cell's background has there, which the
-    /// placement draws over what is under it or in its place
-    /// ([`ImageComposite`]).
+    /// ([`crate::SixelBg`]): opaque, the default, as on an opaque window;
+    /// or the same colour at the window's dim, the alpha an erased cell's
+    /// background has there, which the placement draws over what is under
+    /// it or in its place ([`ImageComposite`]).
     ///
     /// Read from `term` itself, as the placements are built, and not from
     /// the defaults the frame's convert refreshes after them: from those,
@@ -5594,13 +5587,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Blits the placements under the text that cover `row`'s band into
-    /// it, in order: a repainted row's, over its background. Those below
-    /// the non-default backgrounds first, and then those backgrounds over
-    /// them, at their own alpha, as over the desktop where there is no
-    /// image (the owner's pick of 2026-10-16), so the default ones show the
-    /// image and the others show it through their alpha; then the rest.
-    /// The GPU paths draw the same steps.
+    /// Blits the placements under the text that cover `row`'s band into it,
+    /// in order: a repainted row's, over its background. Those below the
+    /// non-default backgrounds first, and then those backgrounds over them,
+    /// at their own alpha, as over the desktop where there is no image, so
+    /// the default ones show the image and the others show it through their
+    /// alpha; then the rest. The GPU paths draw the same steps.
     fn paint_under(
         &self,
         imgs: &ImageStore<'_>,
@@ -7189,19 +7181,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **A lam-alef pair drawn together** (`[[source: unicode-ch9]]` 9.2.3):
-    /// the lam's codepoints, in `lam_form`, and the alef's, final, shaped
-    /// as one run in that order, so the face's `rlig` -- or the presentation
+    /// the lam's codepoints, in `lam_form`, and the alef's, final, shaped as
+    /// one run in that order, so the face's `rlig` -- or the presentation
     /// form, on a face without `GSUB` forms -- forms the obligatory ligature.
-    /// The ligature is centred over the cells `span` gives (Jev CENTRED,
-    /// 0.96/0.97), as a character two cells wide is, and the marks placed
-    /// on it move with it; a face that forms none draws each letter in its
-    /// own cell. Answers the glyphs the lam's cell draws and those the
-    /// alef's does, each from its own cell's origin -- both from the lam's
-    /// for [`PairSpan::LamCell`] -- on a line drawn at `stretch`, and
-    /// whether the face formed the ligature; `None` when the two letters
-    /// are drawn by different faces, and are drawn each alone. `word` is
-    /// the cells around the pair its face draws ([`Renderer::word_on`]),
-    /// before the lam and after the alef, shaped with it.
+    /// The ligature is centred over the cells `span` gives, as a character
+    /// two cells wide is, and the marks placed on it move with it; a face
+    /// that forms none draws each letter in its own cell. Answers the glyphs
+    /// the lam's cell draws and those the alef's does, each from its own
+    /// cell's origin -- both from the lam's for [`PairSpan::LamCell`] -- on a
+    /// line drawn at `stretch`, and whether the face formed the ligature;
+    /// `None` when the two letters are drawn by different faces, and are
+    /// drawn each alone. `word` is the cells around the pair its face draws
+    /// ([`Renderer::word_on`]), before the lam and after the alef, shaped
+    /// with it.
     pub(crate) fn lam_alef(
         &mut self,
         (lam, alef): (&[Codepoint], &[Codepoint]),
@@ -7711,16 +7703,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let line = fg;
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         let opaque_bg = self.theme.opaque_bg(style, self.video);
-        // **The floor again, on the glass** (Jev, logged: 0.96 and 0.99),
-        // measured against the page at its alpha over what the material
-        // can show, `Theme::backdrop` -- black to white on the glass (Jev's
-        // lean, 0.60/0.59, decisions 736-737) -- since the
-        // renderer draws onto a target with nothing under it and the glass
-        // is the window server's (`Floor::lift_on_glass`). It covers a page
-        // the program set; the default page is left out: its own text is
-        // held at the bound by the dims (note AS, section 3). A picture's,
-        // an opaque rendition's and a swap's page is solid, and
-        // `Resolved::drawn` gives them `fg`.
+        // **The floor again, on the glass**, measured against the page at
+        // its alpha over what the material can show, `Theme::backdrop` --
+        // black to white on the glass -- since the renderer draws onto a
+        // target with nothing under it and the glass is the window server's
+        // (`Floor::lift_on_glass`). It covers a page the program set; the
+        // default page is left out: its own text is held at the bound by
+        // the dims (note AS, section 3). A picture's, an opaque rendition's
+        // and a swap's page is solid, and `Resolved::drawn` gives them
+        // `fg`.
         let glass = if page_word.is_default() || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
             fg
         } else {
@@ -7728,9 +7719,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .floor
                 .lift_on_glass(fg, bg, self.theme.bg_alpha, self.theme.backdrop)
         };
-        // **Every background is translucent, not only the default one**:
-        // the owner's call of 2026-09-20. A picture's and an opaque
-        // rendition's are made solid by `Resolved::drawn`.
+        // **Every background is translucent, not only the default one**.
+        // A picture's and an opaque rendition's are made solid by
+        // `Resolved::drawn`.
         let bg = bg.with_alpha(self.theme.bg_alpha);
         let attrs = style.attrs();
         // The font the text is drawn in (`Stack::font_of`): the primary,
@@ -7799,8 +7790,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         let underline = self.theme.underline(style, fg, |ch| term.palette(ch));
-        // An explicit `SGR 58` colour gets the same rule against the page
-        // (Jev, logged: 0.98); a following underline is the floored text.
+        // An explicit `SGR 58` colour gets the same rule against the
+        // page; a following underline is the floored text.
         let underline = if style.underline().is_default() {
             underline
         } else {
@@ -8624,15 +8615,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // face can -- `face_for` would have chosen that one -- and the
                 // `.notdef` it would map such a mark to is a base with a full
                 // advance in JetBrains Mono: the box drew a cell to the right
-                // and every mark after it over the box (Jev A_DROP, 0.99). What
-                // is left is the letter and the marks the face has, which the
-                // shaper takes as it takes any cluster; a face that draws the
-                // cluster whole is handed it untouched, and which of the two a
-                // cluster is on a face is remembered, as its face is, so a run
-                // the cache misses pays a probe per marked cell rather than a
-                // normalisation. The dropped set follows from the face and the
-                // codepoints alone, which the run cache's key folds, so a cached
-                // run never needs it recomputed.
+                // and every mark after it over the box. What is left is the
+                // letter and the marks the face has, which the shaper takes as
+                // it takes any cluster; a face that draws the cluster whole is
+                // handed it untouched, and which of the two a cluster is on a
+                // face is remembered, as its face is, so a run the cache misses
+                // pays a probe per marked cell rather than a normalisation. The
+                // dropped set follows from the face and the codepoints alone,
+                // which the run cache's key folds, so a cached run never needs
+                // it recomputed.
                 //
                 // `without_unmapped` starts from the cluster's canonical form,
                 // so a base and a mark whose canonical composite no face draws

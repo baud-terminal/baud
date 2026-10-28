@@ -11,21 +11,20 @@
 //! the cell's own 8-byte content word ([`Content::placeholder`]), not in
 //! the cluster store: `kitten icat` writes three on every cell
 //! (`[[source: kitty-icat-transmit]]`), every cell a different cluster, and
-//! the 1024-slot store dropped 2366 of the 5760 marks of an 80x24 picture
-//! (docs/record.md, "kitty Unicode placeholders"). The inheritance reads
-//! the neighbours and the colours, which later writes change, so it is
-//! resolved a row at a time by [`PlaceholderRuns`], when a renderer asks.
+//! the 1024-slot store dropped 2366 of the 5760 marks of an 80x24 picture.
+//! The inheritance reads the neighbours and the colours, which later writes
+//! change, so it is resolved a row at a time by [`PlaceholderRuns`], when a
+//! renderer asks.
 //!
 //! **The cell to the left is the adjacent one, and colours compare by the
-//! ids they carry** (Jev, ADJACENT 1.00 and 1.00, IDS 1.00 and 1.00): a
-//! run of cells continues while the ids from the foreground and underline
-//! colours are equal and the row, column and byte are absent or follow
-//! from the cell before, kitty's `screen_render_line_graphics`
-//! (`[[source: kitty-screen-c]]`). Where the text's three rules apply this
-//! is what they say; where none applies, a cell takes row 0, column 0 and
-//! byte 0 for what it lacks, which the text leaves open and kitty does.
-//! `38;5;42` and `38;2;0;0;42` both name id 42, where the text's words
-//! compare "colors": a departure Jev decided.
+//! ids they carry**: a run of cells continues while the ids from the
+//! foreground and underline colours are equal and the row, column and byte
+//! are absent or follow from the cell before, kitty's
+//! `screen_render_line_graphics` (`[[source: kitty-screen-c]]`). Where the
+//! text's three rules apply this is what they say; where none applies, a
+//! cell takes row 0, column 0 and byte 0 for what it lacks, which the text
+//! leaves open and kitty does. `38;5;42` and `38;2;0;0;42` both name id
+//! 42, where the text's words compare "colors": a departure.
 
 use crate::placeholder_data::{DIACRITIC_BLOCKS, DIACRITIC_INDEX, DIACRITIC_SHIFT, DIACRITICS};
 use crate::{Codepoint, Col, ColorWord, Cols, KittyId, KittyPlacement, Rows};

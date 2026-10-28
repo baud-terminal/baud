@@ -83,10 +83,10 @@ impl Page {
 /// **The second drawing surface** (070-8 § 8.8.2.1, the VT340's second
 /// "page of graphics page memory"): a plane of indices the page's size,
 /// placed nowhere, shown through the page while `S(P1)` displays it. It is
-/// the screen's (decided by Jev, SCREEN_FIXED, 1.00 and 0.98 on a second
-/// ask): the shell's text, its erases and its scrolling act on the first
-/// surface, the text page it is coupled to, and never reach it. Made when
-/// first drawn on or displayed, and made again, empty, at another size.
+/// the screen's: the shell's text, its erases and its scrolling act on the
+/// first surface, the text page it is coupled to, and never reach it. Made
+/// when first drawn on or displayed, and made again, empty, at another
+/// size.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Second {
     plane: ImageId,
@@ -1249,12 +1249,11 @@ impl Term<'_> {
     /// ReGIS page's blinking pixels show their own colours in
     /// [`RegisPhase::Shown`] and the background's in
     /// [`RegisPhase::Hidden`] (070-8 § 8.8.3.1), at SGR 5's rate, as text
-    /// blinks (decided by Jev, SGR5_RATE, 0.98 and 0.98 on a second ask);
-    /// in [`RegisPhase::Faint`], dimmed flashing lights' off phase, half
-    /// way to the background's, as text's off phase is drawn faint.
-    /// The page the next drawing goes on is repainted where it keeps its
-    /// blinking pixels, the cursors drawn over it again; whether anything
-    /// was, which owes a frame.
+    /// blinks; in [`RegisPhase::Faint`], dimmed flashing lights' off
+    /// phase, half way to the background's, as text's off phase is drawn
+    /// faint. The page the next drawing goes on is repainted where it
+    /// keeps its blinking pixels, the cursors drawn over it again;
+    /// whether anything was, which owes a frame.
     pub fn set_regis_blink(&mut self, phase: RegisPhase) -> RegisRepainted {
         let regis = &mut *self.store.strs.regis;
         if regis.blink_phase() == phase {
@@ -1376,12 +1375,12 @@ impl Term<'_> {
     /// `[[source: vt3xx-report]]`); a repeat moves it again where DECARM
     /// lets keys repeat. "Pressing any non-arrow key that is not dead"
     /// sends the key's own bytes, as the keyboard's modes encode them, then
-    /// the position and a carriage return, and ends the input (070-13
-    /// § 5.1); a key that sends nothing -- a modifier, a dead key -- and a
+    /// the position and a carriage return, and ends the input (070-13 §
+    /// 5.1); a key that sends nothing -- a modifier, a dead key -- and a
     /// release leave it waiting. In multiple mode the keys are the
     /// terminal's: "If you press an arrow key in multiple mode, the
     /// terminal sends that key's escape sequence to the host"
-    /// (`[[source: vt3xx-locator]]`; decided by Jev, SEND, 0.96 and 0.96).
+    /// (`[[source: vt3xx-locator]]`).
     pub(crate) fn regis_key(&mut self, e: KeyEvent) -> Option<bool> {
         if self.regis_input() != RegisInput::OneShot {
             return None;
@@ -1470,10 +1469,8 @@ impl Term<'_> {
     /// holds while it waited. The input ends with 070-8 § 8.8.5.3's empty
     /// report, "Only the terminating CR is sent ... indicating that NO
     /// INPUT was to be returned", counted in `regis_counts()`, and the held
-    /// output is the embedder's to feed. Jev's lean: EMPTY_REPORT at 0.38,
-    /// POSITION_REPORT at 0.22 in the other order, EMPTY_REPORT having the
-    /// higher probability averaged over the two orders, 0.495 against 0.37.
-    /// Whether the report went; nothing when no input waits.
+    /// output is the embedder's to feed. Whether the report went; nothing
+    /// when no input waits.
     pub fn regis_input_abandon(&mut self) -> bool {
         if self.regis_input() != RegisInput::OneShot {
             return false;

@@ -62,19 +62,19 @@ impl Paint<'_, '_> {
     ///
     /// A kitty body is base64 behind a line of keys, and fed a byte at a
     /// time it cost about 4 ns a byte: a 1920x1080 `f=32` picture took
-    /// 46.0-47.1 ms, all of it here, and 4.7 ms a run at a time
-    /// (`docs/record.md`, "A kitty payload is fed a run at a time"). So its
-    /// printable-ASCII run is found as the text path finds one (`run_of_text`, the same vector scan) and handed
-    /// to the stream whole. **The run is a subset of what the byte path
-    /// would put, edge for edge**: `20-7E` in `Node::SosStr` is `StrPut`
-    /// back to `SosStr` under both encodings
+    /// 46.0-47.1 ms, all of it here, and 4.7 ms a run at a time. So its
+    /// printable-ASCII run is found as the text path finds one
+    /// (`run_of_text`, the same vector scan) and handed to the stream
+    /// whole. **The run is a subset of what the byte path would put, edge
+    /// for edge**: `20-7E` in `Node::SosStr` is `StrPut` back to `SosStr`
+    /// under both encodings
     /// (`graph::classes::a_kitty_run_is_bytes_the_string_body_puts`), and
-    /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that may
-    /// begin `ST` (`[[source: ctlseqs]]` 201) or cancel the string
+    /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that
+    /// may begin `ST` (`[[source: ctlseqs]]` 201) or cancel the string
     /// (`[[source: williams]]`), `CAN`, `SUB`, the C0 the body ignores,
     /// `DEL`, a GR byte, `9C` under ISO 8859-1 -- ends the run where it
-    /// stands and takes its own edge, so the run is bounded by the read and
-    /// by the first byte the graph treats otherwise.
+    /// stands and takes its own edge, so the run is bounded by the read
+    /// and by the first byte the graph treats otherwise.
     #[cold]
     #[inline(never)]
     pub(crate) fn str_run(&mut self, from: BytePos, left: ReadLen) -> ReadLen {
@@ -168,31 +168,29 @@ impl Paint<'_, '_> {
             }
             self.cold.str_kind = StrKind::Other;
         }
-        // **DECRQSS and DECRSPS drop every C0 before their data is kept,
-        // and read a GR byte as its 7-bit byte under ISO 8859-1.** The graph
-        // puts every C0 of a DCS body for the handler to judge
-        // (`graph::string`), and these give none a meaning:
-        // `[[source: dec-std-070]]` 3.5.4 says the format effectors' inclusion
-        // "is intended for convenience in formatting and storing control
-        // strings" and recommends "that these characters not affect the
-        // interpretation of the control string" (PDF p. 133), and 3.5.4.4
-        // "that all other control codes not used within a command string be
-        // ignored by hardware"; of DEC's practice `[[source: williams]]` says
-        // a C0 with no meaning to the device function is "silently ignored"
-        // (818-822). So `m CR`, `m BEL` and `m NUL` name SGR (Jev,
-        // B_PUT_ALL, 0.99/0.99). xterm's `strcmp` against `m` fails on any
+        // **DECRQSS and DECRSPS drop every C0 before their data is kept, and
+        // read a GR byte as its 7-bit byte under ISO 8859-1.** The graph puts
+        // every C0 of a DCS body for the handler to judge (`graph::string`),
+        // and these give none a meaning: `[[source: dec-std-070]]` 3.5.4 says
+        // the format effectors' inclusion "is intended for convenience in
+        // formatting and storing control strings" and recommends "that these
+        // characters not affect the interpretation of the control string" (PDF
+        // p. 133), and 3.5.4.4 "that all other control codes not used within a
+        // command string be ignored by hardware"; of DEC's practice
+        // `[[source: williams]]` says a C0 with no meaning to the device
+        // function is "silently ignored" (818-822). So `m CR`, `m BEL` and
+        // `m NUL` name SGR. xterm's `strcmp` against `m` fails on any
         // (`[[source: xterm-misc]]`'s file, 4935), practice and not followed;
         // `[[source: ctlseqs]]` leaves error recovery to the implementation
         // (133-137). The data of either is a control sequence's characters
         // ("the identifying intermediate and final characters", DECRQSS, p.
         // 5-196), whose GR STD 070 3.5.3 g reads as "the character from the
-        // corresponding row in columns 02 to 07" (PDF p. 129); `[[source:
-        // ecma48]]` §9 gives GR in "the contents of the command string" "the
-        // same meanings as" 02/00-07/14, and williams (462) and ctlseqs read
-        // GR as GL in a control string, as xterm's `AsciiOf` does; so `DCS $
-        // q ED ST`
-        // names SGR, and `FF`, read as `7F`, is dropped as a `DEL` is (Jev's
-        // lean STRIP, 0.60/0.56, the texts' reading). Both were kept raw, so
+        // corresponding row in columns 02 to 07" (PDF p. 129);
+        // `[[source: ecma48]]` §9 gives GR in "the contents of the command
+        // string" "the same meanings as" 02/00-07/14, and williams (462) and
+        // ctlseqs read GR as GL in a control string, as xterm's `AsciiOf`
+        // does; so `DCS $ q ED ST` names SGR, and `FF`, read as `7F`, is
+        // dropped as a `DEL` is (the texts' reading). Both were kept raw, so
         // the request named nothing and answered invalid. Under UTF-8
         // `gr_as_gl` maps nothing: the bytes are a character's.
         if matches!(
@@ -208,22 +206,21 @@ impl Paint<'_, '_> {
         ) {
             return self.status_data_put(b);
         }
-        // **Under ISO 8859-1 an `OSC` keeps a GR byte as its 7-bit byte**,
-        // its clipboard body included. `[[source: dec-std-070]]` 3.5.4.5: "GR
-        // (8-bit) graphic characters in APC, OSC, and PM control strings will
-        // be treated as their 7-bit equivalent (the eighth bit will be
-        // ignored)"; `[[source: ecma48]]` §9 gives "the contents of the
-        // command string" "the same meanings" as `02/00` to `07/14`; and
-        // `[[source: williams]]` treats GR as GL "in all states" (462). The
-        // body kept the byte as it came, so `ESC ] B0 BB t BEL` named no
-        // `OSC`, a title in GR was stored in GR, and `B5 B2 BB` was not the
-        // `52;` that routes a copy below. Above this, a Sixel folds its own,
-        // as 070-9 §9.4 says, and a DECRQSS keeps its `Pt`'s, the owner's
-        // open call (`dcs_passthrough`, `docs/vt-coverage.md`). Below it, `Other` is a
-        // DCS no handler reads or an `APC`, `PM` or `SOS`, kept and dropped
-        // unread at the terminator, so a strip there would move nothing; an
-        // `APC` or `PM` that gains a reader takes the rule then. Under UTF-8
-        // `gr_as_gl` maps nothing: the bytes are a character's.
+        // **Under ISO 8859-1 an `OSC` keeps a GR byte as its 7-bit byte**, its
+        // clipboard body included. `[[source: dec-std-070]]` 3.5.4.5: "GR (8-bit)
+        // graphic characters in APC, OSC, and PM control strings will be treated as
+        // their 7-bit equivalent (the eighth bit will be ignored)";
+        // `[[source: ecma48]]` §9 gives "the contents of the command string" "the same
+        // meanings" as `02/00` to `07/14`; and `[[source: williams]]` treats GR as GL
+        // "in all states" (462). The body kept the byte as it came, so
+        // `ESC ] B0 BB t BEL` named no `OSC`, a title in GR was stored in GR, and
+        // `B5 B2 BB` was not the `52;` that routes a copy below. Above this, a Sixel
+        // folds its own, as 070-9 §9.4 says, and a DECRQSS keeps its `Pt`'s, an open
+        // question (`dcs_passthrough`, `docs/vt-coverage.md`). Below it, `Other` is a
+        // DCS no handler reads or an `APC`, `PM` or `SOS`, kept and dropped unread at
+        // the terminator, so a strip there would move nothing; an `APC` or `PM` that
+        // gains a reader takes the rule then. Under UTF-8 `gr_as_gl` maps nothing: the
+        // bytes are a character's.
         let b = match self.cold.str_kind {
             StrKind::Osc => match self.cold.str_enc.gr_as_gl(b) {
                 folded if folded == b => b,
@@ -258,13 +255,10 @@ impl Paint<'_, '_> {
     /// above, unless XTSMTITLE's UTF-8 mode is set and the body names a
     /// title or an icon name (`0;`, `1;` or `2;`), whose GR bytes are then
     /// kept for [`Paint::set_labels`] to read as UTF-8, as xterm's parser
-    /// keeps a title's eight bits under its `utf8Title` (`[[source:
-    /// xterm-reset]]`'s file, `IsSetUtf8Title`). The text's "window/icon
-    /// labels" names the icon too, where xterm keeps `0` and `2` alone
-    /// (Jev's lean, BUILD_TEXT: after a second ask the orders split,
-    /// BUILD_XTERM at 0.38 in one and BUILD_TEXT at 0.82 in the other, and
-    /// the one with the higher mean probability was taken).
-    /// Out of line: only a GR byte under ISO 8859-1 reaches it.
+    /// keeps a title's eight bits under its `utf8Title`
+    /// (`[[source: xterm-reset]]`'s file, `IsSetUtf8Title`). The text's
+    /// "window/icon labels" names the icon too, where xterm keeps `0` and
+    /// `2` alone. Out of line: only a GR byte under ISO 8859-1 reaches it.
     #[cold]
     #[inline(never)]
     fn osc_gr(&self, b: StreamByte, folded: StreamByte) -> StreamByte {
@@ -312,19 +306,17 @@ impl Paint<'_, '_> {
     }
 
     /// **`OSC 3`: the window's name or its icon's, as the property's type
-    /// reads it**, and every other property counted and dropped (the
-    /// owner's call of 2026-10-20, note AV). `WM_NAME` and `_NET_WM_NAME`
-    /// set the one title, `WM_ICON_NAME` and `_NET_WM_ICON_NAME` the one
-    /// icon name, the last write winning (Jev, ICCCM_AND_EWMH, 0.96/0.98):
+    /// reads it**, and every other property counted and dropped (note AV).
+    /// `WM_NAME` and `_NET_WM_NAME` set the one title, `WM_ICON_NAME` and
+    /// `_NET_WM_ICON_NAME` the one icon name, the last write winning:
     /// ICCCM's two in ISO 8859-1, the `STRING` xterm writes them as, and
     /// EWMH's two in UTF-8, their `UTF8_STRING`, a value that is not UTF-8
-    /// being none (Jev, BY_PROPERTY_TYPE, 0.97/1.00). The bytes are taken as
-    /// sent: xterm's `ChangeXprop` goes past `ChangeGroup`, so no
-    /// hexadecimal title mode (`[[source: xterm-misc]]`). A bare name
-    /// deletes the property, which leaves the window or its icon unnamed.
-    /// **Refused and counted while the window operations are off**, as
-    /// xterm gates it under `allowWindowOps` (`AllowWindowOps(xw,
-    /// ewSetXprop)`; Jev's lean, FOLLOWS_WINDOW_OPS, 0.38/0.52).
+    /// being none. The bytes are taken as sent: xterm's `ChangeXprop` goes
+    /// past `ChangeGroup`, so no hexadecimal title mode
+    /// (`[[source: xterm-misc]]`). A bare name deletes the property, which
+    /// leaves the window or its icon unnamed. **Refused and counted while
+    /// the window operations are off**, as xterm gates it under
+    /// `allowWindowOps` (`AllowWindowOps(xw, ewSetXprop)`).
     fn set_property(&mut self, p: XProperty<'_>) {
         if self.strs.window_asks.ops == WindowOps::Off {
             self.strs.window_asks.refuse();
@@ -474,13 +466,12 @@ impl Paint<'_, '_> {
     /// **A Sixel cut off by `CAN`, an `ESC` that is not `ST` or a C1** is
     /// placed from what it received, as at `ST`: williams, "Cancelling a
     /// control string does not undo these effects" (501-503), and its
-    /// `unhook` lets the handler "finish neatly" (728-729); `[[source:
-    /// dec-std-070]]` 070-9 prints "each Sixel in received order" (§5) and
-    /// on exit updates the text position "to reflect the vertical motion
-    /// commands executed in the Sixel printing" (§11.3). Jev, KEEP,
-    /// 0.94/0.94 for `ESC` and a C1, and the lean KEEP, 0.72/0.68, for
-    /// `CAN` (2026-10-19). Until then the image was discarded and its claim
-    /// let go at the next string.
+    /// `unhook` lets the handler "finish neatly" (728-729);
+    /// `[[source: dec-std-070]]` 070-9 prints "each Sixel in received
+    /// order" (§5) and on exit updates the text position "to reflect the
+    /// vertical motion commands executed in the Sixel printing" (§11.3).
+    /// Until 2026-10-19 the image was discarded and its claim let go at the
+    /// next string.
     #[cold]
     #[inline(never)]
     pub(crate) fn sixel_cut(&mut self) {
@@ -930,10 +921,10 @@ impl Paint<'_, '_> {
     /// list (`AllowWindowOps` and its siblings, `[[source: xterm-misc]]`):
     /// a category is allowed when baud honours every one of its
     /// subcategories, and a category it does not lists those it refuses.
-    /// Decided by Jev, 0.98 both orders, over silence and xterm's defaults.
-    /// The paste controls are the embedder's to filter: `OSC 61` names
-    /// those it says it replaces, none until it says, and `OSC 60` never
-    /// claims the category. A malformed query is counted.
+    /// This is chosen over silence and over xterm's defaults. The paste
+    /// controls are the embedder's to filter: `OSC 61` names those it says
+    /// it replaces, none until it says, and `OSC 60` never claims the
+    /// category. A malformed query is counted.
     fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
         let facts = self.allow_facts();
         let mut out = AllowList::new(match q {

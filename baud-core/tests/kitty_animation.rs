@@ -598,8 +598,7 @@ fn loading_waits_at_the_last_frame() {
 }
 
 /// **Held, nothing moves on the clock and a client's `c` still shows**;
-/// run again, the frame shown gets its whole gap from then (Jev's lean,
-/// HOLD_CURRENT).
+/// run again, the frame shown gets its whole gap from then.
 #[test]
 fn a_held_clock_moves_nothing_and_the_client_still_does() {
     with(|t| {

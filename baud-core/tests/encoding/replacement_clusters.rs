@@ -1,8 +1,7 @@
 //! **A U+FFFD written for ill-formed bytes is a character to the cluster
-//! rules exactly as a literal `EF BF BD` is.** The owner's decision of
-//! 2026-10-13, SAME_AS_LITERAL, over AS_BUILT (the substitute always breaks
-//! before it) and DECLARED_PROFILE (a UAX29-C1-2 profile saying so): the
-//! record, "A U+FFFD for ill-formed bytes clusters as a literal one".
+//! rules exactly as a literal `EF BF BD` is.** Chosen on 2026-10-13 over
+//! breaking always before the substitute, and over declaring a UAX29-C1-2
+//! profile that says so.
 //!
 //! `[[source: unicode-ch3]]` 3.9.5 has a converter substitute "one or more
 //! U+FFFD replacement characters", and `[[source: uax29]]` segments a

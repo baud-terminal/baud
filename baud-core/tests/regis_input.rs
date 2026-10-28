@@ -233,8 +233,8 @@ fn a_button_ends_one_shot_with_its_string() {
 
 /// **The report is in user coordinates, to a tenth**: "expressed as an
 /// absolute bracketed extent in user coordinates" (070-13 § 5.1), the
-/// VT340's `[102.5,200]` (Jev, TENTHS, 0.96 and 0.98). Under
-/// `S(A[0,0][399,239])` a device pixel is half a user unit.
+/// VT340's `[102.5,200]`. Under `S(A[0,0][399,239])` a device pixel is
+/// half a user unit.
 #[test]
 fn the_report_is_in_user_coordinates_to_a_tenth() {
     term(|t| {
@@ -309,11 +309,10 @@ fn multiple_mode_reports_at_once_behind_the_null_button() {
     });
 }
 
-/// **Multiple mode's buttons report inside the envelope, and it resumes
-/// on re-entry**: "If this happens, the ReGIS locator will be disabled until
+/// **Multiple mode's buttons report inside the envelope, and it resumes on
+/// re-entry**: "If this happens, the ReGIS locator will be disabled until
 /// ReGIS is re-entered, at which time multiple input mode resumes with the
-/// input cursor at its last known position" (070-13 § 5.2; Jev's lean,
-/// SUSPEND_RESUME).
+/// input cursor at its last known position" (070-13 § 5.2).
 #[test]
 fn multiple_mode_works_inside_the_envelope_and_resumes_on_reentry() {
     term(|t| {
@@ -354,8 +353,7 @@ fn r_i0_and_s_a_end_multiple_mode() {
 
 /// **In multiple mode the keys are the terminal's**, arrows included: "If
 /// you press an arrow key in multiple mode, the terminal sends that key's
-/// escape sequence to the host" (`[[source: vt3xx-locator]]`; decided by
-/// Jev, SEND).
+/// escape sequence to the host" (`[[source: vt3xx-locator]]`).
 #[test]
 fn arrow_keys_in_multiple_mode_are_sent() {
     term(|t| {
@@ -368,7 +366,7 @@ fn arrow_keys_in_multiple_mode_are_sent() {
 
 /// **`DECSTR` keeps graphics input**: its list of what it resets names no
 /// graphics state (070-4, DECSTR), so a suspended multiple mode resumes at
-/// the next envelope (decided by Jev, KEEP, 1.00 and 0.98).
+/// the next envelope.
 #[test]
 fn decstr_keeps_multiple_mode() {
     term(|t| {
@@ -398,9 +396,8 @@ fn ris_ends_graphics_input() {
 /// **The input cursor is a crosshair by default**, its lines across the
 /// screen through the position in map entry 0 with a one-pixel border in
 /// entry 15, drawn into the page shown, and taken away when the input
-/// ends. The crosshair is the VT340's default, Jev's lean (VT340, 0.59 and
-/// 0.67), an open departure from 070-8's numbering, whose default is the
-/// diamond; the two tones are Jev's decision (TWO_TONE, 1.00 and 1.00).
+/// ends. The crosshair is the VT340's default, an open departure from
+/// 070-8's numbering, whose default is the diamond.
 #[test]
 fn the_default_input_cursor_is_a_two_tone_crosshair() {
     term(|t| {
@@ -741,7 +738,7 @@ fn ris_restores_the_keys_and_decstr_keeps_them() {
 }
 
 /// **A DECLKD is read as DECUDK's loading reads one** (070-11's
-/// `FILL_KEYS`; Jev): a key past 4 skips its definition, a broken hex pair
+/// `FILL_KEYS`): a key past 4 skips its definition, a broken hex pair
 /// stops the rest, a string past six bytes is not stored and stops the
 /// rest, a `Pc` past 1 refuses the string -- each counted.
 #[test]

@@ -552,8 +552,7 @@ fn a_gif_at_another_size_keeps_its_frames() {
 }
 
 /// **An animation the image memory cannot hold whole draws the
-/// placeholder**, counted, as a picture too big for it does (Jev,
-/// REFUSE_WHOLE).
+/// placeholder**, counted, as a picture too big for it does.
 #[test]
 fn a_gif_too_big_for_the_memory_is_refused_whole() {
     // Three frames of 40 by 40 need 4802 words; the arena holds 4096.
@@ -746,7 +745,7 @@ fn what_does_not_decode_draws_the_placeholder() {
 
 /// **The picture's cells take no text, and text written over one cell
 /// clears that cell alone**, as iTerm2's image characters are written and
-/// replaced (Jev's leans, ERASED and PER_CELL).
+/// replaced.
 #[test]
 fn the_cells_are_the_pictures_and_text_clears_one() {
     let (png, px) = picture(30, 40, 17);

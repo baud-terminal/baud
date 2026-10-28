@@ -1,10 +1,10 @@
-//! `OSC 3 ; prop=value`, "Set X property on top-level window. Pt should
-//! be in the form \"prop=value\", or just \"prop\" to delete the property"
+//! `OSC 3 ; prop=value`, "Set X property on top-level window. Pt should be
+//! in the form \"prop=value\", or just \"prop\" to delete the property"
 //! (`[[source: ctlseqs]]`). baud has no X window, so the properties with a
-//! counterpart are mapped (the owner's call of 2026-10-20, note AV): the
-//! window name, ICCCM's `WM_NAME` and EWMH's `_NET_WM_NAME`, is the title,
-//! and the icon name, `WM_ICON_NAME` and `_NET_WM_ICON_NAME`, is the icon
-//! name; every other property is counted and dropped.
+//! counterpart are mapped (note AV): the window name, ICCCM's `WM_NAME`
+//! and EWMH's `_NET_WM_NAME`, is the title, and the icon name,
+//! `WM_ICON_NAME` and `_NET_WM_ICON_NAME`, is the icon name; every other
+//! property is counted and dropped.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -36,11 +36,10 @@ fn wm_name_names_the_window_in_iso_8859_1() {
 }
 
 /// **`_NET_WM_NAME` names the window too, in UTF-8**: "The Client SHOULD
-/// set this to the title of the window in UTF-8 encoding" (`[[source:
-/// ewmh-1-5-app]]` 5.1), its type `UTF8_STRING`. One title for both, the
-/// last write winning (Jev, ICCCM_AND_EWMH 0.96/0.98; BY_PROPERTY_TYPE
-/// 0.97/1.00). A value that is not UTF-8 is no `UTF8_STRING`: counted,
-/// and the title kept.
+/// set this to the title of the window in UTF-8 encoding"
+/// (`[[source: ewmh-1-5-app]]` 5.1), its type `UTF8_STRING`. One title
+/// for both, the last write winning. A value that is not UTF-8 is no
+/// `UTF8_STRING`: counted, and the title kept.
 #[test]
 fn net_wm_name_names_the_window_in_utf8() {
     support::with_term(&WS, |t| {
@@ -123,10 +122,9 @@ fn the_hexadecimal_title_mode_does_not_apply() {
 }
 
 /// **`[window] operations = "off"` refuses OSC 3 too, and counts it**:
-/// xterm gates it under `allowWindowOps`, subcategory `SetXprop` (`case
-/// OSC_X_Property`, `AllowWindowOps(xw, ewSetXprop)`, `[[source:
-/// xterm-misc]]`); Jev's lean, FOLLOWS_WINDOW_OPS, 0.38/0.52 after a
-/// second ask. OSC 2 stays honoured.
+/// xterm gates it under `allowWindowOps`, subcategory `SetXprop`
+/// (`case OSC_X_Property`, `AllowWindowOps(xw, ewSetXprop)`,
+/// `[[source: xterm-misc]]`). OSC 2 stays honoured.
 #[test]
 fn the_window_operations_setting_refuses_it() {
     support::with_term(&WS, |t| {

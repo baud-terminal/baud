@@ -12,37 +12,32 @@
 //! require the printer port are ignored". DSR `?15` answers `?10n`, `?11n`
 //! or `?13n` to match.
 //!
-//! **What a job holds** (Jev, STD070_UTF8, 0.95/0.95 and 0.97/0.98): the
-//! stream 070-7 § 7.4 and PRINT PAGE's algorithm (pp. 7-39 to 7-47) give,
-//! `ESC [ 0 m` at the start, `ESC # 5`, `6`, `3` or `4` at each line, `ESC
-//! [ 0 ; Ps ... m` when the rendition changes with `Ps` 1 bold, 4
-//! underscore, 5 blink and 7 reverse (§ 7.4.2), invisible characters as
-//! spaces, trailing spaces of the normal rendition left off (§ 7.4.3), `CR
-//! LF` after each line, `FF` under DECPFF and `ESC [ 0 m` at the end -- with
-//! the characters in UTF-8 and no character-set designations, since a cell
-//! holds Unicode, which none of § 7.4's three printer styles can carry. The
-//! VT420's p. 215 lists SGR 2 for underline; STD 070's 4 is followed. A
-//! printer controller run's bytes are the host's own, under ISO 8859-1
-//! carried into UTF-8 so a job is always UTF-8.
+//! **What a job holds**: the stream 070-7 § 7.4 and PRINT PAGE's algorithm
+//! (pp. 7-39 to 7-47) give, `ESC [ 0 m` at the start, `ESC # 5`, `6`, `3` or
+//! `4` at each line, `ESC [ 0 ; Ps ... m` when the rendition changes with
+//! `Ps` 1 bold, 4 underscore, 5 blink and 7 reverse (§ 7.4.2), invisible
+//! characters as spaces, trailing spaces of the normal rendition left off (§
+//! 7.4.3), `CR LF` after each line, `FF` under DECPFF and `ESC [ 0 m` at the
+//! end -- with the characters in UTF-8 and no character-set designations,
+//! since a cell holds Unicode, which none of § 7.4's three printer styles
+//! can carry. The VT420's p. 215 lists SGR 2 for underline; STD 070's 4 is
+//! followed. A printer controller run's bytes are the host's own, under ISO
+//! 8859-1 carried into UTF-8 so a job is always UTF-8.
 //!
 //! **What one job is**: a print screen, page, line or all pages; an
 //! autoprint run from `CSI ? 5 i` to `CSI ? 4 i`, a print in the middle of
-//! it ending it there and starting another after (Jev's lean OWN_JOB,
-//! 0.58/0.36 on the first ask; the second ask split by order (OWN_JOB 0.00
-//! in one, SAME_JOB 0.20 in the other), so the definition Jev took at 0.98
-//! decides it: "an autoprint run is one job from CSI ? 5 i to CSI ? 4 i (or
-//! to the next print, or RIS)"); a controller run from `CSI 5 i` to `CSI 4
-//! i`. Finished jobs wait in the area for [`crate::Term::print_jobs`],
-//! at most [`PRINT_QUEUE`] of them, one past that joined to the last after a
-//! form feed, so nothing printed is lost to a slow embedder.
+//! it ending it there and starting another after (an autoprint run is one
+//! job from `CSI ? 5 i` to `CSI ? 4 i`, or to the next print, or `RIS`); a
+//! controller run from `CSI 5 i` to `CSI 4 i`. Finished jobs wait in the
+//! area for [`crate::Term::print_jobs`], at most [`PRINT_QUEUE`] of them,
+//! one past that joined to the last after a form feed, so nothing printed is
+//! lost to a slow embedder.
 //!
 //! **The area is bounded**, the embedder's [`PrintBudget`]: bytes past it are
 //! dropped from the job collecting them, counted, and the job marked
 //! [`PrintCut::Cut`]. A controller run stays a run past the bound, its output
 //! hidden until `CSI 4 i` as 070-7 § 7.3.6 says, where ending it there would
-//! draw the program's printer data on the screen (Jev's leans flipped,
-//! STAY_UNTIL_EXIT 0.34/0.40 then END_AT_BOUND 0.34/0.08, and a departure
-//! needs 0.9 both times).
+//! draw the program's printer data on the screen.
 //!
 //! **Printer controller mode is a node of the graph** (`Node::Printing`),
 //! every byte `Act::Printer`, whose step takes the rest of the read here: no
@@ -400,9 +395,8 @@ impl Paint<'_, '_> {
     }
 
     /// Print page (`CSI 0 i`), all pages (`CSI ? 11 i`, baud's page memory
-    /// being the one page: Jev's lean ONE_PAGE, 0.80/0.70 then 0.66/0.66)
-    /// and the composed display (`CSI ? 10 i`, which DECPEX does not
-    /// affect), each `FF`-ended under DECPFF.
+    /// being the one page) and the composed display (`CSI ? 10 i`, which
+    /// DECPEX does not affect), each `FF`-ended under DECPFF.
     fn print_page(&mut self, rows: PageRows) {
         let (top, bottom) = match (rows, self.strs.print.extent) {
             (PageRows::ByExtent, PrintExtent::ScrollingRegion) => (self.cold.top, self.cold.bot),
@@ -529,12 +523,11 @@ impl Paint<'_, '_> {
     /// (`[[source: ecma48]]` 7.2.7), a guarded area's contents "excluded
     /// ... from transfer to an auxiliary input/output device" (6.5.2.2),
     /// which MC initiates (6.6). Each such position prints as a space, as
-    /// an invisible character does (Jev's lean, AS_SPACES, 0.92/0.84), so
-    /// the columns after it keep their places; every guarded position a
-    /// print reaches is left out, an area only partly inside it too, which
-    /// 7.3.1 g leaves to the implementation (Jev's lean, EXCLUDE_PART); and
-    /// every print of screen contents is a transfer, page, screen, all
-    /// pages, line and autoprint (Jev, EVERY_SCREEN_PRINT, 0.90/0.98).
+    /// an invisible character does, so the columns after it keep their
+    /// places; every guarded position a print reaches is left out, an area
+    /// only partly inside it too, which 7.3.1 g leaves to the
+    /// implementation; and every print of screen contents is a transfer,
+    /// page, screen, all pages, line and autoprint.
     fn excluded(&self, cell: PackedCell) -> bool {
         cell.flags.is_guarded() && !self.cold.modes.is_set(ModeBit::TransferGuarded)
     }

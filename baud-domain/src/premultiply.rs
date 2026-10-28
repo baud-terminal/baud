@@ -9,9 +9,9 @@
 //! protocol names the encoding and not the rounding. The rounding is what
 //! the GPU's 8-bit premultiplied store holds, which the CPU compositor's
 //! glass blend is built to give back exactly (`Blend::over_glass` in
-//! `baud-render`), and one function on both systems is the owner's same
-//! pixels on every OS: the Wayland presenter truncated, `C a / 255`, and
-//! read one below macOS on 31,770 of the 65,536 `(C, a)` pairs.
+//! `baud-render`), and one function on both systems gives the same pixels
+//! on every OS: the Wayland presenter truncated, `C a / 255`, and read
+//! one below macOS on 31,770 of the 65,536 `(C, a)` pairs.
 
 use crate::Chan;
 

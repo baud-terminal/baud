@@ -1,7 +1,7 @@
-//! `oklch(` and `lab(` colours in a kitty theme, drawn as the owner's call
-//! of 2026-10-17 has them (note AR, O14). The rules are written in note AR,
-//! "The kitty reader against kitty's code, and its re-derivation", and this
-//! file is written from them:
+//! `oklch(` and `lab(` colours in a kitty theme, drawn as note AR, O14, has
+//! them. The rules are written in note AR, "The kitty reader against
+//! kitty's code, and its re-derivation", and this file is written from
+//! them:
 //!
 //! - **Edge**: a number that is not finite, or L at or below 0, is black;
 //!   L at or above 1 is white (CSS Color 4 14.2).

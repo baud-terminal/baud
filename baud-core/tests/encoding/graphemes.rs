@@ -210,11 +210,11 @@ fn marks_stack_and_do_not_leak_between_cells() {
 /// **A mark with no base character takes a cell of its own.**
 ///
 /// `[[source: uax29]]` GB1 puts a boundary at start of text, so a leading mark
-/// is its own cluster, a defective combining character sequence (TUS D57,
-/// "at the start of a string"), stored alone and drawn on a no-break space
-/// (TUS 5.13; note AB, Q24 item 1, Jev OWN_CELL_MARK_ALONE). It was dropped
-/// and counted until 2026-10-23, which the name records: nothing is dropped
-/// now, and the `x` after it takes the next cell.
+/// is its own cluster, a defective combining character sequence (TUS D57, "at
+/// the start of a string"), stored alone and drawn on a no-break space (TUS
+/// 5.13; note AB, Q24 item 1). It was dropped and counted until 2026-10-23,
+/// which the name records: nothing is dropped now, and the `x` after it takes
+/// the next cell.
 #[test]
 fn a_leading_mark_has_no_base_and_is_counted() {
     let ws = support::CORPUS;
@@ -415,8 +415,7 @@ impl Before {
 /// 788 (in all three) were, while `ClusterStore` probed two of 63 slots from
 /// an unfinalized hash: a fourth or a sixth prefix found both its slots
 /// taken on a fresh store. With eight probes of 1024 slots and a finalized
-/// hash they render as the standard says (docs/record.md, "The cluster
-/// store holds 1024 clusters and sweeps the dead ones").
+/// hash they render as the standard says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Why {
     /// Printable ASCII straight after a Prepend. GB9b joins them; the Prepend
@@ -672,7 +671,7 @@ fn put_cell(screen: &mut [Vec<Column>], (r, c): (usize, usize), k: &[Codepoint])
 /// be inserted into, or removed from, a data stream without affecting the
 /// information content" -- but it is still a Control to GB4 and GB5, so the
 /// cluster before it ends there. That reading is the face value of both
-/// texts, and treating NUL as absent instead is the alternative put to Jev.
+/// texts, and treating NUL as absent instead is the alternative.
 ///
 /// Every other cluster takes one cell, holding all its codepoints and taking
 /// its first one's width. **The policy is what happens to a cluster that
@@ -1104,10 +1103,10 @@ enum Effect {
 /// continuation takes a cell whatever the machine says, so theirs is
 /// `a_carriage_return_ends_a_regional_indicator_pair`.
 ///
-/// **REP is pinned the other way, in `after_rep_the_cluster_goes_on`, for Jev
-/// (note AB, Q24)**: it writes a graphic character, so the continuation joins
-/// the copy. A plain SGR is a control sequence like the rest and ends the
-/// cluster (GB4 on its `ESC`).
+/// **REP is pinned the other way, in `after_rep_the_cluster_goes_on`, an open
+/// choice (note AB, Q24)**: it writes a graphic character, so the
+/// continuation joins the copy. A plain SGR is a control sequence like the
+/// rest and ends the cluster (GB4 on its `ESC`).
 #[test]
 fn a_control_function_ends_the_cluster_before_it() {
     let cp = |c: char| Codepoint::new(u32::from(c)).expect("a char is a codepoint");
@@ -1253,8 +1252,8 @@ fn a_control_function_ends_the_cluster_before_it() {
     );
 }
 
-/// **REP, after which the cluster goes on from the copy**, pinned, and for
-/// Jev (note AB, Q24).
+/// **REP, after which the cluster goes on from the copy**, pinned, an open
+/// choice (note AB, Q24).
 ///
 /// REP writes the letter again, so the continuation joins the copy: `ab`
 /// `CSI b` `U+0903` is `a`, `b`, and `b` with the visarga. `Paint::repeat`
@@ -1539,9 +1538,8 @@ fn a_replacement_character_is_class_other_to_the_cluster_after_it() {
 /// UTF-8 does not join as GB11 joins it, and a sound mark does not join the
 /// katakana before it as GB9 does. Whether a translated character enters the
 /// cluster machine as the same codepoint in UTF-8 would, or keeps DEC's one
-/// code, one position, is for Jev (docs/record.md, "DEC Supplemental,
-/// JIS-Katakana and JIS-Roman are translated"). This asserts the three by
-/// name, so a fourth fails here.
+/// code, one position, is open. This asserts the three by name, so a fourth
+/// fails here.
 #[test]
 fn every_character_set_writes_printable_ascii_as_class_other() {
     use baud_domain::{Charset, PackedCell};

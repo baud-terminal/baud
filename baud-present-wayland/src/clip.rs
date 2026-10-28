@@ -69,12 +69,11 @@ pub const RECEIVE_IDLE: Duration = Duration::from_secs(2);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Copied {
     Set,
-    /// Sent while the window lacks the keyboard, named with the last
-    /// serial the client was given. Neither protocol's `set_selection`
-    /// asks for the keyboard, but GNOME's compositor refuses a client
-    /// without it and cancels the source, which arrives as
-    /// [`Done::Cancelled`]; wlroots takes it unless a later copy came first
-    /// (Jev's lean, LAND, 0.64/0.32).
+    /// Sent while the window lacks the keyboard, named with the last serial
+    /// the client was given. Neither protocol's `set_selection` asks for
+    /// the keyboard, but GNOME's compositor refuses a client without it and
+    /// cancels the source, which arrives as [`Done::Cancelled`]; wlroots
+    /// takes it unless a later copy came first.
     Unfocused,
     /// The compositor offers no manager for this selection, the seat has
     /// no device yet, or no input event has given a serial to name.

@@ -973,20 +973,19 @@ pub struct Resolved {
 }
 
 /// **Whether a cell is a box-drawing line**, which the contrast floor
-/// leaves as asked (the owner, 2026-10-17): its character is in Unicode's
-/// Box Drawing block, `U+2500..=U+257F`, every one of whose 128 names in
-/// `UnicodeData.txt` begins `BOX DRAWINGS` (`[[source: unicode-data]]`),
-/// where DEC Special Graphics stores its lines, corners and tees; its scan
-/// lines, `o p r s`, are `U+23BA..=U+23BD`, outside it. herdr draws
-/// its dividers below 1.2:1 on the default page, and the floor lifted
-/// them into grey rules at 4.5:1. WCAG 2.2 exempts text that is "pure
-/// decoration" from SC 1.4.3 and asks 3:1 of graphical objects needed
-/// to understand the content (SC 1.4.11; `[[source: wcag22]]`); neither
-/// settles a divider, and leaving lines out is the owner's call, not the
-/// standard's.
-/// **Block Elements, `U+2580..=U+259F`, are not lines**: btop and cava
-/// draw graphs with them, and they keep the floor. A line carrying a mark
-/// is a cluster, drawn as other text.
+/// leaves as asked: its character is in Unicode's Box Drawing block,
+/// `U+2500..=U+257F`, every one of whose 128 names in `UnicodeData.txt`
+/// begins `BOX DRAWINGS` (`[[source: unicode-data]]`), where DEC Special
+/// Graphics stores its lines, corners and tees; its scan lines, `o p r s`,
+/// are `U+23BA..=U+23BD`, outside it. herdr draws its dividers below 1.2:1
+/// on the default page, and the floor lifted them into grey rules at
+/// 4.5:1. WCAG 2.2 exempts text that is "pure decoration" from SC 1.4.3
+/// and asks 3:1 of graphical objects needed to understand the content (SC
+/// 1.4.11; `[[source: wcag22]]`); neither settles a divider, and leaving
+/// lines out is baud's choice, not the standard's. **Block Elements,
+/// `U+2580..=U+259F`, are not lines**: btop and cava draw graphs with
+/// them, and they keep the floor. A line carrying a mark is a cluster,
+/// drawn as other text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Line {
     No,
@@ -1075,13 +1074,11 @@ impl Resolved {
     /// * **A picture's or an opaque rendition's background is solid.** Every
     ///   background carries the window's dim; a picture drawn in text keeps
     ///   its backgrounds solid under it, or it splits into slivers and holes.
-    ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over
-    ///   a solid one [`Resolved::fg`]; a swap takes `fg`, since it draws
-    ///   both sides solid. **A box-drawing line is [`Resolved::line`]** on
-    ///   either page; what a swap hands the background stays `fg`, floored,
-    ///   as a selected letter's: Jev's lean, below the bar (decisions
-    ///   702/703, 0.54 and 0.68), taken on the owner's "use the recommended
-    ///   answers" of 2026-10-17, and pinned on the CPU arm by
+    ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over a
+    ///   solid one [`Resolved::fg`]; a swap takes `fg`, since it draws both
+    ///   sides solid. **A box-drawing line is [`Resolved::line`]** on either
+    ///   page; what a swap hands the background stays `fg`, floored, as a
+    ///   selected letter's, and pinned on the CPU arm by
     ///   `a_selected_line_takes_the_floored_background_a_letter_does`.
     /// * **The selection swaps, then a block cursor swaps again**, and both
     ///   leave the two colours opaque: the foreground a swap hands back is
@@ -1097,9 +1094,7 @@ impl Resolved {
     ///
     /// **Inlined always**: CPU instructions a 200x50 glass frame of herdr,
     /// before the glass text 20.26M as compiled and 19.91M inlined, with it
-    /// 20.49M as compiled and 19.97M inlined; the line's cost is in the
-    /// record, "Box drawing is left out of the floor, and the glass trigger
-    /// is 3".
+    /// 20.49M as compiled and 19.97M inlined.
     #[inline(always)]
     pub fn drawn(self, s: Swaps) -> Drawn {
         let opaque = Chan::from_u8(0xFF);
@@ -1112,8 +1107,8 @@ impl Resolved {
         };
         // What a bar or underline cursor falls back to over this cell: the
         // text without the line rule, so a line under a bar cursor keeps the
-        // floored colour the cursor always had (the owner's call covers
-        // lines, not the cursor).
+        // floored colour the cursor always had (the line rule covers lines,
+        // not the cursor).
         let plain = fg;
         if line {
             fg = self.line;
@@ -1256,9 +1251,9 @@ impl Resolved {
     /// The cell's [`Ground`] this frame: its rendition's
     /// [`Shapes::DEFAULT_BG`], and not selected and not under a block
     /// cursor, each of which draws another colour as the background, as
-    /// kitty's `compute_background` makes them "special" (`[[source:
-    /// kitty-background-slang]]`; Jev, NON_DEFAULT, 1.00 and 1.00). The
-    /// cell shader's `ground_set` mirrors it.
+    /// kitty's `compute_background` makes them "special"
+    /// (`[[source: kitty-background-slang]]`). The cell shader's
+    /// `ground_set` mirrors it.
     pub fn ground(self, selected: Selected, block: BlockCursor) -> Ground {
         match (self.shapes.has(Shapes::DEFAULT_BG), selected, block) {
             (true, Selected::No, BlockCursor::No) => Ground::Default,

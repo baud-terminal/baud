@@ -347,15 +347,15 @@ fn a_repeat_effect_on_the_cpu_path_makes_no_transition() {
 }
 
 /// **The cap's work is bounded a frame, and the bound stays sound while it
-/// is** (Jev, decisions 728/729): over more than 64 distinct grounds -- a
-/// row of cells in 70 background colours -- a repeat pass draws nothing, a
-/// cap of 0, rather than scan every one, which over a picture cost 42-97 ms
-/// a frame. Over a few grounds, two new caps are scanned a frame and the
-/// pass draws nothing until all are: three colours under it read 0 on the
-/// first frame and their least cap on the second. The control: the same
-/// three colours' least cap, scanned directly. And the renderer says why
-/// ([`Held`]): over 70, too many grounds on both frames; over three, still
-/// scanning, then capped.
+/// is**: over more than 64 distinct grounds -- a row of cells in 70
+/// background colours -- a repeat pass draws nothing, a cap of 0, rather
+/// than scan every one, which over a picture cost 42-97 ms a frame. Over a
+/// few grounds, two new caps are scanned a frame and the pass draws nothing
+/// until all are: three colours under it read 0 on the first frame and
+/// their least cap on the second. The control: the same three colours'
+/// least cap, scanned directly. And the renderer says why ([`Held`]): over
+/// 70, too many grounds on both frames; over three, still scanning, then
+/// capped.
 #[test]
 fn a_repeat_pass_over_many_grounds_draws_nothing() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -454,14 +454,14 @@ fn apc(t: &mut Term<'_>, ctrl: &str, payload: &[u8]) {
 }
 
 /// **An image under the text is a ground the cap cannot read**, and a
-/// repeat pass over one draws nothing (Jev, decisions 728/729, the route a
-/// picture takes): the cells under a kitty image hold the page's styles
-/// while the pixels the pass lands on are the image's, so the page's cap
-/// over a `#404040` image made 672 general transitions on a 30 by 10 grid.
-/// An image over the text hides the pass, which keeps the page's cap: the
-/// control for the layer. The control for the pass: the same quad on a
-/// bare page draws at the page's cap. The renderer says which: imaged
-/// under the text, capped otherwise.
+/// repeat pass over one draws nothing (the route a picture takes): the
+/// cells under a kitty image hold the page's styles while the pixels the
+/// pass lands on are the image's, so the page's cap over a `#404040` image
+/// made 672 general transitions on a 30 by 10 grid. An image over the text
+/// hides the pass, which keeps the page's cap: the control for the layer.
+/// The control for the pass: the same quad on a bare page draws at the
+/// page's cap. The renderer says which: imaged under the text, capped
+/// otherwise.
 #[test]
 fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
     let mono = font("JetBrainsMono-Regular.ttf");

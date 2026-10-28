@@ -69,15 +69,15 @@ WHAT IT MEASURES
 HOW TO READ IT
     Per arm: the median (with n) and the interquartile range [q1-q3] of each
     leg over the SETTLED rounds (round 1 is warm-up and discarded, per
-    CLAUDE.md), the [min-max] beside it, plus keys posted (the helper's
-    count) / paired / completed / excluded, and how many shared a frame.
-    With `--aa` a second arm runs the SAME binary again; the two are printed
-    side by side and the noise floor is given PER LEG as the larger of the
-    two medians' difference and either arm's interquartile range -- never
-    the max-min spread, which one fat-tail outlier owns (a single 163 ms
-    echo once made it read 169 ms). A leg that moves by less than its own
-    floor is not a result. Take it on mains, on an idle box; the header
-    says which you had.
+    CONTRIBUTING.md), the [min-max] beside it, plus keys posted (the
+    helper's count) / paired / completed / excluded, and how many shared a
+    frame. With `--aa` a second arm runs the SAME binary again; the two are
+    printed side by side and the noise floor is given PER LEG as the larger
+    of the two medians' difference and either arm's interquartile range --
+    never the max-min spread, which one fat-tail outlier owns (a single 163
+    ms echo once made it read 169 ms). A leg that moves by less than its own
+    floor is not a result. Take it on mains, on an idle box; the header says
+    which you had.
 
     With more than one non-`aa` arm the driver also prints, per leg,
     `arm - base` beside that A/A floor, and marks a row `result` only when
@@ -1032,7 +1032,7 @@ def print_header(args, arm_list, window_ms):
     if any("Battery Power" in l for l in pm) or not any("AC Power" in l for l in pm):
         quotable = False
         print("power: NOT QUOTABLE -- on battery (or power source unknown); "
-              "CLAUDE.md: battery numbers are not quotable")
+              "battery numbers are not quotable")
     helper = swift_argv("scripts/key-post.swift", ["--info"])
     try:
         ip = subprocess.run(helper, capture_output=True, text=True, timeout=60)

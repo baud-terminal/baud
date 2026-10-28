@@ -6,12 +6,10 @@
 //! **The bounds, as decided on 2026-10-13**: 1024 slots, each cluster's
 //! hash probing eight of them, the slot named from the cell's `Content`
 //! above U+10FFFF, and, once every slot holds a cluster, a sweep of the
-//! live cells reclaiming the slots no cell names (docs/record.md, "The
-//! cluster store holds 1024 clusters and sweeps the dead ones"). The store
-//! this replaced held 63 in six bits of `CellFlags` and freed them only on
-//! RIS, so `marks_dropped` read 0, 10 and 45 for
-//! Genesis 1:1, 1:1-2 and 1:1-5, and a session refused every cluster past
-//! its 63rd distinct one.
+//! live cells reclaiming the slots no cell names. The store this replaced
+//! held 63 in six bits of `CellFlags` and freed them only on RIS, so
+//! `marks_dropped` read 0, 10 and 45 for Genesis 1:1, 1:1-2 and 1:1-5, and
+//! a session refused every cluster past its 63rd distinct one.
 //!
 //! Every test here reads the terminal through what it shows a reader --
 //! `Term::marks` on the screen, `Term::cluster_marks` on a history line,
@@ -112,7 +110,7 @@ fn every_point_of_genesis_1_1_to_5_is_kept() {
     assert_eq!(
         wanted(5).iter().map(Vec::len).sum::<usize>(),
         146,
-        "the count the record quotes"
+        "146 points over five verses"
     );
 }
 

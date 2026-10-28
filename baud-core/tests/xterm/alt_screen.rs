@@ -86,15 +86,14 @@ fn the_primary_screen_is_restored_intact() {
 ///
 /// **Only the alternate screen scrolls here**: 900 lines through it, and three
 /// on the primary, which never scrolls, so the primary's rotation is zero on
-/// both sides of the trip and a restore that dropped or reset it -- either
-/// way to zero -- would pass. One that left the primary under the alternate
-/// screen's rotation fails: that is not zero after 900 lines, and so this
-/// test catches a `View::swap_surface` that swaps no rotation.
-/// `docs/record.md` ("The alternate screen: park the primary, and the copy is
-/// the cheap half") describes this test as scrolling the primary sixty lines
-/// and the alternate eighty-three; that was a test deleted with `baud-core2`,
-/// and `a_scrolled_primary_comes_back_in_the_order_it_left` below is this
-/// file's test that scrolls the primary first.
+/// both sides of the trip and a restore that dropped or reset it -- either way
+/// to zero -- would pass. One that left the primary under the alternate
+/// screen's rotation fails: that is not zero after 900 lines, and so this test
+/// catches a `View::swap_surface` that swaps no rotation. An older description
+/// of this test had it scrolling the primary sixty lines and the alternate
+/// eighty-three; that was a test deleted with `baud-core2`, and
+/// `a_scrolled_primary_comes_back_in_the_order_it_left` below is this file's
+/// test that scrolls the primary first.
 #[test]
 fn scrolling_the_alt_screen_does_not_disturb_the_primary() {
     let before = grid(b"line one\r\nline two\r\nline three");
@@ -188,15 +187,14 @@ fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String
 /// Every other round trip in this file and in `vt100/scrolling.rs` leaves a
 /// primary that never scrolled, so its rotation is zero on both sides, and a
 /// restore that dropped or reset it (to zero) would pass them: screen row `y`
-/// is physical row `y` either way. A wrong rotation that is not zero does
-/// not pass: the alternate screen's, handed back in its place, fails three of
-/// them (P2 and P7 in the record section named below). Here the primary
-/// scrolls first -- to 24, and to an odd 33,
-/// on a ring of the screen alone; to 11 and to 111, the second past the
-/// alternate screen's ring of fifty, with that many lines in the history; and
-/// to 57 on a ring of seventy rows it has wrapped, so the window crosses the
-/// ring's end -- and the alternate screen then scrolls, writes and moves its
-/// cursor, to a rotation of 12 that is none of those.
+/// is physical row `y` either way. A wrong rotation that is not zero does not
+/// pass: the alternate screen's, handed back in its place, fails three of
+/// them. Here the primary scrolls first -- to 24, and to an odd 33, on a ring
+/// of the screen alone; to 11 and to 111, the second past the alternate
+/// screen's ring of fifty, with that many lines in the history; and to 57 on
+/// a ring of seventy rows it has wrapped, so the window crosses the ring's
+/// end -- and the alternate screen then scrolls, writes and moves its cursor,
+/// to a rotation of 12 that is none of those.
 ///
 /// After the exit the primary is compared whole, cell for cell, with a twin
 /// fed the same primary bytes that never switched: every row, the history
@@ -219,8 +217,8 @@ fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String
 /// scrolled in it; the primary alone, then the rest; a read a phase; and
 /// every phase at one byte and at seven bytes a read.
 ///
-/// Six tests elsewhere also cross the alternate screen from a scrolled
-/// primary, and each fails if the exit resets the primary's rotation:
+/// Six tests elsewhere also cross the alternate screen from a scrolled primary,
+/// and each fails if the exit resets the primary's rotation:
 /// `a_mark_on_the_alternate_screen_after_the_primary_scrolled` and
 /// `a_block_opened_on_the_alternate_screen_is_not_redrawn_on_the_primary`
 /// (`semantic.rs`), `a_shrink_under_47_anchors_the_primary_on_the_shared_cursor`
@@ -229,13 +227,11 @@ fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String
 /// `erase_saved_lines_on_the_alternate_screen_empties_the_primarys_history`
 /// (`xterm/erase_saved_lines.rs`) and
 /// `a_resize_on_the_alternate_screen_reshapes_the_primary_too`
-/// (`xterm/soft_reset_scope.rs`). None of
-/// them fails when a read that ends on the alternate screen leaves `Term`
-/// with the primary's rotation from before the read -- `Term::set_rots`
-/// dropping it, which bites only where the primary scrolled in that read --
-/// and nor does any other test in `baud-core`. This one does, at the second
-/// cut (`docs/record.md`, "A scrolled primary across the alternate screen,
-/// and the hand-back no test held").
+/// (`xterm/soft_reset_scope.rs`). None of them fails when a read that ends on
+/// the alternate screen leaves `Term` with the primary's rotation from before
+/// the read -- `Term::set_rots` dropping it, which bites only where the primary
+/// scrolled in that read -- and nor does any other test in `baud-core`. This one
+/// does, at the second cut.
 ///
 /// The twin is held to absolute values first -- its rotation, its top and
 /// bottom rows, its history line by line and its cursor -- so a case cannot
@@ -402,10 +398,10 @@ fn the_cursor_is_saved_and_restored() {
 /// **Entering leaves the cursor where it was.** `[[source: ctlseqs]]`'s
 /// `?1049 h` saves the cursor, switches and clears, and names no move;
 /// xterm's set arm is `CursorSave; ToAlternate; ClearScreen`, and
-/// `ClearScreen` does not home (`xterm-util.c`). baud homed here until the
-/// owner's decision of 2026-10-13. Measured at every read size and every
-/// split into two reads, and by the write that follows, so a cursor that
-/// reads right and writes elsewhere cannot pass.
+/// `ClearScreen` does not home (`xterm-util.c`). baud homed here until
+/// 2026-10-13. Measured at every read size and every split into two reads,
+/// and by the write that follows, so a cursor that reads right and writes
+/// elsewhere cannot pass.
 #[test]
 fn entering_leaves_the_cursor() {
     let bytes: &[u8] = b"\x1b[9;20H\x1b[?1049hx";
@@ -577,9 +573,9 @@ fn the_alt_screen_shows_what_is_written_on_it() {
 /// The shape of `the_primary_screen_is_restored_intact`: enter, write and
 /// leave once, then compare the whole screen with a terminal that never
 /// switched. The name is `baud-core2`'s, where this ran in its `OpMode::Runs`;
-/// it is kept because `docs/record.md` cites the test by it. Nothing scrolls
+/// it is kept because earlier write-ups cite the test by it. Nothing scrolls
 /// the primary here, so a restore that dropped the primary's rotation would
-/// pass, as the record says of this test.
+/// pass.
 #[test]
 fn runs_mode_restores_the_primary_screen() {
     let mut a = T::new();

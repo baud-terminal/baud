@@ -171,8 +171,8 @@ fn decrsps_restores_the_cursor_position() {
     after(&b, |t| assert_eq!(ch(t, 4, 6), 'x'));
 }
 
-/// The four renditions Srend carries are set or cleared and the rest kept
-/// (Jev's lean FOUR_ONLY, 0.80/0.70 then 0.84/0.86).
+/// The four renditions Srend carries are set or cleared and the rest
+/// kept.
 #[test]
 fn decrsps_restores_the_four_renditions_and_keeps_the_rest() {
     let mut b = b"\x1b[31;5m".to_vec();
@@ -203,8 +203,8 @@ fn decrsps_restores_the_attribute_and_the_flags() {
     after(&b, |t| assert_eq!(ch(t, 1, 0), 'x'));
 }
 
-/// A pending single shift is restored (Jev's lean RESTORE_PENDING): the
-/// next graphic character is drawn from G2, the one after from GL.
+/// A pending single shift is restored: the next graphic character is
+/// drawn from G2, the one after from GL.
 #[test]
 fn decrsps_restores_a_pending_single_shift() {
     let mut b = rsps(1, "1;1;1;@;@;B;0;2;@;BB0<");
@@ -314,11 +314,11 @@ fn a_cancelled_tab_restore_leaves_the_stops() {
 /// its 7-bit byte**, as DECRQSS's: the graph puts every C0 of a DCS body
 /// and these handlers give none a meaning (`[[source: dec-std-070]]`
 /// 3.5.4.4, "that all other control codes not used within a command string
-/// be ignored by hardware"; Jev, B_PUT_ALL), and the data is a control
-/// sequence's characters, whose GR STD 070 3.5.3 g reads as "the character
-/// from the corresponding row in columns 02 to 07", as `[[source: ecma48]]`
-/// §9 does in a command string (Jev's lean STRIP). Until 2026-10-19 a `BEL` inside a column was kept and
-/// ended the restore as an invalid value, and a GR digit was one too.
+/// be ignored by hardware"), and the data is a control sequence's
+/// characters, whose GR STD 070 3.5.3 g reads as "the character from the
+/// corresponding row in columns 02 to 07", as `[[source: ecma48]]` §9 does
+/// in a command string. Until 2026-10-19 a `BEL` inside a column was kept
+/// and ended the restore as an invalid value, and a GR digit was one too.
 #[test]
 fn a_c0_or_gr_byte_in_a_decrsps_body_is_dropped_or_read_as_gl() {
     let tail = b"\t\tx\tx\ty";

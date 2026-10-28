@@ -106,10 +106,8 @@ fn trim(s: &[u8]) -> &[u8] {
     &s[start..end]
 }
 
-/// Whether a program's `OSC 50` may change the font: `On` by default, the
-/// owner's call of 2026-10-20 (option D, "set and query, on by default, a
-/// setting turns changes off"), and `Off` refuses every change, counted;
-/// the query is answered either way.
+/// Whether a program's `OSC 50` may change the font: `On` by default, and
+/// `Off` refuses every change, counted; the query is answered either way.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum FontChanges {
     #[default]

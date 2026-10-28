@@ -279,16 +279,15 @@ pub struct CursorShape(pub u32);
 
 /// **The cursor-shape a program's `OSC 22` asks for, or `text` when it has
 /// asked for none.** Wayland leaves the image undefined on enter, "a client
-/// should respond to this event by setting an appropriate pointer image",
-/// so the state with no `OSC 22` must name one: xterm's, the `pointerShape`
+/// should respond to this event by setting an appropriate pointer image", so
+/// the state with no `OSC 22` must name one: xterm's, the `pointerShape`
 /// resource's default "xterm" (`[[source: xterm-man]]`), which ctlseqs says
 /// an empty or unknown `Pt` returns to -- the I-beam, `text`. Each of xterm's
-/// 77 names takes the shape whose meaning is nearest, where
-/// `cursor-shape-v1` has one: the text cursor, the hands, the watch, the
-/// question arrow, the crosses and the plus, the fleur, the refusals, and
-/// the side, corner and double-arrow resize names; the rest are `default`,
-/// the arrow. Jev's picks: `text` at 0.94 both orders; the nearest-meaning
-/// table a lean, 0.74 and 0.94.
+/// 77 names takes the shape whose meaning is nearest, where `cursor-shape-v1`
+/// has one: the text cursor, the hands, the watch, the question arrow, the
+/// crosses and the plus, the fleur, the refusals, and the side, corner and
+/// double-arrow resize names; the rest are `default`, the arrow, by nearest
+/// meaning.
 pub fn shape(asked: Option<PointerShape>) -> CursorShape {
     use PointerShape as S;
     use protocol::wp_cursor_shape_device_v1::shape as C;

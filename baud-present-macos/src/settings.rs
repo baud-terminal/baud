@@ -384,7 +384,7 @@ mod tests {
     }
 
     /// **Animated Images reads**: a link check, as below -- the framework
-    /// loads and the call returns; the value is the owner's setting.
+    /// loads and the call returns; the value is the user's setting.
     #[test]
     fn the_animated_images_setting_reads() {
         let _ = animated_images();
@@ -392,7 +392,7 @@ mod tests {
 
     /// **The setting reads**: a link check -- the framework loads and the
     /// call returns, whichever value this machine is set to; the value is
-    /// the owner's setting, so nothing is asserted of it.
+    /// the user's setting, so nothing is asserted of it.
     #[test]
     fn the_flashing_lights_setting_reads() {
         let _ = flashing();

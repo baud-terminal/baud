@@ -754,10 +754,10 @@ fn after_decrc(t: &mut Term<'_>) -> Vec<String> {
     out
 }
 
-/// **The shown screen's `DECSC` save travels in the report** (Jev's lean,
-/// S_SHOWN, 0.86/0.88 after research): a save lost to `RIS` comes back,
-/// so `DECRC` after the restore returns to it, and `?1048` answers it is
-/// saved; a report taken with nothing saved empties a save made since.
+/// **The shown screen's `DECSC` save travels in the report**: a save lost
+/// to `RIS` comes back, so `DECRC` after the restore returns to it, and
+/// `?1048` answers it is saved; a report taken with nothing saved empties
+/// a save made since.
 #[test]
 fn the_saved_cursor_is_restored() {
     support::with_corpus(|t| {

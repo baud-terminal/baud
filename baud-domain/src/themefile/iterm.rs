@@ -181,16 +181,16 @@ fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<Target<'s>> {
 
 /// An iTerm2 colour preset: an XML property list whose dictionary maps a
 /// key such as `Ansi 0 Color` to a colour dictionary of `Red Component`,
-/// `Green Component` and `Blue Component`, reals, and an optional `Color
-/// Space`. iTerm2 reads `sRGB` as sRGB, `P3` as Display P3 and anything
-/// else -- `Calibrated`, or no key -- as macOS's calibrated RGB, and a
-/// dictionary of fewer than three entries as black
+/// `Green Component` and `Blue Component`, reals, and an optional
+/// `Color Space`. iTerm2 reads `sRGB` as sRGB, `P3` as Display P3 and
+/// anything else -- `Calibrated`, or no key -- as macOS's calibrated RGB,
+/// and a dictionary of fewer than three entries as black
 /// (`[[source: iterm2-nsdictionary-9e29604]]` 214-243); each is converted
-/// to sRGB here (Jev, decisions.jsonl 682/683, for `Calibrated`), and a
-/// colour outside sRGB is clipped and said. A colour dictionary of three
-/// or more entries that lacks a component is said and left unset, where
-/// iTerm2 reads the missing component as 0 (`[nil floatValue]`,
-/// `[[source: iterm2-nsdictionary-9e29604]]` 225-241).
+/// to sRGB here, and a colour outside sRGB is clipped and said. A colour
+/// dictionary of three or more entries that lacks a component is said and
+/// left unset, where iTerm2 reads the missing component as 0
+/// (`[nil floatValue]`, `[[source: iterm2-nsdictionary-9e29604]]`
+/// 225-241).
 ///
 /// **A preset with `Foreground Color (Light)`** holds a light and a dark
 /// scheme, iTerm2's own test (`[[source: iterm2-color-presets-9e29604]]`

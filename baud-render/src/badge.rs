@@ -3,23 +3,23 @@
 //! (`[[source: iterm2-doc-profiles-general]]`), which a program sets with
 //! `OSC 1337 ; SetBadgeFormat`.
 //!
-//! **Laid out as iTerm2 lays it out** (`iTermBadgeLabel`, `[[source:
-//! iterm2-964a75d-badge-label]]`; `it_drawInRect`, `[[source:
-//! iterm2-964a75d-nsstringiterm]]`): the text split at its newlines, each
-//! part wrapped to a box a fraction of the view wide and high, every line
-//! right-aligned, at the largest whole point size from 4 to 100 that fits,
-//! found by iTerm2's own binary search. Lines break where Unicode's line
-//! breaking algorithm allows (`[[source: uax14]]`, as CoreText's word
-//! wrapping does), a line that must break doing so, and a word wider than
-//! the box at a grapheme cluster boundary, as word wrapping does when a
-//! word "doesn't fit on a single line". The box sits `right` from the
-//! view's right edge and `top` from its top, iTerm2's indicator height and
-//! margin (`rectForBadgeImageOfSize`, `[[source:
-//! iterm2-7ce037e-text-drawing-helper]]`). The text is laid on the grid of
-//! the badge's own face (`Stack::badge`), baud's embedded JetBrains Mono
-//! Bold whatever font the text is in, as iTerm2's badge has a face of its
-//! own (Jev, EMBEDDED_BOLD), scaled to the point size: a character takes
-//! the columns it takes on the screen.
+//! **Laid out as iTerm2 lays it out** (`iTermBadgeLabel`,
+//! `[[source: iterm2-964a75d-badge-label]]`; `it_drawInRect`,
+//! `[[source: iterm2-964a75d-nsstringiterm]]`): the text split at its
+//! newlines, each part wrapped to a box a fraction of the view wide and
+//! high, every line right-aligned, at the largest whole point size from 4
+//! to 100 that fits, found by iTerm2's own binary search. Lines break
+//! where Unicode's line breaking algorithm allows (`[[source: uax14]]`, as
+//! CoreText's word wrapping does), a line that must break doing so, and a
+//! word wider than the box at a grapheme cluster boundary, as word
+//! wrapping does when a word "doesn't fit on a single line". The box sits
+//! `right` from the view's right edge and `top` from its top, iTerm2's
+//! indicator height and margin (`rectForBadgeImageOfSize`,
+//! `[[source: iterm2-7ce037e-text-drawing-helper]]`). The text is laid on
+//! the grid of the badge's own face (`Stack::badge`), baud's embedded
+//! JetBrains Mono Bold whatever font the text is in, as iTerm2's badge has
+//! a face of its own, scaled to the point size: a character takes the
+//! columns it takes on the screen.
 
 use crate::atlas::Tex;
 use crate::color::Argb;
@@ -51,14 +51,13 @@ pub struct BadgeLook {
 /// (`KEY_BADGE_COLOR`, `[[source: iterm2-964a75d-profile-preferences]]`),
 /// in sRGB through the calibrated space's conversion, drawn as iTerm2
 /// draws it: inside a context at the colour's own alpha, 0.5 of 0.5, a
-/// quarter, 64 of 255 (Jev, ITERM2_RED_QUARTER, 0.97 and 0.98 on a second
-/// ask). Pinned by `the_badge_colour_is_iterm2s_default_in_srgb`.
+/// quarter, 64 of 255. Pinned by
+/// `the_badge_colour_is_iterm2s_default_in_srgb`.
 pub const BADGE: Argb = Argb(0x40FF_2600);
 
 /// iTerm2's box, the largest the badge fits in, as fractions of the view's
 /// width and height (`badgeMaxWidthFraction`, `badgeMaxHeightFraction`,
-/// `[[source: iterm2-964a75d-advanced-settings]]`; Jev, ITERM2_HALF_FIFTH,
-/// 0.98 both orders).
+/// `[[source: iterm2-964a75d-advanced-settings]]`).
 pub const BOX: (f32, f32) = (0.5, 0.2);
 
 /// iTerm2's margins in points: the box's top 10 points below the 20-point
