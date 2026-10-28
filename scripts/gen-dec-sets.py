@@ -8,15 +8,16 @@ table: a defined position holds its character and a reserved one DEC's error
 character, so nothing here falls back to the byte.
 
 The standard is DEC's text and xterm's `charsets.h` is practice
-(`[[source: xterm-charsets]]`). Where a DEC text is committed, this script
-reads it; where it is `external` (EK-PPLV2-PM, the VT382 RM), what was read
-from it is a constant below with its citation, because nothing can extract it
-here. xterm's macro for each set is parsed too, and every place it differs from
+(`[[source: xterm-charsets]]`). Table 2-3 is read from
+`baud-domain/tests/vt220_tables.tsv`, the cells `scripts/extract-vt220-tables.py`
+reads out of the pinned VT220 chapter, fetched by URL and hash-checked; where a
+text is `external` and nothing extracts it (EK-PPLV2-PM, the VT382 RM), what was
+read from it is a constant below with its citation. xterm's macro for each set is parsed too, and every place it differs from
 the table is named in `XTERM_DEPARTS` or the script fails: so the output says
 which cells are DEC's and xterm cannot drift silently.
 
 * **DEC Supplemental** (`ESC ( <` and `ESC ( % 5`):
-  `[[source: dec-special-graphics]]` Table 2-3's right half, read here, 81 glyphs and 13
+  `[[source: dec-special-graphics]]` Table 2-3's right half, read from the table, 81 glyphs and 13
   empty cells. The empty cells are checked against `[[source: dec-pplv2-pm]]`
   Figure A-2's hatched (reserved) cells, a constant (note AF §3.1).
 * **JIS-Katakana** (`ESC ( I`): `[[source: dec-pplv2-pm]]` §A.12, "specified
@@ -36,11 +37,11 @@ the error character (usually imaged as a REVERSE QUESTION MARK) to be displayed
 on conforming devices" (by analogy, inferred), as `[[source: vt382-rm]]` §2.4.6
 says of JIS-Katakana's reserved codes.
 """
-import pathlib, re, sys, html
+import pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs/research/sources"
-CHAPTER2 = SRC / "vt220-rm-chapter2.html"
+VT220_TABLES = ROOT / "baud-domain/tests/vt220_tables.tsv"
 CHARSETS_H = SRC / "xterm-charsets.h"
 JIS0201 = SRC / "JIS0201.TXT"
 UNICODE_DATA = SRC / "unicode-unicodedata.txt"
@@ -112,22 +113,18 @@ def name(cp):
 
 # ── DEC Table 2-3, right half ────────────────────────────────────────────────
 #
-# Each cell is a `<text class="chname">`, empty and self-closing where the
-# table draws nothing, followed by a `<text class="chnums">` whose third
-# `<tspan>` is the code's low seven bits in hex.
-chapter2 = CHAPTER2.read_text()
-start = chapter2.index('<figure id="T2-3b">')
-figure = chapter2[start : chapter2.index("</figure>", start)]
-items = re.findall(r'<text class="(chname|chnums)"[^>]*?(?:/>|>(.*?)</text>)', figure)
+# vt220_tables.tsv holds each GR cell as `cell`, `T2-3b`, the code's low seven
+# bits in hex, the glyph (empty where the table draws nothing) and a shaded
+# field Table 2-3 does not use.
 table23 = {}
-for (cls, text), nxt in zip(items, items[1:]):
-    if cls != "chname" or nxt[0] != "chnums" or "<tspan" not in nxt[1]:
+for line in VT220_TABLES.read_text().splitlines():
+    f = line.split("\t")
+    if line.startswith("#") or f[:2] != ["cell", "T2-3b"]:
         continue
-    nums = re.findall(r"<tspan[^>]*>([^<]*)</tspan>", nxt[1])
-    code = int(nums[2], 16)
-    if not 0x21 <= code <= 0x7E:
+    if len(f) != 5:
+        fail(f"vt220_tables.tsv: a line this script cannot parse: {line!r}")
         continue
-    glyph = html.unescape(re.sub(r"<[^>]+>", "", text)) if text else ""
+    code, glyph = int(f[2], 16), f[3]
     if code in table23:
         fail(f"Table 2-3: 0x{code:02X} twice")
     if len(glyph) > 1:

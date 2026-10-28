@@ -4,11 +4,16 @@
 //! VT220 Programmer Reference Manual's chapter 2, and Tables 2-1 to 2-15 in it
 //! are inline SVG: each glyph a `<text class="chname">` placed by x and y,
 //! followed by a `<text class="chnums">` carrying its code, and each
-//! substituted cell shaded by a `<rect fill="#ddd">`. This reads them at test
-//! time and shares no code with `scripts/gen-nrcs-tables.py`, which writes
-//! baud's tables from xterm's: the two tests that cited the tables before
-//! compared baud with itself, and neither could see Swedish 4/0 go missing
-//! (note AF §2.3, D2).
+//! substituted cell shaded by a `<rect fill="#ddd">`.
+//! `scripts/extract-vt220-tables.py` fetches the page by its pinned URL,
+//! refuses it unless it hashes to the manifest's SHA-256, reads each glyph's
+//! cell from its geometry, fails unless that cell is the code printed after
+//! it, and writes every cell of columns 2-7 with whether it is shaded to
+//! `vt220_tables.tsv`, with Table 4-4's finals from `[[source: vt220-rm-ch4]]`.
+//! This file reads that table and shares no code with
+//! `scripts/gen-nrcs-tables.py`, which writes baud's tables from xterm's: the
+//! two tests that cited the tables before compared baud with itself, and
+//! neither could see Swedish 4/0 go missing (note AF §2.3, D2).
 //!
 //! **It compares tables. It never renders through `Term`.** Whether a
 //! designated national set acts outside national mode was note AF's
@@ -19,13 +24,9 @@
 use baud_domain::{Charset, DEC_ERROR_CHARACTER, Nrcs, StreamByte, nrcs_table, uk_table};
 use std::collections::{BTreeMap, BTreeSet};
 
-const CHAPTER2: &str = include_str!(concat!(
+const TABLES: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../docs/research/sources/vt220-rm-chapter2.html"
-));
-const CHAPTER4: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../docs/research/sources/vt220-rm-chapter4.html"
+    "/tests/vt220_tables.tsv"
 ));
 const UNICODE_DATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -106,119 +107,40 @@ struct DecTable {
     shaded: BTreeSet<u8>,
 }
 
-/// The text between `<figure id="{id}">` and its `</figure>`.
-fn figure(id: &str) -> &'static str {
-    let open = format!("<figure id=\"{id}\">");
-    let start = CHAPTER2
-        .find(&open)
-        .unwrap_or_else(|| panic!("{id}: no figure"));
-    let rest = &CHAPTER2[start + open.len()..];
-    &rest[..rest.find("</figure>").expect("figure closes")]
+/// The tab-separated fields of each `vt220_tables.tsv` line of `kind`.
+fn rows(kind: &str) -> impl Iterator<Item = Vec<&'static str>> + '_ {
+    TABLES
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| l.split('\t').collect::<Vec<_>>())
+        .filter(move |f| f[0] == kind)
 }
 
-/// The value of `name="..."` in an element's attribute text.
-fn attr<'a>(el: &'a str, name: &str) -> &'a str {
-    let key = format!(" {name}=\"");
-    let i = el.find(&key).unwrap_or_else(|| panic!("no {name} in {el}")) + key.len();
-    &el[i..i + el[i..].find('"').expect("attribute closes")]
-}
-
-/// A coordinate in tenths, which every one in these figures is exact in.
-fn tenths(s: &str) -> i64 {
-    let v: f64 = s.parse().unwrap_or_else(|_| panic!("coordinate {s}"));
-    let t = (v * 10.0).round();
-    assert!(
-        (v * 10.0 - t).abs() < 1e-6,
-        "coordinate {s} is finer than tenths"
-    );
-    t as i64
-}
-
-/// The cell at `(x, y)` on a grid whose column 0, row 0 sits at
-/// `(x0, y0)`, with columns 85 apart and rows 45 apart; `None` off the grid
-/// or outside columns 2-7.
-fn cell(x: i64, y: i64, x0: i64, y0: i64) -> Option<u8> {
-    let (dx, dy) = (x - x0, y - y0);
-    if dx < 0 || dy < 0 || dx % 850 != 0 || dy % 450 != 0 {
-        return None;
-    }
-    let (col, row) = (dx / 850, dy / 450);
-    ((2..=7).contains(&col) && row < 16)
-        .then(|| u8::try_from(col * 16 + row).expect("a cell in columns 2-7 is a byte"))
-}
-
-fn unescape(s: &str) -> String {
-    let out = s
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&");
-    assert!(
-        out == "&" || !out.contains('&'),
-        "an entity this reader does not decode: {s}"
-    );
-    out
-}
-
-/// Every glyph placed by x and y, and every shaded cell.
-///
-/// A glyph sits at the centre of the 55-wide box its code shares the cell
-/// with: column 0's glyphs at x 137.5, its boxes at x 110, row 0's glyphs at
-/// y 127 and its boxes at y 100. The `chnums` after each glyph carries the
-/// code as octal, decimal and hex, and the hex has to be the cell the
-/// geometry placed it in -- the check on the geometry. Off-grid names (the
-/// row and column labels, column 1's DC1 and DC3, the key's ESC) fall out.
+/// One table as `vt220_tables.tsv` holds it: its caption, its glyph at each
+/// code of columns 2-7, and its shaded cells.
 fn extract(id: &str) -> DecTable {
-    let fig = figure(id);
-    let caption = fig
-        .split("<figcaption>")
-        .nth(1)
-        .and_then(|s| s.split("</figcaption>").next())
-        .expect("caption")
+    let mut captions = rows("caption").filter(|f| f[1] == id);
+    let caption = captions
+        .next()
+        .unwrap_or_else(|| panic!("{id}: no caption"))[2]
         .to_string();
+    assert!(captions.next().is_none(), "{id}: two captions");
     let mut glyphs = BTreeMap::new();
-    let mut rest = fig;
-    while let Some(i) = rest.find("<text class=\"chname\"") {
-        rest = &rest[i..];
-        let open = &rest[..rest.find('>').expect("tag closes")];
-        let body = &rest[open.len() + 1..];
-        let text = &body[..body.find("</text>").expect("text closes")];
-        rest = &body[text.len()..];
-        let Some(code) = cell(tenths(attr(open, "x")), tenths(attr(open, "y")), 1375, 1270) else {
-            continue;
-        };
-        let after = rest["</text>".len()..].trim_start();
+    let mut shaded = BTreeSet::new();
+    for f in rows("cell").filter(|f| f[1] == id) {
+        assert_eq!(f.len(), 5, "{id}: a cell line of {} fields", f.len());
+        let code = u8::from_str_radix(f[2], 16).expect("hex");
         assert!(
-            after.starts_with("<text class=\"chnums\""),
-            "{id}: the glyph at {code:#04x} has no code after it"
-        );
-        let hex = after
-            .split("<tspan")
-            .nth(3)
-            .and_then(|s| s.split('>').nth(1))
-            .and_then(|s| s.split('<').next())
-            .expect("a third tspan");
-        assert_eq!(
-            u8::from_str_radix(hex, 16).ok(),
-            Some(code),
-            "{id}: the glyph placed at {code:#04x} carries code {hex}"
-        );
-        assert!(
-            glyphs.insert(code, unescape(text)).is_none(),
+            glyphs.insert(code, f[3].to_string()).is_none(),
             "{id}: two glyphs at {code:#04x}"
         );
-    }
-    let mut shaded = BTreeSet::new();
-    let mut rest = fig;
-    while let Some(i) = rest.find("<rect ") {
-        rest = &rest[i..];
-        let el = &rest[..rest.find("/>").expect("rect closes")];
-        rest = &rest[el.len()..];
-        if !el.contains("fill=\"#ddd\"") {
-            continue;
+        match f[4] {
+            "1" => {
+                shaded.insert(code);
+            }
+            "0" => {}
+            other => panic!("{id} {code:#04x}: shaded is {other:?}"),
         }
-        let code = cell(tenths(attr(el, "x")), tenths(attr(el, "y")), 1100, 1000)
-            .unwrap_or_else(|| panic!("{id}: a shaded box off the grid: {el}"));
-        shaded.insert(code);
     }
     DecTable {
         caption,
@@ -337,59 +259,12 @@ fn each_vt220_national_table_is_decs() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// Table 4-4's national sets: DEC's name, and the finals with the column/row
-/// each is printed beside.
+/// Table 4-4's national sets: DEC's name, and the finals printed beside it,
+/// which the extraction checked against the column/row printed above each.
 fn table_4_4() -> Vec<(String, Vec<u8>)> {
-    let start = CHAPTER4.find("<table id=\"T4-4\">").expect("Table 4-4");
-    let table = &CHAPTER4[start..start + CHAPTER4[start..].find("</table>").unwrap()];
-    let nrcs = table
-        .find("National replacement character sets")
-        .expect("the national sets' heading");
-    let mut sets = Vec::new();
-    for row in table[nrcs..].split("<tr>").skip(1) {
-        let cells: Vec<&str> = row
-            .split("<td")
-            .skip(1)
-            .map(|c| {
-                let c = &c[c.find('>').unwrap() + 1..];
-                c[..c.find("</td>").unwrap()].trim()
-            })
-            .collect();
-        let Some(pre) = cells.iter().find_map(|c| c.strip_prefix("<pre>")) else {
-            continue;
-        };
-        let name = cells
-            .iter()
-            .find(|c| !c.is_empty() && !c.starts_with("<pre>"))
-            .expect("a set's name");
-        let pre = unescape(pre.trim_end_matches("</pre>"));
-        let mut lines = pre.lines();
-        let codes: Vec<u8> = lines
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .map(|cr| {
-                let (c, r) = cr.split_once('/').expect("column/row");
-                c.parse::<u8>().unwrap() * 16 + r.parse::<u8>().unwrap()
-            })
-            .collect();
-        let finals: Vec<u8> = lines
-            .next()
-            .unwrap()
-            .split_whitespace()
-            .filter(|t| *t != "or")
-            .map(|t| {
-                assert_eq!(t.len(), 1, "{name}: final {t:?}");
-                t.as_bytes()[0]
-            })
-            .collect();
-        assert_eq!(
-            codes, finals,
-            "{name}: the column/row and the final disagree"
-        );
-        sets.push((name.to_string(), finals));
-    }
-    sets
+    rows("final")
+        .map(|f| (f[1].to_string(), f[2].as_bytes().to_vec()))
+        .collect()
 }
 
 /// **Finals, by byte: each final VT220 Table 4-4 lists names the set whose

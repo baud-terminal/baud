@@ -3,18 +3,24 @@
 //!
 //! `dec_set_tables_match_the_pinned_sources` runs the generator with
 //! `--check`, which compares the generator with its own output. The rest of
-//! this file reads the same pinned files itself and shares no code with
+//! this file reads the same data itself and shares no code with
 //! `scripts/gen-dec-sets.py`, so a cell the generator mis-reads cannot pass on
 //! both sides -- the shape that let Swedish 4/0 go missing while two tests of
 //! the national tables stayed green (note AF §2.3).
+//!
+//! Table 2-3 is read from `vt220_tables.tsv`, the cells
+//! `scripts/extract-vt220-tables.py` reads out of the VT220 manual's chapter 2,
+//! fetched by its pinned URL and refused unless it hashes to the manifest's
+//! SHA-256. The generator reads that file too: the two share the data, not the
+//! code that reads it.
 //!
 //! Rendering through `Term` is `baud-core/tests/vt100/charsets.rs`'s.
 use baud_domain::{AmbiguousWidth, Codepoint, DEC_ERROR_CHARACTER, DecSet, Width};
 use std::collections::BTreeMap;
 
-const CHAPTER2: &str = include_str!(concat!(
+const TABLES: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../docs/research/sources/vt220-rm-chapter2.html"
+    "/tests/vt220_tables.tsv"
 ));
 const JIS0201: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -40,48 +46,24 @@ fn at(set: DecSet, byte: u8) -> u32 {
 /// Table 2-3's right half, by the code's low seven bits: the glyph a cell
 /// draws, or `None` for a cell that draws nothing.
 ///
-/// Each cell is a `<text class="chname">`, self-closing where empty, and the
-/// `<text class="chnums">` after it carries octal, decimal and hex `<tspan>`s;
-/// in the right half they count from 8/0, so the hex is the low seven bits.
+/// `vt220_tables.tsv` holds each GR cell as `cell`, `T2-3b`, the low seven
+/// bits in hex, the glyph (empty where the table draws nothing) and a shaded
+/// field this table does not use.
 fn table_2_3_right() -> BTreeMap<u8, Option<char>> {
-    let open = "<figure id=\"T2-3b\">";
-    let start = CHAPTER2.find(open).expect("Table 2-3's right half") + open.len();
-    let fig = &CHAPTER2[start..start + CHAPTER2[start..].find("</figure>").expect("closes")];
     let mut cells = BTreeMap::new();
-    let mut pending: Option<Option<char>> = None;
-    for el in fig.split("<text ").skip(1) {
-        if el.starts_with("class=\"chname\"") {
-            let head_end = el.find('>').expect("tag closes");
-            pending = Some(if el[..head_end].ends_with('/') {
-                None
-            } else {
-                let body = &el[head_end + 1..el.find("</text>").expect("text closes")];
-                let mut chars = body.chars();
-                let c = chars.next();
-                // A control's name (`IND`, `CSI`) is several letters, and is
-                // in columns 8 and 9, which the range below drops.
-                if chars.next().is_some() { None } else { c }
-            });
-        } else if el.starts_with("class=\"chnums\"") {
-            let Some(glyph) = pending.take() else {
-                continue;
-            };
-            let tspans: Vec<&str> = el
-                .split("<tspan")
-                .skip(1)
-                .map(|t| {
-                    &t[t.find('>').expect("tspan opens") + 1
-                        ..t.find("</tspan>").expect("tspan closes")]
-                })
-                .collect();
-            if tspans.len() != 3 {
-                continue;
-            }
-            let code = u8::from_str_radix(tspans[2], 16).expect("hex");
-            if (0x21..=0x7e).contains(&code) {
-                assert!(cells.insert(code, glyph).is_none(), "0x{code:02x} twice");
-            }
+    for line in TABLES.lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() != 5 || f[0] != "cell" || f[1] != "T2-3b" {
+            continue;
         }
+        let code = u8::from_str_radix(f[2], 16).expect("hex");
+        let mut chars = f[3].chars();
+        let glyph = match (chars.next(), chars.next()) {
+            (Some(c), None) => Some(c),
+            (None, _) => None,
+            _ => panic!("0x{code:02x}: {:?} is more than one character", f[3]),
+        };
+        assert!(cells.insert(code, glyph).is_none(), "0x{code:02x} twice");
     }
     cells
 }

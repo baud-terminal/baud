@@ -287,6 +287,9 @@ group  = "C"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter2.html, and the
 # digest is of that copy.
+# scripts/extract-vt220-tables.py fetches it, refusing it unless it hashes
+# to this, and writes the cells the tests read to
+# baud-domain/tests/vt220_tables.tsv.
 # Title widened 2026-10-08 for note AF, which cites this file for Table 2-3 and the
 # NRC sets as well as Table 2-4; the title named Table 2-4 alone, and the file is the
 # whole chapter, its h1 "2 Character Encoding". The request to widen it said Tables
@@ -15614,6 +15617,9 @@ group  = "J"
 # Not in the repository: no grant to redistribute it was found (a DEC manual
 # as transcribed on vt100.net). It was read as vt220-rm-chapter4.html, and the
 # digest is of that copy.
+# scripts/extract-vt220-tables.py fetches it, refusing it unless it hashes
+# to this, and writes the cells the tests read to
+# baud-domain/tests/vt220_tables.tsv.
 # Read for note AD (2026-10-08), fixing a reviewer finding, and hash-verified then
 # against a fetch of the url. Committed 2026-10-08 for note AE, which cites its 4.3
 # DECSCL and 4.4 SCS, with 4.4.3 locking and 4.4.4 single shifts: a re-fetch that day
