@@ -36939,6 +36939,42 @@ group  = "J"
 # resh... 6. ... also there should be there a good heel"; ZAYIN "2. And its head
 # should pass over on both sides so it doesn't resemble a vav"; VAV and RESH on the
 # same pairs. The page does not name the work it renders.
+[sources.hasofer-alphabet]
+key    = "hasofer-alphabet"
+title  = "Hebrew Alphabet for Sofer -- each letter's form and size in kulmusim"
+author = "Yisroel Dovid Berger; HaSofer (Moshe Flumenbaum)"
+venue  = "hasofer.com"
+url    = "https://www.hasofer.com/page.pl?p=Hebrew-alphabet-for-sofer"
+sha256 = "3fdc176dbbaff40b5d02af1e852b74467c3ad4893ffb97e703a95f2b8e10a32d"
+bytes  = 41414
+status = "external"
+group  = "J"
+# Not in the repository: the page is the site's copyright and asks to be contacted
+# for reuse. Read 2026-10-28. "The word Kulmus (plural kulmusim) means the width of
+# the tip of the quill"; ZAYIN "The letter Zayin should be 1 X 3 kulmusim. It should
+# have a completely squared head"; VOV "The letter Vov should be 1 X 3 kulmusim. The
+# top right part of the Vov should be completely rounded, because if it's squared it
+# would look like a Zayin"; DALED "The roof should be 3 kulmusim long" and a heel "so
+# that the Daled is distinct from the letter Reish"; REISH "3 X 3 kulmusim".
+[sources.typedrawers-hebrew-critique]
+key    = "typedrawers-hebrew-critique"
+title  = "Critique on Hebrew design wanted -- a forum review of a Hebrew typeface's letters"
+author = "TypeDrawers members (Scott-Martin Kosofsky, John Hudson, John Savard and others)"
+year   = 2022
+venue  = "typedrawers.com"
+url    = "https://typedrawers.com/discussion/comment/56402"
+sha256 = "62491b097bbb46d8d085c063335efc2139c4f0a762000bfc883e07854914a715"
+bytes  = 549453
+status = "external"
+group  = "J"
+# Not in the repository: forum posts under their authors' copyright. The page is
+# served with per-request markup, so another fetch hashes differently; the digest is
+# of the copy read on 2026-10-28. Read: John Savard, Monotype's Hebrew matrices "had
+# letters in only two widths, full width and one-half width"; Scott-Martin Kosofsky,
+# "You are correct in saying that the composition matrices had only two widths",
+# "Chaf Sofit and Fei Sofit would be better if they were 3/4 of the square, rather
+# than 4/4", and "It's good for the zayin to have a somewhat different angle from
+# the vav". The thread does not say which letters are half width.
 [sources.dmh-letters-typefaces-with-character]
 key    = "dmh-letters-typefaces-with-character"
 title  = "Letters -- Type(face)s with Character"

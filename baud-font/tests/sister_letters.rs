@@ -7,6 +7,12 @@
 //! sat 60-64 units apart under roofs of the same centre, and "זו" read "דו"
 //! (`baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`).
 //!
+//! The bars' widths tell the two apart too. Zayin is a narrow letter,
+//! written as wide as vav, and dalet's roof three times that; in baud's
+//! cell zayin's head keeps a head's width beside dalet's roof only if it is
+//! narrowed from the left, since narrowing it from the right would move its
+//! leg toward the head's right end, where dalet's and vav's legs stand.
+//!
 //! ד (dalet) and ר (resh) are each a roof ending in a leg at the right.
 //! What tells them apart is the corner: dalet's square, with a heel, "so
 //! that it doesn't look like a resh", and resh's round. Moving dalet's leg
@@ -123,7 +129,8 @@ fn roof_over_leg(face: &Face<'_>, c: char) -> f32 {
 /// dalet's stand at least one Regular stem (1.26 px) apart under their
 /// roofs.** As round 1 left them they stood 0.80-0.92 px apart; round 5
 /// moved dalet's leg to the roof's right end, keeping a 45-unit heel, and
-/// they stand 1.41-1.51 px apart. The offset is read from the rasterised
+/// they stood 1.41-1.51 px apart; round 6 narrowed zayin's head from the
+/// left, and they stand 1.93-2.02 px apart. The offset is read from the rasterised
 /// coverage, so moving either glyph sideways changes nothing.
 #[test]
 fn zayin_and_dalet_legs_stand_apart_at_14_px() {
@@ -236,4 +243,237 @@ fn dalet_corner_is_square_and_resh_corner_round_at_14_px() {
         wrong.is_empty(),
         "dalet's corner fills under {SQUARE} or resh's over {ROUND}: {wrong:?}"
     );
+}
+
+/// The sizes the bars are read at, in pixels per em: every whole size from
+/// 12 to 32.
+const SIZES: std::ops::RangeInclusive<u32> = 12..=32;
+/// The band holding both letters' bars, in font units: Regular's are 548
+/// to 630, Bold's 517 to 630. A row is read if its span meets the band.
+const BAR: (f32, f32) = (540.0, 640.0);
+/// A Regular stem, in font units.
+const STEM: f32 = 90.0;
+/// Dalet's roof is at least this many times zayin's head at every size...
+const RATIO: f32 = 1.3;
+/// ...and at least this many pixels wider.
+const WIDER: f32 = 1.0;
+/// Zayin's head passes its leg on the right by at least a Regular stem, and
+/// on the left by at least this much, in font units...
+const PASSES_LEFT: f32 = 40.0;
+/// ...and dalet's roof passes its leg on the right by at most this much: the
+/// 45-unit heel and the rasteriser's rounding.
+const HEEL_MAX: f32 = 60.0;
+
+/// An outline sink that takes a style's lean out before passing each point
+/// on, so an italic is read as the upright it was sheared from.
+struct Upright<'s, S: Sink> {
+    inner: &'s mut S,
+    lean: f32,
+}
+
+impl<S: Sink> Upright<'_, S> {
+    fn x(&self, x: f32, y: f32) -> f32 {
+        x - self.lean * (y - SHEAR_Y0)
+    }
+}
+
+impl<S: Sink> Sink for Upright<'_, S> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let x = self.x(x, y);
+        self.inner.move_to(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        let x = self.x(x, y);
+        self.inner.line_to(x, y);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let (x1, x) = (self.x(x1, y1), self.x(x, y));
+        self.inner.quad_to(x1, y1, x, y);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let (x1, x2, x) = (self.x(x1, y1), self.x(x2, y2), self.x(x, y));
+        self.inner.curve_to(x1, y1, x2, y2, x, y);
+    }
+    fn close(&mut self) {
+        self.inner.close();
+    }
+}
+
+/// `c` rasterised upright at `px`, on a square canvas twice the em plus a
+/// margin, its origin a quarter in from the left and the baseline a quarter
+/// up from the bottom.
+struct Raster {
+    cov: Vec<f32>,
+    px: f32,
+    baseline: f32,
+}
+
+impl Raster {
+    /// The canvas's rows, each its side long.
+    fn rows(&self) -> std::slice::Chunks<'_, f32> {
+        self.cov.chunks(self.cov.len().isqrt())
+    }
+}
+
+fn upright(face: &Face<'_>, c: char, px: u32, lean: f32) -> Raster {
+    let g = face
+        .glyph(Codepoint::from_char(c))
+        .unwrap_or_else(|| panic!("U+{:04X} is not mapped", u32::from(c)));
+    let side = 2 * px + 8;
+    let extent = Extent::new(Px::of(side), Px::of(side));
+    let mut scratch = vec![0f32; extent.scratch().unwrap()];
+    let canvas = Canvas::new(extent, &mut scratch).unwrap();
+    let (px, edge) = (px as f32, side as f32);
+    let baseline = (edge * 0.75).round();
+    let mut r = Rasterizer::new(
+        canvas,
+        Scale::of(px, face.units_per_em()).placing(edge * 0.25, baseline),
+    );
+    face.outline(
+        g,
+        &mut Upright {
+            inner: &mut r,
+            lean,
+        },
+    );
+    let mut cov = vec![0u8; extent.cells().unwrap()];
+    r.finish().coverage(&mut cov).unwrap();
+    Raster {
+        cov: cov.into_iter().map(|v| f32::from(v) / 255.0).collect(),
+        px,
+        baseline,
+    }
+}
+
+/// The left and right ends, in pixels, of the bar whose rows meet `band`
+/// (font units above the baseline). Each column's ink is summed over those
+/// rows and capped at the bar's thickness, the median of the inked columns,
+/// so a stroke crossing it adds no width; the capped columns give the bar's
+/// width and centre, so the ends hold at any phase.
+fn bar_ends(r: &Raster, band: (f32, f32)) -> (f32, f32) {
+    let mut columns = vec![0f32; r.cov.len().isqrt()];
+    for (y, row) in r.rows().enumerate() {
+        let top = (r.baseline - y as f32) / r.px * 1000.0;
+        let bottom = top - 1000.0 / r.px;
+        if top <= band.0 || bottom >= band.1 {
+            continue;
+        }
+        for (sum, c) in columns.iter_mut().zip(row) {
+            *sum += c;
+        }
+    }
+    let most = columns.iter().copied().fold(0.0, f32::max);
+    let mut inked: Vec<f32> = columns
+        .iter()
+        .copied()
+        .filter(|&c| c > 0.25 * most)
+        .collect();
+    // Ink-present control: a band that missed the stroke cannot pass.
+    assert!(
+        most > 0.5,
+        "{most} px of ink in the fullest column of {band:?}"
+    );
+    inked.sort_by(f32::total_cmp);
+    let thick = inked[inked.len() / 2];
+    let capped: Vec<f32> = columns.iter().map(|&c| c.min(thick) / thick).collect();
+    let width: f32 = capped.iter().sum();
+    let centre = capped
+        .iter()
+        .enumerate()
+        .map(|(x, c)| c * (x as f32 + 0.5))
+        .sum::<f32>()
+        / width;
+    (centre - width / 2.0, centre + width / 2.0)
+}
+
+/// The left and right ends, in pixels, of the upright stem that is the only
+/// ink in the rows lying wholly inside `band`: each such row's ink is the
+/// stem's width, and their centroid its centre.
+fn stem_ends(r: &Raster, band: (f32, f32)) -> (f32, f32) {
+    let (mut rows, mut mass, mut moment) = (0.0f32, 0.0f32, 0.0f32);
+    for (y, row) in r.rows().enumerate() {
+        let top = (r.baseline - y as f32) / r.px * 1000.0;
+        let bottom = top - 1000.0 / r.px;
+        if bottom < band.0 || top > band.1 {
+            continue;
+        }
+        rows += 1.0;
+        for (x, c) in row.iter().enumerate() {
+            mass += c;
+            moment += c * (x as f32 + 0.5);
+        }
+    }
+    // Ink-present control: a band that missed the stem cannot pass.
+    assert!(
+        rows >= 2.0 && mass > rows * 0.5,
+        "{mass} px of ink in {rows} rows of {band:?}"
+    );
+    let (width, centre) = (mass / rows, moment / mass);
+    (centre - width / 2.0, centre + width / 2.0)
+}
+
+/// A letter's bar and leg ends, in pixels: `(bar, leg)`.
+fn bar_and_leg(face: &Face<'_>, c: char, px: u32, lean: f32) -> ((f32, f32), (f32, f32)) {
+    let r = upright(face, c, px, lean);
+    (bar_ends(&r, BAR), stem_ends(&r, LEG))
+}
+
+/// **From 12 to 32 px, in each of the four embedded styles, dalet's roof is
+/// at least 1.3 times as wide as zayin's head and at least a pixel wider.**
+/// Round 1 widened zayin's head to 380 units and evened dalet's roof down to
+/// 418, 1.10 times it, where the Cascadia design they come from has 1.37 and
+/// the Hebrew faces measured 1.48 to 2.09; at 26 px the
+/// head was 9.9 px against a 10.7 px roof (note AC, 4e). Read from the
+/// rasterised bars with the italics' lean taken out.
+#[test]
+fn dalet_roof_is_wider_than_zayin_head_from_12_to_32_px() {
+    let mut close = vec![];
+    for (style, lean) in STYLES.into_iter().zip(LEAN) {
+        let data = built(style);
+        let face = Face::parse(&data).unwrap();
+        for px in SIZES {
+            let (head, _) = bar_and_leg(&face, ZAYIN, px, lean);
+            let (roof, _) = bar_and_leg(&face, DALET, px, lean);
+            let (head, roof) = (head.1 - head.0, roof.1 - roof.0);
+            if roof < RATIO * head || roof - head < WIDER {
+                close.push(format!("{style} {px} px: head {head:.2}, roof {roof:.2}"));
+            }
+        }
+    }
+    assert!(
+        close.is_empty(),
+        "dalet's roof is under {RATIO} times zayin's head or {WIDER} px wider: {close:?}"
+    );
+}
+
+/// **From 12 to 32 px, in each of the four embedded styles, zayin's head
+/// passes its leg on both sides, by at least a Regular stem on the right,
+/// and dalet's roof passes its leg on the right by a heel at most.** The
+/// scribal zayin's head passes "over on both sides so it doesn't resemble a
+/// vav", whose leg ends its head; dalet's leg ends its roof but for a heel.
+/// A zayin narrowed from the right, its leg moved toward its head's right
+/// end, fails.
+#[test]
+fn zayin_head_passes_its_leg_where_dalet_roof_ends_at_its_heel() {
+    let mut wrong = vec![];
+    for (style, lean) in STYLES.into_iter().zip(LEAN) {
+        let data = built(style);
+        let face = Face::parse(&data).unwrap();
+        for px in SIZES {
+            let unit = px as f32 / 1000.0;
+            let (head, leg) = bar_and_leg(&face, ZAYIN, px, lean);
+            let (right, left) = (head.1 - leg.1, leg.0 - head.0);
+            if right < STEM * unit || left < PASSES_LEFT * unit {
+                wrong.push(format!(
+                    "{style} {px} px: zayin right {right:.2}, left {left:.2}"
+                ));
+            }
+            let (roof, leg) = bar_and_leg(&face, DALET, px, lean);
+            let heel = roof.1 - leg.1;
+            if heel > HEEL_MAX * unit {
+                wrong.push(format!("{style} {px} px: dalet heel {heel:.2}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:?}");
 }

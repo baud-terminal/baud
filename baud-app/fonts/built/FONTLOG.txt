@@ -27,16 +27,17 @@ All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/
 baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
 write bytes other than these sha256s:
 
-  Regular.ttf     31b3a9f71d33ad3af9f4f0c710b40f9e7925dc4d52a8c450e83ab0f7107de5d9
-  Bold.ttf        f808a38069fc208fb9d8c07fc5977f072b38c90595452b07af2756c9b0cf3882
-  Italic.ttf      27051bb85fd8ac50953ec29b481aaaf334faa0bf6935eca1b700ca954b899544
-  BoldItalic.ttf  f508912b349e5f1c2529dc596caf9aded228c6d1c93b0b1d3151153f21a59e5b
+  Regular.ttf     cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1
+  Bold.ttf        2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20
+  Italic.ttf      f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c
+  BoldItalic.ttf  67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de
 
 Regular and Bold are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
 since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), since 2026-10-25
-the glyphs baud draws itself (BAUD'S OWN GLYPHS), and since 2026-10-26 meteg kept in
-its cell (CHANGELOG), and nothing else.
+the glyphs baud draws itself (BAUD'S OWN GLYPHS), since 2026-10-26 meteg kept in
+its cell (CHANGELOG), and since 2026-10-28 zayin's head narrowed from the left
+(CHANGELOG), and nothing else.
 Before the dalet: take the 6-byte hebr script record out of GSUB and of GPOS and both
 tables were final3's byte for byte, and every other table but name (nameID 7) and head
 (its checksum) was final3's. The dalet changes that glyph's outline, its anchors in
@@ -225,6 +226,9 @@ Bold's stems. The steps (note AC 4a and 4b):
   touch the letter.
 - Dalet's leg stands at its roof's right end, the roof passing it by 45 units where
   round 1's passed it by 84, so that ד does not read as ז (CHANGELOG, 2026-10-24).
+- Zayin's head is 300 units wide (Bold 314), narrowed from the left, so that dalet's
+  roof is 1.39 times it, where round 1 left it 1.10 times (Cascadia's own design has
+  1.37) (CHANGELOG, 2026-10-28).
 - Italic and Bold Italic: the upright design leaning right 9 degrees, its rounds
   corrected as JetBrains Mono Italic corrects its own (THE ITALICS).
 
@@ -235,9 +239,12 @@ INTERIM PICKS
 (settled where a text or a measurement decides it; interim otherwise)
 
 - Dalet: H45, interim: the roof passes the leg by 45 units, the roof keeps its
-  418 (Bold 438) width, also weighed with dalet's nearness to vav. Zayin stays
-  as narrow-letter variant A has it (ZKEEP), and no other sister pair is
-  redrawn (NONE). Note AC 4d.
+  418 (Bold 438) width, also weighed with dalet's nearness to vav. No other
+  sister pair is redrawn (NONE). Note AC 4d.
+- Zayin: L300, interim: the head's left end moves 80 units right, so the head is
+  300 wide (Bold 314) and passes the leg by 81 units on the left and 129 on the
+  right (Bold 67 and 122). Under narrow-letter variant A, which keeps the other
+  narrow letters as they were. Note AC 4e.
 - Cantillation marks: drawn into the font, settled (note AD Q9). Their forms,
   variant B (larger, stronger, the winding ones finer), interim. Their
   placement, interim.
@@ -284,7 +291,7 @@ OPEN QUESTIONS
 (nothing here settles them)
 
 1a  Which vav, yod, zayin and final nun: narrow-letter variant A, B, C, D or E. The
-    interim is A.
+    interim is A, with zayin's head at 300 units since 2026-10-28 (note AC 4e).
 1b  Holam on lamed: beside the mast (L1) or above it, inside the cell (L2). The
     interim is L2.
 1c  Answered on 2026-10-24: right, with the Latin.
@@ -541,3 +548,18 @@ CHANGELOG
   generalised gate's lookup count reads 5 -> 35 and its features line names mkmk
   [2, 3, 4, 6, 7, 8, 9, 10]; the strip-and-compare gate's appended lookups read
   [(4, 0), (6, 16), (8, 16), (6, 16), (6, 16), (6, 16)] and 24 (4, 0).
+2026-10-28 (i-am-logger, baud): ז (U+05D6) no longer reads as ד (U+05D3) at large
+  sizes. Zayin's head was 380 units wide (Bold 394) under dalet's 418-unit roof (Bold
+  438), so at 26 px the head was 9.9 px against a 10.7 px roof. The head's left end
+  now moves 80 units right (build/distinct.py, round 6): 300 wide (Bold 314), the roof
+  1.39 times it in font units, and at 12-32 px in all four files at least 1.37 times
+  it and at least 1.51 px wider as rasterised (the rasterised ratio runs from 1.37 to
+  1.49). The leg, the neck and the head's right end stay, so the glyph re-centres 40
+  units left. Most of its below anchors move with it; the anchor search keeps some
+  where they were (meteg.py's in-cell places, and several in the italics). Not every
+  anchor moves: in Regular lookup 11 index 1 stays at 326, and lookups 14 and 25 stay
+  at 47 and 553. In Bold Italic, lookups 14-16, 18-23, 25-27 and others keep their x.
+  In each file only zayin's outline and side bearing, those of its composite זּ
+  (U+FB36), their base records in GPOS and head's checksum change; the hebrew-faces
+  and meteg shape fixtures change on 77 of their 112 lines with zayin, and every other
+  built-face line only in its file digest. OTS passes.

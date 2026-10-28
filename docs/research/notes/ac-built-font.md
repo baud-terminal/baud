@@ -793,6 +793,77 @@ final kaf's, which share its corner now. Rendered at 12-16 px in four styles and
 `dalet_corner_is_square_and_resh_corner_round_at_14_px` holds dalet's square at least
 half full and resh's at most a quarter, in all four styles.
 
+## 4e. Zayin narrowed from the left (2026-10-28)
+
+**The defect.** Round 5 set the legs apart and left zayin's head 380 units wide (Bold
+394) under dalet's 418-unit roof (Bold 438), 1.10 times it, so at large sizes ז still
+read as ד: at 26 px the head was 9.9 px against a 10.7 px roof, at 12 px 4.6 against
+5.0. Cascadia's own Hebrew, read from its wght 400 instance, has the roof 983 units
+against a 720-unit head, 1.37 times it; round 1's widening of zayin (336 -> 380) and
+evening of dalet (458 -> 418) took that to 1.10.
+
+**What governs.** The scribal hand writes "The letter Zayin should be 1 X 3 kulmusim"
+and "The letter Vov should be 1 X 3 kulmusim", a kulmus being "the width of the tip of
+the quill", and dalet's roof "3 kulmusim long" (`[[source: hasofer-alphabet]]`): zayin
+is in vav's width class and dalet's roof three times as wide. Zayin's head passes
+"over on both sides so it doesn't resemble a vav" (`[[source: sofer-alefbet]]`), and
+no letter may resemble another (`[[source: shulchan-arukh-oc-36]]`, 36:1). Type sorts
+the letters into width classes too: Monotype's Hebrew matrices "had letters in only two
+widths, full width and one-half width", and a type designer's review sets letters at
+"3/4 of the square, rather than 4/4" (`[[source: typedrawers-hebrew-critique]]`; the
+thread does not say which letters are half width). Vav and zayin are sister letters
+whose distinction a Hebrew typeface's success depends on, as dalet and resh are
+(`[[source: dmh-letters-typefaces-with-character]]`). These fix the class, not a
+monospaced sans's proportion: the design gives the narrow letters heads that fill their
+cells. No typographic source read states zayin's width against dalet's; the scribal
+widths and the measured faces are what set the pair here.
+
+**Prior art, measured from the outlines.** Dalet's ink is 1.48 (Arial Hebrew, Arial),
+1.56 (Courier New), 1.57-1.68 (Lucida Grande, SF Hebrew, New Peninim, Raanana) and 2.09
+(Tahoma) times zayin's. In five of six faces zayin's head passes its leg by more on
+the right than on the left (Arial Hebrew 79 and 142 per 1000 em, Arial 78 and 142);
+Courier New, the monospaced one, passes it evenly.
+
+**The options**, built through the build and drawn through baud at 12, 14, 18, 26 and
+32 px in four styles (`docs/research/notes/ac/zayin/options-words-upright.png`,
+`docs/research/notes/ac/zayin/options-words-italic.png`,
+`docs/research/notes/ac/zayin/options-letters-26-32.png`,
+`docs/research/notes/ac/zayin/options-letters-12-14.png`). Read from the rasterised
+bars, the italics' lean taken out, at 12-32 px, the least over sizes: K, keep: the roof
+1.08 times the head and 0.40 px wider, the head passing the leg by 1.39 px on the right
+and 1.84 on the left (Bold); L340, the left end in 40: 1.21, 0.90 px, 1.48 and 1.29;
+D307, both ends in to Cascadia's ratio: 1.34, 1.34 px, 1.00 and 1.37; L300, the left
+end in 80: 1.37, 1.51 px, 1.50 and 0.62, passing the leg 81 units left and 129 right
+(Bold 67 and 122); LN300, L300 with the neck's reach halved: 1.37, 1.43 px, 1.55 and
+0.72. Narrowing from the right would move the leg toward the
+head's right end, where dalet's and vav's legs stand, so no right-only option was
+offered. A first ask also showed S330 (both ends in 25) and LN340.
+
+**The review**, with the four renders, in both orders each time: L300 at probability
+0.56 and 0.58, confidence 0.47 and 0.50; re-asked once with Cascadia's ratio, D307 and
+the vav measurements: L300 at 0.89 and 0.91, confidence 0.86 and 0.89. That ask's
+overhangs read the leg from the median of a few inked columns, which mis-reads a 1-2 px
+stem (D307's Bold right overhang as 0.51 px); asked again with the figures above, the
+request's summary of the earlier research still carrying the 0.51: L300 at 0.82 and
+0.82, confidence 0.77 and 0.77. Under the bar each time, so the lean is
+taken: **L300**. It changes what narrow-letter variant A
+means for zayin; vav, yod and final nun are as A had them, and the call stays open.
+
+**Built** as round 6 (`baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`):
+every point of the head's left end, above y 500 and left of the leg, moves 80 units
+right; the leg, the neck and the right end stay, and the glyph re-centres 40 units
+left. Each style changes in zayin's and זּ's outline and side bearing, their base
+records in GPOS and head's checksum alone; OTS passes. The legs now stand 1.93-2.02 px
+apart at 14 px (1.41-1.51 before). `dalet_roof_is_wider_than_zayin_head_from_12_to_32_px`
+holds the roof at least 1.3 times the head and a pixel wider, and
+`zayin_head_passes_its_leg_where_dalet_roof_ends_at_its_heel` holds zayin's head past
+its leg by a Regular stem on the right and 40 units on the left, and dalet's heel at
+60 units at most, at every size from 12 to 32 px.
+
+Found, not fixed: the scribal source asks for vav's top right to be "completely
+rounded, because if it's squared it would look like a Zayin"
+(`[[source: hasofer-alphabet]]`); baud's vav has a square corner.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools

@@ -32,6 +32,8 @@ table (with_script_copy). No outline, anchor, lookup or feature changed.
 Round 5 (2026-10-24): letter_rec_r1 applies distinct.py's map after design.py's
 edits, to the outline and its anchor points alike. It moves dalet's leg to the
 roof's right end, so that ד no longer reads as ז; no other letter changes.
+Round 6 (2026-10-28): the same map moves zayin's head's left end 80 units right,
+so that ז no longer reads as ד at large sizes; no other letter changes.
 
 Since 2026-10-25, cover.py's glyphs (U+20AA NEW SHEQEL SIGN, U+05C6 NUN HAFUKHA, U+05EF YOD
 TRIANGLE, U+05F0-U+05F2, U+FB1D-U+FB4F, U+0591-U+05AF) are appended after every glyph above, so no
@@ -62,7 +64,7 @@ import design as D          # round 1: letter weights, widths, edits
 import design3 as E         # round 3 (round 2's values, then round 3's)
 import narrow as N          # narrow-letter variants
 import style as ST          # the STYLE parameter
-import distinct as DS       # round 5: letters kept apart
+import distinct as DS       # rounds 5 and 6: letters kept apart
 import optical as OP        # the italics' correction of rounds (JetBrains Mono Italic's)
 import cover as CV          # the rest of the repertoire, appended after every glyph above
 import meteg as MT          # meteg beside its vowel inside the cell, where the vowel's own place does not keep it there

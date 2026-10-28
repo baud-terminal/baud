@@ -115,10 +115,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 303_608, 0x7ed1_972a_ac9e_73aa_u64, 0),
-            (BOLD, 308_936, 0x549b_a7b0_310a_4506, 1),
-            (ITALIC, 307_408, 0x6678_637b_bda1_4617, 2),
-            (BOLD_ITALIC, 311_864, 0x239d_4de3_f67e_6132, 3),
+            (REGULAR, 303_608, 0x22a1_3bae_4263_9cfc_u64, 0),
+            (BOLD, 308_912, 0x4beb_2117_6e26_cc15, 1),
+            (ITALIC, 307_400, 0xaab3_f65a_4b51_8fce, 2),
+            (BOLD_ITALIC, 311_876, 0x8f4b_bde8_d1d7_8a28, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -152,10 +152,10 @@ mod tests {
         // which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 31b3a9f71d33ad3af9f4f0c710b40f9e7925dc4d52a8c450e83ab0f7107de5d9 baud-app/fonts/built/Regular.ttf",
-            "output f808a38069fc208fb9d8c07fc5977f072b38c90595452b07af2756c9b0cf3882 baud-app/fonts/built/Bold.ttf",
-            "output 27051bb85fd8ac50953ec29b481aaaf334faa0bf6935eca1b700ca954b899544 baud-app/fonts/built/Italic.ttf",
-            "output f508912b349e5f1c2529dc596caf9aded228c6d1c93b0b1d3151153f21a59e5b baud-app/fonts/built/BoldItalic.ttf",
+            "output cb6087a6e05d44c98a4d91cd511c2a3141b1fa5529707c1676b8fbe911fbe3d1 baud-app/fonts/built/Regular.ttf",
+            "output 2b46941c093c91170f7e2b140d935f3e39588f5b7ff06e478ee3f6909ab0fa20 baud-app/fonts/built/Bold.ttf",
+            "output f38d9c23ad98f70647024b0239f920e9c1a500a832189404446057f2ec04310c baud-app/fonts/built/Italic.ttf",
+            "output 67947476d3d36a5c35eb72cdc32fc6211fb4be46f7b48f3d91c913d15c5228de baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
