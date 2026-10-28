@@ -10,7 +10,12 @@
 //! leak (`baud-core/tests/sixel.rs`).
 //!
 //! The fixture is `img2sixel`'s output for ImageMagick's
-//! `-size 96x72 gradient:red-blue -swirl 60`; the reference is
+//! `-size 96x72 gradient:red-blue -swirl 60`, made by `magick -size 96x72
+//! gradient:red-blue -swirl 60 -rotate 0 g.png; img2sixel g.png >
+//! img2sixel-96x72.six; sixel2png -i img2sixel-96x72.six -o o.png; magick
+//! o.png -depth 8 rgb:img2sixel-96x72.oracle-rgb` (re-run with ImageMagick
+//! 7.1.2-31 and libsixel 1.10.5: both files `cmp`-identical; `-rotate 0`
+//! changes no byte); the reference is
 //! that Sixel through `sixel2png` (libsixel 1.10.5), committed as raw 8-bit
 //! RGB beside it, so the gate needs no external tool at run time. Both come
 //! from libsixel, so this pins baud against libsixel's own encode/decode

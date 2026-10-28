@@ -25,7 +25,10 @@ Files this licence does not cover
 The files named below are fonts with the data and documents that travel
 with them, and copies of other projects' code. They are not licensed under
 CC BY-NC-SA 4.0. Each is distributed under its own licence, which sits
-beside it in the same directory. For the fonts the SIL Open Font License 1.1
+beside it in the same directory. The recording named under "Recordings
+the benchmarks and tests read" is the exception: no licence to
+redistribute it was found, so none sits beside it, and THIRD_PARTY.md
+records it as no-grant. For the fonts the SIL Open Font License 1.1
 requires this: "The Font Software, modified or unmodified, in part or in
 whole, must be distributed entirely under this license, and must not be
 distributed under any other license" (condition 5).

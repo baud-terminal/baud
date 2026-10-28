@@ -177,10 +177,14 @@ pub enum Newlines {
     Literal,
 }
 
-/// The body of an unbracketed paste's line breaks for `newlines`, and each
-/// byte then preceded by `quote` under `?2005`, as xterm turns `\n` into
-/// `\r` and then quotes byte by byte (`_WriteSelectionData` and
-/// `_qWriteSelectionData`, `[[source: xterm-button]]`).
+/// The body of an unbracketed paste: its line breaks as `newlines` says,
+/// and each byte then preceded by `quote` under `?2005`. This follows
+/// ctlseqs' Readline Modes (`[[source: ctlseqs]]`): 2006, "Normally when
+/// xterm writes selections to the host, it translates newlines to carriage
+/// returns. This mode disables the translation"; 2005, "escape each
+/// character with the literal-next (Ctrl-V) character". A CR LF pair
+/// becomes one CR; xterm's `_WriteSelectionData()` maps each LF on its
+/// own, so it sends CR CR.
 /// The text is bytes in the encoding the child reads, UTF-8 or ISO
 /// 8859-1, whose line breaks are the same two ASCII bytes in both.
 pub fn body(text: &[u8], newlines: Newlines, quote: Option<Quote>) -> Vec<u8> {
