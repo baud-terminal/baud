@@ -40,7 +40,12 @@ jobs:
     # unit's release build 44 minutes before its first test; its runner
     # was shut down 3 minutes into the tests. The +avx2 rebuild, as long
     # again, is the `avx2` job below. A warm run took 15 minutes.
-    timeout-minutes: 120
+    # **180 minutes, not 120**: three of five completed jobs on the private
+    # repository's two-CPU runner took 110-112 minutes, and the publish
+    # check (each crate built from its own .crate; 72 s cold on an 18-CPU
+    # Mac, unmeasured here) was added after them. One job keeps CI the same
+    # `devenv test` a developer runs, and a hosted job may run six hours.
+    timeout-minutes: 180
     # cache-nix-action purges master's superseded store entries through the
     # API, which needs `actions: write`; nothing else here writes.
     permissions:
