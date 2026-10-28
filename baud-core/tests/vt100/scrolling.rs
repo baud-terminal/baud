@@ -1094,8 +1094,9 @@ fn sph_and_spl_are_counted_and_move_nothing() {
 /// (`[[source: xterm-reset]]` 4759-4770), but `[[source: ecma48]]` 5.5,
 /// Table 5, leaves `ESC 06/12` and `ESC 06/13` unallocated, "reserved for
 /// future standardization and shall not be used" (Jev's lean,
-/// KEEP_COUNTED, 0.76/0.50). A line feed at the bottom still scrolls
-/// line 1 away.
+/// KEEP_COUNTED, 0.90/0.90 in both orders on the re-ask, for a call
+/// TODO.md marks as the owner's and still open). A line feed at the
+/// bottom still scrolls line 1 away.
 #[test]
 fn hp_memory_lock_and_unlock_are_counted_and_move_no_margin() {
     let ws = support::CORPUS;
