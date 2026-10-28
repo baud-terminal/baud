@@ -23,8 +23,8 @@ and decides nothing.
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 309 | 36 | redistributable, and its notice is satisfied |
-| own | 188 | 2 | the owner's work |
-| total | 516 | 45 | |
+| own | 188 | 3 | the owner's work |
+| total | 516 | 46 | |
 
 ## Licence texts in LICENSES/
 
@@ -441,6 +441,14 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build, ported from the research tree
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/instance.py](baud-app/fonts/glyphs/languages/hebrew/build/instance.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/pin.py](baud-app/fonts/glyphs/languages/hebrew/build/pin.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
+
+### The seven resize recordings: zsh 5.9.2 resized through a pty by scripts/capture-resize.py in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks
+
+- **Status:** own -- the owner's work
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** generated: tests/resize/README.md
+- **Files:** [tests/resize/drag.raw](tests/resize/drag.raw), [tests/resize/drag.steps](tests/resize/drag.steps), [tests/resize/drag.sizes](tests/resize/drag.sizes), [tests/resize/short.raw](tests/resize/short.raw), [tests/resize/short.steps](tests/resize/short.steps), [tests/resize/short.sizes](tests/resize/short.sizes), [tests/resize/zoom.raw](tests/resize/zoom.raw), [tests/resize/zoom.steps](tests/resize/zoom.steps), [tests/resize/zoom.sizes](tests/resize/zoom.sizes), [tests/resize/fresh-drag.raw](tests/resize/fresh-drag.raw), [tests/resize/fresh-drag.steps](tests/resize/fresh-drag.steps), [tests/resize/fresh-drag.sizes](tests/resize/fresh-drag.sizes), [tests/resize/fresh-zoom.raw](tests/resize/fresh-zoom.raw), [tests/resize/fresh-zoom.steps](tests/resize/fresh-zoom.steps), [tests/resize/fresh-zoom.sizes](tests/resize/fresh-zoom.sizes), [tests/resize/fresh-burst.raw](tests/resize/fresh-burst.raw), [tests/resize/fresh-burst.steps](tests/resize/fresh-burst.steps), [tests/resize/fresh-burst.sizes](tests/resize/fresh-burst.sizes), [tests/resize/live-drag.raw](tests/resize/live-drag.raw), [tests/resize/live-drag.steps](tests/resize/live-drag.steps), [tests/resize/live-drag.sizes](tests/resize/live-drag.sizes), [tests/resize/zdotdir/.zshrc](tests/resize/zdotdir/.zshrc), [tests/resize/zdotdir/banner](tests/resize/zdotdir/banner), [tests/resize/zdotdir/banner-fresh](tests/resize/zdotdir/banner-fresh)
 
 ### img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it
 

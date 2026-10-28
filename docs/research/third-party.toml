@@ -1908,6 +1908,14 @@ upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https:/
 status   = "kept"
 
 [[tree]]
+what     = "The seven resize recordings: zsh 5.9.2 resized through a pty by scripts/capture-resize.py in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks"
+paths    = ["tests/resize/drag.raw", "tests/resize/drag.steps", "tests/resize/drag.sizes", "tests/resize/short.raw", "tests/resize/short.steps", "tests/resize/short.sizes", "tests/resize/zoom.raw", "tests/resize/zoom.steps", "tests/resize/zoom.sizes", "tests/resize/fresh-drag.raw", "tests/resize/fresh-drag.steps", "tests/resize/fresh-drag.sizes", "tests/resize/fresh-zoom.raw", "tests/resize/fresh-zoom.steps", "tests/resize/fresh-zoom.sizes", "tests/resize/fresh-burst.raw", "tests/resize/fresh-burst.steps", "tests/resize/fresh-burst.sizes", "tests/resize/live-drag.raw", "tests/resize/live-drag.steps", "tests/resize/live-drag.sizes", "tests/resize/zdotdir/.zshrc", "tests/resize/zdotdir/banner", "tests/resize/zdotdir/banner-fresh"]
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "generated: tests/resize/README.md"
+status   = "own"
+
+[[tree]]
 what     = "img2sixel's encoding of ImageMagick's built-in red-to-blue gradient, swirled, and sixel2png's decode of it as raw RGB, made in baud's development by 'magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0', libsixel 1.10.5's img2sixel and sixel2png; re-made byte for byte with ImageMagick 7.1.2-31 on 2026-10-27. No third party's picture is in it"
 paths    = ["tests/recordings/sixel/img2sixel-96x72.six", "tests/recordings/sixel/img2sixel-96x72.oracle-rgb"]
 licence  = "CC-BY-NC-SA-4.0"

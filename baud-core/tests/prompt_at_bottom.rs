@@ -6,8 +6,8 @@
 //! `OSC 133` marks set by the three lines in `tests/prompt/bashrc`:
 //! `bash-session` types `clear; ls`, `echo one`, Control-L and `echo two`
 //! in a 60x12 window, and `bash-grow` grows a 60x12 window to 60x20 and
-//! then 80x20 at a prompt. `tests/resize/fresh-zoom` is the owner's own zsh
-//! through a zoom gesture.
+//! then 80x20 at a prompt. `tests/resize/fresh-zoom` is zsh with a
+//! five-line prompt through a zoom gesture.
 //!
 //! What the mode does is Jev's GAP (0.97/0.98): once the shell has drawn
 //! a prompt, at the mark where its input begins (`B` or `I`), the prompt
@@ -209,7 +209,7 @@ fn a_growth_at_a_prompt_keeps_it_on_the_last_row() {
     });
 }
 
-/// **The owner's zsh through a zoom gesture**: with the setting on, at the
+/// **A recorded zsh through a zoom gesture**: with the setting on, at the
 /// end of every step the shell is at a prompt, the cursor is on the last
 /// row and one prompt is on the screen.
 #[test]
@@ -337,7 +337,7 @@ fn turning_it_on_at_a_prompt_pins_that_prompt_at_once() {
 
 /// **A five-line prompt through a zoom gesture leaves the session's
 /// output where it was written, at the window's largest size**: the
-/// owner's zsh draws its prompt in five lines, and with the setting on
+/// recorded zsh draws its prompt in five lines, and with the setting on
 /// every step at 111x32, the last among them, has no history, as off has
 /// none, and the session's first output line on the screen. A smaller
 /// window holds fewer rows above a prompt on its last row: the resize
@@ -351,7 +351,7 @@ fn a_tall_prompt_keeps_the_output_through_a_zoom_at_its_largest() {
         let mut at_largest = Vec::new();
         replay("resize/fresh-zoom", pin, |t, i| {
             if (fx.steps[i].0.ws_col, fx.steps[i].0.ws_row) == (111, 32) {
-                let kept = (0..rows(t)).any(|y| row_text(t, y) == "direnv: unloading");
+                let kept = (0..rows(t)).any(|y| row_text(t, y) == "baud: a fresh shell in /tmp");
                 at_largest.push((i, t.scrollback().len(), kept));
             }
         });

@@ -1,0 +1,1340 @@
+baud: the start-up banner of the resize recordings
+
+  The shell prints this screen as it starts, so that a gesture begins
+  with the window full and the first lines go to the history.
+
++--------------------------------------------------------------+
+| * A terminal emulator, recorded resizing.                    |
+| * zsh with one configuration file and no other.             |
+| * Five prompt rows, three of them padded to the width.       |
++--------------------------------------------------------------+
+
+Scripts:
+  check-sources.sh   - every citation names a pinned source
+  check-paths.sh     - no machine path in the tree
+  check-features.sh  - each cargo feature builds alone
+  capture-tui.py     - a program's output through a pty
+  capture-resize.py  - a shell's output across window sizes
+  gen-features.py    - the feature list from the manifests
+  gen-third-party.py - the third-party table from its records
+  vt-compare.sh      - the same bytes through other terminals
+  readme-capture.sh  - the pictures the README shows
+
+export: +VARIABLE_001 +VARIABLE_002 +VARIABLE_003 +VARIABLE_004 +VARIABLE_005 +VARIABLE_006 +VARIABLE_007 +VARIABLE_008 +VARIABLE_009 +VARIABLE_010 +VARIABLE_011 +VARIABLE_012 +VARIABLE_013 +VARIABLE_014 +VARIABLE_015 +VARIABLE_016 +VARIABLE_017 +VARIABLE_018 +VARIABLE_019 +VARIABLE_020 +VARIABLE_021 +VARIABLE_022 +VARIABLE_023 +VARIABLE_024 +VARIABLE_025 +VARIABLE_026 +VARIABLE_027 +VARIABLE_028 +VARIABLE_029 +VARIABLE_030 +VARIABLE_031 +VARIABLE_032 +VARIABLE_033 +VARIABLE_034 +VARIABLE_035 +VARIABLE_036 +VARIABLE_037 +VARIABLE_038 +VARIABLE_039 +VARIABLE_040 +VARIABLE_041 +VARIABLE_042 +VARIABLE_043 +VARIABLE_044 +VARIABLE_045 +VARIABLE_046 +VARIABLE_047 +VARIABLE_048 +VARIABLE_049 +VARIABLE_050 +VARIABLE_051 +VARIABLE_052 +VARIABLE_053 +VARIABLE_054 +VARIABLE_055 +VARIABLE_056 +VARIABLE_057 +VARIABLE_058 +VARIABLE_059 +VARIABLE_060 +VARIABLE_061 +VARIABLE_062 +VARIABLE_063 +VARIABLE_064 +VARIABLE_065 +VARIABLE_066 +VARIABLE_067 +VARIABLE_068 +VARIABLE_069 +VARIABLE_070 +VARIABLE_071 +VARIABLE_072 +VARIABLE_073 +VARIABLE_074 +VARIABLE_075 +VARIABLE_076 +VARIABLE_077 +VARIABLE_078 +VARIABLE_079 +VARIABLE_080 +VARIABLE_081 +VARIABLE_082 +VARIABLE_083 +VARIABLE_084 +VARIABLE_085 +VARIABLE_086 +VARIABLE_087 +VARIABLE_088 +VARIABLE_089 +VARIABLE_090 +VARIABLE_091 +VARIABLE_092 +VARIABLE_093 +VARIABLE_094 +VARIABLE_095 +VARIABLE_096 +VARIABLE_097 +VARIABLE_098 +VARIABLE_099 +VARIABLE_100 +VARIABLE_101 +VARIABLE_102 +VARIABLE_103 +VARIABLE_104 +VARIABLE_105 +VARIABLE_106 +VARIABLE_107 +VARIABLE_108 +VARIABLE_109 +VARIABLE_110 +VARIABLE_111 +VARIABLE_112 +VARIABLE_113 +VARIABLE_114 +VARIABLE_115 +VARIABLE_116 +VARIABLE_117 +VARIABLE_118 +VARIABLE_119 +VARIABLE_120 +VARIABLE_121 +VARIABLE_122 +VARIABLE_123 +VARIABLE_124 +VARIABLE_125 +VARIABLE_126 +VARIABLE_127 +VARIABLE_128 +VARIABLE_129 +VARIABLE_130 +VARIABLE_131 +VARIABLE_132 +VARIABLE_133 +VARIABLE_134 +VARIABLE_135 +VARIABLE_136 +VARIABLE_137 +VARIABLE_138 +VARIABLE_139 +VARIABLE_140 +VARIABLE_141 +VARIABLE_142 +VARIABLE_143 +VARIABLE_144 +VARIABLE_145 +VARIABLE_146 +VARIABLE_147 +VARIABLE_148 +VARIABLE_149 +VARIABLE_150 +VARIABLE_151 +VARIABLE_152 +VARIABLE_153 +VARIABLE_154 +VARIABLE_155 +VARIABLE_156 +VARIABLE_157 +VARIABLE_158 +VARIABLE_159 +VARIABLE_160 +VARIABLE_161 +VARIABLE_162 +VARIABLE_163 +VARIABLE_164 +VARIABLE_165 +VARIABLE_166 +VARIABLE_167 +VARIABLE_168 +VARIABLE_169 +VARIABLE_170 +VARIABLE_171 +VARIABLE_172 +VARIABLE_173 +VARIABLE_174 +VARIABLE_175 +VARIABLE_176 +VARIABLE_177 +VARIABLE_178 +VARIABLE_179 +VARIABLE_180
+[1m[7m%[27m[1m[0m                                                                                                               ]133;A;cl=m;aid=625]7;file://baud/home/user/work/baud\[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[K[?2004h[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                        [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                         [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                               [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                         [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                          [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                          [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                           [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                 [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                           [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                            [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                  [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                            [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                             [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                   [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                             [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                              [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                    [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                              [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                               [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                     [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                               [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                      [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                 [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                       [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                 [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                  [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                        [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                  [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                   [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                         [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                   [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                    [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                          [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                    [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                     [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                           [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                     [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                      [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                            [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                      [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                       [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                             [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                       [39m
+[1m[32m[39m[0m ]133;B[4A[0m[27m[24m[J]133;P;k=i
+zsh [1m[33m shell[39m[0m[30m                                                                                        [39m 
+[1m[36m master[39m[0m [34m(b4dd72fc)[39m[30m                                                                              [39m [35m󰂃[39m 
+[37m ~/work/baud[30m                                                                                        [39m
+[1m[32m[39m[0m ]133;B

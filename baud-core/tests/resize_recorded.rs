@@ -12,8 +12,10 @@
 //! a real `zsh` through a pty while re-issuing `TIOCSWINSZ`, writing the
 //! bytes as `tests/resize/<name>.raw` -- the shape `tests/recordings/`
 //! already uses -- beside a `<name>.steps` of `COLSxROWS <bytelen>`
-//! lines. `drag` is the owner's own 329-step gesture, taken from what
-//! `BAUD_DEBUG_RESIZE=1` printed during the session that failed.
+//! lines. `drag` is a 329-step gesture, the sizes `BAUD_DEBUG_RESIZE=1`
+//! printed during a session that failed, replayed from
+//! `tests/resize/drag.sizes`; `tests/resize/README.md` says how each
+//! fixture was made.
 //!
 //! The invariant they check is the owner's:
 //!
@@ -200,7 +202,7 @@ fn prompt_signature(f: &Fixture) -> String {
         .unwrap_or_else(|| panic!("{}: no prompt mark to take a signature from", f.name));
     let mut out = String::new();
     // **Past the mark's own terminator first.** `OSC 133 ; P` carries a
-    // payload -- the owner's shell sends `;k=i` -- so starting seven
+    // payload -- the recorded shell sends `;k=i` -- so starting seven
     // bytes in lands inside it and the signature came out as `";k=izs"`,
     // which matched no row. The control caught it; the fix is to find
     // the `BEL` or `ST` that ends the string.
@@ -283,20 +285,21 @@ fn controls(f: &Fixture) {
 }
 
 /// The recorded gestures. `drag`, `zoom` and `short` begin with a full
-/// screen -- the devenv banner -- so on them a gesture legitimately
-/// pushes content into the history. `fresh-drag` and `fresh-zoom` are
-/// the same size sequences with the shell started in `/tmp`, where
-/// nothing prints before the prompt: a fresh terminal, which is the
-/// owner's recording and the case the first three cannot show.
-/// `fresh-burst` is the owner's recording of 2026-09-18 09:09 in shape:
-/// Enter twice, a drag in and out delivered as the app delivers it --
-/// the sizes a display-link tick apart with nothing read between them,
-/// so the shell redraws once per size and every redraw but the last is
-/// computed for a width the screen has left -- then Enter again.
-/// `live-drag` is the owner's own session, recorded by the app
-/// (`BAUD_TRACE`): every resize and every chunk in the order the core
-/// saw them, 767 steps -- a fresh terminal, Enter four times, a drag in
-/// and out three times to as small as 21x3. Not a reconstruction.
+/// screen -- the shell's start-up banner -- so on them a gesture
+/// legitimately pushes content into the history; `zoom` and `short`
+/// take their first narrowing as a burst, two sizes with nothing read
+/// between them, so two of the shell's redraws land in their step 3.
+/// `fresh-drag` and
+/// `fresh-zoom` are the same size sequences with the shell started in
+/// `/tmp`, where one line prints before the prompt: a fresh terminal,
+/// the case the first three cannot show. `fresh-burst` is Enter twice,
+/// a drag in and out delivered as the app delivers it -- the sizes a
+/// display-link tick apart with nothing read between them, so the shell
+/// redraws once per size and every redraw but the last is computed for
+/// a width the screen has left -- then Enter again, twice over.
+/// `live-drag` replays the size transitions of a session the app
+/// recorded (`BAUD_TRACE`), 512 of them: a fresh terminal, Enter four
+/// times, a drag in and out three times to as small as 21x3.
 const FIXTURES: [&str; 7] = [
     "drag",
     "zoom",
@@ -346,6 +349,45 @@ fn first_row(t: &Term<'_>) -> Option<usize> {
 fn every_fixture_is_a_gesture_with_marks_in_it() {
     for name in FIXTURES {
         controls(&load(name));
+    }
+}
+
+/// The shell's redraws in each step: its `OSC 133;P` marks, one a prompt
+/// drawn.
+fn redraws_per_step(f: &Fixture) -> Vec<usize> {
+    let mut at = 0;
+    f.steps
+        .iter()
+        .map(|(_, len)| {
+            let bytes = &f.raw[at..at + len];
+            at += len;
+            bytes.windows(7).filter(|w| w == b"\x1b]133;P").count()
+        })
+        .collect()
+}
+
+/// `zoom` and `short` are kept for one case: two of the shell's redraws
+/// arriving in one step, the first computed for a width the screen has
+/// already left. Their `.sizes` deliver the first narrowing as a burst so
+/// a capture reaches it whatever the shell's speed; a capture that does
+/// not would leave `a_gesture_leaves_one_prompt_on_screen` holding them to
+/// nothing.
+#[test]
+fn zoom_and_short_each_carry_two_redraws_in_one_step() {
+    for name in ["zoom", "short"] {
+        let f = load(name);
+        let per = redraws_per_step(&f);
+        assert!(
+            per.iter().sum::<usize>() > 10,
+            "{name}: {} redraw marks in the whole recording, so this counts nothing",
+            per.iter().sum::<usize>()
+        );
+        let at = per.iter().position(|n| *n >= 2);
+        assert_eq!(
+            at,
+            Some(3),
+            "{name}: the first step carrying two redraws is {at:?}, not the burst's step 3: {per:?}"
+        );
     }
 }
 
@@ -429,13 +471,15 @@ fn a_gesture_leaves_one_prompt_on_screen() {
         // bytes fed so far, `D` marks being what Enter produces.
         let mut fed = 0;
         let mut done = 0;
-        // **One.** The mechanism is in `zoom`'s own bytes: two resizes
-        // with nothing fed between them, then two of the shell's redraws
-        // landing together -- the first padded to the width the shell
-        // had at the first `SIGWINCH`, so on the narrower screen its
-        // lines wrap and the block grows, and the second's `CUU n` lands
-        // below where the first began. The erase on the redraw mark is
-        // what takes this to one, and a pin above one is the bug kept.
+        // **One.** The mechanism is in `zoom`'s and `short`'s own bytes,
+        // at step 3: two resizes with nothing fed between them, then two
+        // of the shell's redraws landing together -- the first padded to
+        // the width the shell had at the first `SIGWINCH`, so on the
+        // narrower screen its lines wrap and the block grows, and the
+        // second's `CUU n` lands below where the first began. The erase
+        // on the redraw mark is what takes this to one, and a pin above
+        // one is the bug kept. `drag`, `fresh-drag`, `fresh-burst` and
+        // `live-drag` need the same erase, each by another way.
         replay(&f, |t, i| {
             let len = f.steps[i].1;
             done += f.raw[fed..fed + len]
@@ -777,7 +821,7 @@ fn a_fresh_terminal_returns_to_its_first_screen() {
 
 #[test]
 fn a_block_never_moves_once_it_is_drawn() {
-    // The owner's recording of 2026-09-18 09:09, frames f12 to f14: the
+    // A screen recording of 2026-09-18 09:09, frames f12 to f14: the
     // current prompt block sits right under the one before it, the
     // window is resized, and the block is four rows lower with blank
     // rows above it. Each stale redraw's `CUU n` lands below the block's
@@ -844,8 +888,8 @@ fn prompt_rows(t: &Term<'_>, sig: &str) -> Vec<usize> {
 
 #[test]
 fn no_more_than_two_blank_rows_come_between_consecutive_prompts() {
-    // The owner's screenshot of 2026-09-18 09:31, from the live trace:
-    // four blocks at rows 1-19, then twelve blank rows, then the fifth.
+    // A screenshot of 2026-09-18 09:31, from a live trace: four blocks
+    // at rows 1-19, then twelve blank rows, then the fifth.
     // Between one prompt block and the next there is the `$` row, the
     // mark's blank row and the next block's first text: one blank row,
     // two when a padded line wraps into a row of spaces. More than two
