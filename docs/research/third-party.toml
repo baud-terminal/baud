@@ -17,12 +17,12 @@
 # Fields:
 #   licence  an SPDX expression, or LicenseRef-* where SPDX has no identifier:
 #              LicenseRef-NoGrant      no grant to redistribute was found
-#              LicenseRef-Unverified   the licence has not been established
 #              LicenseRef-W3C-Document, LicenseRef-IETF-RFC,
 #              LicenseRef-Khronos-Specification, LicenseRef-AGG-2.4-permissive,
 #              LicenseRef-W3C-Software-and-Document-2023,
 #              LicenseRef-Public-Domain-US-Government,
-#              LicenseRef-Tektronix-Xcms, LicenseRef-Tektronix-TekHVC
+#              LicenseRef-Tektronix-Xcms, LicenseRef-Tektronix-TekHVC,
+#              LicenseRef-Ecma-Copyright (Ecma's default copyright notice)
 #   notice   where the notice the licence asks for is: a path from the
 #            repository root, "in file", "uri" (the licence asks only for its
 #            URI, which THIRD_PARTY.md gives), "none needed", or "none"
@@ -71,6 +71,12 @@ licence = "MIT"
 from    = "https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT"
 how     = "fetched"
 sha256  = "dccda9eb9533f5c65624a1106536c6cfde46008d58e60b3faf154e8b9fd5b46e"
+
+[text."ecma-copyright-notice.txt"]
+licence = "LicenseRef-Ecma-Copyright"
+from    = "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab)"
+how     = "built"
+sha256  = "10d441ecf5f12a238ec4c9cd304422605b211bce1a7e5ddbd33f52f69aba519e"
 
 [text."fontdue-MIT.txt"]
 licence = "MIT"
@@ -415,11 +421,17 @@ files   = [
   "williams-dec-ansi-parser.html",
 ]
 
+# Ecma's text copyright policy (manifest ecma-text-copyright-policy and
+# ecma-text-copyright-policy-page) applies its default notice to the
+# standards older than the notice: such a standard may be copied and
+# distributed, unchanged and up to date, with the notice. Both files are
+# the current edition, byte for byte what Ecma served on 2026-10-28.
+# LICENSES/ecma-copyright-notice.txt carries the notice and the answers.
 [upstream.ecma]
-name    = "Ecma International standards ECMA-35 and ECMA-48, free to download; no notice was found in the text"
-licence = "LicenseRef-Unverified"
-notice  = "none"
-status  = "unverified"
+name    = "Ecma International standards ECMA-35 and ECMA-48, under Ecma's default copyright notice"
+licence = "LicenseRef-Ecma-Copyright"
+notice  = "LICENSES/ecma-copyright-notice.txt"
+status  = "kept"
 files   = [
   "ecma-35-6th-1994.pdf",
   "ecma-48-5th-1991.pdf",

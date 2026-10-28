@@ -5049,6 +5049,44 @@ group  = "J"
 # Read and hash-verified on 2026-10-24, the bytes note AB section 9.2 lists;
 # not committed. Re-fetch at the pinned url and compare the sha256.
 
+[sources.ecma-text-copyright-policy]
+key    = "ecma-text-copyright-policy"
+title  = "Ecma text copyright policy, version 3 (approved in December 2025): the default and alternative copyright notices"
+author = "Ecma International"
+year   = 2025
+venue  = "Ecma International policies"
+url    = "https://ecma-international.org/wp-content/uploads/Ecma_text_copyright_policy_version_3.pdf"
+file   = ""
+sha256 = "2dcbec958059c8b512b6798ee1f0b8416c33d507a21f5bd9a20c19e68218776f"
+bytes  = 1405996
+status = "external"
+group  = "C"
+# The default notice grants copying and distribution "provided that the above
+# copyright notice and this Copyright License and Disclaimer are included on
+# all such copies"; LICENSES/ecma-copyright-notice.txt carries it beside the
+# ECMA-35 and ECMA-48 copies. Its text extracts here as far as the alternative
+# notice's first words; the FAQ is read from the policy's page, below. Read
+# and hash-verified on 2026-10-28, fetched twice to the same hash; not
+# committed. Re-fetch at the pinned url.
+
+[sources.ecma-text-copyright-policy-page]
+key    = "ecma-text-copyright-policy-page"
+title  = "Ecma text copyright policy, the web page: both notices and the FAQ"
+author = "Ecma International"
+year   = 2025
+venue  = "Ecma International policies"
+url    = "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/"
+file   = ""
+sha256 = "65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab"
+bytes  = 93695
+status = "external"
+group  = "C"
+# The FAQ: the default notice has not been inserted in the standards older
+# than 2009, "But in practice the same principle also applies to them", and a
+# deliverable under it may be republished "unchanged, and up to date". A web
+# page, so its hash may move with the site; the notice text it carries is the
+# PDF's. Read and hash-verified on 2026-10-28, fetched twice to the same hash.
+
 [sources.ecma-tr53]
 key    = "ecma-tr53"
 title  = "ECMA TR/53: Handling of Bi-Directional Texts, 2nd edition"

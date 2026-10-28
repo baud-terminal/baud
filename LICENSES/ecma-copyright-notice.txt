@@ -1,0 +1,53 @@
+Ecma International's default copyright notice, and the two answers of its
+text copyright policy that apply it to the standards published before it.
+
+Built from the "Ecma text copyright policy", version 3 (approved in December
+2025), as the page served it on 2026-10-28:
+https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/
+(sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab),
+and the same notice in the policy's PDF:
+https://ecma-international.org/wp-content/uploads/Ecma_text_copyright_policy_version_3.pdf
+(sha256 2dcbec958059c8b512b6798ee1f0b8416c33d507a21f5bd9a20c19e68218776f).
+The text below the line is copied from the page unchanged.
+
+It covers docs/research/sources/ecma-35-6th-1994.pdf (ECMA-35, 6th edition,
+December 1994) and docs/research/sources/ecma-48-5th-1991.pdf (ECMA-48, 5th
+edition, June 1991). Each is the current edition, and each is byte for byte
+the file Ecma serves at its URL in docs/research/sources/MANIFEST.toml, as
+checked on 2026-10-28.
+
+----------------------------------------------------------------------------
+
+COPYRIGHT NOTICE
+
+© Ecma International
+
+By obtaining and/or copying this work, you (the licensee) agree that you have read, understood, and will comply with the following terms and conditions.
+
+This document may be copied, published and distributed to others, and certain derivative works of it may be prepared, copied, published, and distributed, in whole or in part, provided that the above copyright notice and this Copyright License and Disclaimer are included on all such copies and derivative works. The only derivative works that are permissible under this Copyright License and Disclaimer are:
+
+(i) works which incorporate all or portion of this document for the purpose of providing commentary or explanation (such as an annotated version of the document),
+
+(ii) works which incorporate all or portion of this document for the purpose of incorporating features that provide accessibility,
+
+(iii) translations of this document into languages other than English and into different formats and
+
+(iv) works by making use of this specification in standard conformant products by implementing (e.g. by copy and paste wholly or partly) the functionality therein.
+
+However, the content of this document itself may not be modified in any way, including by removing the copyright notice or references to Ecma International, except as required to translate it into languages other than English or into a different format.
+
+The official version of an Ecma International document is the English language version on the Ecma International website. In the event of discrepancies between a translated version and the official version, the official version shall govern.
+
+The limited permissions granted above are perpetual and will not be revoked by Ecma International or its successors or assigns.
+
+This document and the information contained herein is provided on an “AS IS” basis and ECMA INTERNATIONAL DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION HEREIN WILL NOT INFRINGE ANY OWNERSHIP RIGHTS OR ANY IMPLIED WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+
+----------------------------------------------------------------------------
+
+Where do these copyright texts come from?
+
+The Ecma default copyright notice is a typical copyright text that standardization organizations use, similar to those used by ISO, ITU, OASIS etc. When drafting this text it has been slightly adapted to Ecma’s requirements. This copyright notice has been included into every new Ecma standard and Technical report since 2009. However, we have not retrospectively inserted this copyright notice in the older standards. But in practice the same principle also applies to them.
+
+Can I republish the Ecma deliverables?
+
+Yes, but for deliverables published under the Ecma default copyright notice it is required that they are published unchanged, and up to date. However, in practice Ecma prefers if the Ecma standards are downloaded, free of charge, from the Ecma website. That is always the authentic copy of the standard, and the download figures help Ecma to follow how many standards were downloaded and where from.

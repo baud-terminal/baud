@@ -19,11 +19,10 @@ advice; where a file's status is a choice still open, this file says so and deci
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| unverified | 2 | 0 | licence not established; a choice still open |
 | open | 0 | 5 | an open question, recorded where the file is |
 | copyleft | 16 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 309 | 42 | redistributable, and its notice is satisfied |
+| kept | 311 | 42 | redistributable, and its notice is satisfied |
 | own | 201 | 6 | the work of baud's author |
 | total | 529 | 53 | |
 
@@ -38,6 +37,7 @@ they were built from.
 | [Apache-2.0.txt](LICENSES/Apache-2.0.txt) | Apache-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/Apache-2.0.txt | 074e6e32c86a4c0e |
 | [APSL-2.0.txt](LICENSES/APSL-2.0.txt) | APSL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/APSL-2.0.txt | 2d0c12edaaf8d31f |
 | [bat-MIT.txt](LICENSES/bat-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT | dccda9eb9533f5c6 |
+| [ecma-copyright-notice.txt](LICENSES/ecma-copyright-notice.txt) | LicenseRef-Ecma-Copyright | built: https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/, the default notice and two FAQ answers (the page as read 2026-10-28, sha256 65a0efe7612cbb306c994a6a5362abc354786de020158052c6abd05f4df113ab) | 10d441ecf5f12a23 |
 | [fontdue-MIT.txt](LICENSES/fontdue-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mooman219/fontdue/2924772fb4439b8aca40b1bffca70088acba5a1b/LICENSE-MIT | a72354dd6206c20d |
 | [fonttools-MIT.txt](LICENSES/fonttools-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/LICENSE | 6787208f83f659cc |
 | [foot-MIT.txt](LICENSES/foot-MIT.txt) | MIT | fetched: https://codeberg.org/dnkl/foot/raw/tag/1.21.0/LICENSE | d534a23a31500a0a |
@@ -521,18 +521,6 @@ Copies of other people's documents and code that baud's research cites, pinned b
 [MANIFEST.toml](docs/research/sources/MANIFEST.toml). Each group gives the licence, where its
 notice is, and the URL each file was copied from.
 
-### Ecma International standards ECMA-35 and ECMA-48, free to download; no notice was found in the text
-
-- **Status:** unverified -- licence not established; a choice still open
-- **Licence:** LicenseRef-Unverified
-- **Notice:** none
-- **Files:** 2
-
-| file | copied from |
-|---|---|
-| [ecma-35-6th-1994.pdf](docs/research/sources/ecma-35-6th-1994.pdf) | https://ecma-international.org/wp-content/uploads/ECMA-35_6th_edition_december_1994.pdf |
-| [ecma-48-5th-1991.pdf](docs/research/sources/ecma-48-5th-1991.pdf) | https://ecma-international.org/wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf |
-
 ### FreeType, src/smooth/ftgrays.c
 
 - **Status:** copyleft -- redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is a choice still open
@@ -758,6 +746,18 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [ms-d3d12-gpu-upload-heaps.html](docs/research/sources/ms-d3d12-gpu-upload-heaps.html) | https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html |
+
+### Ecma International standards ECMA-35 and ECMA-48, under Ecma's default copyright notice
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** LicenseRef-Ecma-Copyright (https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/)
+- **Notice:** [LICENSES/ecma-copyright-notice.txt](LICENSES/ecma-copyright-notice.txt)
+- **Files:** 2
+
+| file | copied from |
+|---|---|
+| [ecma-35-6th-1994.pdf](docs/research/sources/ecma-35-6th-1994.pdf) | https://ecma-international.org/wp-content/uploads/ECMA-35_6th_edition_december_1994.pdf |
+| [ecma-48-5th-1991.pdf](docs/research/sources/ecma-48-5th-1991.pdf) | https://ecma-international.org/wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf |
 
 ### Electronic Code of Federal Regulations, 37 CFR 202.1 (a US federal government work)
 

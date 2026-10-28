@@ -79,6 +79,7 @@ def licence_uri(spdx):
         "CC0-1.0": "https://creativecommons.org/publicdomain/zero/1.0/",
         "LicenseRef-W3C-Document": "https://www.w3.org/copyright/document-license/",
         "LicenseRef-IETF-RFC": "https://trustee.ietf.org/documents/trust-legal-provisions/",
+        "LicenseRef-Ecma-Copyright": "https://www.ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/",
     }
     return uris.get(spdx)
 
