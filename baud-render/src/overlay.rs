@@ -618,7 +618,7 @@ impl Overlay {
         // selection, kept by logical cells, are mapped through it. A copy,
         // so the walk may borrow the renderer mutably; none while no row
         // is reordered.
-        let orders = match r.bidi().any() || r.bidi().any_joined() {
+        let orders = match r.bidi().any() || r.bidi().any_joined() || r.bidi().display().is_some() {
             true => r.bidi().clone(),
             false => crate::bidi::Orders::default(),
         };
@@ -631,17 +631,21 @@ impl Overlay {
         // A reordered row's selection, cell by cell, for the shader: the
         // logical cell each visual cell shows, asked as the instance path
         // asks it.
-        if orders.any() {
+        // On a display line ([`crate::rebreak`]) every cell, by the stored
+        // cell it shows, which the selection is kept by.
+        let displayed = orders.display().is_some();
+        if orders.any() || displayed {
             for y in 0..rows {
                 let row = Row::from_index(y);
-                if !orders.reordered(row) {
+                let same = orders.display().is_some_and(|d| d.same(row) == Some(row));
+                if !orders.reordered(row) && (!displayed || same) {
                     continue;
                 }
                 for (x, cell) in view.row(row).iter().enumerate().take(cols) {
                     let l = orders.logical_col(row, Col::at_index(x));
                     let sel = scene
                         .highlight
-                        .is_some_and(|h| h.selects(row, l, cell.content));
+                        .is_some_and(|h| orders.selects(&h, row, l, cell.content));
                     mask[y * cols + x] |= MASK_BIDI | if sel { MASK_SELECTED } else { 0 };
                 }
             }
@@ -2137,10 +2141,13 @@ impl Overlay {
             .is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
         let selected = paint.highlight.is_some_and(|h| {
             let at = Col::at_index(x);
-            let at = paint
-                .orders
-                .map_or(at, |o| o.logical_col(Row::from_index(y), at));
-            h.selects(Row::from_index(y), at, cell.content)
+            match paint.orders {
+                Some(o) => {
+                    let row = Row::from_index(y);
+                    o.selects(&h, row, o.logical_col(row, at), cell.content)
+                }
+                None => h.selects(Row::from_index(y), at, cell.content),
+            }
         });
         // The selection swaps, then the cursor swaps again, and a hidden
         // cell draws nothing of its own: `Resolved::drawn`, the one spelling

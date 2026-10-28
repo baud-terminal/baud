@@ -244,7 +244,8 @@ pub(crate) fn pointer_under(
     (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
 }
 
-/// **The logical cell a pointer is over**: on a row drawn in another order
+/// **The logical cell a pointer is over**: on a line the display re-broke
+/// at its words, the stored cell it shows, row and column; on a row drawn in another order
 /// (`baud_render::Orders`), the cell the visual one under the pointer
 /// shows -- on a double-width line, through the order of its half
 /// (`Orders::pointer_col`) -- and its pixel at the same place in that
@@ -257,14 +258,19 @@ pub(crate) fn logical(
     (row, col, px): (Row, Col, PointerPx),
     cell: (f64, f64),
 ) -> (Row, Col, PointerPx) {
-    let l = orders.pointer_col(row, col);
-    if l == col {
+    // On a line the display re-broke (`baud_render::Orders::pointer`), the
+    // stored cell it shows, on its own row.
+    let (r, l) = orders.pointer(row, col);
+    if l == col && r == row {
         return (row, col, px);
     }
     let left = |c: Col| (cell.0 * c.index() as f64).floor() as i64;
     let x = i64::from(px.x.raw()) - left(col) + left(l);
     let x = ImagePx::of(u16::try_from(x.max(0)).unwrap_or(u16::MAX));
-    (row, l, PointerPx { x, y: px.y })
+    let top = |r: Row| (cell.1 * r.index() as f64).floor() as i64;
+    let y = i64::from(px.y.raw()) - top(row) + top(r);
+    let y = ImagePx::of(u16::try_from(y.max(0)).unwrap_or(u16::MAX));
+    (r, l, PointerPx { x, y })
 }
 
 /// **The cell and pixel under a point for DEC's locator, or `None`

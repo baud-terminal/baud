@@ -6666,15 +6666,16 @@ fn copy_window(
     renderer: &mut Renderer<'_, '_>,
     copy_mem: &mut [PackedCell],
 ) -> usize {
-    let view = t.view(back);
+    // The window in its drawn order, as the app reads it: the display's
+    // lines where it re-broke a paragraph (`Orders::window`).
+    let (mut cells, mut used) = (Vec::new(), Vec::new());
     let stride = t.stride().index();
+    let view = renderer.bidi().window(t, back, &mut cells, &mut used);
     let (cols, rows) = (view.cols().index(), view.rows().index());
     for y in 0..rows {
         let r = Row::from_index(y);
         let at = y * stride;
-        renderer
-            .bidi()
-            .permute(r, view.row(r), &mut copy_mem[at..at + cols]);
+        copy_mem[at..at + cols].copy_from_slice(&view.row(r)[..cols]);
     }
     // Smooth scroll: append the leaving row -- the line just above the
     // window, `view(back + 1).row(0)` -- at index `rows`, and read one
@@ -10186,6 +10187,101 @@ fn right_to_left_rows_draw_in_their_visual_order_on_every_arm() {
             assert!(!changed.contains(&(8 * cw)), "and not on the left");
         }
     }
+}
+
+/// **A finished paragraph the display re-breaks at its words draws the same
+/// on every arm** (`[screen] wrap_words`, on by default): the English run
+/// the terminal's wrap split moved to a line of its own, flush left, the
+/// Hebrew around it against the right edge, the text above pushed up a
+/// line, and a selection of stored cells on the moved line drawn where
+/// they are drawn -- the cell shader's copy of the window, its instances
+/// and the CPU compositor all reading the one display. With the setting
+/// off the same bytes draw the terminal's cut, the control.
+#[test]
+fn a_re_broken_paragraph_draws_the_same_on_every_arm() {
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let noto = read("baud-font/tests/fonts/NotoColorEmoji-subset.ttf");
+    let faces = [
+        Face::parse(&built).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap()
+    };
+    let he =
+        "\u{5D6}\u{5D5} \u{5E4}\u{5E1}\u{5E7}\u{5D4} \u{5D1}\u{5E2}\u{5D1}\u{5E8}\u{5D9}\u{5EA} ";
+    let tail = "\u{5E9}\u{5DE}\u{5DE}\u{5E9}\u{5D9}\u{5DB}\u{5D4} \u{5DC}\u{5E9}\u{5D5}\u{5E8}\u{5D4} \u{5D4}\u{5D1}\u{5D0}\u{5D4}.";
+    // Seven Hebrew phrases, 105 cells, then an English run across column
+    // 120, then Hebrew; a prompt mark below it, so it is finished.
+    let history: String = (0..12).map(|i| format!("h{i}\r\n")).collect();
+    let bytes = format!(
+        "\x1b[?25l{history}{}with English words in the middle, {tail}\r\n\x1b]133;A\x07$ ",
+        he.repeat(7)
+    );
+    let three = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.reads = Reads::Copy;
+        let (a, _) = arms.draw(t);
+        let b = arms.draw_copied(t);
+        let c = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "{what}: the cell arm differs");
+        assert_eq!(differing(&a, &c), 0, "{what}: the CPU arm differs");
+        a
+    };
+    arms!(fresh() => arms, t);
+    feed(&mut t, bytes.as_bytes());
+    let on = three(&mut arms, &mut t, "re-broken");
+    let d = arms
+        .renderer
+        .bidi()
+        .display()
+        .expect("the paragraph re-broken");
+    assert_eq!(d.counts().0, Tally::of(1), "one paragraph");
+    // The English line is display row 7, its "with" at the left edge,
+    // stored on the paragraph's first row (window row 7) at column 105.
+    assert_eq!(
+        arms.renderer.bidi().pointer(Row::from_index(7), Col::ZERO),
+        (Row::from_index(7), Col::at_index(105))
+    );
+    // A selection of the stored cells "with" (105..=108 of row 7): drawn
+    // at visual 0..=3 of display row 7 on every arm, nowhere on row 6.
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(7), Col::at_index(105)),
+        to: (Row::from_index(7), Col::at_index(108)),
+        region: Region::Stream,
+    });
+    let sel = three(&mut arms, &mut t, "re-broken, selected");
+    arms.highlight = None;
+    let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+    let cw = usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap();
+    let ch = usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap();
+    let cell_differs = |a: &[u32], b: &[u32], row: usize, col: usize| {
+        (row * ch..(row + 1) * ch)
+            .any(|y| (col * cw..(col + 1) * cw).any(|x| a[y * w + x] != b[y * w + x]))
+    };
+    assert!(
+        (0..4).all(|c| cell_differs(&sel, &on, 7, c)),
+        "the selection drawn"
+    );
+    assert!(!cell_differs(&sel, &on, 7, 4), "and only its cells");
+    assert!(
+        (100..120).all(|c| !cell_differs(&sel, &on, 6, c)),
+        "not at the stored columns on the Hebrew line"
+    );
+    // The control: off draws the terminal's cut.
+    arms.renderer.set_word_wrap(baud_render::WordWrap::Off);
+    let off = three(&mut arms, &mut t, "the setting off");
+    assert!(arms.renderer.bidi().display().is_none());
+    assert!(differing(&on, &off) > 0, "the control: off draws otherwise");
 }
 
 /// The faces the right-to-left gates draw with: baud's built face, which

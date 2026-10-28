@@ -929,6 +929,7 @@ impl Boot {
         // The exit-status strip before any size is taken: the window's
         // arithmetic counts it as it counts the gutter.
         renderer.set_status_marks(cfg.exit_status);
+        renderer.set_word_wrap(cfg.wrap_words);
         // And the config's notice, whose row the grid gives up the same way.
         renderer.set_notice(notice.codepoints());
         startup_mark("renderer");
@@ -11486,6 +11487,7 @@ impl Driver {
                 }
                 Part::CursorGuide => self.app.cursor_guide = c.cursor_guide,
                 Part::Badge => self.app.badge = c.badge,
+                Part::WrapWords => self.app.renderer.set_word_wrap(c.wrap_words),
                 Part::ImageAnimation => self.app.image_animation = c.image_animation,
                 Part::Hollow => {
                     self.app.unfocused_cursor = c.unfocused_cursor;
@@ -12898,7 +12900,7 @@ impl Driver {
         let (scale, cell, grid, pad) = self.pointer_geometry();
         let (row, col) = cell_under((x, y), scale, cell, grid, pad);
         // The logical cell the visual one shows (`gesture::logical`).
-        (row, self.app.renderer.bidi().pointer_col(row, col))
+        self.app.renderer.bidi().pointer(row, col)
     }
 
     /// **The wheel across**: a tilt, Shift with a mouse wheel, a sideways

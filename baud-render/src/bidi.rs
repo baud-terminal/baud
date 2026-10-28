@@ -129,6 +129,10 @@ use baud_domain::{
     opens_rtl, order_strings, string_chain, takes_form,
 };
 
+use std::rc::Rc;
+
+use crate::rebreak::{Breaker, Display, WordWrap};
+use crate::select::Highlight;
 use crate::units::Tally;
 
 /// The most codepoints one paragraph's text is resolved over: a row at the
@@ -310,6 +314,11 @@ pub struct Orders {
     /// Each window row's joined cells, for the rows that hold one.
     joins: Vec<Option<RowJoins>>,
     joined_any: Any,
+    /// **The window as the display wraps it**, where a finished paragraph
+    /// is drawn at its words ([`crate::rebreak`]): every row of these maps
+    /// is then a display line, and a stored cell is found in it through
+    /// [`Orders::shown_at`].
+    display: Option<Rc<Display>>,
 }
 
 impl Default for Orders {
@@ -320,6 +329,7 @@ impl Default for Orders {
             any: Any::No,
             joins: Vec::new(),
             joined_any: Any::No,
+            display: None,
         }
     }
 }
@@ -333,6 +343,113 @@ impl Orders {
     /// Whether any cell of the window is drawn joined.
     pub fn any_joined(&self) -> bool {
         self.joined_any == Any::Yes
+    }
+
+    /// **The window as the display wraps it**, where a finished paragraph
+    /// is drawn at its words ([`crate::rebreak`]); none where every row is
+    /// drawn as stored.
+    pub fn display(&self) -> Option<&Display> {
+        self.display.as_deref()
+    }
+
+    /// The display, held: what a caller reads the window from while it
+    /// lays the renderer out again.
+    pub(crate) fn display_held(&self) -> Option<Rc<Display>> {
+        self.display.clone()
+    }
+
+    /// **The stored window cell logical column `l` of display row `y`
+    /// shows**: the same cell where nothing is re-broken; none for a
+    /// re-broken line's padding.
+    pub fn stored_at(&self, y: Row, l: Col) -> Option<(Row, Col)> {
+        match &self.display {
+            Some(d) => d.stored(y, l),
+            None => Some((y, l)),
+        }
+    }
+
+    /// **The display row and logical column stored cell `(r, c)` of the
+    /// window is drawn at**: the same cell where nothing is re-broken; none
+    /// where a re-broken paragraph pushed it out of the window.
+    pub fn shown_at(&self, r: Row, c: Col) -> Option<(Row, Col)> {
+        match &self.display {
+            Some(d) => d.shown(r, c),
+            None => Some((r, c)),
+        }
+    }
+
+    /// The display row stored row `r` of the window starts on.
+    pub fn row_of(&self, r: Row) -> Option<Row> {
+        match &self.display {
+            Some(d) => d.row_of(r),
+            None => Some(r),
+        }
+    }
+
+    /// **The stored cell a pointer over visual column `col` of display row
+    /// `y` names**, as a mouse report and a selection read it: the logical
+    /// cell under it ([`Orders::pointer_col`]), then the stored cell that
+    /// shows; over a re-broken line's padding, the stored cell nearest it in
+    /// the line's logical order.
+    pub fn pointer(&self, y: Row, col: Col) -> (Row, Col) {
+        let l = self.pointer_col(y, col);
+        let Some(d) = &self.display else {
+            return (y, l);
+        };
+        if let Some(at) = d.stored(y, l) {
+            return at;
+        }
+        let n = self.cols.index();
+        (0..l.index())
+            .rev()
+            .chain(l.index() + 1..n)
+            .find_map(|x| d.stored(y, Col::at_index(x)))
+            .unwrap_or((y, l))
+    }
+
+    /// **Whether logical column `l` of display row `y`, holding `content`,
+    /// is drawn selected** by `h`, a selection kept by stored cells: the
+    /// stored cell it shows asked; padding never is.
+    pub fn selects(&self, h: &Highlight, y: Row, l: Col, content: Content) -> bool {
+        match self.stored_at(y, l) {
+            Some((r, c)) => h.selects(r, c, content),
+            None => false,
+        }
+    }
+
+    /// **The visual runs stored columns `from..=to` of window row `r` are
+    /// drawn in**, each its display row, first visual column and width:
+    /// [`Orders::runs`] where nothing is re-broken; on a re-broken
+    /// paragraph, the runs of each display line its cells are drawn on.
+    pub fn stored_runs(&self, r: Row, from: Col, to: Col) -> Vec<(Row, Col, Cols)> {
+        let Some(d) = &self.display else {
+            return self
+                .runs(r, from, to)
+                .into_iter()
+                .map(|(at, n)| (r, at, n))
+                .collect();
+        };
+        let mut shown: Vec<(Row, Col)> = (from.index()..=to.index())
+            .filter_map(|c| d.shown(r, Col::at_index(c)))
+            .collect();
+        shown.sort_by_key(|&(y, x)| (y.index(), x.index()));
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < shown.len() {
+            let (y, a) = shown[i];
+            let mut j = i;
+            while j + 1 < shown.len()
+                && shown[j + 1].0 == y
+                && shown[j + 1].1.index() == shown[j].1.index() + 1
+            {
+                j += 1;
+            }
+            for (at, n) in self.runs(y, a, shown[j].1) {
+                out.push((y, at, n));
+            }
+            i = j + 1;
+        }
+        out
     }
 
     /// What joining gives visual column `v` of row `r`: its form and its
@@ -566,10 +683,24 @@ impl Orders {
         cells: &'a mut Vec<PackedCell>,
         used: &'a mut Vec<RowExtent>,
     ) -> Viewport<'a> {
+        if let Some(d) = self.display.clone() {
+            return self.copied(&d.window(), cells, used);
+        }
         let vp = term.view(back);
         if self.any == Any::No {
             return vp;
         }
+        self.copied(&vp, cells, used)
+    }
+
+    /// Every row of `vp` copied into `cells` in its drawn order, with its
+    /// extent in `used`, as [`Orders::window`] answers it.
+    fn copied<'a>(
+        &self,
+        vp: &Viewport<'_>,
+        cells: &'a mut Vec<PackedCell>,
+        used: &'a mut Vec<RowExtent>,
+    ) -> Viewport<'a> {
         let (nrows, ncols) = (vp.rows().index(), vp.cols().index());
         cells.clear();
         cells.resize(nrows * ncols, PackedCell::EMPTY);
@@ -762,6 +893,10 @@ pub struct Reorder {
     /// How many cells of its word either side of a joined cell are kept
     /// with it ([`Reorder::set_reach`]).
     reach: baud_font::bytes::Count,
+    /// Whether a finished paragraph is drawn at its words, and the working
+    /// state of the layout that draws it ([`crate::rebreak`]).
+    wrap: WordWrap,
+    breaker: Breaker,
 }
 
 /// Where a paragraph's context lies: in the rows around the window, read
@@ -770,6 +905,9 @@ pub struct Reorder {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Context {
     Window,
+    /// The display's own lines around the window ([`Display::window`]):
+    /// as many above it and below it as it holds.
+    Display(Rows, Rows),
     None,
 }
 
@@ -1052,6 +1190,30 @@ impl Reorder {
             paths: Vec::new(),
             status_seen: Seen::default(),
             reach: baud_font::bytes::Count::ZERO,
+            wrap: WordWrap::default(),
+            breaker: Breaker::default(),
+        }
+    }
+
+    /// **Whether a finished paragraph is drawn at its words**
+    /// ([`WordWrap`]): the layouts after this follow it.
+    pub fn set_word_wrap(&mut self, wrap: WordWrap) {
+        self.wrap = wrap;
+    }
+
+    /// **The display of the window `back` lines up as the next layout will
+    /// draw it** ([`crate::rebreak`]), for a reader that runs before that
+    /// layout: kept from the last frame where nothing it read changed.
+    pub fn display_now(&mut self, term: &Term<'_>, back: Rows) -> Option<Rc<Display>> {
+        crate::rebreak::lay_out(term, term.looking_back(back), self.wrap, &mut self.breaker)
+    }
+
+    /// The window `back` lines up as the last layout drew it: the display's
+    /// lines where it re-broke a paragraph, else the core's own view.
+    pub fn view<'a>(&'a self, term: &'a Term<'_>, back: Rows) -> Viewport<'a> {
+        match &self.orders.display {
+            Some(d) => d.window(),
+            None => term.view(term.looking_back(back)),
         }
     }
 
@@ -1124,7 +1286,11 @@ impl Reorder {
     ) {
         self.lay_out_window(term, back, joins, written, extent);
         if term.variants_seen() {
-            let vp = term.view(term.looking_back(back));
+            let held = self.orders.display.clone();
+            let vp = match &held {
+                Some(d) => d.window(),
+                None => term.view(term.looking_back(back)),
+            };
             let n = match extent {
                 Extent::Window => vp.rows(),
                 Extent::Top => Rows::of_index(vp.rows().index().min(1)),
@@ -1219,7 +1385,18 @@ impl Reorder {
         extent: Extent,
     ) {
         let back = term.looking_back(back);
-        let vp = term.view(back);
+        // **The display's own wrap** of the finished paragraphs in the
+        // window, where it re-breaks one: every row below is then one of its
+        // lines, read with the lines around the window it holds.
+        let held = crate::rebreak::lay_out(term, back, self.wrap, &mut self.breaker);
+        let (vp, around) = match &held {
+            Some(d) => {
+                let (up, down) = d.around();
+                (d.window(), Context::Display(up, down))
+            }
+            None => (term.view(back), Context::Window),
+        };
+        self.orders.display = held.clone();
         let nrows = vp.rows().index();
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
@@ -1270,7 +1447,7 @@ impl Reorder {
                 &vp,
                 written,
                 (Row::from_index(first), Row::from_index(y)),
-                Context::Window,
+                around,
             );
             if extent == Extent::Top {
                 return;
@@ -1303,6 +1480,7 @@ impl Reorder {
     ) -> Rejoin {
         let vp = term.view(term.looking_back(back));
         let nrows = vp.rows().index();
+        self.orders.display = None;
         self.orders.cols = vp.cols();
         self.orders.any = Any::No;
         self.work = Work::default();
@@ -1566,6 +1744,17 @@ impl Reorder {
         // inside the window that holds no right-to-left character costs
         // its rows' test and nothing else.
         let mut above: Vec<&[PackedCell]> = Vec::new();
+        if let (0, Context::Display(up, _)) = (first.index(), context) {
+            let mut k = 1;
+            while k <= up.index() && above.len() < budget {
+                let v = vp.back(k);
+                if v.wrapped(Row::ZERO) != Wrap::Continues {
+                    break;
+                }
+                above.push(v.row(Row::ZERO));
+                k += 1;
+            }
+        }
         if first.index() == 0 && context == Context::Window {
             let mut k = 1;
             while above.len() < budget {
@@ -1582,6 +1771,17 @@ impl Reorder {
             }
         }
         let mut below: Vec<&[PackedCell]> = Vec::new();
+        if let Context::Display(_, down) = context {
+            let mut k = 1;
+            while last.index() + 1 == nrows
+                && vp.wrapped(Row::from_index(nrows - 1 + k - 1)) == Wrap::Continues
+                && k <= down.index()
+                && below.len() < budget
+            {
+                below.push(vp.row(Row::from_index(nrows - 1 + k)));
+                k += 1;
+            }
+        }
         if last.index() + 1 == nrows
             && vp.wrapped(last) == Wrap::Continues
             && context == Context::Window
@@ -2539,7 +2739,7 @@ fn mirror(
 }
 
 /// **The SDS or SRS string `cell` was written in** ([`StringId`]).
-fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
+pub(crate) fn string_of(term: &Term<'_>, cell: PackedCell) -> StringId {
     term.styles()
         .get(cell.style.index())
         .copied()

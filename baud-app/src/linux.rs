@@ -459,6 +459,7 @@ pub fn run() {
     // The exit-status strip before the first size: the grid gives it a
     // column, as on macOS.
     renderer.set_status_marks(cfg.exit_status);
+    renderer.set_word_wrap(cfg.wrap_words);
     // And the config's notice, whose row the grid gives up below it.
     renderer.set_notice(notice.codepoints());
     // The window starts without the keyboard, until `wl_keyboard.enter`.
@@ -1802,6 +1803,7 @@ impl Driver {
                 }
                 Part::CursorGuide => self.cursor_guide = c.cursor_guide,
                 Part::Badge => self.badge = c.badge,
+                Part::WrapWords => self.renderer.set_word_wrap(c.wrap_words),
                 // The Linux window has no title bar to put them in.
                 Part::ActivityLights => {}
                 Part::ImageAnimation => self.timed.set_image_animation(c.image_animation),

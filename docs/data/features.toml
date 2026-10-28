@@ -546,6 +546,15 @@ platform = "both"
 tests = ["baud-app/src/host.rs::claude_codes_symbols_draw_from_stix_behind_a_configured_font"]
 
 [[feature]]
+id = "word-wrap"
+area = "text"
+name = "Words kept whole when text wraps"
+does = "Finished text wraps at its words: a word that does not fit at the end of a line moves whole to the next one, where it was cut at the last column, and in a Hebrew paragraph an English run the wrap would cut gets a line of its own, left to right against the left edge, the Hebrew carrying on below it; copying still gives the text as the program wrote it. It covers what scrolled back and, with a shell that marks its prompts, the output above the prompt; `[screen] wrap_words = \"off\"` turns it off."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/word_wrap.rs::the_run_the_wrap_splits_gets_a_line_of_its_own_in_its_own_direction", "baud-render/tests/word_wrap.rs::an_all_english_paragraph_wraps_at_its_words", "baud-present-macos/tests/cells.rs::a_re_broken_paragraph_draws_the_same_on_every_arm"]
+
+[[feature]]
 id = "hebrew-font"
 area = "text"
 name = "Hebrew built in"
@@ -2149,7 +2158,7 @@ paths = ["docs/embedding.md", "baud-core/examples/quickstart.rs"]
 [[missing]]
 name = "Right-to-left text"
 area = "text"
-does = "Hebrew and Arabic lines are drawn right to left from the start: a line that starts in Hebrew or Arabic runs right to left against the window's right edge, with its closing period at its left end; a table drawn with box-drawing lines keeps its columns, a Hebrew name reading right to left in its cell; and the cursor, the selection and the mouse follow; a program that lays out its own right-to-left text turns it off with `CSI 8 l`. Arabic letters join into words, a program can set which way its lines run, a program can have box-drawing lines mirrored on a right-to-left line, and Left and Right follow a right-to-left line. Still to come: a line that mixes directions and is split by a soft wrap."
+does = "Hebrew and Arabic lines are drawn right to left from the start: a line that starts in Hebrew or Arabic runs right to left against the window's right edge, with its closing period at its left end; a table drawn with box-drawing lines keeps its columns, a Hebrew name reading right to left in its cell; and the cursor, the selection and the mouse follow; a program that lays out its own right-to-left text turns it off with `CSI 8 l`. Arabic letters join into words, a program can set which way its lines run, a program can have box-drawing lines mirrored on a right-to-left line, and Left and Right follow a right-to-left line, and finished text wraps at its words, an English run the wrap would cut getting a line of its own. Still to come: the same for the line being typed and, without a shell that marks its prompts, for the screen before it scrolls back."
 roadmap = ["SQ-v1.0-01"]
 
 [[missing]]

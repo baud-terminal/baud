@@ -52,6 +52,7 @@ mod overlay;
 mod picture;
 pub mod plasma;
 pub mod print;
+mod rebreak;
 mod redraw;
 mod renderer;
 mod scroll;
@@ -102,6 +103,7 @@ pub use overlay::{
     MASK_SELECTED, MASK_SIZED, Measure, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
+pub use rebreak::{Display, WordWrap};
 pub use redraw::{REDRAW_ROWS, Redraw, RowSet};
 pub use renderer::{
     Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Decorations, Evicted,

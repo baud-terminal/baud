@@ -54,6 +54,8 @@ pub enum Part {
     Hollow,
     /// `[screen] badge`.
     Badge,
+    /// `[screen] wrap_words`: the next frame lays the window out again.
+    WrapWords,
     /// `[cursor] guide`.
     CursorGuide,
     /// `[images] animation`: the next turn steps or holds a kitty
@@ -111,6 +113,7 @@ impl Part {
             | Part::StatusMarks
             | Part::Hollow
             | Part::Badge
+            | Part::WrapWords
             | Part::CursorGuide
             | Part::ImageAnimation
             | Part::TermOptions
@@ -147,6 +150,7 @@ impl Part {
             Part::StatusMarks => "[screen] exit_status",
             Part::Hollow => "[cursor] unfocused_hollow",
             Part::Badge => "[screen] badge",
+            Part::WrapWords => "[screen] wrap_words",
             Part::CursorGuide => "[cursor] guide",
             Part::ImageAnimation => "[images] animation",
             Part::TermOptions => "the terminal's options",
@@ -232,6 +236,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         config_reload,
         unfocused_cursor,
         badge,
+        wrap_words,
         cursor_guide,
     } = new;
     let same = |old: &[crate::config::FaceSpec], new: &[crate::config::FaceSpec]| {
@@ -284,6 +289,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
     part(old.exit_status != *exit_status, Part::StatusMarks);
     part(old.unfocused_cursor != *unfocused_cursor, Part::Hollow);
     part(old.badge != *badge, Part::Badge);
+    part(old.wrap_words != *wrap_words, Part::WrapWords);
     part(old.cursor_guide != *cursor_guide, Part::CursorGuide);
     part(
         old.image_animation != *image_animation,
@@ -487,6 +493,7 @@ mod tests {
             ("[screen]\nexit_status = \"on\"\n", Part::StatusMarks),
             ("[cursor]\nunfocused_hollow = \"on\"\n", Part::Hollow),
             ("[screen]\nbadge = \"off\"\n", Part::Badge),
+            ("[screen]\nwrap_words = \"off\"\n", Part::WrapWords),
             ("[cursor]\nguide = \"on\"\n", Part::CursorGuide),
             ("[images]\nanimation = \"off\"\n", Part::ImageAnimation),
             ("[screen]\nchecksum = \"off\"\n", Part::TermOptions),

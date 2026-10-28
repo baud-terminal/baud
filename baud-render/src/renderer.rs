@@ -1846,6 +1846,9 @@ pub struct Renderer<'f, 'a> {
     /// until it has, a layout with BDSM reset reads no row for joins
     /// ([`crate::bidi::Joins`]).
     joins_seen: crate::bidi::Joins,
+    /// Whether a finished paragraph is drawn at its words
+    /// ([`Renderer::set_word_wrap`]).
+    word_wrap: crate::WordWrap,
     bidi_used: Vec<baud_domain::RowExtent>,
     /// The find marks' wash, from the palette `set_find` read, so a frame's
     /// layout can draw the marks again through its order.
@@ -2286,6 +2289,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             slants_prev: Vec::new(),
             joins_held: crate::bidi::Joins::Unseen,
             joins_seen: crate::bidi::Joins::Unseen,
+            word_wrap: crate::WordWrap::default(),
             bidi_used: Vec::new(),
             find_wash: Argb(0),
             styles: Vec::new(),
@@ -2765,6 +2769,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.bar_inst
     }
 
+    /// **Whether a finished paragraph is drawn at its words**
+    /// ([`crate::WordWrap`], the `wrap_words` setting): on, a word that does
+    /// not fit drops whole to the next line and a run of the other direction
+    /// the wrap would split gets lines of its own ([`crate::rebreak`]); off,
+    /// every row is drawn as the terminal cut it. The next layout follows it.
+    pub fn set_word_wrap(&mut self, wrap: crate::WordWrap) {
+        self.word_wrap = wrap;
+        self.bidi.set_word_wrap(wrap);
+    }
+
+    /// Whether a finished paragraph is drawn at its words.
+    pub fn word_wrap(&self) -> crate::WordWrap {
+        self.word_wrap
+    }
+
     /// An input method's composition for the next frame, or none: drawn at
     /// its cell by the instance and CPU paths' next convert, with the cursor
     /// after it ([`Composition::cursor`]), on the live view only. The cell
@@ -2891,11 +2910,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let y = |r: Row| screen(i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX));
             let wash = self.find_wash;
             for m in f.marks.iter().filter(|m| m.current == Current::No) {
-                for (at, n) in self.bidi.orders().runs(m.row, m.from, m.to) {
+                for (row, at, n) in self.bidi.orders().stored_runs(m.row, m.from, m.to) {
                     let n = u32::try_from(n.index()).unwrap_or(0);
                     out.push(solid(
                         x(at),
-                        y(m.row),
+                        y(row),
                         Px::of(n.saturating_mul(cw)),
                         Px::of(ch),
                         wash,
@@ -2930,7 +2949,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     fn lay_out_bidi_with(&mut self, term: &Term<'_>, back: Rows, with: Predicted) {
-        let was = self.bidi.orders().any();
+        // A display ([`crate::rebreak`]) moves cells between rows with no
+        // row reordered, so the marks follow it as they follow an order.
+        let was = self.bidi.orders().any() || self.bidi.orders().display().is_some();
         self.write_over(term, back, with);
         match self.beside.as_deref().filter(|b| !b.written.is_empty()) {
             Some(b) => self
@@ -2938,7 +2959,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .lay_out_written(term, back, self.joins_seen, &b.written),
             None => self.bidi.lay_out_as(term, back, self.joins_seen),
         }
-        if was || self.bidi.orders().any() {
+        if was || self.bidi.orders().any() || self.bidi.orders().display().is_some() {
             self.build_find();
             self.build_link();
         }
@@ -2957,7 +2978,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         back: Rows,
         changes: crate::bidi::Changes,
     ) -> crate::bidi::Rejoin {
-        let was = self.bidi.orders().any();
+        let was = self.bidi.orders().any() || self.bidi.orders().display().is_some();
         let rejoin = match self.composition.is_some() || self.beside.is_some() {
             true => self.keep_written(term, back, changes),
             false => {
@@ -3029,8 +3050,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } = &mut **self.beside.get_or_insert_with(Box::default);
         let leaving = leaving.get_or_insert_with(crate::bidi::Reorder::new);
         leaving.set_reach(widest_of(&self.reaches));
+        leaving.set_word_wrap(self.word_wrap);
         leaving.lay_out_top(term, above, self.joins_seen);
-        let up = term.view(term.looking_back(above));
+        let up = leaving.view(term, above);
         let src = up.row(Row::ZERO);
         let n = dst.len().min(src.len());
         leaving_cells.clear();
@@ -3174,11 +3196,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 )
             };
             for s in &l.spans {
-                for (at, n) in self.bidi.orders().runs(s.row, s.from, s.to) {
+                for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
                     let n = u32::try_from(n.index()).unwrap_or(0);
                     out.push(solid(
                         x(at),
-                        y(s.row),
+                        y(row),
                         Px::of(n.saturating_mul(cw)),
                         thick,
                         self.defaults.0,
@@ -3558,10 +3580,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     } else {
                         Inked::Yes
                     };
-                    let selected = match self
-                        .highlight
-                        .is_some_and(|h| h.selects(row, col, cell.content))
-                    {
+                    let orders = self.bidi.orders();
+                    let selected = match self.highlight.is_some_and(|h| {
+                        orders.selects(&h, row, orders.logical_col(row, col), cell.content)
+                    }) {
                         true => Selected::Yes,
                         false => Selected::No,
                     };
@@ -4682,6 +4704,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let mut placed = core::mem::take(&mut self.placed);
         crate::status::placed(term, back, self.main_rows(), leaving, &mut placed);
+        // The window as the display draws it now: a frame places its marks
+        // before it lays its rows out.
+        let shown = self.bidi.display_now(term, back);
         let cell = crate::boxes::Cell {
             w: self.metrics.cell_w,
             h: self.metrics.cell_h,
@@ -4694,8 +4719,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let top = match p.row {
                 crate::status::ViewRow::Leaving => -ch,
+                // On the display row its prompt is drawn on, where the
+                // display re-broke a paragraph above it.
                 crate::status::ViewRow::On(r) => {
-                    i32::try_from(self.band(r).top.value()).unwrap_or(i32::MAX)
+                    match shown.as_ref().map_or(Some(r), |d| d.row_of(r)) {
+                        Some(d) => i32::try_from(self.band(d).top.value()).unwrap_or(i32::MAX),
+                        None => continue,
+                    }
                 }
             };
             let color = self.theme.entry(p.mark.slot(), |c| term.palette(c));
@@ -4983,6 +5013,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let origin = term.image_origin(back);
         let top = origin.top.value() as i64;
+        // The window as the display draws it now, whichever layout ran
+        // last: a frame may place its pictures before it lays its rows out.
+        let shown = self.bidi.display_now(term, back);
         let cw = i64::from(self.metrics.cell_w.value());
         let ch = i64::from(self.metrics.cell_h.value());
         let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
@@ -5039,6 +5072,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let x0 = match self.anchor_direction(term, back, anchor) {
                 BidiDirection::Rtl => grid_w - x0 - i64::from(dest.w),
                 BidiDirection::Ltr => x0,
+            };
+            // **Where the display re-broke a paragraph above it**
+            // ([`crate::rebreak`]), its anchor row moved with the text: up by
+            // the lines the paragraph gained.
+            let y0 = match (anchor, &shown) {
+                (Anchor::At(r), Some(d)) => match d.row_of(r) {
+                    Some(at) => y0 + (at.index() as i64 - r.index() as i64) * ch,
+                    None => y0,
+                },
+                _ => y0,
             };
             // The visible part, in drawn pixels from the drawn top-left:
             // columns on the frame, rows from one row above the top -- the
@@ -5657,9 +5700,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .get(cell.style.index())
             .copied()
             .unwrap_or_default();
+        let orders = self.bidi.orders();
         let selected = match self
             .highlight
-            .is_some_and(|h| h.selects(row, col, cell.content))
+            .is_some_and(|h| orders.selects(&h, row, orders.logical_col(row, col), cell.content))
         {
             true => Selected::Yes,
             false => Selected::No,
@@ -5848,7 +5892,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .leaving
             .get_or_insert_with(crate::bidi::Reorder::new);
         leaving.set_reach(reach);
+        leaving.set_word_wrap(self.word_wrap);
         leaving.lay_out_top(term, above, self.joins_seen);
+        let up = leaving.view(term, above);
         let mut cells = vec![PackedCell::EMPTY; up.cols().index()];
         leaving
             .orders()
@@ -5991,7 +6037,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // window left scrolled back on the primary is the live screen, and
         // the program that owns it owns the cursor.
         let back = term.looking_back(back);
-        let vp = term.view(back);
         // With BDSM reset no row is reordered and each row's joins are its
         // own, so they are kept from the last frame and found again below
         // only for the rows this frame's compare finds changed: a row that
@@ -6008,6 +6053,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.lay_out_bidi(term, back);
                 None
             }
+        };
+        // **The window as the layout drew it**: the display's lines where it
+        // re-broke a finished paragraph ([`crate::rebreak`]), else the
+        // core's own rows.
+        let held = self.bidi.orders().display_held();
+        let vp = match &held {
+            Some(d) => d.window(),
+            None => term.view(back),
         };
         // Whether any row's joins are compared with the last frame's: none
         // while neither frame holds one.
@@ -7820,6 +7873,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let cursor_visual = cursor.map(|(cr, cc, s)| (cr, cc, orders.visual_col(cr, cc), s));
         let logical_of = |v: Col| logical.get(v.index()).copied().unwrap_or(v);
+        // **On a display line, the stored cell each visual cell shows**
+        // ([`crate::rebreak`]), which a selection is kept by.
+        let stored: Vec<Option<(Row, Col)>> = match orders.display() {
+            Some(_) => (0..row.len())
+                .map(|v| orders.stored_at(r, logical_of(Col::at_index(v))))
+                .collect(),
+            None => Vec::new(),
+        };
+        let selects = |h: &Highlight, col: Col, content: baud_domain::Content| match stored
+            .get(col.index())
+        {
+            Some(Some((sr, sc))) => h.selects(*sr, *sc, content),
+            Some(None) => false,
+            None => h.selects(r, logical_of(col), content),
+        };
         let mut instances = core::mem::take(&mut self.per_row[r.index()]);
         instances.clear();
         // **The line's rendition** (`[[source: dec-std-070]]` § 5.6.1): on a
@@ -7867,7 +7935,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // character in two: `Highlight::selects`.
             let selected = if self
                 .highlight
-                .is_some_and(|h| h.selects(r, logical_of(col), cell.content))
+                .is_some_and(|h| selects(&h, col, cell.content))
             {
                 Selected::Yes
             } else {

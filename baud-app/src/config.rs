@@ -326,6 +326,13 @@ pub struct Config {
     /// drawn, `"on"` by default, as iTerm2 draws every badge a program
     /// sets, or `"off"`.
     pub badge: crate::config::BadgeShown,
+    /// `[screen] wrap_words`: whether a finished paragraph is drawn at its
+    /// words -- a word that does not fit drops whole to the next line, and
+    /// a run of the other direction the wrap would split gets lines of its
+    /// own -- `"on"` by default (the owner, 2026-10-27: "and warp should be
+    /// default on"), or `"off"`, which draws every row as the terminal cut
+    /// it at the last column ([`baud_render::WordWrap`]).
+    pub wrap_words: baud_render::WordWrap,
     /// `[screen] checksum`: whether a program's request for a checksum of
     /// the screen (DECRQCRA) is answered, `"on"` by default (the
     /// owner's call of 2026-10-19, option 3), or `"off"`, which leaves every
@@ -921,6 +928,7 @@ impl Config {
             screen_transition: ScreenTransition::Off,
             exit_status: baud_render::StatusMarks::Off,
             badge: BadgeShown::On,
+            wrap_words: baud_render::WordWrap::On,
             checksum: baud_domain::ChecksumReport::On,
             substitute: Substitute::DEFAULT,
             prompt_at_bottom: baud_domain::PromptAtBottom::Off,
@@ -1634,6 +1642,18 @@ impl Config {
                                  using false"
                             ));
                             ScreenTransition::Off
+                        }
+                    };
+                }
+                ("screen", "wrap_words") => {
+                    self.wrap_words = match value.trim().trim_matches('"') {
+                        "on" => baud_render::WordWrap::On,
+                        "off" => baud_render::WordWrap::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] wrap_words {other:?} is not on or off; using on"
+                            ));
+                            baud_render::WordWrap::On
                         }
                     };
                 }
@@ -4380,6 +4400,23 @@ mod reader {
             PointerMode::UnlessTracking,
             "a top-level key is not the [pointer] one"
         );
+    }
+
+    /// **A finished paragraph is drawn at its words unless `[screen]
+    /// wrap_words = "off"`**, quoted or bare; any other value keeps it on and
+    /// says so.
+    #[test]
+    fn words_wrap_unless_turned_off() {
+        assert_eq!(Config::defaults().wrap_words, baud_render::WordWrap::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nwrap_words = {off}\n");
+            assert_eq!(read(&text).wrap_words, baud_render::WordWrap::Off, "{off}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nwrap_words = \"yes\"\n");
+        assert_eq!(c.wrap_words, baud_render::WordWrap::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("wrap_words"), "{said:?}");
     }
 
     /// **A program's badge is drawn unless `[screen] badge = "off"`**, quoted

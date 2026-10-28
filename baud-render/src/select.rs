@@ -598,11 +598,15 @@ impl Drawn {
         line: AbsLine,
         cols: Cols,
     ) -> Vec<Col> {
+        // By stored rows: a copy reads the rows as the core holds them, so
+        // the display's own wrap, which moves cells between rows, is off.
         let mut own = Reorder::new();
+        own.set_word_wrap(crate::WordWrap::Off);
         let (o, r) = match line.0.checked_sub(scrolled.0) {
             Some(y) => {
                 let o = self.live.get_or_insert_with(|| {
                     let mut o = Reorder::new();
+                    o.set_word_wrap(crate::WordWrap::Off);
                     o.lay_out(term, Rows::ZERO);
                     o
                 });

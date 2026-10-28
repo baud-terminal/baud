@@ -6,9 +6,10 @@ runs past the last column, after the owner rejected all four options of
 governing texts, four layout engines and eight terminals read at source,
 baud's own code at `1c8b32b5`, and three prototypes drawn headless by
 baud's CPU renderer. Every source below is pinned in
-`docs/research/sources/MANIFEST.toml`, group J beside note AB's. Nothing
-here is built; `docs/bidi.md`, "What is not built yet", keeps the item
-open.
+`docs/research/sources/MANIFEST.toml`, group J beside note AB's. Built
+2026-10-27 from the owner's choice of the B and own-direction panels, with
+every word kept whole, as `[screen] wrap_words` (`docs/bidi.md`, "What you
+see"); the prototypes below are as researched.
 
 ## 1. What the owner said
 

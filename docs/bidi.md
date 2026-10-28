@@ -14,8 +14,12 @@ gives the text in the order the program wrote it. A program that lays out
 its own right-to-left text turns the mode off with `CSI 8 l`, and every
 line is then drawn in the order its cells hold; `CSI 8 h` turns it back on,
 and a reset (`RIS`) returns it to on. On a right-to-left line the Left and
-Right arrow keys swap, so they move the cursor the way the line reads. This
-is step 3 of right-to-left text.
+Right arrow keys swap, so they move the cursor the way the line reads.
+**Finished text wraps at its words**: a word that does not fit at the end
+of a line moves whole to the next, and in a Hebrew paragraph an English run
+the wrap would cut gets a line of its own, left to right against the left
+edge, the Hebrew resuming on the next line (`[screen] wrap_words`, on by
+default). This is step 3 of right-to-left text.
 Step 1 built the Unicode Bidirectional Algorithm; step 2 put its order on
 the screen; step 3 joins Arabic letters.
 
@@ -27,6 +31,57 @@ the screen; step 3 joins Arabic letters.
   compositor. `right_to_left_rows_draw_in_their_visual_order_on_every_arm`
   holds the three to the same pixels, and to the pixels of the same text
   written already in visual order with the mode off.
+- **A finished paragraph is drawn at its words** (`[screen] wrap_words`,
+  `"on"` by default; `"off"` draws every row as the terminal cut it at the
+  last column, as before). No word is split across two lines: a word that
+  does not fit drops whole to the next line, a line's trailing spaces
+  hanging past the edge, and only a word wider than the whole line breaks
+  at its edge, between cells (UAX #14's emergency break, `[[source: uax14]]`
+  section 3). Every break is a UAX #14 opportunity, chosen greedily, which
+  section 1 leaves to "higher level software"; an erased cell between
+  characters is given to the breaker as a space. In a paragraph that mixes
+  directions, **a run of the other direction that the wrap would split --
+  its words falling on two lines, or one word wider than the whole line --
+  gets lines of its own**, as many as it needs at its words, laid out in
+  its own direction against its own language's edge -- an English line
+  flush left with its comma at its end, a Hebrew line in an English
+  paragraph flush right -- and the paragraph's language resumes on a fresh
+  line. A run that fits stays inline, and so does one the wrap breaks
+  before rather than inside: a single foreign word that does not fit drops
+  to the next line inline, as any word does, and so does a run of several
+  that fits whole there (the owner, 2026-10-27, on the
+  B and own-direction panels of `docs/research/notes/bd/owner-runs/`:
+  "this is what i like"). A run is a stretch above the paragraph's level
+  that holds a letter of the other direction, so a number in a Hebrew
+  sentence stays on its line; its ends move to the opportunities around
+  it. **Only finished text**: on the main screen, a paragraph wholly in the
+  history, or wholly above the latest prompt while the shell waits at it
+  (`OSC 133`); never the line being typed, a running command's rows, the
+  alternate screen, or the live screen of a shell that sends no marks.
+  With BDSM reset nothing is re-broken (ECMA-48 7.2.1's EXPLICIT: the
+  program addresses the presentation lines). **The lines a paragraph gains
+  push the text above it up**: the window's last row stays, so the cursor,
+  the prompt and every row a program can address keep their rows, and the
+  lines pushed above the window are read by scrolling back; at the top of
+  what the history keeps, the oldest re-broken paragraphs in the window
+  keep the terminal's cut until the rest fits. A paragraph whose words
+  need fewer lines than it was stored on -- trailing spaces the terminal
+  wrapped onto a row of their own, which hang -- keeps the terminal's cut,
+  so the window's last row stays where it is and no row from above the
+  window is drawn in the gap, where a pointer could not name it. The
+  cursor, a selection's
+  ends, a mouse report and a find match name stored cells, each drawn
+  where its cell is drawn, and a copy gives the stored text in logical
+  order, soft wraps joined. All three draw paths read the one display:
+  `a_re_broken_paragraph_draws_the_same_on_every_arm`. **A departure, the
+  owner's**: UAX #9 resolves a paragraph at one level and orders each line
+  by it (section 3, L1-L2); a moved run's line is laid out at its own
+  direction's level, and each piece of the paragraph between moved runs is
+  resolved as a paragraph of its own at the paragraph's level, which draws
+  otherwise only where an embedding or a bracket pair crosses a moved
+  run's edge. terminal-wg keeps each cell in its row
+  (`[[source: terminal-wg-bidi-display-only]]`); a re-broken paragraph's
+  cells move between rows.
 - **A paragraph is the rows a soft wrap joins.** Its levels are resolved
   over all of them, rows above the window and below it included, so an
   override or an embedding on one row reaches the next. A paragraph longer
@@ -466,6 +521,25 @@ requests and the renders it was shown are in
 | SAPV 9 and 10's decimal mark | the FULL STOP between two digits (UAX #9 W4 reads a separator between numbers) | 0.98 / 0.96 |
 | an alaph after a space or ZWNJ | isolated, as at a line's start: S2's character to its right is a letter of the word, as HarfBuzz and CoreText read it | 0.98 / 0.98 (re-ask; 0.94 / 0.88 first) |
 
+**Decided by Jev for the display's word wrap** (2026-10-27, at 0.9 or
+more in both orders):
+
+| choice | decided | Jev |
+|---|---|---|
+| where a re-broken paragraph's extra lines go | the window's last row stays and the text above is pushed up into the history; at the top of what the history keeps the oldest re-broken paragraphs keep the cut until the rest fits; the cursor, a selection, find, copy and the mouse name stored cells | 1.00 / 1.00 |
+| which wrap decides "the run the wrap would split" | the display's own word wrap | 0.98 / 0.98 |
+| which rows are finished | the history; the live rows above the latest prompt while the shell waits at it; none while a command runs, none without `OSC 133` marks | 0.98 / 0.97 |
+| BDSM reset | nothing re-broken (ECMA-48 7.2.1's EXPLICIT) | 0.98 / 0.98 (re-ask with 7.2.1 read; 0.78 / 0.78 first) |
+| an erased cell between characters | a space to the breaker | 1.00 / 1.00 |
+
+**Decided by the owner** (2026-10-27), on the renders of note BD: a run the
+wrap would split gets lines of its own and other runs stay inline, each
+moved line in its own direction at its own edge ("this is what i like");
+no word is split ("when we do wrapping, we do not break words , the word
+drop for the next line"), read as every finished paragraph the display
+wraps, single-direction ones too; on by default ("and warp should be
+default on").
+
 **Decided by the owner** (2026-10-24):
 
 | choice | decided | the owner's words |
@@ -675,6 +749,15 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 - Reading a program's output is unchanged: the core's only change is BDSM's
   state, and the instructions `ingest2` retires overlap base's on five
   recordings.
+- **The display's word wrap** (`[screen] wrap_words`) is read off the
+  window, never on the path that writes the grid: `baud-core` is
+  unchanged. A frame whose window reads as the last frame's keeps the last
+  layout. On the owner's cases at 44x12 the convert column's ranges
+  overlap base's on a replay, and the instructions a run retires differ
+  from base's by less than base's own spread from run to run
+  (docs/record.md, "Finished text wraps at its words"). A window that
+  moves every frame lays its paragraphs out again each time, unmeasured
+  at 200x50.
 - **A session that has drawn no joining letter pays nothing measurable
   for joining.** With the mode on, a row is compared with its last copy each frame and
   tested only when it changed, as step 2 already did for reordering; the
@@ -765,9 +848,22 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
 
 ## What is not built yet
 
-- **A paragraph a soft wrap splits mid-word** ("the wrap line looks bad"):
-  an English word the wrap split lands at opposite ends of its two rows,
-  drawn as before until the owner chooses. UAX #9 breaks a paragraph into
+- **The display's word wrap, at its edges**: the oldest re-broken
+  paragraphs at the top of what the history keeps, and every paragraph on
+  a shell that sends no `OSC 133` marks until it scrolls into the history,
+  keep the terminal's cut; a paragraph longer than `baud_render::CONTEXT`
+  codepoints, a table row, a line not single-width, a row DECRLM wrote and
+  a paragraph holding an SDS or SRS string keep it too; DECSLRM's side
+  margins are not read, so a paragraph wrapped inside them is re-broken at
+  the window's width; the scroll position, the scrollbar and the wheel
+  count stored lines; a picture anchored on a row the display pushed out
+  of the window, or above it, is not moved, and `?96`'s copy in drawn order
+  reads each stored row in its own order; on a display line that holds
+  cells of a row outside the window, those cells are drawn but not
+  selected or marked by find.
+- **A paragraph a soft wrap splits mid-word, with `[screen] wrap_words` off**
+  ("the wrap line looks bad"): an English word the wrap split lands at
+  opposite ends of its two rows. UAX #9 breaks a paragraph into
   lines first and reorders each line (L1-L2), and a terminal keeps each
   cell in its row, so in a right-to-left paragraph a run the wrap splits
   ends its first row at the left and begins the next at the right under
@@ -788,7 +884,9 @@ eight rounds with the first dropped, on mains (the docs/record.md entry,
   The owner rejected all four (2026-10-24) and asked for a mixed
   paragraph broken into lines of one direction each; the texts, the prior
   art, three prototypes and the recommendation are note BD,
-  `docs/research/notes/bd-bidi-wrap.md`.
+  `docs/research/notes/bd-bidi-wrap.md`, and with `[screen] wrap_words` on, the
+  default, a finished paragraph is drawn at its words (above, "What you
+  see").
 - **BDSM per paragraph**: terminal-wg keeps implicit or explicit per
   paragraph beside the three properties above; baud's BDSM is
   terminal-wide (the table under "What decided each choice").

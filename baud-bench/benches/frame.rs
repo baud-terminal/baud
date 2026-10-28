@@ -20,6 +20,12 @@
 //! as a terminal starts, and each frame lays its rows out in the order
 //! UAX #9 gives them.
 //!
+//! `FRAME_WRAP=off` draws every row as the terminal cut it
+//! (`baud_render::WordWrap::Off`, `[screen] wrap_words = "off"`), where the
+//! default draws a finished paragraph at its words; each run prints, after
+//! its row, the paragraphs the display re-broke summed over the best rep's
+//! frames (`Display::counts`), so an arm that re-broke nothing shows it.
+//!
 //! `FRAME_STRING=1` begins and ends an SDS string (`CSI 1 ]`, `CSI 0 ]`)
 //! before the recording, which writes no cell in it: the arm of a
 //! terminal that has seen a string, whose frames may read each cell's
@@ -175,8 +181,12 @@ fn main() {
         },
         ..Theme::dark()
     };
+    let wrap = match std::env::var("FRAME_WRAP").as_deref() {
+        Ok("off") => baud_render::WordWrap::Off,
+        _ => baud_render::WordWrap::On,
+    };
     let fresh = || {
-        Renderer::new(
+        let mut r = Renderer::new(
             Stack::new(&faces).unwrap(),
             PxSize::of(14.0).unwrap(),
             theme.clone(),
@@ -184,7 +194,9 @@ fn main() {
             Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
         )
-        .unwrap()
+        .unwrap();
+        r.set_word_wrap(wrap);
+        r
     };
     let mut r = fresh();
     let (w, h) = r.pixel_size();
@@ -222,6 +234,8 @@ fn main() {
         rows: u64,
         inst: u64,
         exc: [u64; 7],
+        /// Paragraphs the display re-broke, summed over the frames.
+        rebroken: baud_render::Tally,
     }
     let mut best: Option<Rep> = None;
     for rep in 0..reps {
@@ -254,6 +268,7 @@ fn main() {
             rows: 0,
             inst: 0,
             exc: [0; 7],
+            rebroken: baud_render::Tally::default(),
         };
         let mut at = 0usize;
         let t0 = std::time::Instant::now();
@@ -269,6 +284,9 @@ fn main() {
             rep.paint += f.composite;
             rep.rows += f.rows_dirty.value();
             rep.inst += f.instances.value();
+            if let Some(d) = r.bidi().display() {
+                rep.rebroken.add(d.counts().0);
+            }
             let e = f.exceptions;
             for (slot, t) in rep.exc.iter_mut().zip([
                 e.differs, e.spanning, e.marked, e.starters, e.shaped, e.morx, e.bigram,
@@ -725,6 +743,7 @@ fn main() {
         rows,
         inst,
         exc,
+        rebroken,
     } = best.unwrap();
     let a = r.atlas_stats();
     let (raster, coloured, grown) = (a.rasterised.value(), a.coloured.value(), a.grown.value());
@@ -754,4 +773,5 @@ fn main() {
         a.refused.value(),
         r.ink_refused().value()
     );
+    println!("  rebroken {}", rebroken.value());
 }
